@@ -5,6 +5,9 @@ A **fork of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents)** us
 > 🎮 **This is a fun, hobby project** — built for the joy of it, not as a hardened
 > product. Expect rough edges; no stability, security, or support guarantees. Use
 > it at your own risk and have fun. 🙂
+>
+> 🤖 **It is also a pure AI project** — essentially all of the code in this fork was
+> written by an AI coding agent. Treat it accordingly.
 
 ## Architecture
 
@@ -112,6 +115,21 @@ set by `PIXEL_STREAM_DATA_DIR` (default `/data`, declared a `VOLUME`); mount a
 volume there to keep it across restarts. The image requires Node 24 (for the
 built-in `node:sqlite`), runs as the unprivileged `node` user, and exposes a
 `/api/health` healthcheck on the viewer port.
+
+### Build & push (pnpm scripts)
+
+```bash
+pnpm docker:build      # docker build -t davrux/pixel-agents:dev .
+pnpm docker:push       # docker push davrux/pixel-agents:dev
+pnpm docker:release    # build + push in one step
+```
+
+The image/tag defaults to `davrux/pixel-agents:dev` and is overridable via the
+`PIXEL_AGENTS_IMAGE` environment variable:
+
+```bash
+PIXEL_AGENTS_IMAGE=davrux/pixel-agents:1.0 pnpm docker:release
+```
 
 ### Layouts
 
