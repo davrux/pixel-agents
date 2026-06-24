@@ -50,6 +50,12 @@ export interface WorkspaceFolder {
   path: string;
 }
 
+export interface LayoutListItem {
+  name: string;
+  updatedAt: number;
+  readOnly: boolean;
+}
+
 interface ExtensionMessageState {
   agents: number[];
   selectedAgent: number | null;
@@ -61,10 +67,9 @@ interface ExtensionMessageState {
   layoutWasReset: boolean;
   loadedAssets?: { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> };
   workspaceFolders: WorkspaceFolder[];
-  lastSeenVersion: string;
-  extensionVersion: string;
   alwaysShowLabels: boolean;
-  hooksInfoShown: boolean;
+  layouts: LayoutListItem[];
+  activeLayout: string;
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -80,6 +85,7 @@ export function useExtensionMessages(
   getOfficeState: () => OfficeState,
   onLayoutLoaded?: (layout: OfficeLayout) => void,
   isEditDirty?: () => boolean,
+  onForceLayout?: () => void,
 ): ExtensionMessageState {
   const [agents, setAgents] = useState<number[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<number | null>(null);
@@ -95,10 +101,9 @@ export function useExtensionMessages(
     { catalog: FurnitureAsset[]; sprites: Record<string, string[][]> } | undefined
   >();
   const [workspaceFolders, setWorkspaceFolders] = useState<WorkspaceFolder[]>([]);
-  const [lastSeenVersion, setLastSeenVersion] = useState('');
-  const [extensionVersion, setExtensionVersion] = useState('');
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
-  const [hooksInfoShown, setHooksInfoShown] = useState(true);
+  const [layouts, setLayouts] = useState<LayoutListItem[]>([]);
+  const [activeLayout, setActiveLayout] = useState('Default');
 
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
@@ -125,12 +130,22 @@ export function useExtensionMessages(
         return;
       }
 
+      if (msg.type === 'layoutList') {
+        setLayouts((msg.layouts as LayoutListItem[]) ?? []);
+        if (typeof msg.active === 'string') setActiveLayout(msg.active);
+        return;
+      }
+
       if (msg.type === 'layoutLoaded') {
-        // Skip external layout updates while editor has unsaved changes
-        if (layoutReadyRef.current && isEditDirty?.()) {
+        // Skip external layout updates while editor has unsaved changes — unless
+        // the server forces it (explicit load / save-as / delete), in which case
+        // we discard the in-progress edits and follow the new active layout.
+        const force = msg.force === true;
+        if (!force && layoutReadyRef.current && isEditDirty?.()) {
           console.log('[Webview] Skipping external layout update — editor has unsaved changes');
           return;
         }
+        if (typeof msg.activeLayout === 'string') setActiveLayout(msg.activeLayout);
         const rawLayout = msg.layout as OfficeLayout | null;
         const layout = rawLayout && rawLayout.version === 1 ? migrateLayoutColors(rawLayout) : null;
         if (layout) {
@@ -139,6 +154,9 @@ export function useExtensionMessages(
         } else {
           // Default layout — snapshot whatever OfficeState built
           onLayoutLoaded?.(os.getLayout());
+        }
+        if (force && layoutReadyRef.current) {
+          onForceLayout?.();
         }
         // Add buffered agents now that layout (and seats) are correct
         for (const p of pendingAgents) {
@@ -456,15 +474,6 @@ export function useExtensionMessages(
         if (typeof msg.alwaysShowLabels === 'boolean') {
           setAlwaysShowLabels(msg.alwaysShowLabels as boolean);
         }
-        if (typeof msg.hooksInfoShown === 'boolean') {
-          setHooksInfoShown(msg.hooksInfoShown as boolean);
-        }
-        if (typeof msg.lastSeenVersion === 'string') {
-          setLastSeenVersion(msg.lastSeenVersion as string);
-        }
-        if (typeof msg.extensionVersion === 'string') {
-          setExtensionVersion(msg.extensionVersion as string);
-        }
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {
           const catalog = msg.catalog as FurnitureAsset[];
@@ -508,9 +517,8 @@ export function useExtensionMessages(
     layoutWasReset,
     loadedAssets,
     workspaceFolders,
-    lastSeenVersion,
-    extensionVersion,
     alwaysShowLabels,
-    hooksInfoShown,
+    layouts,
+    activeLayout,
   };
 }

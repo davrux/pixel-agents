@@ -9,6 +9,7 @@ import type { AgentStateStore } from './agentStateStore.js';
 import type { AssetCache, SetHooksEnabledSideEffect } from './clientMessageHandler.js';
 import { handleClientMessage } from './clientMessageHandler.js';
 import { MAX_HOOK_BODY_SIZE } from './constants.js';
+import type { LayoutStore } from './layoutStore.js';
 import type { AgentState } from './types.js';
 import { isValidSession, registerViewerAuth } from './viewerAuth.js';
 
@@ -24,6 +25,8 @@ export interface HttpServerOptions {
   token: string;
   /** AgentStateStore for WebSocket broadcast piping */
   store: AgentStateStore;
+  /** SQLite-backed layout persistence (named layouts + active selection) */
+  layoutStore: LayoutStore;
   /** Path to SPA dist directory for static serving */
   staticDir?: string;
   /** Cached assets loaded at startup */
@@ -53,11 +56,13 @@ const startTime = Date.now();
 const VIEWER_ALLOWED = new Set<string>([
   'webviewReady',
   'saveLayout',
+  'saveLayoutAs',
+  'loadLayout',
+  'deleteLayout',
+  'requestLayouts',
   'saveAgentSeats',
   'setSoundEnabled',
   'setAlwaysShowLabels',
-  'setLastSeenVersion',
-  'setHooksInfoShown',
 ]);
 
 /**
@@ -189,6 +194,7 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
         handleClientMessage(msg, (m) => safeSend(socket, m), {
           store,
           cache: options.assetCache ?? null,
+          layoutStore: options.layoutStore,
           onSetHooksEnabled: options.onSetHooksEnabled,
         });
       } catch {

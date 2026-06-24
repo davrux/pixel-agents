@@ -258,12 +258,15 @@ export function dispatchMockMessages(): void {
   dispatch({ type: 'floorTilesLoaded', sprites: floorSprites });
   dispatch({ type: 'wallTilesLoaded', sets: wallSets });
   dispatch({ type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites });
-  dispatch({ type: 'layoutLoaded', layout });
+  dispatch({ type: 'layoutLoaded', layout, activeLayout: 'Default', force: true });
+  dispatch({
+    type: 'layoutList',
+    layouts: [{ name: 'Default', updatedAt: 0, readOnly: true }],
+    active: 'Default',
+  });
   dispatch({
     type: 'settingsLoaded',
     soundEnabled: false,
-    extensionVersion: '1.3.0',
-    lastSeenVersion: '1.2',
   });
 
   console.log('[BrowserMock] Messages dispatched');

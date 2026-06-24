@@ -85,6 +85,42 @@ optionalDependencies). Any **new** dependency that ships a build script makes
 `pnpm install` stop until it is reviewed and added there on purpose, so no
 unknown install hook ever runs silently.
 
+## Docker
+
+```bash
+docker build -t pixel-agents .
+
+# Run (token is required); default ports 6161 (viewer) + 7171 (feed):
+docker run --rm -e PIXEL_STREAM_TOKEN=<secret> \
+  -p 6161:6161 -p 7171:7171 -v pixel-data:/data pixel-agents
+```
+
+Ports are overridable via environment variables — map the matching host ports:
+
+```bash
+docker run --rm \
+  -e PIXEL_STREAM_TOKEN=<secret> \
+  -e PIXEL_STREAM_PORT=8080 \        # viewer / frontend
+  -e PIXEL_STREAM_FEED_PORT=9090 \   # client feed
+  -v pixel-data:/data \             # persist config + layouts
+  -p 8080:8080 -p 9090:9090 pixel-agents
+```
+
+`PIXEL_STREAM_HOST` (default `0.0.0.0`) is also overridable. Persisted state —
+settings plus the SQLite layout database (`layouts.db`) — lives in the directory
+set by `PIXEL_STREAM_DATA_DIR` (default `/data`, declared a `VOLUME`); mount a
+volume there to keep it across restarts. The image requires Node 24 (for the
+built-in `node:sqlite`), runs as the unprivileged `node` user, and exposes a
+`/api/health` healthcheck on the viewer port.
+
+### Layouts
+
+The office layout editor (the **Layout** button) edits the *active* layout; the
+**Layouts** button manages saved layouts: load, save-as ("new from current") and
+delete. Edits to the active layout autosave and are pushed live to every other
+connected viewer. The bundled **Default** layout is read-only — it can always be
+loaded but never overwritten or deleted; save a copy to keep your changes.
+
 ## Validated (end-to-end)
 
 - Multiple clients visible at once, each with its username (`2:bob`, `3:carol`).

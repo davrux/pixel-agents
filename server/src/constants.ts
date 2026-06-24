@@ -55,8 +55,8 @@ export const SESSION_END_GRACE_MS = 2000;
 export const MAX_HOOK_BODY_SIZE = 65_536; // 64KB
 
 // ── Layout/Config Persistence ──────────────────────────────
+/** Default data-directory name under $HOME (overridable via PIXEL_STREAM_DATA_DIR). */
 export const LAYOUT_FILE_DIR = '.pixel-agents';
-export const LAYOUT_FILE_NAME = 'layout.json';
-export const LAYOUT_FILE_POLL_INTERVAL_MS = 2000;
+/** Revision stamped onto the bundled default layout (see assetLoader). */
 export const LAYOUT_REVISION_KEY = 'layoutRevision';
 export const CONFIG_FILE_NAME = 'config.json';

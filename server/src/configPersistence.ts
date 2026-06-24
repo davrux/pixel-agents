@@ -1,23 +1,15 @@
 import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 
-import { CONFIG_FILE_NAME, LAYOUT_FILE_DIR } from './constants.js';
+import { CONFIG_FILE_NAME } from './constants.js';
+import { dataPath } from './paths.js';
 
 export interface AdapterSettings {
   soundEnabled: boolean;
-  lastSeenVersion: string;
   alwaysShowLabels: boolean;
-  hooksInfoShown: boolean;
 }
 
 /** All keys in AdapterSettings. Used by the adapter to map `pixel-agents.foo` → `foo`. */
-export const ADAPTER_SETTING_KEYS = [
-  'soundEnabled',
-  'lastSeenVersion',
-  'alwaysShowLabels',
-  'hooksInfoShown',
-] as const;
+export const ADAPTER_SETTING_KEYS = ['soundEnabled', 'alwaysShowLabels'] as const;
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
 
@@ -30,13 +22,11 @@ export interface PixelAgentsConfig {
 
 const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   soundEnabled: true,
-  lastSeenVersion: '',
   alwaysShowLabels: false,
-  hooksInfoShown: false,
 };
 
 function getConfigFilePath(): string {
-  return path.join(os.homedir(), LAYOUT_FILE_DIR, CONFIG_FILE_NAME);
+  return dataPath(CONFIG_FILE_NAME);
 }
 
 /** Coerce a loose object into a valid AdapterSettings with defaults for missing/wrong-typed fields. */
@@ -47,18 +37,10 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
       typeof obj.soundEnabled === 'boolean'
         ? obj.soundEnabled
         : DEFAULT_ADAPTER_SETTINGS.soundEnabled,
-    lastSeenVersion:
-      typeof obj.lastSeenVersion === 'string'
-        ? obj.lastSeenVersion
-        : DEFAULT_ADAPTER_SETTINGS.lastSeenVersion,
     alwaysShowLabels:
       typeof obj.alwaysShowLabels === 'boolean'
         ? obj.alwaysShowLabels
         : DEFAULT_ADAPTER_SETTINGS.alwaysShowLabels,
-    hooksInfoShown:
-      typeof obj.hooksInfoShown === 'boolean'
-        ? obj.hooksInfoShown
-        : DEFAULT_ADAPTER_SETTINGS.hooksInfoShown,
   };
 }
 
@@ -78,12 +60,8 @@ export function readConfig(): PixelAgentsConfig {
 }
 
 export function writeConfig(config: PixelAgentsConfig): void {
-  const filePath = getConfigFilePath();
-  const dir = path.dirname(filePath);
+  const filePath = getConfigFilePath(); // dataPath() ensures the directory exists
   try {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
     const json = JSON.stringify(config, null, 2);
     const tmpPath = filePath + '.tmp';
     fs.writeFileSync(tmpPath, json, 'utf-8');

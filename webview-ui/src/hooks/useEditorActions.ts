@@ -40,6 +40,9 @@ interface EditorActions {
   panRef: React.MutableRefObject<{ x: number; y: number }>;
   saveTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
   setLastSavedLayout: (layout: OfficeLayout) => void;
+  /** Drop pending edits/undo state — used when the server force-pushes a layout
+   *  (load / save-as / delete) so the editor follows the new active layout. */
+  discardEditState: () => void;
   handleOpenClaude: () => void;
   handleToggleEditMode: () => void;
   handleToolChange: (tool: EditToolType) => void;
@@ -79,6 +82,17 @@ export function useEditorActions(
   const setLastSavedLayout = useCallback((layout: OfficeLayout) => {
     lastSavedLayoutRef.current = structuredClone(layout);
   }, []);
+
+  // Called when the server force-pushes a layout: cancel any pending autosave and
+  // clear undo/dirty so the editor cleanly adopts the new active layout.
+  const discardEditState = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    editorState.reset();
+    setIsDirty(false);
+  }, [editorState]);
 
   // Debounced layout save
   const saveLayout = useCallback((layout: OfficeLayout) => {
@@ -611,6 +625,7 @@ export function useEditorActions(
     panRef,
     saveTimerRef,
     setLastSavedLayout,
+    discardEditState,
     handleOpenClaude,
     handleToggleEditMode,
     handleToolChange,

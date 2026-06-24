@@ -1,0 +1,17 @@
+# Installed fresh inside the build stage
+node_modules
+**/node_modules
+
+# Rebuilt inside the build stage
+dist
+
+# VCS / local / docs not needed for the build
+.git
+.gitignore
+.gitattributes
+.editorconfig
+*.log
+.pixel-agents
+.pixel-stream
+Dockerfile
+.dockerignore

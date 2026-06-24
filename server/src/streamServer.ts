@@ -28,6 +28,7 @@ import {
 import type { AssetCache } from './clientMessageHandler.js';
 import { FileStateAdapter } from './fileStateAdapter.js';
 import { createHttpServer } from './httpServer.js';
+import { LayoutStore } from './layoutStore.js';
 import { claudeProvider } from './providers/index.js';
 import { startFeedServer } from './streamIngest.js';
 import { setHookProvider } from './transcriptParser.js';
@@ -71,6 +72,10 @@ async function main(): Promise<void> {
   const store = new AgentStateStore();
   store.setAdapter(new FileStateAdapter({ namespace: 'standalone' }));
 
+  // Named layouts live in a SQLite DB under the data dir; the bundled default
+  // layout is exposed as the read-only "Default" entry.
+  const layoutStore = new LayoutStore(assetCache.defaultLayout);
+
   // In-memory timer maps shared with the stream ingest (no file polling involved).
   const waitingTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const permissionTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -78,12 +83,13 @@ async function main(): Promise<void> {
   const viewerToken = crypto.randomUUID(); // viewer /ws skips auth in standalone; placeholder
 
   // Viewer port (6161): display only — read-only, no /feed, no control messages.
-  const { port: boundViewer } = await createHttpServer({
+  const viewer = await createHttpServer({
     embedded: false,
     host,
     port: viewerPort,
     token: viewerToken,
     store,
+    layoutStore,
     staticDir,
     assetCache,
     readOnly: true,
@@ -91,7 +97,7 @@ async function main(): Promise<void> {
   });
 
   // Dedicated client-ingest listener on its own port (7171), shares the store.
-  const boundFeed = await startFeedServer({
+  const feed = await startFeedServer({
     store,
     token,
     waitingTimers,
@@ -103,13 +109,34 @@ async function main(): Promise<void> {
   const shown = host === '0.0.0.0' ? '<server-host>' : host;
   console.log('');
   console.log('  pixel-agents server running');
-  console.log(`  Viewer (browser, display only):  http://${shown}:${boundViewer}`);
-  console.log(`  Client feed (WS, own port):      ws://${shown}:${boundFeed}/feed`);
+  console.log(`  Viewer (browser, display only):  http://${shown}:${viewer.port}`);
+  console.log(`  Client feed (WS, own port):      ws://${shown}:${feed.port}/feed`);
   console.log(`  AUTH TOKEN:                      ${token}`);
   console.log('');
-  console.log('  Client:  ./pixel-agents.sh client --server ws://<server>:' + boundFeed + '/feed \\');
+  console.log('  Client:  ./pixel-agents.sh client --server ws://<server>:' + feed.port + '/feed \\');
   console.log('             --user <name> --token ' + token);
   console.log('');
+
+  // Graceful shutdown: as PID 1 in a container, Node only stops on SIGTERM if we
+  // handle it — otherwise `docker stop` waits out the grace period then SIGKILLs.
+  let shuttingDown = false;
+  const shutdown = async (sig: string): Promise<void> => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[stream] ${sig} received — closing servers...`);
+    const force = setTimeout(() => process.exit(1), 5000);
+    force.unref();
+    try {
+      await Promise.all([viewer.app.close(), feed.app.close()]);
+      layoutStore.close();
+    } catch (err) {
+      console.error('[stream] error during shutdown:', err);
+    }
+    clearTimeout(force);
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 main().catch((e) => {

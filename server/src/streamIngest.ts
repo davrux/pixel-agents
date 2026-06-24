@@ -168,7 +168,7 @@ export function registerFeedRoute(app: FastifyInstance, opts: FeedOptions): void
  */
 export async function startFeedServer(
   opts: FeedOptions & { host: string; port: number },
-): Promise<number> {
+): Promise<{ app: FastifyInstance; port: number }> {
   const app = Fastify({ logger: false });
   // Echo the marker subprotocol so clients that offer it (carrying base64url
   // credentials in Sec-WebSocket-Protocol) complete the handshake cleanly.
@@ -182,5 +182,6 @@ export async function startFeedServer(
   registerFeedRoute(app, opts);
   await app.listen({ host: opts.host, port: opts.port });
   const addr = app.server.address();
-  return typeof addr === 'object' && addr ? addr.port : opts.port;
+  const port = typeof addr === 'object' && addr ? addr.port : opts.port;
+  return { app, port };
 }

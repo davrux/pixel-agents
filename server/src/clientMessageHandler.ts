@@ -1,6 +1,6 @@
 import type { AgentStateStore } from './agentStateStore.js';
 import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
-import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
+import { LayoutStore } from './layoutStore.js';
 import { claudeProvider } from './providers/index.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
@@ -20,15 +20,34 @@ export interface AssetCache {
 export interface ClientMessageContext {
   store: AgentStateStore;
   cache: AssetCache | null;
+  /** SQLite-backed layout persistence (named layouts + active selection). */
+  layoutStore: LayoutStore;
   /** Install/uninstall hooks side effect. Needs server url+token known only to cli.ts. */
   onSetHooksEnabled?: SetHooksEnabledSideEffect;
 }
 
+/** Build a `layoutList` message reflecting the store's current state. */
+function layoutListMessage(layoutStore: LayoutStore): Record<string, unknown> {
+  return {
+    type: 'layoutList',
+    layouts: layoutStore.list(),
+    active: layoutStore.getActiveName(),
+  };
+}
+
+/** Build a `layoutLoaded` message for the currently-active layout. */
+function activeLayoutMessage(layoutStore: LayoutStore, force: boolean): Record<string, unknown> {
+  return {
+    type: 'layoutLoaded',
+    layout: layoutStore.getActiveLayout(),
+    activeLayout: layoutStore.getActiveName(),
+    force,
+  };
+}
+
 // ── Setting key constants ──
 const KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
-const KEY_LAST_SEEN_VERSION = 'pixel-agents.lastSeenVersion';
 const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
-const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -42,7 +61,7 @@ export function handleClientMessage(
   send: WsSend,
   ctx: ClientMessageContext,
 ): void {
-  const { store } = ctx;
+  const { store, layoutStore } = ctx;
   const adapter = store.getAdapter();
 
   switch (msg.type) {
@@ -51,9 +70,52 @@ export function handleClientMessage(
       break;
 
     case 'saveLayout':
-      if (msg.layout) {
-        writeLayoutToFile(msg.layout as Record<string, unknown>);
+      // Autosave to the active layout. No-op when the active layout is the
+      // read-only Default (the user must "save as" to start persisting). On a
+      // successful write, push the new layout to OTHER viewers — their dirty
+      // guard skips it for anyone mid-edit, including the originator.
+      if (msg.layout && layoutStore.saveActive(msg.layout as Record<string, unknown>, Date.now())) {
+        store.broadcast(activeLayoutMessage(layoutStore, false));
       }
+      break;
+
+    case 'saveLayoutAs':
+      if (
+        typeof msg.name === 'string' &&
+        msg.layout &&
+        LayoutStore.isValidUserName(msg.name)
+      ) {
+        layoutStore.saveAs(msg.name, msg.layout as Record<string, unknown>, Date.now());
+        store.broadcast(activeLayoutMessage(layoutStore, true));
+        store.broadcast(layoutListMessage(layoutStore));
+      } else {
+        send(layoutListMessage(layoutStore)); // reject silently; resync the UI
+      }
+      break;
+
+    case 'loadLayout':
+      if (typeof msg.name === 'string' && layoutStore.setActive(msg.name)) {
+        store.broadcast(activeLayoutMessage(layoutStore, true));
+        store.broadcast(layoutListMessage(layoutStore));
+      } else {
+        send(layoutListMessage(layoutStore));
+      }
+      break;
+
+    case 'deleteLayout': {
+      const activeBefore = layoutStore.getActiveName();
+      if (typeof msg.name === 'string' && layoutStore.delete(msg.name)) {
+        // Deleting the active layout switches active -> Default; push the swap.
+        if (msg.name === activeBefore) {
+          store.broadcast(activeLayoutMessage(layoutStore, true));
+        }
+      }
+      store.broadcast(layoutListMessage(layoutStore));
+      break;
+    }
+
+    case 'requestLayouts':
+      send(layoutListMessage(layoutStore));
       break;
 
     case 'saveAgentSeats':
@@ -68,27 +130,18 @@ export function handleClientMessage(
       adapter?.setSetting(KEY_SOUND_ENABLED, msg.enabled);
       break;
 
-    case 'setLastSeenVersion':
-      adapter?.setSetting(KEY_LAST_SEEN_VERSION, msg.version as string);
-      break;
-
     case 'setAlwaysShowLabels':
       adapter?.setSetting(KEY_ALWAYS_SHOW_LABELS, msg.enabled);
       break;
 
-    case 'setHooksInfoShown':
-      adapter?.setSetting(KEY_HOOKS_INFO_SHOWN, true);
-      break;
-
     default:
-      // focusAgent, exportLayout, importLayout
-      // require IDE-specific handling (not yet implemented for standalone)
+      // Unknown / not-yet-implemented messages are ignored.
       break;
   }
 }
 
 function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
-  const { store, cache } = ctx;
+  const { store, cache, layoutStore } = ctx;
   const adapter = store.getAdapter();
 
   // 1. Provider capabilities (must arrive before any agent messages)
@@ -118,18 +171,16 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     }
   }
 
-  // 3. Layout (saved file, or bundled default)
-  const savedLayout = readLayoutFromFile();
-  send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  // 3. Layout: the active named layout (or the bundled Default), plus the list
+  //    of all saved layouts for the layout manager.
+  send(activeLayoutMessage(layoutStore, true));
+  send(layoutListMessage(layoutStore));
 
   // 4. Settings (from adapter, with sensible defaults when adapter is absent)
   send({
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
-    lastSeenVersion: adapter?.getSetting(KEY_LAST_SEEN_VERSION, '') ?? '',
-    extensionVersion: process.env.PIXEL_AGENTS_VERSION ?? '',
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
-    hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,
   });
 
 
@@ -161,5 +212,5 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // time (e.g. ingested remote sessions) would never render. Re-send the layout
   // here so the webview flushes the buffer. rebuildFromLayout keeps existing
   // characters, so this is safe and idempotent.
-  send({ type: 'layoutLoaded', layout: savedLayout ?? cache?.defaultLayout ?? null });
+  send(activeLayoutMessage(layoutStore, true));
 }

@@ -24,6 +24,7 @@ export type ServerMessage =
   | AgentTeamInfo
   | AgentTokenUsage
   | LayoutLoaded
+  | LayoutList
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
   | FloorTilesLoaded
@@ -39,12 +40,12 @@ export type ClientMessage =
   | CloseAgent
   | SaveAgentSeats
   | SaveLayout
+  | SaveLayoutAs
+  | LoadLayout
+  | DeleteLayout
+  | RequestLayouts
   | SetSoundEnabled
-  | SetLastSeenVersion
   | SetAlwaysShowLabels
-  | SetHooksInfoShown
-  | ExportLayout
-  | ImportLayout
   | RequestDiagnostics;
 
 export interface ProviderCapabilities {
@@ -171,6 +172,25 @@ export interface LayoutLoaded {
   type: 'layoutLoaded';
   layout: Record<string, any> | null;
   wasReset?: boolean;
+  /** Name of the layout this data belongs to (active layout). */
+  activeLayout?: string;
+  /** When true, the webview replaces the layout even if the editor has unsaved
+   *  changes (used for explicit user actions: load / save-as / delete). */
+  force?: boolean;
+}
+
+/** One entry in the layout manager's list. */
+export interface LayoutListItem {
+  name: string;
+  updatedAt: number;
+  readOnly: boolean;
+}
+
+/** Server -> webview: the full set of saved layouts and which one is active. */
+export interface LayoutList {
+  type: 'layoutList';
+  layouts: LayoutListItem[];
+  active: string;
 }
 
 export interface FurnitureAssetsLoaded {
@@ -226,10 +246,7 @@ export interface WallTilesLoaded {
 export interface SettingsLoaded {
   type: 'settingsLoaded';
   soundEnabled: boolean;
-  lastSeenVersion: string;
-  extensionVersion: string;
   alwaysShowLabels: boolean;
-  hooksInfoShown: boolean;
 }
 
 export interface WorkspaceFolders {
@@ -283,31 +300,38 @@ export interface SaveLayout {
   layout: Record<string, any>;
 }
 
+/** Save the current canvas as a new (or overwritten) named layout. */
+export interface SaveLayoutAs {
+  type: 'saveLayoutAs';
+  name: string;
+  layout: Record<string, any>;
+}
+
+/** Switch the active layout to an existing one (or the read-only Default). */
+export interface LoadLayout {
+  type: 'loadLayout';
+  name: string;
+}
+
+/** Delete a named layout (the Default cannot be deleted). */
+export interface DeleteLayout {
+  type: 'deleteLayout';
+  name: string;
+}
+
+/** Ask the server to (re)send the current layoutList. */
+export interface RequestLayouts {
+  type: 'requestLayouts';
+}
+
 export interface SetSoundEnabled {
   type: 'setSoundEnabled';
   enabled: boolean;
 }
 
-export interface SetLastSeenVersion {
-  type: 'setLastSeenVersion';
-  version: string;
-}
-
 export interface SetAlwaysShowLabels {
   type: 'setAlwaysShowLabels';
   enabled: boolean;
-}
-
-export interface SetHooksInfoShown {
-  type: 'setHooksInfoShown';
-}
-
-export interface ExportLayout {
-  type: 'exportLayout';
-}
-
-export interface ImportLayout {
-  type: 'importLayout';
 }
 
 export interface RequestDiagnostics {

@@ -1,13 +1,13 @@
 /**
  * Pluggable persistence backend for agent state and user settings.
  *
- * Today both VS Code and the standalone CLI use FileStateAdapter, which
- * persists everything under ~/.pixel-agents/ as plain JSON. The interface
- * exists so future hosts (JetBrains plugin, browser-only mock for tests)
- * can swap in alternate backends without touching the rest of the code.
+ * The standalone server uses FileStateAdapter, which persists settings and
+ * agent/seat state under the data dir (default ~/.pixel-agents, overridable via
+ * PIXEL_STREAM_DATA_DIR) as plain JSON. The interface exists so future hosts can
+ * swap in alternate backends without touching the rest of the code.
  *
- * Layout persistence (~/.pixel-agents/layout.json) is NOT part of this
- * interface -- it's already host-agnostic (plain fs I/O in layoutPersistence.ts).
+ * Layout persistence is NOT part of this interface -- named layouts are stored
+ * separately in a SQLite database (server/src/layoutStore.ts).
  */
 
 import type { PersistedAgent } from './schemas.js';
