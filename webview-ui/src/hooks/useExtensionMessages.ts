@@ -108,6 +108,11 @@ export function useExtensionMessages(
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
 
+  // Username this viewer logged in as (standalone auth). When set, task sounds play
+  // only for matching agents; undefined => play sounds for all agents. Ref because
+  // it's read inside the message-handler closure and shouldn't trigger re-renders.
+  const viewerUsernameRef = useRef<string | undefined>(undefined);
+
   useEffect(() => {
     // Buffer agents from existingAgents until layout is loaded
     let pendingAgents: Array<{
@@ -121,6 +126,20 @@ export function useExtensionMessages(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
       const os = getOfficeState();
+
+      // Whether to play a task sound for this agent: only when the viewer has no
+      // username (play all), or the agent's username matches the viewer's. The
+      // agent's folderName carries the client `--user` name in stream mode.
+      const shouldPlaySound = (id: number): boolean => {
+        const u = viewerUsernameRef.current;
+        if (!u) return true;
+        return os.characters.get(id)?.folderName === u;
+      };
+
+      if (msg.type === 'viewerIdentity') {
+        viewerUsernameRef.current = (msg.username as string | undefined) || undefined;
+        return;
+      }
 
       if (msg.type === 'providerCapabilities') {
         setProviderCapabilities({
@@ -348,7 +367,7 @@ export function useExtensionMessages(
         os.setAgentActive(id, status === 'active');
         if (status === 'waiting') {
           os.showWaitingBubble(id);
-          playDoneSound();
+          if (shouldPlaySound(id)) playDoneSound();
         }
       } else if (msg.type === 'agentToolPermission') {
         const id = msg.id as number;
@@ -361,7 +380,7 @@ export function useExtensionMessages(
           };
         });
         os.showPermissionBubble(id);
-        playPermissionSound();
+        if (shouldPlaySound(id)) playPermissionSound();
       } else if (msg.type === 'subagentToolPermission') {
         const id = msg.id as number;
         const parentToolId = msg.parentToolId as string;

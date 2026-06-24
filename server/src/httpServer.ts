@@ -11,7 +11,7 @@ import { handleClientMessage } from './clientMessageHandler.js';
 import { MAX_HOOK_BODY_SIZE } from './constants.js';
 import type { LayoutStore } from './layoutStore.js';
 import type { AgentState } from './types.js';
-import { isValidSession, registerViewerAuth } from './viewerAuth.js';
+import { getSessionUsername, isValidSession, registerViewerAuth } from './viewerAuth.js';
 
 /** Options for creating the HTTP + WebSocket server. */
 export interface HttpServerOptions {
@@ -151,6 +151,12 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
 
     const { store } = options;
 
+    // Username this viewer chose at login (standalone auth only). The webview uses
+    // it to play task sounds only for matching agents; undefined => play all.
+    const viewerUsername = options.viewerAuthToken
+      ? getSessionUsername(request.headers.cookie)
+      : undefined;
+
     // Pipe store events to WebSocket client
     const onAgentAdded = (id: number, agent: AgentState) => {
       safeSend(socket, {
@@ -190,6 +196,11 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
         }
         if (!options.embedded && msg.type) {
           console.log('[Pixel Agents] WS client message:', msg.type);
+        }
+        // On the initial handshake, tell the viewer which username it logged in as
+        // (sent here rather than on connect so the webview's handler is registered).
+        if (msg.type === 'webviewReady') {
+          safeSend(socket, { type: 'viewerIdentity', username: viewerUsername });
         }
         handleClientMessage(msg, (m) => safeSend(socket, m), {
           store,

@@ -31,6 +31,7 @@ export type ServerMessage =
   | WallTilesLoaded
   | SettingsLoaded
   | WorkspaceFolders
+  | ViewerIdentity
   | AgentDiagnostics;
 
 export type ClientMessage =
@@ -252,6 +253,14 @@ export interface SettingsLoaded {
 export interface WorkspaceFolders {
   type: 'workspaceFolders';
   folders: WorkspaceFolder[];
+}
+
+/** Server -> webview: the username this viewer logged in as (standalone auth).
+ *  Undefined when no username was chosen (or in embedded mode); the webview then
+ *  plays task sounds for all agents. When set, sounds play only for matching agents. */
+export interface ViewerIdentity {
+  type: 'viewerIdentity';
+  username?: string;
 }
 
 export interface WorkspaceFolder {

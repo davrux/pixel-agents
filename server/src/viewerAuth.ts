@@ -20,8 +20,8 @@ import type { FastifyInstance } from 'fastify';
 const VIEWER_COOKIE = 'pixel_stream_sid';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-/** sessionId -> expiry timestamp (ms). In-memory; cleared on restart. */
-const sessions = new Map<string, number>();
+/** sessionId -> session data. In-memory; cleared on restart. */
+const sessions = new Map<string, { expires: number; username: string }>();
 
 function tokenEquals(provided: string, expected: string): boolean {
   const a = Buffer.from(String(provided));
@@ -42,23 +42,41 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-function createSession(): string {
+/** Keep only printable ASCII, clamp to 16 chars (matches the client `--user` limit). */
+function sanitizeUsername(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(/[^\x21-\x7e]/g, '')
+    .slice(0, 16);
+}
+
+function createSession(username: string): string {
   const id = crypto.randomBytes(32).toString('base64url'); // opaque, not the token
-  sessions.set(id, Date.now() + SESSION_TTL_MS);
+  sessions.set(id, { expires: Date.now() + SESSION_TTL_MS, username });
   return id;
+}
+
+/** Return the live session for a request's cookie, or undefined if missing/expired. */
+function liveSession(cookieHeader: string | undefined): { expires: number; username: string } | undefined {
+  const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
+  if (!sid) return undefined;
+  const session = sessions.get(sid);
+  if (session === undefined) return undefined;
+  if (Date.now() > session.expires) {
+    sessions.delete(sid); // lazy cleanup
+    return undefined;
+  }
+  return session;
 }
 
 /** True if the request carries a cookie for a live (non-expired) session. */
 export function isValidSession(cookieHeader: string | undefined): boolean {
-  const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
-  if (!sid) return false;
-  const expires = sessions.get(sid);
-  if (expires === undefined) return false;
-  if (Date.now() > expires) {
-    sessions.delete(sid); // lazy cleanup
-    return false;
-  }
-  return true;
+  return liveSession(cookieHeader) !== undefined;
+}
+
+/** The username chosen at login for a live session (empty string -> undefined). */
+export function getSessionUsername(cookieHeader: string | undefined): string | undefined {
+  return liveSession(cookieHeader)?.username || undefined;
 }
 
 function sessionCookie(sid: string): string {
@@ -76,7 +94,7 @@ function loginHtml(err = ''): string {
   form{background:#11111b;border:2px solid #45475a;padding:24px 28px;box-shadow:3px 3px 0 #0a0a14}
   h3{margin:0 0 14px} .err{color:#f38ba8;min-height:1.2em;margin:6px 0}
   input{background:#1e1e2e;color:#cdd6f4;border:2px solid #45475a;padding:8px;width:300px;
-        font-family:inherit;font-size:14px}
+        font-family:inherit;font-size:14px;display:block;margin-bottom:8px}
   button{margin-top:12px;background:#89b4fa;color:#11111b;border:0;padding:9px 18px;
          font-family:inherit;font-weight:bold;cursor:pointer}
   button:hover{background:#b4befe}
@@ -84,7 +102,8 @@ function loginHtml(err = ''): string {
 <form method="post" action="/login">
   <h3>pixel-stream</h3>
   <div class="err">${err}</div>
-  <input name="token" type="password" placeholder="AUTH token" autofocus autocomplete="current-password">
+  <input name="username" type="text" placeholder="Username (optional)" maxlength="16" autofocus autocomplete="username">
+  <input name="token" type="password" placeholder="AUTH token" autocomplete="current-password">
   <div><button type="submit">Sign in</button></div>
 </form></body></html>`;
 }
@@ -111,9 +130,11 @@ export function registerViewerAuth(app: FastifyInstance, token: string): void {
 
   // Login: token in the POST body (never in the URL).
   app.post('/login', (req, reply) => {
-    const submitted = ((req.body as Record<string, unknown> | undefined)?.token ?? '') as string;
+    const body = req.body as Record<string, unknown> | undefined;
+    const submitted = (body?.token ?? '') as string;
+    const username = sanitizeUsername(body?.username);
     if (tokenEquals(String(submitted), token)) {
-      reply.header('set-cookie', sessionCookie(createSession()));
+      reply.header('set-cookie', sessionCookie(createSession(username)));
       reply.code(303).header('location', '/').send(); // POST→GET (303 See Other)
       return;
     }
