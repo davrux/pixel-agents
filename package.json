@@ -1,0 +1,33 @@
+{
+  "name": "pixel-agents",
+  "description": "Central server that renders the agents of multiple streaming clients as animated pixel characters",
+  "version": "2.0.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pixel-agents-hq/pixel-agents"
+  },
+  "bin": {
+    "pixel-agents": "./dist/stream.js"
+  },
+  "main": "./dist/stream.js",
+  "scripts": {
+    "build": "node esbuild.js --production && pnpm run build:webview",
+    "build:webview": "cd webview-ui && node_modules/.bin/vite build",
+    "serve": "node dist/stream.js",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.1.1",
+    "@fastify/websocket": "^11.2.0",
+    "fastify": "^5.8.5"
+  },
+  "devDependencies": {
+    "@types/node": "25.x",
+    "@types/pngjs": "^6.0.5",
+    "esbuild": "^0.28.0",
+    "pngjs": "^7.0.0",
+    "typescript": "^5.9.3"
+  }
+}

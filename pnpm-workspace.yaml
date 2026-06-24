@@ -1,0 +1,12 @@
+packages:
+  - webview-ui
+
+# Security (supply-chain): per-dependency decision whether its build/lifecycle
+# (postinstall etc.) script may run. Anything NOT listed makes `pnpm install`
+# stop until it has been reviewed and added here on purpose — so no unknown
+# dependency shell script ever runs unnoticed.
+#
+# esbuild needs no build script (its platform binary ships via
+# optionalDependencies), so we deny it.
+allowBuilds:
+  esbuild: false
