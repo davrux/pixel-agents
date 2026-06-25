@@ -3,6 +3,8 @@ import type { Duplex } from 'node:stream';
 
 import { WebSocketServer, type WebSocket } from 'ws';
 
+import { isSubagentToolName } from '@pixel/shared/office/toolUtils.js';
+
 import { director } from '../sim/director.js';
 import { newParseState, parseLine, type ParseState } from './transcriptParser.js';
 
@@ -84,7 +86,7 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
     console.log(`[feed] client connected: ${conn.user}`);
 
     ws.on('message', (data) => {
-      let msg: { s?: string; p?: string; ls?: string[] };
+      let msg: { s?: string; p?: string; ls?: string[]; r?: number };
       try {
         msg = JSON.parse(data.toString());
       } catch {
@@ -100,7 +102,21 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
         director.apply({ t: 'created', id: agentId, label: conn.user });
       }
       const st = conn.parsers.get(agentId)!;
-      for (const line of msg.ls) parseLine(agentId, line, st, (ev) => director.apply(ev));
+      // Initial backlog (replay): keep the main agent but suppress its historical
+      // sub-agent churn, so a Task/Agent transcript doesn't pop several sub-agents
+      // at once on connect. Sub-agents that start live (after catch-up) animate.
+      // A sub-agent character is created by the `toolStart` of a Task/Agent tool;
+      // the subagent* events only update it — suppress both during replay.
+      const replay = msg.r === 1;
+      for (const line of msg.ls) {
+        parseLine(agentId, line, st, (ev) => {
+          if (replay) {
+            if (ev.t === 'subagentStart' || ev.t === 'subagentClear' || ev.t === 'subagentDone') return;
+            if (ev.t === 'toolStart' && isSubagentToolName(ev.toolName)) return;
+          }
+          director.apply(ev);
+        });
+      }
     });
 
     ws.on('close', () => {

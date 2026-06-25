@@ -84,9 +84,12 @@ function tick() {
     let st = state.get(meta.file);
     if (!st) {
       // First sighting: send fresh sessions in full (animation context),
-      // ignore old ones from end-of-file onward.
+      // ignore old ones from end-of-file onward. The initial backlog of a fresh
+      // session is flagged as replay (r:1) so the server can suppress its
+      // historical sub-agent churn — otherwise a transcript that used Task/Agent
+      // would pop several sub-agents at once on connect.
       const fresh = now - stat.mtimeMs <= MAXAGE;
-      st = { read: fresh ? 0 : stat.size, leftover: '' };
+      st = { read: fresh ? 0 : stat.size, leftover: '', replay: fresh && stat.size > 0 };
       state.set(meta.file, st);
     }
     if (stat.size < st.read) { st.read = 0; st.leftover = ''; } // truncation/rotation
@@ -109,7 +112,10 @@ function tick() {
     if (lines.length === 0) continue;
 
     try {
-      ws.send(JSON.stringify({ s: meta.session, p: meta.project, ls: lines }));
+      const msg = { s: meta.session, p: meta.project, ls: lines };
+      if (st.replay) msg.r = 1; // initial backlog → server suppresses sub-agent churn
+      ws.send(JSON.stringify(msg));
+      st.replay = false; // only the first (backlog) send for this session is replay
     } catch (e) {
       // Send error -> don't mark bytes as sent, retry next tick
       st.read -= chunk.length;
