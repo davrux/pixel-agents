@@ -280,7 +280,13 @@ export function OfficeCanvas({
       stop();
       observer.disconnect();
     };
-  }, [officeState, resizeCanvas, isEditMode, editorState, _editorTick, zoom, panRef]);
+    // editorTick is intentionally NOT a dependency: the game loop runs every
+    // frame and reads editorState/officeState live, so editor changes (e.g.
+    // floor/wall color, selection) are reflected without rebuilding the loop.
+    // Including it would tear down and recreate the loop + ResizeObserver on
+    // every tick (such as each color-slider step) — re-rendering the whole
+    // canvas when only the editor menu needs to update.
+  }, [officeState, resizeCanvas, isEditMode, editorState, zoom, panRef]);
 
   // Convert CSS mouse coords to world (sprite pixel) coords
   const screenToWorld = useCallback(
