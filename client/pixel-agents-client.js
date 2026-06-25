@@ -120,6 +120,13 @@ function connect() {
   ws = new WebSocket(SERVER, SUBPROTOCOLS);
   ws.onopen = () => {
     console.log('[client] connected. Streaming', ROOT);
+    // Re-announce on every (re)connect: the server has no record of our sessions
+    // (it discards a client's agents on socket close, and a restart wipes all
+    // state). Clearing per-file progress makes the next tick re-evaluate every
+    // file as a first sighting, replaying recently-active sessions in full so
+    // the freshly-restarted server re-creates them — even while idle. No-op on
+    // the first connect (the Map is already empty).
+    state.clear();
     if (timer) clearInterval(timer);
     timer = setInterval(tick, INTERVAL);
   };
