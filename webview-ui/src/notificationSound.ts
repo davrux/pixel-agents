@@ -14,6 +14,8 @@ import {
 } from './constants.js';
 
 let soundEnabled = true;
+/** Master alert volume multiplier (0..1) applied on top of the per-sound base levels. */
+let alertVolume = 1;
 let audioCtx: AudioContext | null = null;
 
 export function setSoundEnabled(enabled: boolean): void {
@@ -24,6 +26,15 @@ export function isSoundEnabled(): boolean {
   return soundEnabled;
 }
 
+/** Set the master alert volume (clamped to 0..1). */
+export function setAlertVolume(volume: number): void {
+  alertVolume = Math.max(0, Math.min(1, volume));
+}
+
+export function getAlertVolume(): number {
+  return alertVolume;
+}
+
 function playNote(
   ctx: AudioContext,
   freq: number,
@@ -31,6 +42,8 @@ function playNote(
   duration: number = NOTIFICATION_NOTE_DURATION_SEC,
   volume: number = NOTIFICATION_VOLUME,
 ): void {
+  const peak = volume * alertVolume;
+  if (peak <= 0) return; // muted — also avoids an invalid exponential ramp from zero
   const t = ctx.currentTime + startOffset;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
@@ -38,7 +51,7 @@ function playNote(
   osc.type = 'sine';
   osc.frequency.setValueAtTime(freq, t);
 
-  gain.gain.setValueAtTime(volume, t);
+  gain.gain.setValueAtTime(peak, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
 
   osc.connect(gain);

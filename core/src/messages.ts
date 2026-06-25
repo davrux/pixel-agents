@@ -48,6 +48,7 @@ export type ClientMessage =
   | RequestLayouts
   | SetSoundEnabled
   | SetAlwaysShowLabels
+  | SetAlertVolume
   | SetUsername
   | RequestDiagnostics;
 
@@ -262,6 +263,8 @@ export interface SettingsLoaded {
   type: 'settingsLoaded';
   soundEnabled: boolean;
   alwaysShowLabels: boolean;
+  /** Master alert volume multiplier (0..1). */
+  alertVolume: number;
   /** Persisted viewer username (empty string when unset). Used for per-user sound filtering. */
   username: string;
 }
@@ -357,6 +360,12 @@ export interface SetSoundEnabled {
 export interface SetAlwaysShowLabels {
   type: 'setAlwaysShowLabels';
   enabled: boolean;
+}
+
+/** Webview -> server: change the persisted master alert volume (0..1). */
+export interface SetAlertVolume {
+  type: 'setAlertVolume';
+  volume: number;
 }
 
 /** Webview -> server: change the persisted viewer username (server sanitizes/truncates). */

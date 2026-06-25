@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 
-import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
+import {
+  getAlertVolume,
+  isSoundEnabled,
+  playDoneSound,
+  setAlertVolume,
+  setSoundEnabled,
+} from '../notificationSound.js';
 import { transport } from '../transport/index.js';
 import { getViewerUsername, setSettingsUsername } from '../viewerIdentity.js';
 import { Checkbox } from './ui/Checkbox.js';
@@ -32,12 +38,23 @@ export function SettingsModal({
   onToggleAlwaysShowOverlay,
 }: SettingsModalProps) {
   const [soundLocal, setSoundLocal] = useState(isSoundEnabled);
+  const [volumeLocal, setVolumeLocal] = useState(getAlertVolume);
   const [username, setUsername] = useState(getViewerUsername);
 
-  // Re-sync the field from the current identity each time the modal opens.
+  // Re-sync the fields from current state each time the modal opens.
   useEffect(() => {
-    if (isOpen) setUsername(getViewerUsername());
+    if (isOpen) {
+      setUsername(getViewerUsername());
+      setVolumeLocal(getAlertVolume());
+      setSoundLocal(isSoundEnabled());
+    }
   }, [isOpen]);
+
+  const commitVolume = (value: number) => {
+    setVolumeLocal(value);
+    setAlertVolume(value);
+    transport.send({ type: 'setAlertVolume', volume: value });
+  };
 
   const commitUsername = () => {
     const clean = sanitizeUsername(username);
@@ -59,6 +76,30 @@ export function SettingsModal({
           transport.send({ type: 'setSoundEnabled', enabled: newVal });
         }}
       />
+
+      <div className="flex flex-col gap-1">
+        <label htmlFor="settings-volume" className="text-text text-sm">
+          Alert Volume
+        </label>
+        <div className="flex items-center gap-3">
+          <input
+            id="settings-volume"
+            type="range"
+            min={0}
+            max={1}
+            step={0.01}
+            value={volumeLocal}
+            disabled={!soundLocal}
+            onChange={(e) => commitVolume(Number(e.target.value))}
+            onPointerUp={() => soundLocal && playDoneSound()}
+            className="flex-1 accent-text disabled:opacity-40"
+          />
+          <span className="text-text-muted text-xs w-9 text-right tabular-nums">
+            {Math.round(volumeLocal * 100)}%
+          </span>
+        </div>
+      </div>
+
       <Checkbox
         label="Always Show Labels"
         checked={alwaysShowOverlay}

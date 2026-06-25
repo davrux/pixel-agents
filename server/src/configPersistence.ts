@@ -6,12 +6,19 @@ import { dataPath } from './paths.js';
 export interface AdapterSettings {
   soundEnabled: boolean;
   alwaysShowLabels: boolean;
+  /** Master alert volume multiplier (0..1). */
+  alertVolume: number;
   /** Viewer username for per-user sound filtering ('' = unset). */
   username: string;
 }
 
 /** All keys in AdapterSettings. Used by the adapter to map `pixel-agents.foo` → `foo`. */
-export const ADAPTER_SETTING_KEYS = ['soundEnabled', 'alwaysShowLabels', 'username'] as const;
+export const ADAPTER_SETTING_KEYS = [
+  'soundEnabled',
+  'alwaysShowLabels',
+  'alertVolume',
+  'username',
+] as const;
 
 export type AdapterSettingKey = (typeof ADAPTER_SETTING_KEYS)[number];
 
@@ -25,6 +32,7 @@ export interface PixelAgentsConfig {
 const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   soundEnabled: true,
   alwaysShowLabels: false,
+  alertVolume: 1,
   username: '',
 };
 
@@ -44,6 +52,10 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
       typeof obj.alwaysShowLabels === 'boolean'
         ? obj.alwaysShowLabels
         : DEFAULT_ADAPTER_SETTINGS.alwaysShowLabels,
+    alertVolume:
+      typeof obj.alertVolume === 'number' && obj.alertVolume >= 0 && obj.alertVolume <= 1
+        ? obj.alertVolume
+        : DEFAULT_ADAPTER_SETTINGS.alertVolume,
     username:
       typeof obj.username === 'string'
         ? obj.username.slice(0, 16)

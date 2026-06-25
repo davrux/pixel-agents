@@ -49,7 +49,15 @@ function activeLayoutMessage(layoutStore: LayoutStore, force: boolean): Record<s
 // ── Setting key constants ──
 const KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
 const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
+const KEY_ALERT_VOLUME = 'pixel-agents.alertVolume';
 const KEY_USERNAME = 'pixel-agents.username';
+
+/** Clamp an incoming volume to the valid 0..1 range, defaulting to full volume. */
+function sanitizeVolume(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(0, Math.min(1, n));
+}
 
 /** Normalize a username: printable ASCII only, trimmed, max 16 chars (matches login form). */
 function sanitizeUsername(raw: unknown): string {
@@ -144,6 +152,10 @@ export function handleClientMessage(
       adapter?.setSetting(KEY_ALWAYS_SHOW_LABELS, msg.enabled);
       break;
 
+    case 'setAlertVolume':
+      adapter?.setSetting(KEY_ALERT_VOLUME, sanitizeVolume(msg.volume));
+      break;
+
     case 'setUsername':
       adapter?.setSetting(KEY_USERNAME, sanitizeUsername(msg.username));
       break;
@@ -198,6 +210,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
+    alertVolume: adapter?.getSetting(KEY_ALERT_VOLUME, 1) ?? 1,
     username: adapter?.getSetting(KEY_USERNAME, '') ?? '',
   });
 

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 
-import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
+import {
+  playDoneSound,
+  playPermissionSound,
+  setAlertVolume,
+  setSoundEnabled,
+} from '../notificationSound.js';
 import { getViewerUsername, setLoginUsername, setSettingsUsername } from '../viewerIdentity.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
@@ -497,6 +502,9 @@ export function useExtensionMessages(
         setSoundEnabled(soundOn);
         if (typeof msg.alwaysShowLabels === 'boolean') {
           setAlwaysShowLabels(msg.alwaysShowLabels as boolean);
+        }
+        if (typeof msg.alertVolume === 'number') {
+          setAlertVolume(msg.alertVolume as number);
         }
         if (typeof msg.username === 'string') {
           setSettingsUsername(msg.username);
