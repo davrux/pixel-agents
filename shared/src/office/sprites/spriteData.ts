@@ -1,8 +1,8 @@
 import type { ColorValue } from '../colorTypes.js';
 import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
-import type { Direction, SpriteData } from '../types.js';
-import { Direction as Dir } from '../types.js';
+import type { CharacterPose, Direction, SpriteData } from '../types.js';
+import { CharacterPose as Pose, Direction as Dir } from '../types.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
 
@@ -145,6 +145,31 @@ export interface CharacterSprites {
   walk: Record<Direction, [SpriteData, SpriteData, SpriteData, SpriteData]>;
   typing: Record<Direction, [SpriteData, SpriteData]>;
   reading: Record<Direction, [SpriteData, SpriteData]>;
+}
+
+/**
+ * Single source of truth mapping an animation pose to a sprite frame. New poses
+ * (or dedicated art for an existing one, e.g. a real coffee animation) only need
+ * a branch here plus the frames on CharacterSprites — no FSM/renderer changes.
+ */
+export function spriteForPose(
+  pose: CharacterPose,
+  dir: Direction,
+  frame: number,
+  sprites: CharacterSprites,
+): SpriteData {
+  switch (pose) {
+    case Pose.WALK:
+      return sprites.walk[dir][frame % 4];
+    case Pose.TYPING:
+      return sprites.typing[dir][frame % 2];
+    case Pose.READING:
+      return sprites.reading[dir][frame % 2];
+    case Pose.COFFEE: // no dedicated frames yet → stand like idle (see Stage 3)
+    case Pose.IDLE:
+    default:
+      return sprites.walk[dir][1];
+  }
 }
 
 const spriteCache = new Map<string, CharacterSprites>();

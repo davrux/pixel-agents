@@ -33,6 +33,22 @@ export const CharacterState = {
 } as const;
 export type CharacterState = (typeof CharacterState)[keyof typeof CharacterState];
 
+/**
+ * Animation pose — what a character is *doing*, decoupled from the movement
+ * state so the renderer can pick frames without re-deriving tool/station logic.
+ * Computed server-side (it needs stationId) and synced. Add new poses here and
+ * map them in spriteForPose(); 'coffee' reuses the idle frames until dedicated
+ * art exists.
+ */
+export const CharacterPose = {
+  IDLE: 'idle',
+  WALK: 'walk',
+  TYPING: 'typing',
+  READING: 'reading',
+  COFFEE: 'coffee',
+} as const;
+export type CharacterPose = (typeof CharacterPose)[keyof typeof CharacterPose];
+
 export const Direction = {
   DOWN: 0,
   LEFT: 1,
@@ -205,6 +221,9 @@ export interface OfficeLayout {
 export interface Character {
   id: number;
   state: CharacterState;
+  /** Animation pose (server-computed, synced). Optional on the engine side; the
+   *  renderer reads it, falling back to deriving from state when absent. */
+  pose?: CharacterPose;
   dir: Direction;
   /** Pixel position */
   x: number;

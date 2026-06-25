@@ -13,6 +13,8 @@ export class CharacterSync extends Schema {
   @type('uint8') dir = 0;
   /** 'idle' | 'walk' | 'type' (CharacterState). */
   @type('string') state = 'idle';
+  /** Animation pose (CharacterPose): idle|walk|typing|reading|coffee. */
+  @type('string') pose = 'idle';
   @type('uint8') frame = 0;
   @type('uint8') palette = 0;
   @type('number') hueShift = 0;

@@ -1,5 +1,6 @@
 export {
   createCharacter,
+  getCharacterPose,
   getCharacterSprite,
   isReadingTool,
   updateCharacter,

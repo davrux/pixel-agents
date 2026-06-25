@@ -15,15 +15,17 @@ import {
 } from '../constants.js';
 import { findPath } from '../layout/tileMap.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
+import { spriteForPose } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
 import type {
   Character,
+  CharacterPose,
   InteractionPoint,
   Seat,
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, Direction, TILE_SIZE } from '../types.js';
+import { CharacterPose as Pose, CharacterState, Direction, TILE_SIZE } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
@@ -372,21 +374,26 @@ export function updateCharacter(
   }
 }
 
-/** Get the correct sprite frame for a character's current state and direction */
-export function getCharacterSprite(ch: Character, sprites: CharacterSprites): SpriteData {
+/** Derive a character's animation pose from its state. Server-side: this is the
+ *  only place that reads stationId / tool, so the renderer can stay pose-only. */
+export function getCharacterPose(ch: Character): CharacterPose {
   switch (ch.state) {
-    case CharacterState.TYPE:
-      if (isReadingTool(ch.currentTool)) {
-        return sprites.reading[ch.dir][ch.frame % 2];
-      }
-      return sprites.typing[ch.dir][ch.frame % 2];
     case CharacterState.WALK:
-      return sprites.walk[ch.dir][ch.frame % 4];
+      return Pose.WALK;
+    case CharacterState.TYPE:
+      return isReadingTool(ch.currentTool) ? Pose.READING : Pose.TYPING;
     case CharacterState.IDLE:
-      return sprites.walk[ch.dir][1];
     default:
-      return sprites.walk[ch.dir][1];
+      // Standing at an interaction station (coffee machine, …) vs plain idle.
+      return ch.stationId ? Pose.COFFEE : Pose.IDLE;
   }
+}
+
+/** Get the sprite frame for a character. Uses the synced pose when present
+ *  (client), else derives it (server / fallback). */
+export function getCharacterSprite(ch: Character, sprites: CharacterSprites): SpriteData {
+  const pose = ch.pose ?? getCharacterPose(ch);
+  return spriteForPose(pose, ch.dir, ch.frame, sprites);
 }
 
 /** Release the agent's interaction-station claim (idempotent). */

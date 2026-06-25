@@ -205,6 +205,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.ty = cs.y as number;
     rc.dir = cs.dir as Character['dir'];
     rc.state = cs.state as Character['state'];
+    rc.pose = cs.pose as Character['pose'];
     rc.frame = cs.frame as number;
     rc.palette = cs.palette as number;
     rc.hueShift = cs.hueShift as number;

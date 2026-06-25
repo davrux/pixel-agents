@@ -2,7 +2,7 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 
 import type { AgentEvent } from '@pixel/shared';
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
-import { OfficeState, isReadingTool } from '@pixel/shared/office/engine/index.js';
+import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
@@ -191,6 +191,7 @@ export class SimRoom extends Room<RoomState> {
       cs.y = ch.y;
       cs.dir = ch.dir;
       cs.state = ch.state;
+      cs.pose = getCharacterPose(ch);
       cs.frame = ch.frame & 0xff;
       cs.palette = ch.palette;
       cs.hueShift = ch.hueShift;
