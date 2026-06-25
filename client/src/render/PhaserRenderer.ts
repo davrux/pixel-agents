@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 
 import {
-  MATRIX_EFFECT_DURATION,
   TILE_SIZE,
   TileType,
   CharacterState,
@@ -20,7 +19,13 @@ import {
   WALL_COLOR,
 } from '@pixel/shared/office/constants.js';
 import { getCharacterSprite } from '@pixel/shared/office/engine/index.js';
-import type { FurnitureInstance, OfficeLayout, TileType as TileTypeVal } from '@pixel/shared/office/types.js';
+import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
+import type {
+  FurnitureInstance,
+  OfficeLayout,
+  SpriteData,
+  TileType as TileTypeVal,
+} from '@pixel/shared/office/types.js';
 
 /** Everything the renderer reads — backed by synced state on the client and by
  *  OfficeState on the server-side authoring path. */
@@ -65,6 +70,8 @@ export class PhaserRenderer {
   private lastFurnitureRef: unknown = null;
   private readonly chars = new Map<number, CharGObjects>();
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
+  /** Per-character canvas texture key for the Matrix spawn/despawn effect. */
+  private readonly matrixKeys = new Map<number, string>();
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -174,6 +181,7 @@ export class PhaserRenderer {
         g.body.destroy();
         g.bubble.destroy();
         this.chars.delete(id);
+        this.removeMatrixTexture(id);
       }
     }
   }
@@ -181,18 +189,21 @@ export class PhaserRenderer {
   private drawCharacter(ch: Character, g: CharGObjects): void {
     const sprites = getCharacterSprites(ch.palette, ch.hueShift);
     const sd = getCharacterSprite(ch, sprites);
-    const tex = spriteTexture(this.scene, sd);
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 
+    // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer):
+    // draw the effect into a per-character canvas texture instead of the sprite.
+    const tex = ch.matrixEffect ? this.matrixTexture(ch, sd) : spriteTexture(this.scene, sd);
     g.body.setTexture(tex);
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
+    g.body.setAlpha(1);
 
-    // Matrix spawn/despawn approximated as a fade.
-    let alpha = 1;
-    if (ch.matrixEffect === 'spawn') alpha = Math.min(1, ch.matrixEffectTimer / MATRIX_EFFECT_DURATION);
-    else if (ch.matrixEffect === 'despawn') alpha = Math.max(0, 1 - ch.matrixEffectTimer / MATRIX_EFFECT_DURATION);
-    g.body.setAlpha(alpha);
+    // Hide bubbles while the character is materialising/dissolving.
+    if (ch.matrixEffect) {
+      g.bubble.setVisible(false);
+      return;
+    }
 
     // Bubble.
     if (ch.bubbleType) {
@@ -208,6 +219,32 @@ export class PhaserRenderer {
     } else {
       g.bubble.setVisible(false);
     }
+  }
+
+  /** Render the Matrix effect for a character into its own canvas texture
+   *  (created once per character, refreshed each frame while active). */
+  private matrixTexture(ch: Character, sd: SpriteData): string {
+    const h = sd.length;
+    const w = h > 0 ? sd[0].length : 0;
+    let key = this.matrixKeys.get(ch.id);
+    if (!key || !this.scene.textures.exists(key)) {
+      key = `matrix_${ch.id}`;
+      if (this.scene.textures.exists(key)) this.scene.textures.remove(key);
+      this.scene.textures.createCanvas(key, Math.max(1, w), Math.max(1, h));
+      this.matrixKeys.set(ch.id, key);
+    }
+    const canvasTex = this.scene.textures.get(key) as Phaser.Textures.CanvasTexture;
+    const ctx = canvasTex.getContext();
+    ctx.clearRect(0, 0, w, h);
+    renderMatrixEffect(ctx, ch, sd, 0, 0, 1);
+    canvasTex.refresh();
+    return key;
+  }
+
+  private removeMatrixTexture(id: number): void {
+    const key = this.matrixKeys.get(id);
+    if (key && this.scene.textures.exists(key)) this.scene.textures.remove(key);
+    this.matrixKeys.delete(id);
   }
 
   private syncPets(): void {

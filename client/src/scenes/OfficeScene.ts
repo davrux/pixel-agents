@@ -10,6 +10,7 @@ import {
   FUEL_COLOR_DANGER,
   FUEL_COLOR_OK,
   FUEL_COLOR_WARN,
+  MATRIX_SPRITE_COLS,
   MAX_CONTEXT_TOKENS,
   TOKEN_CRITICAL_THRESHOLD,
   TOKEN_DANGER_THRESHOLD,
@@ -35,6 +36,18 @@ import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, un
  *  plus interpolation targets (tx,ty). Cast to the engine types for the view. */
 type RenderChar = Partial<Character> & { id: number; tx: number; ty: number; activity: string };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+
+/** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
+ *  derived from the agent id so all viewers render an identical sweep. */
+function matrixSeeds(id: number): number[] {
+  const seeds: number[] = [];
+  let s = (id * 2654435761) >>> 0; // Knuth multiplicative hash
+  for (let i = 0; i < MATRIX_SPRITE_COLS; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0; // LCG step
+    seeds.push(s / 0xffffffff);
+  }
+  return seeds;
+}
 
 export class OfficeScene extends Phaser.Scene {
   private os!: OfficeState;
@@ -213,8 +226,18 @@ export class OfficeScene extends Phaser.Scene {
     rc.currentTool = (cs.reading as boolean) ? 'Read' : null;
     rc.bubbleType = ((cs.bubble as string) || null) as Character['bubbleType'];
     rc.bubbleTimer = cs.bubbleTimer as number;
-    rc.matrixEffect = ((cs.matrixEffect as string) || null) as never;
-    rc.matrixEffectTimer = cs.matrixEffectTimer as number;
+    // Matrix spawn/despawn: the server starts/ends it; the client runs the timer
+    // locally (smooth 60fps) and derives the per-column stagger from the agent id
+    // so all viewers see an identical sweep. Only (re)seed when it starts.
+    const me = ((cs.matrixEffect as string) || null) as Character['matrixEffect'];
+    if (me && !rc.matrixEffect) {
+      rc.matrixEffectTimer = (cs.matrixEffectTimer as number) || 0;
+      rc.matrixEffectSeeds = matrixSeeds(rc.id);
+    } else if (!me) {
+      rc.matrixEffectTimer = 0;
+      rc.matrixEffectSeeds = undefined;
+    }
+    rc.matrixEffect = me;
     rc.isSubagent = cs.isSubagent as boolean;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
@@ -353,9 +376,13 @@ export class OfficeScene extends Phaser.Scene {
     }
     // Smooth interpolation toward the latest authoritative positions.
     const k = 1 - Math.exp(-18 * Math.min(delta / 1000, 0.1));
+    const dt = delta / 1000;
     for (const ch of this.characters.values()) {
       ch.x = (ch.x ?? ch.tx) + (ch.tx - (ch.x ?? ch.tx)) * k;
       ch.y = (ch.y ?? ch.ty) + (ch.ty - (ch.y ?? ch.ty)) * k;
+      // Advance the Matrix effect locally for a smooth 60fps sweep; the server
+      // only syncs ~20Hz and starts/ends the effect.
+      if (ch.matrixEffect) ch.matrixEffectTimer = (ch.matrixEffectTimer ?? 0) + dt;
     }
     for (const p of this.pets.values()) {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;
