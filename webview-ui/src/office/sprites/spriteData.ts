@@ -53,6 +53,91 @@ function flipSpriteHorizontal(sprite: SpriteData): SpriteData {
 }
 
 // ════════════════════════════════════════════════════════════════
+// Loaded pet sprites (dogs & cats, from PNG assets)
+// ════════════════════════════════════════════════════════════════
+
+interface LoadedPetData {
+  down: SpriteData[];
+  up: SpriteData[];
+  right: SpriteData[];
+}
+
+let loadedDogs: LoadedPetData[] | null = null;
+let loadedCats: LoadedPetData[] | null = null;
+
+/** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives. */
+export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[]): void {
+  loadedDogs = dogs;
+  loadedCats = cats;
+  petSpriteCache.clear();
+}
+
+/** Number of loaded variants for a pet kind (0 if none loaded). */
+export function getLoadedPetVariantCount(kind: 'dog' | 'cat'): number {
+  const arr = kind === 'dog' ? loadedDogs : loadedCats;
+  return arr ? arr.length : 0;
+}
+
+export interface PetSprites {
+  // walk: 4-frame cycle [0,1,2,1]; sit: tail-wag pair [3,4]; idle: single [5]
+  walk: Record<Direction, [SpriteData, SpriteData, SpriteData, SpriteData]>;
+  sit: Record<Direction, [SpriteData, SpriteData]>;
+  idle: Record<Direction, SpriteData>;
+}
+
+const petSpriteCache = new Map<string, PetSprites>();
+
+/** Resolve animated sprites for a pet kind/variant (LEFT mirrored from RIGHT). */
+export function getPetSprites(kind: 'dog' | 'cat', variant: number): PetSprites {
+  const cacheKey = `${kind}:${variant}`;
+  const cached = petSpriteCache.get(cacheKey);
+  if (cached) return cached;
+
+  const arr = kind === 'dog' ? loadedDogs : loadedCats;
+  let sprites: PetSprites;
+
+  if (arr && arr.length > 0) {
+    const pet = arr[variant % arr.length];
+    const d = pet.down;
+    const u = pet.up;
+    const rt = pet.right;
+    const flip = flipSpriteHorizontal;
+    sprites = {
+      walk: {
+        [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
+        [Dir.UP]: [u[0], u[1], u[2], u[1]],
+        [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
+        [Dir.LEFT]: [flip(rt[0]), flip(rt[1]), flip(rt[2]), flip(rt[1])],
+      },
+      sit: {
+        [Dir.DOWN]: [d[3], d[4]],
+        [Dir.UP]: [u[3], u[4]],
+        [Dir.RIGHT]: [rt[3], rt[4]],
+        [Dir.LEFT]: [flip(rt[3]), flip(rt[4])],
+      },
+      idle: {
+        [Dir.DOWN]: d[5],
+        [Dir.UP]: u[5],
+        [Dir.RIGHT]: rt[5],
+        [Dir.LEFT]: flip(rt[5]),
+      },
+    };
+  } else {
+    const e = emptySprite(16, 16);
+    const walkSet: [SpriteData, SpriteData, SpriteData, SpriteData] = [e, e, e, e];
+    const pairSet: [SpriteData, SpriteData] = [e, e];
+    sprites = {
+      walk: { [Dir.DOWN]: walkSet, [Dir.UP]: walkSet, [Dir.RIGHT]: walkSet, [Dir.LEFT]: walkSet },
+      sit: { [Dir.DOWN]: pairSet, [Dir.UP]: pairSet, [Dir.RIGHT]: pairSet, [Dir.LEFT]: pairSet },
+      idle: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e },
+    };
+  }
+
+  petSpriteCache.set(cacheKey, sprites);
+  return sprites;
+}
+
+// ════════════════════════════════════════════════════════════════
 // Sprite resolution + caching
 // ════════════════════════════════════════════════════════════════
 

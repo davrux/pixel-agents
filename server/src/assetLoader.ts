@@ -9,8 +9,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import {
+  CAT_COUNT,
   CHAR_COUNT,
   CHAR_FRAMES_PER_ROW,
+  DOG_COUNT,
   WALL_BITMASK_COUNT,
 } from '../../core/src/assets/constants.js';
 import type {
@@ -23,11 +25,15 @@ import { flattenManifest } from '../../core/src/assets/manifestUtils.js';
 import {
   decodeCharacterPng,
   decodeFloorPng,
+  decodePetPng,
   parseWallPng,
   pngToSpriteData,
 } from '../../core/src/assets/pngDecoder.js';
-import type { CharacterDirectionSprites } from '../../core/src/assets/types.js';
-export type { CharacterDirectionSprites } from '../../core/src/assets/types.js';
+import type {
+  CharacterDirectionSprites,
+  PetDirectionSprites,
+} from '../../core/src/assets/types.js';
+export type { CharacterDirectionSprites, PetDirectionSprites } from '../../core/src/assets/types.js';
 
 import { LAYOUT_REVISION_KEY } from './constants.js';
 
@@ -389,6 +395,51 @@ export async function loadCharacterSprites(
   } catch (err) {
     console.error(
       `[AssetLoader] ❌ Error loading character sprites: ${err instanceof Error ? err.message : err}`,
+    );
+    return null;
+  }
+}
+
+// ── Pet sprite loading ──────────────────────────────────────
+
+export interface LoadedPetSprites {
+  /** Dog variants, each with 6 frames per direction (down/up/right). */
+  dogs: PetDirectionSprites[];
+  /** Cat variants, each with 6 frames per direction. */
+  cats: PetDirectionSprites[];
+}
+
+/**
+ * Load pet sprites from assets/pets/ (dog_N.png / cat_N.png, each 96×48:
+ * 3 direction rows × 6 frames of 16×16).
+ */
+export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprites | null> {
+  try {
+    const petsDir = path.join(assetsRoot, 'assets', 'pets');
+    if (!fs.existsSync(petsDir)) {
+      console.log('[AssetLoader] No pets/ directory found at:', petsDir);
+      return null;
+    }
+
+    const loadVariants = (prefix: string, count: number): PetDirectionSprites[] => {
+      const out: PetDirectionSprites[] = [];
+      for (let i = 0; i < count; i++) {
+        const filePath = path.join(petsDir, `${prefix}_${i}.png`);
+        if (!fs.existsSync(filePath)) break;
+        out.push(decodePetPng(fs.readFileSync(filePath)));
+      }
+      return out;
+    };
+
+    const dogs = loadVariants('dog', DOG_COUNT);
+    const cats = loadVariants('cat', CAT_COUNT);
+    if (dogs.length === 0 && cats.length === 0) return null;
+
+    console.log(`[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat sprite sheets`);
+    return { dogs, cats };
+  } catch (err) {
+    console.error(
+      `[AssetLoader] ❌ Error loading pet sprites: ${err instanceof Error ? err.message : err}`,
     );
     return null;
   }

@@ -14,12 +14,16 @@ import {
   CHAR_FRAMES_PER_ROW,
   CHARACTER_DIRECTIONS,
   FLOOR_TILE_SIZE,
+  PET_FRAME_H,
+  PET_FRAME_W,
+  PET_FRAMES_PER_ROW,
+  PET_DIRECTIONS,
   WALL_BITMASK_COUNT,
   WALL_GRID_COLS,
   WALL_PIECE_HEIGHT,
   WALL_PIECE_WIDTH,
 } from './constants.js';
-import type { CharacterDirectionSprites } from './types.js';
+import type { CharacterDirectionSprites, PetDirectionSprites } from './types.js';
 
 // ── Sprite decoding ──────────────────────────────────────────
 
@@ -93,39 +97,69 @@ export function parseWallPng(pngBuffer: Buffer): string[][][] {
 }
 
 /**
- * Decode a single character PNG (112×96) into direction-keyed frame arrays.
- * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
+ * Decode a directional sprite sheet into direction-keyed frame arrays.
+ * The sheet has one row per direction (in `dirs` order) and `framesPerRow`
+ * frames of `frameW`×`frameH` per row. Shared by characters and pets.
  */
-export function decodeCharacterPng(pngBuffer: Buffer): CharacterDirectionSprites {
+function decodeDirectionalSheet(
+  pngBuffer: Buffer,
+  frameW: number,
+  frameH: number,
+  framesPerRow: number,
+  dirs: readonly string[],
+): Record<string, string[][][]> {
   const png = PNG.sync.read(pngBuffer);
-  const charData: CharacterDirectionSprites = { down: [], up: [], right: [] };
+  const result: Record<string, string[][][]> = {};
 
-  for (let dirIdx = 0; dirIdx < CHARACTER_DIRECTIONS.length; dirIdx++) {
-    const dir = CHARACTER_DIRECTIONS[dirIdx];
-    const rowOffsetY = dirIdx * CHAR_FRAME_H;
+  for (let dirIdx = 0; dirIdx < dirs.length; dirIdx++) {
+    const rowOffsetY = dirIdx * frameH;
     const frames: string[][][] = [];
 
-    for (let f = 0; f < CHAR_FRAMES_PER_ROW; f++) {
+    for (let f = 0; f < framesPerRow; f++) {
       const sprite: string[][] = [];
-      const frameOffsetX = f * CHAR_FRAME_W;
-      for (let y = 0; y < CHAR_FRAME_H; y++) {
+      const frameOffsetX = f * frameW;
+      for (let y = 0; y < frameH; y++) {
         const row: string[] = [];
-        for (let x = 0; x < CHAR_FRAME_W; x++) {
+        for (let x = 0; x < frameW; x++) {
           const idx = ((rowOffsetY + y) * png.width + (frameOffsetX + x)) * 4;
-          const r = png.data[idx];
-          const g = png.data[idx + 1];
-          const b = png.data[idx + 2];
-          const a = png.data[idx + 3];
-          row.push(rgbaToHex(r, g, b, a));
+          row.push(rgbaToHex(png.data[idx], png.data[idx + 1], png.data[idx + 2], png.data[idx + 3]));
         }
         sprite.push(row);
       }
       frames.push(sprite);
     }
-    charData[dir] = frames;
+    result[dirs[dirIdx]] = frames;
   }
 
-  return charData;
+  return result;
+}
+
+/**
+ * Decode a single character PNG (112×96) into direction-keyed frame arrays.
+ * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
+ */
+export function decodeCharacterPng(pngBuffer: Buffer): CharacterDirectionSprites {
+  return decodeDirectionalSheet(
+    pngBuffer,
+    CHAR_FRAME_W,
+    CHAR_FRAME_H,
+    CHAR_FRAMES_PER_ROW,
+    CHARACTER_DIRECTIONS,
+  ) as unknown as CharacterDirectionSprites;
+}
+
+/**
+ * Decode a single pet PNG (96×48) into direction-keyed frame arrays.
+ * Each PNG has 3 direction rows (down, up, right) × 6 frames (16×16 each).
+ */
+export function decodePetPng(pngBuffer: Buffer): PetDirectionSprites {
+  return decodeDirectionalSheet(
+    pngBuffer,
+    PET_FRAME_W,
+    PET_FRAME_H,
+    PET_FRAMES_PER_ROW,
+    PET_DIRECTIONS,
+  ) as unknown as PetDirectionSprites;
 }
 
 /**

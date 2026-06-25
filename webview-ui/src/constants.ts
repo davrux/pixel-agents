@@ -18,6 +18,24 @@ export const WANDER_MOVES_BEFORE_REST_MAX = 6;
 export const SEAT_REST_MIN_SEC = 120.0;
 export const SEAT_REST_MAX_SEC = 240.0;
 
+// ── Pets ─────────────────────────────────────────────────────
+// Pets spawn based on connected agents: target = min(PET_MAX, floor(agents / PET_AGENTS_PER_PET))
+export const PET_AGENTS_PER_PET = 2;
+export const PET_MAX = 4;
+export const PET_SPAWN_INTERVAL_MIN_SEC = 20;
+export const PET_SPAWN_INTERVAL_MAX_SEC = 60;
+export const PET_LIFESPAN_SEC = 600; // ~10 minutes
+export const PET_WALK_SPEED_PX_PER_SEC = 40;
+export const PET_WALK_FRAME_DURATION_SEC = 0.12;
+export const PET_TAIL_WAG_DURATION_SEC = 0.35;
+export const PET_WANDER_PAUSE_MIN_SEC = 1.5;
+export const PET_WANDER_PAUSE_MAX_SEC = 8;
+export const PET_SIT_MIN_SEC = 8;
+export const PET_SIT_MAX_SEC = 25;
+export const PET_SIT_CHANCE = 0.4; // chance a wander decision targets furniture
+export const PET_EFFECT_DURATION_SEC = 0.3;
+export const PET_Z_SORT_OFFSET = 0.5;
+
 // ── Matrix Effect ────────────────────────────────────────────
 export const MATRIX_EFFECT_DURATION_SEC = 0.3;
 export const MATRIX_TRAIL_LENGTH = 6;

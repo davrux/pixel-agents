@@ -27,6 +27,7 @@ export type ServerMessage =
   | LayoutList
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
+  | PetSpritesLoaded
   | FloorTilesLoaded
   | WallTilesLoaded
   | SettingsLoaded
@@ -229,6 +230,18 @@ export interface CharacterSpritesLoaded {
 }
 
 export interface CharacterSpriteSet {
+  down: string[][][];
+  up: string[][][];
+  right: string[][][];
+}
+
+export interface PetSpritesLoaded {
+  type: 'petSpritesLoaded';
+  dogs: PetSpriteSet[];
+  cats: PetSpriteSet[];
+}
+
+export interface PetSpriteSet {
   down: string[][][];
   up: string[][][];
   right: string[][][];

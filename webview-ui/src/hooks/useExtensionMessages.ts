@@ -5,7 +5,7 @@ import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '../office/layout/layoutSerializer.js';
-import { setCharacterTemplates } from '../office/sprites/spriteData.js';
+import { setCharacterTemplates, setPetTemplates } from '../office/sprites/spriteData.js';
 import {
   extractToolName,
   isSubagentToolName,
@@ -476,6 +476,12 @@ export function useExtensionMessages(
         }>;
         console.log(`[Webview] Received ${characters.length} pre-colored character sprites`);
         setCharacterTemplates(characters);
+      } else if (msg.type === 'petSpritesLoaded') {
+        type PetSet = { down: string[][][]; up: string[][][]; right: string[][][] };
+        const dogs = (msg.dogs ?? []) as PetSet[];
+        const cats = (msg.cats ?? []) as PetSet[];
+        console.log(`[Webview] Received ${dogs.length} dog + ${cats.length} cat sprite sheets`);
+        setPetTemplates(dogs, cats);
       } else if (msg.type === 'floorTilesLoaded') {
         const sprites = msg.sprites as string[][][];
         console.log(`[Webview] Received ${sprites.length} floor tile patterns`);

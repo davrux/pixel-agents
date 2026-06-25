@@ -259,6 +259,7 @@ export function OfficeCanvas({
           officeState.tileMap,
           officeState.furniture,
           officeState.getCharacters(),
+          officeState.getPets(),
           zoom,
           panRef.current.x,
           panRef.current.y,

@@ -56,6 +56,54 @@ export interface Seat {
   assigned: boolean;
 }
 
+// ── Pets ─────────────────────────────────────────────────────
+export const PetKind = { DOG: 'dog', CAT: 'cat' } as const;
+export type PetKind = (typeof PetKind)[keyof typeof PetKind];
+
+export const PetState = {
+  SPAWN: 'spawn', // brief fade-in before wandering
+  WANDER: 'wander', // walking along a path
+  IDLE: 'idle', // standing still, deciding next move
+  SIT: 'sit', // sitting at claimed furniture, tail wagging
+  DESPAWN: 'despawn', // fade-out, then delete
+} as const;
+export type PetState = (typeof PetState)[keyof typeof PetState];
+
+export interface Pet {
+  id: number;
+  kind: PetKind;
+  /** Which sprite-sheet variant (dog_N / cat_N) */
+  variant: number;
+  state: PetState;
+  dir: Direction;
+  /** Pixel position (tile-center anchored) */
+  x: number;
+  y: number;
+  tileCol: number;
+  tileRow: number;
+  path: Array<{ col: number; row: number }>;
+  moveProgress: number;
+  frame: number;
+  frameTimer: number;
+  /** Countdown to next wander decision while idle */
+  wanderTimer: number;
+  // Furniture interaction target / claim
+  targetKind: 'seat' | 'furniture' | null;
+  targetSeatId: string | null;
+  targetFurnitureUid: string | null;
+  /** Tile the pet sits on while interacting */
+  sitTileCol: number;
+  sitTileRow: number;
+  sitFacingDir: Direction;
+  /** Remaining time to stay seated */
+  sitTimer: number;
+  /** Counts up; despawn triggered at PET_LIFESPAN_SEC */
+  lifespanTimer: number;
+  /** Active spawn/despawn fade effect */
+  effect: 'spawn' | 'despawn' | null;
+  effectTimer: number;
+}
+
 export interface FurnitureInstance {
   sprite: SpriteData;
   /** Pixel x (top-left) */

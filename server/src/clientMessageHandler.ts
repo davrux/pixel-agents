@@ -1,5 +1,5 @@
 import type { AgentStateStore } from './agentStateStore.js';
-import type { LoadedAssets, LoadedCharacterSprites } from './assetLoader.js';
+import type { LoadedAssets, LoadedCharacterSprites, LoadedPetSprites } from './assetLoader.js';
 import { LayoutStore } from './layoutStore.js';
 import { claudeProvider } from './providers/index.js';
 
@@ -11,6 +11,7 @@ export type SetHooksEnabledSideEffect = (enabled: boolean) => Promise<void> | vo
 /** Cached assets loaded at server startup. Sent to each WebSocket client on webviewReady. */
 export interface AssetCache {
   characters: LoadedCharacterSprites | null;
+  pets: LoadedPetSprites | null;
   floorTiles: string[][][] | null;
   wallTiles: string[][][][] | null;
   furniture: LoadedAssets | null;
@@ -155,6 +156,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   if (cache) {
     if (cache.characters) {
       send({ type: 'characterSpritesLoaded', characters: cache.characters.characters });
+    }
+    if (cache.pets) {
+      send({ type: 'petSpritesLoaded', dogs: cache.pets.dogs, cats: cache.pets.cats });
     }
     if (cache.floorTiles) {
       send({ type: 'floorTilesLoaded', sprites: cache.floorTiles });

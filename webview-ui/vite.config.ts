@@ -10,6 +10,7 @@ import {
   decodeAllCharacters,
   decodeAllFloors,
   decodeAllFurniture,
+  decodeAllPets,
   decodeAllWalls,
 } from '../core/src/assets/loader.ts';
 
@@ -17,6 +18,7 @@ import {
 
 interface DecodedCache {
   characters: ReturnType<typeof decodeAllCharacters> | null;
+  pets: ReturnType<typeof decodeAllPets> | null;
   floors: ReturnType<typeof decodeAllFloors> | null;
   walls: ReturnType<typeof decodeAllWalls> | null;
   furniture: ReturnType<typeof decodeAllFurniture> | null;
@@ -28,10 +30,17 @@ function browserMockAssetsPlugin(): Plugin {
   const assetsDir = path.resolve(__dirname, 'public/assets');
   const distAssetsDir = path.resolve(__dirname, '../dist/webview/assets');
 
-  const cache: DecodedCache = { characters: null, floors: null, walls: null, furniture: null };
+  const cache: DecodedCache = {
+    characters: null,
+    pets: null,
+    floors: null,
+    walls: null,
+    furniture: null,
+  };
 
   function clearCache(): void {
     cache.characters = null;
+    cache.pets = null;
     cache.floors = null;
     cache.walls = null;
     cache.furniture = null;
@@ -58,6 +67,11 @@ function browserMockAssetsPlugin(): Plugin {
         cache.characters ??= decodeAllCharacters(assetsDir);
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify(cache.characters));
+      });
+      server.middlewares.use(`${base}/assets/decoded/pets.json`, (_req, res) => {
+        cache.pets ??= decodeAllPets(assetsDir);
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(cache.pets));
       });
       server.middlewares.use(`${base}/assets/decoded/floors.json`, (_req, res) => {
         cache.floors ??= decodeAllFloors(assetsDir);

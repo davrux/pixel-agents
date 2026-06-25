@@ -9,8 +9,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { decodeCharacterPng, decodeFloorPng, parseWallPng, pngToSpriteData } from './pngDecoder.js';
-import type { CatalogEntry, CharacterDirectionSprites } from './types.js';
+import {
+  decodeCharacterPng,
+  decodeFloorPng,
+  decodePetPng,
+  parseWallPng,
+  pngToSpriteData,
+} from './pngDecoder.js';
+import type { CatalogEntry, CharacterDirectionSprites, PetDirectionSprites } from './types.js';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -35,6 +41,18 @@ export function decodeAllCharacters(assetsDir: string): CharacterDirectionSprite
     const pngBuffer = fs.readFileSync(path.join(charDir, filename));
     return decodeCharacterPng(pngBuffer);
   });
+}
+
+export function decodeAllPets(assetsDir: string): {
+  dogs: PetDirectionSprites[];
+  cats: PetDirectionSprites[];
+} {
+  const petsDir = path.join(assetsDir, 'pets');
+  const decode = (pattern: RegExp): PetDirectionSprites[] =>
+    listSortedPngs(petsDir, pattern).map(({ filename }) =>
+      decodePetPng(fs.readFileSync(path.join(petsDir, filename))),
+    );
+  return { dogs: decode(/^dog_(\d+)\.png$/i), cats: decode(/^cat_(\d+)\.png$/i) };
 }
 
 export function decodeAllFloors(assetsDir: string): string[][][] {

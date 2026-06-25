@@ -17,3 +17,14 @@ export const CHAR_FRAME_W = 16;
 export const CHAR_FRAME_H = 32;
 export const CHAR_FRAMES_PER_ROW = 7;
 export const CHAR_COUNT = 6;
+
+// ── Pets ─────────────────────────────────────────────────────
+// Pet sheets share the character row layout (down/up/right; left = flip),
+// but use smaller 16×16 cells and 6 frames per row:
+//   0,1,2 walk · 3 sit/tail-left · 4 sit/tail-right · 5 idle
+export const PET_DIRECTIONS = ['down', 'up', 'right'] as const;
+export const PET_FRAME_W = 16;
+export const PET_FRAME_H = 16;
+export const PET_FRAMES_PER_ROW = 6;
+export const DOG_COUNT = 2;
+export const CAT_COUNT = 2;

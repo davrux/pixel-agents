@@ -10,6 +10,11 @@ import {
   HUE_SHIFT_RANGE_DEG,
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
+  PET_AGENTS_PER_PET,
+  PET_EFFECT_DURATION_SEC,
+  PET_MAX,
+  PET_SPAWN_INTERVAL_MAX_SEC,
+  PET_SPAWN_INTERVAL_MIN_SEC,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
@@ -21,18 +26,29 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
-import { getLoadedCharacterCount } from '../sprites/spriteData.js';
+import { getLoadedCharacterCount, getLoadedPetVariantCount } from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
   OfficeLayout,
+  Pet,
+  PetKind,
   PlacedFurniture,
   Seat,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, Direction, MATRIX_EFFECT_DURATION, TILE_SIZE } from '../types.js';
+import {
+  CharacterState,
+  Direction,
+  MATRIX_EFFECT_DURATION,
+  PetKind as PetKindEnum,
+  PetState,
+  TILE_SIZE,
+} from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
+import type { PetTarget } from './pets.js';
+import { beginPetDespawn, createPet, updatePet } from './pets.js';
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -54,6 +70,14 @@ export class OfficeState {
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
 
+  // ── Pets ──────────────────────────────────────────────────
+  /** Live pets, keyed by a dedicated id space (disjoint from characters). */
+  pets: Map<number, Pet> = new Map();
+  /** Non-chair furniture uids currently claimed by a pet. */
+  private petFurnitureClaims: Set<string> = new Set();
+  private petSpawnTimer = 0;
+  private nextPetId = 1_000_000;
+
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
     this.tileMap = layoutToTileMap(this.layout);
@@ -66,6 +90,11 @@ export class OfficeState {
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
    *  @param shift Optional pixel shift to apply when grid expands left/up */
   rebuildFromLayout(layout: OfficeLayout, shift?: { col: number; row: number }): void {
+    // Pets hold seat/furniture/tile claims that won't survive a layout rebuild.
+    // Drop them outright; they respawn naturally from the spawn loop.
+    this.pets.clear();
+    this.petFurnitureClaims.clear();
+
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
@@ -607,31 +636,35 @@ export class OfficeState {
       }
     }
 
-    if (autoOnTiles.size === 0) {
-      this.furniture = layoutToFurnitureInstances(this.layout.furniture);
-      return;
-    }
-
     // Build modified furniture list with auto-state and animation applied
     const animFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item) => {
       const entry = getCatalogEntry(item.type);
       if (!entry) return item;
-      // Check if any tile of this furniture overlaps an auto-on tile
-      for (let dr = 0; dr < entry.footprintH; dr++) {
-        for (let dc = 0; dc < entry.footprintW; dc++) {
-          if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
-            let onType = getOnStateType(item.type);
-            if (onType !== item.type) {
-              // Check if the on-state type has animation frames
-              const frames = getAnimationFrames(onType);
-              if (frames && frames.length > 1) {
-                const frameIdx = animFrame % frames.length;
-                onType = frames[frameIdx];
+
+      // Ambient (always-on) animation: a stateless animation member, e.g. the
+      // goldfish bowl. Excludes state-paired members (PC), whose placed type is
+      // the "off" variant and therefore has no animation frames of its own.
+      const ambientFrames = getAnimationFrames(item.type);
+      if (ambientFrames && ambientFrames.length > 1 && getOnStateType(item.type) === item.type) {
+        return { ...item, type: ambientFrames[animFrame % ambientFrames.length] };
+      }
+
+      // Auto-on: an active agent seated facing this furniture turns it "on".
+      if (autoOnTiles.size > 0) {
+        for (let dr = 0; dr < entry.footprintH; dr++) {
+          for (let dc = 0; dc < entry.footprintW; dc++) {
+            if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
+              let onType = getOnStateType(item.type);
+              if (onType !== item.type) {
+                const frames = getAnimationFrames(onType);
+                if (frames && frames.length > 1) {
+                  onType = frames[animFrame % frames.length];
+                }
+                return { ...item, type: onType };
               }
-              return { ...item, type: onType };
+              return item;
             }
-            return item;
           }
         }
       }
@@ -757,10 +790,255 @@ export class OfficeState {
     for (const id of toDelete) {
       this.characters.delete(id);
     }
+
+    this.updatePets(dt);
   }
 
   getCharacters(): Character[] {
     return Array.from(this.characters.values());
+  }
+
+  getPets(): Pet[] {
+    return Array.from(this.pets.values());
+  }
+
+  // ── Pet lifecycle ─────────────────────────────────────────
+
+  /** Number of connected agents (real agents, excluding sub-agents & despawning). */
+  getConnectedAgentCount(): number {
+    let n = 0;
+    for (const ch of this.characters.values()) {
+      if (ch.id > 0 && !ch.isSubagent && ch.matrixEffect !== 'despawn') n++;
+    }
+    return n;
+  }
+
+  private petTargetCount(): number {
+    return Math.min(PET_MAX, Math.floor(this.getConnectedAgentCount() / PET_AGENTS_PER_PET));
+  }
+
+  /** Tick spawning, the per-pet FSM, and deletion of finished despawns. */
+  private updatePets(dt: number): void {
+    const ctx = {
+      walkableTiles: this.walkableTiles,
+      tileMap: this.tileMap,
+      blockedTiles: this.blockedTiles,
+      findTarget: (pet: Pet) => this.findFreePetTarget(pet),
+      releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
+    };
+
+    const toDelete: number[] = [];
+    for (const pet of this.pets.values()) {
+      updatePet(pet, dt, ctx);
+      if (pet.state === PetState.DESPAWN && pet.effectTimer >= PET_EFFECT_DURATION_SEC) {
+        toDelete.push(pet.id);
+      }
+    }
+    for (const id of toDelete) {
+      const pet = this.pets.get(id);
+      if (pet) this.releasePetClaim(pet);
+      this.pets.delete(id);
+    }
+
+    // Spawn / despawn toward the target count
+    const target = this.petTargetCount();
+    const living = [...this.pets.values()].filter((p) => p.state !== PetState.DESPAWN);
+    if (living.length > target) {
+      // Too many (agents left) — retire the oldest living pet early
+      const oldest = living.reduce((a, b) => (a.lifespanTimer >= b.lifespanTimer ? a : b));
+      beginPetDespawn(oldest, ctx);
+    } else if (living.length < target) {
+      this.petSpawnTimer -= dt;
+      if (this.petSpawnTimer <= 0) {
+        this.spawnPet();
+        this.petSpawnTimer = randomRange(PET_SPAWN_INTERVAL_MIN_SEC, PET_SPAWN_INTERVAL_MAX_SEC);
+      }
+    }
+  }
+
+  /** Spawn one random pet at a free walkable tile (no-op if no sprites/tiles). */
+  private spawnPet(): void {
+    if (this.walkableTiles.length === 0) return;
+    const dogs = getLoadedPetVariantCount('dog');
+    const cats = getLoadedPetVariantCount('cat');
+    const kinds: PetKind[] = [];
+    if (dogs > 0) kinds.push(PetKindEnum.DOG);
+    if (cats > 0) kinds.push(PetKindEnum.CAT);
+    if (kinds.length === 0) return;
+
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const variantCount = kind === PetKindEnum.DOG ? dogs : cats;
+    const variant = Math.floor(Math.random() * variantCount);
+
+    // Avoid spawning on a tile occupied by a character or pet
+    const occupied = new Set<string>();
+    for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
+    for (const p of this.pets.values()) occupied.add(`${p.tileCol},${p.tileRow}`);
+    const free = this.walkableTiles.filter((t) => !occupied.has(`${t.col},${t.row}`));
+    const pool = free.length > 0 ? free : this.walkableTiles;
+    const spawn = pool[Math.floor(Math.random() * pool.length)];
+
+    const id = this.nextPetId++;
+    this.pets.set(id, createPet(id, kind, variant, spawn));
+  }
+
+  /** Trigger early despawn for a specific pet (e.g. cleared externally). */
+  despawnPet(id: number): void {
+    const pet = this.pets.get(id);
+    if (pet) beginPetDespawn(pet, { releaseClaim: (p) => this.releasePetClaim(p) });
+  }
+
+  // ── Pet furniture interaction ─────────────────────────────
+
+  /** Release a pet's seat/furniture claim. */
+  private releasePetClaim(pet: Pet): void {
+    if (pet.targetSeatId) {
+      const seat = this.seats.get(pet.targetSeatId);
+      if (seat) seat.assigned = false;
+    }
+    if (pet.targetFurnitureUid) {
+      this.petFurnitureClaims.delete(pet.targetFurnitureUid);
+    }
+  }
+
+  /** Whether a non-chair furniture item is free for a pet to approach. */
+  private isFurnitureFreeForPet(uid: string): boolean {
+    if (this.petFurnitureClaims.has(uid)) return false;
+    // Not in use by an agent actively seated facing it
+    for (const ch of this.characters.values()) {
+      if (!ch.isActive || !ch.seatId) continue;
+      const seat = this.seats.get(ch.seatId);
+      if (seat && this.seatFacesFurniture(seat, uid)) return false;
+    }
+    return true;
+  }
+
+  /** Whether a seat faces (within depth) the given furniture item. */
+  private seatFacesFurniture(seat: Seat, uid: string): boolean {
+    const item = this.layout.furniture.find((f) => f.uid === uid);
+    if (!item) return false;
+    const entry = getCatalogEntry(item.type);
+    if (!entry) return false;
+    const footprint = new Set<string>();
+    for (let dr = 0; dr < entry.footprintH; dr++) {
+      for (let dc = 0; dc < entry.footprintW; dc++) {
+        footprint.add(`${item.col + dc},${item.row + dr}`);
+      }
+    }
+    const dCol = seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
+    const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
+    for (let d = 1; d <= AUTO_ON_FACING_DEPTH; d++) {
+      if (footprint.has(`${seat.seatCol + dCol * d},${seat.seatRow + dRow * d}`)) return true;
+    }
+    return false;
+  }
+
+  /** First walkable tile adjacent to a furniture footprint (for cats to sit beside). */
+  private firstAdjacentWalkableTile(
+    item: PlacedFurniture,
+    entry: { footprintW: number; footprintH: number },
+  ): { col: number; row: number } | null {
+    const dirs = [
+      { dc: 0, dr: -1 },
+      { dc: 0, dr: 1 },
+      { dc: -1, dr: 0 },
+      { dc: 1, dr: 0 },
+    ];
+    for (let dr = 0; dr < entry.footprintH; dr++) {
+      for (let dc = 0; dc < entry.footprintW; dc++) {
+        for (const d of dirs) {
+          const col = item.col + dc + d.dc;
+          const row = item.row + dr + d.dr;
+          if (isWalkable(col, row, this.tileMap, this.blockedTiles)) {
+            return { col, row };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find + claim a free interaction target reachable from the pet:
+   *  - dogs & cats: any free chair seat
+   *  - cats also: a tile adjacent to a free desk/table
+   * Returns the claimed target (with a path), or null.
+   */
+  private findFreePetTarget(pet: Pet): PetTarget | null {
+    const candidates: PetTarget[] = [];
+
+    // Chairs (reuse seats) — temporarily unblock the seat tile to path onto it
+    for (const [uid, seat] of this.seats) {
+      if (seat.assigned) continue;
+      const key = `${seat.seatCol},${seat.seatRow}`;
+      const had = this.blockedTiles.has(key);
+      if (had) this.blockedTiles.delete(key);
+      const path = findPath(
+        pet.tileCol,
+        pet.tileRow,
+        seat.seatCol,
+        seat.seatRow,
+        this.tileMap,
+        this.blockedTiles,
+      );
+      if (had) this.blockedTiles.add(key);
+      const reachable = path.length > 0 || (pet.tileCol === seat.seatCol && pet.tileRow === seat.seatRow);
+      if (!reachable) continue;
+      candidates.push({
+        kind: 'seat',
+        seatId: uid,
+        furnitureUid: null,
+        sitCol: seat.seatCol,
+        sitRow: seat.seatRow,
+        facing: seat.facingDir,
+        path,
+      });
+    }
+
+    // Desks/tables (cats only) — sit on an adjacent walkable tile
+    if (pet.kind === PetKindEnum.CAT) {
+      for (const item of this.layout.furniture) {
+        const entry = getCatalogEntry(item.type);
+        if (!entry || entry.category !== 'desks') continue;
+        if (!this.isFurnitureFreeForPet(item.uid)) continue;
+        const adj = this.firstAdjacentWalkableTile(item, entry);
+        if (!adj) continue;
+        const path = findPath(pet.tileCol, pet.tileRow, adj.col, adj.row, this.tileMap, this.blockedTiles);
+        const reachable = path.length > 0 || (pet.tileCol === adj.col && pet.tileRow === adj.row);
+        if (!reachable) continue;
+        // Face from the sit tile toward the furniture
+        const dc = item.col - adj.col;
+        const dr = item.row - adj.row;
+        const facing =
+          Math.abs(dc) >= Math.abs(dr)
+            ? dc >= 0
+              ? Direction.RIGHT
+              : Direction.LEFT
+            : dr >= 0
+              ? Direction.DOWN
+              : Direction.UP;
+        candidates.push({
+          kind: 'furniture',
+          seatId: null,
+          furnitureUid: item.uid,
+          sitCol: adj.col,
+          sitRow: adj.row,
+          facing,
+          path,
+        });
+      }
+    }
+
+    if (candidates.length === 0) return null;
+    const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    // Claim it so agents/other pets won't take it
+    if (chosen.kind === 'seat' && chosen.seatId) {
+      const seat = this.seats.get(chosen.seatId);
+      if (seat) seat.assigned = true;
+    } else if (chosen.furnitureUid) {
+      this.petFurnitureClaims.add(chosen.furnitureUid);
+    }
+    return chosen;
   }
 
   /** Get character at pixel position (for hit testing). Returns id or null. */
@@ -783,4 +1061,8 @@ export class OfficeState {
     }
     return null;
   }
+}
+
+function randomRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
 }

@@ -277,18 +277,22 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     );
   }
 
-  // Track "on" variant IDs and animation frame IDs (non-first) to exclude from visible catalog
+  // Track "on" variant IDs and non-first animation frame IDs to exclude from the visible catalog
   const onStateIds = new Set<string>();
+  const nonFirstFrameIds = new Set<string>();
   for (const asset of assets.catalog) {
     if (asset.state === 'on') onStateIds.add(asset.id);
+    if (asset.animationGroup && asset.frame !== undefined && asset.frame > 0) {
+      nonFirstFrameIds.add(asset.id);
+    }
   }
 
   // Store full internal catalog (all variants — for getCatalogEntry lookups)
   internalCatalog = allEntries;
 
-  // Visible catalog: exclude non-front variants and "on" state variants
+  // Visible catalog: exclude non-front variants, "on" state variants, and non-first anim frames
   const visibleEntries = allEntries.filter(
-    (e) => !nonFrontIds.has(e.type) && !onStateIds.has(e.type),
+    (e) => !nonFrontIds.has(e.type) && !onStateIds.has(e.type) && !nonFirstFrameIds.has(e.type),
   );
 
   // Strip orientation/state suffix from labels for grouped variants

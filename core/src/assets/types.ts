@@ -9,10 +9,18 @@ export interface CharacterDirectionSprites {
   right: string[][][];
 }
 
+/** Directional sprite frames for a pet (same row layout as characters, 16×16 cells). */
+export interface PetDirectionSprites {
+  down: string[][][];
+  up: string[][][];
+  right: string[][][];
+}
+
 export interface AssetIndex {
   floors: string[];
   walls: string[];
   characters: string[];
+  pets: { dogs: string[]; cats: string[] };
   defaultLayout: string | null;
 }
 

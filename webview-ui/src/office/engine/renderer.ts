@@ -23,6 +23,8 @@ import {
   GRID_LINE_COLOR,
   HOVERED_OUTLINE_ALPHA,
   OUTLINE_Z_SORT_OFFSET,
+  PET_EFFECT_DURATION_SEC,
+  PET_Z_SORT_OFFSET,
   ROTATE_BUTTON_BG,
   SEAT_AVAILABLE_COLOR,
   SEAT_BUSY_COLOR,
@@ -39,18 +41,21 @@ import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
   getCharacterSprites,
+  getPetSprites,
 } from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
+  Pet,
   Seat,
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterState, TILE_SIZE, TileType } from '../types.js';
+import { CharacterState, PetState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
+import { getPetSprite } from './pets.js';
 
 // ── Render functions ────────────────────────────────────────────
 
@@ -111,6 +116,7 @@ export function renderScene(
   ctx: CanvasRenderingContext2D,
   furniture: FurnitureInstance[],
   characters: Character[],
+  pets: Pet[],
   offsetX: number,
   offsetY: number,
   zoom: number,
@@ -200,6 +206,37 @@ export function renderScene(
       zY: charZY,
       draw: (c) => {
         c.drawImage(cached, drawX, drawY);
+      },
+    });
+  }
+
+  // Pets (16×16, anchored bottom-center; fade on spawn/despawn)
+  for (const pet of pets) {
+    const sprites = getPetSprites(pet.kind, pet.variant);
+    const spriteData = getPetSprite(pet, sprites);
+    const cached = getCachedSprite(spriteData, zoom);
+    const drawX = Math.round(offsetX + pet.x * zoom - cached.width / 2);
+    const drawY = Math.round(offsetY + pet.y * zoom - cached.height);
+    const petZY = pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET;
+
+    let alpha = 1;
+    if (pet.effect === 'spawn') {
+      alpha = Math.min(1, pet.effectTimer / PET_EFFECT_DURATION_SEC);
+    } else if (pet.effect === 'despawn' || pet.state === PetState.DESPAWN) {
+      alpha = Math.max(0, 1 - pet.effectTimer / PET_EFFECT_DURATION_SEC);
+    }
+
+    drawables.push({
+      zY: petZY,
+      draw: (c) => {
+        if (alpha >= 1) {
+          c.drawImage(cached, drawX, drawY);
+        } else {
+          c.save();
+          c.globalAlpha = alpha;
+          c.drawImage(cached, drawX, drawY);
+          c.restore();
+        }
       },
     });
   }
@@ -574,6 +611,7 @@ export function renderFrame(
   tileMap: TileTypeVal[][],
   furniture: FurnitureInstance[],
   characters: Character[],
+  pets: Pet[],
   zoom: number,
   panX: number,
   panY: number,
@@ -620,7 +658,7 @@ export function renderFrame(
   // Draw walls + furniture + characters (z-sorted)
   const selectedId = selection?.selectedAgentId ?? null;
   const hoveredId = selection?.hoveredAgentId ?? null;
-  renderScene(ctx, allFurniture, characters, offsetX, offsetY, zoom, selectedId, hoveredId);
+  renderScene(ctx, allFurniture, characters, pets, offsetX, offsetY, zoom, selectedId, hoveredId);
 
   // Speech bubbles (always on top of characters)
   renderBubbles(ctx, characters, offsetX, offsetY, zoom);

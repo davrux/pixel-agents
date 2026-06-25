@@ -23,6 +23,7 @@ import {
   loadDefaultLayout,
   loadFloorTiles,
   loadFurnitureAssets,
+  loadPetSprites,
   loadWallTiles,
 } from './assetLoader.js';
 import type { AssetCache } from './clientMessageHandler.js';
@@ -63,6 +64,7 @@ async function main(): Promise<void> {
   console.log('[stream] Loading assets...');
   const assetCache: AssetCache = {
     characters: await loadCharacterSprites(distRoot),
+    pets: await loadPetSprites(distRoot),
     floorTiles: await loadFloorTiles(distRoot).then((t) => t?.sprites ?? null),
     wallTiles: await loadWallTiles(distRoot).then((t) => t?.sets ?? null),
     furniture: await loadFurnitureAssets(distRoot),
