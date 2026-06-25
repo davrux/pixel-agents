@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
+import { getViewerUsername, setLoginUsername, setSettingsUsername } from '../viewerIdentity.js';
 import type { OfficeState } from '../office/engine/officeState.js';
 import { setFloorSprites } from '../office/floorTiles.js';
 import { buildDynamicCatalog } from '../office/layout/furnitureCatalog.js';
@@ -108,10 +109,8 @@ export function useExtensionMessages(
   // Track whether initial layout has been loaded (ref to avoid re-render)
   const layoutReadyRef = useRef(false);
 
-  // Username this viewer logged in as (standalone auth). When set, task sounds play
-  // only for matching agents; undefined => play sounds for all agents. Ref because
-  // it's read inside the message-handler closure and shouldn't trigger re-renders.
-  const viewerUsernameRef = useRef<string | undefined>(undefined);
+  // Viewer username (for per-user sound filtering) lives in the viewerIdentity
+  // module so the Settings modal and the sound-filter closure share one source.
 
   useEffect(() => {
     // Buffer agents from existingAgents until layout is loaded
@@ -131,13 +130,13 @@ export function useExtensionMessages(
       // username (play all), or the agent's username matches the viewer's. The
       // agent's folderName carries the client `--user` name in stream mode.
       const shouldPlaySound = (id: number): boolean => {
-        const u = viewerUsernameRef.current;
+        const u = getViewerUsername();
         if (!u) return true;
         return os.characters.get(id)?.folderName === u;
       };
 
       if (msg.type === 'viewerIdentity') {
-        viewerUsernameRef.current = (msg.username as string | undefined) || undefined;
+        setLoginUsername(msg.username as string | undefined);
         return;
       }
 
@@ -498,6 +497,9 @@ export function useExtensionMessages(
         setSoundEnabled(soundOn);
         if (typeof msg.alwaysShowLabels === 'boolean') {
           setAlwaysShowLabels(msg.alwaysShowLabels as boolean);
+        }
+        if (typeof msg.username === 'string') {
+          setSettingsUsername(msg.username);
         }
       } else if (msg.type === 'furnitureAssetsLoaded') {
         try {

@@ -306,6 +306,8 @@ export function dispatchMockMessages(): void {
   dispatch({
     type: 'settingsLoaded',
     soundEnabled: false,
+    alwaysShowLabels: false,
+    username: '',
   });
 
   console.log('[BrowserMock] Messages dispatched');

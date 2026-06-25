@@ -49,6 +49,15 @@ function activeLayoutMessage(layoutStore: LayoutStore, force: boolean): Record<s
 // ── Setting key constants ──
 const KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
 const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
+const KEY_USERNAME = 'pixel-agents.username';
+
+/** Normalize a username: printable ASCII only, trimmed, max 16 chars (matches login form). */
+function sanitizeUsername(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .replace(/[^\x21-\x7e]/g, '')
+    .slice(0, 16);
+}
 
 /**
  * Handle incoming ClientMessage from a WebSocket client.
@@ -135,6 +144,10 @@ export function handleClientMessage(
       adapter?.setSetting(KEY_ALWAYS_SHOW_LABELS, msg.enabled);
       break;
 
+    case 'setUsername':
+      adapter?.setSetting(KEY_USERNAME, sanitizeUsername(msg.username));
+      break;
+
     default:
       // Unknown / not-yet-implemented messages are ignored.
       break;
@@ -185,6 +198,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     type: 'settingsLoaded',
     soundEnabled: adapter?.getSetting(KEY_SOUND_ENABLED, true) ?? true,
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
+    username: adapter?.getSetting(KEY_USERNAME, '') ?? '',
   });
 
 

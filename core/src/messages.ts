@@ -48,6 +48,7 @@ export type ClientMessage =
   | RequestLayouts
   | SetSoundEnabled
   | SetAlwaysShowLabels
+  | SetUsername
   | RequestDiagnostics;
 
 export interface ProviderCapabilities {
@@ -261,6 +262,8 @@ export interface SettingsLoaded {
   type: 'settingsLoaded';
   soundEnabled: boolean;
   alwaysShowLabels: boolean;
+  /** Persisted viewer username (empty string when unset). Used for per-user sound filtering. */
+  username: string;
 }
 
 export interface WorkspaceFolders {
@@ -354,6 +357,12 @@ export interface SetSoundEnabled {
 export interface SetAlwaysShowLabels {
   type: 'setAlwaysShowLabels';
   enabled: boolean;
+}
+
+/** Webview -> server: change the persisted viewer username (server sanitizes/truncates). */
+export interface SetUsername {
+  type: 'setUsername';
+  username: string;
 }
 
 export interface RequestDiagnostics {
