@@ -49,8 +49,11 @@ export class OfficeScene extends Phaser.Scene {
   private tip!: HTMLDivElement;
   private editor!: LayoutEditor;
   private layoutsPanel!: HTMLDivElement;
-  // Settings + viewer identity (sounds play only for the viewer's own agents).
+  // Settings + viewer identity (sounds play only for the viewer's own agents;
+  // an empty name means "all agents are mine"). A name set in Settings overrides
+  // the login identity and is remembered per browser.
   private viewerUsername = '';
+  private nameOverridden = false;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -82,6 +85,22 @@ export class OfficeScene extends Phaser.Scene {
       rebuildStatic: () => this.view.buildStatic(),
       save: (layout) => this.saveEditedLayout(layout),
     });
+    // A name chosen in Settings (remembered per browser) wins over the login id.
+    try {
+      const saved = localStorage.getItem('pa-viewer-name');
+      if (saved) {
+        this.viewerUsername = saved;
+        this.nameOverridden = true;
+      }
+    } catch {
+      /* localStorage unavailable */
+    }
+    // Browsers only allow audio after a user gesture; the in-canvas pointerdown
+    // misses clicks on the DOM panels, so unlock on the first gesture anywhere.
+    const unlock = (): void => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+
     this.createTooltip();
     this.createLayoutsPanel();
     this.createSettingsPanel();
@@ -112,7 +131,10 @@ export class OfficeScene extends Phaser.Scene {
       this.room = await connect();
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
-        else if (m.type === 'viewerIdentity') this.viewerUsername = (m.username as string) ?? '';
+        else if (m.type === 'viewerIdentity') {
+          if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
+          this.syncSettingsInputs();
+        }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else assetBridge(m);
       });
@@ -478,6 +500,9 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings .row{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:16px;}
       #pa-settings .row input[type=range]{flex:1;}
       #pa-settings .row label{flex:1;}
+      #pa-settings .row input[type=text]{flex:1;min-width:0;background:#14161c;color:#eef1f6;
+        border:2px solid #3a4150;border-radius:5px;padding:5px 7px;font:15px 'FS Pixel Sans',monospace;}
+      #pa-settings .hint{font-size:13px;color:#8b93a3;margin:-4px 0 10px;}
     `;
     document.head.appendChild(style);
 
@@ -488,6 +513,8 @@ export class OfficeScene extends Phaser.Scene {
     const panel = document.createElement('div');
     panel.id = 'pa-settings';
     panel.innerHTML = `<h4>Settings</h4>
+      <div class="row"><label for="pa-name">Your name</label><input id="pa-name" type="text" maxlength="16" placeholder="(all agents)"></div>
+      <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>`;
@@ -499,9 +526,23 @@ export class OfficeScene extends Phaser.Scene {
     host.appendChild(panel);
     this.settingsPanel = panel;
 
+    const name = panel.querySelector<HTMLInputElement>('#pa-name')!;
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
+    name.onchange = () => {
+      const v = name.value.trim().slice(0, 16);
+      this.viewerUsername = v;
+      this.nameOverridden = true;
+      try {
+        if (v) localStorage.setItem('pa-viewer-name', v);
+        else localStorage.removeItem('pa-viewer-name');
+      } catch {
+        /* localStorage unavailable */
+      }
+      unlockAudio();
+      this.clearNameLabels(); // labels re-render with the new name on next tick
+    };
     snd.onchange = () => {
       this.soundOn = snd.checked;
       setSoundEnabled(this.soundOn);
@@ -523,6 +564,9 @@ export class OfficeScene extends Phaser.Scene {
 
   private syncSettingsInputs(): void {
     if (!this.settingsPanel) return;
+    const nameEl = this.settingsPanel.querySelector<HTMLInputElement>('#pa-name');
+    // Don't clobber the field while the user is editing it.
+    if (nameEl && document.activeElement !== nameEl) nameEl.value = this.viewerUsername;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
