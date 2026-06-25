@@ -129,6 +129,11 @@ function connect() {
   ws = new WebSocket(SERVER, SUBPROTOCOLS);
   ws.onopen = () => {
     console.log('[client] connected. Streaming', ROOT);
+    // Re-replay recent sessions on every (re)connect: the server may be freshly
+    // (re)started and have no agents, so resend each fresh session's backlog —
+    // including its final turn_duration — otherwise a re-created agent would be
+    // stuck "active" and never go idle. (Replayed backlog suppresses sub-agents.)
+    state.clear();
     if (timer) clearInterval(timer);
     timer = setInterval(tick, INTERVAL);
   };
