@@ -18,6 +18,7 @@ export const TileType = {
   FLOOR_7: 7,
   FLOOR_8: 8,
   FLOOR_9: 9,
+  FLOOR_10: 10, // corporate bathroom ceramic tile (floor_9.png)
   VOID: 255,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
