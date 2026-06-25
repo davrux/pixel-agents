@@ -1,4 +1,8 @@
 import {
+  COFFEE_COOLDOWN_MAX_SEC,
+  COFFEE_COOLDOWN_MIN_SEC,
+  COFFEE_STAND_MAX_SEC,
+  COFFEE_STAND_MIN_SEC,
   SEAT_REST_MAX_SEC,
   SEAT_REST_MIN_SEC,
   TYPE_FRAME_DURATION_SEC,
@@ -12,7 +16,13 @@ import {
 import { findPath } from '../layout/tileMap.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
-import type { Character, Seat, SpriteData, TileType as TileTypeVal } from '../types.js';
+import type {
+  Character,
+  InteractionPoint,
+  Seat,
+  SpriteData,
+  TileType as TileTypeVal,
+} from '../types.js';
 import { CharacterState, Direction, TILE_SIZE } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
@@ -75,6 +85,9 @@ export function createCharacter(
     wanderLimit: randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX),
     isActive: true,
     seatId,
+    stationId: null,
+    stationTimer: 0,
+    coffeeCooldown: randomRange(COFFEE_COOLDOWN_MIN_SEC, COFFEE_COOLDOWN_MAX_SEC),
     bubbleType: null,
     bubbleTimer: 0,
     seatTimer: 0,
@@ -93,6 +106,7 @@ export function updateCharacter(
   dt: number,
   walkableTiles: Array<{ col: number; row: number }>,
   seats: Map<string, Seat>,
+  stations: Map<string, InteractionPoint>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
 ): void {
@@ -125,6 +139,24 @@ export function updateCharacter(
       // No idle animation — static pose
       ch.frame = 0;
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
+
+      // Standing at an interaction station (e.g. coffee machine)?
+      if (ch.stationId) {
+        const station = stations.get(ch.stationId);
+        if (!station || ch.isActive) {
+          // Work resumed or station vanished → end the break and continue below.
+          releaseStation(ch, stations);
+        } else {
+          ch.dir = station.facingDir;
+          ch.stationTimer -= dt;
+          if (ch.stationTimer <= 0) {
+            releaseStation(ch, stations);
+            ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          }
+          break; // stand still while on the break
+        }
+      }
+
       // If became active, pathfind to seat
       if (ch.isActive) {
         if (!ch.seatId) {
@@ -222,6 +254,26 @@ export function updateCharacter(
         ch.x = center.x;
         ch.y = center.y;
 
+        // Arrived at an interaction station → stand facing the furniture.
+        if (ch.stationId) {
+          const station = stations.get(ch.stationId);
+          if (
+            station &&
+            !ch.isActive &&
+            ch.tileCol === station.col &&
+            ch.tileRow === station.row
+          ) {
+            ch.state = CharacterState.IDLE;
+            ch.dir = station.facingDir;
+            ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+            ch.frame = 0;
+            ch.frameTimer = 0;
+            break;
+          }
+          // Not actually there, became active, or station gone → drop the claim.
+          releaseStation(ch, stations);
+        }
+
         if (ch.isActive) {
           if (!ch.seatId) {
             // No seat — type in place
@@ -289,6 +341,11 @@ export function updateCharacter(
         ch.moveProgress = 0;
       }
 
+      // If work resumed while walking to a coffee break, abandon the claim.
+      if (ch.isActive && ch.stationId) {
+        releaseStation(ch, stations);
+      }
+
       // If became active while wandering, repath to seat
       if (ch.isActive && ch.seatId) {
         const seat = seats.get(ch.seatId);
@@ -330,6 +387,15 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
     default:
       return sprites.walk[ch.dir][1];
   }
+}
+
+/** Release the agent's interaction-station claim (idempotent). */
+function releaseStation(ch: Character, stations: Map<string, InteractionPoint>): void {
+  if (!ch.stationId) return;
+  const station = stations.get(ch.stationId);
+  if (station && station.occupantId === ch.id) station.occupantId = null;
+  ch.stationId = null;
+  ch.stationTimer = 0;
 }
 
 function randomRange(min: number, max: number): number {

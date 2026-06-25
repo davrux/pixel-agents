@@ -18,6 +18,16 @@ export const WANDER_MOVES_BEFORE_REST_MAX = 6;
 export const SEAT_REST_MIN_SEC = 120.0;
 export const SEAT_REST_MAX_SEC = 240.0;
 
+// ── Interaction stations (coffee machine, …) ────────────────
+/** Chance, per idle wander decision, that an inactive agent heads for coffee. */
+export const COFFEE_BREAK_CHANCE = 0.12;
+/** How long an agent stands at a station before resuming. */
+export const COFFEE_STAND_MIN_SEC = 4.0;
+export const COFFEE_STAND_MAX_SEC = 9.0;
+/** Cooldown between coffee breaks (also the randomised initial delay). */
+export const COFFEE_COOLDOWN_MIN_SEC = 30.0;
+export const COFFEE_COOLDOWN_MAX_SEC = 90.0;
+
 // ── Pets ─────────────────────────────────────────────────────
 // Pets spawn based on connected agents: target = min(PET_MAX, floor(agents / PET_AGENTS_PER_PET))
 export const PET_AGENTS_PER_PET = 2;

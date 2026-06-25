@@ -56,6 +56,33 @@ export interface Seat {
   assigned: boolean;
 }
 
+export type Posture = 'sit' | 'stand';
+export type StationKind = 'desk' | 'lounge' | 'appliance';
+
+/**
+ * A place an agent can occupy and do something at — the generalised version of
+ * Seat. Appliances such as the coffee machine yield a `stand` point on the
+ * adjacent walkable tile, facing the furniture. Capacity is one (`occupantId`).
+ *
+ * For now this models the new standing stations only; chair seats still use the
+ * `Seat` type above and are intended to fold into this in a later step.
+ */
+export interface InteractionPoint {
+  uid: string;
+  /** Tile col the agent stands/sits on */
+  col: number;
+  /** Tile row the agent stands/sits on */
+  row: number;
+  /** Direction the agent faces while here (toward the furniture) */
+  facingDir: Direction;
+  posture: Posture;
+  station: StationKind;
+  /** Furniture type this point belongs to (e.g. 'COFFEE_MACHINE') */
+  furnitureType: string;
+  /** Agent id currently occupying it, or null when free */
+  occupantId: number | null;
+}
+
 // ── Pets ─────────────────────────────────────────────────────
 export const PetKind = { DOG: 'dog', CAT: 'cat' } as const;
 export type PetKind = (typeof PetKind)[keyof typeof PetKind];
@@ -210,6 +237,12 @@ export interface Character {
   isActive: boolean;
   /** Assigned seat uid, or null if no seat */
   seatId: string | null;
+  /** Interaction station (e.g. coffee machine) being visited, or null */
+  stationId: string | null;
+  /** Remaining time to stand at the current station, in seconds */
+  stationTimer: number;
+  /** Cooldown before the agent may take another coffee break, in seconds */
+  coffeeCooldown: number;
   /** Active speech bubble type, or null if none showing */
   bubbleType: 'permission' | 'waiting' | null;
   /** Countdown timer for bubble (waiting: 2→0, permission: unused) */

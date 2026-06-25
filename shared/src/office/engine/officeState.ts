@@ -4,6 +4,11 @@ import {
   CHARACTER_HIT_HALF_WIDTH,
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
+  COFFEE_BREAK_CHANCE,
+  COFFEE_COOLDOWN_MAX_SEC,
+  COFFEE_COOLDOWN_MIN_SEC,
+  COFFEE_STAND_MAX_SEC,
+  COFFEE_STAND_MIN_SEC,
   DISMISS_BUBBLE_FAST_FADE_SEC,
   FURNITURE_ANIM_INTERVAL_SEC,
   HUE_SHIFT_MIN_DEG,
@@ -30,6 +35,7 @@ import { getLoadedCharacterCount, getLoadedPetVariantCount } from '../sprites/sp
 import type {
   Character,
   FurnitureInstance,
+  InteractionPoint,
   OfficeLayout,
   Pet,
   PetKind,
@@ -50,10 +56,16 @@ import { matrixEffectSeeds } from './matrixEffect.js';
 import type { PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, updatePet } from './pets.js';
 
+/** Furniture types that yield a standing interaction point (a place to walk to
+ *  and stand at). Coffee machine for now; extend with FRIDGE, WATER_COOLER, … */
+const APPLIANCE_TYPES = new Set(['COFFEE_MACHINE']);
+
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
   seats: Map<string, Seat>;
+  /** Standing interaction points derived from appliances (coffee machine, …). */
+  stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
@@ -87,6 +99,7 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(this.layout.furniture);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+    this.buildStations();
   }
 
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
@@ -103,6 +116,13 @@ export class OfficeState {
     this.blockedTiles = getBlockedTiles(layout.furniture);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
+
+    // Station uids are regenerated; drop stale claims on every character.
+    this.buildStations();
+    for (const ch of this.characters.values()) {
+      ch.stationId = null;
+      ch.stationTimer = 0;
+    }
 
     // Shift character positions when grid expands left/up
     if (shift && (shift.col !== 0 || shift.row !== 0)) {
@@ -203,6 +223,102 @@ export class OfficeState {
     const result = fn();
     if (key) this.blockedTiles.add(key);
     return result;
+  }
+
+  // ── Interaction stations (coffee machine, …) ──────────────
+
+  /** Derive a one-capacity standing point next to each appliance: the first
+   *  walkable tile adjacent to its footprint, facing the furniture. */
+  private buildStations(): void {
+    this.stations = new Map();
+    for (const item of this.layout.furniture) {
+      if (!APPLIANCE_TYPES.has(item.type)) continue;
+      const entry = getCatalogEntry(item.type);
+      if (!entry) continue;
+      const w = entry.footprintW;
+      const h = entry.footprintH;
+
+      // Candidate stand tiles around the footprint (front/below first), each
+      // facing back toward the appliance.
+      const candidates: Array<{ col: number; row: number; facing: Direction }> = [];
+      for (let dc = 0; dc < w; dc++) {
+        candidates.push({ col: item.col + dc, row: item.row + h, facing: Direction.UP });
+        candidates.push({ col: item.col + dc, row: item.row - 1, facing: Direction.DOWN });
+      }
+      for (let dr = 0; dr < h; dr++) {
+        candidates.push({ col: item.col - 1, row: item.row + dr, facing: Direction.RIGHT });
+        candidates.push({ col: item.col + w, row: item.row + dr, facing: Direction.LEFT });
+      }
+
+      const spot = candidates.find(
+        (c) =>
+          isWalkable(c.col, c.row, this.tileMap, this.blockedTiles) &&
+          !this.isStationTile(c.col, c.row),
+      );
+      if (!spot) continue;
+
+      const uid = `station:${item.uid}`;
+      this.stations.set(uid, {
+        uid,
+        col: spot.col,
+        row: spot.row,
+        facingDir: spot.facing,
+        posture: 'stand',
+        station: 'appliance',
+        furnitureType: item.type,
+        occupantId: null,
+      });
+    }
+  }
+
+  private isStationTile(col: number, row: number): boolean {
+    for (const s of this.stations.values()) {
+      if (s.col === col && s.row === row) return true;
+    }
+    return false;
+  }
+
+  private findFreeStation(): string | null {
+    const free: string[] = [];
+    for (const [uid, s] of this.stations) {
+      if (s.occupantId === null) free.push(uid);
+    }
+    if (free.length === 0) return null;
+    return free[Math.floor(Math.random() * free.length)];
+  }
+
+  /** Occasionally send an idle, inactive agent to stand at a free appliance. */
+  private maybeStartCoffeeBreak(ch: Character, dt: number): void {
+    if (ch.coffeeCooldown > 0) ch.coffeeCooldown -= dt;
+    // Only when idle, off the clock, not already on a break, and standing still.
+    if (ch.isActive || ch.stationId || ch.state !== CharacterState.IDLE) return;
+    if (ch.path.length > 0 || ch.coffeeCooldown > 0 || this.stations.size === 0) return;
+    if (Math.random() >= COFFEE_BREAK_CHANCE) return;
+
+    const uid = this.findFreeStation();
+    if (!uid) return;
+    const station = this.stations.get(uid)!;
+    const path = this.withOwnSeatUnblocked(ch, () =>
+      findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles),
+    );
+
+    // Reserve the station and head over (start the cooldown regardless).
+    station.occupantId = ch.id;
+    ch.stationId = uid;
+    ch.coffeeCooldown =
+      COFFEE_COOLDOWN_MIN_SEC + Math.random() * (COFFEE_COOLDOWN_MAX_SEC - COFFEE_COOLDOWN_MIN_SEC);
+    if (path.length > 0) {
+      ch.path = path;
+      ch.moveProgress = 0;
+      ch.state = CharacterState.WALK;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+    } else {
+      // Already on the tile — stand immediately.
+      ch.dir = station.facingDir;
+      ch.stationTimer =
+        COFFEE_STAND_MIN_SEC + Math.random() * (COFFEE_STAND_MAX_SEC - COFFEE_STAND_MIN_SEC);
+    }
   }
 
   private findFreeSeat(): string | null {
@@ -361,6 +477,12 @@ export class OfficeState {
     if (ch.seatId) {
       const seat = this.seats.get(ch.seatId);
       if (seat) seat.assigned = false;
+    }
+    // Release any interaction-station claim.
+    if (ch.stationId) {
+      const station = this.stations.get(ch.stationId);
+      if (station && station.occupantId === id) station.occupantId = null;
+      ch.stationId = null;
     }
     if (this.selectedAgentId === id) this.selectedAgentId = null;
     if (this.cameraFollowId === id) this.cameraFollowId = null;
@@ -775,9 +897,20 @@ export class OfficeState {
         continue; // skip normal FSM while effect is active
       }
 
+      // Maybe head off for a coffee break (idle, inactive agents only).
+      this.maybeStartCoffeeBreak(ch, dt);
+
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+        updateCharacter(
+          ch,
+          dt,
+          this.walkableTiles,
+          this.seats,
+          this.stations,
+          this.tileMap,
+          this.blockedTiles,
+        ),
       );
 
       // Tick bubble timer for waiting bubbles
