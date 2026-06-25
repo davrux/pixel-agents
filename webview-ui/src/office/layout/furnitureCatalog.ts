@@ -31,6 +31,7 @@ export type FurnitureCategory =
   | 'decor'
   | 'electronics'
   | 'wall'
+  | 'kitchens'
   | 'misc';
 
 /** @internal */
@@ -344,6 +345,7 @@ export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string 
   { id: 'electronics', label: 'Tech' },
   { id: 'decor', label: 'Decor' },
   { id: 'wall', label: 'Wall' },
+  { id: 'kitchens', label: 'Kitchen' },
   { id: 'misc', label: 'Misc' },
 ];
 
