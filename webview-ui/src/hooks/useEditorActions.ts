@@ -286,8 +286,10 @@ export function useEditorActions(
   }, [getOfficeState, editorState, applyEdit]);
 
   const handleRotateSelected = useCallback(() => {
-    // If in furniture placement mode, cycle the selected type through the rotation group
-    if (editorState.activeTool === EditTool.FURNITURE_PLACE) {
+    // While placing (a furniture type is selected as the ghost), cycle that type
+    // through the rotation group. With no type selected, the FURNITURE tool acts
+    // like SELECT, so fall through to rotating the selected placed item instead.
+    if (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType) {
       const rotated = getRotatedType(editorState.selectedFurnitureType, 'cw');
       if (rotated) {
         editorState.selectedFurnitureType = rotated;
@@ -306,8 +308,10 @@ export function useEditorActions(
   }, [getOfficeState, editorState, applyEdit]);
 
   const handleToggleState = useCallback(() => {
-    // If in furniture placement mode, toggle the selected type's state
-    if (editorState.activeTool === EditTool.FURNITURE_PLACE) {
+    // While placing (a furniture type is selected as the ghost), toggle that type's
+    // state. With no type selected, the FURNITURE tool acts like SELECT, so fall
+    // through to toggling the selected placed item instead.
+    if (editorState.activeTool === EditTool.FURNITURE_PLACE && editorState.selectedFurnitureType) {
       const toggled = getToggledType(editorState.selectedFurnitureType);
       if (toggled) {
         editorState.selectedFurnitureType = toggled;
