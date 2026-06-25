@@ -77,27 +77,25 @@ export function SettingsModal({
         }}
       />
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="settings-volume" className="text-text text-sm">
-          Alert Volume
-        </label>
-        <div className="flex items-center gap-3">
-          <input
-            id="settings-volume"
-            type="range"
-            min={0}
-            max={1}
-            step={0.01}
-            value={volumeLocal}
-            disabled={!soundLocal}
-            onChange={(e) => commitVolume(Number(e.target.value))}
-            onPointerUp={() => soundLocal && playDoneSound()}
-            className="flex-1 accent-text disabled:opacity-40"
-          />
-          <span className="text-text-muted text-xs w-9 text-right tabular-nums">
+      <div className="flex flex-col gap-3 py-6 px-10">
+        <div className="flex items-center justify-between">
+          <label htmlFor="settings-volume">Alert Volume</label>
+          <span className="text-text-muted w-14 text-right tabular-nums">
             {Math.round(volumeLocal * 100)}%
           </span>
         </div>
+        <input
+          id="settings-volume"
+          type="range"
+          min={0}
+          max={1}
+          step={0.01}
+          value={volumeLocal}
+          disabled={!soundLocal}
+          onChange={(e) => commitVolume(Number(e.target.value))}
+          onPointerUp={() => soundLocal && playDoneSound()}
+          className="w-full accent-accent disabled:opacity-40"
+        />
       </div>
 
       <Checkbox
@@ -107,10 +105,8 @@ export function SettingsModal({
       />
       <Checkbox label="Debug View" checked={isDebugMode} onChange={onToggleDebugMode} />
 
-      <div className="flex flex-col gap-1">
-        <label htmlFor="settings-username" className="text-text text-sm">
-          Username
-        </label>
+      <div className="flex flex-col gap-3 py-6 px-10">
+        <label htmlFor="settings-username">Username</label>
         <input
           id="settings-username"
           type="text"
@@ -125,9 +121,9 @@ export function SettingsModal({
               (e.target as HTMLInputElement).blur();
             }
           }}
-          className="bg-btn-bg border-2 border-border rounded-none px-4 py-2 text-text"
+          className="w-full bg-btn-bg border-2 border-border rounded-none px-4 py-3 text-text"
         />
-        <span className="text-text-muted text-xs">
+        <span className="text-text-muted text-sm">
           Task sounds play only for agents matching this name. Leave empty to hear all.
         </span>
       </div>
