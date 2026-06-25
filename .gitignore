@@ -1,37 +1,24 @@
-# Compiled output
-out
-dist
-node_modules
+node_modules/
+dist/
+client/dist/
 *.tsbuildinfo
 
-# Logs
-/logs
 *.log
-npm-debug.log*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode-test/
-/.idea
-
-# E2E test artifacts
-test-results/
-playwright-report/
-
-# Build artifacts
-*.vsix
-*.map
+data/
 
 # Environment files
 .env*
 !.env.example
 
-# Project-specific
+.agent-shell/
 .claude/
-/sprites-export
 
-# Local notes (not for commit)
-/notes/
+.DS_Store
+Thumbs.db
+
+# Unused LimeZu asset packs kept locally (an earlier iteration). Not used by the
+# app anymore — the office uses the original pixel-agents assets in assets/.
+/Modern_Interiors_Free/
+/MetroCity/
+/moderninteriors/
+tmp/

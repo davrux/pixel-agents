@@ -1,17 +1,22 @@
-# Installed fresh inside the build stage
+# Reinstalled inside the image; never copy host build output or local state.
 node_modules
 **/node_modules
-
-# Rebuilt inside the build stage
 dist
+client/dist
+**/*.log
+data
+tmp
 
-# VCS / local / docs not needed for the build
+# VCS + tooling
 .git
 .gitignore
-.gitattributes
-.editorconfig
-*.log
-.pixel-agents
-.pixel-stream
-Dockerfile
-.dockerignore
+.agent-shell
+.claude
+
+# Large raw tileset packs kept locally but unused by the app (see .gitignore).
+MetroCity
+Modern_Interiors_Free
+moderninteriors
+
+.DS_Store
+Thumbs.db

@@ -1,37 +1,24 @@
 {
   "name": "pixel-agents",
-  "description": "Central server that renders the agents of multiple streaming clients as animated pixel characters",
-  "version": "2.0.0",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Multi-agent pixel world rendered with Colyseus (authoritative server) + Phaser (client). A rewrite of pixel-agents.",
   "license": "MIT",
   "packageManager": "pnpm@11.9.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/pixel-agents-hq/pixel-agents"
+    "url": "https://codeberg.org/davrux/pixel-agents"
   },
-  "bin": {
-    "pixel-agents": "./dist/stream.js"
-  },
-  "main": "./dist/stream.js",
   "scripts": {
-    "build": "node esbuild.js --production && pnpm run build:webview",
-    "build:webview": "cd webview-ui && node_modules/.bin/vite build",
-    "serve": "node dist/stream.js",
-    "check-types": "tsc --noEmit",
+    "dev": "pnpm -r --parallel run dev",
+    "dev:server": "pnpm --filter @pixel/server run dev",
+    "dev:client": "pnpm --filter @pixel/client run dev",
+    "build": "pnpm --filter @pixel/client run build",
+    "start": "pnpm --filter @pixel/server run start",
+    "serve": "pnpm --filter @pixel/server run start",
+    "check-types": "pnpm -r run check-types",
     "docker:build": "docker build -t \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\" .",
     "docker:push": "docker push \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\"",
     "docker:release": "pnpm run docker:build && pnpm run docker:push"
-  },
-  "dependencies": {
-    "@fastify/cors": "^11.2.0",
-    "@fastify/static": "^9.1.1",
-    "@fastify/websocket": "^11.2.0",
-    "fastify": "^5.8.5"
-  },
-  "devDependencies": {
-    "@types/node": "25.x",
-    "@types/pngjs": "^6.0.5",
-    "esbuild": "^0.28.0",
-    "pngjs": "^7.0.0",
-    "typescript": "^5.9.3"
   }
 }

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>pixel-agents · MetroCity</title>
+    <style>
+      @font-face {
+        font-family: 'FS Pixel Sans';
+        src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+        font-weight: 400;
+        font-display: block;
+      }
+      html, body { margin: 0; padding: 0; height: 100%; background: #14161c; overflow: hidden; }
+      #game { width: 100vw; height: 100vh; }
+      #status {
+        position: fixed; top: 8px; left: 8px; z-index: 10;
+        font: 13px/1.4 'FS Pixel Sans', ui-monospace, monospace; color: #9aa4b2;
+        background: rgba(0,0,0,.4); padding: 4px 8px; border-radius: 4px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="status">connecting…</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

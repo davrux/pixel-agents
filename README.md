@@ -1,151 +1,101 @@
-# pixel-agents
+# pixel-agents2
 
-A **fork of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents)** used as a template. Instead of polling local `~/.claude/projects` JSONL files, a **central server** receives the transcript **streams** of multiple **clients** over WebSocket and renders their agents together in the pixel office UI.
+A port of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents) onto a
+**game-engine stack**: the original office — **all of its graphics, animations,
+fonts, layout and agent behaviour** — runs **1:1**, with only the plumbing
+swapped: **[Colyseus](https://colyseus.io/)** replaces the WebSocket transport
+and **[Phaser](https://phaser.io/)** replaces the canvas renderer.
 
-> 🎮 **This is a fun, hobby project** — built for the joy of it, not as a hardened
-> product. Expect rough edges; no stability, security, or support guarantees. Use
-> it at your own risk and have fun. 🙂
->
-> 🤖 **It is also a pure AI project** — essentially all of the code in this fork was
-> written by an AI coding agent. Treat it accordingly.
+Multiple Claude clients stream their transcripts to the server; each agent
+becomes a pixel character that walks to a desk, types/reads, idles and wanders,
+shows permission/waiting bubbles, spawns sub-agents, and shares the office with
+the occasional pet — exactly like the original.
 
-## Architecture
+## How the 1:1 port works
 
 ```
-Client A ─┐  client/pixel-agents-client.js (reads local ~/.claude/projects/*.jsonl)
-Client B ─┼── WS /feed (user + token in Sec-WebSocket-Protocol header)  ──► port 7171
-Client C ─┘   (streams new JSONL lines, no hook)            │ processTranscriptLine
-                                                            ▼ (in memory only)
-                                          AgentStateStore ──► port 6161  /ws ──► browser
-                                                            (display, cookie auth)
+Claude clients ──JSONL──► /feed (WS :7171)
+   feeder/…feeder.cjs            │ transcriptParser → AgentEvent
+                                 ▼
+                            AgentDirector (registry + event forwarder)
+                                 │  original wire messages ("m" channel)
+                                 ▼
+Browser (Phaser) ◄── Colyseus :2567 ── RelayRoom
+   │                                     • decodes PNG assets → SpriteData (pngjs)
+   │                                     • serves default-layout-1.json
+   │                                     • replays/streams agentCreated, agentStatus,
+   │                                       agentToolStart, agentTeamInfo, … verbatim
+   ▼
+ office engine (ported 1:1 from the original webview)
+   OfficeState FSM · characters · pets · sprites · colorize · layout
+   ▼
+ PhaserRenderer  — turns the engine's SpriteData into Phaser textures and draws
+   floor / walls / furniture / characters / pets / bubbles with the same z-sort
 ```
 
-**Two separate ports, one process, shared in-memory store:**
-- **7171** — own listener, accepts ONLY client streams (`/feed`, token-protected via query).
-- **6161** — display: serves the SPA and streams state to the browser (`/ws`). Allows display + **layout/seat/UI persistence**, but **no agent control** (control logic comes later). No `/feed` here.
+- **The office engine is the original code**, copied unchanged into
+  `client/src/office/` (`OfficeState`, `characters`, `pets`, `sprites`,
+  `colorize`, `floorTiles`, `wallTiles`, `layout`). Only the canvas `renderer.ts`
+  and the React/WebSocket glue were dropped.
+- **Colyseus is pure transport.** The room carries the *original* `ServerMessage`
+  protocol on one channel (`m`); the client feeds those straight into a port of
+  the old message handler (`client/src/net/bridge.ts`) which drives `OfficeState`.
+  Room state is empty — there is no server-side simulation.
+- **The server decodes the assets** (reusing the original `assetLoader` +
+  `core/assets` pngjs decoders) and sends the same `characterSpritesLoaded` /
+  `floorTilesLoaded` / `furnitureAssetsLoaded` / … messages on join.
+- **`PhaserRenderer`** converts each `SpriteData` colour-grid into a cached
+  Phaser texture (`render/sprites.ts`) and renders with the original draw order,
+  depth-sort, sitting offsets, colorization and bubble placement.
 
-**Frontend auth (same token as the clients):** On first access the viewer shows a
-**login page**; the AUTH token is submitted via **`POST /login`** (in the request
-body, never in the URL). On success the server starts an **in-memory session**
-and sets an **HttpOnly cookie** (`pixel_stream_sid`) holding only an opaque,
-random session id — never the token. The cookie survives page reloads; sessions
-are in memory, so a server restart just requires a re-login. The `/ws` upgrade
-requires a valid session (otherwise it closes with code 4001, and the frontend
-redirects to the login page). Static assets are not protected (no secret); the
-data flows only over `/ws`.
+## Packages (pnpm workspace)
 
-**AUTH token is required:** the server and clients take the token from `--token`
-(or env `PIXEL_STREAM_TOKEN`). No file fallback — without a token the server does
-not start.
-
-## What changed (vs. the template)
-
-| File | Change |
+| Package | What |
 |---|---|
-| `server/src/streamIngest.ts` | **new** — WS `/feed` endpoint: auth, one agent per client/session, feeds `processTranscriptLine` |
-| `startFeedServer()` (in streamIngest.ts) | own Fastify listener for `/feed` only, on its own port |
-| `server/src/streamServer.ts` | **new** — server entry: viewer (cookie auth) on `--port` 6161, own feed listener on `--feed-port` 7171; token required; **without** fileWatcher/runtime/hooks |
-| `server/src/httpServer.ts` | options `registerExtraRoutes` + `readOnly` (allowlist: display/layout, no agent control) + `viewerAuthToken` (cookie auth) |
-| `server/src/viewerAuth.ts` | **new** — login page + `POST /login`, in-memory sessions, HTML gating, `/ws` session check |
-| `server/src/clientMessageHandler.ts` | render-order fix: re-send `layoutLoaded` after `existingAgents` (render pre-existing agents) |
-| `esbuild.js` | also builds `dist/stream.js` |
-| `client/pixel-agents-client.js` | **new** — client (stream feeder) |
-| `pixel-agents.sh` | **new** — launcher (serve/client/status/stop) |
+| `shared/` | `WORLD_ROOM` + the internal `AgentEvent` type shared by ingest and the room. |
+| `server/` | Colyseus `RelayRoom`, asset decoding (`assetLoader` + `src/core/assets`), `/feed` ingest + `transcriptParser`, `AgentDirector`, mock driver. |
+| `client/` | Phaser scene, the ported `office/` engine, `PhaserRenderer`, the Colyseus↔engine `bridge`. |
+| `feeder/` | Standalone Node script that streams local `~/.claude/projects/**.jsonl` to `/feed`. |
+| `assets/` | The original pixel-agents art: `characters/`, `floors/`, `walls/`, `furniture/` (+manifests), `pets/`, and `default-layout-1.json`. Decoded by the server. |
 
-`core/`, `webview-ui/` (SPA + assets) and `transcriptParser.ts`/`agentStateStore.ts` are reused **unchanged**.
+Font: **FS Pixel Sans** (`client/public/fonts/`), the original's UI font.
 
-## Usage
-
-**Server (central):**
-```bash
-./pixel-agents.sh serve -d --token <T>        # viewer 6161 + feed 7171
-./pixel-agents.sh serve -d -p 6161 --feed-port 7171 --token <T>
-./pixel-agents.sh --status | --stop
-# Viewer: http://<server>:6161  (login page; enter the AUTH token)
-```
-
-**Client (each machine with Claude/agent-shell):**
-```bash
-./pixel-agents.sh client --server ws://<server>:7171/feed --user alice --token <T> -d
-```
-
-## Build (pnpm)
+## Run (development)
 
 ```bash
-pnpm install     # pnpm workspace: installs root + webview-ui
-pnpm build       # production release: dist/stream.js (minified) + dist/webview
+pnpm install
+
+# Terminal 1 — Colyseus server (+ 6 synthetic agents so the office is alive):
+MOCK=6 pnpm dev:server          # ws://localhost:2567, feed on :7171
+
+# Terminal 2 — Phaser client:
+pnpm dev:client                 # http://localhost:5173
 ```
 
-`./pixel-agents.sh serve --rebuild ...` runs the same build automatically when
-`dist/stream.js` is missing.
-
-### Supply-chain security
-
-This is a pnpm workspace; dependency **build/lifecycle scripts are not executed**.
-The per-dependency decision lives in `pnpm-workspace.yaml` under `allowBuilds:`
-(only `esbuild: false` — esbuild works without its postinstall, binary via
-optionalDependencies). Any **new** dependency that ships a build script makes
-`pnpm install` stop until it is reviewed and added there on purpose, so no
-unknown install hook ever runs silently.
-
-## Docker
+Stream a **real** Claude agent into the office:
 
 ```bash
-docker build -t pixel-agents .
-
-# Run (token is required); default ports 6161 (viewer) + 7171 (feed):
-docker run --rm -e PIXEL_STREAM_TOKEN=<secret> \
-  -p 6161:6161 -p 7171:7171 -v pixel-data:/data pixel-agents
+node feeder/pixel-agents-feeder.cjs \
+  --server ws://localhost:7171/feed --user alice --token local
 ```
 
-Ports are overridable via environment variables — map the matching host ports:
+`--token` is required by the feeder; the server only enforces it when
+`PIXEL_TOKEN` is set (otherwise any value is accepted).
+
+### Build
 
 ```bash
-docker run --rm \
-  -e PIXEL_STREAM_TOKEN=<secret> \
-  -e PIXEL_STREAM_PORT=8080 \        # viewer / frontend
-  -e PIXEL_STREAM_FEED_PORT=9090 \   # client feed
-  -v pixel-data:/data \             # persist config + layouts
-  -p 8080:8080 -p 9090:9090 pixel-agents
+pnpm build          # type-checks + builds the client into client/dist
+pnpm dev:server     # serves client/dist on :2567 when present (single-port)
 ```
 
-`PIXEL_STREAM_HOST` (default `0.0.0.0`) is also overridable. Persisted state —
-settings plus the SQLite layout database (`layouts.db`) — lives in the directory
-set by `PIXEL_STREAM_DATA_DIR` (default `/data`, declared a `VOLUME`); mount a
-volume there to keep it across restarts. The image requires Node 24 (for the
-built-in `node:sqlite`), runs as the unprivileged `node` user, and exposes a
-`/api/health` healthcheck on the viewer port.
+## Status
 
-### Build & push (pnpm scripts)
+Ported 1:1 and verified: the default office layout, the original character /
+furniture / floor / wall / pet sprites and animations, the FSM behaviour
+(walk-to-seat, typing/reading, idle-only-when-standing, wandering), permission
+and waiting bubbles, sub-agents, team colours, and pets.
 
-```bash
-pnpm docker:build      # docker build -t davrux/pixel-agents:dev .
-pnpm docker:push       # docker push davrux/pixel-agents:dev
-pnpm docker:release    # build + push in one step
-```
-
-The image/tag defaults to `davrux/pixel-agents:dev` and is overridable via the
-`PIXEL_AGENTS_IMAGE` environment variable:
-
-```bash
-PIXEL_AGENTS_IMAGE=davrux/pixel-agents:1.0 pnpm docker:release
-```
-
-### Layouts
-
-The office layout editor (the **Layout** button) edits the *active* layout; the
-**Layouts** button manages saved layouts: load, save-as ("new from current") and
-delete. Edits to the active layout autosave and are pushed live to every other
-connected viewer. The bundled **Default** layout is read-only — it can always be
-loaded but never overwritten or deleted; save a copy to keep your changes.
-
-## Validated (end-to-end)
-
-- Multiple clients visible at once, each with its username (`2:bob`, `3:carol`).
-- Tool activity streams live to the viewer (`agentToolStart`, `agentStatus:active`).
-- In-memory: no file is created, no directory is polled.
-- Two ports separated: you cannot feed via 6161; control messages are ignored.
-- Cookie auth: login without cookie, app with cookie, `/ws` rejected without cookie.
-- Required token: starting without `--token` fails.
-- Layout editing is saved and reloaded after a reload.
-- A client disconnect removes its agents (`agentClosed`).
+Not yet ported: the in-browser layout **editor**, the per-pixel **matrix**
+spawn/despawn effect (currently a fade), and furniture auto-on/animation
+(furniture renders in its default state). These are deferred.

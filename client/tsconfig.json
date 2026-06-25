@@ -1,0 +1,15 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [],
+    "paths": {
+      "@pixel/shared": ["../shared/src/index.ts"],
+      "@pixel/shared/worldConfig": ["../shared/src/worldConfig.ts"],
+      "@pixel/shared/protocol": ["../shared/src/protocol.ts"],
+      "@pixel/shared/schema": ["../shared/src/schema/index.ts"],
+      "@pixel/shared/office/*": ["../shared/src/office/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

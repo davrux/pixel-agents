@@ -14,26 +14,26 @@ import {
   CHAR_FRAMES_PER_ROW,
   DOG_COUNT,
   WALL_BITMASK_COUNT,
-} from '../../core/src/assets/constants.js';
+} from './core/assets/constants.js';
 import type {
   FurnitureAsset,
   FurnitureManifest,
   InheritedProps,
   ManifestGroup,
-} from '../../core/src/assets/manifestUtils.js';
-import { flattenManifest } from '../../core/src/assets/manifestUtils.js';
+} from './core/assets/manifestUtils.js';
+import { flattenManifest } from './core/assets/manifestUtils.js';
 import {
   decodeCharacterPng,
   decodeFloorPng,
   decodePetPng,
   parseWallPng,
   pngToSpriteData,
-} from '../../core/src/assets/pngDecoder.js';
+} from './core/assets/pngDecoder.js';
 import type {
   CharacterDirectionSprites,
   PetDirectionSprites,
-} from '../../core/src/assets/types.js';
-export type { CharacterDirectionSprites, PetDirectionSprites } from '../../core/src/assets/types.js';
+} from './core/assets/types.js';
+export type { CharacterDirectionSprites, PetDirectionSprites } from './core/assets/types.js';
 
 import { LAYOUT_REVISION_KEY } from './constants.js';
 

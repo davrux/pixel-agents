@@ -1,12 +1,12 @@
 packages:
-  - webview-ui
+  - shared
+  - server
+  - client
 
-# Security (supply-chain): per-dependency decision whether its build/lifecycle
-# (postinstall etc.) script may run. Anything NOT listed makes `pnpm install`
-# stop until it has been reviewed and added here on purpose — so no unknown
-# dependency shell script ever runs unnoticed.
-#
-# esbuild needs no build script (its platform binary ships via
-# optionalDependencies), so we deny it.
+# Dependency build/lifecycle scripts are NOT executed by default. Each decision
+# is explicit: esbuild works without its postinstall (binary ships via
+# optionalDependencies) but we allow it so Vite's optimizer is happy;
+# msgpackr-extract is an optional native accelerator with a pure-JS fallback.
 allowBuilds:
-  esbuild: false
+  esbuild: true
+  msgpackr-extract: false

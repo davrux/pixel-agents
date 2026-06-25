@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "noEmit": true,
+    "types": ["node"],
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "baseUrl": ".",
+    "paths": {
+      "@pixel/shared": ["../shared/src/index.ts"],
+      "@pixel/shared/schema": ["../shared/src/schema/index.ts"],
+      "@pixel/shared/office/*": ["../shared/src/office/*"],
+      "@pixel/shared/*": ["../shared/src/*.ts"]
+    }
+  },
+  "include": ["src", "../shared/src"]
+}
