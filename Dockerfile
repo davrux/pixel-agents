@@ -4,12 +4,13 @@
 # Phaser client, served as a static build from the same origin).
 #
 # Build:  docker build -t pixel-agents .
-# Run:    docker run --rm -e PIXEL_STREAM_TOKEN=<secret> -p 6161:6161 -p 7171:7171 \
+# Run:    docker run --rm -e PIXEL_STREAM_TOKEN=<secret> -p 6161:6161 \
 #                 -v pixel-data:/data pixel-agents
 #
+# Single port: the browser, Colyseus and the agent feed (/feed) all share it.
+#
 # Env (see server/src/index.ts + server/src/paths.ts):
-#   PIXEL_STREAM_PORT        viewer / frontend port (default 6161)
-#   PIXEL_STREAM_FEED_PORT   client-feed port       (default 7171)
+#   PIXEL_STREAM_PORT        viewer + Colyseus + /feed port (default 6161)
 #   PIXEL_STREAM_HOST        bind address           (default 0.0.0.0)
 #   PIXEL_STREAM_TOKEN       shared AUTH token       (empty → open, no login)
 #   PIXEL_STREAM_DATA_DIR    SQLite sessions/layouts (default /data; mount a volume)
@@ -37,7 +38,6 @@ RUN corepack enable
 ENV NODE_ENV=production \
     PIXEL_STREAM_HOST=0.0.0.0 \
     PIXEL_STREAM_PORT=6161 \
-    PIXEL_STREAM_FEED_PORT=7171 \
     PIXEL_STREAM_DATA_DIR=/data
 COPY --from=build /app /app
 
@@ -46,9 +46,9 @@ COPY --from=build /app /app
 RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 
-# Viewer (frontend) + client-feed ports — defaults; override the env vars above
-# and map the matching ports with -p when you change them.
-EXPOSE 6161 7171
+# Single port for viewer + Colyseus + /feed (override PIXEL_STREAM_PORT and the
+# matching -p mapping if you change it).
+EXPOSE 6161
 
 USER node
 

@@ -14,7 +14,7 @@ the occasional pet — exactly like the original.
 ## How the 1:1 port works
 
 ```
-Claude clients ──JSONL──► /feed (WS :7171)
+Claude clients ──JSONL──► /feed (WS, shares the viewer port)
    feeder/…feeder.cjs            │ transcriptParser → AgentEvent
                                  ▼
                             AgentDirector (registry + event forwarder)
@@ -66,28 +66,33 @@ Font: **FS Pixel Sans** (`client/public/fonts/`), the original's UI font.
 pnpm install
 
 # Terminal 1 — Colyseus server (+ 6 synthetic agents so the office is alive):
-MOCK=6 pnpm dev:server          # ws://localhost:2567, feed on :7171
+MOCK=6 pnpm dev:server          # http://localhost:2567 (viewer + Colyseus + /feed)
 
-# Terminal 2 — Phaser client:
+# Terminal 2 — Phaser client (hot-reload dev server only; prod is served by the
+# server itself, see Build below):
 pnpm dev:client                 # http://localhost:5173
 ```
 
-Stream a **real** Claude agent into the office:
+Stream a **real** Claude agent into the office (the feed shares the viewer port):
 
 ```bash
 node feeder/pixel-agents-feeder.cjs \
-  --server ws://localhost:7171/feed --user alice --token local
+  --server ws://localhost:2567/feed --user alice --token local
 ```
 
 `--token` is required by the feeder; the server only enforces it when
-`PIXEL_TOKEN` is set (otherwise any value is accepted).
+`PIXEL_STREAM_TOKEN` is set (otherwise any value is accepted).
 
-### Build
+### Build & run (single server, single port)
 
 ```bash
 pnpm build          # type-checks + builds the client into client/dist
-pnpm dev:server     # serves client/dist on :2567 when present (single-port)
+pnpm start          # one server: viewer, Colyseus and /feed all on one port
 ```
+
+In production there is **no separate client server** — `pnpm start` (and the
+Docker image) serve the built client from the same origin. A viewer only needs
+a browser pointed at the server URL; an agent only needs Claude + the feeder.
 
 ## Status
 

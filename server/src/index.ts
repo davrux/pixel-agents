@@ -13,7 +13,7 @@ import { WORLD_ROOM } from '@pixel/shared';
 import { loadAssetBundle } from './assets.js';
 import { registerAuth } from './auth.js';
 import { SimRoom } from './rooms/SimRoom.js';
-import { startFeedServer } from './ingest/feedServer.js';
+import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';
 
 function arg(name: string, def: string): string {
@@ -21,10 +21,10 @@ function arg(name: string, def: string): string {
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
 }
 
-// Ports/host follow the old project's PIXEL_STREAM_* convention (with PORT/
-// FEED_PORT kept as fallbacks for local dev).
+// Single port for everything: viewer (browser), Colyseus and the agent feed
+// (/feed) all share PORT. Follows the old project's PIXEL_STREAM_* convention
+// (with PORT as a fallback for local dev).
 const PORT = Number(process.env.PIXEL_STREAM_PORT ?? process.env.PORT ?? 2567);
-const FEED_PORT = Number(process.env.PIXEL_STREAM_FEED_PORT ?? process.env.FEED_PORT ?? 7171);
 const HOST = process.env.PIXEL_STREAM_HOST?.trim() || '0.0.0.0';
 // Viewer/feed AUTH token — pass --token <T> at start, or set PIXEL_STREAM_TOKEN
 // (same name the feeder uses). Empty → no login required (open dev mode).
@@ -57,11 +57,14 @@ async function main(): Promise<void> {
   const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer }) });
   gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined });
 
+  // Mount the agent feed (/feed) on the same http server (after Colyseus has
+  // registered its upgrade listener, so the dispatcher can delegate to it).
+  attachFeedServer(httpServer, TOKEN);
+
   httpServer.listen(PORT, HOST, () => {
-    console.log(`[server] Colyseus listening on ${HOST}:${PORT}`);
+    console.log(`[server] listening on ${HOST}:${PORT} (viewer + Colyseus + /feed)`);
   });
 
-  startFeedServer(FEED_PORT, TOKEN);
   if (MOCK > 0) startMockDriver(MOCK);
 }
 

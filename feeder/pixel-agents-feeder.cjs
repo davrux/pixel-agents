@@ -6,8 +6,11 @@
  * STREAMS new lines over a WebSocket connection to the central pixel-agents
  * server (endpoint /feed). NO hook, NO writing to disk.
  *
- * Usage (node feeder/pixel-agents-feeder.mjs ...):
- *   node client/pixel-agents-client.js --server ws://<server>:7171/feed \
+ * The feed shares the viewer's port, so --server is just the viewer URL with a
+ * ws(s):// scheme and a /feed path (e.g. wss://my-host/feed, or :6161 locally).
+ *
+ * Usage (node feeder/pixel-agents-feeder.cjs ...):
+ *   node feeder/pixel-agents-feeder.cjs --server ws://<server>:6161/feed \
  *        --user <name> --token <AUTH-TOKEN> [--root <dir>] [--interval 1000]
  *
  * Env alternatives: PIXEL_SERVER_URL, PIXEL_USER, PIXEL_STREAM_TOKEN,
