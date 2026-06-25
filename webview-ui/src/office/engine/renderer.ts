@@ -68,9 +68,11 @@ export function renderTileGrid(
   zoom: number,
   tileColors?: Array<ColorValue | null>,
   cols?: number,
+  wallSetIndices?: Array<number | null>,
 ): void {
   const s = TILE_SIZE * zoom;
   const useSpriteFloors = hasFloorSprites();
+  const useWallSprites = hasWallSprites();
   const tmRows = tileMap.length;
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
   const layoutCols = cols ?? tmCols;
@@ -87,6 +89,9 @@ export function renderTileGrid(
         // Wall tiles or fallback: solid color
         if (tile === TileType.WALL) {
           const colorIdx = r * layoutCols + c;
+          // Transparent wall sets (index > 0) skip the solid base fill so the
+          // translucent sprite reveals what's behind it (glass partition).
+          if (useWallSprites && (wallSetIndices?.[colorIdx] ?? 0) > 0) continue;
           const wallColor = tileColors?.[colorIdx];
           ctx.fillStyle = wallColor ? wallColorToHex(wallColor) : WALL_COLOR;
         } else {
@@ -620,6 +625,7 @@ export function renderFrame(
   tileColors?: Array<ColorValue | null>,
   layoutCols?: number,
   layoutRows?: number,
+  wallSetIndices?: Array<number | null>,
 ): { offsetX: number; offsetY: number } {
   // Clear
   ctx.clearRect(0, 0, canvasWidth, canvasHeight);
@@ -635,7 +641,7 @@ export function renderFrame(
   const offsetY = Math.floor((canvasHeight - mapH) / 2) + Math.round(panY);
 
   // Draw tiles (floor + wall base color)
-  renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols);
+  renderTileGrid(ctx, tileMap, offsetX, offsetY, zoom, tileColors, layoutCols, wallSetIndices);
 
   // Seat indicators (below furniture/characters, on top of floor)
   if (selection) {
@@ -652,7 +658,9 @@ export function renderFrame(
   }
 
   // Build wall instances for z-sorting with furniture and characters
-  const wallInstances = hasWallSprites() ? getWallInstances(tileMap, tileColors, layoutCols) : [];
+  const wallInstances = hasWallSprites()
+    ? getWallInstances(tileMap, tileColors, layoutCols, wallSetIndices)
+    : [];
   const allFurniture = wallInstances.length > 0 ? [...wallInstances, ...furniture] : furniture;
 
   // Draw walls + furniture + characters (z-sorted)

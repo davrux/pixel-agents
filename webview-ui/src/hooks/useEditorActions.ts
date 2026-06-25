@@ -452,19 +452,35 @@ export function useEditorActions(
         const idx = effectiveRow * layout.cols + effectiveCol;
         const isWall = layout.tiles[idx] === TileType.WALL;
 
+        // A click on an existing wall whose color + set already match the current
+        // paint is treated as an erase (toggle off). A wall that differs is REPLACED,
+        // not deleted — so painting a new colour/set over a wall updates it.
+        const existingColor = layout.tileColors?.[idx] ?? null;
+        const wc = editorState.wallColor;
+        const colorMatches =
+          !!existingColor &&
+          existingColor.h === wc.h &&
+          existingColor.s === wc.s &&
+          existingColor.b === wc.b &&
+          existingColor.c === wc.c &&
+          !!existingColor.colorize === !!wc.colorize;
+        const setMatches = (layout.wallSetIndices?.[idx] ?? 0) === editorState.selectedWallSet;
+        const sameAsCurrent = isWall && colorMatches && setMatches;
+
         // First tile of drag sets direction
         if (editorState.wallDragAdding === null) {
-          editorState.wallDragAdding = !isWall;
+          editorState.wallDragAdding = !sameAsCurrent;
         }
 
         if (editorState.wallDragAdding) {
-          // Add wall with color
+          // Add or replace wall with the current color + selected wall set
           const newLayout = paintTile(
             layout,
             effectiveCol,
             effectiveRow,
             TileType.WALL,
             editorState.wallColor,
+            editorState.selectedWallSet,
           );
           if (newLayout !== layout) {
             applyEdit(newLayout);
@@ -550,11 +566,12 @@ export function useEditorActions(
           }
           editorState.activeTool = EditTool.TILE_PAINT;
         } else if (tile === TileType.WALL) {
-          // Pick wall color and switch to wall tool
+          // Pick wall color + set and switch to wall tool
           const color = layout.tileColors?.[idx];
           if (color) {
             editorState.wallColor = { ...color };
           }
+          editorState.selectedWallSet = layout.wallSetIndices?.[idx] ?? 0;
           editorState.activeTool = EditTool.WALL_PAINT;
         }
         setEditorTick((n) => n + 1);

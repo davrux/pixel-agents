@@ -2,12 +2,43 @@
   "id": "TOILET_STALL",
   "name": "Toilet Stall",
   "category": "bathrooms",
-  "type": "asset",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "3-way-mirror",
   "canPlaceOnWalls": false,
   "canPlaceOnSurfaces": false,
   "backgroundTiles": 1,
-  "width": 32,
-  "height": 32,
-  "footprintW": 2,
-  "footprintH": 2
+  "members": [
+    {
+      "type": "asset",
+      "id": "TOILET_STALL_FRONT",
+      "file": "TOILET_STALL_FRONT.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "front"
+    },
+    {
+      "type": "asset",
+      "id": "TOILET_STALL_BACK",
+      "file": "TOILET_STALL_BACK.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "back"
+    },
+    {
+      "type": "asset",
+      "id": "TOILET_STALL_SIDE",
+      "file": "TOILET_STALL_SIDE.png",
+      "width": 32,
+      "height": 32,
+      "footprintW": 2,
+      "footprintH": 2,
+      "orientation": "side",
+      "mirrorSide": true
+    }
+  ]
 }

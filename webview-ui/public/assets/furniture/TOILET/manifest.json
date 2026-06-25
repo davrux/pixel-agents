@@ -2,12 +2,43 @@
   "id": "TOILET",
   "name": "Toilet",
   "category": "bathrooms",
-  "type": "asset",
+  "type": "group",
+  "groupType": "rotation",
+  "rotationScheme": "3-way-mirror",
   "canPlaceOnWalls": false,
   "canPlaceOnSurfaces": false,
   "backgroundTiles": 0,
-  "width": 16,
-  "height": 16,
-  "footprintW": 1,
-  "footprintH": 1
+  "members": [
+    {
+      "type": "asset",
+      "id": "TOILET_FRONT",
+      "file": "TOILET_FRONT.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "orientation": "front"
+    },
+    {
+      "type": "asset",
+      "id": "TOILET_BACK",
+      "file": "TOILET_BACK.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "orientation": "back"
+    },
+    {
+      "type": "asset",
+      "id": "TOILET_SIDE",
+      "file": "TOILET_SIDE.png",
+      "width": 16,
+      "height": 16,
+      "footprintW": 1,
+      "footprintH": 1,
+      "orientation": "side",
+      "mirrorSide": true
+    }
+  ]
 }

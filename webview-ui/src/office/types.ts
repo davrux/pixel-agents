@@ -172,6 +172,9 @@ export interface OfficeLayout {
   furniture: PlacedFurniture[];
   /** Per-tile color settings, parallel to tiles array. null = wall/no color */
   tileColors?: Array<ColorValue | null>;
+  /** Per-tile wall set index, parallel to tiles array. null/0 = default set; >0 selects
+   *  an alternate wall set (e.g. the transparent glass partition for toilet stalls). */
+  wallSetIndices?: Array<number | null>;
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

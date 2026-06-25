@@ -199,7 +199,7 @@ export function EditorToolbar({
       {/* Sub-panel: Wall — stacked bottom-to-top via column-reverse */}
       {isWallActive && (
         <div className="flex flex-col-reverse gap-4">
-          {/* Color toggle — just above tool row */}
+          {/* Color toggle + Pick — just above tool row */}
           <div className="flex gap-4 items-center">
             <Button
               variant={showWallColor ? 'active' : 'default'}
@@ -208,6 +208,14 @@ export function EditorToolbar({
               title="Adjust wall color"
             >
               Color
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onToolChange(EditTool.EYEDROPPER)}
+              title="Pick wall color + set from an existing wall"
+            >
+              Pick
             </Button>
           </div>
 

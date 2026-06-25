@@ -12,19 +12,23 @@ export function paintTile(
   row: number,
   tileType: TileTypeVal,
   color?: ColorValue,
+  wallSet?: number,
 ): OfficeLayout {
   const idx = row * layout.cols + col;
   if (idx < 0 || idx >= layout.tiles.length) return layout;
 
   const existingColors = layout.tileColors || new Array(layout.tiles.length).fill(null);
+  const existingSets = layout.wallSetIndices || new Array(layout.tiles.length).fill(null);
   const newColor =
     color ??
     (tileType === TileType.WALL || tileType === TileType.VOID
       ? null
       : { ...DEFAULT_NEUTRAL_COLOR });
+  // Wall set index is only meaningful for wall tiles; null everywhere else.
+  const newSet = tileType === TileType.WALL ? (wallSet ?? 0) : null;
 
   // Check if anything actually changed
-  if (layout.tiles[idx] === tileType) {
+  if (layout.tiles[idx] === tileType && (existingSets[idx] ?? null) === (newSet ?? null)) {
     const existingColor = existingColors[idx];
     if (newColor === null && existingColor === null) return layout;
     if (
@@ -43,7 +47,9 @@ export function paintTile(
   tiles[idx] = tileType;
   const tileColors = [...existingColors];
   tileColors[idx] = newColor;
-  return { ...layout, tiles, tileColors };
+  const wallSetIndices = [...existingSets];
+  wallSetIndices[idx] = newSet;
+  return { ...layout, tiles, tileColors, wallSetIndices };
 }
 
 /** Place furniture. Returns new layout (immutable). */
@@ -208,8 +214,9 @@ export function expandLayout(
   layout: OfficeLayout,
   direction: ExpandDirection,
 ): { layout: OfficeLayout; shift: { col: number; row: number } } | null {
-  const { cols, rows, tiles, furniture, tileColors } = layout;
+  const { cols, rows, tiles, furniture, tileColors, wallSetIndices } = layout;
   const existingColors = tileColors || new Array(tiles.length).fill(null);
+  const existingSets = wallSetIndices || new Array(tiles.length).fill(null);
 
   let newCols = cols;
   let newRows = rows;
@@ -233,6 +240,7 @@ export function expandLayout(
   // Build new tile array
   const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
   const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+  const newSets: Array<number | null> = new Array(newCols * newRows).fill(null);
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -240,6 +248,7 @@ export function expandLayout(
       const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
       newTiles[newIdx] = tiles[oldIdx];
       newColors[newIdx] = existingColors[oldIdx];
+      newSets[newIdx] = existingSets[oldIdx];
     }
   }
 
@@ -257,6 +266,7 @@ export function expandLayout(
       rows: newRows,
       tiles: newTiles,
       tileColors: newColors,
+      wallSetIndices: newSets,
       furniture: newFurniture,
     },
     shift: { col: shiftCol, row: shiftRow },

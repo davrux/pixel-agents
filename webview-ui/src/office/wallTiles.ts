@@ -109,6 +109,7 @@ export function getWallInstances(
   tileMap: TileTypeVal[][],
   tileColors?: Array<ColorValue | null>,
   cols?: number,
+  wallSetIndices?: Array<number | null>,
 ): FurnitureInstance[] {
   if (wallSets.length === 0) return [];
   const tmRows = tileMap.length;
@@ -120,9 +121,10 @@ export function getWallInstances(
       if (tileMap[r][c] !== TileType.WALL) continue;
       const colorIdx = r * layoutCols + c;
       const wallColor = tileColors?.[colorIdx];
+      const setIndex = wallSetIndices?.[colorIdx] ?? 0;
       const wallInfo = wallColor
-        ? getColorizedWallSprite(c, r, tileMap, wallColor)
-        : getWallSprite(c, r, tileMap);
+        ? getColorizedWallSprite(c, r, tileMap, wallColor, setIndex)
+        : getWallSprite(c, r, tileMap, setIndex);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,
