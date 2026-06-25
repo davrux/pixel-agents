@@ -1,6 +1,8 @@
 import {
   COFFEE_COOLDOWN_MAX_SEC,
   COFFEE_COOLDOWN_MIN_SEC,
+  COFFEE_FRAME_COUNT,
+  COFFEE_FRAME_DURATION_SEC,
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
   SEAT_REST_MAX_SEC,
@@ -138,8 +140,6 @@ export function updateCharacter(
     }
 
     case CharacterState.IDLE: {
-      // No idle animation — static pose
-      ch.frame = 0;
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
 
       // Standing at an interaction station (e.g. coffee machine)?
@@ -150,14 +150,24 @@ export function updateCharacter(
           releaseStation(ch, stations);
         } else {
           ch.dir = station.facingDir;
+          // Animate the standing/coffee pose (renderer clamps to real frame
+          // count, so the idle-stand fallback stays still).
+          if (ch.frameTimer >= COFFEE_FRAME_DURATION_SEC) {
+            ch.frameTimer -= COFFEE_FRAME_DURATION_SEC;
+            ch.frame = (ch.frame + 1) % COFFEE_FRAME_COUNT;
+          }
           ch.stationTimer -= dt;
           if (ch.stationTimer <= 0) {
             releaseStation(ch, stations);
+            ch.frame = 0;
             ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
           }
-          break; // stand still while on the break
+          break; // stay at the station while on the break
         }
       }
+
+      // No idle animation — static pose
+      ch.frame = 0;
 
       // If became active, pathfind to seat
       if (ch.isActive) {

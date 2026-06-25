@@ -145,6 +145,10 @@ export interface CharacterSprites {
   walk: Record<Direction, [SpriteData, SpriteData, SpriteData, SpriteData]>;
   typing: Record<Direction, [SpriteData, SpriteData]>;
   reading: Record<Direction, [SpriteData, SpriteData]>;
+  /** Standing-at-station animation (coffee, …). Sourced from dedicated template
+   *  frames (index 7+) when the art provides them; otherwise a single idle-stand
+   *  frame, so the pose simply stands still until real art lands. */
+  coffee: Record<Direction, SpriteData[]>;
 }
 
 /**
@@ -165,7 +169,11 @@ export function spriteForPose(
       return sprites.typing[dir][frame % 2];
     case Pose.READING:
       return sprites.reading[dir][frame % 2];
-    case Pose.COFFEE: // no dedicated frames yet → stand like idle (see Stage 3)
+    case Pose.COFFEE: {
+      // Cycle the dedicated frames; a single-frame fallback stays static.
+      const frames = sprites.coffee[dir];
+      return frames[frame % frames.length];
+    }
     case Pose.IDLE:
     default:
       return sprites.walk[dir][1];
@@ -190,6 +198,7 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
     shift(arr[0]),
     shift(arr[1]),
   ];
+  const shiftList = (arr: SpriteData[]): SpriteData[] => arr.map(shift);
   return {
     walk: {
       [Dir.DOWN]: shiftWalk(sprites.walk[Dir.DOWN]),
@@ -209,6 +218,12 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
       [Dir.RIGHT]: shiftPair(sprites.reading[Dir.RIGHT]),
       [Dir.LEFT]: shiftPair(sprites.reading[Dir.LEFT]),
     } as Record<Direction, [SpriteData, SpriteData]>,
+    coffee: {
+      [Dir.DOWN]: shiftList(sprites.coffee[Dir.DOWN]),
+      [Dir.UP]: shiftList(sprites.coffee[Dir.UP]),
+      [Dir.RIGHT]: shiftList(sprites.coffee[Dir.RIGHT]),
+      [Dir.LEFT]: shiftList(sprites.coffee[Dir.LEFT]),
+    } as Record<Direction, SpriteData[]>,
   };
 }
 
@@ -255,6 +270,14 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
         [Dir.RIGHT]: [rt[5], rt[6]],
         [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
       },
+      // Dedicated standing/coffee frames (index 7+) when the art provides them;
+      // otherwise the neutral standing pose (walk frame 1), i.e. stand still.
+      coffee: {
+        [Dir.DOWN]: d.length > 7 ? d.slice(7) : [d[1]],
+        [Dir.UP]: u.length > 7 ? u.slice(7) : [u[1]],
+        [Dir.RIGHT]: rt.length > 7 ? rt.slice(7) : [rt[1]],
+        [Dir.LEFT]: rt.length > 7 ? rt.slice(7).map(flip) : [flip(rt[1])],
+      },
     };
   } else {
     // Fallback: return transparent placeholder sprites (16×32)
@@ -279,6 +302,12 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
         [Dir.UP]: pairSet,
         [Dir.RIGHT]: pairSet,
         [Dir.LEFT]: pairSet,
+      },
+      coffee: {
+        [Dir.DOWN]: [e],
+        [Dir.UP]: [e],
+        [Dir.RIGHT]: [e],
+        [Dir.LEFT]: [e],
       },
     };
   }

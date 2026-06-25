@@ -24,6 +24,11 @@ export const COFFEE_BREAK_CHANCE = 0.12;
 /** How long an agent stands at a station before resuming. */
 export const COFFEE_STAND_MIN_SEC = 4.0;
 export const COFFEE_STAND_MAX_SEC = 9.0;
+/** Coffee (standing) animation: frame duration + frame count the server cycles.
+ *  Matches the dedicated art's frame count; the renderer also clamps to the
+ *  actual number of frames, so the static-idle fallback stays still. */
+export const COFFEE_FRAME_DURATION_SEC = 0.5;
+export const COFFEE_FRAME_COUNT = 2;
 /** Cooldown between coffee breaks (also the randomised initial delay). */
 export const COFFEE_COOLDOWN_MIN_SEC = 30.0;
 export const COFFEE_COOLDOWN_MAX_SEC = 90.0;
