@@ -31,7 +31,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
-import { getLoadedCharacterCount, getLoadedPetVariantCount } from '../sprites/spriteData.js';
+import { getLoadedCharacterCount, getLoadedPetVariantCount, getNpcConfig } from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
@@ -1046,21 +1046,24 @@ export class OfficeState {
     }
   }
 
-  /** Spawn one random pet at a free walkable tile (no-op if no sprites/tiles). */
+  /** Spawn one random pet at a free walkable tile (no-op if no sprites/tiles).
+   *  Only NPC variants whose config is `active` are eligible. */
   private spawnPet(): void {
     if (this.walkableTiles.length === 0) return;
-    const dogs = getLoadedPetVariantCount('dog');
-    const cats = getLoadedPetVariantCount('cat');
-    const ducks = getLoadedPetVariantCount('duck');
-    const kinds: PetKind[] = [];
-    if (dogs > 0) kinds.push(PetKindEnum.DOG);
-    if (cats > 0) kinds.push(PetKindEnum.CAT);
-    if (ducks > 0) kinds.push(PetKindEnum.DUCK);
-    if (kinds.length === 0) return;
-
-    const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const variantCount = kind === PetKindEnum.DOG ? dogs : kind === PetKindEnum.CAT ? cats : ducks;
-    const variant = Math.floor(Math.random() * variantCount);
+    // Build the pool of active (kind, variant) candidates.
+    const candidates: Array<{ kind: PetKind; variant: number }> = [];
+    for (const [name, kind] of [
+      ['dog', PetKindEnum.DOG],
+      ['cat', PetKindEnum.CAT],
+      ['duck', PetKindEnum.DUCK],
+    ] as Array<['dog' | 'cat' | 'duck', PetKind]>) {
+      const count = getLoadedPetVariantCount(name);
+      for (let v = 0; v < count; v++) {
+        if (getNpcConfig(name, v).active) candidates.push({ kind, variant: v });
+      }
+    }
+    if (candidates.length === 0) return;
+    const { kind, variant } = candidates[Math.floor(Math.random() * candidates.length)];
 
     // Avoid spawning on a tile occupied by a character or pet
     const occupied = new Set<string>();

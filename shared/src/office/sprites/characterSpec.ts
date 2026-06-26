@@ -65,6 +65,44 @@ export const PET_SPRITE_SPEC: CharacterSpec = {
 /** Track names the NPC editor offers (`sleep` optional, like coffee for agents). */
 export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep'] as const;
 
+// ── NPC spawn config ────────────────────────────────────────────
+/** Per-NPC spawn behaviour: whether it spawns at all, and (when it does) a
+ *  random interval between spawns + a concurrency cap. Real-time schedules
+ *  (fixed clock times) come later; for now it's "every X seconds, randomised". */
+export interface NpcConfig {
+  active: boolean;
+  /** Random seconds between spawns: uniform in [minSec, maxSec]. */
+  minSec: number;
+  maxSec: number;
+  /** Max simultaneous instances of this NPC variant. */
+  maxConcurrent: number;
+}
+
+export const DEFAULT_NPC_CONFIG: NpcConfig = { active: true, minSec: 60, maxSec: 180, maxConcurrent: 1 };
+
+const NPC_MIN_INTERVAL = 5; // floor (seconds) to avoid spawn storms
+const NPC_MAX_INTERVAL = 3600; // 1 hour ceiling
+const NPC_MAX_CONCURRENT = 8;
+
+/** Validate/normalise an NPC config, filling defaults and clamping. Never throws. */
+export function resolveNpcConfig(input: unknown): NpcConfig {
+  const o = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+  const clampSec = (v: unknown, d: number): number => {
+    const n = Math.round(Number(v));
+    return Number.isFinite(n) ? Math.max(NPC_MIN_INTERVAL, Math.min(NPC_MAX_INTERVAL, n)) : d;
+  };
+  let minSec = clampSec(o.minSec, DEFAULT_NPC_CONFIG.minSec);
+  let maxSec = clampSec(o.maxSec, DEFAULT_NPC_CONFIG.maxSec);
+  if (minSec > maxSec) [minSec, maxSec] = [maxSec, minSec];
+  const mc = Math.round(Number(o.maxConcurrent));
+  return {
+    active: o.active !== false, // default true
+    minSec,
+    maxSec,
+    maxConcurrent: Number.isFinite(mc) ? Math.max(1, Math.min(NPC_MAX_CONCURRENT, mc)) : DEFAULT_NPC_CONFIG.maxConcurrent,
+  };
+}
+
 /**
  * Validate/normalise an arbitrary (manifest or stored) value into a CharacterSpec,
  * filling in defaults and clamping to bounds. Never throws — bad input falls back

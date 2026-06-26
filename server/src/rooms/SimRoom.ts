@@ -236,6 +236,7 @@ export class SimRoom extends Room<RoomState> {
       right?: unknown;
       left?: unknown;
       spec?: unknown;
+      npc?: unknown;
     };
     if (!d || typeof d !== 'object') return false;
     if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
@@ -269,6 +270,8 @@ export class SimRoom extends Room<RoomState> {
       const n = (d.down as unknown[]).length;
       if (!this.validCharacterSpec(d.spec, n)) return false;
     }
+    // Optional NPC spawn config.
+    if (d.npc !== undefined && !this.validNpcConfig(d.npc)) return false;
     return true;
   }
 
@@ -291,6 +294,19 @@ export class SimRoom extends Room<RoomState> {
       sum += tt.frames as number;
     }
     return sum === n;
+  }
+
+  /** Validate an optional NPC spawn config (active flag + sane interval/cap). */
+  private validNpcConfig(c: unknown): boolean {
+    const o = c as { active?: unknown; minSec?: unknown; maxSec?: unknown; maxConcurrent?: unknown };
+    if (!o || typeof o !== 'object') return false;
+    if (typeof o.active !== 'boolean') return false;
+    const int = (v: unknown, lo: number, hi: number): boolean =>
+      Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
+    if (!int(o.minSec, 5, 3600) || !int(o.maxSec, 5, 3600)) return false;
+    if ((o.minSec as number) > (o.maxSec as number)) return false;
+    if (!int(o.maxConcurrent, 1, 8)) return false;
+    return true;
   }
 
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */

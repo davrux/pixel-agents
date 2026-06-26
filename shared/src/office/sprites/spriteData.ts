@@ -3,17 +3,19 @@ import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
-import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC } from './characterSpec.js';
-import type { CharacterSpec } from './characterSpec.js';
+import { DEFAULT_CHARACTER_SPEC, DEFAULT_NPC_CONFIG, PET_SPRITE_SPEC } from './characterSpec.js';
+import type { CharacterSpec, NpcConfig } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
 
-export type { CharacterSpec, CharacterTrack, TrackPlay } from './characterSpec.js';
+export type { CharacterSpec, CharacterTrack, TrackPlay, NpcConfig } from './characterSpec.js';
 export {
   DEFAULT_CHARACTER_SPEC,
+  DEFAULT_NPC_CONFIG,
   PET_SPRITE_SPEC,
   NPC_TRACK_NAMES,
   resolveCharacterSpec,
+  resolveNpcConfig,
   specFrameCount,
   MAX_CHAR_DIM,
 } from './characterSpec.js';
@@ -51,6 +53,8 @@ export interface LoadedCharacterData {
   /** Optional animation spec (frame size + per-pose tracks). Absent → the
    *  DEFAULT_CHARACTER_SPEC (historical 16×32, walk3/type2/read2 layout). */
   spec?: CharacterSpec;
+  /** Optional NPC spawn config (NPCs only; agents ignore it). */
+  npc?: NpcConfig;
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
@@ -104,10 +108,11 @@ interface LoadedPetData {
   up: SpriteData[];
   right: SpriteData[];
   /** Editor overrides may carry these (bundled sheets don't): left-facing art,
-   *  a display name, and an animation spec (track layout). */
+   *  a display name, an animation spec (track layout), and a spawn config. */
   left?: SpriteData[];
   name?: string;
   spec?: CharacterSpec;
+  npc?: NpcConfig;
 }
 
 let loadedDogs: LoadedPetData[] | null = null;
@@ -135,6 +140,7 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
     // Editor overrides carry their own spec (e.g. an added sleep track); bundled
     // sheets fall back to the default pet layout (walk/sit/idle).
     spec: p.spec ?? PET_SPRITE_SPEC,
+    npc: p.npc,
   });
   loadedNpcs = { dog: dogs.map(toNpc), cat: cats.map(toNpc), duck: ducks.map(toNpc) };
   npcSpriteCache.clear();
@@ -354,6 +360,12 @@ export function getNpcRoster(): Array<{ kind: PetKindName; variant: number; data
     loadedNpcs[kind].forEach((data, variant) => out.push({ kind, variant, data }));
   }
   return out;
+}
+
+/** Spawn config of an NPC variant (falls back to the default when unset). */
+export function getNpcConfig(kind: PetKindName, variant: number): NpcConfig {
+  const arr = loadedNpcs[kind];
+  return arr?.[variant % (arr.length || 1)]?.npc ?? DEFAULT_NPC_CONFIG;
 }
 
 /** Frame size (w×h) of an NPC template (falls back to 16×16). */
