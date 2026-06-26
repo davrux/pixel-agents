@@ -1,5 +1,10 @@
-import { COFFEE_FRAME_COUNT } from '@pixel/shared/office/constants.js';
-import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
+import {
+  specFrameCount,
+  type CharacterSpec,
+  type CharacterTrack,
+  type LoadedCharacterData,
+  type TrackPlay,
+} from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
 
@@ -33,42 +38,71 @@ function sanitizeName(raw: string): string {
 const CELL = 13; // baseline on-screen pixels per sprite pixel (scaled down for large frames)
 /** Max character frame dimension (px). Mirrored by the server-side validator. */
 const MAX_DIM = 64;
+/** UI cap on frames per track (the server allows up to 64). */
+const MAX_TRACK_FRAMES = 12;
+/** Frames in a fresh blank character (walk 3 / typing 2 / reading 2). */
+const BLANK_FRAMES = 7;
 const DIRS: Dir[] = ['down', 'up', 'right', 'left'];
 const DIR_LABEL: Record<Dir, string> = { down: 'Front', up: 'Back', right: 'Right', left: 'Left' };
-/** The 7 base frames (always present, may be empty): walk 0-2, type 3-4, read 5-6. */
-const BASE_FRAMES = 7;
-/** Defined optional frame-sets (index 7+). A set is added/removed as a whole;
- *  the renderer falls back to the idle pose when a set is absent. Add more here
- *  as new poses are defined. */
-const EXT_FRAMESETS: Array<{ name: string; count: number }> = [
-  { name: 'coffee', count: COFFEE_FRAME_COUNT },
-];
-const MAX_FRAMES = BASE_FRAMES + EXT_FRAMESETS.reduce((s, f) => s + f.count, 0);
 
-/** How many extended frame-sets a frame array of the given length contains. */
-function presentFramesets(len: number): number {
-  let rest = len - BASE_FRAMES;
-  let n = 0;
-  for (const fs of EXT_FRAMESETS) {
-    if (rest >= fs.count) {
-      n++;
-      rest -= fs.count;
-    } else break;
-  }
-  return n;
+/** Animation tracks the editor exposes (each maps to an engine pose). The order
+ *  also defines the frame layout in the flat per-direction frame list. `min` 0
+ *  means the track is optional (can be removed entirely, e.g. coffee). */
+const TRACK_DEFS: Array<{ name: string; label: string; min: number; play: TrackPlay }> = [
+  { name: 'walk', label: 'Walk', min: 1, play: 'pingpong' },
+  { name: 'typing', label: 'Typing', min: 1, play: 'loop' },
+  { name: 'reading', label: 'Reading', min: 1, play: 'loop' },
+  { name: 'coffee', label: 'Coffee', min: 0, play: 'loop' },
+];
+
+interface EditorTrackSlot {
+  name: string;
+  label: string;
+  start: number;
+  count: number;
+  play: TrackPlay;
 }
 
-/** Frame index → label (walk 0-2, typing 3-4, reading 5-6, then frame-sets). */
-function frameLabel(i: number): string {
-  if (i <= 2) return `walk ${i + 1}`;
-  if (i <= 4) return `type ${i - 2}`;
-  if (i <= 6) return `read ${i - 4}`;
-  let idx = i - BASE_FRAMES;
-  for (const fs of EXT_FRAMESETS) {
-    if (idx < fs.count) return `${fs.name} ${idx + 1}`;
-    idx -= fs.count;
+/** Per-track slot offsets from a spec, in the spec's track order. */
+function specSlots(spec: CharacterSpec): EditorTrackSlot[] {
+  const slots: EditorTrackSlot[] = [];
+  let off = 0;
+  for (const t of spec.tracks) {
+    const def = TRACK_DEFS.find((d) => d.name === t.name);
+    slots.push({ name: t.name, label: def?.label ?? t.name, start: off, count: t.frames, play: t.play });
+    off += t.frames;
   }
-  return `frame ${i}`;
+  return slots;
+}
+
+/** Frame index → "Track N" label using the spec's track layout. */
+function frameLabelFor(spec: CharacterSpec, i: number): string {
+  for (const s of specSlots(spec)) {
+    if (i >= s.start && i < s.start + s.count) return `${s.label} ${i - s.start + 1}`;
+  }
+  return `frame ${i + 1}`;
+}
+
+/** Best-effort track split for a flat frame list lacking a usable spec: the
+ *  historical walk 3 / typing 2 / reading 2, with any remainder → coffee. */
+function deriveSpecTracks(frameCount: number): CharacterTrack[] {
+  const base: Array<[string, number, TrackPlay]> = [
+    ['walk', 3, 'pingpong'],
+    ['typing', 2, 'loop'],
+    ['reading', 2, 'loop'],
+  ];
+  const tracks: CharacterTrack[] = [];
+  let rest = frameCount;
+  for (const [name, want, play] of base) {
+    const c = Math.max(0, Math.min(want, rest));
+    if (c > 0) {
+      tracks.push({ name, frames: c, play });
+      rest -= c;
+    }
+  }
+  if (rest > 0) tracks.push({ name: 'coffee', frames: rest, play: 'loop' });
+  if (tracks.length === 0) tracks.push({ name: 'walk', frames: Math.max(1, frameCount), play: 'pingpong' });
+  return tracks;
 }
 
 function emptyFrame(w: number, h: number): SpriteData {
@@ -89,6 +123,7 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
   };
   if (c.left) out.left = c.left.map(cloneFrame);
   if (c.name) out.name = c.name;
+  if (c.spec) out.spec = { frame: { ...c.spec.frame }, tracks: c.spec.tracks.map((t) => ({ ...t })) };
   return out;
 }
 
@@ -198,7 +233,7 @@ export class CharacterEditor {
     style.textContent = `
       #pa-chars{position:fixed;top:3.4rem;right:0.5rem;z-index:61;display:none;width:26rem;background:#1b1f2a;
         border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
-        box-shadow:0 4px 0 rgba(0,0,0,.4);max-height:92vh;overflow:auto;}
+        box-shadow:0 4px 0 rgba(0,0,0,.4);box-sizing:border-box;max-height:calc(100vh - 4rem);overflow:auto;}
       #pa-chars h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
       #pa-chars .row{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;font-size:1rem;flex-wrap:wrap;}
       #pa-chars select,#pa-chars button,#pa-chars input[type=text]{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
@@ -207,6 +242,12 @@ export class CharacterEditor {
       #pa-chars input[type=number]{width:3.2rem;background:#14161c;border:1px solid #3a4150;color:#eef1f6;
         border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
       #pa-chars .sizelabel{color:#9aa3b2;}
+      #pa-c-tracks{display:flex;flex-direction:column;gap:0.3rem;margin:0.5rem 0;}
+      #pa-c-tracks .trackrow{display:flex;align-items:center;gap:0.4rem;font-size:0.95rem;}
+      #pa-c-tracks .tname{width:5rem;color:#cdd3dd;}
+      #pa-c-tracks .tcount{min-width:1.6rem;text-align:center;color:#9aa3b2;}
+      #pa-c-tracks button{padding:0.25rem 0.5rem;font-size:0.9rem;}
+      #pa-c-tracks .play{margin-left:auto;}
       #pa-chars .prevbox{height:5rem;min-width:3rem;padding:0.2rem;border:1px solid #3a4150;border-radius:0.3rem;
         display:flex;align-items:flex-end;justify-content:center;
         background:repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/0.6rem 0.6rem;}
@@ -245,7 +286,7 @@ export class CharacterEditor {
         background:#0d0f14;border:1px dashed #3a4150;color:#6b7280;font-size:1.4rem;}
       #pa-c-import{position:fixed;top:3.4rem;left:0.5rem;z-index:61;display:none;max-width:30rem;background:#1b1f2a;
         border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
-        box-shadow:0 4px 0 rgba(0,0,0,.4);max-height:92vh;overflow:auto;}
+        box-shadow:0 4px 0 rgba(0,0,0,.4);box-sizing:border-box;max-height:calc(100vh - 4rem);overflow:auto;}
       #pa-c-import .row{display:flex;align-items:center;gap:0.4rem;margin:0.45rem 0;font-size:0.95rem;flex-wrap:wrap;}
       #pa-c-import strong{font-size:1.1rem;color:#cdd3dd;}
       #pa-c-import button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;
@@ -308,11 +349,8 @@ export class CharacterEditor {
           <label style="margin-left:auto;font-size:14px;"><input id="pa-c-onion" type="checkbox" checked> Onion</label>
         </div>
         <div class="row"><canvas id="pa-paint"></canvas></div>
-        <div class="row">
-          <button id="pa-c-clear">Clear frame</button>
-          <button id="pa-c-addframe">+ Coffee frame</button>
-          <button id="pa-c-delframe">Delete frame</button>
-        </div>
+        <div id="pa-c-tracks"></div>
+        <div class="row"><button id="pa-c-clear">Clear current frame</button></div>
         <div class="row">
           <button id="pa-c-import-btn" title="Pick frames from a PNG sprite sheet">⇪ Import from PNG…</button>
         </div>
@@ -425,8 +463,6 @@ export class CharacterEditor {
       this.dirty = true;
       this.render();
     };
-    panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!.onclick = () => this.addFrameset();
-    panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!.onclick = () => this.deleteFrameset();
     panel.querySelector<HTMLButtonElement>('#pa-c-save')!.onclick = () => this.doSave();
     panel.querySelector<HTMLButtonElement>('#pa-c-export')!.onclick = () => this.doExport();
     panel.querySelector<HTMLButtonElement>('#pa-c-import-btn')!.onclick = () => this.toggleImport();
@@ -528,7 +564,7 @@ export class CharacterEditor {
       this.W = 16;
       this.H = 32;
       const blank = (): SpriteData[] =>
-        Array.from({ length: BASE_FRAMES }, () => emptyFrame(this.W, this.H));
+        Array.from({ length: BLANK_FRAMES }, () => emptyFrame(this.W, this.H));
       this.work = { down: blank(), up: blank(), right: blank() };
     }
     this.work.name = undefined;
@@ -541,6 +577,7 @@ export class CharacterEditor {
       this.H = f0.length;
       this.W = f0[0]?.length ?? 16;
     }
+    this.ensureSpec(); // normalise work.spec against the frame arrays
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
     this.syncSizeInputs();
@@ -572,6 +609,7 @@ export class CharacterEditor {
     if (this.work.left) this.work.left = resizeFrames(this.work.left);
     this.W = w;
     this.H = h;
+    if (this.work.spec) this.work.spec.frame = { w, h };
     this.syncSizeInputs();
   }
 
@@ -580,39 +618,125 @@ export class CharacterEditor {
     return this.work.down.length;
   }
 
-  /** Append the next undefined frame-set (e.g. coffee) as a whole. */
-  private addFrameset(): void {
-    const present = presentFramesets(this.baseLen());
-    if (present >= EXT_FRAMESETS.length) return;
-    const next = EXT_FRAMESETS[present];
-    const firstNew = this.baseLen();
-    for (let k = 0; k < next.count; k++) {
-      for (const d of ['down', 'up', 'right'] as const) this.work[d].push(emptyFrame(this.W, this.H));
-      if (this.work.left) this.work.left.push(emptyFrame(this.W, this.H));
+  private spec(): CharacterSpec {
+    return this.work.spec!;
+  }
+
+  /** Ensure work.spec is present and consistent with the frame arrays. Uses the
+   *  loaded spec verbatim when its tracks sum to the frame count and only name
+   *  known tracks; otherwise derives the historical layout. Keeps frame size. */
+  private ensureSpec(): void {
+    const fc = this.work.down.length;
+    const sp = this.work.spec;
+    const knownNames = (t: CharacterTrack): boolean => TRACK_DEFS.some((d) => d.name === t.name);
+    const usable = sp && specFrameCount(sp) === fc && sp.tracks.every(knownNames) && sp.tracks.length > 0;
+    const tracks = usable ? sp!.tracks.map((t) => ({ ...t })) : deriveSpecTracks(fc);
+    this.work.spec = { frame: { w: this.W, h: this.H }, tracks };
+  }
+
+  private insertFrameAt(i: number): void {
+    for (const d of ['down', 'up', 'right'] as const) this.work[d].splice(i, 0, emptyFrame(this.W, this.H));
+    if (this.work.left) this.work.left.splice(i, 0, emptyFrame(this.W, this.H));
+  }
+  private removeFrameAt(i: number): void {
+    for (const d of ['down', 'up', 'right'] as const) this.work[d].splice(i, 1);
+    if (this.work.left) this.work.left.splice(i, 1);
+  }
+
+  /** Add a frame to a track (creating an optional track if currently absent). */
+  private addTrackFrame(name: string): void {
+    if (this.work.down.length >= TRACK_DEFS.length * MAX_TRACK_FRAMES) return;
+    const slots = specSlots(this.spec());
+    const slot = slots.find((s) => s.name === name);
+    if (slot) {
+      if (slot.count >= MAX_TRACK_FRAMES) return;
+      this.insertFrameAt(slot.start + slot.count);
+      this.spec().tracks.find((t) => t.name === name)!.frames += 1;
+      this.frame = slot.start + slot.count; // select the new frame
+    } else {
+      const def = TRACK_DEFS.find((d) => d.name === name);
+      if (!def) return;
+      this.insertFrameAt(this.work.down.length); // optional tracks live at the end
+      this.spec().tracks.push({ name, frames: 1, play: def.play });
+      this.frame = this.work.down.length - 1;
     }
-    this.frame = firstNew;
     this.dirty = true;
     this.render();
   }
 
-  /** Remove the last present extended frame-set (base frames are permanent). */
-  private deleteFrameset(): void {
-    const present = presentFramesets(this.baseLen());
-    if (present === 0) return;
-    const last = EXT_FRAMESETS[present - 1];
-    const start = this.baseLen() - last.count;
-    for (const d of ['down', 'up', 'right'] as const) this.work[d].splice(start, last.count);
-    if (this.work.left) this.work.left.splice(start, last.count);
-    this.frame = Math.min(this.frame, this.baseLen() - 1);
+  /** Remove a frame from a track; drops the track when an optional one hits 0. */
+  private removeTrackFrame(name: string): void {
+    const def = TRACK_DEFS.find((d) => d.name === name);
+    const slot = specSlots(this.spec()).find((s) => s.name === name);
+    if (!def || !slot || slot.count <= def.min) return;
+    this.removeFrameAt(slot.start + slot.count - 1);
+    const t = this.spec().tracks.find((x) => x.name === name)!;
+    t.frames -= 1;
+    if (t.frames === 0) this.spec().tracks = this.spec().tracks.filter((x) => x.name !== name);
+    this.frame = Math.min(this.frame, this.work.down.length - 1);
     this.dirty = true;
     // Don't keep previewing a pose whose frames just went away.
-    if (this.previewPose === 'coffee' && presentFramesets(this.baseLen()) === 0) {
-      this.previewPose = 'walk';
-      const sel = this.panel.querySelector<HTMLSelectElement>('#pa-c-pose');
-      if (sel) sel.value = 'walk';
-      this.startPreview();
+    if (this.previewPose === name && !this.spec().tracks.some((x) => x.name === name)) {
+      this.setPreviewPose('walk');
     }
     this.render();
+  }
+
+  private toggleTrackPlay(name: string): void {
+    const t = this.spec().tracks.find((x) => x.name === name);
+    if (!t) return;
+    t.play = t.play === 'pingpong' ? 'loop' : 'pingpong';
+    this.dirty = true;
+    if (this.previewPose === name) this.startPreview();
+    this.render();
+  }
+
+  private setPreviewPose(pose: PreviewPose): void {
+    this.previewPose = pose;
+    const sel = this.panel.querySelector<HTMLSelectElement>('#pa-c-pose');
+    if (sel) sel.value = pose;
+    this.startPreview();
+  }
+
+  /** Render the per-track frame controls (count, +/-, play mode). */
+  private renderTracks(): void {
+    const host = this.panel.querySelector<HTMLDivElement>('#pa-c-tracks');
+    if (!host) return;
+    host.innerHTML = '';
+    const slots = specSlots(this.spec());
+    for (const def of TRACK_DEFS) {
+      const slot = slots.find((s) => s.name === def.name);
+      const row = document.createElement('div');
+      row.className = 'trackrow';
+      if (!slot) {
+        const add = document.createElement('button');
+        add.textContent = `＋ ${def.label} track`;
+        add.onclick = () => this.addTrackFrame(def.name);
+        row.appendChild(add);
+      } else {
+        const nm = document.createElement('span');
+        nm.className = 'tname';
+        nm.textContent = def.label;
+        const minus = document.createElement('button');
+        minus.textContent = '−';
+        minus.disabled = slot.count <= def.min;
+        minus.onclick = () => this.removeTrackFrame(def.name);
+        const cnt = document.createElement('span');
+        cnt.className = 'tcount';
+        cnt.textContent = `${slot.count}f`;
+        const plus = document.createElement('button');
+        plus.textContent = '+';
+        plus.disabled = slot.count >= MAX_TRACK_FRAMES;
+        plus.onclick = () => this.addTrackFrame(def.name);
+        const play = document.createElement('button');
+        play.className = 'play';
+        play.textContent = slot.play === 'pingpong' ? '⇄ ping-pong' : '→ loop';
+        play.title = 'Toggle playback order';
+        play.onclick = () => this.toggleTrackPlay(def.name);
+        row.append(nm, minus, cnt, plus, play);
+      }
+      host.appendChild(row);
+    }
   }
 
   // ── New-character dialog (visual copy-from picker) ───────────────
@@ -706,6 +830,8 @@ export class CharacterEditor {
       this.nameEl.focus();
       return;
     }
+    // Persist the current frame size + track layout with the sprite data.
+    if (this.work.spec) this.work.spec.frame = { w: this.W, h: this.H };
     const idx = this.charIndex;
     this.opts.save(this.charName(), this.work);
     this.dirty = false;
@@ -741,11 +867,41 @@ export class CharacterEditor {
         }
       }
     });
+    const base = this.work.name || this.charName();
     const a = document.createElement('a');
     a.href = cv.toDataURL('image/png');
-    a.download = `${this.work.name || this.charName()}.png`;
+    a.download = `${base}.png`;
     a.click();
-    this.showStatus('Exported PNG (left mirrors right)');
+
+    // For non-default layouts (custom size or track counts), also emit the
+    // sibling manifest so the bundled PNG re-imports 1:1 (drop both next to each
+    // other as char_N.png + char_N.json). Default-layout chars need no manifest.
+    if (this.isDefaultLayout()) {
+      this.showStatus('Exported PNG (left mirrors right)');
+      return;
+    }
+    const spec: CharacterSpec = { frame: { w: this.W, h: this.H }, tracks: this.spec().tracks.map((t) => ({ ...t })) };
+    const blob = new Blob([JSON.stringify(spec, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const m = document.createElement('a');
+    m.href = url;
+    m.download = `${base}.json`;
+    m.click();
+    URL.revokeObjectURL(url);
+    this.showStatus('Exported PNG + manifest (rename both to char_N.*)');
+  }
+
+  /** True when the spec equals the historical default (16×32, walk3/type2/read2,
+   *  no coffee) — such a character needs no sibling manifest. */
+  private isDefaultLayout(): boolean {
+    if (this.W !== 16 || this.H !== 32) return false;
+    const t = this.spec().tracks;
+    return (
+      t.length === 3 &&
+      t[0].name === 'walk' && t[0].frames === 3 && t[0].play === 'pingpong' &&
+      t[1].name === 'typing' && t[1].frames === 2 && t[1].play === 'loop' &&
+      t[2].name === 'reading' && t[2].frames === 2 && t[2].play === 'loop'
+    );
   }
 
   // ── Rendering ────────────────────────────────────────────────────
@@ -754,23 +910,18 @@ export class CharacterEditor {
     this.panel.querySelectorAll<HTMLButtonElement>('#pa-c-dirs button').forEach((b) => {
       b.classList.toggle('on', b.dataset.dir === this.dir);
     });
-    // Frame-set add/delete: a whole defined set (coffee, …) is added/removed at
-    // once; base frames are permanent.
-    const present = presentFramesets(this.baseLen());
-    const addBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!;
-    const delBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!;
-    addBtn.disabled = present >= EXT_FRAMESETS.length || this.baseLen() >= MAX_FRAMES;
-    addBtn.textContent = present < EXT_FRAMESETS.length ? `+ ${EXT_FRAMESETS[present].name} frames` : '+ frames';
-    delBtn.disabled = present === 0;
-    delBtn.textContent = present > 0 ? `Delete ${EXT_FRAMESETS[present - 1].name}` : 'Delete frames';
+    // Per-track frame controls (add/remove frames, play mode).
+    this.renderTracks();
     // A name is mandatory to save (mirrors the server-side check).
     const saveBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-save')!;
     const hasName = !!this.work.name?.trim();
     saveBtn.disabled = !hasName;
     saveBtn.title = hasName ? '' : 'Enter a name first';
-    // Coffee preview only makes sense once the coffee frame-set exists.
-    const coffeeOpt = this.panel.querySelector<HTMLOptionElement>('#pa-c-pose option[value="coffee"]');
-    if (coffeeOpt) coffeeOpt.disabled = presentFramesets(this.baseLen()) === 0;
+    // A pose can only be previewed if its track exists.
+    for (const def of TRACK_DEFS) {
+      const opt = this.panel.querySelector<HTMLOptionElement>(`#pa-c-pose option[value="${def.name}"]`);
+      if (opt) opt.disabled = !this.spec().tracks.some((t) => t.name === def.name);
+    }
     this.renderStrip();
     this.renderPaint();
     this.updateImportTarget();
@@ -811,7 +962,7 @@ export class CharacterEditor {
       c.height = this.H * sc;
       this.drawFrameTo(c.getContext('2d')!, f, sc);
       const lab = document.createElement('span');
-      lab.textContent = frameLabel(i);
+      lab.textContent = frameLabelFor(this.spec(), i);
       wrap.appendChild(c);
       wrap.appendChild(lab);
       wrap.onclick = () => {
@@ -852,24 +1003,21 @@ export class CharacterEditor {
   }
 
   // ── Live preview ─────────────────────────────────────────────────
-  /** Editor frame indices that make up an animation pose's loop. */
+  /** Frame indices that make up a pose's playback loop, derived from the spec
+   *  tracks (mirrors the engine's buildTrackSeq). Idle / missing track → stand. */
   private poseFrames(pose: PreviewPose): number[] {
-    switch (pose) {
-      case 'walk':
-        return [0, 1, 2, 1];
-      case 'typing':
-        return [3, 4];
-      case 'reading':
-        return [5, 6];
-      case 'coffee':
-        if (presentFramesets(this.baseLen()) > 0) {
-          return Array.from({ length: EXT_FRAMESETS[0].count }, (_, i) => BASE_FRAMES + i);
-        }
-        return [1];
-      case 'idle':
-      default:
-        return [1];
+    const slots = specSlots(this.spec());
+    const walk = slots.find((s) => s.name === 'walk');
+    const stand = walk ? walk.start + Math.min(1, walk.count - 1) : 0;
+    if (pose === 'idle') return [stand];
+    const slot = slots.find((s) => s.name === pose);
+    if (!slot) return [stand];
+    const seq: number[] = [];
+    for (let i = 0; i < slot.count; i++) seq.push(slot.start + i);
+    if (slot.play === 'pingpong' && seq.length > 2) {
+      for (let i = slot.count - 2; i >= 1; i--) seq.push(slot.start + i);
     }
+    return seq;
   }
   /** Per-frame duration (ms) matching the engine; 0 = static (no timer). */
   private poseDurationMs(pose: PreviewPose): number {
@@ -1118,12 +1266,12 @@ export class CharacterEditor {
     frames[this.frame] = grid;
     this.dirty = true;
     this.render();
-    this.showStatus(`Imported into ${DIR_LABEL[this.dir]} · ${frameLabel(this.frame)} ✓`);
+    this.showStatus(`Imported into ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame)} ✓`);
   }
 
   private updateImportTarget(): void {
     const el = this.importPanel?.querySelector<HTMLSpanElement>('#pa-imp-target');
-    if (el) el.textContent = this.importOpen ? `→ ${DIR_LABEL[this.dir]} · ${frameLabel(this.frame)}` : '';
+    if (el) el.textContent = this.importOpen ? `→ ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame)}` : '';
   }
 
   private bindPaint(): void {

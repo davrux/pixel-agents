@@ -106,8 +106,12 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   `CharacterSpec` (`{ frame:{w,h}, tracks:[{name,frames,play}] }`, see
   `shared/.../sprites/characterSpec.ts`). Absent → `DEFAULT_CHARACTER_SPEC`
   (the historical layout). The spec rides on `LoadedCharacterData.spec` to the
-  client. Per-pose frame *counts* are still fixed in the engine/`spriteForPose`
-  for now (track-driven playback is the next step).
+  client. Per-pose frame *counts* are **track-driven**: `getCharacterSprites`
+  builds variable-length sequences from the spec's tracks, `spriteForPose`
+  indexes them, and the character editor edits the counts/play-mode per track
+  (walk/typing/reading/coffee) — the saved override carries its `spec`, and the
+  server validates that track frames sum to the frame count. Adding a *new* pose
+  still means a new `CharacterPose` + a `spriteForPose` branch + a track name.
 - **Config via `PIXEL_STREAM_*` env** (matches the original + the feeder):
   `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`, `PIXEL_STREAM_TOKEN`,
   `PIXEL_STREAM_DATA_DIR`. Token also via `--token`.

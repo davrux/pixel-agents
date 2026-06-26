@@ -228,7 +228,14 @@ export class SimRoom extends Room<RoomState> {
    * the editor's client-side checks.
    */
   private validCharacterData(data: unknown): boolean {
-    const d = data as { name?: unknown; down?: unknown; up?: unknown; right?: unknown; left?: unknown };
+    const d = data as {
+      name?: unknown;
+      down?: unknown;
+      up?: unknown;
+      right?: unknown;
+      left?: unknown;
+      spec?: unknown;
+    };
     if (!d || typeof d !== 'object') return false;
     if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
     const dims = { w: -1, h: -1 };
@@ -256,7 +263,33 @@ export class SimRoom extends Room<RoomState> {
     };
     if (!validFrames(d.down) || !validFrames(d.up) || !validFrames(d.right)) return false;
     if (d.left !== undefined && !validFrames(d.left)) return false;
+    // Optional animation spec: track frame counts must sum to the frame count.
+    if (d.spec !== undefined) {
+      const n = (d.down as unknown[]).length;
+      if (!this.validCharacterSpec(d.spec, n)) return false;
+    }
     return true;
+  }
+
+  /** Validate an optional CharacterSpec: sane frame size + non-empty tracks whose
+   *  frame counts sum to `n` (the number of frames per direction). */
+  private validCharacterSpec(spec: unknown, n: number): boolean {
+    const s = spec as { frame?: unknown; tracks?: unknown };
+    if (!s || typeof s !== 'object') return false;
+    const fr = s.frame as { w?: unknown; h?: unknown } | undefined;
+    const dim = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 64;
+    if (!fr || !dim(fr.w) || !dim(fr.h)) return false;
+    if (!Array.isArray(s.tracks) || s.tracks.length === 0) return false;
+    let sum = 0;
+    for (const t of s.tracks) {
+      const tt = t as { name?: unknown; frames?: unknown; play?: unknown };
+      if (!tt || typeof tt !== 'object') return false;
+      if (typeof tt.name !== 'string' || tt.name.length === 0 || tt.name.length > 32) return false;
+      if (!Number.isInteger(tt.frames) || (tt.frames as number) < 1 || (tt.frames as number) > 64) return false;
+      if (tt.play !== 'loop' && tt.play !== 'pingpong') return false;
+      sum += tt.frames as number;
+    }
+    return sum === n;
   }
 
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
