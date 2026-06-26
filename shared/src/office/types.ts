@@ -100,7 +100,7 @@ export interface InteractionPoint {
 }
 
 // ── Pets ─────────────────────────────────────────────────────
-export const PetKind = { DOG: 'dog', CAT: 'cat' } as const;
+export const PetKind = { DOG: 'dog', CAT: 'cat', DUCK: 'duck' } as const;
 export type PetKind = (typeof PetKind)[keyof typeof PetKind];
 
 export const PetState = {
@@ -115,7 +115,7 @@ export type PetState = (typeof PetState)[keyof typeof PetState];
 export interface Pet {
   id: number;
   kind: PetKind;
-  /** Which sprite-sheet variant (dog_N / cat_N) */
+  /** Which sprite-sheet variant (dog_N / cat_N / duck_N) */
   variant: number;
   state: PetState;
   dir: Direction;

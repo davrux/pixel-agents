@@ -13,6 +13,7 @@ import {
   CHAR_COUNT,
   CHAR_FRAMES_PER_ROW,
   DOG_COUNT,
+  DUCK_COUNT,
   WALL_BITMASK_COUNT,
 } from './core/assets/constants.js';
 import type {
@@ -407,6 +408,8 @@ export interface LoadedPetSprites {
   dogs: PetDirectionSprites[];
   /** Cat variants, each with 6 frames per direction. */
   cats: PetDirectionSprites[];
+  /** Duck variants, each with 6 frames per direction. */
+  ducks: PetDirectionSprites[];
 }
 
 /**
@@ -433,10 +436,11 @@ export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprit
 
     const dogs = loadVariants('dog', DOG_COUNT);
     const cats = loadVariants('cat', CAT_COUNT);
-    if (dogs.length === 0 && cats.length === 0) return null;
+    const ducks = loadVariants('duck', DUCK_COUNT);
+    if (dogs.length === 0 && cats.length === 0 && ducks.length === 0) return null;
 
-    console.log(`[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat sprite sheets`);
-    return { dogs, cats };
+    console.log(`[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat + ${ducks.length} duck sprite sheets`);
+    return { dogs, cats, ducks };
   } catch (err) {
     console.error(
       `[AssetLoader] ❌ Error loading pet sprites: ${err instanceof Error ? err.message : err}`,

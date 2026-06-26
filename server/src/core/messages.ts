@@ -241,6 +241,7 @@ export interface PetSpritesLoaded {
   type: 'petSpritesLoaded';
   dogs: PetSpriteSet[];
   cats: PetSpriteSet[];
+  ducks: PetSpriteSet[];
 }
 
 export interface PetSpriteSet {

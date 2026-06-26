@@ -59,7 +59,7 @@ export class SimRoom extends Room<RoomState> {
     // give it palette counts, seats, and furniture auto-on metadata).
     setProviderCapabilities({ readingTools: READING_TOOLS, subagentToolNames: SUBAGENT_TOOL_NAMES });
     setCharacterTemplates(this.bundle.raw.characters as never);
-    setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never);
+    setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never, this.bundle.raw.ducks as never);
     buildDynamicCatalog({
       catalog: this.bundle.raw.furnitureCatalog as never,
       sprites: this.bundle.raw.furnitureSprites as never,
@@ -295,7 +295,7 @@ export class SimRoom extends Room<RoomState> {
         ps.id = pet.id;
         this.state.pets.set(key, ps);
       }
-      ps.kind = pet.kind === PetKind.CAT ? 1 : 0;
+      ps.kind = pet.kind === PetKind.CAT ? 1 : pet.kind === PetKind.DUCK ? 2 : 0;
       ps.variant = pet.variant;
       ps.x = pet.x;
       ps.y = pet.y;

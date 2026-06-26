@@ -28,3 +28,4 @@ export const PET_FRAME_H = 16;
 export const PET_FRAMES_PER_ROW = 6;
 export const DOG_COUNT = 2;
 export const CAT_COUNT = 2;
+export const DUCK_COUNT = 2;

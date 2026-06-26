@@ -46,13 +46,18 @@ export function decodeAllCharacters(assetsDir: string): CharacterDirectionSprite
 export function decodeAllPets(assetsDir: string): {
   dogs: PetDirectionSprites[];
   cats: PetDirectionSprites[];
+  ducks: PetDirectionSprites[];
 } {
   const petsDir = path.join(assetsDir, 'pets');
   const decode = (pattern: RegExp): PetDirectionSprites[] =>
     listSortedPngs(petsDir, pattern).map(({ filename }) =>
       decodePetPng(fs.readFileSync(path.join(petsDir, filename))),
     );
-  return { dogs: decode(/^dog_(\d+)\.png$/i), cats: decode(/^cat_(\d+)\.png$/i) };
+  return {
+    dogs: decode(/^dog_(\d+)\.png$/i),
+    cats: decode(/^cat_(\d+)\.png$/i),
+    ducks: decode(/^duck_(\d+)\.png$/i),
+  };
 }
 
 export function decodeAllFloors(assetsDir: string): string[][][] {

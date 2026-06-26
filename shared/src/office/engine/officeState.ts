@@ -1016,13 +1016,15 @@ export class OfficeState {
     if (this.walkableTiles.length === 0) return;
     const dogs = getLoadedPetVariantCount('dog');
     const cats = getLoadedPetVariantCount('cat');
+    const ducks = getLoadedPetVariantCount('duck');
     const kinds: PetKind[] = [];
     if (dogs > 0) kinds.push(PetKindEnum.DOG);
     if (cats > 0) kinds.push(PetKindEnum.CAT);
+    if (ducks > 0) kinds.push(PetKindEnum.DUCK);
     if (kinds.length === 0) return;
 
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
-    const variantCount = kind === PetKindEnum.DOG ? dogs : cats;
+    const variantCount = kind === PetKindEnum.DOG ? dogs : kind === PetKindEnum.CAT ? cats : ducks;
     const variant = Math.floor(Math.random() * variantCount);
 
     // Avoid spawning on a tile occupied by a character or pet

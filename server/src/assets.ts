@@ -21,6 +21,7 @@ export interface AssetBundle {
     characters: unknown[];
     dogs: unknown[];
     cats: unknown[];
+    ducks: unknown[];
     furnitureCatalog: unknown[];
     furnitureSprites: Record<string, unknown>;
     layout: Record<string, unknown> | null;
@@ -44,7 +45,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
 
   const messages: Record<string, unknown>[] = [];
   if (characters) messages.push({ type: 'characterSpritesLoaded', characters: characters.characters });
-  if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats });
+  if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats, ducks: pets.ducks });
   if (floorTiles) messages.push({ type: 'floorTilesLoaded', sprites: floorTiles.sprites });
   if (wallTiles) messages.push({ type: 'wallTilesLoaded', sets: wallTiles.sets });
   if (furniture) {
@@ -69,6 +70,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       characters: characters?.characters ?? [],
       dogs: pets?.dogs ?? [],
       cats: pets?.cats ?? [],
+      ducks: pets?.ducks ?? [],
       furnitureCatalog: furniture?.catalog ?? [],
       furnitureSprites: furniture ? Object.fromEntries(furniture.sprites) : {},
       layout,
