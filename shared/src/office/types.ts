@@ -132,8 +132,9 @@ export interface Pet {
   wanderTimer: number;
   // Interaction target / claim
   targetKind: 'seat' | 'furniture' | null;
-  /** What the pet will do on reaching its target (null when none); see NpcAction. */
-  targetAction: 'wander' | 'sit' | null;
+  /** What the pet will do on reaching its target (null when none); see NpcAction.
+   *  Kept as a literal union (mirrors NpcAction) to avoid an engine→types cycle. */
+  targetAction: 'wander' | 'sit' | 'chase' | 'flee' | null;
   targetSeatId: string | null;
   targetFurnitureUid: string | null;
   /** Tile the pet sits on while interacting */

@@ -18,9 +18,22 @@ export interface NpcBlackboard extends NpcAffordances {
   wantsToRest: boolean;
 }
 
-/** Priority selector: rest if wanted AND somewhere to rest exists, else wander. */
+/**
+ * Priority selector: flee an approaching dog first (cats), else chase a nearby
+ * cat (dogs), else rest if wanted and somewhere to rest exists, else wander.
+ * The affordances are already kind-gated by OfficeState (only cats are ever
+ * `threatened`, only dogs `canChase`), so one tree covers every NPC.
+ */
 const TREE_DEFINITION = `root {
   selector {
+    sequence {
+      condition [Threatened]
+      action [Flee]
+    }
+    sequence {
+      condition [CanChase]
+      action [Chase]
+    }
     sequence {
       condition [WantsToRest]
       condition [CanRest]
@@ -34,6 +47,8 @@ export class NpcBrain {
   private readonly bb: NpcBlackboard & { action: NpcAction } = {
     wantsToRest: false,
     canRest: false,
+    canChase: false,
+    threatened: false,
     action: 'wander',
   };
   private readonly tree: BehaviourTree;
@@ -42,8 +57,12 @@ export class NpcBrain {
     const agent = {
       WantsToRest: (): boolean => this.bb.wantsToRest,
       CanRest: (): boolean => this.bb.canRest,
+      CanChase: (): boolean => this.bb.canChase,
+      Threatened: (): boolean => this.bb.threatened,
       Sit: (): State => this.set('sit'),
       Wander: (): State => this.set('wander'),
+      Chase: (): State => this.set('chase'),
+      Flee: (): State => this.set('flee'),
     };
     this.tree = new BehaviourTree(TREE_DEFINITION, agent);
   }
@@ -58,6 +77,8 @@ export class NpcBrain {
     this.tree.reset(); // re-evaluate from the root every tick
     this.bb.wantsToRest = input.wantsToRest;
     this.bb.canRest = input.canRest;
+    this.bb.canChase = input.canChase;
+    this.bb.threatened = input.threatened;
     this.bb.action = 'wander';
     this.tree.step();
     return this.bb.action;

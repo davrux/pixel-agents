@@ -29,10 +29,10 @@ import { Direction, PetState, TILE_SIZE } from '../types.js';
  * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
  * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
  */
-export type NpcAction = 'wander' | 'sit';
+export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee';
 
 /** Kinds of interactable the world affords an NPC. Today: claimable seats and
- *  adjacent-to furniture (cat on a desk). Coffee/agent/cat join here later. */
+ *  adjacent-to furniture (cat on a desk). Coffee/agent join here later. */
 export type AffordanceKind = 'seat' | 'furniture';
 
 /**
@@ -44,6 +44,10 @@ export type AffordanceKind = 'seat' | 'furniture';
 export interface NpcAffordances {
   /** A seat (or, for cats, a desk) the pet could go rest at exists. */
   canRest: boolean;
+  /** A cat is within shoo range to chase (dogs only). */
+  canChase: boolean;
+  /** A dog is within shoo range — flee it (cats only). */
+  threatened: boolean;
 }
 
 /** A reachable, already-claimed interaction target (computed by OfficeState). */
@@ -71,6 +75,10 @@ export interface PetUpdateContext {
   /** Decide the next idle activity for a pet (injected by the server's NPC brain;
    *  absent → the built-in sit-chance roll). */
   decideAction?: (pet: Pet) => NpcAction;
+  /** Resolve a directed move path for a reactive action — toward the nearest cat
+   *  ('chase') or away from the nearest dog ('flee'). OfficeState supplies it
+   *  (it knows every pet's position); null when no path applies. */
+  navigateReaction?: (pet: Pet, action: NpcAction) => Array<{ col: number; row: number }> | null;
 }
 
 function tileCenter(col: number, row: number): { x: number; y: number } {
@@ -199,6 +207,19 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           }
           break;
         }
+      } else if (action === 'chase' || action === 'flee') {
+        // Reactive directed movement (toward a cat / away from a dog). No claim;
+        // on arrival the pet just returns to idle and may react again.
+        const path = ctx.navigateReaction?.(pet, action) ?? null;
+        if (path && path.length > 0) {
+          pet.path = path;
+          pet.moveProgress = 0;
+          pet.state = PetState.WANDER;
+          pet.frame = 0;
+          pet.frameTimer = 0;
+          break;
+        }
+        // No reachable target — fall through to a random wander.
       }
       // Random wander
       const { walkableTiles, tileMap, blockedTiles } = ctx;

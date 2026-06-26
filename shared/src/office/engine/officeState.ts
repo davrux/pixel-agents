@@ -16,6 +16,8 @@ import {
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   PET_EFFECT_DURATION_SEC,
+  PET_FLEE_RANGE_TILES,
+  PET_SHOO_RADIUS_TILES,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../constants.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
@@ -1002,7 +1004,12 @@ export class OfficeState {
    *  to the brain so it picks a sensible action. Reachability is confirmed later
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
   private computePetAffordances(pet: Pet): NpcAffordances {
-    return { canRest: this.hasRestAffordance(pet) };
+    return {
+      canRest: this.hasRestAffordance(pet),
+      // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
+      canChase: pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
+      threatened: pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
+    };
   }
 
   /** A free seat (any pet) or, for cats, a free desk exists somewhere. */
@@ -1017,6 +1024,57 @@ export class OfficeState {
       }
     }
     return false;
+  }
+
+  /** Nearest non-despawning pet of `kind` within PET_SHOO_RADIUS_TILES (tile
+   *  Chebyshev distance) of `pet`, or null. Used for shoo-cat detection. */
+  private nearestLivingPetOfKind(pet: Pet, kind: PetKindEnum): Pet | null {
+    let best: Pet | null = null;
+    let bestDist = PET_SHOO_RADIUS_TILES + 1;
+    for (const other of this.pets.values()) {
+      if (other.id === pet.id || other.kind !== kind) continue;
+      if (other.state === PetState.SPAWN || other.state === PetState.DESPAWN) continue;
+      const dist = Math.max(Math.abs(other.tileCol - pet.tileCol), Math.abs(other.tileRow - pet.tileRow));
+      if (dist <= PET_SHOO_RADIUS_TILES && dist < bestDist) {
+        best = other;
+        bestDist = dist;
+      }
+    }
+    return best;
+  }
+
+  /** Reactive movement path for shoo-cat: a dog paths toward the nearest cat
+   *  ('chase'); a cat paths to a reachable tile that increases its distance from
+   *  the nearest dog ('flee'). Returns null when no useful path exists. */
+  private navigatePetReaction(pet: Pet, action: NpcAction): Array<{ col: number; row: number }> | null {
+    if (action === 'chase') {
+      const cat = this.nearestLivingPetOfKind(pet, PetKindEnum.CAT);
+      if (!cat) return null;
+      const path = findPath(pet.tileCol, pet.tileRow, cat.tileCol, cat.tileRow, this.tileMap, this.blockedTiles);
+      return path.length > 0 ? path : null;
+    }
+    if (action === 'flee') {
+      const dog = this.nearestLivingPetOfKind(pet, PetKindEnum.DOG);
+      if (!dog) return null;
+      const distFromDog = (c: number, r: number): number =>
+        Math.max(Math.abs(c - dog.tileCol), Math.abs(r - dog.tileRow));
+      const cur = distFromDog(pet.tileCol, pet.tileRow);
+      // Prefer reachable tiles that get farther from the dog but stay within a
+      // flee range of the cat (so it doesn't bolt across the whole office).
+      const candidates = this.walkableTiles
+        .filter(
+          (t) =>
+            distFromDog(t.col, t.row) > cur &&
+            Math.max(Math.abs(t.col - pet.tileCol), Math.abs(t.row - pet.tileRow)) <= PET_FLEE_RANGE_TILES,
+        )
+        .sort((a, b) => distFromDog(b.col, b.row) - distFromDog(a.col, a.row));
+      for (const t of candidates.slice(0, 8)) {
+        const path = findPath(pet.tileCol, pet.tileRow, t.col, t.row, this.tileMap, this.blockedTiles);
+        if (path.length > 0) return path;
+      }
+      return null;
+    }
+    return null;
   }
 
   // ── Pet lifecycle ─────────────────────────────────────────
@@ -1043,6 +1101,7 @@ export class OfficeState {
       decideAction: this.npcDecide
         ? (pet: Pet) => this.npcDecide!(pet, this.computePetAffordances(pet))
         : undefined,
+      navigateReaction: (pet: Pet, action: NpcAction) => this.navigatePetReaction(pet, action),
     };
 
     const toDelete: number[] = [];
