@@ -61,6 +61,14 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
 6. **One port for everything.** Browser, Colyseus and the agent feed (`/feed`)
    share one HTTP server/port. Don't add extra listeners; mount on the shared
    server (see `attachFeedServer`).
+7. **Never trust the client — validate on the server.** Every `onMessage`
+   handler and `/feed` payload is untrusted input. Client-side checks (disabled
+   buttons, input `maxlength`, format masks) are **UX only**; the authoritative
+   gate lives in `SimRoom`. Validate identity/length/format/bounds there before
+   persisting or mutating state, and reject silently on failure (e.g.
+   `validCharacterData`, `validFurnitureData`, the asset-id regex, layout-name
+   rules). When you add a new editable asset or message, add its server-side
+   validator in the same change — a frontend-only check is not a check.
 
 ## Conventions
 

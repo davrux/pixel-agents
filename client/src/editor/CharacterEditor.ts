@@ -1,6 +1,7 @@
 import { COFFEE_FRAME_COUNT } from '@pixel/shared/office/constants.js';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
+import { confirmDialog } from '../ui/dialog.js';
 
 type Dir = 'down' | 'up' | 'right' | 'left';
 
@@ -92,12 +93,17 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
  */
 export class CharacterEditor {
   private panel!: HTMLDivElement;
+  private galleryPane!: HTMLDivElement;
+  private editPane!: HTMLDivElement;
+  private cardsHost!: HTMLDivElement;
   private canvas!: HTMLCanvasElement;
   private strip!: HTMLDivElement;
-  private picker!: HTMLSelectElement;
   private nameEl!: HTMLInputElement;
 
   private open = false;
+  private view: 'gallery' | 'edit' = 'gallery';
+  /** Unsaved-edit flag for the current edit session (prompts before leaving). */
+  private dirty = false;
   private charIndex = 0;
   private isNew = false;
   private dir: Dir = 'down';
@@ -114,17 +120,42 @@ export class CharacterEditor {
   }
 
   toggle(): void {
-    this.open ? this.close() : this.show();
+    if (this.open) void this.requestClose();
+    else this.show();
   }
   private show(): void {
     this.open = true;
     this.panel.style.display = 'block';
-    this.refreshCharList();
-    this.loadChar(this.charIndex);
+    this.showGallery();
+  }
+  /** Close, prompting first if there are unsaved edits in the edit view. */
+  private async requestClose(): Promise<void> {
+    if (!(await this.confirmDiscard())) return;
+    this.close();
   }
   private close(): void {
     this.open = false;
     this.panel.style.display = 'none';
+  }
+
+  /** True if it's safe to leave the current edit (no unsaved edits, or the user
+   *  confirmed discarding them). Always true outside the edit view. */
+  private async confirmDiscard(): Promise<boolean> {
+    if (this.view !== 'edit' || !this.dirty) return true;
+    return confirmDialog('Discard unsaved changes?', { danger: true, confirmLabel: 'Discard' });
+  }
+
+  private showGallery(): void {
+    this.view = 'gallery';
+    this.editPane.style.display = 'none';
+    this.galleryPane.style.display = 'block';
+    this.renderGallery();
+  }
+  private showEdit(): void {
+    this.view = 'edit';
+    this.galleryPane.style.display = 'none';
+    this.editPane.style.display = 'block';
+    this.render();
   }
 
   // ── DOM ──────────────────────────────────────────────────────────
@@ -153,6 +184,13 @@ export class CharacterEditor {
       #pa-chars input[type=color]{width:2.6rem;height:2rem;padding:0;border:1px solid #3a4150;background:none;cursor:pointer;}
       #pa-chars #pa-c-status{color:#7cfc9a;font-size:0.9rem;opacity:0;transition:opacity .4s;}
       #pa-chars button:disabled{opacity:0.4;cursor:not-allowed;}
+      #pa-c-cards{display:flex;flex-direction:column;gap:0.5rem;}
+      #pa-c-cards .card{display:flex;align-items:center;gap:0.6rem;background:#222734;border:1px solid #3a4150;
+        border-radius:0.4rem;padding:0.4rem 0.6rem;}
+      #pa-c-cards .card canvas{width:1.6rem;height:3.2rem;image-rendering:pixelated;background:#0d0f14;border:1px solid #3a4150;}
+      #pa-c-cards .card .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #pa-c-cards .card button{padding:0.3rem 0.55rem;font-size:0.9rem;}
+      #pa-c-cards .card button.del{background:#3a2230;border-color:#6d3a4a;color:#ffd2dc;}
       #pa-c-newdlg{position:fixed;inset:0;z-index:70;display:none;background:rgba(0,0,0,.55);
         align-items:center;justify-content:center;}
       #pa-c-newdlg.show{display:flex;}
@@ -178,38 +216,37 @@ export class CharacterEditor {
     panel.id = 'pa-chars';
     panel.className = 'pa-ui';
     panel.innerHTML = `
-      <h4>Character editor</h4>
-      <div class="row">
-        <button id="pa-c-prev">◀</button>
-        <select id="pa-c-sel" style="flex:1;min-width:0;"></select>
-        <button id="pa-c-next">▶</button>
-        <button id="pa-c-new" title="New character">＋ New</button>
+      <div id="pa-c-gallery">
+        <h4>Characters</h4>
+        <div id="pa-c-cards"></div>
+        <div class="foot">
+          <button id="pa-c-newbtn" class="on">＋ New character</button>
+          <button id="pa-c-galclose">Close</button>
+        </div>
       </div>
-      <div class="row"><label for="pa-c-name">Name</label>
-        <input id="pa-c-name" type="text" maxlength="16" placeholder="char name" style="flex:1;min-width:0;"></div>
-      <div class="row" id="pa-c-dirs"></div>
-      <div class="strip" id="pa-c-strip"></div>
-      <div class="row">
-        <input id="pa-c-color" type="color" value="${this.color}">
-        <button id="pa-c-paint" class="on">✏ Paint</button>
-        <button id="pa-c-erase">⌫ Erase</button>
-        <button id="pa-c-pick">⦿ Pick</button>
-        <label style="margin-left:auto;font-size:14px;"><input id="pa-c-onion" type="checkbox" checked> Onion</label>
-      </div>
-      <div class="row"><canvas id="pa-paint"></canvas></div>
-      <div class="row">
-        <button id="pa-c-clear">Clear frame</button>
-        <button id="pa-c-addframe">+ Coffee frame</button>
-        <button id="pa-c-delframe">Delete frame</button>
-      </div>
-      <div class="row" style="justify-content:flex-end;min-height:16px;margin:0;">
-        <span id="pa-c-status">​</span>
-      </div>
-      <div class="foot">
-        <button id="pa-c-save" class="on">Save</button>
-        <button id="pa-c-reset">Reset default</button>
-        <button id="pa-c-export" title="Download a PNG sheet to add to the repo">Export</button>
-        <button id="pa-c-close">Close</button>
+      <div id="pa-c-edit" style="display:none">
+        <div class="row"><button id="pa-c-back">← Back</button>
+          <input id="pa-c-name" type="text" maxlength="16" placeholder="char name" style="flex:1;min-width:0;"></div>
+        <div class="row" id="pa-c-dirs"></div>
+        <div class="strip" id="pa-c-strip"></div>
+        <div class="row">
+          <input id="pa-c-color" type="color" value="${this.color}">
+          <button id="pa-c-paint" class="on">✏ Paint</button>
+          <button id="pa-c-erase">⌫ Erase</button>
+          <button id="pa-c-pick">⦿ Pick</button>
+          <label style="margin-left:auto;font-size:14px;"><input id="pa-c-onion" type="checkbox" checked> Onion</label>
+        </div>
+        <div class="row"><canvas id="pa-paint"></canvas></div>
+        <div class="row">
+          <button id="pa-c-clear">Clear frame</button>
+          <button id="pa-c-addframe">+ Coffee frame</button>
+          <button id="pa-c-delframe">Delete frame</button>
+        </div>
+        <div class="row" style="justify-content:flex-end;min-height:16px;margin:0;"><span id="pa-c-status">​</span></div>
+        <div class="foot">
+          <button id="pa-c-save" class="on">Save</button>
+          <button id="pa-c-export" title="Download a PNG sheet to add to the repo">Export</button>
+        </div>
       </div>
       <div id="pa-c-newdlg"><div class="box"><h4>New character — copy from</h4><div class="grid" id="pa-c-newgrid"></div>
         <div class="row" style="justify-content:flex-end;"><button id="pa-c-newcancel">Cancel</button></div></div></div>`;
@@ -219,9 +256,11 @@ export class CharacterEditor {
     else host.appendChild(btn);
     host.appendChild(panel);
     this.panel = panel;
+    this.galleryPane = panel.querySelector<HTMLDivElement>('#pa-c-gallery')!;
+    this.editPane = panel.querySelector<HTMLDivElement>('#pa-c-edit')!;
+    this.cardsHost = panel.querySelector<HTMLDivElement>('#pa-c-cards')!;
     this.canvas = panel.querySelector<HTMLCanvasElement>('#pa-paint')!;
     this.strip = panel.querySelector<HTMLDivElement>('#pa-c-strip')!;
-    this.picker = panel.querySelector<HTMLSelectElement>('#pa-c-sel')!;
 
     // Direction tabs
     const dirsRow = panel.querySelector<HTMLDivElement>('#pa-c-dirs')!;
@@ -238,19 +277,23 @@ export class CharacterEditor {
       dirsRow.appendChild(b);
     }
 
-    // Wiring
+    // Gallery wiring
+    panel.querySelector<HTMLButtonElement>('#pa-c-newbtn')!.onclick = () => this.openNewDialog();
+    panel.querySelector<HTMLButtonElement>('#pa-c-galclose')!.onclick = () => this.close();
+    panel.querySelector<HTMLButtonElement>('#pa-c-newcancel')!.onclick = () => this.closeNewDialog();
+
+    // Edit wiring
+    panel.querySelector<HTMLButtonElement>('#pa-c-back')!.onclick = async () => {
+      if (await this.confirmDiscard()) this.showGallery();
+    };
     this.nameEl = panel.querySelector<HTMLInputElement>('#pa-c-name')!;
     this.nameEl.oninput = () => {
       const clean = sanitizeName(this.nameEl.value);
       if (clean !== this.nameEl.value) this.nameEl.value = clean;
       this.work.name = clean || undefined;
+      this.dirty = true;
+      this.render(); // Save button enables/disables with the name.
     };
-    this.picker.onchange = () => this.loadChar(Number(this.picker.value));
-    panel.querySelector<HTMLButtonElement>('#pa-c-prev')!.onclick = () =>
-      this.loadChar(this.charIndex - 1);
-    panel.querySelector<HTMLButtonElement>('#pa-c-next')!.onclick = () => this.loadChar(this.charIndex + 1);
-    panel.querySelector<HTMLButtonElement>('#pa-c-new')!.onclick = () => this.openNewDialog();
-    panel.querySelector<HTMLButtonElement>('#pa-c-newcancel')!.onclick = () => this.closeNewDialog();
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -266,14 +309,13 @@ export class CharacterEditor {
     panel.querySelector<HTMLButtonElement>('#pa-c-clear')!.onclick = () => {
       const frames = this.dir === 'left' ? this.ensureLeft() : this.work[this.dir];
       frames[this.frame] = emptyFrame(this.W, this.H);
+      this.dirty = true;
       this.render();
     };
     panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!.onclick = () => this.addFrameset();
     panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!.onclick = () => this.deleteFrameset();
     panel.querySelector<HTMLButtonElement>('#pa-c-save')!.onclick = () => this.doSave();
-    panel.querySelector<HTMLButtonElement>('#pa-c-reset')!.onclick = () => this.doReset();
     panel.querySelector<HTMLButtonElement>('#pa-c-export')!.onclick = () => this.doExport();
-    panel.querySelector<HTMLButtonElement>('#pa-c-close')!.onclick = () => this.close();
 
     this.bindPaint();
   }
@@ -289,28 +331,68 @@ export class CharacterEditor {
     }
   }
 
-  // ── Data ─────────────────────────────────────────────────────────
-  private refreshCharList(): void {
-    const tpl = this.opts.getTemplates() ?? [];
-    this.picker.innerHTML = '';
-    for (let i = 0; i < tpl.length; i++) {
-      const o = document.createElement('option');
-      o.value = String(i);
-      const nm = tpl[i]?.name;
-      o.textContent = nm ? `${nm} (char_${i})` : `char_${i}`;
-      this.picker.appendChild(o);
+  // ── Gallery (character management) ───────────────────────────────
+  private drawPreview(cv: HTMLCanvasElement, c: LoadedCharacterData): void {
+    const frame = c.down?.[1] ?? c.down?.[0];
+    const w = frame?.[0]?.length ?? 16;
+    const h = frame?.length ?? 32;
+    cv.width = w;
+    cv.height = h;
+    const ctx = cv.getContext('2d')!;
+    if (!frame) return;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const px = frame[y]?.[x];
+        if (px) {
+          ctx.fillStyle = px;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
     }
-    // An in-progress (unsaved) new character gets a transient entry.
-    if (this.isNew && this.charIndex >= tpl.length) {
-      const o = document.createElement('option');
-      o.value = String(this.charIndex);
-      o.textContent = `✎ new (char_${this.charIndex})`;
-      this.picker.appendChild(o);
-    }
-    this.picker.value = String(this.charIndex);
   }
 
-  /** Load an existing character (clamped to the available range). */
+  private renderGallery(): void {
+    const tpl = this.opts.getTemplates() ?? [];
+    const defaults = this.opts.getDefaultCount();
+    this.cardsHost.innerHTML = '';
+    tpl.forEach((c, i) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      const cv = document.createElement('canvas');
+      this.drawPreview(cv, c);
+      const nm = document.createElement('div');
+      nm.className = 'nm';
+      nm.textContent = c.name ? `${c.name} (char_${i})` : `char_${i}`;
+      const edit = document.createElement('button');
+      edit.textContent = 'Edit';
+      edit.onclick = () => {
+        this.loadChar(i);
+        this.showEdit();
+      };
+      const copy = document.createElement('button');
+      copy.textContent = 'Copy';
+      copy.onclick = () => {
+        this.createNew(i);
+        this.showEdit();
+      };
+      const third = document.createElement('button');
+      const isUser = i >= defaults;
+      third.textContent = isUser ? 'Delete' : 'Reset';
+      if (isUser) third.className = 'del';
+      third.title = isUser ? 'Delete this character' : 'Reset to bundled default';
+      third.onclick = async () => {
+        if (isUser && !(await confirmDialog(`Delete ${nm.textContent}?`, { danger: true, confirmLabel: 'Delete' })))
+          return;
+        this.opts.reset(`char_${i}`);
+        window.setTimeout(() => this.renderGallery(), 250);
+      };
+      card.append(cv, nm, edit, copy, third);
+      this.cardsHost.appendChild(card);
+    });
+  }
+
+  // ── Editing ──────────────────────────────────────────────────────
+  /** Load an existing character into the editor (clamped to range). */
   private loadChar(index: number): void {
     const tpl = this.opts.getTemplates() ?? [];
     if (tpl.length === 0) return;
@@ -333,7 +415,6 @@ export class CharacterEditor {
       this.work = { down: blank(), up: blank(), right: blank() };
     }
     this.work.name = undefined;
-    this.refreshCharList();
     this.afterLoad();
   }
 
@@ -344,9 +425,9 @@ export class CharacterEditor {
       this.W = f0[0]?.length ?? 16;
     }
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
-    this.picker.value = String(this.charIndex);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
-    this.render();
+    this.dirty = false;
+    if (this.view === 'edit') this.render();
   }
 
   /** Canonical frame count (down/up/right stay equal length). */
@@ -365,6 +446,7 @@ export class CharacterEditor {
       if (this.work.left) this.work.left.push(emptyFrame(this.W, this.H));
     }
     this.frame = firstNew;
+    this.dirty = true;
     this.render();
   }
 
@@ -377,6 +459,7 @@ export class CharacterEditor {
     for (const d of ['down', 'up', 'right'] as const) this.work[d].splice(start, last.count);
     if (this.work.left) this.work.left.splice(start, last.count);
     this.frame = Math.min(this.frame, this.baseLen() - 1);
+    this.dirty = true;
     this.render();
   }
 
@@ -412,6 +495,7 @@ export class CharacterEditor {
       opt.onclick = () => {
         this.createNew(i);
         this.closeNewDialog();
+        this.showEdit();
       };
       grid.appendChild(opt);
     });
@@ -426,6 +510,7 @@ export class CharacterEditor {
     blank.onclick = () => {
       this.createNew(null);
       this.closeNewDialog();
+      this.showEdit();
     };
     grid.appendChild(blank);
     this.panel.querySelector<HTMLDivElement>('#pa-c-newdlg')!.classList.add('show');
@@ -462,33 +547,21 @@ export class CharacterEditor {
     return this.work.name ? `${this.work.name} (${this.charName()})` : this.charName();
   }
   private doSave(): void {
-    const idx = this.charIndex;
-    this.opts.save(this.charName(), this.work);
-    this.showStatus(`Saved ${this.displayName()} ✓`);
-    // After the broadcast lands, reload it as a normal (existing) entry.
-    window.setTimeout(() => {
-      this.refreshCharList();
-      this.loadChar(idx);
-    }, 250);
-  }
-  /** Reset a bundled char to its default, or delete a user-added one. New
-   *  (unsaved) chars are simply discarded. */
-  private doReset(): void {
-    if (this.isNew) {
-      this.isNew = false;
-      this.refreshCharList();
-      this.loadChar(this.charIndex - 1);
-      this.showStatus('Discarded');
+    // A name is mandatory (also enforced server-side). Guard in case the button
+    // is somehow reached while empty.
+    if (!this.work.name?.trim()) {
+      this.showStatus('Name required before saving');
+      this.nameEl.focus();
       return;
     }
-    const isDelete = this.charIndex >= this.opts.getDefaultCount();
-    this.opts.reset(this.charName());
-    this.showStatus(isDelete ? `Deleted ${this.charName()} ✓` : `Reset ${this.charName()} to default ✓`);
-    // Reload after the server broadcast lands (templates may shrink on delete).
+    const idx = this.charIndex;
+    this.opts.save(this.charName(), this.work);
+    this.dirty = false;
+    this.showStatus(`Saved ${this.displayName()} ✓`);
+    // After the broadcast lands, a new char becomes a normal (existing) entry.
     window.setTimeout(() => {
-      this.refreshCharList();
-      const n = this.opts.getTemplates()?.length ?? 1;
-      this.loadChar(Math.min(this.charIndex, n - 1));
+      this.isNew = false;
+      this.loadChar(idx);
     }, 250);
   }
 
@@ -538,13 +611,11 @@ export class CharacterEditor {
     addBtn.textContent = present < EXT_FRAMESETS.length ? `+ ${EXT_FRAMESETS[present].name} frames` : '+ frames';
     delBtn.disabled = present === 0;
     delBtn.textContent = present > 0 ? `Delete ${EXT_FRAMESETS[present - 1].name}` : 'Delete frames';
-    // Reset (bundled) vs Delete (user-added) vs Discard (unsaved new).
-    const resetBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-reset')!;
-    resetBtn.textContent = this.isNew
-      ? 'Discard'
-      : this.charIndex >= this.opts.getDefaultCount()
-        ? 'Delete char'
-        : 'Reset default';
+    // A name is mandatory to save (mirrors the server-side check).
+    const saveBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-save')!;
+    const hasName = !!this.work.name?.trim();
+    saveBtn.disabled = !hasName;
+    saveBtn.title = hasName ? '' : 'Enter a name first';
     this.renderStrip();
     this.renderPaint();
   }
@@ -635,6 +706,7 @@ export class CharacterEditor {
       // Painting left materialises it (seeded from mirrored right) so edits persist.
       const frames = this.dir === 'left' ? this.ensureLeft() : this.work[this.dir];
       frames[this.frame][p.y][p.x] = this.tool === 'erase' ? '' : this.color;
+      this.dirty = true;
       this.renderPaint();
     };
     this.canvas.addEventListener('pointerdown', (e) => {

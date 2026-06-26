@@ -430,6 +430,20 @@ export class OfficeState {
     return dropped;
   }
 
+  /** Unpin a user's character palette and re-randomise their live agents
+   *  (back to a diverse skin). */
+  clearPalettePref(folderName: string): void {
+    if (!folderName || !this.palettePrefs.has(folderName)) return;
+    this.palettePrefs.delete(folderName);
+    for (const ch of this.characters.values()) {
+      if (!ch.isSubagent && ch.folderName === folderName) {
+        const pick = this.pickDiversePalette();
+        ch.palette = pick.palette;
+        ch.hueShift = pick.hueShift;
+      }
+    }
+  }
+
   /** Pin a user's character palette and recolor any of their live agents. */
   setPalettePref(folderName: string, palette: number): void {
     if (!folderName) return;

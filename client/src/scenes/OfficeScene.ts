@@ -31,6 +31,7 @@ import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor } from '../editor/CharacterEditor.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
+import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
@@ -444,7 +445,7 @@ export class OfficeScene extends Phaser.Scene {
    * Toggle edit mode. Entering on the read-only Default auto-forks it into a
    * named user copy (prompt once) so live autosave has a writable target.
    */
-  private toggleEditMode(): void {
+  private async toggleEditMode(): Promise<void> {
     if (this.editor.isEditing()) {
       this.editor.toggle(); // exit (setEditMode flushes the final autosave)
       return;
@@ -452,7 +453,7 @@ export class OfficeScene extends Phaser.Scene {
     let target = this.layoutListData.active;
     let fork = false;
     if (!this.isValidLayoutName(target)) {
-      const name = prompt('Editing makes your own live copy. Name it:', 'My Office');
+      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 40 });
       if (name === null) return; // cancelled → don't enter edit
       target = name.trim();
       if (!this.isValidLayoutName(target)) {
@@ -619,7 +620,7 @@ export class OfficeScene extends Phaser.Scene {
     // The editor ("layout menu") is exclusive with the popovers: close them first.
     editBtn.onclick = () => {
       this.setMenu(null);
-      this.toggleEditMode();
+      void this.toggleEditMode();
     };
 
     topbar.append(editBtn, btn);
@@ -662,12 +663,13 @@ export class OfficeScene extends Phaser.Scene {
       b.onclick = () => send('loadLayout', { name: b.dataset.load });
     });
     this.layoutsPanel.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
-      b.onclick = () => {
-        if (confirm(`Delete layout "${b.dataset.del}"?`)) send('deleteLayout', { name: b.dataset.del });
+      b.onclick = async () => {
+        if (await confirmDialog(`Delete layout "${b.dataset.del}"?`, { danger: true, confirmLabel: 'Delete' }))
+          send('deleteLayout', { name: b.dataset.del });
       };
     });
-    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = () => {
-      const name = prompt('New layout name (saved from the current office):');
+    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = async () => {
+      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 40 });
       if (name) send('saveLayoutAs', { name, layout: this.os.getLayout() });
     };
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-default]')!.onclick = () =>
@@ -719,6 +721,9 @@ export class OfficeScene extends Phaser.Scene {
       #pa-char canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
         border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;}
       #pa-char canvas.sel{border-color:#3a6df0;}
+      #pa-char .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
+        background:#14161c;border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;font-size:1.1rem;}
+      #pa-char .rnd.sel{border-color:#3a6df0;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
         color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
@@ -806,6 +811,22 @@ export class OfficeScene extends Phaser.Scene {
     if (!host) return;
     const tpl = getCharacterTemplates() ?? [];
     host.innerHTML = '';
+    // "Default (Random)" = no pin; the server diversifies the skin.
+    const rnd = document.createElement('div');
+    rnd.className = 'rnd' + (this.myPalette === null ? ' sel' : '');
+    rnd.textContent = '🎲';
+    rnd.title = 'Default (random skin)';
+    rnd.onclick = () => {
+      this.myPalette = null;
+      try {
+        localStorage.removeItem('pa-viewer-char');
+      } catch {
+        /* localStorage unavailable */
+      }
+      this.room?.send('setCharacter', { palette: -1, name: this.viewerUsername });
+      this.renderCharSwatches();
+    };
+    host.appendChild(rnd);
     tpl.forEach((c, i) => {
       const frame = c.down?.[1] ?? c.down?.[0];
       const w = frame?.[0]?.length ?? 16;

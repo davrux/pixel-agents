@@ -179,14 +179,20 @@ export class SimRoom extends Room<RoomState> {
     // their current/future agents and persists across restarts.
     this.onMessage('setCharacter', (client, msg: { palette?: number; name?: string }) => {
       const palette = Number(msg?.palette);
-      if (!Number.isInteger(palette) || palette < 0 || palette > 999) return;
+      if (!Number.isInteger(palette) || palette > 999) return;
       const auth = (client.auth as { username?: string } | undefined)?.username;
       const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
         .trim()
         .slice(0, 16);
       if (!name) return;
-      appStore.setCharPref(name, palette);
-      this.os.setPalettePref(name, palette);
+      if (palette < 0) {
+        // Default (random) → unpin and re-randomise the user's agents.
+        appStore.clearCharPref(name);
+        this.os.clearPalettePref(name);
+      } else {
+        appStore.setCharPref(name, palette);
+        this.os.setPalettePref(name, palette);
+      }
     });
 
     // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge
@@ -197,6 +203,7 @@ export class SimRoom extends Room<RoomState> {
       // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
       if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
+      if (type === 'character' && !this.validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       this.reapplyAsset(type);
     });
@@ -211,6 +218,42 @@ export class SimRoom extends Room<RoomState> {
 
   private validAssetType(t: unknown): AssetType | null {
     return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+  }
+
+  /**
+   * Authoritative validation of a character override — never trust the client.
+   * Enforces a mandatory display name (printable ASCII, ≤16 chars), and that
+   * down/up/right (and optional left) are non-empty frame lists of uniformly
+   * sized hex-pixel grids within bounds. Mirrors (and is the real gate behind)
+   * the editor's client-side checks.
+   */
+  private validCharacterData(data: unknown): boolean {
+    const d = data as { name?: unknown; down?: unknown; up?: unknown; right?: unknown; left?: unknown };
+    if (!d || typeof d !== 'object') return false;
+    if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
+    const dims = { w: -1, h: -1 };
+    const hex = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+    const validFrames = (frames: unknown): boolean => {
+      if (!Array.isArray(frames) || frames.length === 0 || frames.length > 64) return false;
+      for (const frame of frames) {
+        if (!Array.isArray(frame) || frame.length === 0 || frame.length > 128) return false;
+        if (dims.h === -1) dims.h = frame.length;
+        else if (frame.length !== dims.h) return false;
+        for (const row of frame as unknown[]) {
+          if (!Array.isArray(row) || row.length === 0 || row.length > 128) return false;
+          if (dims.w === -1) dims.w = row.length;
+          else if (row.length !== dims.w) return false;
+          for (const cell of row as unknown[]) {
+            if (typeof cell !== 'string') return false;
+            if (cell !== '' && !hex.test(cell)) return false;
+          }
+        }
+      }
+      return true;
+    };
+    if (!validFrames(d.down) || !validFrames(d.up) || !validFrames(d.right)) return false;
+    if (d.left !== undefined && !validFrames(d.left)) return false;
+    return true;
   }
 
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
