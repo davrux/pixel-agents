@@ -43,9 +43,10 @@ import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
   getCharacterSprites,
-  getPetSprites,
+  getNpcSprites,
+  spriteForPose,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
+import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { spriteTexture } from './sprites.js';
 
 const FLOOR_DEPTH = -100000;
@@ -274,8 +275,8 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1);
         this.pets.set(pet.id, img);
       }
-      const sprites = getPetSprites(pet.kind, pet.variant);
-      const tex = spriteTexture(this.scene, getPetSprite(pet, sprites));
+      const sprites = getNpcSprites(pet.kind, pet.variant);
+      const tex = spriteTexture(this.scene, spriteForPose(petPose(pet), pet.dir, pet.frame, sprites));
       img.setTexture(tex);
       img.setPosition(pet.x, pet.y);
       img.setDepth(pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET);

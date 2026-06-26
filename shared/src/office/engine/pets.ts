@@ -19,8 +19,7 @@ import {
   PET_WANDER_PAUSE_MIN_SEC,
 } from '../constants.js';
 import { findPath } from '../layout/tileMap.js';
-import type { PetSprites } from '../sprites/spriteData.js';
-import type { Pet, PetKind, SpriteData, TileType as TileTypeVal } from '../types.js';
+import type { Pet, PetKind, TileType as TileTypeVal } from '../types.js';
 import { Direction, PetState, TILE_SIZE } from '../types.js';
 
 /** A reachable, already-claimed interaction target (computed by OfficeState). */
@@ -267,14 +266,15 @@ function startSitting(pet: Pet): void {
   pet.frameTimer = 0;
 }
 
-/** Resolve the sprite frame for a pet's current state & direction. */
-export function getPetSprite(pet: Pet, sprites: PetSprites): SpriteData {
+/** Map a pet's FSM state to an animation track name (the unified NPC pipeline
+ *  resolves the frame via spriteForPose). wander→walk, sit→sit, else idle. */
+export function petPose(pet: Pet): string {
   switch (pet.state) {
     case PetState.WANDER:
-      return sprites.walk[pet.dir][pet.frame % 4];
+      return 'walk';
     case PetState.SIT:
-      return sprites.sit[pet.dir][pet.frame % 2];
+      return 'sit';
     default:
-      return sprites.idle[pet.dir];
+      return 'idle';
   }
 }
