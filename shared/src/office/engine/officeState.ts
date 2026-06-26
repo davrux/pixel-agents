@@ -15,11 +15,7 @@ import {
   HUE_SHIFT_RANGE_DEG,
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
-  PET_AGENTS_PER_PET,
   PET_EFFECT_DURATION_SEC,
-  PET_MAX,
-  PET_SPAWN_INTERVAL_MAX_SEC,
-  PET_SPAWN_INTERVAL_MIN_SEC,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../constants.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
@@ -91,7 +87,8 @@ export class OfficeState {
   pets: Map<number, Pet> = new Map();
   /** Non-chair furniture uids currently claimed by a pet. */
   private petFurnitureClaims: Set<string> = new Set();
-  private petSpawnTimer = 0;
+  /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
+  private petSpawnTimers = new Map<string, number>();
   private nextPetId = 1_000_000;
 
   constructor(layout?: OfficeLayout) {
@@ -1003,10 +1000,6 @@ export class OfficeState {
     return n;
   }
 
-  private petTargetCount(): number {
-    return Math.min(PET_MAX, Math.floor(this.getConnectedAgentCount() / PET_AGENTS_PER_PET));
-  }
-
   /** Tick spawning, the per-pet FSM, and deletion of finished despawns. */
   private updatePets(dt: number): void {
     const ctx = {
@@ -1030,42 +1023,48 @@ export class OfficeState {
       this.pets.delete(id);
     }
 
-    // Spawn / despawn toward the target count
-    const target = this.petTargetCount();
-    const living = [...this.pets.values()].filter((p) => p.state !== PetState.DESPAWN);
-    if (living.length > target) {
-      // Too many (agents left) — retire the oldest living pet early
-      const oldest = living.reduce((a, b) => (a.lifespanTimer >= b.lifespanTimer ? a : b));
-      beginPetDespawn(oldest, ctx);
-    } else if (living.length < target) {
-      this.petSpawnTimer -= dt;
-      if (this.petSpawnTimer <= 0) {
-        this.spawnPet();
-        this.petSpawnTimer = randomRange(PET_SPAWN_INTERVAL_MIN_SEC, PET_SPAWN_INTERVAL_MAX_SEC);
+    // Per-NPC-variant spawning (lifespan despawn frees slots).
+    this.tickNpcSpawns(dt);
+  }
+
+  /** Each active NPC variant spawns up to its `maxConcurrent` on its own random
+   *  interval [minSec, maxSec]. Independent of agent count (config-driven). */
+  private tickNpcSpawns(dt: number): void {
+    if (this.walkableTiles.length === 0) return;
+    // Living instances per `${kind}_${variant}`.
+    const living = new Map<string, number>();
+    for (const p of this.pets.values()) {
+      if (p.state === PetState.DESPAWN) continue;
+      const k = `${p.kind}_${p.variant}`;
+      living.set(k, (living.get(k) ?? 0) + 1);
+    }
+    for (const name of ['dog', 'cat', 'duck'] as Array<'dog' | 'cat' | 'duck'>) {
+      const count = getLoadedPetVariantCount(name);
+      for (let v = 0; v < count; v++) {
+        const key = `${name}_${v}`;
+        const cfg = getNpcConfig(name, v);
+        if (!cfg.active) {
+          this.petSpawnTimers.delete(key); // re-staggers when reactivated
+          continue;
+        }
+        let t = this.petSpawnTimers.get(key);
+        if (t === undefined) t = randomRange(0, cfg.maxSec); // stagger first spawn
+        t -= dt;
+        if (t <= 0) {
+          if ((living.get(key) ?? 0) < cfg.maxConcurrent) {
+            this.spawnPetVariant(name as PetKind, v);
+            living.set(key, (living.get(key) ?? 0) + 1);
+          }
+          t = randomRange(cfg.minSec, cfg.maxSec);
+        }
+        this.petSpawnTimers.set(key, t);
       }
     }
   }
 
-  /** Spawn one random pet at a free walkable tile (no-op if no sprites/tiles).
-   *  Only NPC variants whose config is `active` are eligible. */
-  private spawnPet(): void {
+  /** Spawn a specific NPC variant at a free walkable tile. */
+  private spawnPetVariant(kind: PetKind, variant: number): void {
     if (this.walkableTiles.length === 0) return;
-    // Build the pool of active (kind, variant) candidates.
-    const candidates: Array<{ kind: PetKind; variant: number }> = [];
-    for (const [name, kind] of [
-      ['dog', PetKindEnum.DOG],
-      ['cat', PetKindEnum.CAT],
-      ['duck', PetKindEnum.DUCK],
-    ] as Array<['dog' | 'cat' | 'duck', PetKind]>) {
-      const count = getLoadedPetVariantCount(name);
-      for (let v = 0; v < count; v++) {
-        if (getNpcConfig(name, v).active) candidates.push({ kind, variant: v });
-      }
-    }
-    if (candidates.length === 0) return;
-    const { kind, variant } = candidates[Math.floor(Math.random() * candidates.length)];
-
-    // Avoid spawning on a tile occupied by a character or pet
     const occupied = new Set<string>();
     for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
     for (const p of this.pets.values()) occupied.add(`${p.tileCol},${p.tileRow}`);
