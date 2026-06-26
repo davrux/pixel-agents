@@ -23,8 +23,12 @@ export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number
     case 'status':
       os.setAgentActive(ev.id, ev.status === 'active');
       if (ev.status === 'waiting') {
+        // Genuine turn end — show the "done" bubble (the client chimes on it).
         activity.delete(ev.id);
         os.showWaitingBubble(ev.id);
+      } else if (ev.status === 'idle') {
+        // Inactivity timeout — go quiet without the "done" bubble/chime.
+        activity.delete(ev.id);
       }
       break;
 

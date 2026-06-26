@@ -64,8 +64,9 @@ export class AgentDirector extends EventEmitter {
         this.agents.delete(ev.id);
         break;
       case 'status': {
+        // The registry only tracks active vs not (idle replays as 'waiting').
         const a = this.agents.get(ev.id);
-        if (a) a.status = ev.status;
+        if (a) a.status = ev.status === 'active' ? 'active' : 'waiting';
         break;
       }
       case 'toolStart': {

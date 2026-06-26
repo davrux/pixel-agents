@@ -146,8 +146,11 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
   });
 
   // Inactivity → idle. An agent with no new lines for IDLE_AFTER_MS and no tools
-  // in flight is treated as turn-ended (toolsClear + waiting), so it stops showing
-  // its last task and goes idle — covering text-only turns and the initial replay.
+  // in flight goes quiet (toolsClear + idle), so it stops showing its last task —
+  // covering text-only turns and the initial replay. This is NOT a turn-completion
+  // signal (no "done" chime): the real turn end is the transcript's turn_duration
+  // event, which still emits 'waiting'. Otherwise every mid-task thinking pause
+  // longer than IDLE_AFTER_MS would chime.
   const idleTimer = setInterval(() => {
     const now = Date.now();
     for (const conn of conns) {
@@ -159,7 +162,7 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
         if (now - last < IDLE_AFTER_MS) continue;
         conn.idled.add(agentId);
         director.apply({ t: 'toolsClear', id: agentId });
-        director.apply({ t: 'status', id: agentId, status: 'waiting' });
+        director.apply({ t: 'status', id: agentId, status: 'idle' });
       }
     }
   }, 1000);

@@ -54,7 +54,12 @@ async function main(): Promise<void> {
   }
 
   const httpServer = createServer(app);
-  const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer }) });
+  // ws-transport defaults maxPayload to 4 KB — far too small for a saved layout
+  // (the bundled default is ~14 KB, and an expanded office with per-tile colours
+  // is larger), which made "Save layout" blow the socket. Allow up to 8 MB.
+  const gameServer = new Server({
+    transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
+  });
   gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined });
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has

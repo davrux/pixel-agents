@@ -23,6 +23,7 @@ import {
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
+import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
@@ -35,11 +36,24 @@ export interface EditorDeps {
   rebuildStatic: () => void;
   /** Persist the edited layout (scene picks saveLayout vs saveLayoutAs). */
   save: (layout: OfficeLayout) => void;
+  /** Notify the scene when edit mode starts/stops (e.g. to disable other menus). */
+  onEditingChange: (editing: boolean) => void;
 }
 
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
+const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
+
+// Edit-mode grid overlay colours (ported 1:1 from the pre-Phaser renderer —
+// see shared GRID_LINE_COLOR / VOID_TILE_OUTLINE_COLOR / GHOST_BORDER_* ).
+const GRID_LINE = { color: 0xffffff, alpha: 0.12 };
+const VOID_OUTLINE = { color: 0xffffff, alpha: 0.08 };
+const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
+const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
+const DASH = 2;
+const DASH_GAP = 2;
+type ExpandDirection = 'left' | 'right' | 'up' | 'down';
 
 /**
  * Office layout editor (stages 1+2). Furniture place/delete, floor & wall
@@ -61,6 +75,12 @@ export class LayoutEditor {
   private color: ColorValue = { ...NEUTRAL };
   private ghost?: Phaser.GameObjects.Image;
   private selRect?: Phaser.GameObjects.Rectangle;
+  /** Edit-mode tile grid + void/expansion outlines (redrawn on edit/hover/zoom). */
+  private grid?: Phaser.GameObjects.Graphics;
+  private gridZoom = 0;
+  private ghostHover = { col: -999, row: -999 };
+  /** Last tile painted in the current drag-paint stroke (per-tile dedup). */
+  private lastPaint = { col: NaN, row: NaN };
   private ghostWorld = { x: 0, y: 0 };
   private uid = 0;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
@@ -102,15 +122,20 @@ export class LayoutEditor {
     if (!this.layout.tileColors) {
       this.layout.tileColors = new Array(this.layout.cols * this.layout.rows).fill(null);
     }
+    this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
     this.editing = true;
     this.root.style.display = 'flex';
     this.ghost = this.scene.add.image(0, 0, '__WHITE').setOrigin(0, 0).setAlpha(0.55).setDepth(GHOST_DEPTH).setVisible(false);
     this.selRect = this.scene.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE).setOrigin(0, 0)
       .setStrokeStyle(1, 0xffd24a, 1).setDepth(GHOST_DEPTH).setVisible(false);
+    this.grid = this.scene.add.graphics().setDepth(GRID_DEPTH);
+    this.ghostHover = { col: -999, row: -999 };
     window.addEventListener('keydown', this.onKey);
     this.rebuildFurniture();
     this.deps.rebuildStatic();
+    this.drawGrid();
+    this.deps.onEditingChange(true);
   }
 
   private exit(): void {
@@ -123,9 +148,12 @@ export class LayoutEditor {
     this.ghost = undefined;
     this.selRect?.destroy();
     this.selRect = undefined;
+    this.grid?.destroy();
+    this.grid = undefined;
     window.removeEventListener('keydown', this.onKey);
     this.deps.onChange();
     this.deps.rebuildStatic();
+    this.deps.onEditingChange(false);
   }
 
   private handleKey(e: KeyboardEvent): void {
@@ -167,12 +195,17 @@ export class LayoutEditor {
       case 'furniture':
         this.placeFurniture(col, row);
         break;
-      case 'floor':
-        this.paintTile(col, row, this.floorPattern);
+      case 'floor': {
+        // Painting on the ghost-border ring grows the office by one tile.
+        const adj = this.maybeExpand(col, row);
+        this.paintTile(adj?.col ?? col, adj?.row ?? row, this.floorPattern);
         break;
-      case 'wall':
-        this.paintTile(col, row, TileType.WALL);
+      }
+      case 'wall': {
+        const adj = this.maybeExpand(col, row);
+        this.paintTile(adj?.col ?? col, adj?.row ?? row, TileType.WALL);
         break;
+      }
       case 'eyedropper':
         this.eyedrop(wx, wy);
         break;
@@ -185,6 +218,29 @@ export class LayoutEditor {
     else if (this.tool === 'floor' || this.tool === 'wall') {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
     }
+  }
+
+  /** Floor/Wall are paint tools — the scene lets you drag-paint with them
+   *  (and pans with the middle mouse instead of the left button). */
+  isPaintTool(): boolean {
+    return this.tool === 'floor' || this.tool === 'wall';
+  }
+
+  /** Reset the per-tile dedup at the start of a drag-paint stroke. */
+  beginStroke(): void {
+    this.lastPaint = { col: NaN, row: NaN };
+  }
+
+  /** Paint (or erase) the tile under the cursor during a drag, skipping tiles
+   *  already painted this stroke so a stroke maps to one edit per tile. */
+  strokePaint(wx: number, wy: number, erase: boolean): void {
+    if (!this.editing || !this.layout) return;
+    const col = Math.floor(wx / TILE_SIZE);
+    const row = Math.floor(wy / TILE_SIZE);
+    if (col === this.lastPaint.col && row === this.lastPaint.row) return;
+    this.lastPaint = { col, row };
+    if (erase) this.handleRightClick(wx, wy);
+    else this.handleLeftClick(wx, wy);
   }
 
   /** Pixel-accurate furniture pick: the visually top-most item whose (un-
@@ -220,6 +276,12 @@ export class LayoutEditor {
     this.ghostWorld = { x: worldX, y: worldY };
     const col = Math.floor(worldX / TILE_SIZE);
     const row = Math.floor(worldY / TILE_SIZE);
+    // Highlight the hovered expansion tile on the ghost-border ring.
+    const hover = this.tool === 'floor' || this.tool === 'wall' ? { col, row } : { col: -999, row: -999 };
+    if (hover.col !== this.ghostHover.col || hover.row !== this.ghostHover.row) {
+      this.ghostHover = hover;
+      this.drawGrid();
+    }
     if (this.tool === 'furniture' && this.selectedType) {
       const e = getCatalogEntry(this.selectedType);
       if (e) {
@@ -257,7 +319,7 @@ export class LayoutEditor {
     const e = getCatalogEntry(this.selectedType);
     if (!e || !this.canPlace(col, row, e)) return;
     const color = this.activeColor() ?? undefined;
-    this.layout.furniture.push({ uid: `e${++this.uid}`, type: this.selectedType, col, row, color });
+    this.layout.furniture.push({ uid: this.nextUid(), type: this.selectedType, col, row, color });
     this.rebuildFurniture();
   }
 
@@ -305,6 +367,7 @@ export class LayoutEditor {
     this.layout.tileColors![idx] = tile === TileType.VOID ? null : { ...this.color };
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
+    this.drawGrid();
   }
 
   private eyedrop(wx: number, wy: number): void {
@@ -336,6 +399,195 @@ export class LayoutEditor {
     if (!this.layout) return;
     this.furnitureArr = layoutToFurnitureInstances(this.layout.furniture);
     this.deps.onChange();
+  }
+
+  /** A fresh `e<n>` uid that can't collide with anything already in the layout. */
+  private nextUid(): string {
+    return `e${++this.uid}`;
+  }
+
+  /**
+   * Guarantee every furniture item has a unique uid. The `e<n>` counter resets
+   * each edit session, so a freshly placed item could otherwise reuse an `e<n>`
+   * saved earlier — making `furniture.find(uid)` resolve to the wrong piece
+   * (e.g. selecting a desk would pick the goldfish bowl that shared its uid).
+   * Seeds the counter past existing ids and reassigns any duplicate/blank ones.
+   */
+  private ensureUniqueUids(): void {
+    if (!this.layout) return;
+    let max = 0;
+    for (const f of this.layout.furniture) {
+      const m = /^e(\d+)$/.exec(f.uid ?? '');
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    this.uid = max;
+    const seen = new Set<string>();
+    for (const f of this.layout.furniture) {
+      if (!f.uid || seen.has(f.uid)) f.uid = this.nextUid();
+      seen.add(f.uid);
+    }
+  }
+
+  // ── Grid + expansion (ported from the pre-Phaser editor) ─────────
+
+  /**
+   * Draw the edit-mode overlay: a tile grid across the current bounds, dashed
+   * outlines on VOID tiles, and — for floor/wall tools — a dashed "ghost border"
+   * ring one tile outside the bounds. Painting on that ring grows the office,
+   * so the grid only ever hugs the set tiles and expands as you place them.
+   */
+  private drawGrid(): void {
+    if (!this.grid || !this.layout) return;
+    const g = this.grid;
+    const s = TILE_SIZE;
+    const { cols, rows } = this.layout;
+    // Camera-zoom-independent ~1px lines.
+    const lw = 1 / (this.scene.cameras.main.zoom || 1);
+    this.gridZoom = this.scene.cameras.main.zoom;
+    g.clear();
+
+    // Grid lines over the set-tile bounds.
+    g.lineStyle(lw, GRID_LINE.color, GRID_LINE.alpha);
+    g.beginPath();
+    for (let c = 0; c <= cols; c++) {
+      g.moveTo(c * s, 0);
+      g.lineTo(c * s, rows * s);
+    }
+    for (let r = 0; r <= rows; r++) {
+      g.moveTo(0, r * s);
+      g.lineTo(cols * s, r * s);
+    }
+    g.strokePath();
+
+    // Dashed outlines on VOID tiles inside the bounds.
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (this.tileMap[r]?.[c] === TileType.VOID) {
+          this.dashedRect(g, c * s, r * s, s, s, VOID_OUTLINE.color, VOID_OUTLINE.alpha, lw);
+        }
+      }
+    }
+
+    // Ghost-border expansion ring (one tile around the bounds) for floor/wall.
+    if (this.tool === 'floor' || this.tool === 'wall') {
+      const ring: Array<{ c: number; r: number }> = [];
+      for (let c = -1; c <= cols; c++) {
+        ring.push({ c, r: -1 });
+        ring.push({ c, r: rows });
+      }
+      for (let r = 0; r < rows; r++) {
+        ring.push({ c: -1, r });
+        ring.push({ c: cols, r });
+      }
+      for (const { c, r } of ring) {
+        const x = c * s;
+        const y = r * s;
+        const hovered = c === this.ghostHover.col && r === this.ghostHover.row;
+        if (hovered) {
+          g.fillStyle(GHOST_HOVER.color, GHOST_HOVER.fill);
+          g.fillRect(x, y, s, s);
+        }
+        this.dashedRect(g, x, y, s, s, hovered ? GHOST_HOVER.color : GHOST_RING.color, hovered ? GHOST_HOVER.stroke : GHOST_RING.alpha, lw);
+      }
+    }
+  }
+
+  /** A dashed rectangle outline ([2,2] pattern) in world units. */
+  private dashedRect(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, color: number, alpha: number, lw: number): void {
+    g.lineStyle(lw, color, alpha);
+    this.dashLine(g, x, y, x + w, y);
+    this.dashLine(g, x + w, y, x + w, y + h);
+    this.dashLine(g, x + w, y + h, x, y + h);
+    this.dashLine(g, x, y + h, x, y);
+  }
+
+  private dashLine(g: Phaser.GameObjects.Graphics, x1: number, y1: number, x2: number, y2: number): void {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    g.beginPath();
+    for (let d = 0; d < len; d += DASH + DASH_GAP) {
+      const e = Math.min(d + DASH, len);
+      g.moveTo(x1 + ux * d, y1 + uy * d);
+      g.lineTo(x1 + ux * e, y1 + uy * e);
+    }
+    g.strokePath();
+  }
+
+  /** If (col,row) lies on the ghost-border ring, grow the layout to include it.
+   *  Returns the bounds-shifted (col,row), or null when no expansion happened. */
+  private maybeExpand(col: number, row: number): { col: number; row: number } | null {
+    if (!this.layout) return null;
+    if (col >= 0 && col < this.layout.cols && row >= 0 && row < this.layout.rows) return null;
+    const dirs: ExpandDirection[] = [];
+    if (col < 0) dirs.push('left');
+    if (col >= this.layout.cols) dirs.push('right');
+    if (row < 0) dirs.push('up');
+    if (row >= this.layout.rows) dirs.push('down');
+
+    let shiftCol = 0;
+    let shiftRow = 0;
+    for (const dir of dirs) {
+      const shift = this.expand(dir);
+      if (!shift) return null; // hit MAX_COLS / MAX_ROWS
+      shiftCol += shift.col;
+      shiftRow += shift.row;
+    }
+    if (shiftCol === 0 && shiftRow === 0) return null;
+
+    // Existing content shifts by +shift when growing left/up — scroll the camera
+    // so the office stays visually anchored.
+    const cam = this.scene.cameras.main;
+    cam.scrollX += shiftCol * TILE_SIZE;
+    cam.scrollY += shiftRow * TILE_SIZE;
+    this.tileMap = layoutToTileMap(this.layout);
+    this.rebuildFurniture();
+    this.deps.rebuildStatic();
+    return { col: col + shiftCol, row: row + shiftRow };
+  }
+
+  /** Grow the working layout by one tile in `direction` (new tiles are VOID).
+   *  Returns the index shift applied to existing content, or null at the max. */
+  private expand(direction: ExpandDirection): { col: number; row: number } | null {
+    if (!this.layout) return null;
+    const { cols, rows, tiles } = this.layout;
+    const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
+    let newCols = cols;
+    let newRows = rows;
+    let shiftCol = 0;
+    let shiftRow = 0;
+    if (direction === 'right') newCols = cols + 1;
+    else if (direction === 'left') {
+      newCols = cols + 1;
+      shiftCol = 1;
+    } else if (direction === 'down') newRows = rows + 1;
+    else {
+      newRows = rows + 1;
+      shiftRow = 1;
+    }
+    if (newCols > MAX_COLS || newRows > MAX_ROWS) return null;
+
+    const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
+    const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const oldIdx = r * cols + c;
+        const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
+        newTiles[newIdx] = tiles[oldIdx];
+        newColors[newIdx] = tileColors[oldIdx];
+      }
+    }
+    this.layout.cols = newCols;
+    this.layout.rows = newRows;
+    this.layout.tiles = newTiles;
+    this.layout.tileColors = newColors;
+    for (const f of this.layout.furniture) {
+      f.col += shiftCol;
+      f.row += shiftRow;
+    }
+    return { col: shiftCol, row: shiftRow };
   }
 
   // ── Select / floating actions (rotate + delete above the object) ──
@@ -385,6 +637,8 @@ export class LayoutEditor {
   /** Position the floating action bar + selection outline above the selected
    *  furniture each frame (camera-correct). Called by the scene's update(). */
   tickUI(): void {
+    // Keep grid lines ~1px on screen across zoom levels (redraw only on change).
+    if (this.editing && this.grid && this.scene.cameras.main.zoom !== this.gridZoom) this.drawGrid();
     if (!this.editing || this.tool !== 'select' || !this.selectedUid || !this.layout) {
       this.actionBar.style.display = 'none';
       this.selRect?.setVisible(false);
@@ -470,12 +724,14 @@ export class LayoutEditor {
       this.selRect?.setVisible(false);
     }
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
+    // The expansion ring only shows for floor/wall tools — redraw to reflect it.
+    if (this.editing) this.drawGrid();
     const labels: Record<Tool, string> = {
       select: 'Select — click an object for rotate / delete buttons',
       furniture: 'Furniture — left-click place, right-click remove',
       floor: 'Floor — left-click paint, right-click erase',
       wall: 'Wall — left-click paint, right-click erase',
-      eyedropper: 'Eyedropper — click to pick a tile/furniture',
+      eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
     this.hint.textContent = labels[t];
   }
@@ -495,27 +751,27 @@ export class LayoutEditor {
     const style = document.createElement('style');
     style.textContent = `
       #pa-editor{position:fixed;top:0;left:0;bottom:0;z-index:55;display:none;flex-direction:column;
-        width:300px;background:#161a22;border-right:2px solid #3a4150;color:#eef1f6;
-        font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:14px;}
-      #pa-editor .bar{display:flex;gap:8px;padding:10px;border-bottom:2px solid #3a4150;}
+        width:20rem;background:#161a22;border-right:2px solid #3a4150;color:#eef1f6;
+        font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.9rem;}
+      #pa-editor .bar{display:flex;gap:0.5rem;padding:0.65rem;border-bottom:2px solid #3a4150;}
       #pa-editor .bar button{flex:1;cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;
-        color:#eef1f6;border-radius:5px;font:16px 'FS Pixel Sans',monospace;padding:8px;}
+        color:#eef1f6;border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem;}
       #pa-editor .bar button.save{background:#2f6d3a;border-color:#3c8a4c;}
-      #pa-editor .tools{display:flex;gap:6px;padding:8px 10px;}
+      #pa-editor .tools{display:flex;gap:0.4rem;padding:0.5rem 0.65rem;}
       #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#1b1f2a;border:2px solid #2a2f3a;
-        color:#eef1f6;border-radius:5px;font:14px 'FS Pixel Sans',monospace;padding:7px 4px;}
+        color:#eef1f6;border-radius:0.3rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.45rem 0.25rem;}
       #pa-editor .tools .pa-tool.sel{border-color:#ffd24a;}
-      #pa-editor .hint{padding:4px 10px 8px;font-size:13px;color:#9aa4b2;}
-      #pa-editor .color{display:flex;flex-direction:column;gap:5px;padding:8px 10px;border-top:1px solid #2a2f3a;border-bottom:1px solid #2a2f3a;}
-      #pa-editor .color .rowc{display:flex;align-items:center;gap:8px;font-size:13px;}
-      #pa-editor .color .rowc span{width:34px;color:#9aa4b2;}
+      #pa-editor .hint{padding:0.25rem 0.65rem 0.5rem;font-size:0.8rem;color:#9aa4b2;}
+      #pa-editor .color{display:flex;flex-direction:column;gap:0.3rem;padding:0.5rem 0.65rem;border-top:1px solid #2a2f3a;border-bottom:1px solid #2a2f3a;}
+      #pa-editor .color .rowc{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;}
+      #pa-editor .color .rowc span{width:2.1rem;color:#9aa4b2;}
       #pa-editor .color input[type=range]{flex:1;}
-      #pa-editor .sw{width:26px;height:18px;border:1px solid #3a4150;border-radius:3px;}
-      .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:10px;align-content:start;}
-      .pa-pal-item{display:flex;align-items:center;justify-content:center;height:54px;cursor:pointer;
-        background:#1b1f2a;border:2px solid #2a2f3a;border-radius:6px;padding:4px;}
+      #pa-editor .sw{width:1.6rem;height:1.1rem;border:1px solid #3a4150;border-radius:0.2rem;}
+      .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.65rem;align-content:start;}
+      .pa-pal-item{display:flex;align-items:center;justify-content:center;height:3.4rem;cursor:pointer;
+        background:#1b1f2a;border:2px solid #2a2f3a;border-radius:0.4rem;padding:0.25rem;}
       .pa-pal-item.sel{border-color:#ffd24a;}
-      .pa-pal-item img{max-width:44px;max-height:44px;image-rendering:pixelated;}
+      .pa-pal-item img{max-width:2.75rem;max-height:2.75rem;image-rendering:pixelated;}
     `;
     document.head.appendChild(style);
 
@@ -546,7 +802,7 @@ export class LayoutEditor {
     this.rotateBtn = document.createElement('button');
     this.rotateBtn.className = 'pa-tool';
     this.rotateBtn.textContent = '⟳ Rotate (R)';
-    this.rotateBtn.style.cssText = 'margin:0 10px 8px;cursor:pointer;background:#1b1f2a;border:2px solid #2a2f3a;color:#eef1f6;border-radius:5px;font:14px "FS Pixel Sans",monospace;padding:7px;';
+    this.rotateBtn.style.cssText = 'margin:0 0.65rem 0.5rem;cursor:pointer;background:#1b1f2a;border:2px solid #2a2f3a;color:#eef1f6;border-radius:0.3rem;font:0.9rem "FS Pixel Sans",monospace;padding:0.45rem;';
     this.rotateBtn.onclick = () => this.rotate('cw');
 
     // Color controls
@@ -596,15 +852,15 @@ export class LayoutEditor {
     // Floating action bar that hovers above the selected furniture.
     this.actionBar = document.createElement('div');
     this.actionBar.style.cssText =
-      'position:absolute;z-index:58;transform:translate(-50%,-100%);display:none;gap:6px;' +
-      'margin-top:-6px;pointer-events:auto;';
+      'position:absolute;z-index:58;transform:translate(-50%,-100%);display:none;gap:0.4rem;' +
+      'margin-top:-0.4rem;pointer-events:auto;';
     const mkAct = (txt: string, title: string, onClick: () => void) => {
       const b = document.createElement('button');
       b.textContent = txt;
       b.title = title;
       b.style.cssText =
-        "cursor:pointer;width:34px;height:34px;background:#1b1f2a;border:2px solid #3a4150;" +
-        "border-radius:6px;color:#eef1f6;font:18px 'FS Pixel Sans',monospace;box-shadow:0 2px 0 rgba(0,0,0,.4);";
+        "cursor:pointer;width:2.2rem;height:2.2rem;background:#1b1f2a;border:2px solid #3a4150;" +
+        "border-radius:0.4rem;color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;box-shadow:0 2px 0 rgba(0,0,0,.4);";
       b.onclick = onClick;
       return b;
     };
