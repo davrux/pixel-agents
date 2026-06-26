@@ -1,7 +1,6 @@
 import {
   COFFEE_COOLDOWN_MAX_SEC,
   COFFEE_COOLDOWN_MIN_SEC,
-  COFFEE_FRAME_COUNT,
   COFFEE_FRAME_DURATION_SEC,
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
@@ -17,7 +16,7 @@ import {
 } from '../constants.js';
 import { findPath } from '../layout/tileMap.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
-import { spriteForPose } from '../sprites/spriteData.js';
+import { getPosePlaybackLength, spriteForPose } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
 import type {
   Character,
@@ -120,7 +119,8 @@ export function updateCharacter(
     case CharacterState.TYPE: {
       if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
         ch.frameTimer -= TYPE_FRAME_DURATION_SEC;
-        ch.frame = (ch.frame + 1) % 2;
+        // typing vs reading track length (derived from the current tool)
+        ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, getCharacterPose(ch));
       }
       // If no longer active, stand up and start wandering (after seatTimer expires)
       if (!ch.isActive) {
@@ -154,7 +154,7 @@ export function updateCharacter(
           // count, so the idle-stand fallback stays still).
           if (ch.frameTimer >= COFFEE_FRAME_DURATION_SEC) {
             ch.frameTimer -= COFFEE_FRAME_DURATION_SEC;
-            ch.frame = (ch.frame + 1) % COFFEE_FRAME_COUNT;
+            ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, Pose.COFFEE);
           }
           ch.stationTimer -= dt;
           if (ch.stationTimer <= 0) {
@@ -254,10 +254,10 @@ export function updateCharacter(
     }
 
     case CharacterState.WALK: {
-      // Walk animation
+      // Walk animation (cycle length from the character's walk track)
       if (ch.frameTimer >= WALK_FRAME_DURATION_SEC) {
         ch.frameTimer -= WALK_FRAME_DURATION_SEC;
-        ch.frame = (ch.frame + 1) % 4;
+        ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, Pose.WALK);
       }
 
       if (ch.path.length === 0) {

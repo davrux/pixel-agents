@@ -185,12 +185,13 @@ export function getPetSprites(kind: PetKindName, variant: number): PetSprites {
 // ════════════════════════════════════════════════════════════════
 
 export interface CharacterSprites {
-  walk: Record<Direction, [SpriteData, SpriteData, SpriteData, SpriteData]>;
-  typing: Record<Direction, [SpriteData, SpriteData]>;
-  reading: Record<Direction, [SpriteData, SpriteData]>;
-  /** Standing-at-station animation (coffee, …). Sourced from dedicated template
-   *  frames (index 7+) when the art provides them; otherwise a single idle-stand
-   *  frame, so the pose simply stands still until real art lands. */
+  /** Ready-to-play frame *sequences* per direction (track-driven; walk is the
+   *  ping-pong expansion, e.g. [0,1,2,1]). Lengths come from the character's
+   *  CharacterSpec tracks, so they vary per character. A `coffee` track with no
+   *  art falls back to a single standing frame. */
+  walk: Record<Direction, SpriteData[]>;
+  typing: Record<Direction, SpriteData[]>;
+  reading: Record<Direction, SpriteData[]>;
   coffee: Record<Direction, SpriteData[]>;
 }
 
@@ -206,20 +207,29 @@ export function spriteForPose(
   sprites: CharacterSprites,
 ): SpriteData {
   switch (pose) {
-    case Pose.WALK:
-      return sprites.walk[dir][frame % 4];
-    case Pose.TYPING:
-      return sprites.typing[dir][frame % 2];
-    case Pose.READING:
-      return sprites.reading[dir][frame % 2];
+    case Pose.WALK: {
+      const seq = sprites.walk[dir];
+      return seq[frame % seq.length];
+    }
+    case Pose.TYPING: {
+      const seq = sprites.typing[dir];
+      return seq[frame % seq.length];
+    }
+    case Pose.READING: {
+      const seq = sprites.reading[dir];
+      return seq[frame % seq.length];
+    }
     case Pose.COFFEE: {
       // Cycle the dedicated frames; a single-frame fallback stays static.
-      const frames = sprites.coffee[dir];
-      return frames[frame % frames.length];
+      const seq = sprites.coffee[dir];
+      return seq[frame % seq.length];
     }
     case Pose.IDLE:
-    default:
-      return sprites.walk[dir][1];
+    default: {
+      // Neutral standing frame: the second walk frame when present.
+      const seq = sprites.walk[dir];
+      return seq[Math.min(1, seq.length - 1)];
+    }
   }
 }
 
@@ -229,44 +239,17 @@ const spriteCache = new Map<string, CharacterSprites>();
 function hueShiftSprites(sprites: CharacterSprites, hueShift: number): CharacterSprites {
   const color: ColorValue = { h: hueShift, s: 0, b: 0, c: 0 };
   const shift = (s: SpriteData) => adjustSprite(s, color);
-  const shiftWalk = (
-    arr: [SpriteData, SpriteData, SpriteData, SpriteData],
-  ): [SpriteData, SpriteData, SpriteData, SpriteData] => [
-    shift(arr[0]),
-    shift(arr[1]),
-    shift(arr[2]),
-    shift(arr[3]),
-  ];
-  const shiftPair = (arr: [SpriteData, SpriteData]): [SpriteData, SpriteData] => [
-    shift(arr[0]),
-    shift(arr[1]),
-  ];
-  const shiftList = (arr: SpriteData[]): SpriteData[] => arr.map(shift);
+  const shiftDirs = (rec: Record<Direction, SpriteData[]>): Record<Direction, SpriteData[]> => ({
+    [Dir.DOWN]: rec[Dir.DOWN].map(shift),
+    [Dir.UP]: rec[Dir.UP].map(shift),
+    [Dir.RIGHT]: rec[Dir.RIGHT].map(shift),
+    [Dir.LEFT]: rec[Dir.LEFT].map(shift),
+  });
   return {
-    walk: {
-      [Dir.DOWN]: shiftWalk(sprites.walk[Dir.DOWN]),
-      [Dir.UP]: shiftWalk(sprites.walk[Dir.UP]),
-      [Dir.RIGHT]: shiftWalk(sprites.walk[Dir.RIGHT]),
-      [Dir.LEFT]: shiftWalk(sprites.walk[Dir.LEFT]),
-    } as Record<Direction, [SpriteData, SpriteData, SpriteData, SpriteData]>,
-    typing: {
-      [Dir.DOWN]: shiftPair(sprites.typing[Dir.DOWN]),
-      [Dir.UP]: shiftPair(sprites.typing[Dir.UP]),
-      [Dir.RIGHT]: shiftPair(sprites.typing[Dir.RIGHT]),
-      [Dir.LEFT]: shiftPair(sprites.typing[Dir.LEFT]),
-    } as Record<Direction, [SpriteData, SpriteData]>,
-    reading: {
-      [Dir.DOWN]: shiftPair(sprites.reading[Dir.DOWN]),
-      [Dir.UP]: shiftPair(sprites.reading[Dir.UP]),
-      [Dir.RIGHT]: shiftPair(sprites.reading[Dir.RIGHT]),
-      [Dir.LEFT]: shiftPair(sprites.reading[Dir.LEFT]),
-    } as Record<Direction, [SpriteData, SpriteData]>,
-    coffee: {
-      [Dir.DOWN]: shiftList(sprites.coffee[Dir.DOWN]),
-      [Dir.UP]: shiftList(sprites.coffee[Dir.UP]),
-      [Dir.RIGHT]: shiftList(sprites.coffee[Dir.RIGHT]),
-      [Dir.LEFT]: shiftList(sprites.coffee[Dir.LEFT]),
-    } as Record<Direction, SpriteData[]>,
+    walk: shiftDirs(sprites.walk),
+    typing: shiftDirs(sprites.typing),
+    reading: shiftDirs(sprites.reading),
+    coffee: shiftDirs(sprites.coffee),
   };
 }
 
@@ -277,6 +260,47 @@ function emptySprite(w: number, h: number): SpriteData {
     rows.push(new Array(w).fill(''));
   }
   return rows;
+}
+
+/** Per-track slot offsets in the flat frame list (track order = layout order). */
+interface TrackSlot {
+  start: number;
+  count: number;
+  play: 'loop' | 'pingpong';
+}
+function trackSlots(spec: CharacterSpec): Map<string, TrackSlot> {
+  const m = new Map<string, TrackSlot>();
+  let off = 0;
+  for (const t of spec.tracks) {
+    m.set(t.name, { start: off, count: t.frames, play: t.play });
+    off += t.frames;
+  }
+  return m;
+}
+
+/** Build a playback sequence for a track in one direction from the flat frames.
+ *  Frames beyond what the sheet actually provides are dropped; an empty result
+ *  falls back to a single standing frame. Walk-style 'pingpong' expands
+ *  [0..n-1] to [0..n-1..1]. */
+function buildTrackSeq(
+  slot: TrackSlot | undefined,
+  get: (i: number) => SpriteData,
+  available: number,
+  fallbackIdx: number,
+): SpriteData[] {
+  if (!slot) return [get(fallbackIdx)];
+  const frames: SpriteData[] = [];
+  for (let i = 0; i < slot.count; i++) {
+    const idx = slot.start + i;
+    if (idx < available) frames.push(get(idx));
+  }
+  if (frames.length === 0) return [get(fallbackIdx)];
+  if (slot.play === 'pingpong' && frames.length > 2) {
+    const seq = frames.slice();
+    for (let i = frames.length - 2; i >= 1; i--) seq.push(frames[i]);
+    return seq;
+  }
+  return frames;
 }
 
 export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {
@@ -297,33 +321,44 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
     // Left frame at index i: use the explicit left art if provided, else mirror right.
     const L = (i: number): SpriteData => lf?.[i] ?? flip(rt[i]);
 
+    // Track-driven frame layout from the character's spec (default → historical
+    // walk 0-2 / type 3-4 / read 5-6 / coffee 7+). Frame counts therefore vary
+    // per character; the server advances ch.frame with the matching length.
+    const spec = char.spec ?? DEFAULT_CHARACTER_SPEC;
+    const slots = trackSlots(spec);
+    const available = d.length;
+    const walk = slots.get('walk');
+    const standIdx = walk ? walk.start + Math.min(1, walk.count - 1) : 1;
+    const seq = (track: string, get: (i: number) => SpriteData): SpriteData[] =>
+      buildTrackSeq(slots.get(track), get, available, standIdx);
+    const getD = (i: number): SpriteData => d[i];
+    const getU = (i: number): SpriteData => u[i];
+    const getR = (i: number): SpriteData => rt[i];
+
     sprites = {
       walk: {
-        [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
-        [Dir.UP]: [u[0], u[1], u[2], u[1]],
-        [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
-        [Dir.LEFT]: [L(0), L(1), L(2), L(1)],
+        [Dir.DOWN]: seq('walk', getD),
+        [Dir.UP]: seq('walk', getU),
+        [Dir.RIGHT]: seq('walk', getR),
+        [Dir.LEFT]: seq('walk', L),
       },
       typing: {
-        [Dir.DOWN]: [d[3], d[4]],
-        [Dir.UP]: [u[3], u[4]],
-        [Dir.RIGHT]: [rt[3], rt[4]],
-        [Dir.LEFT]: [L(3), L(4)],
+        [Dir.DOWN]: seq('typing', getD),
+        [Dir.UP]: seq('typing', getU),
+        [Dir.RIGHT]: seq('typing', getR),
+        [Dir.LEFT]: seq('typing', L),
       },
       reading: {
-        [Dir.DOWN]: [d[5], d[6]],
-        [Dir.UP]: [u[5], u[6]],
-        [Dir.RIGHT]: [rt[5], rt[6]],
-        [Dir.LEFT]: [L(5), L(6)],
+        [Dir.DOWN]: seq('reading', getD),
+        [Dir.UP]: seq('reading', getU),
+        [Dir.RIGHT]: seq('reading', getR),
+        [Dir.LEFT]: seq('reading', L),
       },
-      // Dedicated standing/coffee frames (index 7+) when the art provides them;
-      // otherwise the neutral standing pose (walk frame 1), i.e. stand still.
       coffee: {
-        [Dir.DOWN]: d.length > 7 ? d.slice(7) : [d[1]],
-        [Dir.UP]: u.length > 7 ? u.slice(7) : [u[1]],
-        [Dir.RIGHT]: rt.length > 7 ? rt.slice(7) : [rt[1]],
-        [Dir.LEFT]:
-          lf && lf.length > 7 ? lf.slice(7) : rt.length > 7 ? rt.slice(7).map(flip) : [L(1)],
+        [Dir.DOWN]: seq('coffee', getD),
+        [Dir.UP]: seq('coffee', getU),
+        [Dir.RIGHT]: seq('coffee', getR),
+        [Dir.LEFT]: seq('coffee', L),
       },
     };
   } else {
@@ -366,4 +401,33 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
 
   spriteCache.set(cacheKey, sprites);
   return sprites;
+}
+
+/**
+ * Playback length (number of distinct animation steps) for a character's pose —
+ * the modulo the server uses to advance `ch.frame`. Derived from the built
+ * sequences so it accounts for both the spec's track length/play-mode and the
+ * frames the sheet actually provides (e.g. a missing coffee track → 1). Always
+ * ≥ 1. Server and client agree because both build from the same templates.
+ */
+export function getPosePlaybackLength(paletteIndex: number, pose: CharacterPose): number {
+  const s = getCharacterSprites(paletteIndex);
+  let seq: SpriteData[];
+  switch (pose) {
+    case Pose.WALK:
+      seq = s.walk[Dir.DOWN];
+      break;
+    case Pose.TYPING:
+      seq = s.typing[Dir.DOWN];
+      break;
+    case Pose.READING:
+      seq = s.reading[Dir.DOWN];
+      break;
+    case Pose.COFFEE:
+      seq = s.coffee[Dir.DOWN];
+      break;
+    default:
+      return 1; // idle is static
+  }
+  return Math.max(1, seq.length);
 }
