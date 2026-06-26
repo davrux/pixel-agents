@@ -92,6 +92,13 @@ export class OfficeScene extends Phaser.Scene {
     layouts: [],
     active: 'Default',
   };
+  // Live-edit autosave: edits broadcast to all viewers via debounced saveLayoutAs.
+  private editTarget = '';
+  private pendingLayout: OfficeLayout | null = null;
+  private autosaveTimer?: ReturnType<typeof setTimeout>;
+  /** Re-fit zoom/center only on the first layout — later (live-edit) broadcasts
+   *  must not yank the camera of the editor or watchers. */
+  private cameraInitialized = false;
 
   constructor() {
     super('office');
@@ -110,7 +117,7 @@ export class OfficeScene extends Phaser.Scene {
       getLayout: () => this.os.getLayout(),
       onChange: () => (this.furnitureDirty = true),
       rebuildStatic: () => this.view.buildStatic(),
-      save: (layout) => this.saveEditedLayout(layout),
+      onEdit: (layout, immediate) => this.autosaveLayout(layout, immediate),
       onEditingChange: (editing) => this.setEditMode(editing),
     });
     // A name/character chosen in Settings (remembered per browser).
@@ -299,7 +306,8 @@ export class OfficeScene extends Phaser.Scene {
   private applyPet(rp: RenderPet, ps: Record<string, unknown>): void {
     rp.tx = ps.x as number;
     rp.ty = ps.y as number;
-    rp.kind = (ps.kind as number) === 1 ? ('cat' as never) : ('dog' as never);
+    const k = ps.kind as number;
+    rp.kind = (k === 1 ? 'cat' : k === 2 ? 'duck' : 'dog') as never;
     rp.variant = ps.variant as number;
     rp.dir = ps.dir as Pet['dir'];
     rp.state = ps.state as Pet['state'];
@@ -320,12 +328,17 @@ export class OfficeScene extends Phaser.Scene {
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
   }
 
+  /** Always update bounds (cheap, harmless), but only set zoom/center on the
+   *  first layout — so live-edit broadcasts don't jerk the editor's or watchers'
+   *  view on every change (only the office bounds grow on expand). */
   private fitCamera(w: number, h: number): void {
     const cam = this.cameras.main;
     cam.setBounds(-256, -256, w + 512, h + 512);
+    if (this.cameraInitialized) return;
     const z = Math.min(this.scale.width / w, this.scale.height / h) * 0.95;
     cam.setZoom(z > 0 ? z : 2);
     cam.centerOn(w / 2, h / 2);
+    this.cameraInitialized = true;
   }
 
   // ── Input: pan / zoom / hover / select ───────────────────────────
@@ -364,6 +377,10 @@ export class OfficeScene extends Phaser.Scene {
           } else {
             this.editor.handleRightClick(p.worldX, p.worldY);
           }
+        } else if (p.leftButtonDown()) {
+          // Select tool: grabbing a furniture piece starts a drag-to-move
+          // (returns false on empty space → falls through to pan/select).
+          this.editor.beginFurnitureDrag(p.worldX, p.worldY);
         }
       }
     });
@@ -371,7 +388,15 @@ export class OfficeScene extends Phaser.Scene {
       dragging = false;
       const wasPainting = paintMode !== null;
       paintMode = null;
-      if (moved || wasPainting) return; // a drag (pan) or a paint stroke isn't a click
+      if (this.editor.isEditing() && this.editor.isDraggingFurniture()) {
+        this.editor.endFurnitureDrag(p.worldX, p.worldY); // commits move, or selects if not moved
+        return;
+      }
+      if (wasPainting) {
+        this.editor.endStroke(); // commit the paint stroke (one undo step + flush)
+        return;
+      }
+      if (moved) return; // a pan drag isn't a click
       if (this.editor.isEditing()) {
         if (p.leftButtonReleased()) {
           this.editor.handleLeftClick(p.worldX, p.worldY);
@@ -383,6 +408,11 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       if (this.editor.isEditing()) {
+        if (this.editor.isDraggingFurniture()) {
+          this.editor.dragFurnitureTo(p.worldX, p.worldY); // suppresses pan
+          this.input.manager.canvas.style.cursor = 'grabbing';
+          return;
+        }
         this.editor.updateGhost(p.worldX, p.worldY);
         this.hoveredId = null;
         this.input.manager.canvas.style.cursor = 'crosshair';
@@ -405,22 +435,61 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  private saveEditedLayout(layout: OfficeLayout): void {
-    const active = this.layoutListData.active;
-    if (active === 'Default') {
-      // The bundled Default is read-only — edits must be saved as a named copy.
-      const name = prompt('Default is read-only — save your edits as a new layout named:', 'My Office');
-      if (!name) {
-        setStatus('Save cancelled — Default is read-only; enter a name to save a copy.');
+  /** A name the server's LayoutStore.isValidUserName will accept. */
+  private isValidLayoutName(name: string): boolean {
+    return /^[\x20-\x7e]{1,40}$/.test(name) && name !== 'Default';
+  }
+
+  /**
+   * Toggle edit mode. Entering on the read-only Default auto-forks it into a
+   * named user copy (prompt once) so live autosave has a writable target.
+   */
+  private toggleEditMode(): void {
+    if (this.editor.isEditing()) {
+      this.editor.toggle(); // exit (setEditMode flushes the final autosave)
+      return;
+    }
+    let target = this.layoutListData.active;
+    let fork = false;
+    if (!this.isValidLayoutName(target)) {
+      const name = prompt('Editing makes your own live copy. Name it:', 'My Office');
+      if (name === null) return; // cancelled → don't enter edit
+      target = name.trim();
+      if (!this.isValidLayoutName(target)) {
+        setStatus('Invalid name — 1–40 characters, and not “Default”.');
         return;
       }
-      this.room?.send('saveLayoutAs', { name, layout });
-      setStatus(`Saved layout “${name}”`);
-    } else {
-      this.room?.send('saveLayout', { layout });
-      setStatus(`Saved layout “${active}”`);
+      fork = true;
     }
-    this.editor.toggle(); // leave edit mode; the server broadcast becomes the source of truth
+    this.editTarget = target;
+    this.editor.toggle(); // enter (editor.layout is now the working copy)
+    // Fork: persist the current layout under the new name + make it active for all.
+    if (fork && this.editor.layout) {
+      this.room?.send('saveLayoutAs', { name: target, layout: this.editor.layout });
+      setStatus(`Editing “${target}” — changes are live`);
+    } else {
+      setStatus(`Editing “${target}” — changes are live`);
+    }
+  }
+
+  /** Debounced live autosave: broadcasts the edit to all viewers (and persists)
+   *  via the idempotent saveLayoutAs. `immediate` flushes now (gesture done). */
+  private autosaveLayout(layout: OfficeLayout, immediate: boolean): void {
+    this.pendingLayout = layout;
+    if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
+    this.autosaveTimer = undefined;
+    if (immediate) this.flushAutosave();
+    else this.autosaveTimer = setTimeout(() => this.flushAutosave(), 500);
+  }
+
+  private flushAutosave(): void {
+    if (this.autosaveTimer) {
+      clearTimeout(this.autosaveTimer);
+      this.autosaveTimer = undefined;
+    }
+    if (!this.pendingLayout || !this.editTarget) return;
+    this.room?.send('saveLayoutAs', { name: this.editTarget, layout: this.pendingLayout });
+    this.pendingLayout = null;
   }
 
   /** Hit-test characters (topmost / front-most wins). */
@@ -498,6 +567,11 @@ export class OfficeScene extends Phaser.Scene {
       b.style.opacity = editing ? '0.4' : '';
       b.style.pointerEvents = editing ? 'none' : '';
     }
+    // On exit, make sure the last edit reaches the server.
+    if (!editing) {
+      this.flushAutosave();
+      this.editTarget = '';
+    }
   }
 
   // ── Layouts panel (DOM overlay) ──────────────────────────────────
@@ -545,7 +619,7 @@ export class OfficeScene extends Phaser.Scene {
     // The editor ("layout menu") is exclusive with the popovers: close them first.
     editBtn.onclick = () => {
       this.setMenu(null);
-      this.editor.toggle();
+      this.toggleEditMode();
     };
 
     topbar.append(editBtn, btn);

@@ -28,7 +28,7 @@ export function createAssetBridge(
         setCharacterTemplates(msg.characters);
         break;
       case 'petSpritesLoaded':
-        setPetTemplates(msg.dogs ?? [], msg.cats ?? []);
+        setPetTemplates(msg.dogs ?? [], msg.cats ?? [], msg.ducks ?? []);
         break;
       case 'floorTilesLoaded':
         setFloorSprites(msg.sprites);

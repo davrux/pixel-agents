@@ -14,7 +14,7 @@ import {
   layoutToTileMap,
 } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getColorizedFloorSprite, getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
-import { getWallSetCount, getWallSetPreviewSprite } from '@pixel/shared/office/wallTiles.js';
+import { getWallSetCount, getWallSetPreviewSprite, wallColorToHex } from '@pixel/shared/office/wallTiles.js';
 import {
   TILE_SIZE,
   TileType,
@@ -34,8 +34,11 @@ export interface EditorDeps {
   onChange: () => void;
   /** Re-render floor/walls from the editor's working copy. */
   rebuildStatic: () => void;
-  /** Persist the edited layout (scene picks saveLayout vs saveLayoutAs). */
-  save: (layout: OfficeLayout) => void;
+  /**
+   * An edit happened — the scene autosaves it (debounced, broadcast to all
+   * viewers). `immediate` flushes the debounce now (gesture committed).
+   */
+  onEdit: (layout: OfficeLayout, immediate: boolean) => void;
   /** Notify the scene when edit mode starts/stops (e.g. to disable other menus). */
   onEditingChange: (editing: boolean) => void;
 }
@@ -53,7 +56,13 @@ const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
 const DASH = 2;
 const DASH_GAP = 2;
+const MAX_HISTORY = 50;
 type ExpandDirection = 'left' | 'right' | 'up' | 'down';
+
+/** '#rrggbb' → 0xRRGGBB for Phaser tints. */
+function hexToTint(hex: string): number {
+  return parseInt(hex.replace('#', ''), 16) || 0xffffff;
+}
 
 /**
  * Office layout editor (stages 1+2). Furniture place/delete, floor & wall
@@ -83,10 +92,21 @@ export class LayoutEditor {
   private lastPaint = { col: NaN, row: NaN };
   private ghostWorld = { x: 0, y: 0 };
   private uid = 0;
+  /** Undo/redo are full-layout snapshots (v1 model); capped at MAX_HISTORY. */
+  private undoStack: OfficeLayout[] = [];
+  private redoStack: OfficeLayout[] = [];
+  /** True while a color-slider drag is the active gesture (one undo per drag). */
+  private colorGesture = false;
+  /** Drag-to-move state: uid being dragged + cursor→tile grab offset. */
+  private dragUid: string | null = null;
+  private dragGrab = { dc: 0, dr: 0 };
+  private dragMoved = false;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
   private rotateBtn!: HTMLButtonElement;
   private actionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
+  private undoBtn!: HTMLButtonElement;
+  private redoBtn!: HTMLButtonElement;
 
   // DOM
   private root!: HTMLDivElement;
@@ -95,6 +115,9 @@ export class LayoutEditor {
   private palFloor!: HTMLDivElement;
   private palWall!: HTMLDivElement;
   private palBuilt = false;
+  /** Floor/wall palette previews, kept so they can re-render in the picked color. */
+  private floorItems: Array<{ img: HTMLImageElement; pattern: number }> = [];
+  private wallItems: Array<{ img: HTMLImageElement; set: number }> = [];
   private hueEl!: HTMLInputElement;
   private satEl!: HTMLInputElement;
   private briEl!: HTMLInputElement;
@@ -124,8 +147,13 @@ export class LayoutEditor {
     }
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
+    this.undoStack = [];
+    this.redoStack = [];
+    this.colorGesture = false;
+    this.dragUid = null;
     this.editing = true;
     this.root.style.display = 'flex';
+    this.refreshHistoryButtons();
     this.ghost = this.scene.add.image(0, 0, '__WHITE').setOrigin(0, 0).setAlpha(0.55).setDepth(GHOST_DEPTH).setVisible(false);
     this.selRect = this.scene.add.rectangle(0, 0, TILE_SIZE, TILE_SIZE).setOrigin(0, 0)
       .setStrokeStyle(1, 0xffd24a, 1).setDepth(GHOST_DEPTH).setVisible(false);
@@ -139,6 +167,10 @@ export class LayoutEditor {
   }
 
   private exit(): void {
+    // Finalize any in-flight gesture so its last state is flushed by the scene.
+    if (this.colorGesture && this.layout) this.deps.onEdit(this.layout, true);
+    this.colorGesture = false;
+    this.dragUid = null;
     this.editing = false;
     this.layout = null;
     this.selectedUid = null;
@@ -159,6 +191,17 @@ export class LayoutEditor {
   private handleKey(e: KeyboardEvent): void {
     if (!this.editing) return;
     const typing = document.activeElement instanceof HTMLInputElement;
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      e.shiftKey ? this.redo() : this.undo();
+      return;
+    }
+    if (mod && (e.key === 'y' || e.key === 'Y')) {
+      e.preventDefault();
+      this.redo();
+      return;
+    }
     if (e.key === 'Escape') {
       this.exit();
     } else if (e.key === 'r' || e.key === 'R') {
@@ -226,9 +269,16 @@ export class LayoutEditor {
     return this.tool === 'floor' || this.tool === 'wall';
   }
 
-  /** Reset the per-tile dedup at the start of a drag-paint stroke. */
+  /** Begin a drag-paint stroke: reset the per-tile dedup and snapshot for undo
+   *  (the whole stroke is one undo step). */
   beginStroke(): void {
     this.lastPaint = { col: NaN, row: NaN };
+    this.beginGesture();
+  }
+
+  /** End a paint stroke — flush the autosave for the completed stroke. */
+  endStroke(): void {
+    if (this.layout) this.deps.onEdit(this.layout, true);
   }
 
   /** Paint (or erase) the tile under the cursor during a drag, skipping tiles
@@ -297,9 +347,18 @@ export class LayoutEditor {
         return;
       }
     }
-    if (this.tool === 'floor' || this.tool === 'wall') {
+    if (this.tool === 'floor') {
+      // Preview the floor tile in the chosen colour (live as sliders move).
+      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, this.activeColor() ?? NEUTRAL));
+      this.ghost.setTexture(tex).setDisplaySize(TILE_SIZE, TILE_SIZE)
+        .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xffffff).setVisible(true);
+      return;
+    }
+    if (this.tool === 'wall') {
+      // Preview the wall tile tinted with the chosen wall colour.
+      const tint = hexToTint(wallColorToHex(this.color));
       this.ghost.setTexture('__WHITE').setDisplaySize(TILE_SIZE, TILE_SIZE)
-        .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(this.tool === 'wall' ? 0x8899aa : 0x66ccff).setVisible(true);
+        .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(tint).setVisible(true);
       return;
     }
     this.ghost.setVisible(false);
@@ -319,13 +378,15 @@ export class LayoutEditor {
     const e = getCatalogEntry(this.selectedType);
     if (!e || !this.canPlace(col, row, e)) return;
     const color = this.activeColor() ?? undefined;
+    this.beginGesture();
     this.layout.furniture.push({ uid: this.nextUid(), type: this.selectedType, col, row, color });
     this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
   }
 
   /** Validate a furniture footprint: in-bounds, tile rules (walls), no overlap
    *  with existing items (unless it can sit on surfaces). */
-  private canPlace(col: number, row: number, e: { footprintW: number; footprintH: number; canPlaceOnWalls?: boolean; canPlaceOnSurfaces?: boolean; backgroundTiles?: number }): boolean {
+  private canPlace(col: number, row: number, e: { footprintW: number; footprintH: number; canPlaceOnWalls?: boolean; canPlaceOnSurfaces?: boolean; backgroundTiles?: number }, excludeUid?: string): boolean {
     if (!this.layout) return false;
     const { footprintW: w, footprintH: h } = e;
     if (col < 0 || row < 0 || col + w > this.layout.cols || row + h > this.layout.rows) return false;
@@ -337,7 +398,14 @@ export class LayoutEditor {
       }
     }
     if (!e.canPlaceOnSurfaces) {
-      const blocked = getPlacementBlockedTiles(this.layout.furniture);
+      // Surface items (e.g. a PC on a desk) sit ON TOP of base furniture, so they
+      // must not block a base item — otherwise a table can't be moved back under
+      // the PC that was on it. Also exclude the piece being moved (self-collision).
+      const others = this.layout.furniture.filter((f) => {
+        if (f.uid === excludeUid) return false;
+        return !getCatalogEntry(f.type)?.canPlaceOnSurfaces;
+      });
+      const blocked = getPlacementBlockedTiles(others);
       const bg = e.backgroundTiles ?? 0;
       for (let dr = bg; dr < h; dr++) {
         for (let dc = 0; dc < w; dc++) {
@@ -354,11 +422,15 @@ export class LayoutEditor {
     if (!uid) return;
     const i = this.layout.furniture.findIndex((f) => f.uid === uid);
     if (i >= 0) {
+      this.beginGesture();
       this.layout.furniture.splice(i, 1);
       this.rebuildFurniture();
+      this.deps.onEdit(this.layout, true);
     }
   }
 
+  /** Paint one tile. Called within a paint stroke (the stroke owns the undo
+   *  snapshot via beginStroke/endStroke); autosave is scheduled debounced. */
   private paintTile(col: number, row: number, tile: number): void {
     if (!this.layout) return;
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
@@ -368,6 +440,7 @@ export class LayoutEditor {
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
     this.drawGrid();
+    this.deps.onEdit(this.layout, false);
   }
 
   private eyedrop(wx: number, wy: number): void {
@@ -404,6 +477,120 @@ export class LayoutEditor {
   /** A fresh `e<n>` uid that can't collide with anything already in the layout. */
   private nextUid(): string {
     return `e${++this.uid}`;
+  }
+
+  // ── Undo / redo (full-layout snapshots, v1 model) ────────────────
+
+  /** Snapshot the current layout for undo. Call BEFORE mutating, once per
+   *  gesture (single op, paint stroke, color drag, or drag-move). */
+  private beginGesture(): void {
+    if (!this.layout) return;
+    this.undoStack.push(structuredClone(this.layout));
+    if (this.undoStack.length > MAX_HISTORY) this.undoStack.shift();
+    this.redoStack = [];
+    this.refreshHistoryButtons();
+  }
+
+  undo(): void {
+    if (!this.editing || !this.layout || this.undoStack.length === 0) return;
+    this.redoStack.push(structuredClone(this.layout));
+    this.restore(this.undoStack.pop()!);
+  }
+
+  redo(): void {
+    if (!this.editing || !this.layout || this.redoStack.length === 0) return;
+    this.undoStack.push(structuredClone(this.layout));
+    this.restore(this.redoStack.pop()!);
+  }
+
+  /** Replace the working layout with a snapshot, re-render, and broadcast it. */
+  private restore(layout: OfficeLayout): void {
+    this.layout = layout;
+    this.tileMap = layoutToTileMap(layout);
+    this.selectedUid = null;
+    this.colorGesture = false;
+    this.actionBar.style.display = 'none';
+    this.selRect?.setVisible(false);
+    this.rebuildFurniture();
+    this.deps.rebuildStatic();
+    this.drawGrid();
+    this.deps.onEdit(layout, true);
+    this.refreshHistoryButtons();
+  }
+
+  private refreshHistoryButtons(): void {
+    const set = (b: HTMLButtonElement | undefined, enabled: boolean) => {
+      if (!b) return;
+      b.disabled = !enabled;
+      b.style.opacity = enabled ? '1' : '0.4';
+    };
+    set(this.undoBtn, this.undoStack.length > 0);
+    set(this.redoBtn, this.redoStack.length > 0);
+  }
+
+  // ── Drag-to-move furniture (Select tool) ─────────────────────────
+
+  /** Grab the furniture under the cursor for dragging. Returns false if none
+   *  (or not in select tool) so the scene can pan/select instead. */
+  beginFurnitureDrag(wx: number, wy: number): boolean {
+    if (!this.editing || this.tool !== 'select' || !this.layout) return false;
+    const uid = this.furnitureHitAt(wx, wy);
+    const f = uid ? this.layout.furniture.find((x) => x.uid === uid) : undefined;
+    if (!uid || !f) return false;
+    this.dragUid = uid;
+    this.dragGrab = { dc: Math.floor(wx / TILE_SIZE) - f.col, dr: Math.floor(wy / TILE_SIZE) - f.row };
+    this.dragMoved = false;
+    return true;
+  }
+
+  isDraggingFurniture(): boolean {
+    return this.dragUid !== null;
+  }
+
+  /** Preview the dragged piece at the cursor's target tile (tinted by validity). */
+  dragFurnitureTo(wx: number, wy: number): void {
+    if (!this.dragUid || !this.layout || !this.ghost) return;
+    this.dragMoved = true;
+    const f = this.layout.furniture.find((x) => x.uid === this.dragUid);
+    const e = f && getCatalogEntry(f.type);
+    if (!f || !e) return;
+    const col = Math.floor(wx / TILE_SIZE) - this.dragGrab.dc;
+    const row = Math.floor(wy / TILE_SIZE) - this.dragGrab.dr;
+    const valid = this.canPlace(col, row, e, this.dragUid);
+    const ac = f.color;
+    const sprite = ac
+      ? getColorizedSprite(`drag-${f.type}-${ac.h}-${ac.s}-${ac.b}-${ac.c}-${ac.colorize ? 1 : 0}`, e.sprite, ac)
+      : e.sprite;
+    this.ghost.setTexture(spriteTexture(this.scene, sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
+      .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(valid ? 0xffffff : 0xff6666).setVisible(true);
+    this.selRect?.setVisible(false);
+  }
+
+  /** Commit (or cancel) the move. A no-move drag falls back to click-select. */
+  endFurnitureDrag(wx: number, wy: number): void {
+    const uid = this.dragUid;
+    this.dragUid = null;
+    this.ghost?.setVisible(false);
+    if (!uid || !this.layout) return;
+    if (!this.dragMoved) {
+      this.selectAt(wx, wy);
+      return;
+    }
+    const f = this.layout.furniture.find((x) => x.uid === uid);
+    const e = f && getCatalogEntry(f.type);
+    if (!f || !e) return;
+    const col = Math.floor(wx / TILE_SIZE) - this.dragGrab.dc;
+    const row = Math.floor(wy / TILE_SIZE) - this.dragGrab.dr;
+    if ((col === f.col && row === f.row) || !this.canPlace(col, row, e, uid)) {
+      this.selectedUid = uid; // invalid/no-op drop → keep it selected, snap back
+      return;
+    }
+    this.beginGesture();
+    f.col = col;
+    f.row = row;
+    this.selectedUid = uid;
+    this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
   }
 
   /**
@@ -593,6 +780,7 @@ export class LayoutEditor {
   // ── Select / floating actions (rotate + delete above the object) ──
 
   private selectAt(wx: number, wy: number): void {
+    this.commitColorGesture(); // finalize any color edit on the previous selection
     const hits = this.furnitureHitsAt(wx, wy); // top-most first
     if (hits.length === 0) {
       this.selectedUid = null;
@@ -620,18 +808,23 @@ export class LayoutEditor {
   private rotateSelected(): void {
     const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
     if (!f || !isRotatable(f.type)) return;
+    this.beginGesture();
     f.type = getRotatedType(f.type, 'cw') ?? f.type;
     this.rebuildFurniture();
+    this.deps.onEdit(this.layout!, true);
   }
 
   private deleteSelected(): void {
     if (!this.layout || !this.selectedUid) return;
     const i = this.layout.furniture.findIndex((x) => x.uid === this.selectedUid);
-    if (i >= 0) this.layout.furniture.splice(i, 1);
+    if (i < 0) return;
+    this.beginGesture();
+    this.layout.furniture.splice(i, 1);
     this.selectedUid = null;
     this.actionBar.style.display = 'none';
     this.selRect?.setVisible(false);
     this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
   }
 
   /** Position the floating action bar + selection outline above the selected
@@ -682,14 +875,28 @@ export class LayoutEditor {
     if (this.tool === 'select' && this.selectedUid && this.layout) {
       const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
       if (f) {
+        if (!this.colorGesture) {
+          this.beginGesture(); // one undo step per slider drag
+          this.colorGesture = true;
+        }
         const ac = this.activeColor();
         if (ac) f.color = ac;
         else delete f.color;
         this.rebuildFurniture();
+        this.deps.onEdit(this.layout, false);
       }
-    } else if (this.tool === 'furniture') {
-      // Live-preview the colour on the placement ghost.
+    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
+      // Live-preview the chosen colour on the placement/paint ghost + palette.
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
+      this.refreshPalettePreviews();
+    }
+  }
+
+  /** Slider released — finalize the color-edit gesture (flush autosave). */
+  private commitColorGesture(): void {
+    if (this.colorGesture && this.layout) {
+      this.colorGesture = false;
+      this.deps.onEdit(this.layout, true);
     }
   }
   private applyColor(c: ColorValue): void {
@@ -700,6 +907,7 @@ export class LayoutEditor {
     this.conEl.value = String(c.c ?? 0);
     this.colorizeEl.checked = !!c.colorize;
     this.updateSwatch();
+    this.refreshPalettePreviews();
   }
   private updateSwatch(): void {
     // Truthful preview of the colorize result: saturation 0 → grey (matches the
@@ -726,6 +934,8 @@ export class LayoutEditor {
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
     // The expansion ring only shows for floor/wall tools — redraw to reflect it.
     if (this.editing) this.drawGrid();
+    // Show the floor/wall palette swatches in the currently-picked colour.
+    if (t === 'floor' || t === 'wall') this.refreshPalettePreviews();
     const labels: Record<Tool, string> = {
       select: 'Select — click an object for rotate / delete buttons',
       furniture: 'Furniture — left-click place, right-click remove',
@@ -780,11 +990,14 @@ export class LayoutEditor {
 
     const bar = document.createElement('div');
     bar.className = 'bar';
-    const saveBtn = Object.assign(document.createElement('button'), { className: 'save', textContent: '✓ Save' });
-    saveBtn.onclick = () => this.layout && this.deps.save(this.layout);
-    const cancelBtn = Object.assign(document.createElement('button'), { textContent: '✕ Cancel' });
-    cancelBtn.onclick = () => this.exit();
-    bar.append(saveBtn, cancelBtn);
+    // Autosave model (no Save): Done exits; edits already persisted + broadcast.
+    this.undoBtn = Object.assign(document.createElement('button'), { textContent: '↶ Undo', title: 'Undo (Ctrl+Z)' });
+    this.undoBtn.onclick = () => this.undo();
+    this.redoBtn = Object.assign(document.createElement('button'), { textContent: '↷ Redo', title: 'Redo (Ctrl+Y)' });
+    this.redoBtn.onclick = () => this.redo();
+    const doneBtn = Object.assign(document.createElement('button'), { className: 'save', textContent: '✓ Done' });
+    doneBtn.onclick = () => this.exit();
+    bar.append(this.undoBtn, this.redoBtn, doneBtn);
 
     const tools = document.createElement('div');
     tools.className = 'tools';
@@ -818,6 +1031,7 @@ export class LayoutEditor {
       input.max = String(max);
       input.value = String(val);
       input.oninput = () => this.readColor();
+      input.onchange = () => this.commitColorGesture();
       row.append(span, input);
       color.appendChild(row);
       return input;
@@ -831,7 +1045,10 @@ export class LayoutEditor {
     this.colorizeEl = document.createElement('input');
     this.colorizeEl.type = 'checkbox';
     this.colorizeEl.id = 'pa-colorize';
-    this.colorizeEl.onchange = () => this.readColor();
+    this.colorizeEl.onchange = () => {
+      this.readColor();
+      this.commitColorGesture();
+    };
     const clab = Object.assign(document.createElement('label'), { textContent: 'Colorize', htmlFor: 'pa-colorize' });
     clab.style.flex = '1';
     this.swatchEl = Object.assign(document.createElement('div'), { className: 'sw' });
@@ -902,6 +1119,7 @@ export class LayoutEditor {
         this.highlightFloorSwatch();
       };
       this.palFloor.appendChild(item);
+      this.floorItems.push({ img, pattern: p });
     }
     // Wall sets (the "wall symbol" — paint with the chosen wall style).
     const wallCount = Math.max(getWallSetCount(), 1);
@@ -919,7 +1137,30 @@ export class LayoutEditor {
         this.palWall.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.wall) === s));
       };
       this.palWall.appendChild(item);
+      this.wallItems.push({ img, set: s });
     }
     if (count > 0) this.palBuilt = true;
+    this.refreshPalettePreviews();
+  }
+
+  /**
+   * Re-render the floor/wall palette previews in the currently-picked colour so
+   * each swatch shows how that tile would look when painted. Only the visible
+   * palette is refreshed (floor or wall tool).
+   */
+  private refreshPalettePreviews(): void {
+    const c = this.color;
+    if (this.tool === 'floor') {
+      for (const { img, pattern } of this.floorItems) {
+        img.src = spriteToDataURL(getColorizedFloorSprite(pattern, c));
+      }
+    } else if (this.tool === 'wall') {
+      for (const { img, set } of this.wallItems) {
+        const base = getWallSetPreviewSprite(set);
+        if (!base) continue;
+        const key = `wallprev-${set}-${c.h}-${c.s}-${c.b}-${c.c}`;
+        img.src = spriteToDataURL(getColorizedSprite(key, base, { ...c, colorize: true }));
+      }
+    }
   }
 }

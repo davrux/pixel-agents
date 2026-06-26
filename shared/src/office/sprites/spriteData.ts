@@ -74,17 +74,24 @@ interface LoadedPetData {
 
 let loadedDogs: LoadedPetData[] | null = null;
 let loadedCats: LoadedPetData[] | null = null;
+let loadedDucks: LoadedPetData[] | null = null;
+
+type PetKindName = 'dog' | 'cat' | 'duck';
+function petArr(kind: PetKindName): LoadedPetData[] | null {
+  return kind === 'dog' ? loadedDogs : kind === 'cat' ? loadedCats : loadedDucks;
+}
 
 /** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives. */
-export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[]): void {
+export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], ducks: LoadedPetData[] = []): void {
   loadedDogs = dogs;
   loadedCats = cats;
+  loadedDucks = ducks;
   petSpriteCache.clear();
 }
 
 /** Number of loaded variants for a pet kind (0 if none loaded). */
-export function getLoadedPetVariantCount(kind: 'dog' | 'cat'): number {
-  const arr = kind === 'dog' ? loadedDogs : loadedCats;
+export function getLoadedPetVariantCount(kind: PetKindName): number {
+  const arr = petArr(kind);
   return arr ? arr.length : 0;
 }
 
@@ -98,12 +105,12 @@ export interface PetSprites {
 const petSpriteCache = new Map<string, PetSprites>();
 
 /** Resolve animated sprites for a pet kind/variant (LEFT mirrored from RIGHT). */
-export function getPetSprites(kind: 'dog' | 'cat', variant: number): PetSprites {
+export function getPetSprites(kind: PetKindName, variant: number): PetSprites {
   const cacheKey = `${kind}:${variant}`;
   const cached = petSpriteCache.get(cacheKey);
   if (cached) return cached;
 
-  const arr = kind === 'dog' ? loadedDogs : loadedCats;
+  const arr = petArr(kind);
   let sprites: PetSprites;
 
   if (arr && arr.length > 0) {

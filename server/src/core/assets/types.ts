@@ -20,7 +20,7 @@ export interface AssetIndex {
   floors: string[];
   walls: string[];
   characters: string[];
-  pets: { dogs: string[]; cats: string[] };
+  pets: { dogs: string[]; cats: string[]; ducks: string[] };
   defaultLayout: string | null;
 }
 
