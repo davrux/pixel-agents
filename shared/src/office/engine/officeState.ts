@@ -49,7 +49,7 @@ import {
 } from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
-import type { PetTarget } from './pets.js';
+import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, updatePet } from './pets.js';
 
 /** Furniture types that yield a standing interaction point (a place to walk to
@@ -92,7 +92,7 @@ export class OfficeState {
   private nextPetId = 1_000_000;
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
-  private npcDecide?: (pet: Pet) => 'wander' | 'sit';
+  private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -992,9 +992,31 @@ export class OfficeState {
     return Array.from(this.pets.values());
   }
 
-  /** Inject the NPC decision fn (server's mistreevous brain). Clears with null. */
-  setNpcDecider(fn: ((pet: Pet) => 'wander' | 'sit') | null): void {
+  /** Inject the NPC decision fn (server's mistreevous brain). It receives the
+   *  pet and a cheap world-affordance snapshot. Clears with null. */
+  setNpcDecider(fn: ((pet: Pet, affordances: NpcAffordances) => NpcAction) | null): void {
     this.npcDecide = fn ?? undefined;
+  }
+
+  /** Cheap, pathfinding-free snapshot of what a pet could interact with now, fed
+   *  to the brain so it picks a sensible action. Reachability is confirmed later
+   *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
+  private computePetAffordances(pet: Pet): NpcAffordances {
+    return { canRest: this.hasRestAffordance(pet) };
+  }
+
+  /** A free seat (any pet) or, for cats, a free desk exists somewhere. */
+  private hasRestAffordance(pet: Pet): boolean {
+    for (const seat of this.seats.values()) {
+      if (!seat.assigned) return true;
+    }
+    if (pet.kind === PetKindEnum.CAT) {
+      for (const item of this.layout.furniture) {
+        const entry = getCatalogEntry(item.type);
+        if (entry?.category === 'desks' && this.isFurnitureFreeForPet(item.uid)) return true;
+      }
+    }
+    return false;
   }
 
   // ── Pet lifecycle ─────────────────────────────────────────
@@ -1016,7 +1038,11 @@ export class OfficeState {
       blockedTiles: this.blockedTiles,
       findTarget: (pet: Pet) => this.findFreePetTarget(pet),
       releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
-      decideAction: this.npcDecide,
+      // Wrap the injected brain so it receives a fresh affordance snapshot; left
+      // undefined when no brain is set so the actuator uses its sit-chance roll.
+      decideAction: this.npcDecide
+        ? (pet: Pet) => this.npcDecide!(pet, this.computePetAffordances(pet))
+        : undefined,
     };
 
     const toDelete: number[] = [];
@@ -1189,6 +1215,7 @@ export class OfficeState {
       if (!reachable) continue;
       candidates.push({
         kind: 'seat',
+        action: 'sit',
         seatId: uid,
         furnitureUid: null,
         sitCol: seat.seatCol,
@@ -1222,6 +1249,7 @@ export class OfficeState {
               : Direction.UP;
         candidates.push({
           kind: 'furniture',
+          action: 'sit',
           seatId: null,
           furnitureUid: item.uid,
           sitCol: adj.col,

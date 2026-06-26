@@ -9,20 +9,21 @@
  * tree with affordances (coffee / agent / cat) and richer actions.
  */
 import { BehaviourTree, State } from 'mistreevous';
+import type { NpcAction, NpcAffordances } from '@pixel/shared/office/engine/pets.js';
 
-export type NpcAction = 'wander' | 'sit';
-
-/** Inputs the brain reads to decide what to do after an idle pause. */
-export interface NpcBlackboard {
+/** Inputs the brain reads to decide what to do after an idle pause: the NPC's
+ *  drives plus the world affordances OfficeState reports. */
+export interface NpcBlackboard extends NpcAffordances {
   /** Would rather rest now (computed by the caller, e.g. a sit-chance roll). */
   wantsToRest: boolean;
 }
 
-/** Priority selector: rest if wanted, else wander. */
+/** Priority selector: rest if wanted AND somewhere to rest exists, else wander. */
 const TREE_DEFINITION = `root {
   selector {
     sequence {
       condition [WantsToRest]
+      condition [CanRest]
       action [Sit]
     }
     action [Wander]
@@ -32,6 +33,7 @@ const TREE_DEFINITION = `root {
 export class NpcBrain {
   private readonly bb: NpcBlackboard & { action: NpcAction } = {
     wantsToRest: false,
+    canRest: false,
     action: 'wander',
   };
   private readonly tree: BehaviourTree;
@@ -39,6 +41,7 @@ export class NpcBrain {
   constructor() {
     const agent = {
       WantsToRest: (): boolean => this.bb.wantsToRest,
+      CanRest: (): boolean => this.bb.canRest,
       Sit: (): State => this.set('sit'),
       Wander: (): State => this.set('wander'),
     };
@@ -54,6 +57,7 @@ export class NpcBrain {
   decide(input: NpcBlackboard): NpcAction {
     this.tree.reset(); // re-evaluate from the root every tick
     this.bb.wantsToRest = input.wantsToRest;
+    this.bb.canRest = input.canRest;
     this.bb.action = 'wander';
     this.tree.step();
     return this.bb.action;

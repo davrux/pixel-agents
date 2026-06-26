@@ -22,9 +22,35 @@ import { findPath } from '../layout/tileMap.js';
 import type { Pet, PetKind, TileType as TileTypeVal } from '../types.js';
 import { Direction, PetState, TILE_SIZE } from '../types.js';
 
+/**
+ * The high-level activity an NPC brain can choose and the actuator can execute.
+ * This is the shared vocabulary between the server-only behaviour tree (which
+ * decides) and the engine (which executes); the brain imports it rather than
+ * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
+ * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
+ */
+export type NpcAction = 'wander' | 'sit';
+
+/** Kinds of interactable the world affords an NPC. Today: claimable seats and
+ *  adjacent-to furniture (cat on a desk). Coffee/agent/cat join here later. */
+export type AffordanceKind = 'seat' | 'furniture';
+
+/**
+ * What's available in the world for an NPC to interact with right now — a cheap
+ * existence snapshot OfficeState hands the brain so it can pick a sensible
+ * action (don't choose "rest" with no free seat). Reachability is confirmed
+ * later by `findTarget`; this stays pathfinding-free so it's cheap per decision.
+ */
+export interface NpcAffordances {
+  /** A seat (or, for cats, a desk) the pet could go rest at exists. */
+  canRest: boolean;
+}
+
 /** A reachable, already-claimed interaction target (computed by OfficeState). */
 export interface PetTarget {
-  kind: 'seat' | 'furniture';
+  kind: AffordanceKind;
+  /** What the pet does once it arrives at the target (seat/desk → 'sit'). */
+  action: NpcAction;
   seatId: string | null;
   furnitureUid: string | null;
   sitCol: number;
@@ -44,7 +70,7 @@ export interface PetUpdateContext {
   releaseClaim: (pet: Pet) => void;
   /** Decide the next idle activity for a pet (injected by the server's NPC brain;
    *  absent → the built-in sit-chance roll). */
-  decideAction?: (pet: Pet) => 'wander' | 'sit';
+  decideAction?: (pet: Pet) => NpcAction;
 }
 
 function tileCenter(col: number, row: number): { x: number; y: number } {
@@ -87,6 +113,7 @@ export function createPet(
     frameTimer: 0,
     wanderTimer: randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC),
     targetKind: null,
+    targetAction: null,
     targetSeatId: null,
     targetFurnitureUid: null,
     sitTileCol: 0,
@@ -110,6 +137,7 @@ export function beginPetDespawn(pet: Pet, ctx: Pick<PetUpdateContext, 'releaseCl
 
 function clearTarget(pet: Pet): void {
   pet.targetKind = null;
+  pet.targetAction = null;
   pet.targetSeatId = null;
   pet.targetFurnitureUid = null;
 }
@@ -153,6 +181,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         const target = ctx.findTarget(pet);
         if (target) {
           pet.targetKind = target.kind;
+          pet.targetAction = target.action;
           pet.targetSeatId = target.seatId;
           pet.targetFurnitureUid = target.furnitureUid;
           pet.sitTileCol = target.sitCol;
@@ -165,8 +194,8 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
             pet.frame = 0;
             pet.frameTimer = 0;
           } else {
-            // Already on the sit tile
-            startSitting(pet);
+            // Already on the target tile
+            beginTargetAction(pet);
           }
           break;
         }
@@ -204,7 +233,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           pet.tileCol === pet.sitTileCol &&
           pet.tileRow === pet.sitTileRow
         ) {
-          startSitting(pet);
+          beginTargetAction(pet);
         } else {
           if (pet.targetKind) {
             // Couldn't reach the target tile — drop the claim
@@ -256,6 +285,17 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       }
       break;
     }
+  }
+}
+
+/** Dispatch the action a pet performs on reaching its claimed target. Today all
+ *  targets are 'sit'; drink/talk/etc. slot in here as they're added. */
+function beginTargetAction(pet: Pet): void {
+  switch (pet.targetAction) {
+    case 'sit':
+    default:
+      startSitting(pet);
+      break;
   }
 }
 

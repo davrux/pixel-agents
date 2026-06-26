@@ -130,8 +130,10 @@ export interface Pet {
   frameTimer: number;
   /** Countdown to next wander decision while idle */
   wanderTimer: number;
-  // Furniture interaction target / claim
+  // Interaction target / claim
   targetKind: 'seat' | 'furniture' | null;
+  /** What the pet will do on reaching its target (null when none); see NpcAction. */
+  targetAction: 'wander' | 'sit' | null;
   targetSeatId: string | null;
   targetFurnitureUid: string | null;
   /** Tile the pet sits on while interacting */

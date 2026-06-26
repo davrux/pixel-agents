@@ -74,7 +74,9 @@ export class SimRoom extends Room<RoomState> {
     this.os = new OfficeState(this.migratedActiveLayout());
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
-    this.os.setNpcDecider(() => this.npcBrain.decide({ wantsToRest: Math.random() < PET_SIT_CHANCE }));
+    this.os.setNpcDecider((_pet, aff) =>
+      this.npcBrain.decide({ wantsToRest: Math.random() < PET_SIT_CHANCE, canRest: aff.canRest }),
+    );
     // Restore per-user pinned character palettes (so a user's skin stays stable).
     for (const [name, palette] of Object.entries(appStore.getCharPrefs())) {
       this.os.setPalettePref(name, palette);
