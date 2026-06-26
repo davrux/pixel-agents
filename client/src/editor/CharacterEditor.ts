@@ -151,6 +151,12 @@ export class CharacterEditor {
     return confirmDialog('Discard unsaved changes?', { danger: true, confirmLabel: 'Discard' });
   }
 
+  /** Scene hook: called before the panel is closed by the menu coordinator.
+   *  Returns whether closing may proceed (prompts on unsaved edits). */
+  confirmLeave(): Promise<boolean> {
+    return this.confirmDiscard();
+  }
+
   private showGallery(): void {
     this.view = 'gallery';
     this.editPane.style.display = 'none';

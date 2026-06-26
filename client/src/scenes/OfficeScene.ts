@@ -557,7 +557,9 @@ export class OfficeScene extends Phaser.Scene {
    * Furniture), or none — opening one closes the others. The layout editor is
    * intentionally not managed here — it's the exception that stays open.
    */
-  private setMenu(menu: 'settings' | 'layouts' | 'chars' | 'furniture' | null): void {
+  private async setMenu(menu: 'settings' | 'layouts' | 'chars' | 'furniture' | null): Promise<void> {
+    // Leaving an open character editor with unsaved edits → confirm/discard first.
+    if (this.charEditor?.isOpen() && menu !== 'chars' && !(await this.charEditor.confirmLeave())) return;
     if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
     if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
     if (this.charEditor) menu === 'chars' ? this.charEditor.show() : this.charEditor.close();
