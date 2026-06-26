@@ -3,7 +3,7 @@ import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
-import { DEFAULT_CHARACTER_SPEC, DEFAULT_NPC_CONFIG, PET_SPRITE_SPEC } from './characterSpec.js';
+import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolveNpcConfig } from './characterSpec.js';
 import type { CharacterSpec, NpcConfig } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
@@ -362,10 +362,11 @@ export function getNpcRoster(): Array<{ kind: PetKindName; variant: number; data
   return out;
 }
 
-/** Spawn config of an NPC variant (falls back to the default when unset). */
+/** Spawn + behaviour config of an NPC variant, normalised (fills defaults,
+ *  clamps, and back-fills `behaviors` for configs saved before they existed). */
 export function getNpcConfig(kind: PetKindName, variant: number): NpcConfig {
   const arr = loadedNpcs[kind];
-  return arr?.[variant % (arr.length || 1)]?.npc ?? DEFAULT_NPC_CONFIG;
+  return resolveNpcConfig(arr?.[variant % (arr.length || 1)]?.npc);
 }
 
 /** Frame size (w×h) of an NPC template (falls back to 16×16). */

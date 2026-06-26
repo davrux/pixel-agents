@@ -76,9 +76,31 @@ export interface NpcConfig {
   maxSec: number;
   /** Max simultaneous instances of this NPC variant. */
   maxConcurrent: number;
+  /** Per-variant behaviour switches (kind-gated by the engine; see NpcBehaviors). */
+  behaviors: NpcBehaviors;
 }
 
-export const DEFAULT_NPC_CONFIG: NpcConfig = { active: true, minSec: 60, maxSec: 180, maxConcurrent: 1 };
+/** Per-NPC behaviour switches. All default true; the engine kind-gates them
+ *  (only dogs chase, only cats flee), so a flag that doesn't apply to a kind is
+ *  simply inert. The editor shows only the kind-relevant switches. */
+export interface NpcBehaviors {
+  /** May rest (sit) at a seat / desk. */
+  rest: boolean;
+  /** Dogs: chase a nearby cat (shoo-cat). */
+  chaseCats: boolean;
+  /** Cats: flee a nearby dog (shoo-cat). */
+  fleeDogs: boolean;
+}
+
+export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = { rest: true, chaseCats: true, fleeDogs: true };
+
+export const DEFAULT_NPC_CONFIG: NpcConfig = {
+  active: true,
+  minSec: 60,
+  maxSec: 180,
+  maxConcurrent: 1,
+  behaviors: { ...DEFAULT_NPC_BEHAVIORS },
+};
 
 const NPC_MIN_INTERVAL = 5; // floor (seconds) to avoid spawn storms
 const NPC_MAX_INTERVAL = 3600; // 1 hour ceiling
@@ -95,11 +117,18 @@ export function resolveNpcConfig(input: unknown): NpcConfig {
   let maxSec = clampSec(o.maxSec, DEFAULT_NPC_CONFIG.maxSec);
   if (minSec > maxSec) [minSec, maxSec] = [maxSec, minSec];
   const mc = Math.round(Number(o.maxConcurrent));
+  const b = o.behaviors && typeof o.behaviors === 'object' ? (o.behaviors as Record<string, unknown>) : {};
+  const bool = (v: unknown, d: boolean): boolean => (typeof v === 'boolean' ? v : d);
   return {
     active: o.active !== false, // default true
     minSec,
     maxSec,
     maxConcurrent: Number.isFinite(mc) ? Math.max(1, Math.min(NPC_MAX_CONCURRENT, mc)) : DEFAULT_NPC_CONFIG.maxConcurrent,
+    behaviors: {
+      rest: bool(b.rest, true),
+      chaseCats: bool(b.chaseCats, true),
+      fleeDogs: bool(b.fleeDogs, true),
+    },
   };
 }
 

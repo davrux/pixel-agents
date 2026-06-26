@@ -1,5 +1,5 @@
 import {
-  DEFAULT_NPC_CONFIG,
+  resolveNpcConfig,
   specFrameCount,
   type CharacterSpec,
   type CharacterTrack,
@@ -160,7 +160,7 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
   if (c.left) out.left = c.left.map(cloneFrame);
   if (c.name) out.name = c.name;
   if (c.spec) out.spec = { frame: { ...c.spec.frame }, tracks: c.spec.tracks.map((t) => ({ ...t })) };
-  if (c.npc) out.npc = { ...c.npc };
+  if (c.npc) out.npc = { ...c.npc, behaviors: { ...c.npc.behaviors } };
   return out;
 }
 
@@ -380,6 +380,11 @@ export class CharacterEditor {
           <input id="pa-c-spmin" type="number" min="5" max="3600"><span class="sizelabel">–</span>
           <input id="pa-c-spmax" type="number" min="5" max="3600"><span class="sizelabel">s · max</span>
           <input id="pa-c-spconc" type="number" min="1" max="8"></div>
+        <div class="row" id="pa-c-npcbehav" style="display:none">
+          <span class="sizelabel">Behavior</span>
+          <label class="sizelabel" id="pa-c-brest-l"><input id="pa-c-brest" type="checkbox"> Rest</label>
+          <label class="sizelabel" id="pa-c-bchase-l"><input id="pa-c-bchase" type="checkbox"> Chase cats</label>
+          <label class="sizelabel" id="pa-c-bflee-l"><input id="pa-c-bflee" type="checkbox"> Flee dogs</label></div>
         <div class="row" id="pa-c-dirs"></div>
         <div class="row">
           <div class="prevbox"><canvas id="pa-c-preview" width="16" height="32"></canvas></div>
@@ -497,6 +502,12 @@ export class CharacterEditor {
     const spMin = panel.querySelector<HTMLInputElement>('#pa-c-spmin')!;
     const spMax = panel.querySelector<HTMLInputElement>('#pa-c-spmax')!;
     const spConc = panel.querySelector<HTMLInputElement>('#pa-c-spconc')!;
+    // Behaviour switches. All three checkboxes always hold the current value
+    // (renderConfigRow syncs them); only their labels are hidden per kind, so
+    // reading them back here preserves the inert (kind-irrelevant) flags.
+    const bRest = panel.querySelector<HTMLInputElement>('#pa-c-brest')!;
+    const bChase = panel.querySelector<HTMLInputElement>('#pa-c-bchase')!;
+    const bFlee = panel.querySelector<HTMLInputElement>('#pa-c-bflee')!;
     const onConfig = (): void => {
       if (!this.work.npc) return;
       const clamp = (v: string, lo: number, hi: number, d: number): number => {
@@ -511,11 +522,12 @@ export class CharacterEditor {
         minSec: min,
         maxSec: max,
         maxConcurrent: clamp(spConc.value, 1, 8, this.work.npc.maxConcurrent),
+        behaviors: { rest: bRest.checked, chaseCats: bChase.checked, fleeDogs: bFlee.checked },
       };
       this.dirty = true;
     };
     activeEl.onchange = onConfig;
-    for (const el of [spMin, spMax, spConc]) el.onchange = onConfig;
+    for (const el of [spMin, spMax, spConc, bRest, bChase, bFlee]) el.onchange = onConfig;
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -677,8 +689,9 @@ export class CharacterEditor {
       this.W = f0[0]?.length ?? 16;
     }
     this.ensureSpec(); // normalise work.spec against the frame arrays
-    // NPC categories carry a spawn config; others must not.
-    if (this.cat().spawnConfig) this.work.npc = { ...DEFAULT_NPC_CONFIG, ...this.work.npc };
+    // NPC categories carry a spawn config; others must not. Normalise so every
+    // field (incl. behaviours back-filled for older saves) is present + clamped.
+    if (this.cat().spawnConfig) this.work.npc = resolveNpcConfig(this.work.npc);
     else this.work.npc = undefined;
     // NPCs have no typed display name — derive it from the roster slot so the
     // server-mandatory name is present and Save isn't wrongly disabled.
@@ -690,12 +703,21 @@ export class CharacterEditor {
     if (this.view === 'edit') this.render();
   }
 
-  /** Show + populate the NPC spawn-config row (hidden for agent categories). */
+  /** NPC kind ('dog'/'cat'/'duck') parsed from the roster slot (`dog_0`), or
+   *  null for non-NPC categories. Used to show only kind-relevant behaviours. */
+  private npcKind(): string | null {
+    if (!this.cat().spawnConfig) return null;
+    return this.charName().split('_')[0] || null;
+  }
+
+  /** Show + populate the NPC spawn-config + behaviour rows (hidden for agents). */
   private renderConfigRow(): void {
     const row = this.panel.querySelector<HTMLDivElement>('#pa-c-npccfg');
+    const behavRow = this.panel.querySelector<HTMLDivElement>('#pa-c-npcbehav');
     if (!row) return;
     const cfg = this.work.npc;
     row.style.display = cfg ? 'flex' : 'none';
+    if (behavRow) behavRow.style.display = cfg ? 'flex' : 'none';
     if (!cfg) return;
     const set = (id: string, v: string | boolean): void => {
       const el = this.panel.querySelector<HTMLInputElement>(id);
@@ -707,6 +729,17 @@ export class CharacterEditor {
     set('#pa-c-spmin', String(cfg.minSec));
     set('#pa-c-spmax', String(cfg.maxSec));
     set('#pa-c-spconc', String(cfg.maxConcurrent));
+    // All checkboxes carry the live value; only kind-relevant labels are shown.
+    set('#pa-c-brest', cfg.behaviors.rest);
+    set('#pa-c-bchase', cfg.behaviors.chaseCats);
+    set('#pa-c-bflee', cfg.behaviors.fleeDogs);
+    const kind = this.npcKind();
+    const showLabel = (id: string, show: boolean): void => {
+      const el = this.panel.querySelector<HTMLLabelElement>(id);
+      if (el) el.style.display = show ? '' : 'none';
+    };
+    showLabel('#pa-c-bchase-l', kind === 'dog');
+    showLabel('#pa-c-bflee-l', kind === 'cat');
   }
 
   private syncSizeInputs(): void {

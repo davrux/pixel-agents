@@ -312,7 +312,13 @@ export class SimRoom extends Room<RoomState> {
 
   /** Validate an optional NPC spawn config (active flag + sane interval/cap). */
   private validNpcConfig(c: unknown): boolean {
-    const o = c as { active?: unknown; minSec?: unknown; maxSec?: unknown; maxConcurrent?: unknown };
+    const o = c as {
+      active?: unknown;
+      minSec?: unknown;
+      maxSec?: unknown;
+      maxConcurrent?: unknown;
+      behaviors?: unknown;
+    };
     if (!o || typeof o !== 'object') return false;
     if (typeof o.active !== 'boolean') return false;
     const int = (v: unknown, lo: number, hi: number): boolean =>
@@ -320,6 +326,15 @@ export class SimRoom extends Room<RoomState> {
     if (!int(o.minSec, 5, 3600) || !int(o.maxSec, 5, 3600)) return false;
     if ((o.minSec as number) > (o.maxSec as number)) return false;
     if (!int(o.maxConcurrent, 1, 8)) return false;
+    // Optional behaviour switches: each, if present, must be a boolean. Missing
+    // flags are back-filled (default true) by resolveNpcConfig downstream.
+    if (o.behaviors !== undefined) {
+      if (typeof o.behaviors !== 'object' || o.behaviors === null) return false;
+      const b = o.behaviors as Record<string, unknown>;
+      for (const k of ['rest', 'chaseCats', 'fleeDogs']) {
+        if (b[k] !== undefined && typeof b[k] !== 'boolean') return false;
+      }
+    }
     return true;
   }
 

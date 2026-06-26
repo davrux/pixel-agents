@@ -1004,11 +1004,14 @@ export class OfficeState {
    *  to the brain so it picks a sensible action. Reachability is confirmed later
    *  by findFreePetTarget; this only checks existence so it's cheap per tick. */
   private computePetAffordances(pet: Pet): NpcAffordances {
+    // Per-variant behaviour switches (editable; default all-on). The kind guards
+    // below keep flags that don't apply to a kind inert (e.g. a duck's chaseCats).
+    const b = getNpcConfig(pet.kind, pet.variant).behaviors;
     return {
-      canRest: this.hasRestAffordance(pet),
+      canRest: b.rest && this.hasRestAffordance(pet),
       // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
-      canChase: pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
-      threatened: pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
+      canChase: b.chaseCats && pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
+      threatened: b.fleeDogs && pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
     };
   }
 
