@@ -384,19 +384,45 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
-  /** Validate a furniture footprint: in-bounds, tile rules (walls), no overlap
-   *  with existing items (unless it can sit on surfaces). */
+  /**
+   * Validate a furniture footprint: in-bounds, tile rules, no overlap with other
+   * items (unless it sits on surfaces). Wall-mounted items (canPlaceOnWalls)
+   * follow v1's rule — only the BOTTOM row must sit on a wall; the upper rows
+   * hang above it (over VOID, or even above the map), so e.g. a 2-tall bookshelf
+   * mounts on the wall row with its body hanging over the void above it.
+   */
   private canPlace(col: number, row: number, e: { footprintW: number; footprintH: number; canPlaceOnWalls?: boolean; canPlaceOnSurfaces?: boolean; backgroundTiles?: number }, excludeUid?: string): boolean {
     if (!this.layout) return false;
     const { footprintW: w, footprintH: h } = e;
-    if (col < 0 || row < 0 || col + w > this.layout.cols || row + h > this.layout.rows) return false;
+    const wall = !!e.canPlaceOnWalls;
+    const bg = e.backgroundTiles ?? 0;
+
+    // Bounds — wall items only need their bottom row in-bounds (top rows may hang
+    // above the map); other items need the whole footprint in-bounds.
+    if (col < 0 || col + w > this.layout.cols) return false;
+    if (wall) {
+      const bottom = row + h - 1;
+      if (bottom < 0 || bottom >= this.layout.rows) return false;
+    } else if (row < 0 || row + h > this.layout.rows) {
+      return false;
+    }
+
+    // Tile rules. Background rows and rows above the map skip the check; for wall
+    // items only the bottom row is checked (and must be a wall).
     for (let dr = 0; dr < h; dr++) {
+      if (dr < bg || row + dr < 0) continue;
+      if (wall && dr < h - 1) continue;
       for (let dc = 0; dc < w; dc++) {
         const t = this.tileMap[row + dr]?.[col + dc];
-        if (t === TileType.VOID || t === undefined) return false;
-        if (t === TileType.WALL && !e.canPlaceOnWalls) return false;
+        if (wall) {
+          if (t !== TileType.WALL) return false;
+        } else {
+          if (t === TileType.VOID || t === undefined) return false;
+          if (t === TileType.WALL) return false;
+        }
       }
     }
+
     if (!e.canPlaceOnSurfaces) {
       // Surface items (e.g. a PC on a desk) sit ON TOP of base furniture, so they
       // must not block a base item — otherwise a table can't be moved back under
@@ -406,8 +432,8 @@ export class LayoutEditor {
         return !getCatalogEntry(f.type)?.canPlaceOnSurfaces;
       });
       const blocked = getPlacementBlockedTiles(others);
-      const bg = e.backgroundTiles ?? 0;
       for (let dr = bg; dr < h; dr++) {
+        if (row + dr < 0) continue;
         for (let dc = 0; dc < w; dc++) {
           if (blocked.has(`${col + dc},${row + dr}`)) return false;
         }
