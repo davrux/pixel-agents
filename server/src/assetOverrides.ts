@@ -43,9 +43,10 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     if (i !== null) place(characters, i, data);
   }
 
-  // Pets (dogs + cats)
+  // Pets / NPCs (dogs + cats + ducks)
   const dogs = [...(raw.dogs as unknown[])];
   const cats = [...(raw.cats as unknown[])];
+  const ducks = [...((raw.ducks as unknown[]) ?? [])];
   for (const { name, data } of appStore.listAssets('pet')) {
     const di = indexOf(name, 'dog');
     if (di !== null) {
@@ -53,7 +54,12 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
       continue;
     }
     const ci = indexOf(name, 'cat');
-    if (ci !== null) place(cats, ci, data);
+    if (ci !== null) {
+      place(cats, ci, data);
+      continue;
+    }
+    const ki = indexOf(name, 'duck');
+    if (ki !== null) place(ducks, ki, data);
   }
 
   // Furniture (sprite and/or catalog entry, keyed by assetId). Catalog items in
@@ -95,7 +101,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
           defaultCount: (raw.characters as unknown[]).length,
         };
       case 'petSpritesLoaded':
-        return { type: 'petSpritesLoaded', dogs, cats };
+        return { type: 'petSpritesLoaded', dogs, cats, ducks };
       case 'floorTilesLoaded':
         return { type: 'floorTilesLoaded', sprites: floors };
       case 'wallTilesLoaded':
@@ -110,7 +116,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs, cats, furnitureCatalog, furnitureSprites },
+    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites },
   };
 }
 

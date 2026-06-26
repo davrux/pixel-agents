@@ -203,7 +203,8 @@ export class SimRoom extends Room<RoomState> {
       // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
       if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
-      if (type === 'character' && !this.validCharacterData(msg.data)) return;
+      // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
+      if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       this.reapplyAsset(type);
     });
@@ -322,7 +323,11 @@ export class SimRoom extends Room<RoomState> {
         break;
       }
       case 'pet':
-        setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never);
+        setPetTemplates(
+          this.bundle.raw.dogs as never,
+          this.bundle.raw.cats as never,
+          this.bundle.raw.ducks as never,
+        );
         break;
       case 'furniture':
         buildDynamicCatalog({

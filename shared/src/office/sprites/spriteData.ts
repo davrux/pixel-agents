@@ -103,6 +103,11 @@ interface LoadedPetData {
   down: SpriteData[];
   up: SpriteData[];
   right: SpriteData[];
+  /** Editor overrides may carry these (bundled sheets don't): left-facing art,
+   *  a display name, and an animation spec (track layout). */
+  left?: SpriteData[];
+  name?: string;
+  spec?: CharacterSpec;
 }
 
 let loadedDogs: LoadedPetData[] | null = null;
@@ -125,7 +130,11 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
     down: p.down,
     up: p.up,
     right: p.right,
-    spec: PET_SPRITE_SPEC,
+    left: p.left,
+    name: p.name,
+    // Editor overrides carry their own spec (e.g. an added sleep track); bundled
+    // sheets fall back to the default pet layout (walk/sit/idle).
+    spec: p.spec ?? PET_SPRITE_SPEC,
   });
   loadedNpcs = { dog: dogs.map(toNpc), cat: cats.map(toNpc), duck: ducks.map(toNpc) };
   npcSpriteCache.clear();
