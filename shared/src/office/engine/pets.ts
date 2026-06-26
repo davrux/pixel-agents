@@ -17,6 +17,9 @@ import {
   PET_SIT_MAX_SEC,
   PET_SIT_MIN_SEC,
   PET_TAIL_WAG_DURATION_SEC,
+  PET_TALK_FRAME_DURATION_SEC,
+  PET_TALK_MAX_SEC,
+  PET_TALK_MIN_SEC,
   PET_WALK_FRAME_DURATION_SEC,
   PET_WALK_SPEED_PX_PER_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
@@ -33,11 +36,11 @@ import { Direction, PetState, TILE_SIZE } from '../types.js';
  * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
  * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
  */
-export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink';
+export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk';
 
 /** Kinds of interactable the world affords an NPC: claimable seats, adjacent-to
- *  furniture (cat on a desk), and appliance stations (coffee). Agent joins later. */
-export type AffordanceKind = 'seat' | 'furniture' | 'station';
+ *  furniture (cat on a desk), appliance stations (coffee), and agents (talk). */
+export type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
 
 /**
  * What's available in the world for an NPC to interact with right now — a cheap
@@ -54,6 +57,8 @@ export interface NpcAffordances {
   threatened: boolean;
   /** A free appliance station (coffee) exists to go drink at. */
   canDrink: boolean;
+  /** An agent is around to go talk to. */
+  canTalk: boolean;
 }
 
 /** A reachable, already-claimed interaction target (computed by OfficeState). */
@@ -65,6 +70,8 @@ export interface PetTarget {
   furnitureUid: string | null;
   /** Claimed appliance station uid (for 'station' targets), else null. */
   stationId: string | null;
+  /** Claimed agent id (for 'agent' targets), else null. */
+  agentId: number | null;
   sitCol: number;
   sitRow: number;
   facing: Direction;
@@ -150,6 +157,7 @@ export function createPet(
     targetAction: null,
     targetSeatId: null,
     targetStationId: null,
+    targetAgentId: null,
     targetFurnitureUid: null,
     sitTileCol: 0,
     sitTileRow: 0,
@@ -175,6 +183,7 @@ function clearTarget(pet: Pet): void {
   pet.targetAction = null;
   pet.targetSeatId = null;
   pet.targetStationId = null;
+  pet.targetAgentId = null;
   pet.targetFurnitureUid = null;
 }
 
@@ -215,15 +224,16 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // NPC brain decides when injected; otherwise fall back to the sit-chance
       // roll (keeps the engine self-contained for tests/standalone).
       const action = ctx.decideAction ? ctx.decideAction(pet) : Math.random() < PET_SIT_CHANCE ? 'sit' : 'wander';
-      if (action === 'sit' || action === 'drink') {
-        // Claim-based interactions: walk to a free seat/desk ('sit') or appliance
-        // station ('drink'), then run the action on arrival.
+      if (action === 'sit' || action === 'drink' || action === 'talk') {
+        // Claim-based interactions: walk to a free seat/desk ('sit'), appliance
+        // station ('drink') or up to an agent ('talk'), then act on arrival.
         const target = ctx.findTarget(pet, action);
         if (target) {
           pet.targetKind = target.kind;
           pet.targetAction = target.action;
           pet.targetSeatId = target.seatId;
           pet.targetStationId = target.stationId;
+          pet.targetAgentId = target.agentId;
           pet.targetFurnitureUid = target.furnitureUid;
           pet.sitTileCol = target.sitCol;
           pet.sitTileRow = target.sitRow;
@@ -350,6 +360,22 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       }
       break;
     }
+
+    case PetState.TALK: {
+      // Stand next to the agent for the duration (reusing sitTimer). A drawn
+      // `talk` track animates; otherwise it falls back to idle (static).
+      advancePetFrame(pet, ctx, PET_TALK_FRAME_DURATION_SEC, 1);
+      pet.sitTimer -= dt;
+      if (pet.sitTimer <= 0) {
+        ctx.releaseClaim(pet);
+        clearTarget(pet);
+        pet.state = PetState.IDLE;
+        pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.frame = 0;
+        pet.frameTimer = 0;
+      }
+      break;
+    }
   }
 }
 
@@ -358,6 +384,9 @@ function beginTargetAction(pet: Pet): void {
   switch (pet.targetAction) {
     case 'drink':
       startDrinking(pet);
+      break;
+    case 'talk':
+      startTalking(pet);
       break;
     case 'sit':
     default:
@@ -376,6 +405,20 @@ function startDrinking(pet: Pet): void {
   pet.dir = pet.sitFacingDir;
   pet.state = PetState.DRINK;
   pet.sitTimer = randomRange(PET_DRINK_MIN_SEC, PET_DRINK_MAX_SEC);
+  pet.frame = 0;
+  pet.frameTimer = 0;
+}
+
+/** Stand next to a claimed agent, facing it, for a while (talk). */
+function startTalking(pet: Pet): void {
+  const center = tileCenter(pet.sitTileCol, pet.sitTileRow);
+  pet.tileCol = pet.sitTileCol;
+  pet.tileRow = pet.sitTileRow;
+  pet.x = center.x;
+  pet.y = center.y;
+  pet.dir = pet.sitFacingDir;
+  pet.state = PetState.TALK;
+  pet.sitTimer = randomRange(PET_TALK_MIN_SEC, PET_TALK_MAX_SEC);
   pet.frame = 0;
   pet.frameTimer = 0;
 }
@@ -405,6 +448,8 @@ export function petPose(pet: Pet): string {
       return 'sit';
     case PetState.DRINK:
       return 'drink';
+    case PetState.TALK:
+      return 'talk';
     default:
       return 'idle';
   }

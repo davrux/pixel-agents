@@ -97,6 +97,8 @@ export class OfficeState {
   /** Appliance-station uids currently claimed by a pet (mutually exclusive with
    *  an agent's `occupantId` claim on the same station). */
   private petStationClaims: Set<string> = new Set();
+  /** Agent ids a pet is currently talking to (one pet per agent at a time). */
+  private petTalkClaims: Set<number> = new Set();
   /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
   private nextPetId = 1_000_000;
@@ -122,6 +124,7 @@ export class OfficeState {
     this.pets.clear();
     this.petFurnitureClaims.clear();
     this.petStationClaims.clear();
+    this.petTalkClaims.clear();
 
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
@@ -1031,7 +1034,33 @@ export class OfficeState {
       threatened: b.fleeDogs && pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
       // Coffee: any kind may visit a free appliance station.
       canDrink: b.drink && this.hasFreeStation(),
+      // Talk: any kind may approach an agent that no other pet is chatting with.
+      canTalk: b.talk && this.hasTalkableAgent(),
     };
+  }
+
+  /** Any non-subagent, non-despawning agent not already claimed for a chat. */
+  private hasTalkableAgent(): boolean {
+    for (const ch of this.characters.values()) {
+      if (ch.isSubagent || ch.matrixEffect === 'despawn') continue;
+      if (!this.petTalkClaims.has(ch.id)) return true;
+    }
+    return false;
+  }
+
+  /** First walkable tile orthogonally adjacent to (col,row), facing back toward
+   *  it — a stand spot beside an agent. */
+  private adjacentApproach(col: number, row: number): { col: number; row: number; facing: Direction } | null {
+    const around = [
+      { col, row: row - 1, facing: Direction.DOWN },
+      { col, row: row + 1, facing: Direction.UP },
+      { col: col - 1, row, facing: Direction.RIGHT },
+      { col: col + 1, row, facing: Direction.LEFT },
+    ];
+    for (const a of around) {
+      if (isWalkable(a.col, a.row, this.tileMap, this.blockedTiles)) return a;
+    }
+    return null;
   }
 
   /** A free seat (any pet) or, for cats, a free desk exists somewhere. */
@@ -1216,6 +1245,9 @@ export class OfficeState {
     if (pet.targetStationId) {
       this.petStationClaims.delete(pet.targetStationId);
     }
+    if (pet.targetAgentId !== null) {
+      this.petTalkClaims.delete(pet.targetAgentId);
+    }
   }
 
   /** Whether a non-chair furniture item is free for a pet to approach. */
@@ -1298,9 +1330,35 @@ export class OfficeState {
           seatId: null,
           furnitureUid: null,
           stationId: uid,
+          agentId: null,
           sitCol: s.col,
           sitRow: s.row,
           facing: s.facingDir,
+          path,
+        });
+      }
+    }
+
+    // Agents (talk) — stand on a walkable tile beside an un-claimed agent.
+    if (action === 'talk') {
+      for (const ch of this.characters.values()) {
+        if (ch.isSubagent || ch.matrixEffect === 'despawn') continue;
+        if (this.petTalkClaims.has(ch.id)) continue;
+        const approach = this.adjacentApproach(ch.tileCol, ch.tileRow);
+        if (!approach) continue;
+        const path = findPath(pet.tileCol, pet.tileRow, approach.col, approach.row, this.tileMap, this.blockedTiles);
+        const reachable = path.length > 0 || (pet.tileCol === approach.col && pet.tileRow === approach.row);
+        if (!reachable) continue;
+        candidates.push({
+          kind: 'agent',
+          action: 'talk',
+          seatId: null,
+          furnitureUid: null,
+          stationId: null,
+          agentId: ch.id,
+          sitCol: approach.col,
+          sitRow: approach.row,
+          facing: approach.facing,
           path,
         });
       }
@@ -1330,6 +1388,7 @@ export class OfficeState {
         seatId: uid,
         furnitureUid: null,
         stationId: null,
+        agentId: null,
         sitCol: seat.seatCol,
         sitRow: seat.seatRow,
         facing: seat.facingDir,
@@ -1365,6 +1424,7 @@ export class OfficeState {
           seatId: null,
           furnitureUid: item.uid,
           stationId: null,
+          agentId: null,
           sitCol: adj.col,
           sitRow: adj.row,
           facing,
@@ -1381,6 +1441,8 @@ export class OfficeState {
       if (seat) seat.assigned = true;
     } else if (chosen.kind === 'station' && chosen.stationId) {
       this.petStationClaims.add(chosen.stationId);
+    } else if (chosen.kind === 'agent' && chosen.agentId !== null) {
+      this.petTalkClaims.add(chosen.agentId);
     } else if (chosen.furnitureUid) {
       this.petFurnitureClaims.add(chosen.furnitureUid);
     }

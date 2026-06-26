@@ -63,7 +63,7 @@ export const PET_SPRITE_SPEC: CharacterSpec = {
 };
 
 /** Track names the NPC editor offers (`sleep`/`drink` optional, like coffee for agents). */
-export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep', 'drink'] as const;
+export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep', 'drink', 'talk'] as const;
 
 // ── NPC spawn config ────────────────────────────────────────────
 /** Per-NPC spawn behaviour: whether it spawns at all, and (when it does) a
@@ -92,9 +92,17 @@ export interface NpcBehaviors {
   fleeDogs: boolean;
   /** May visit a free appliance station (coffee) and stand there a while. */
   drink: boolean;
+  /** May trot over to an agent and stand chatting a while. */
+  talk: boolean;
 }
 
-export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = { rest: true, chaseCats: true, fleeDogs: true, drink: true };
+export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = {
+  rest: true,
+  chaseCats: true,
+  fleeDogs: true,
+  drink: true,
+  talk: true,
+};
 
 export const DEFAULT_NPC_CONFIG: NpcConfig = {
   active: true,
@@ -131,6 +139,7 @@ export function resolveNpcConfig(input: unknown): NpcConfig {
       chaseCats: bool(b.chaseCats, true),
       fleeDogs: bool(b.fleeDogs, true),
       drink: bool(b.drink, true),
+      talk: bool(b.talk, true),
     },
   };
 }

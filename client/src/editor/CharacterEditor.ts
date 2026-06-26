@@ -95,6 +95,7 @@ export const NPC_TRACKS: TrackDef[] = [
   { name: 'idle', label: 'Idle', min: 1, play: 'loop', def: 1 },
   { name: 'sleep', label: 'Sleep', min: 0, play: 'loop', def: 2 },
   { name: 'drink', label: 'Drink', min: 0, play: 'loop', def: 2 },
+  { name: 'talk', label: 'Talk', min: 0, play: 'loop', def: 2 },
 ];
 
 interface EditorTrackSlot {
@@ -389,6 +390,7 @@ export class CharacterEditor {
           <span class="sizelabel">Behavior</span>
           <label class="sizelabel" id="pa-c-brest-l"><input id="pa-c-brest" type="checkbox"> Rest</label>
           <label class="sizelabel" id="pa-c-bdrink-l"><input id="pa-c-bdrink" type="checkbox"> Coffee</label>
+          <label class="sizelabel" id="pa-c-btalk-l"><input id="pa-c-btalk" type="checkbox"> Talk</label>
           <label class="sizelabel" id="pa-c-bchase-l"><input id="pa-c-bchase" type="checkbox"> Chase cats</label>
           <label class="sizelabel" id="pa-c-bflee-l"><input id="pa-c-bflee" type="checkbox"> Flee dogs</label></div>
         <div class="row" id="pa-c-dirs"></div>
@@ -513,6 +515,7 @@ export class CharacterEditor {
     // reading them back here preserves the inert (kind-irrelevant) flags.
     const bRest = panel.querySelector<HTMLInputElement>('#pa-c-brest')!;
     const bDrink = panel.querySelector<HTMLInputElement>('#pa-c-bdrink')!;
+    const bTalk = panel.querySelector<HTMLInputElement>('#pa-c-btalk')!;
     const bChase = panel.querySelector<HTMLInputElement>('#pa-c-bchase')!;
     const bFlee = panel.querySelector<HTMLInputElement>('#pa-c-bflee')!;
     const onConfig = (): void => {
@@ -534,12 +537,13 @@ export class CharacterEditor {
           chaseCats: bChase.checked,
           fleeDogs: bFlee.checked,
           drink: bDrink.checked,
+          talk: bTalk.checked,
         },
       };
       this.dirty = true;
     };
     activeEl.onchange = onConfig;
-    for (const el of [spMin, spMax, spConc, bRest, bDrink, bChase, bFlee]) el.onchange = onConfig;
+    for (const el of [spMin, spMax, spConc, bRest, bDrink, bTalk, bChase, bFlee]) el.onchange = onConfig;
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -744,6 +748,7 @@ export class CharacterEditor {
     // All checkboxes carry the live value; only kind-relevant labels are shown.
     set('#pa-c-brest', cfg.behaviors.rest);
     set('#pa-c-bdrink', cfg.behaviors.drink);
+    set('#pa-c-btalk', cfg.behaviors.talk);
     set('#pa-c-bchase', cfg.behaviors.chaseCats);
     set('#pa-c-bflee', cfg.behaviors.fleeDogs);
     const kind = this.npcKind();

@@ -109,6 +109,7 @@ export const PetState = {
   IDLE: 'idle', // standing still, deciding next move
   SIT: 'sit', // sitting at claimed furniture, tail wagging
   DRINK: 'drink', // standing at a claimed appliance station (coffee), idle pose
+  TALK: 'talk', // standing next to a claimed agent, facing it (talk pose)
   DESPAWN: 'despawn', // fade-out, then delete
 } as const;
 export type PetState = (typeof PetState)[keyof typeof PetState];
@@ -132,13 +133,15 @@ export interface Pet {
   /** Countdown to next wander decision while idle */
   wanderTimer: number;
   // Interaction target / claim
-  targetKind: 'seat' | 'furniture' | 'station' | null;
+  targetKind: 'seat' | 'furniture' | 'station' | 'agent' | null;
   /** What the pet will do on reaching its target (null when none); see NpcAction.
    *  Kept as a literal union (mirrors NpcAction) to avoid an engine→types cycle. */
-  targetAction: 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | null;
+  targetAction: 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk' | null;
   targetSeatId: string | null;
   /** Claimed appliance station uid (coffee), or null. */
   targetStationId: string | null;
+  /** Claimed agent id being talked to, or null. */
+  targetAgentId: number | null;
   targetFurnitureUid: string | null;
   /** Tile the pet sits on while interacting */
   sitTileCol: number;

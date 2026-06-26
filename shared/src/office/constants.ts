@@ -60,6 +60,12 @@ export const PET_DRINK_MIN_SEC = 4;
 export const PET_DRINK_MAX_SEC = 10;
 export const PET_DRINK_FRAME_DURATION_SEC = 0.4; // cadence for an authored drink track
 export const PET_IDLE_FRAME_DURATION_SEC = 0.4; // cadence for an authored multi-frame idle
+// Talk-to-agent (N3.3d): chance an idle pet trots over to an agent, how long it
+// stands chatting, and the cadence for an authored talk track.
+export const PET_TALK_CHANCE = 0.12;
+export const PET_TALK_MIN_SEC = 3;
+export const PET_TALK_MAX_SEC = 8;
+export const PET_TALK_FRAME_DURATION_SEC = 0.4;
 export const PET_EFFECT_DURATION_SEC = 0.3;
 export const PET_Z_SORT_OFFSET = 0.5;
 
