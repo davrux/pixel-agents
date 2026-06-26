@@ -193,7 +193,10 @@ export class SimRoom extends Room<RoomState> {
     // + re-apply to the engine + broadcast the refreshed *Loaded message.
     this.onMessage('saveAsset', (_c, msg: { assetType?: string; name?: string; data?: unknown }) => {
       const type = this.validAssetType(msg?.assetType);
-      if (!type || typeof msg?.name !== 'string' || !msg.name || msg.data === undefined) return;
+      if (!type || typeof msg?.name !== 'string' || msg.data === undefined) return;
+      // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
+      if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
+      if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       this.reapplyAsset(type);
     });
@@ -208,6 +211,23 @@ export class SimRoom extends Room<RoomState> {
 
   private validAssetType(t: unknown): AssetType | null {
     return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+  }
+
+  /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
+  private validFurnitureData(data: unknown): boolean {
+    const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
+    if (!d || typeof d !== 'object') return false;
+    if (d.sprite !== undefined && !Array.isArray(d.sprite)) return false;
+    if (d.catalog) {
+      const c = d.catalog;
+      const fw = Number(c.footprintW);
+      const fh = Number(c.footprintH);
+      if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) {
+        return false;
+      }
+      if (typeof c.category !== 'string') return false;
+    }
+    return true;
   }
 
   /** Re-merge defaults+DB, re-apply the affected type to the engine, broadcast. */

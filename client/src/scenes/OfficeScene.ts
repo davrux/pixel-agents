@@ -30,6 +30,7 @@ import { getCharacterTemplates, type LoadedCharacterData } from '@pixel/shared/o
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor } from '../editor/CharacterEditor.js';
+import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
@@ -64,6 +65,9 @@ export class OfficeScene extends Phaser.Scene {
   private tip!: HTMLDivElement;
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
+  private furnEditor!: FurnitureEditor;
+  /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
+  private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   private topbar?: HTMLElement;
   private settingsBtn?: HTMLButtonElement;
   private layoutsBtn?: HTMLButtonElement;
@@ -135,6 +139,12 @@ export class OfficeScene extends Phaser.Scene {
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
       topbar: this.topbar,
     });
+    this.furnEditor = new FurnitureEditor({
+      getRawCatalog: () => this.furnitureCatalogRaw,
+      save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
+      reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
+      topbar: this.topbar,
+    });
     this.setupInput();
     void this.open();
   }
@@ -175,7 +185,13 @@ export class OfficeScene extends Phaser.Scene {
           this.renderCharSwatches();
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
-        else assetBridge(m);
+        else {
+          // Keep the raw furniture catalog (group fields) for the furniture editor.
+          if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
+            this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
+          }
+          assetBridge(m);
+        }
       });
       this.bindState(this.room);
       setStatus('connected');

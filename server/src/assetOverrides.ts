@@ -56,16 +56,18 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     if (ci !== null) place(cats, ci, data);
   }
 
-  // Furniture (sprite and/or catalog entry, keyed by assetId)
+  // Furniture (sprite and/or catalog entry, keyed by assetId). Catalog items in
+  // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
   const furnitureSprites = { ...(raw.furnitureSprites as Record<string, unknown>) };
-  const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ type?: string }>)];
+  const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ id?: string }>)];
   for (const { name, data } of appStore.listAssets('furniture')) {
-    const d = data as { sprite?: unknown; catalog?: { type?: string } };
+    const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
     if (d && d.sprite !== undefined) furnitureSprites[name] = d.sprite;
     if (d && d.catalog) {
-      const k = furnitureCatalog.findIndex((c) => c.type === name);
-      if (k >= 0) furnitureCatalog[k] = d.catalog;
-      else furnitureCatalog.push(d.catalog);
+      const entry = { ...d.catalog, id: name }; // id must match the asset key
+      const k = furnitureCatalog.findIndex((c) => c.id === name);
+      if (k >= 0) furnitureCatalog[k] = entry;
+      else furnitureCatalog.push(entry);
     }
   }
 
