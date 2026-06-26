@@ -1,65 +1,46 @@
 /**
  * Server-only NPC "brain": a mistreevous behaviour tree + blackboard that decides
- * an NPC's next high-level action each tick. The shared engine stays the
- * actuator (executes movement/animation from synced state); only this decision
- * logic lives here, so the BT library never enters the client bundle.
+ * an NPC's next high-level action. The shared engine stays the actuator (executes
+ * movement/animation from synced state); only this decision logic lives here, so
+ * the BT library never enters the client bundle.
  *
- * N3.1 introduces the harness and reproduces the pet FSM's idle decision
- * (lifespan → despawn, tired → sit, ready → wander, else idle). Wiring it into
- * the live pet sim, plus affordances/interactions, follow in N3.2/N3.3.
+ * N3.2: the brain drives the pet's idle decision (sit vs wander) via an injected
+ * decider on OfficeState — behaviour-preserving. N3.3 extends the blackboard +
+ * tree with affordances (coffee / agent / cat) and richer actions.
  */
 import { BehaviourTree, State } from 'mistreevous';
 
-export type NpcAction = 'despawn' | 'sit' | 'wander' | 'idle';
+export type NpcAction = 'wander' | 'sit';
 
-/** Inputs the brain reads to decide. Mirrors the pet FSM's situation flags. */
+/** Inputs the brain reads to decide what to do after an idle pause. */
 export interface NpcBlackboard {
-  /** Lifespan elapsed → retire. */
-  lifeOver: boolean;
-  /** Wandered enough this cycle → go rest (sit). */
-  restNeeded: boolean;
-  /** Wander pause elapsed → move to a new spot. */
-  readyToMove: boolean;
+  /** Would rather rest now (computed by the caller, e.g. a sit-chance roll). */
+  wantsToRest: boolean;
 }
 
-/** Priority selector: despawn > sit > wander > idle. Each leaf records the
- *  chosen action on the blackboard. */
+/** Priority selector: rest if wanted, else wander. */
 const TREE_DEFINITION = `root {
   selector {
     sequence {
-      condition [LifeOver]
-      action [Despawn]
-    }
-    sequence {
-      condition [RestNeeded]
+      condition [WantsToRest]
       action [Sit]
     }
-    sequence {
-      condition [ReadyToMove]
-      action [Wander]
-    }
-    action [Idle]
+    action [Wander]
   }
 }`;
 
 export class NpcBrain {
   private readonly bb: NpcBlackboard & { action: NpcAction } = {
-    lifeOver: false,
-    restNeeded: false,
-    readyToMove: false,
-    action: 'idle',
+    wantsToRest: false,
+    action: 'wander',
   };
   private readonly tree: BehaviourTree;
 
   constructor() {
     const agent = {
-      LifeOver: (): boolean => this.bb.lifeOver,
-      RestNeeded: (): boolean => this.bb.restNeeded,
-      ReadyToMove: (): boolean => this.bb.readyToMove,
-      Despawn: (): State => this.set('despawn'),
+      WantsToRest: (): boolean => this.bb.wantsToRest,
       Sit: (): State => this.set('sit'),
       Wander: (): State => this.set('wander'),
-      Idle: (): State => this.set('idle'),
     };
     this.tree = new BehaviourTree(TREE_DEFINITION, agent);
   }
@@ -72,10 +53,8 @@ export class NpcBrain {
   /** Evaluate the tree against the given situation and return the chosen action. */
   decide(input: NpcBlackboard): NpcAction {
     this.tree.reset(); // re-evaluate from the root every tick
-    this.bb.lifeOver = input.lifeOver;
-    this.bb.restNeeded = input.restNeeded;
-    this.bb.readyToMove = input.readyToMove;
-    this.bb.action = 'idle';
+    this.bb.wantsToRest = input.wantsToRest;
+    this.bb.action = 'wander';
     this.tree.step();
     return this.bb.action;
   }

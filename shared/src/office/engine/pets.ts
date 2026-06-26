@@ -42,6 +42,9 @@ export interface PetUpdateContext {
   findTarget: (pet: Pet) => PetTarget | null;
   /** Release the pet's current seat/furniture claim (no-op if none). */
   releaseClaim: (pet: Pet) => void;
+  /** Decide the next idle activity for a pet (injected by the server's NPC brain;
+   *  absent → the built-in sit-chance roll). */
+  decideAction?: (pet: Pet) => 'wander' | 'sit';
 }
 
 function tileCenter(col: number, row: number): { x: number; y: number } {
@@ -142,8 +145,11 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       pet.wanderTimer -= dt;
       if (pet.wanderTimer > 0) break;
 
-      // Decide: go sit at furniture, or wander to a random tile
-      if (Math.random() < PET_SIT_CHANCE) {
+      // Decide: go sit at furniture, or wander to a random tile. The server's
+      // NPC brain decides when injected; otherwise fall back to the sit-chance
+      // roll (keeps the engine self-contained for tests/standalone).
+      const action = ctx.decideAction ? ctx.decideAction(pet) : Math.random() < PET_SIT_CHANCE ? 'sit' : 'wander';
+      if (action === 'sit') {
         const target = ctx.findTarget(pet);
         if (target) {
           pet.targetKind = target.kind;

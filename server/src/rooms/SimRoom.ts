@@ -3,6 +3,7 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 import type { AgentEvent } from '@pixel/shared';
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
+import { PET_SIT_CHANCE } from '@pixel/shared/office/constants.js';
 import { PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
@@ -17,6 +18,7 @@ import { LayoutStore } from '../layoutStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, usernameFromCookie } from '../auth.js';
+import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
 const TICK_HZ = 20;
@@ -36,6 +38,8 @@ export class SimRoom extends Room<RoomState> {
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
+  /** Server-only NPC behaviour tree (decides pet activity; not in client bundle). */
+  private readonly npcBrain = new NpcBrain();
 
   private readonly onEvent = (ev: AgentEvent) => applyEvent(this.os, ev, this.activity);
 
@@ -68,6 +72,9 @@ export class SimRoom extends Room<RoomState> {
     // The active layout (persisted, falling back to the bundled default).
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
     this.os = new OfficeState(this.migratedActiveLayout());
+    // NPC decisions run through the server-only mistreevous brain (kept out of
+    // the client bundle). The engine remains the movement actuator.
+    this.os.setNpcDecider(() => this.npcBrain.decide({ wantsToRest: Math.random() < PET_SIT_CHANCE }));
     // Restore per-user pinned character palettes (so a user's skin stays stable).
     for (const [name, palette] of Object.entries(appStore.getCharPrefs())) {
       this.os.setPalettePref(name, palette);

@@ -90,6 +90,9 @@ export class OfficeState {
   /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
   private nextPetId = 1_000_000;
+  /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
+   *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
+  private npcDecide?: (pet: Pet) => 'wander' | 'sit';
 
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
@@ -989,6 +992,11 @@ export class OfficeState {
     return Array.from(this.pets.values());
   }
 
+  /** Inject the NPC decision fn (server's mistreevous brain). Clears with null. */
+  setNpcDecider(fn: ((pet: Pet) => 'wander' | 'sit') | null): void {
+    this.npcDecide = fn ?? undefined;
+  }
+
   // ── Pet lifecycle ─────────────────────────────────────────
 
   /** Number of connected agents (real agents, excluding sub-agents & despawning). */
@@ -1008,6 +1016,7 @@ export class OfficeState {
       blockedTiles: this.blockedTiles,
       findTarget: (pet: Pet) => this.findFreePetTarget(pet),
       releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
+      decideAction: this.npcDecide,
     };
 
     const toDelete: number[] = [];
