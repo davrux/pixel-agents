@@ -71,6 +71,10 @@ export interface EditorCategory {
   canCreate: boolean;
   /** Whether entities carry an NPC spawn config (shows the config row). */
   spawnConfig?: boolean;
+  /** Name is derived from the roster slot (e.g. `dog_0`) rather than typed by
+   *  the user: hide the name field and auto-fill it so the server-mandatory
+   *  name is always present and Save stays enabled. */
+  derivedName?: boolean;
 }
 
 /** Agent animation tracks (walk/typing/reading + optional coffee). */
@@ -676,6 +680,9 @@ export class CharacterEditor {
     // NPC categories carry a spawn config; others must not.
     if (this.cat().spawnConfig) this.work.npc = { ...DEFAULT_NPC_CONFIG, ...this.work.npc };
     else this.work.npc = undefined;
+    // NPCs have no typed display name — derive it from the roster slot so the
+    // server-mandatory name is present and Save isn't wrongly disabled.
+    if (this.cat().derivedName) this.work.name = this.work.name?.trim() || this.charName();
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
     this.syncSizeInputs();
@@ -937,7 +944,8 @@ export class CharacterEditor {
   }
 
   private displayName(): string {
-    return this.work.name ? `${this.work.name} (${this.charName()})` : this.charName();
+    const slot = this.charName();
+    return this.work.name && this.work.name !== slot ? `${this.work.name} (${slot})` : slot;
   }
   private doSave(): void {
     // A name is mandatory (also enforced server-side). Guard in case the button
@@ -1029,7 +1037,11 @@ export class CharacterEditor {
     });
     // Per-track frame controls (add/remove frames, play mode).
     this.renderTracks();
-    // A name is mandatory to save (mirrors the server-side check).
+    // A name is mandatory to save (mirrors the server-side check). NPCs derive
+    // theirs from the roster slot, so their name field is hidden and the gate
+    // always passes.
+    const derivedName = !!this.cat().derivedName;
+    this.nameEl.style.display = derivedName ? 'none' : '';
     const saveBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-save')!;
     const hasName = !!this.work.name?.trim();
     saveBtn.disabled = !hasName;

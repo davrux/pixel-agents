@@ -192,6 +192,7 @@ export class OfficeScene extends Phaser.Scene {
           blankFrames: 6,
           canCreate: false,
           spawnConfig: true,
+          derivedName: true,
         },
       ],
       topbar: this.topbar,
