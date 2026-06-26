@@ -15,6 +15,7 @@ import { director } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
 import { LayoutStore } from '../layoutStore.js';
 import { appStore } from '../appStore.js';
+import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, usernameFromCookie } from '../auth.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -27,6 +28,8 @@ const TICK_HZ = 20;
  * world. Clients are pure renderers.
  */
 export class SimRoom extends Room<RoomState> {
+  /** Read-only file defaults; `bundle` is these merged with DB asset overrides. */
+  private defaults!: AssetBundle;
   private bundle!: AssetBundle;
   private os!: OfficeState;
   private store!: LayoutStore;
@@ -46,7 +49,8 @@ export class SimRoom extends Room<RoomState> {
   }
 
   onCreate(options: { bundle: AssetBundle; token?: string }): void {
-    this.bundle = options.bundle;
+    this.defaults = options.bundle;
+    this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
     this.token = options.token ?? '';
     this.setState(new RoomState());
     this.autoDispose = false;
@@ -165,6 +169,52 @@ export class SimRoom extends Room<RoomState> {
       const v = Number(msg?.volume);
       appStore.setSetting('alertVolume', Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1);
     });
+
+    // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge
+    // + re-apply to the engine + broadcast the refreshed *Loaded message.
+    this.onMessage('saveAsset', (_c, msg: { assetType?: string; name?: string; data?: unknown }) => {
+      const type = this.validAssetType(msg?.assetType);
+      if (!type || typeof msg?.name !== 'string' || !msg.name || msg.data === undefined) return;
+      appStore.saveAsset(type, msg.name, msg.data);
+      this.reapplyAsset(type);
+    });
+    this.onMessage('deleteAsset', (_c, msg: { assetType?: string; name?: string }) => {
+      const type = this.validAssetType(msg?.assetType);
+      if (!type || typeof msg?.name !== 'string') return;
+      if (appStore.deleteAsset(type, msg.name)) this.reapplyAsset(type);
+    });
+  }
+
+  // ── Asset overrides ──────────────────────────────────────────────
+
+  private validAssetType(t: unknown): AssetType | null {
+    return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+  }
+
+  /** Re-merge defaults+DB, re-apply the affected type to the engine, broadcast. */
+  private reapplyAsset(type: AssetType): void {
+    this.bundle = buildMerged(this.defaults);
+    switch (type) {
+      case 'character':
+        setCharacterTemplates(this.bundle.raw.characters as never);
+        break;
+      case 'pet':
+        setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never);
+        break;
+      case 'furniture':
+        buildDynamicCatalog({
+          catalog: this.bundle.raw.furnitureCatalog as never,
+          sprites: this.bundle.raw.furnitureSprites as never,
+        });
+        // Footprints/seats may have changed → rebuild the office from the layout.
+        this.os.rebuildFromLayout(this.migratedActiveLayout() ?? this.os.layout);
+        this.lastFurnitureRef = null; // force furniture re-sync
+        break;
+      // floor/wall are client-render only — just rebroadcast below.
+    }
+    const msgType = messageTypeForAsset(type);
+    const message = this.bundle.messages.find((m) => m.type === msgType);
+    if (message) this.broadcast('m', message);
   }
 
   // ── Simulation → schema ──────────────────────────────────────────

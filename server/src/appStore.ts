@@ -22,6 +22,10 @@ class AppStore {
         sid TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+      CREATE TABLE IF NOT EXISTS assets (
+        type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, updatedAt INTEGER NOT NULL,
+        PRIMARY KEY (type, name)
+      );
     `);
     this.cleanupExpired();
     const t = setInterval(() => this.cleanupExpired(), CLEANUP_INTERVAL_MS);
@@ -53,6 +57,51 @@ class AppStore {
 
   cleanupExpired(): void {
     this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
+  }
+
+  // ── Asset overrides (characters, furniture, floors, walls, pets) ─
+  // Edited/added assets, keyed by (type, name). The bundled files are the
+  // read-only defaults; a row here overrides (or adds) one asset.
+  listAssets(type: string): Array<{ name: string; data: unknown }> {
+    const rows = this.db
+      .prepare('SELECT name, data FROM assets WHERE type = ?')
+      .all(type) as Array<{ name: string; data: string }>;
+    const out: Array<{ name: string; data: unknown }> = [];
+    for (const r of rows) {
+      try {
+        out.push({ name: r.name, data: JSON.parse(r.data) });
+      } catch {
+        /* skip corrupt row */
+      }
+    }
+    return out;
+  }
+
+  getAsset<T>(type: string, name: string): T | undefined {
+    const r = this.db
+      .prepare('SELECT data FROM assets WHERE type = ? AND name = ?')
+      .get(type, name) as { data: string } | undefined;
+    if (!r) return undefined;
+    try {
+      return JSON.parse(r.data) as T;
+    } catch {
+      return undefined;
+    }
+  }
+
+  saveAsset(type: string, name: string, data: unknown): void {
+    this.db
+      .prepare(
+        'INSERT INTO assets(type,name,data,updatedAt) VALUES(?,?,?,?) ' +
+          'ON CONFLICT(type,name) DO UPDATE SET data=excluded.data, updatedAt=excluded.updatedAt',
+      )
+      .run(type, name, JSON.stringify(data), Date.now());
+  }
+
+  /** Revert an asset to its bundled default. Returns true if a row was removed. */
+  deleteAsset(type: string, name: string): boolean {
+    const r = this.db.prepare('DELETE FROM assets WHERE type = ? AND name = ?').run(type, name);
+    return Number(r.changes) > 0;
   }
 
   // ── Settings (global; matches the original single-server fork) ───
