@@ -148,12 +148,16 @@ export class OfficeScene extends Phaser.Scene {
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
       getDefaultCount: () => this.charDefaultCount,
       topbar: this.topbar,
+      // Mutually exclusive with the other top-bar popovers.
+      requestToggle: () => this.setMenu(this.charEditor.isOpen() ? null : 'chars'),
     });
     this.furnEditor = new FurnitureEditor({
       getRawCatalog: () => this.furnitureCatalogRaw,
       save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
       topbar: this.topbar,
+      // Mutually exclusive with the other top-bar popovers.
+      requestToggle: () => this.setMenu(this.furnEditor.isOpen() ? null : 'furniture'),
     });
     this.setupInput();
     void this.open();
@@ -548,13 +552,15 @@ export class OfficeScene extends Phaser.Scene {
   // ── Menus (mutually-exclusive popovers) ──────────────────────────
 
   /**
-   * Show exactly one of the top-bar popovers (or none). Settings and Layouts
-   * are mutually exclusive; opening either closes the other. The layout editor
-   * is intentionally not managed here — it's the exception that stays open.
+   * Show exactly one of the top-bar popovers (Settings / Layouts / Chars /
+   * Furniture), or none — opening one closes the others. The layout editor is
+   * intentionally not managed here — it's the exception that stays open.
    */
-  private setMenu(menu: 'settings' | 'layouts' | null): void {
+  private setMenu(menu: 'settings' | 'layouts' | 'chars' | 'furniture' | null): void {
     if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
     if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
+    if (this.charEditor) menu === 'chars' ? this.charEditor.show() : this.charEditor.close();
+    if (this.furnEditor) menu === 'furniture' ? this.furnEditor.show() : this.furnEditor.close();
     if (menu === 'layouts') this.room?.send('requestLayouts');
   }
 
@@ -757,7 +763,16 @@ export class OfficeScene extends Phaser.Scene {
     window.addEventListener('pointerdown', (e) => {
       const t = e.target as Node | null;
       if (!t) return;
-      if (this.topbar?.contains(t) || this.settingsPanel?.contains(t) || this.layoutsPanel?.contains(t)) return;
+      const charPanel = document.getElementById('pa-chars');
+      const furnPanel = document.getElementById('pa-furn');
+      if (
+        this.topbar?.contains(t) ||
+        this.settingsPanel?.contains(t) ||
+        this.layoutsPanel?.contains(t) ||
+        charPanel?.contains(t) ||
+        furnPanel?.contains(t)
+      )
+        return;
       this.setMenu(null);
     });
 

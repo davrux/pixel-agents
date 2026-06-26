@@ -15,6 +15,9 @@ export interface CharacterEditorOpts {
   getDefaultCount: () => number;
   /** Shared top-bar to host the button in (matches Edit/Layouts/Settings). */
   topbar?: HTMLElement;
+  /** Toolbar button clicked — let the scene coordinate mutually-exclusive menus.
+   *  Falls back to self-toggle when not provided. */
+  requestToggle?: () => void;
 }
 
 /** Keep only printable ASCII, max 16 chars (for character display names). */
@@ -113,16 +116,19 @@ export class CharacterEditor {
     this.build();
   }
 
+  isOpen(): boolean {
+    return this.open;
+  }
   toggle(): void {
     this.open ? this.close() : this.show();
   }
-  private show(): void {
+  show(): void {
     this.open = true;
     this.panel.style.display = 'block';
     this.refreshCharList();
     this.loadChar(this.charIndex);
   }
-  private close(): void {
+  close(): void {
     this.open = false;
     this.panel.style.display = 'none';
   }
@@ -172,7 +178,7 @@ export class CharacterEditor {
     btn.id = 'pa-chars-btn';
     btn.className = 'pa-ui'; // styled by #pa-topbar button (matches Edit/Layouts/Settings)
     btn.textContent = '🎨 Chars';
-    btn.onclick = () => this.toggle();
+    btn.onclick = () => (this.opts.requestToggle ? this.opts.requestToggle() : this.toggle());
 
     const panel = document.createElement('div');
     panel.id = 'pa-chars';
