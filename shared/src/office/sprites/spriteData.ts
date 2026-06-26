@@ -3,13 +3,20 @@ import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
-import { DEFAULT_CHARACTER_SPEC } from './characterSpec.js';
+import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC } from './characterSpec.js';
 import type { CharacterSpec } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
 
 export type { CharacterSpec, CharacterTrack, TrackPlay } from './characterSpec.js';
-export { DEFAULT_CHARACTER_SPEC, resolveCharacterSpec, specFrameCount, MAX_CHAR_DIM } from './characterSpec.js';
+export {
+  DEFAULT_CHARACTER_SPEC,
+  PET_SPRITE_SPEC,
+  NPC_TRACK_NAMES,
+  resolveCharacterSpec,
+  specFrameCount,
+  MAX_CHAR_DIM,
+} from './characterSpec.js';
 
 // ── Speech Bubble Sprites ───────────────────────────────────────
 
@@ -107,12 +114,22 @@ function petArr(kind: PetKindName): LoadedPetData[] | null {
   return kind === 'dog' ? loadedDogs : kind === 'cat' ? loadedCats : loadedDucks;
 }
 
-/** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives. */
+/** Set pet sprites loaded from PNG assets. Call this when petSpritesLoaded arrives.
+ *  Also populates the unified NPC sprite store (same frames + PET_SPRITE_SPEC),
+ *  so NPCs can be resolved through the character pipeline (getNpcSprites). */
 export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], ducks: LoadedPetData[] = []): void {
   loadedDogs = dogs;
   loadedCats = cats;
   loadedDucks = ducks;
   petSpriteCache.clear();
+  const toNpc = (p: LoadedPetData): LoadedCharacterData => ({
+    down: p.down,
+    up: p.up,
+    right: p.right,
+    spec: PET_SPRITE_SPEC,
+  });
+  loadedNpcs = { dog: dogs.map(toNpc), cat: cats.map(toNpc), duck: ducks.map(toNpc) };
+  npcSpriteCache.clear();
 }
 
 /** Number of loaded variants for a pet kind (0 if none loaded). */
@@ -291,72 +308,99 @@ function buildTrackSeq(
   return frames;
 }
 
+/** Build track-driven sprite sequences from one entity template (agent or NPC).
+ *  Track layout/lengths come from the template's spec; frames missing from the
+ *  sheet fall back to a stand frame. Shared by characters and NPCs. */
+function buildCharacterSprites(char: LoadedCharacterData): CharacterSprites {
+  const d = char.down;
+  const u = char.up;
+  const rt = char.right;
+  const lf = char.left; // explicit left-facing frames, or undefined → mirror right
+  const flip = flipSpriteHorizontal;
+  const L = (i: number): SpriteData => lf?.[i] ?? flip(rt[i]);
+
+  const spec = char.spec ?? DEFAULT_CHARACTER_SPEC;
+  const slots = trackSlots(spec);
+  const available = d.length;
+  const walk = slots.get('walk');
+  const standIdx = walk ? walk.start + Math.min(1, walk.count - 1) : 1;
+  const getD = (i: number): SpriteData => d[i];
+  const getU = (i: number): SpriteData => u[i];
+  const getR = (i: number): SpriteData => rt[i];
+
+  const byTrack: Record<string, Record<Direction, SpriteData[]>> = {};
+  for (const t of spec.tracks) {
+    const slot = slots.get(t.name);
+    byTrack[t.name] = {
+      [Dir.DOWN]: buildTrackSeq(slot, getD, available, standIdx),
+      [Dir.UP]: buildTrackSeq(slot, getU, available, standIdx),
+      [Dir.RIGHT]: buildTrackSeq(slot, getR, available, standIdx),
+      [Dir.LEFT]: buildTrackSeq(slot, L, available, standIdx),
+    };
+  }
+  return {
+    byTrack,
+    stand: {
+      [Dir.DOWN]: getD(standIdx),
+      [Dir.UP]: getU(standIdx),
+      [Dir.RIGHT]: getR(standIdx),
+      [Dir.LEFT]: L(standIdx),
+    },
+  };
+}
+
+function emptyCharacterSprites(w: number, h: number): CharacterSprites {
+  const e = emptySprite(w, h);
+  return { byTrack: {}, stand: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e } };
+}
+
 export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {
   const cacheKey = `${paletteIndex}:${hueShift}`;
   const cached = spriteCache.get(cacheKey);
   if (cached) return cached;
 
   let sprites: CharacterSprites;
-
-  if (loadedCharacters) {
-    // Use pre-colored character sprites directly (no palette swapping)
-    const char = loadedCharacters[paletteIndex % loadedCharacters.length];
-    const d = char.down;
-    const u = char.up;
-    const rt = char.right;
-    const lf = char.left; // explicit left-facing frames, or undefined → mirror right
-    const flip = flipSpriteHorizontal;
-    // Left frame at index i: use the explicit left art if provided, else mirror right.
-    const L = (i: number): SpriteData => lf?.[i] ?? flip(rt[i]);
-
-    // Track-driven frame layout from the character's spec (default → historical
-    // walk 0-2 / type 3-4 / read 5-6 / coffee 7+). Frame counts therefore vary
-    // per character; the server advances ch.frame with the matching length.
-    const spec = char.spec ?? DEFAULT_CHARACTER_SPEC;
-    const slots = trackSlots(spec);
-    const available = d.length;
-    const walk = slots.get('walk');
-    const standIdx = walk ? walk.start + Math.min(1, walk.count - 1) : 1;
-    const getD = (i: number): SpriteData => d[i];
-    const getU = (i: number): SpriteData => u[i];
-    const getR = (i: number): SpriteData => rt[i];
-
-    // Build a per-direction playback sequence for every track the spec declares.
-    const byTrack: Record<string, Record<Direction, SpriteData[]>> = {};
-    for (const t of spec.tracks) {
-      const slot = slots.get(t.name);
-      byTrack[t.name] = {
-        [Dir.DOWN]: buildTrackSeq(slot, getD, available, standIdx),
-        [Dir.UP]: buildTrackSeq(slot, getU, available, standIdx),
-        [Dir.RIGHT]: buildTrackSeq(slot, getR, available, standIdx),
-        [Dir.LEFT]: buildTrackSeq(slot, L, available, standIdx),
-      };
-    }
-    sprites = {
-      byTrack,
-      stand: {
-        [Dir.DOWN]: getD(standIdx),
-        [Dir.UP]: getU(standIdx),
-        [Dir.RIGHT]: getR(standIdx),
-        [Dir.LEFT]: L(standIdx),
-      },
-    };
+  if (loadedCharacters && loadedCharacters.length > 0) {
+    sprites = buildCharacterSprites(loadedCharacters[paletteIndex % loadedCharacters.length]);
+    if (hueShift !== 0) sprites = hueShiftSprites(sprites, hueShift);
   } else {
-    // Fallback: a single transparent placeholder stand frame (16×32).
-    const e = emptySprite(16, 32);
-    sprites = {
-      byTrack: {},
-      stand: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e },
-    };
-  }
-
-  // Apply hue shift if non-zero
-  if (hueShift !== 0) {
-    sprites = hueShiftSprites(sprites, hueShift);
+    sprites = emptyCharacterSprites(16, 32);
   }
 
   spriteCache.set(cacheKey, sprites);
   return sprites;
+}
+
+// ── NPC sprites (dogs/cats/ducks, via the unified character pipeline) ──
+const npcSpriteCache = new Map<string, CharacterSprites>();
+let loadedNpcs: Record<PetKindName, LoadedCharacterData[]> = { dog: [], cat: [], duck: [] };
+
+/** Resolve animated sprites for an NPC kind/variant through the same track-based
+ *  pipeline as agent characters. Fed from the loaded pet sheets (see
+ *  setPetTemplates), tagged with PET_SPRITE_SPEC (walk/sit/idle). */
+export function getNpcSprites(kind: PetKindName, variant: number): CharacterSprites {
+  const arr = loadedNpcs[kind];
+  if (!arr || arr.length === 0) return emptyCharacterSprites(16, 16);
+  const key = `${kind}:${variant}`;
+  const cached = npcSpriteCache.get(key);
+  if (cached) return cached;
+  const sprites = buildCharacterSprites(arr[variant % arr.length]);
+  npcSpriteCache.set(key, sprites);
+  return sprites;
+}
+
+/** Playback length of an NPC pose/track (for the server's frame advance). */
+export function getNpcPosePlaybackLength(kind: PetKindName, variant: number, pose: string): number {
+  const seq = getNpcSprites(kind, variant).byTrack[pose]?.[Dir.DOWN];
+  return Math.max(1, seq?.length ?? 1);
+}
+
+/** Frame size (w×h) of an NPC template (falls back to 16×16). */
+export function getNpcSize(kind: PetKindName, variant: number): { w: number; h: number } {
+  const arr = loadedNpcs[kind];
+  const f = arr?.[variant % (arr.length || 1)]?.down?.[0];
+  if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
+  return { w: 16, h: 16 };
 }
 
 /**

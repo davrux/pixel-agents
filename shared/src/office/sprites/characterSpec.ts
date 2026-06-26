@@ -50,6 +50,21 @@ export const DEFAULT_CHARACTER_SPEC: CharacterSpec = {
   ],
 };
 
+/** The bundled pet/NPC sheet layout (16×16, 3 direction rows × 6 frames):
+ *  walk 0-2 (ping-pong), sit 3-4, idle 5. `sleep` is optional and added in the
+ *  editor when art exists (the bundled sheets have none). */
+export const PET_SPRITE_SPEC: CharacterSpec = {
+  frame: { w: 16, h: 16 },
+  tracks: [
+    { name: 'walk', frames: 3, play: 'pingpong' },
+    { name: 'sit', frames: 2, play: 'loop' },
+    { name: 'idle', frames: 1, play: 'loop' },
+  ],
+};
+
+/** Track names the NPC editor offers (`sleep` optional, like coffee for agents). */
+export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep'] as const;
+
 /**
  * Validate/normalise an arbitrary (manifest or stored) value into a CharacterSpec,
  * filling in defaults and clamping to bounds. Never throws — bad input falls back
