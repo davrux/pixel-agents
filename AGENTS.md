@@ -12,6 +12,18 @@ the shared world. A rewrite of the original pixel-agents, swapping only the tech
 (backend → Colyseus, frontend → Phaser); all graphics/animations/fonts/office
 layout were carried over 1:1.
 
+**Direction (where this is heading).** Treat this as the seed of a small
+**MMO-style** world, not just a viewer. Expect it to grow toward: many
+concurrent participants, **player- and NPC-controlled characters** alongside the
+agent-driven ones, **character ↔ character / character ↔ NPC interaction**
+(collisions, proximity, social/gameplay actions), and richer entities/objects.
+Design new features so they survive that scale: keep the server the single
+authority over **positions, movement, collision, occupancy and interaction
+outcomes**; keep the client a renderer + input forwarder. When you add an entity
+or behaviour, ask "does this still work with N players and NPCs moving and
+interacting?" — favour authoritative server state + client interpolation over
+client-side truth. (We are not there yet; just don't paint us into a corner.)
+
 ## Tech stack (the basis for all extensions)
 
 - **Server: [Colyseus](https://colyseus.io/) 0.16** (`@colyseus/core`,
@@ -40,10 +52,20 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
 1. **Server-authoritative.** All simulation/decision logic (movement, seating,
    stations, FSM, pose) runs in `shared/office` **on the server's tick loop**
    (`SimRoom` → `OfficeState.update`). Every viewer sees one identical world.
-2. **The client never simulates.** It renders the synced `@pixel/shared/schema`
-   state and interpolates. Do not run the FSM or pick behaviour client-side. If
-   the client needs to know something (e.g. a character's pose), **sync it in the
-   schema** — don't recompute it from partial data.
+2. **The client never simulates; it may present.** It renders the synced
+   `@pixel/shared/schema` state and interpolates. Do not run the FSM, pick
+   behaviour, or resolve positions/collisions client-side. If the client needs a
+   *decision* (e.g. which pose a character is in), **sync it in the schema** —
+   don't recompute it from partial data. **Exception — purely cosmetic
+   presentation timing** may be advanced locally from synced state, because it
+   never affects simulation and would be wasteful to sync per tick: the
+   **animation frame phase** is timed client-side from the synced `pose`+`dir`
+   (see `POSE_FRAME_MS` / `getPosePlaybackLength`), and the Matrix sweep is
+   advanced locally between the server's ~20 Hz updates. The rule of thumb for
+   the MMO direction: **sync state/intent, not frames** — anything that two
+   viewers could legitimately see a frame apart is presentation, not state.
+   (If a frame ever drives gameplay — e.g. attack "active frames" — that timing
+   moves back to the authoritative server.)
 3. **Deterministic, grid-based.** Movement is tile-based A* on a grid
    (`layout/tileMap.ts`). No physics engine — it would break determinism and
    headless server execution.

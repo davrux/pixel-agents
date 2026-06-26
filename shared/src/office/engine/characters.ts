@@ -1,13 +1,10 @@
 import {
   COFFEE_COOLDOWN_MAX_SEC,
   COFFEE_COOLDOWN_MIN_SEC,
-  COFFEE_FRAME_DURATION_SEC,
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
   SEAT_REST_MAX_SEC,
   SEAT_REST_MIN_SEC,
-  TYPE_FRAME_DURATION_SEC,
-  WALK_FRAME_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
   WANDER_MOVES_BEFORE_REST_MAX,
   WANDER_MOVES_BEFORE_REST_MIN,
@@ -16,7 +13,7 @@ import {
 } from '../constants.js';
 import { findPath } from '../layout/tileMap.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
-import { getPosePlaybackLength, spriteForPose } from '../sprites/spriteData.js';
+import { spriteForPose } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
 import type {
   Character,
@@ -113,15 +110,11 @@ export function updateCharacter(
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
 ): void {
-  ch.frameTimer += dt;
+  // Animation frame phase is cosmetic and timed client-side (the server syncs
+  // pose/dir/state, not the frame index). The engine no longer advances frames.
 
   switch (ch.state) {
     case CharacterState.TYPE: {
-      if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
-        ch.frameTimer -= TYPE_FRAME_DURATION_SEC;
-        // typing vs reading track length (derived from the current tool)
-        ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, getCharacterPose(ch));
-      }
       // If no longer active, stand up and start wandering (after seatTimer expires)
       if (!ch.isActive) {
         if (ch.seatTimer > 0) {
@@ -150,12 +143,6 @@ export function updateCharacter(
           releaseStation(ch, stations);
         } else {
           ch.dir = station.facingDir;
-          // Animate the standing/coffee pose (renderer clamps to real frame
-          // count, so the idle-stand fallback stays still).
-          if (ch.frameTimer >= COFFEE_FRAME_DURATION_SEC) {
-            ch.frameTimer -= COFFEE_FRAME_DURATION_SEC;
-            ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, Pose.COFFEE);
-          }
           ch.stationTimer -= dt;
           if (ch.stationTimer <= 0) {
             releaseStation(ch, stations);
@@ -254,12 +241,6 @@ export function updateCharacter(
     }
 
     case CharacterState.WALK: {
-      // Walk animation (cycle length from the character's walk track)
-      if (ch.frameTimer >= WALK_FRAME_DURATION_SEC) {
-        ch.frameTimer -= WALK_FRAME_DURATION_SEC;
-        ch.frame = (ch.frame + 1) % getPosePlaybackLength(ch.palette, Pose.WALK);
-      }
-
       if (ch.path.length === 0) {
         // Path complete — snap to tile center and transition
         const center = tileCenter(ch.tileCol, ch.tileRow);

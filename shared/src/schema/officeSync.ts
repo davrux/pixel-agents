@@ -13,9 +13,10 @@ export class CharacterSync extends Schema {
   @type('uint8') dir = 0;
   /** 'idle' | 'walk' | 'type' (CharacterState). */
   @type('string') state = 'idle';
-  /** Animation pose (CharacterPose): idle|walk|typing|reading|coffee. */
+  /** Animation pose (CharacterPose): idle|walk|typing|reading|coffee. The
+   *  animation *frame phase* is cosmetic and timed client-side from this pose +
+   *  dir, so it is intentionally NOT synced (see AGENTS.md). */
   @type('string') pose = 'idle';
-  @type('uint8') frame = 0;
   @type('uint8') palette = 0;
   @type('number') hueShift = 0;
   @type('boolean') isActive = false;

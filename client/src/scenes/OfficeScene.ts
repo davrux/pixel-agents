@@ -16,6 +16,9 @@ import {
   TOKEN_DANGER_THRESHOLD,
   TOKEN_WARN_THRESHOLD,
   TOOL_OVERLAY_VERTICAL_OFFSET,
+  WALK_FRAME_DURATION_SEC,
+  TYPE_FRAME_DURATION_SEC,
+  COFFEE_FRAME_DURATION_SEC,
 } from '@pixel/shared/office/constants.js';
 import {
   CharacterState,
@@ -26,7 +29,8 @@ import {
   type Pet,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getCharacterSize, getCharacterTemplates, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, getPosePlaybackLength, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
+import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor } from '../editor/CharacterEditor.js';
@@ -38,8 +42,25 @@ import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, un
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
  *  plus interpolation targets (tx,ty). Cast to the engine types for the view. */
-type RenderChar = Partial<Character> & { id: number; tx: number; ty: number; activity: string };
+type RenderChar = Partial<Character> & {
+  id: number;
+  tx: number;
+  ty: number;
+  activity: string;
+  /** Client-side animation clock (frame phase is cosmetic, not synced). */
+  animTimer?: number;
+  animPose?: string;
+};
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+
+/** Per-pose animation frame duration (ms), mirroring the engine's constants.
+ *  Poses not listed (idle) are static. Drives the client-side animation clock. */
+const POSE_FRAME_MS: Record<string, number> = {
+  walk: WALK_FRAME_DURATION_SEC * 1000,
+  typing: TYPE_FRAME_DURATION_SEC * 1000,
+  reading: TYPE_FRAME_DURATION_SEC * 1000,
+  coffee: COFFEE_FRAME_DURATION_SEC * 1000,
+};
 
 /** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
  *  derived from the agent id so all viewers render an identical sweep. */
@@ -279,7 +300,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.dir = cs.dir as Character['dir'];
     rc.state = cs.state as Character['state'];
     rc.pose = cs.pose as Character['pose'];
-    rc.frame = cs.frame as number;
+    // rc.frame is not synced — the animation phase is timed locally (see update()).
     rc.palette = cs.palette as number;
     rc.hueShift = cs.hueShift as number;
     rc.isActive = cs.isActive as boolean;
@@ -540,6 +561,27 @@ export class OfficeScene extends Phaser.Scene {
       // Advance the Matrix effect locally for a smooth 60fps sweep; the server
       // only syncs ~20Hz and starts/ends the effect.
       if (ch.matrixEffect) ch.matrixEffectTimer = (ch.matrixEffectTimer ?? 0) + dt;
+      // Client-side animation clock: the server syncs pose/dir, the frame phase
+      // is cosmetic and timed here. Reset on pose change, then cycle at the
+      // pose's cadence over its (spec-derived) playback length.
+      const pose = (ch.pose ?? 'idle') as CharacterPose;
+      if (ch.animPose !== pose) {
+        ch.animPose = pose;
+        ch.frame = 0;
+        ch.animTimer = 0;
+      } else {
+        const durMs = POSE_FRAME_MS[pose] ?? 0;
+        if (durMs > 0) {
+          ch.animTimer = (ch.animTimer ?? 0) + delta;
+          if (ch.animTimer >= durMs) {
+            const len = getPosePlaybackLength(ch.palette ?? 0, pose);
+            while (ch.animTimer >= durMs) {
+              ch.animTimer -= durMs;
+              ch.frame = ((ch.frame ?? 0) + 1) % len;
+            }
+          }
+        }
+      }
     }
     for (const p of this.pets.values()) {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;

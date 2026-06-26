@@ -332,7 +332,7 @@ export class SimRoom extends Room<RoomState> {
       cs.dir = ch.dir;
       cs.state = ch.state;
       cs.pose = getCharacterPose(ch);
-      cs.frame = ch.frame & 0xff;
+      // cs.frame intentionally not synced — animation phase is client-timed.
       cs.palette = ch.palette;
       cs.hueShift = ch.hueShift;
       cs.isActive = ch.isActive;
