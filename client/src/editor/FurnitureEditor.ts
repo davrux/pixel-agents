@@ -18,6 +18,9 @@ export interface FurnitureEditorOpts {
   /** Revert/remove a furniture override. */
   reset: (name: string) => void;
   topbar?: HTMLElement;
+  /** Toolbar button clicked — let the scene coordinate mutually-exclusive menus.
+   *  Falls back to self-toggle when not provided. */
+  requestToggle?: () => void;
 }
 
 const TILE = 16;
@@ -74,16 +77,19 @@ export class FurnitureEditor {
     this.build();
   }
 
+  isOpen(): boolean {
+    return this.open;
+  }
   toggle(): void {
     this.open ? this.close() : this.show();
   }
-  private show(): void {
+  show(): void {
     this.open = true;
     this.panel.style.display = 'block';
     this.refreshList();
     this.loadFromPicker();
   }
-  private close(): void {
+  close(): void {
     this.open = false;
     this.panel.style.display = 'none';
   }
@@ -133,7 +139,7 @@ export class FurnitureEditor {
     btn.id = 'pa-furn-btn';
     btn.className = 'pa-ui';
     btn.textContent = '🪑 Furniture';
-    btn.onclick = () => this.toggle();
+    btn.onclick = () => (this.opts.requestToggle ? this.opts.requestToggle() : this.toggle());
 
     const catOpts = FURNITURE_CATEGORIES.map((c) => `<option value="${c.id}">${c.label}</option>`).join('');
     const panel = document.createElement('div');
