@@ -62,8 +62,8 @@ export const PET_SPRITE_SPEC: CharacterSpec = {
   ],
 };
 
-/** Track names the NPC editor offers (`sleep` optional, like coffee for agents). */
-export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep'] as const;
+/** Track names the NPC editor offers (`sleep`/`drink` optional, like coffee for agents). */
+export const NPC_TRACK_NAMES = ['walk', 'sit', 'idle', 'sleep', 'drink'] as const;
 
 // ── NPC spawn config ────────────────────────────────────────────
 /** Per-NPC spawn behaviour: whether it spawns at all, and (when it does) a

@@ -7,9 +7,11 @@
  */
 
 import {
+  PET_DRINK_FRAME_DURATION_SEC,
   PET_DRINK_MAX_SEC,
   PET_DRINK_MIN_SEC,
   PET_EFFECT_DURATION_SEC,
+  PET_IDLE_FRAME_DURATION_SEC,
   PET_LIFESPAN_SEC,
   PET_SIT_CHANCE,
   PET_SIT_MAX_SEC,
@@ -86,6 +88,10 @@ export interface PetUpdateContext {
    *  ('chase') or away from the nearest dog ('flee'). OfficeState supplies it
    *  (it knows every pet's position); null when no path applies. */
   navigateReaction?: (pet: Pet, action: NpcAction) => Array<{ col: number; row: number }> | null;
+  /** Playback length (frame count) of the pet's *current* pose track, used to
+   *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
+   *  Server resolves it from the pet's sheet; absent → a static single frame. */
+  posePlaybackLength?: (pet: Pet) => number;
 }
 
 function tileCenter(col: number, row: number): { x: number; y: number } {
@@ -103,6 +109,19 @@ function directionBetween(fromCol: number, fromRow: number, toCol: number, toRow
 
 function randomRange(min: number, max: number): number {
   return min + Math.random() * (max - min);
+}
+
+/**
+ * Advance the pet's animation frame for its current pose at `cadence` seconds
+ * per step, cycling within the pose track's real length (spec-driven via
+ * `ctx.posePlaybackLength`, so server and client agree). `fallbackLen` is used
+ * only when no resolver is supplied (standalone/tests).
+ */
+function advancePetFrame(pet: Pet, ctx: PetUpdateContext, cadence: number, fallbackLen: number): void {
+  if (pet.frameTimer < cadence) return;
+  pet.frameTimer -= cadence;
+  const len = ctx.posePlaybackLength?.(pet) ?? fallbackLen;
+  pet.frame = (pet.frame + 1) % Math.max(1, len);
 }
 
 export function createPet(
@@ -186,7 +205,9 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
 
   switch (pet.state) {
     case PetState.IDLE: {
-      pet.frame = 0;
+      // Idle animates only if the sheet has a multi-frame idle track; otherwise
+      // it stays on frame 0 (length 1 → modulo keeps it put).
+      advancePetFrame(pet, ctx, PET_IDLE_FRAME_DURATION_SEC, 1);
       pet.wanderTimer -= dt;
       if (pet.wanderTimer > 0) break;
 
@@ -251,10 +272,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     }
 
     case PetState.WANDER: {
-      if (pet.frameTimer >= PET_WALK_FRAME_DURATION_SEC) {
-        pet.frameTimer -= PET_WALK_FRAME_DURATION_SEC;
-        pet.frame = (pet.frame + 1) % 4;
-      }
+      advancePetFrame(pet, ctx, PET_WALK_FRAME_DURATION_SEC, 4);
 
       if (pet.path.length === 0) {
         const center = tileCenter(pet.tileCol, pet.tileRow);
@@ -303,10 +321,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     }
 
     case PetState.SIT: {
-      if (pet.frameTimer >= PET_TAIL_WAG_DURATION_SEC) {
-        pet.frameTimer -= PET_TAIL_WAG_DURATION_SEC;
-        pet.frame = (pet.frame + 1) % 2;
-      }
+      advancePetFrame(pet, ctx, PET_TAIL_WAG_DURATION_SEC, 2);
       pet.sitTimer -= dt;
       if (pet.sitTimer <= 0) {
         ctx.releaseClaim(pet);
@@ -320,15 +335,17 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
     }
 
     case PetState.DRINK: {
-      // Stand at the appliance (idle pose, no frame cycling) for the duration,
-      // reusing sitTimer as the stay timer, then release the station claim.
-      pet.frame = 0;
+      // Stand at the appliance for the duration, reusing sitTimer as the stay
+      // timer. Cycle the frame so an authored `drink` track animates; with no
+      // such track it falls back to idle (length 1 → effectively static).
+      advancePetFrame(pet, ctx, PET_DRINK_FRAME_DURATION_SEC, 1);
       pet.sitTimer -= dt;
       if (pet.sitTimer <= 0) {
         ctx.releaseClaim(pet);
         clearTarget(pet);
         pet.state = PetState.IDLE;
         pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.frame = 0;
         pet.frameTimer = 0;
       }
       break;
@@ -377,14 +394,17 @@ function startSitting(pet: Pet): void {
 }
 
 /** Map a pet's FSM state to an animation track name (the unified NPC pipeline
- *  resolves the frame via spriteForPose). wander→walk, sit→sit, else (incl.
- *  drink = standing at the coffee machine) idle. */
+ *  resolves the frame via spriteForPose). wander/chase/flee→walk, sit→sit,
+ *  drink→drink, else idle. Tracks that aren't drawn fall back to idle in
+ *  spriteForPose, so an NPC without a `drink` sheet just stands there. */
 export function petPose(pet: Pet): string {
   switch (pet.state) {
     case PetState.WANDER:
       return 'walk';
     case PetState.SIT:
       return 'sit';
+    case PetState.DRINK:
+      return 'drink';
     default:
       return 'idle';
   }

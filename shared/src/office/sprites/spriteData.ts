@@ -183,12 +183,14 @@ export function spriteForPose(
   frame: number,
   sprites: CharacterSprites,
 ): SpriteData {
-  // A pose uses its same-named track when present; otherwise the neutral stand
-  // frame. So an agent's `idle` (no idle track) stands still, while an NPC with
-  // a dedicated `idle` track animates it.
+  // A pose uses its same-named track when present. When the action has no
+  // dedicated sequence, fall back to the `idle` track (every entity's neutral
+  // animation); finally the bare stand frame if even idle is undrawn.
   const seq = sprites.byTrack[pose]?.[dir];
-  if (!seq || seq.length === 0) return sprites.stand[dir];
-  return seq[frame % seq.length];
+  if (seq && seq.length > 0) return seq[frame % seq.length];
+  const idle = pose !== 'idle' ? sprites.byTrack['idle']?.[dir] : undefined;
+  if (idle && idle.length > 0) return idle[frame % idle.length];
+  return sprites.stand[dir];
 }
 
 const spriteCache = new Map<string, CharacterSprites>();
@@ -347,9 +349,12 @@ export function getNpcSprites(kind: PetKindName, variant: number): CharacterSpri
   return sprites;
 }
 
-/** Playback length of an NPC pose/track (for the server's frame advance). */
+/** Playback length of an NPC pose/track (for the server's frame advance).
+ *  Mirrors spriteForPose's fallback so the server's modulo matches what the
+ *  client renders: action track → idle track → 1. */
 export function getNpcPosePlaybackLength(kind: PetKindName, variant: number, pose: string): number {
-  const seq = getNpcSprites(kind, variant).byTrack[pose]?.[Dir.DOWN];
+  const byTrack = getNpcSprites(kind, variant).byTrack;
+  const seq = byTrack[pose]?.[Dir.DOWN] ?? (pose !== 'idle' ? byTrack['idle']?.[Dir.DOWN] : undefined);
   return Math.max(1, seq?.length ?? 1);
 }
 
@@ -386,6 +391,7 @@ export function getNpcSize(kind: PetKindName, variant: number): { w: number; h: 
  */
 export function getPosePlaybackLength(paletteIndex: number, pose: CharacterPose | string): number {
   const s = getCharacterSprites(paletteIndex);
-  const seq = s.byTrack[pose]?.[Dir.DOWN];
-  return Math.max(1, seq?.length ?? 1); // poses without a track are static
+  // Mirror spriteForPose's fallback: action track, else the idle track, else 1.
+  const seq = s.byTrack[pose]?.[Dir.DOWN] ?? (pose !== 'idle' ? s.byTrack['idle']?.[Dir.DOWN] : undefined);
+  return Math.max(1, seq?.length ?? 1);
 }

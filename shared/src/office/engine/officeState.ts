@@ -29,7 +29,12 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
-import { getLoadedCharacterCount, getLoadedPetVariantCount, getNpcConfig } from '../sprites/spriteData.js';
+import {
+  getLoadedCharacterCount,
+  getLoadedPetVariantCount,
+  getNpcConfig,
+  getNpcPosePlaybackLength,
+} from '../sprites/spriteData.js';
 import type {
   Character,
   FurnitureInstance,
@@ -52,7 +57,7 @@ import {
 import { createCharacter, updateCharacter } from './characters.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
-import { beginPetDespawn, createPet, updatePet } from './pets.js';
+import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
 /** Furniture types that yield a standing interaction point (a place to walk to
  *  and stand at). Coffee machine for now; extend with FRIDGE, WATER_COOLER, … */
@@ -1119,6 +1124,10 @@ export class OfficeState {
         ? (pet: Pet) => this.npcDecide!(pet, this.computePetAffordances(pet))
         : undefined,
       navigateReaction: (pet: Pet, action: NpcAction) => this.navigatePetReaction(pet, action),
+      // Spec-driven frame advance: cycle within the current pose track's real
+      // length (resolved from the pet's sheet), so server and client agree and
+      // longer custom tracks aren't truncated by a hardcoded modulo.
+      posePlaybackLength: (pet: Pet) => getNpcPosePlaybackLength(pet.kind, pet.variant, petPose(pet)),
     };
 
     const toDelete: number[] = [];

@@ -77,19 +77,24 @@ export interface EditorCategory {
   derivedName?: boolean;
 }
 
-/** Agent animation tracks (walk/typing/reading + optional coffee). */
+/** Agent animation tracks (walk/typing/reading + optional coffee/idle). Idle is
+ *  the universal fallback pose: any action without its own sequence renders idle
+ *  (and idle itself falls back to the neutral stand frame when undrawn). */
 export const AGENT_TRACKS: TrackDef[] = [
   { name: 'walk', label: 'Walk', min: 1, play: 'pingpong', def: 3 },
   { name: 'typing', label: 'Typing', min: 1, play: 'loop', def: 2 },
   { name: 'reading', label: 'Reading', min: 1, play: 'loop', def: 2 },
   { name: 'coffee', label: 'Coffee', min: 0, play: 'loop', def: 2 },
+  { name: 'idle', label: 'Idle', min: 0, play: 'loop', def: 1 },
 ];
-/** NPC animation tracks (walk/sit/idle + optional sleep). */
+/** NPC animation tracks (walk/sit/idle + optional sleep/drink). Idle is the
+ *  universal fallback (see AGENT_TRACKS). */
 export const NPC_TRACKS: TrackDef[] = [
   { name: 'walk', label: 'Walk', min: 1, play: 'pingpong', def: 3 },
   { name: 'sit', label: 'Sit', min: 1, play: 'loop', def: 2 },
   { name: 'idle', label: 'Idle', min: 1, play: 'loop', def: 1 },
   { name: 'sleep', label: 'Sleep', min: 0, play: 'loop', def: 2 },
+  { name: 'drink', label: 'Drink', min: 0, play: 'loop', def: 2 },
 ];
 
 interface EditorTrackSlot {
