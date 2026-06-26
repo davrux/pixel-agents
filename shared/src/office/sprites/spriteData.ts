@@ -27,10 +27,15 @@ export const BUBBLE_WAITING_SPRITE: SpriteData = resolveBubbleSprite(bubbleWaiti
 // Loaded character sprites (from PNG assets)
 // ════════════════════════════════════════════════════════════════
 
-interface LoadedCharacterData {
+export interface LoadedCharacterData {
   down: SpriteData[];
   up: SpriteData[];
   right: SpriteData[];
+  /** Optional left-facing frames. When absent, left is mirrored from `right`
+   *  (the bundled defaults have no left row); the editor can override it. */
+  left?: SpriteData[];
+  /** Optional display name (editor metadata; the engine keys by palette index). */
+  name?: string;
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
@@ -40,6 +45,11 @@ export function setCharacterTemplates(data: LoadedCharacterData[]): void {
   loadedCharacters = data;
   // Clear cache so sprites are rebuilt from loaded data
   spriteCache.clear();
+}
+
+/** Raw per-character frame data (down/up/right), for the character editor. */
+export function getCharacterTemplates(): LoadedCharacterData[] | null {
+  return loadedCharacters;
 }
 
 /** Return the number of loaded character palettes, or PALETTE_COUNT as fallback. */
@@ -249,26 +259,29 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
     const d = char.down;
     const u = char.up;
     const rt = char.right;
+    const lf = char.left; // explicit left-facing frames, or undefined → mirror right
     const flip = flipSpriteHorizontal;
+    // Left frame at index i: use the explicit left art if provided, else mirror right.
+    const L = (i: number): SpriteData => lf?.[i] ?? flip(rt[i]);
 
     sprites = {
       walk: {
         [Dir.DOWN]: [d[0], d[1], d[2], d[1]],
         [Dir.UP]: [u[0], u[1], u[2], u[1]],
         [Dir.RIGHT]: [rt[0], rt[1], rt[2], rt[1]],
-        [Dir.LEFT]: [flip(rt[0]), flip(rt[1]), flip(rt[2]), flip(rt[1])],
+        [Dir.LEFT]: [L(0), L(1), L(2), L(1)],
       },
       typing: {
         [Dir.DOWN]: [d[3], d[4]],
         [Dir.UP]: [u[3], u[4]],
         [Dir.RIGHT]: [rt[3], rt[4]],
-        [Dir.LEFT]: [flip(rt[3]), flip(rt[4])],
+        [Dir.LEFT]: [L(3), L(4)],
       },
       reading: {
         [Dir.DOWN]: [d[5], d[6]],
         [Dir.UP]: [u[5], u[6]],
         [Dir.RIGHT]: [rt[5], rt[6]],
-        [Dir.LEFT]: [flip(rt[5]), flip(rt[6])],
+        [Dir.LEFT]: [L(5), L(6)],
       },
       // Dedicated standing/coffee frames (index 7+) when the art provides them;
       // otherwise the neutral standing pose (walk frame 1), i.e. stand still.
@@ -276,7 +289,8 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
         [Dir.DOWN]: d.length > 7 ? d.slice(7) : [d[1]],
         [Dir.UP]: u.length > 7 ? u.slice(7) : [u[1]],
         [Dir.RIGHT]: rt.length > 7 ? rt.slice(7) : [rt[1]],
-        [Dir.LEFT]: rt.length > 7 ? rt.slice(7).map(flip) : [flip(rt[1])],
+        [Dir.LEFT]:
+          lf && lf.length > 7 ? lf.slice(7) : rt.length > 7 ? rt.slice(7).map(flip) : [L(1)],
       },
     };
   } else {

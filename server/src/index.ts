@@ -54,9 +54,10 @@ async function main(): Promise<void> {
   }
 
   const httpServer = createServer(app);
-  // ws-transport defaults maxPayload to 4 KB — far too small for a saved layout
-  // (the bundled default is ~14 KB, and an expanded office with per-tile colours
-  // is larger), which made "Save layout" blow the socket. Allow up to 8 MB.
+  // ws-transport defaults maxPayload to 4 KB — far too small for saved layouts
+  // (an expanded office with per-tile colours) and asset-editor saves (a single
+  // character is ~100 KB of SpriteData). Editor ops are authenticated, so allow
+  // up to 8 MB.
   const gameServer = new Server({
     transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
   });

@@ -30,6 +30,11 @@ export function redirectToLogin(): void {
   window.location.href = `${serverHttpOrigin()}/`;
 }
 
+/** Log out: hit /logout (clears the session + cookie), which redirects to login. */
+export function gotoLogout(): void {
+  window.location.href = `${serverHttpOrigin()}/logout`;
+}
+
 export async function connect(): Promise<Room> {
   const client = new Client(endpoint());
   return client.joinOrCreate(WORLD_ROOM);

@@ -26,10 +26,12 @@ import {
   type Pet,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { getCharacterTemplates, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
+import { CharacterEditor } from '../editor/CharacterEditor.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, redirectToLogin } from '../net/room.js';
+import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -61,6 +63,7 @@ export class OfficeScene extends Phaser.Scene {
   private selectedId: number | null = null;
   private tip!: HTMLDivElement;
   private editor!: LayoutEditor;
+  private charEditor!: CharacterEditor;
   private topbar?: HTMLElement;
   private settingsBtn?: HTMLButtonElement;
   private layoutsBtn?: HTMLButtonElement;
@@ -70,6 +73,8 @@ export class OfficeScene extends Phaser.Scene {
   // the login identity and is remembered per browser.
   private viewerUsername = '';
   private nameOverridden = false;
+  /** Pinned character palette for this viewer, or null (server diversifies). */
+  private myPalette: number | null = null;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -102,8 +107,10 @@ export class OfficeScene extends Phaser.Scene {
       save: (layout) => this.saveEditedLayout(layout),
       onEditingChange: (editing) => this.setEditMode(editing),
     });
-    // A name chosen in Settings (remembered per browser) wins over the login id.
+    // A name/character chosen in Settings (remembered per browser).
     try {
+      const savedChar = localStorage.getItem('pa-viewer-char');
+      if (savedChar !== null && savedChar !== '') this.myPalette = Number(savedChar);
       const saved = localStorage.getItem('pa-viewer-name');
       if (saved) {
         this.viewerUsername = saved;
@@ -121,6 +128,13 @@ export class OfficeScene extends Phaser.Scene {
     this.createTooltip();
     this.createLayoutsPanel();
     this.createSettingsPanel();
+    this.charEditor = new CharacterEditor({
+      getTemplates: () => getCharacterTemplates(),
+      save: (name, data: LoadedCharacterData) =>
+        this.room?.send('saveAsset', { assetType: 'character', name, data }),
+      reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
+      topbar: this.topbar,
+    });
     this.setupInput();
     void this.open();
   }
@@ -150,7 +164,15 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
+          // Adopt the server-pinned skin only if the viewer hasn't picked one here.
+          if (this.myPalette === null && typeof m.characterPalette === 'number') {
+            this.myPalette = m.characterPalette;
+          }
+          // A non-empty auth username means login is active → offer logout.
+          const logout = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-logout');
+          if (logout) logout.style.display = (m.username as string) ? '' : 'none';
           this.syncSettingsInputs();
+          this.renderCharSwatches();
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else assetBridge(m);
@@ -597,6 +619,12 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings .row input[type=text]{flex:1;min-width:0;background:#14161c;color:#eef1f6;
         border:2px solid #3a4150;border-radius:0.3rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;}
       #pa-settings .hint{font-size:0.8rem;color:#8b93a3;margin:-0.25rem 0 0.65rem;}
+      #pa-char{display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0 0.65rem;}
+      #pa-char canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
+        border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;}
+      #pa-char canvas.sel{border-color:#3a6df0;}
+      #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
+        color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
     document.head.appendChild(style);
 
@@ -609,10 +637,18 @@ export class OfficeScene extends Phaser.Scene {
     panel.innerHTML = `<h4>Settings</h4>
       <div class="row"><label for="pa-name">Your name</label><input id="pa-name" type="text" maxlength="16" placeholder="(all agents)"></div>
       <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
+      <div class="row"><label>Your character</label></div>
+      <div id="pa-char"></div>
+      <div class="hint">Pick a skin to keep your agent's look consistent.</div>
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
-      <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>`;
-    btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'settings');
+      <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <button id="pa-logout">Log out</button>`;
+    btn.onclick = () => {
+      const opening = panel.style.display !== 'block';
+      this.setMenu(opening ? 'settings' : null);
+      if (opening) this.renderCharSwatches();
+    };
     const host = document.getElementById('game') ?? document.body;
     // Sit leftmost in the shared top-bar (created by the layouts panel).
     if (this.topbar) this.topbar.prepend(btn);
@@ -662,7 +698,51 @@ export class OfficeScene extends Phaser.Scene {
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
     };
+    const logoutBtn = panel.querySelector<HTMLButtonElement>('#pa-logout')!;
+    logoutBtn.style.display = 'none'; // shown only when a login session is active
+    logoutBtn.onclick = () => gotoLogout();
     this.syncSettingsInputs();
+  }
+
+  /** Render the character-skin swatches (front standing frame of each palette). */
+  private renderCharSwatches(): void {
+    const host = this.settingsPanel?.querySelector<HTMLDivElement>('#pa-char');
+    if (!host) return;
+    const tpl = getCharacterTemplates() ?? [];
+    host.innerHTML = '';
+    tpl.forEach((c, i) => {
+      const frame = c.down?.[1] ?? c.down?.[0];
+      const w = frame?.[0]?.length ?? 16;
+      const h = frame?.length ?? 32;
+      const cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      const ctx = cv.getContext('2d')!;
+      if (frame) {
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const px = frame[y]?.[x];
+            if (px) {
+              ctx.fillStyle = px;
+              ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      }
+      if (this.myPalette === i) cv.classList.add('sel');
+      cv.title = c.name ? `${c.name} (char_${i})` : `char_${i}`;
+      cv.onclick = () => {
+        this.myPalette = i;
+        try {
+          localStorage.setItem('pa-viewer-char', String(i));
+        } catch {
+          /* localStorage unavailable */
+        }
+        this.room?.send('setCharacter', { palette: i, name: this.viewerUsername });
+        this.renderCharSwatches();
+      };
+      host.appendChild(cv);
+    });
   }
 
   private syncSettingsInputs(): void {
