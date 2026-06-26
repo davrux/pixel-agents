@@ -89,6 +89,9 @@ export class OfficeState {
   pets: Map<number, Pet> = new Map();
   /** Non-chair furniture uids currently claimed by a pet. */
   private petFurnitureClaims: Set<string> = new Set();
+  /** Appliance-station uids currently claimed by a pet (mutually exclusive with
+   *  an agent's `occupantId` claim on the same station). */
+  private petStationClaims: Set<string> = new Set();
   /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
   private nextPetId = 1_000_000;
@@ -113,6 +116,7 @@ export class OfficeState {
     // Drop them outright; they respawn naturally from the spawn loop.
     this.pets.clear();
     this.petFurnitureClaims.clear();
+    this.petStationClaims.clear();
 
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
@@ -285,10 +289,18 @@ export class OfficeState {
   private findFreeStation(): string | null {
     const free: string[] = [];
     for (const [uid, s] of this.stations) {
-      if (s.occupantId === null) free.push(uid);
+      if (s.occupantId === null && !this.petStationClaims.has(uid)) free.push(uid);
     }
     if (free.length === 0) return null;
     return free[Math.floor(Math.random() * free.length)];
+  }
+
+  /** Any appliance station free for a pet to claim (cheap existence check). */
+  private hasFreeStation(): boolean {
+    for (const [uid, s] of this.stations) {
+      if (s.occupantId === null && !this.petStationClaims.has(uid)) return true;
+    }
+    return false;
   }
 
   /** Occasionally send an idle, inactive agent to stand at a free appliance. */
@@ -1012,6 +1024,8 @@ export class OfficeState {
       // Shoo-cat: a dog chases a nearby cat; a cat flees a nearby dog.
       canChase: b.chaseCats && pet.kind === PetKindEnum.DOG && this.nearestLivingPetOfKind(pet, PetKindEnum.CAT) !== null,
       threatened: b.fleeDogs && pet.kind === PetKindEnum.CAT && this.nearestLivingPetOfKind(pet, PetKindEnum.DOG) !== null,
+      // Coffee: any kind may visit a free appliance station.
+      canDrink: b.drink && this.hasFreeStation(),
     };
   }
 
@@ -1097,7 +1111,7 @@ export class OfficeState {
       walkableTiles: this.walkableTiles,
       tileMap: this.tileMap,
       blockedTiles: this.blockedTiles,
-      findTarget: (pet: Pet) => this.findFreePetTarget(pet),
+      findTarget: (pet: Pet, action: NpcAction) => this.findFreePetTarget(pet, action),
       releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
       // Wrap the injected brain so it receives a fresh affordance snapshot; left
       // undefined when no brain is set so the actuator uses its sit-chance roll.
@@ -1181,7 +1195,7 @@ export class OfficeState {
 
   // ── Pet furniture interaction ─────────────────────────────
 
-  /** Release a pet's seat/furniture claim. */
+  /** Release a pet's seat/furniture/station claim. */
   private releasePetClaim(pet: Pet): void {
     if (pet.targetSeatId) {
       const seat = this.seats.get(pet.targetSeatId);
@@ -1189,6 +1203,9 @@ export class OfficeState {
     }
     if (pet.targetFurnitureUid) {
       this.petFurnitureClaims.delete(pet.targetFurnitureUid);
+    }
+    if (pet.targetStationId) {
+      this.petStationClaims.delete(pet.targetStationId);
     }
   }
 
@@ -1250,16 +1267,39 @@ export class OfficeState {
   }
 
   /**
-   * Find + claim a free interaction target reachable from the pet:
-   *  - dogs & cats: any free chair seat
-   *  - cats also: a tile adjacent to a free desk/table
+   * Find + claim a free interaction target reachable from the pet for `action`:
+   *  - 'sit'  → any free chair seat (dogs & cats) or, for cats, a tile adjacent
+   *             to a free desk/table
+   *  - 'drink' → a free appliance station (coffee), any kind
    * Returns the claimed target (with a path), or null.
    */
-  private findFreePetTarget(pet: Pet): PetTarget | null {
+  private findFreePetTarget(pet: Pet, action: NpcAction): PetTarget | null {
     const candidates: PetTarget[] = [];
+
+    // Appliance stations (coffee) — stand on the station tile.
+    if (action === 'drink') {
+      for (const [uid, s] of this.stations) {
+        if (s.occupantId !== null || this.petStationClaims.has(uid)) continue;
+        const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles);
+        const reachable = path.length > 0 || (pet.tileCol === s.col && pet.tileRow === s.row);
+        if (!reachable) continue;
+        candidates.push({
+          kind: 'station',
+          action: 'drink',
+          seatId: null,
+          furnitureUid: null,
+          stationId: uid,
+          sitCol: s.col,
+          sitRow: s.row,
+          facing: s.facingDir,
+          path,
+        });
+      }
+    }
 
     // Chairs (reuse seats) — temporarily unblock the seat tile to path onto it
     for (const [uid, seat] of this.seats) {
+      if (action !== 'sit') break;
       if (seat.assigned) continue;
       const key = `${seat.seatCol},${seat.seatRow}`;
       const had = this.blockedTiles.has(key);
@@ -1280,6 +1320,7 @@ export class OfficeState {
         action: 'sit',
         seatId: uid,
         furnitureUid: null,
+        stationId: null,
         sitCol: seat.seatCol,
         sitRow: seat.seatRow,
         facing: seat.facingDir,
@@ -1288,7 +1329,7 @@ export class OfficeState {
     }
 
     // Desks/tables (cats only) — sit on an adjacent walkable tile
-    if (pet.kind === PetKindEnum.CAT) {
+    if (action === 'sit' && pet.kind === PetKindEnum.CAT) {
       for (const item of this.layout.furniture) {
         const entry = getCatalogEntry(item.type);
         if (!entry || entry.category !== 'desks') continue;
@@ -1314,6 +1355,7 @@ export class OfficeState {
           action: 'sit',
           seatId: null,
           furnitureUid: item.uid,
+          stationId: null,
           sitCol: adj.col,
           sitRow: adj.row,
           facing,
@@ -1328,6 +1370,8 @@ export class OfficeState {
     if (chosen.kind === 'seat' && chosen.seatId) {
       const seat = this.seats.get(chosen.seatId);
       if (seat) seat.assigned = true;
+    } else if (chosen.kind === 'station' && chosen.stationId) {
+      this.petStationClaims.add(chosen.stationId);
     } else if (chosen.furnitureUid) {
       this.petFurnitureClaims.add(chosen.furnitureUid);
     }

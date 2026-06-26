@@ -3,7 +3,7 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 import type { AgentEvent } from '@pixel/shared';
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
-import { PET_SIT_CHANCE } from '@pixel/shared/office/constants.js';
+import { PET_DRINK_CHANCE, PET_SIT_CHANCE } from '@pixel/shared/office/constants.js';
 import { PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
@@ -77,9 +77,11 @@ export class SimRoom extends Room<RoomState> {
     this.os.setNpcDecider((_pet, aff) =>
       this.npcBrain.decide({
         wantsToRest: Math.random() < PET_SIT_CHANCE,
+        wantsCoffee: Math.random() < PET_DRINK_CHANCE,
         canRest: aff.canRest,
         canChase: aff.canChase,
         threatened: aff.threatened,
+        canDrink: aff.canDrink,
       }),
     );
     // Restore per-user pinned character palettes (so a user's skin stays stable).
@@ -331,7 +333,7 @@ export class SimRoom extends Room<RoomState> {
     if (o.behaviors !== undefined) {
       if (typeof o.behaviors !== 'object' || o.behaviors === null) return false;
       const b = o.behaviors as Record<string, unknown>;
-      for (const k of ['rest', 'chaseCats', 'fleeDogs']) {
+      for (const k of ['rest', 'chaseCats', 'fleeDogs', 'drink']) {
         if (b[k] !== undefined && typeof b[k] !== 'boolean') return false;
       }
     }

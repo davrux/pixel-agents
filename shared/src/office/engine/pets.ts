@@ -7,6 +7,8 @@
  */
 
 import {
+  PET_DRINK_MAX_SEC,
+  PET_DRINK_MIN_SEC,
   PET_EFFECT_DURATION_SEC,
   PET_LIFESPAN_SEC,
   PET_SIT_CHANCE,
@@ -29,11 +31,11 @@ import { Direction, PetState, TILE_SIZE } from '../types.js';
  * defining its own. Extensible — N3.3 adds `drink` (coffee), `talk` (agent),
  * and `chase`/`flee` (shoo-cat) as new affordance-driven actions.
  */
-export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee';
+export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink';
 
-/** Kinds of interactable the world affords an NPC. Today: claimable seats and
- *  adjacent-to furniture (cat on a desk). Coffee/agent join here later. */
-export type AffordanceKind = 'seat' | 'furniture';
+/** Kinds of interactable the world affords an NPC: claimable seats, adjacent-to
+ *  furniture (cat on a desk), and appliance stations (coffee). Agent joins later. */
+export type AffordanceKind = 'seat' | 'furniture' | 'station';
 
 /**
  * What's available in the world for an NPC to interact with right now — a cheap
@@ -48,15 +50,19 @@ export interface NpcAffordances {
   canChase: boolean;
   /** A dog is within shoo range — flee it (cats only). */
   threatened: boolean;
+  /** A free appliance station (coffee) exists to go drink at. */
+  canDrink: boolean;
 }
 
 /** A reachable, already-claimed interaction target (computed by OfficeState). */
 export interface PetTarget {
   kind: AffordanceKind;
-  /** What the pet does once it arrives at the target (seat/desk → 'sit'). */
+  /** What the pet does once it arrives (seat/desk → 'sit', station → 'drink'). */
   action: NpcAction;
   seatId: string | null;
   furnitureUid: string | null;
+  /** Claimed appliance station uid (for 'station' targets), else null. */
+  stationId: string | null;
   sitCol: number;
   sitRow: number;
   facing: Direction;
@@ -68,8 +74,9 @@ export interface PetUpdateContext {
   walkableTiles: Array<{ col: number; row: number }>;
   tileMap: TileTypeVal[][];
   blockedTiles: Set<string>;
-  /** Find + claim a free interaction target reachable from the pet, or null. */
-  findTarget: (pet: Pet) => PetTarget | null;
+  /** Find + claim a free interaction target reachable from the pet for the given
+   *  action ('sit' → seat/desk, 'drink' → appliance station), or null. */
+  findTarget: (pet: Pet, action: NpcAction) => PetTarget | null;
   /** Release the pet's current seat/furniture claim (no-op if none). */
   releaseClaim: (pet: Pet) => void;
   /** Decide the next idle activity for a pet (injected by the server's NPC brain;
@@ -123,6 +130,7 @@ export function createPet(
     targetKind: null,
     targetAction: null,
     targetSeatId: null,
+    targetStationId: null,
     targetFurnitureUid: null,
     sitTileCol: 0,
     sitTileRow: 0,
@@ -147,6 +155,7 @@ function clearTarget(pet: Pet): void {
   pet.targetKind = null;
   pet.targetAction = null;
   pet.targetSeatId = null;
+  pet.targetStationId = null;
   pet.targetFurnitureUid = null;
 }
 
@@ -185,12 +194,15 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       // NPC brain decides when injected; otherwise fall back to the sit-chance
       // roll (keeps the engine self-contained for tests/standalone).
       const action = ctx.decideAction ? ctx.decideAction(pet) : Math.random() < PET_SIT_CHANCE ? 'sit' : 'wander';
-      if (action === 'sit') {
-        const target = ctx.findTarget(pet);
+      if (action === 'sit' || action === 'drink') {
+        // Claim-based interactions: walk to a free seat/desk ('sit') or appliance
+        // station ('drink'), then run the action on arrival.
+        const target = ctx.findTarget(pet, action);
         if (target) {
           pet.targetKind = target.kind;
           pet.targetAction = target.action;
           pet.targetSeatId = target.seatId;
+          pet.targetStationId = target.stationId;
           pet.targetFurnitureUid = target.furnitureUid;
           pet.sitTileCol = target.sitCol;
           pet.sitTileRow = target.sitRow;
@@ -306,18 +318,49 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       }
       break;
     }
+
+    case PetState.DRINK: {
+      // Stand at the appliance (idle pose, no frame cycling) for the duration,
+      // reusing sitTimer as the stay timer, then release the station claim.
+      pet.frame = 0;
+      pet.sitTimer -= dt;
+      if (pet.sitTimer <= 0) {
+        ctx.releaseClaim(pet);
+        clearTarget(pet);
+        pet.state = PetState.IDLE;
+        pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+        pet.frameTimer = 0;
+      }
+      break;
+    }
   }
 }
 
-/** Dispatch the action a pet performs on reaching its claimed target. Today all
- *  targets are 'sit'; drink/talk/etc. slot in here as they're added. */
+/** Dispatch the action a pet performs on reaching its claimed target. */
 function beginTargetAction(pet: Pet): void {
   switch (pet.targetAction) {
+    case 'drink':
+      startDrinking(pet);
+      break;
     case 'sit':
     default:
       startSitting(pet);
       break;
   }
+}
+
+/** Stand at a claimed appliance station for a while (coffee). Idle pose. */
+function startDrinking(pet: Pet): void {
+  const center = tileCenter(pet.sitTileCol, pet.sitTileRow);
+  pet.tileCol = pet.sitTileCol;
+  pet.tileRow = pet.sitTileRow;
+  pet.x = center.x;
+  pet.y = center.y;
+  pet.dir = pet.sitFacingDir;
+  pet.state = PetState.DRINK;
+  pet.sitTimer = randomRange(PET_DRINK_MIN_SEC, PET_DRINK_MAX_SEC);
+  pet.frame = 0;
+  pet.frameTimer = 0;
 }
 
 function startSitting(pet: Pet): void {
@@ -334,7 +377,8 @@ function startSitting(pet: Pet): void {
 }
 
 /** Map a pet's FSM state to an animation track name (the unified NPC pipeline
- *  resolves the frame via spriteForPose). wander→walk, sit→sit, else idle. */
+ *  resolves the frame via spriteForPose). wander→walk, sit→sit, else (incl.
+ *  drink = standing at the coffee machine) idle. */
 export function petPose(pet: Pet): string {
   switch (pet.state) {
     case PetState.WANDER:

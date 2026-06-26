@@ -53,6 +53,11 @@ export const PET_SIT_CHANCE = 0.4; // chance a wander decision targets furniture
 // bolts so it doesn't sprint across the whole office.
 export const PET_SHOO_RADIUS_TILES = 5;
 export const PET_FLEE_RANGE_TILES = 7;
+// Coffee (N3.3c): chance an idle pet heads to a free appliance station, and how
+// long it stands there once arrived.
+export const PET_DRINK_CHANCE = 0.15;
+export const PET_DRINK_MIN_SEC = 4;
+export const PET_DRINK_MAX_SEC = 10;
 export const PET_EFFECT_DURATION_SEC = 0.3;
 export const PET_Z_SORT_OFFSET = 0.5;
 

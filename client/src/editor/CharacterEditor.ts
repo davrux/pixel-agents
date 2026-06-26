@@ -383,6 +383,7 @@ export class CharacterEditor {
         <div class="row" id="pa-c-npcbehav" style="display:none">
           <span class="sizelabel">Behavior</span>
           <label class="sizelabel" id="pa-c-brest-l"><input id="pa-c-brest" type="checkbox"> Rest</label>
+          <label class="sizelabel" id="pa-c-bdrink-l"><input id="pa-c-bdrink" type="checkbox"> Coffee</label>
           <label class="sizelabel" id="pa-c-bchase-l"><input id="pa-c-bchase" type="checkbox"> Chase cats</label>
           <label class="sizelabel" id="pa-c-bflee-l"><input id="pa-c-bflee" type="checkbox"> Flee dogs</label></div>
         <div class="row" id="pa-c-dirs"></div>
@@ -506,6 +507,7 @@ export class CharacterEditor {
     // (renderConfigRow syncs them); only their labels are hidden per kind, so
     // reading them back here preserves the inert (kind-irrelevant) flags.
     const bRest = panel.querySelector<HTMLInputElement>('#pa-c-brest')!;
+    const bDrink = panel.querySelector<HTMLInputElement>('#pa-c-bdrink')!;
     const bChase = panel.querySelector<HTMLInputElement>('#pa-c-bchase')!;
     const bFlee = panel.querySelector<HTMLInputElement>('#pa-c-bflee')!;
     const onConfig = (): void => {
@@ -522,12 +524,17 @@ export class CharacterEditor {
         minSec: min,
         maxSec: max,
         maxConcurrent: clamp(spConc.value, 1, 8, this.work.npc.maxConcurrent),
-        behaviors: { rest: bRest.checked, chaseCats: bChase.checked, fleeDogs: bFlee.checked },
+        behaviors: {
+          rest: bRest.checked,
+          chaseCats: bChase.checked,
+          fleeDogs: bFlee.checked,
+          drink: bDrink.checked,
+        },
       };
       this.dirty = true;
     };
     activeEl.onchange = onConfig;
-    for (const el of [spMin, spMax, spConc, bRest, bChase, bFlee]) el.onchange = onConfig;
+    for (const el of [spMin, spMax, spConc, bRest, bDrink, bChase, bFlee]) el.onchange = onConfig;
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -731,6 +738,7 @@ export class CharacterEditor {
     set('#pa-c-spconc', String(cfg.maxConcurrent));
     // All checkboxes carry the live value; only kind-relevant labels are shown.
     set('#pa-c-brest', cfg.behaviors.rest);
+    set('#pa-c-bdrink', cfg.behaviors.drink);
     set('#pa-c-bchase', cfg.behaviors.chaseCats);
     set('#pa-c-bflee', cfg.behaviors.fleeDogs);
     const kind = this.npcKind();

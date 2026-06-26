@@ -90,9 +90,11 @@ export interface NpcBehaviors {
   chaseCats: boolean;
   /** Cats: flee a nearby dog (shoo-cat). */
   fleeDogs: boolean;
+  /** May visit a free appliance station (coffee) and stand there a while. */
+  drink: boolean;
 }
 
-export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = { rest: true, chaseCats: true, fleeDogs: true };
+export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = { rest: true, chaseCats: true, fleeDogs: true, drink: true };
 
 export const DEFAULT_NPC_CONFIG: NpcConfig = {
   active: true,
@@ -128,6 +130,7 @@ export function resolveNpcConfig(input: unknown): NpcConfig {
       rest: bool(b.rest, true),
       chaseCats: bool(b.chaseCats, true),
       fleeDogs: bool(b.fleeDogs, true),
+      drink: bool(b.drink, true),
     },
   };
 }
