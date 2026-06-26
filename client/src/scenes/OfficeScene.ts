@@ -191,6 +191,7 @@ export class OfficeScene extends Phaser.Scene {
           tracks: NPC_TRACKS,
           blankFrames: 6,
           canCreate: false,
+          spawnConfig: true,
         },
       ],
       topbar: this.topbar,

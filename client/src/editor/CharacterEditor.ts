@@ -1,8 +1,10 @@
 import {
+  DEFAULT_NPC_CONFIG,
   specFrameCount,
   type CharacterSpec,
   type CharacterTrack,
   type LoadedCharacterData,
+  type NpcConfig,
   type TrackPlay,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
@@ -67,6 +69,8 @@ export interface EditorCategory {
   blankFrames: number;
   /** Whether the user may create new entities (New / Copy). */
   canCreate: boolean;
+  /** Whether entities carry an NPC spawn config (shows the config row). */
+  spawnConfig?: boolean;
 }
 
 /** Agent animation tracks (walk/typing/reading + optional coffee). */
@@ -152,6 +156,7 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
   if (c.left) out.left = c.left.map(cloneFrame);
   if (c.name) out.name = c.name;
   if (c.spec) out.spec = { frame: { ...c.spec.frame }, tracks: c.spec.tracks.map((t) => ({ ...t })) };
+  if (c.npc) out.npc = { ...c.npc };
   return out;
 }
 
@@ -365,6 +370,12 @@ export class CharacterEditor {
           <input id="pa-c-w" type="number" min="1" max="64"><span class="sizelabel">×</span>
           <input id="pa-c-h" type="number" min="1" max="64">
           <span class="sizelabel" style="font-size:0.8rem">px · max 64×64</span></div>
+        <div class="row" id="pa-c-npccfg" style="display:none">
+          <label class="sizelabel"><input id="pa-c-active" type="checkbox"> Active</label>
+          <span class="sizelabel">every</span>
+          <input id="pa-c-spmin" type="number" min="5" max="3600"><span class="sizelabel">–</span>
+          <input id="pa-c-spmax" type="number" min="5" max="3600"><span class="sizelabel">s · max</span>
+          <input id="pa-c-spconc" type="number" min="1" max="8"></div>
         <div class="row" id="pa-c-dirs"></div>
         <div class="row">
           <div class="prevbox"><canvas id="pa-c-preview" width="16" height="32"></canvas></div>
@@ -477,6 +488,30 @@ export class CharacterEditor {
     };
     wEl.onchange = onSize;
     hEl.onchange = onSize;
+    // NPC spawn config inputs (active / interval / max concurrent).
+    const activeEl = panel.querySelector<HTMLInputElement>('#pa-c-active')!;
+    const spMin = panel.querySelector<HTMLInputElement>('#pa-c-spmin')!;
+    const spMax = panel.querySelector<HTMLInputElement>('#pa-c-spmax')!;
+    const spConc = panel.querySelector<HTMLInputElement>('#pa-c-spconc')!;
+    const onConfig = (): void => {
+      if (!this.work.npc) return;
+      const clamp = (v: string, lo: number, hi: number, d: number): number => {
+        const n = Math.round(Number(v));
+        return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d;
+      };
+      let min = clamp(spMin.value, 5, 3600, this.work.npc.minSec);
+      let max = clamp(spMax.value, 5, 3600, this.work.npc.maxSec);
+      if (min > max) [min, max] = [max, min];
+      this.work.npc = {
+        active: activeEl.checked,
+        minSec: min,
+        maxSec: max,
+        maxConcurrent: clamp(spConc.value, 1, 8, this.work.npc.maxConcurrent),
+      };
+      this.dirty = true;
+    };
+    activeEl.onchange = onConfig;
+    for (const el of [spMin, spMax, spConc]) el.onchange = onConfig;
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -638,11 +673,33 @@ export class CharacterEditor {
       this.W = f0[0]?.length ?? 16;
     }
     this.ensureSpec(); // normalise work.spec against the frame arrays
+    // NPC categories carry a spawn config; others must not.
+    if (this.cat().spawnConfig) this.work.npc = { ...DEFAULT_NPC_CONFIG, ...this.work.npc };
+    else this.work.npc = undefined;
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
     this.syncSizeInputs();
     this.dirty = false;
     if (this.view === 'edit') this.render();
+  }
+
+  /** Show + populate the NPC spawn-config row (hidden for agent categories). */
+  private renderConfigRow(): void {
+    const row = this.panel.querySelector<HTMLDivElement>('#pa-c-npccfg');
+    if (!row) return;
+    const cfg = this.work.npc;
+    row.style.display = cfg ? 'flex' : 'none';
+    if (!cfg) return;
+    const set = (id: string, v: string | boolean): void => {
+      const el = this.panel.querySelector<HTMLInputElement>(id);
+      if (!el) return;
+      if (typeof v === 'boolean') el.checked = v;
+      else el.value = v;
+    };
+    set('#pa-c-active', cfg.active);
+    set('#pa-c-spmin', String(cfg.minSec));
+    set('#pa-c-spmax', String(cfg.maxSec));
+    set('#pa-c-spconc', String(cfg.maxConcurrent));
   }
 
   private syncSizeInputs(): void {
@@ -977,6 +1034,7 @@ export class CharacterEditor {
     const hasName = !!this.work.name?.trim();
     saveBtn.disabled = !hasName;
     saveBtn.title = hasName ? '' : 'Enter a name first';
+    this.renderConfigRow();
     this.renderPoseOptions();
     this.renderStrip();
     this.renderPaint();
