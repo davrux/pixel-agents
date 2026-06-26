@@ -8,13 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import {
-  CAT_COUNT,
-  CHAR_COUNT,
-  CHAR_FRAMES_PER_ROW,
-  DOG_COUNT,
-  WALL_BITMASK_COUNT,
-} from './core/assets/constants.js';
+import { CAT_COUNT, DOG_COUNT, WALL_BITMASK_COUNT } from './core/assets/constants.js';
 import type {
   FurnitureAsset,
   FurnitureManifest,
@@ -375,22 +369,26 @@ export async function loadCharacterSprites(
 ): Promise<LoadedCharacterSprites | null> {
   try {
     const charDir = path.join(assetsRoot, 'assets', 'characters');
+    // Scan all char_<n>.png (contiguous from 0), so the default roster is just
+    // a matter of dropping in more files — no fixed count.
+    const found: number[] = [];
+    const entries = fs.existsSync(charDir) ? fs.readdirSync(charDir) : [];
+    for (const e of entries) {
+      const m = /^char_(\d+)\.png$/i.exec(e);
+      if (m) found.push(parseInt(m[1], 10));
+    }
+    found.sort((a, b) => a - b);
     const characters: CharacterDirectionSprites[] = [];
-
-    for (let ci = 0; ci < CHAR_COUNT; ci++) {
-      const filePath = path.join(charDir, `char_${ci}.png`);
-      if (!fs.existsSync(filePath)) {
-        console.log(`[AssetLoader] No character sprite found at: ${filePath}`);
-        return null;
-      }
-
-      const pngBuffer = fs.readFileSync(filePath);
-      characters.push(decodeCharacterPng(pngBuffer));
+    for (const ci of found) {
+      if (ci !== characters.length) break; // stop at the first gap (keep indices stable)
+      characters.push(decodeCharacterPng(fs.readFileSync(path.join(charDir, `char_${ci}.png`))));
+    }
+    if (characters.length === 0) {
+      console.log(`[AssetLoader] No char_N.png files found in ${charDir}`);
+      return null;
     }
 
-    console.log(
-      `[AssetLoader] ✅ Loaded ${characters.length} character sprites (${CHAR_FRAMES_PER_ROW} frames × 3 directions each)`,
-    );
+    console.log(`[AssetLoader] ✅ Loaded ${characters.length} character sprites (3 directions each)`);
     return { characters };
   } catch (err) {
     console.error(

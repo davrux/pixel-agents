@@ -68,6 +68,8 @@ export class OfficeScene extends Phaser.Scene {
   private furnEditor!: FurnitureEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
+  /** Number of bundled (file) characters — indices >= it are user-added. */
+  private charDefaultCount = 0;
   private topbar?: HTMLElement;
   private settingsBtn?: HTMLButtonElement;
   private layoutsBtn?: HTMLButtonElement;
@@ -137,6 +139,7 @@ export class OfficeScene extends Phaser.Scene {
       save: (name, data: LoadedCharacterData) =>
         this.room?.send('saveAsset', { assetType: 'character', name, data }),
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
+      getDefaultCount: () => this.charDefaultCount,
       topbar: this.topbar,
     });
     this.furnEditor = new FurnitureEditor({
@@ -186,9 +189,12 @@ export class OfficeScene extends Phaser.Scene {
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else {
-          // Keep the raw furniture catalog (group fields) for the furniture editor.
+          // Keep raw asset metadata the editors need (group fields, default count).
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
+          }
+          if (m.type === 'characterSpritesLoaded' && typeof m.defaultCount === 'number') {
+            this.charDefaultCount = m.defaultCount;
           }
           assetBridge(m);
         }

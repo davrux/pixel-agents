@@ -1,3 +1,4 @@
+import { COFFEE_FRAME_COUNT } from '@pixel/shared/office/constants.js';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -8,8 +9,10 @@ export interface CharacterEditorOpts {
   getTemplates: () => LoadedCharacterData[] | null;
   /** Persist an edited/new character (name `char_<i>`). */
   save: (name: string, data: LoadedCharacterData) => void;
-  /** Revert a character to its bundled default. */
+  /** Revert/remove a character override. */
   reset: (name: string) => void;
+  /** Count of bundled (file) characters; indices >= it are user-added (deletable). */
+  getDefaultCount: () => number;
   /** Shared top-bar to host the button in (matches Edit/Layouts/Settings). */
   topbar?: HTMLElement;
 }
@@ -25,12 +28,40 @@ function sanitizeName(raw: string): string {
 const CELL = 13; // on-screen pixels per sprite pixel
 const DIRS: Dir[] = ['down', 'up', 'right', 'left'];
 const DIR_LABEL: Record<Dir, string> = { down: 'Front', up: 'Back', right: 'Right', left: 'Left' };
-/** Frame index → label (walk 0-2, typing 3-4, reading 5-6, coffee 7+). */
+/** The 7 base frames (always present, may be empty): walk 0-2, type 3-4, read 5-6. */
+const BASE_FRAMES = 7;
+/** Defined optional frame-sets (index 7+). A set is added/removed as a whole;
+ *  the renderer falls back to the idle pose when a set is absent. Add more here
+ *  as new poses are defined. */
+const EXT_FRAMESETS: Array<{ name: string; count: number }> = [
+  { name: 'coffee', count: COFFEE_FRAME_COUNT },
+];
+const MAX_FRAMES = BASE_FRAMES + EXT_FRAMESETS.reduce((s, f) => s + f.count, 0);
+
+/** How many extended frame-sets a frame array of the given length contains. */
+function presentFramesets(len: number): number {
+  let rest = len - BASE_FRAMES;
+  let n = 0;
+  for (const fs of EXT_FRAMESETS) {
+    if (rest >= fs.count) {
+      n++;
+      rest -= fs.count;
+    } else break;
+  }
+  return n;
+}
+
+/** Frame index → label (walk 0-2, typing 3-4, reading 5-6, then frame-sets). */
 function frameLabel(i: number): string {
   if (i <= 2) return `walk ${i + 1}`;
   if (i <= 4) return `type ${i - 2}`;
   if (i <= 6) return `read ${i - 4}`;
-  return `coffee ${i - 6}`;
+  let idx = i - BASE_FRAMES;
+  for (const fs of EXT_FRAMESETS) {
+    if (idx < fs.count) return `${fs.name} ${idx + 1}`;
+    idx -= fs.count;
+  }
+  return `frame ${i}`;
 }
 
 function emptyFrame(w: number, h: number): SpriteData {
@@ -121,6 +152,19 @@ export class CharacterEditor {
       #pa-chars .foot button{flex:1;padding:0.6rem;}
       #pa-chars input[type=color]{width:2.6rem;height:2rem;padding:0;border:1px solid #3a4150;background:none;cursor:pointer;}
       #pa-chars #pa-c-status{color:#7cfc9a;font-size:0.9rem;opacity:0;transition:opacity .4s;}
+      #pa-chars button:disabled{opacity:0.4;cursor:not-allowed;}
+      #pa-c-newdlg{position:fixed;inset:0;z-index:70;display:none;background:rgba(0,0,0,.55);
+        align-items:center;justify-content:center;}
+      #pa-c-newdlg.show{display:flex;}
+      #pa-c-newdlg .box{background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;padding:1rem;max-width:30rem;}
+      #pa-c-newdlg h4{margin:0 0 0.7rem;font-size:1.2rem;color:#cdd3dd;}
+      #pa-c-newdlg .grid{display:flex;gap:0.6rem;flex-wrap:wrap;max-width:28rem;}
+      #pa-c-newdlg .grid .opt{display:flex;flex-direction:column;align-items:center;gap:0.2rem;font-size:0.8rem;
+        color:#aab2c0;cursor:pointer;padding:0.3rem;border:2px solid transparent;border-radius:0.3rem;}
+      #pa-c-newdlg .grid .opt:hover{border-color:#3a6df0;background:#222734;}
+      #pa-c-newdlg .grid canvas{width:2.4rem;height:4.8rem;image-rendering:pixelated;background:#0d0f14;border:1px solid #3a4150;}
+      #pa-c-newdlg .grid .blank{width:2.4rem;height:4.8rem;display:flex;align-items:center;justify-content:center;
+        background:#0d0f14;border:1px dashed #3a4150;color:#6b7280;font-size:1.4rem;}
     `;
     document.head.appendChild(style);
 
@@ -137,8 +181,9 @@ export class CharacterEditor {
       <h4>Character editor</h4>
       <div class="row">
         <button id="pa-c-prev">◀</button>
-        <select id="pa-c-sel"></select>
+        <select id="pa-c-sel" style="flex:1;min-width:0;"></select>
         <button id="pa-c-next">▶</button>
+        <button id="pa-c-new" title="New character">＋ New</button>
       </div>
       <div class="row"><label for="pa-c-name">Name</label>
         <input id="pa-c-name" type="text" maxlength="16" placeholder="char name" style="flex:1;min-width:0;"></div>
@@ -152,15 +197,22 @@ export class CharacterEditor {
         <label style="margin-left:auto;font-size:14px;"><input id="pa-c-onion" type="checkbox" checked> Onion</label>
       </div>
       <div class="row"><canvas id="pa-paint"></canvas></div>
-      <div class="row"><button id="pa-c-clear">Clear frame</button><button id="pa-c-addframe">+ Frame (all dirs)</button></div>
+      <div class="row">
+        <button id="pa-c-clear">Clear frame</button>
+        <button id="pa-c-addframe">+ Coffee frame</button>
+        <button id="pa-c-delframe">Delete frame</button>
+      </div>
       <div class="row" style="justify-content:flex-end;min-height:16px;margin:0;">
         <span id="pa-c-status">​</span>
       </div>
       <div class="foot">
         <button id="pa-c-save" class="on">Save</button>
         <button id="pa-c-reset">Reset default</button>
+        <button id="pa-c-export" title="Download a PNG sheet to add to the repo">Export</button>
         <button id="pa-c-close">Close</button>
-      </div>`;
+      </div>
+      <div id="pa-c-newdlg"><div class="box"><h4>New character — copy from</h4><div class="grid" id="pa-c-newgrid"></div>
+        <div class="row" style="justify-content:flex-end;"><button id="pa-c-newcancel">Cancel</button></div></div></div>`;
 
     const host = document.getElementById('game') ?? document.body;
     if (this.opts.topbar) this.opts.topbar.appendChild(btn);
@@ -195,8 +247,10 @@ export class CharacterEditor {
     };
     this.picker.onchange = () => this.loadChar(Number(this.picker.value));
     panel.querySelector<HTMLButtonElement>('#pa-c-prev')!.onclick = () =>
-      this.loadChar(Math.max(0, this.charIndex - 1));
+      this.loadChar(this.charIndex - 1);
     panel.querySelector<HTMLButtonElement>('#pa-c-next')!.onclick = () => this.loadChar(this.charIndex + 1);
+    panel.querySelector<HTMLButtonElement>('#pa-c-new')!.onclick = () => this.openNewDialog();
+    panel.querySelector<HTMLButtonElement>('#pa-c-newcancel')!.onclick = () => this.closeNewDialog();
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -214,14 +268,11 @@ export class CharacterEditor {
       frames[this.frame] = emptyFrame(this.W, this.H);
       this.render();
     };
-    panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!.onclick = () => {
-      for (const d of ['down', 'up', 'right'] as const) this.work[d].push(emptyFrame(this.W, this.H));
-      if (this.work.left) this.work.left.push(emptyFrame(this.W, this.H));
-      this.frame = this.dirFrames(this.dir).length - 1;
-      this.render();
-    };
+    panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!.onclick = () => this.addFrameset();
+    panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!.onclick = () => this.deleteFrameset();
     panel.querySelector<HTMLButtonElement>('#pa-c-save')!.onclick = () => this.doSave();
     panel.querySelector<HTMLButtonElement>('#pa-c-reset')!.onclick = () => this.doReset();
+    panel.querySelector<HTMLButtonElement>('#pa-c-export')!.onclick = () => this.doExport();
     panel.querySelector<HTMLButtonElement>('#pa-c-close')!.onclick = () => this.close();
 
     this.bindPaint();
@@ -241,38 +292,52 @@ export class CharacterEditor {
   // ── Data ─────────────────────────────────────────────────────────
   private refreshCharList(): void {
     const tpl = this.opts.getTemplates() ?? [];
-    const n = tpl.length;
     this.picker.innerHTML = '';
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < tpl.length; i++) {
       const o = document.createElement('option');
       o.value = String(i);
       const nm = tpl[i]?.name;
       o.textContent = nm ? `${nm} (char_${i})` : `char_${i}`;
       this.picker.appendChild(o);
     }
-    const o = document.createElement('option');
-    o.value = String(n);
-    o.textContent = `+ new (char_${n})`;
-    this.picker.appendChild(o);
+    // An in-progress (unsaved) new character gets a transient entry.
+    if (this.isNew && this.charIndex >= tpl.length) {
+      const o = document.createElement('option');
+      o.value = String(this.charIndex);
+      o.textContent = `✎ new (char_${this.charIndex})`;
+      this.picker.appendChild(o);
+    }
+    this.picker.value = String(this.charIndex);
   }
 
+  /** Load an existing character (clamped to the available range). */
   private loadChar(index: number): void {
     const tpl = this.opts.getTemplates() ?? [];
-    this.charIndex = Math.max(0, Math.min(index, tpl.length));
-    this.isNew = this.charIndex >= tpl.length;
-    if (this.isNew) {
-      // Seed a new character from a copy of char_0 (so it has sane dimensions).
-      const base = tpl[0];
-      if (base) {
-        this.work = cloneChar(base);
-      } else {
-        const blank = () => Array.from({ length: 7 }, () => emptyFrame(this.W, this.H));
-        this.work = { down: blank(), up: blank(), right: blank() };
-      }
+    if (tpl.length === 0) return;
+    this.charIndex = Math.max(0, Math.min(index, tpl.length - 1));
+    this.isNew = false;
+    this.work = cloneChar(tpl[this.charIndex]);
+    this.afterLoad();
+  }
+
+  /** Create a new character, copied from `srcIndex` or blank. */
+  private createNew(srcIndex: number | null): void {
+    const tpl = this.opts.getTemplates() ?? [];
+    this.charIndex = tpl.length;
+    this.isNew = true;
+    if (srcIndex !== null && tpl[srcIndex]) {
+      this.work = cloneChar(tpl[srcIndex]);
     } else {
-      this.work = cloneChar(tpl[this.charIndex]);
+      const blank = (): SpriteData[] =>
+        Array.from({ length: BASE_FRAMES }, () => emptyFrame(this.W, this.H));
+      this.work = { down: blank(), up: blank(), right: blank() };
     }
-    if (this.isNew) this.work.name = undefined; // name it fresh
+    this.work.name = undefined;
+    this.refreshCharList();
+    this.afterLoad();
+  }
+
+  private afterLoad(): void {
     const f0 = this.work.down[1] ?? this.work.down[0];
     if (f0) {
       this.H = f0.length;
@@ -282,6 +347,91 @@ export class CharacterEditor {
     this.picker.value = String(this.charIndex);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
     this.render();
+  }
+
+  /** Canonical frame count (down/up/right stay equal length). */
+  private baseLen(): number {
+    return this.work.down.length;
+  }
+
+  /** Append the next undefined frame-set (e.g. coffee) as a whole. */
+  private addFrameset(): void {
+    const present = presentFramesets(this.baseLen());
+    if (present >= EXT_FRAMESETS.length) return;
+    const next = EXT_FRAMESETS[present];
+    const firstNew = this.baseLen();
+    for (let k = 0; k < next.count; k++) {
+      for (const d of ['down', 'up', 'right'] as const) this.work[d].push(emptyFrame(this.W, this.H));
+      if (this.work.left) this.work.left.push(emptyFrame(this.W, this.H));
+    }
+    this.frame = firstNew;
+    this.render();
+  }
+
+  /** Remove the last present extended frame-set (base frames are permanent). */
+  private deleteFrameset(): void {
+    const present = presentFramesets(this.baseLen());
+    if (present === 0) return;
+    const last = EXT_FRAMESETS[present - 1];
+    const start = this.baseLen() - last.count;
+    for (const d of ['down', 'up', 'right'] as const) this.work[d].splice(start, last.count);
+    if (this.work.left) this.work.left.splice(start, last.count);
+    this.frame = Math.min(this.frame, this.baseLen() - 1);
+    this.render();
+  }
+
+  // ── New-character dialog (visual copy-from picker) ───────────────
+  private openNewDialog(): void {
+    const grid = this.panel.querySelector<HTMLDivElement>('#pa-c-newgrid')!;
+    grid.innerHTML = '';
+    const tpl = this.opts.getTemplates() ?? [];
+    tpl.forEach((c, i) => {
+      const opt = document.createElement('div');
+      opt.className = 'opt';
+      const frame = c.down?.[1] ?? c.down?.[0];
+      const w = frame?.[0]?.length ?? 16;
+      const h = frame?.length ?? 32;
+      const cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      const ctx = cv.getContext('2d')!;
+      if (frame) {
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const px = frame[y]?.[x];
+            if (px) {
+              ctx.fillStyle = px;
+              ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      }
+      const lab = document.createElement('span');
+      lab.textContent = c.name || `char_${i}`;
+      opt.append(cv, lab);
+      opt.onclick = () => {
+        this.createNew(i);
+        this.closeNewDialog();
+      };
+      grid.appendChild(opt);
+    });
+    const blank = document.createElement('div');
+    blank.className = 'opt';
+    const bx = document.createElement('div');
+    bx.className = 'blank';
+    bx.textContent = '∅';
+    const blab = document.createElement('span');
+    blab.textContent = 'Blank';
+    blank.append(bx, blab);
+    blank.onclick = () => {
+      this.createNew(null);
+      this.closeNewDialog();
+    };
+    grid.appendChild(blank);
+    this.panel.querySelector<HTMLDivElement>('#pa-c-newdlg')!.classList.add('show');
+  }
+  private closeNewDialog(): void {
+    this.panel.querySelector<HTMLDivElement>('#pa-c-newdlg')!.classList.remove('show');
   }
 
   private charName(): string {
@@ -312,22 +462,65 @@ export class CharacterEditor {
     return this.work.name ? `${this.work.name} (${this.charName()})` : this.charName();
   }
   private doSave(): void {
+    const idx = this.charIndex;
     this.opts.save(this.charName(), this.work);
-    this.refreshCharList(); // a brand-new char now exists for the next index
     this.showStatus(`Saved ${this.displayName()} ✓`);
+    // After the broadcast lands, reload it as a normal (existing) entry.
+    window.setTimeout(() => {
+      this.refreshCharList();
+      this.loadChar(idx);
+    }, 250);
   }
+  /** Reset a bundled char to its default, or delete a user-added one. New
+   *  (unsaved) chars are simply discarded. */
   private doReset(): void {
     if (this.isNew) {
-      this.showStatus('Nothing to reset (unsaved)');
+      this.isNew = false;
+      this.refreshCharList();
+      this.loadChar(this.charIndex - 1);
+      this.showStatus('Discarded');
       return;
     }
+    const isDelete = this.charIndex >= this.opts.getDefaultCount();
     this.opts.reset(this.charName());
-    this.showStatus(`Reset ${this.charName()} to default ✓`);
-    // Reload after the server broadcast lands.
-    setTimeout(() => {
+    this.showStatus(isDelete ? `Deleted ${this.charName()} ✓` : `Reset ${this.charName()} to default ✓`);
+    // Reload after the server broadcast lands (templates may shrink on delete).
+    window.setTimeout(() => {
       this.refreshCharList();
-      this.loadChar(this.charIndex);
-    }, 200);
+      const n = this.opts.getTemplates()?.length ?? 1;
+      this.loadChar(Math.min(this.charIndex, n - 1));
+    }, 250);
+  }
+
+  /** Download a PNG sheet (down/up/right rows × frames, 16×32) for the repo.
+   *  Left is mirrored from right on load, so it isn't part of the file. */
+  private doExport(): void {
+    const frames = this.baseLen();
+    const cv = document.createElement('canvas');
+    cv.width = frames * this.W;
+    cv.height = 3 * this.H;
+    const ctx = cv.getContext('2d')!;
+    const rows: SpriteData[][] = [this.work.down, this.work.up, this.work.right];
+    rows.forEach((arr, rowIdx) => {
+      for (let f = 0; f < frames; f++) {
+        const sprite = arr[f];
+        if (!sprite) continue;
+        for (let y = 0; y < this.H; y++) {
+          for (let x = 0; x < this.W; x++) {
+            const px = sprite[y]?.[x];
+            if (px) {
+              ctx.fillStyle = px;
+              ctx.fillRect(f * this.W + x, rowIdx * this.H + y, 1, 1);
+            }
+          }
+        }
+      }
+    });
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png');
+    a.download = `${this.work.name || this.charName()}.png`;
+    a.click();
+    this.showStatus('Exported PNG (left mirrors right)');
   }
 
   // ── Rendering ────────────────────────────────────────────────────
@@ -336,6 +529,22 @@ export class CharacterEditor {
     this.panel.querySelectorAll<HTMLButtonElement>('#pa-c-dirs button').forEach((b) => {
       b.classList.toggle('on', b.dataset.dir === this.dir);
     });
+    // Frame-set add/delete: a whole defined set (coffee, …) is added/removed at
+    // once; base frames are permanent.
+    const present = presentFramesets(this.baseLen());
+    const addBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-addframe')!;
+    const delBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!;
+    addBtn.disabled = present >= EXT_FRAMESETS.length || this.baseLen() >= MAX_FRAMES;
+    addBtn.textContent = present < EXT_FRAMESETS.length ? `+ ${EXT_FRAMESETS[present].name} frames` : '+ frames';
+    delBtn.disabled = present === 0;
+    delBtn.textContent = present > 0 ? `Delete ${EXT_FRAMESETS[present - 1].name}` : 'Delete frames';
+    // Reset (bundled) vs Delete (user-added) vs Discard (unsaved new).
+    const resetBtn = this.panel.querySelector<HTMLButtonElement>('#pa-c-reset')!;
+    resetBtn.textContent = this.isNew
+      ? 'Discard'
+      : this.charIndex >= this.opts.getDefaultCount()
+        ? 'Delete char'
+        : 'Reset default';
     this.renderStrip();
     this.renderPaint();
   }

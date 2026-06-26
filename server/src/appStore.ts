@@ -117,6 +117,14 @@ class AppStore {
     prefs[name] = palette;
     this.setSetting('charPrefs', prefs);
   }
+  /** Remove a user's pinned palette (e.g. when that character was deleted). */
+  clearCharPref(name: string): void {
+    const prefs = this.getCharPrefs();
+    if (name in prefs) {
+      delete prefs[name];
+      this.setSetting('charPrefs', prefs);
+    }
+  }
 
   // ── Settings (global; matches the original single-server fork) ───
   getSetting<T>(key: string, fallback: T): T {

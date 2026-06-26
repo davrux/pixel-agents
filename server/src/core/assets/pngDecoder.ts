@@ -11,7 +11,6 @@ import { rgbaToHex } from './colorUtils.js';
 import {
   CHAR_FRAME_H,
   CHAR_FRAME_W,
-  CHAR_FRAMES_PER_ROW,
   CHARACTER_DIRECTIONS,
   FLOOR_TILE_SIZE,
   PET_FRAME_H,
@@ -139,11 +138,16 @@ function decodeDirectionalSheet(
  * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
  */
 export function decodeCharacterPng(pngBuffer: Buffer): CharacterDirectionSprites {
+  // Frames per row are derived from the sheet width, so a character file can
+  // carry the 7 base frames or extra frame-sets (e.g. coffee) without a fixed
+  // constant — the default-character assets stay extensible.
+  const png = PNG.sync.read(pngBuffer);
+  const framesPerRow = Math.max(1, Math.floor(png.width / CHAR_FRAME_W));
   return decodeDirectionalSheet(
     pngBuffer,
     CHAR_FRAME_W,
     CHAR_FRAME_H,
-    CHAR_FRAMES_PER_ROW,
+    framesPerRow,
     CHARACTER_DIRECTIONS,
   ) as unknown as CharacterDirectionSprites;
 }

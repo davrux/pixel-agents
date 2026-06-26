@@ -409,6 +409,27 @@ export class OfficeState {
     return { palette, hueShift };
   }
 
+  /** After the character roster shrinks, drop pinned palettes that no longer
+   *  exist and re-randomise (diverse) any live agents stuck on a missing
+   *  palette — so a deleted custom character falls back to a random skin.
+   *  Returns the folderNames whose pinned palette was dropped. */
+  dropInvalidPalettes(count: number): string[] {
+    const dropped: string[] = [];
+    for (const [name, pal] of this.palettePrefs) {
+      if (pal >= count) {
+        this.palettePrefs.delete(name);
+        dropped.push(name);
+      }
+    }
+    for (const ch of this.characters.values()) {
+      if (ch.isSubagent || ch.palette < count) continue;
+      const pick = this.pickDiversePalette();
+      ch.palette = pick.palette;
+      ch.hueShift = pick.hueShift;
+    }
+    return dropped;
+  }
+
   /** Pin a user's character palette and recolor any of their live agents. */
   setPalettePref(folderName: string, palette: number): void {
     if (!folderName) return;

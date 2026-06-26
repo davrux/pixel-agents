@@ -234,9 +234,14 @@ export class SimRoom extends Room<RoomState> {
   private reapplyAsset(type: AssetType): void {
     this.bundle = buildMerged(this.defaults);
     switch (type) {
-      case 'character':
+      case 'character': {
         setCharacterTemplates(this.bundle.raw.characters as never);
+        // A deleted custom character invalidates anyone pinned to it → drop the
+        // pin (persisted) and re-randomise affected live agents.
+        const count = (this.bundle.raw.characters as unknown[]).length;
+        for (const name of this.os.dropInvalidPalettes(count)) appStore.clearCharPref(name);
         break;
+      }
       case 'pet':
         setPetTemplates(this.bundle.raw.dogs as never, this.bundle.raw.cats as never);
         break;

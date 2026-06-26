@@ -87,7 +87,13 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   const messages = defaults.messages.map((m) => {
     switch (m.type) {
       case 'characterSpritesLoaded':
-        return { type: 'characterSpritesLoaded', characters };
+        // defaultCount = bundled (file) characters; indices >= it are user-added
+        // (deletable), below it revert to their bundled default.
+        return {
+          type: 'characterSpritesLoaded',
+          characters,
+          defaultCount: (raw.characters as unknown[]).length,
+        };
       case 'petSpritesLoaded':
         return { type: 'petSpritesLoaded', dogs, cats };
       case 'floorTilesLoaded':
