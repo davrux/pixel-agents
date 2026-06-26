@@ -347,6 +347,15 @@ export function getNpcPosePlaybackLength(kind: PetKindName, variant: number, pos
   return Math.max(1, seq?.length ?? 1);
 }
 
+/** Flat NPC roster (dog/cat/duck × variants), in stable order, for the editor. */
+export function getNpcRoster(): Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> {
+  const out: Array<{ kind: PetKindName; variant: number; data: LoadedCharacterData }> = [];
+  for (const kind of ['dog', 'cat', 'duck'] as PetKindName[]) {
+    loadedNpcs[kind].forEach((data, variant) => out.push({ kind, variant, data }));
+  }
+  return out;
+}
+
 /** Frame size (w×h) of an NPC template (falls back to 16×16). */
 export function getNpcSize(kind: PetKindName, variant: number): { w: number; h: number } {
   const arr = loadedNpcs[kind];

@@ -9,17 +9,12 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
 
 type Dir = 'down' | 'up' | 'right' | 'left';
-type PreviewPose = 'idle' | 'walk' | 'typing' | 'reading' | 'coffee';
+/** A pose previewed in the editor: a track name, or 'idle' (neutral stand). */
+type PreviewPose = string;
 
 export interface CharacterEditorOpts {
-  /** Current raw character frames (down/up/right per palette). */
-  getTemplates: () => LoadedCharacterData[] | null;
-  /** Persist an edited/new character (name `char_<i>`). */
-  save: (name: string, data: LoadedCharacterData) => void;
-  /** Revert/remove a character override. */
-  reset: (name: string) => void;
-  /** Count of bundled (file) characters; indices >= it are user-added (deletable). */
-  getDefaultCount: () => number;
+  /** Editable categories (Agents, NPCs); the gallery toggles between them. */
+  categories: EditorCategory[];
   /** Shared top-bar to host the button in (matches Edit/Layouts/Settings). */
   topbar?: HTMLElement;
   /** Toolbar button clicked — let the scene coordinate mutually-exclusive menus.
@@ -40,19 +35,53 @@ const CELL = 13; // baseline on-screen pixels per sprite pixel (scaled down for 
 const MAX_DIM = 64;
 /** UI cap on frames per track (the server allows up to 64). */
 const MAX_TRACK_FRAMES = 12;
-/** Frames in a fresh blank character (walk 3 / typing 2 / reading 2). */
-const BLANK_FRAMES = 7;
 const DIRS: Dir[] = ['down', 'up', 'right', 'left'];
 const DIR_LABEL: Record<Dir, string> = { down: 'Front', up: 'Back', right: 'Right', left: 'Left' };
 
-/** Animation tracks the editor exposes (each maps to an engine pose). The order
- *  also defines the frame layout in the flat per-direction frame list. `min` 0
- *  means the track is optional (can be removed entirely, e.g. coffee). */
-const TRACK_DEFS: Array<{ name: string; label: string; min: number; play: TrackPlay }> = [
-  { name: 'walk', label: 'Walk', min: 1, play: 'pingpong' },
-  { name: 'typing', label: 'Typing', min: 1, play: 'loop' },
-  { name: 'reading', label: 'Reading', min: 1, play: 'loop' },
-  { name: 'coffee', label: 'Coffee', min: 0, play: 'loop' },
+/** A track the editor exposes for a category. `min` 0 = optional (removable, the
+ *  last such track), `def` = frames used when deriving/creating. Track order
+ *  defines the frame layout in the flat per-direction list. */
+export interface TrackDef {
+  name: string;
+  label: string;
+  min: number;
+  play: TrackPlay;
+  def: number;
+}
+
+/** An editable entity category (Agents, NPCs). Provides its roster, naming,
+ *  persistence and animation-track preset. */
+export interface EditorCategory {
+  key: string;
+  label: string;
+  getTemplates: () => LoadedCharacterData[] | null;
+  /** Asset name for the flat template index (e.g. `char_3`, `dog_1`). */
+  nameOf: (i: number) => string;
+  save: (name: string, data: LoadedCharacterData) => void;
+  reset: (name: string) => void;
+  /** Indices < this are bundled defaults (Reset); ≥ are user-added (Delete). */
+  getDefaultCount: () => number;
+  /** Animation-track preset for this category. */
+  tracks: TrackDef[];
+  /** Frames in a fresh blank entity (sum of the mandatory tracks' `def`). */
+  blankFrames: number;
+  /** Whether the user may create new entities (New / Copy). */
+  canCreate: boolean;
+}
+
+/** Agent animation tracks (walk/typing/reading + optional coffee). */
+export const AGENT_TRACKS: TrackDef[] = [
+  { name: 'walk', label: 'Walk', min: 1, play: 'pingpong', def: 3 },
+  { name: 'typing', label: 'Typing', min: 1, play: 'loop', def: 2 },
+  { name: 'reading', label: 'Reading', min: 1, play: 'loop', def: 2 },
+  { name: 'coffee', label: 'Coffee', min: 0, play: 'loop', def: 2 },
+];
+/** NPC animation tracks (walk/sit/idle + optional sleep). */
+export const NPC_TRACKS: TrackDef[] = [
+  { name: 'walk', label: 'Walk', min: 1, play: 'pingpong', def: 3 },
+  { name: 'sit', label: 'Sit', min: 1, play: 'loop', def: 2 },
+  { name: 'idle', label: 'Idle', min: 1, play: 'loop', def: 1 },
+  { name: 'sleep', label: 'Sleep', min: 0, play: 'loop', def: 2 },
 ];
 
 interface EditorTrackSlot {
@@ -64,11 +93,11 @@ interface EditorTrackSlot {
 }
 
 /** Per-track slot offsets from a spec, in the spec's track order. */
-function specSlots(spec: CharacterSpec): EditorTrackSlot[] {
+function specSlots(spec: CharacterSpec, defs: TrackDef[]): EditorTrackSlot[] {
   const slots: EditorTrackSlot[] = [];
   let off = 0;
   for (const t of spec.tracks) {
-    const def = TRACK_DEFS.find((d) => d.name === t.name);
+    const def = defs.find((d) => d.name === t.name);
     slots.push({ name: t.name, label: def?.label ?? t.name, start: off, count: t.frames, play: t.play });
     off += t.frames;
   }
@@ -76,32 +105,31 @@ function specSlots(spec: CharacterSpec): EditorTrackSlot[] {
 }
 
 /** Frame index → "Track N" label using the spec's track layout. */
-function frameLabelFor(spec: CharacterSpec, i: number): string {
-  for (const s of specSlots(spec)) {
+function frameLabelFor(spec: CharacterSpec, i: number, defs: TrackDef[]): string {
+  for (const s of specSlots(spec, defs)) {
     if (i >= s.start && i < s.start + s.count) return `${s.label} ${i - s.start + 1}`;
   }
   return `frame ${i + 1}`;
 }
 
-/** Best-effort track split for a flat frame list lacking a usable spec: the
- *  historical walk 3 / typing 2 / reading 2, with any remainder → coffee. */
-function deriveSpecTracks(frameCount: number): CharacterTrack[] {
-  const base: Array<[string, number, TrackPlay]> = [
-    ['walk', 3, 'pingpong'],
-    ['typing', 2, 'loop'],
-    ['reading', 2, 'loop'],
-  ];
+/** Best-effort track split for a flat frame list lacking a usable spec: assign
+ *  each track its `def` in order; the last (optional) track absorbs any
+ *  remainder. Category-specific (agent walk/type/read/coffee, NPC walk/sit/…). */
+function deriveSpecTracks(frameCount: number, defs: TrackDef[]): CharacterTrack[] {
   const tracks: CharacterTrack[] = [];
   let rest = frameCount;
-  for (const [name, want, play] of base) {
-    const c = Math.max(0, Math.min(want, rest));
-    if (c > 0) {
-      tracks.push({ name, frames: c, play });
-      rest -= c;
+  defs.forEach((d, i) => {
+    const isLast = i === defs.length - 1;
+    const want = isLast ? rest : Math.max(0, Math.min(d.def, rest));
+    if (want > 0) {
+      tracks.push({ name: d.name, frames: want, play: d.play });
+      rest -= want;
     }
+  });
+  if (tracks.length === 0) {
+    const first = defs[0];
+    tracks.push({ name: first?.name ?? 'walk', frames: Math.max(1, frameCount), play: first?.play ?? 'pingpong' });
   }
-  if (rest > 0) tracks.push({ name: 'coffee', frames: rest, play: 'loop' });
-  if (tracks.length === 0) tracks.push({ name: 'walk', frames: Math.max(1, frameCount), play: 'pingpong' });
   return tracks;
 }
 
@@ -143,6 +171,8 @@ export class CharacterEditor {
 
   private open = false;
   private view: 'gallery' | 'edit' = 'gallery';
+  /** Active editable category (index into opts.categories). */
+  private catIndex = 0;
   /** Unsaved-edit flag for the current edit session (prompts before leaving). */
   private dirty = false;
   // ── Live preview ──
@@ -175,6 +205,13 @@ export class CharacterEditor {
 
   isOpen(): boolean {
     return this.open;
+  }
+  /** The active editable category. */
+  private cat(): EditorCategory {
+    return this.opts.categories[this.catIndex];
+  }
+  private trackDefs(): TrackDef[] {
+    return this.cat().tracks;
   }
   toggle(): void {
     if (this.open) void this.requestClose();
@@ -314,9 +351,10 @@ export class CharacterEditor {
     panel.innerHTML = `
       <div id="pa-c-gallery">
         <h4>Characters</h4>
+        <div class="row" id="pa-c-cats"></div>
         <div id="pa-c-cards"></div>
         <div class="foot">
-          <button id="pa-c-newbtn" class="on">＋ New character</button>
+          <button id="pa-c-newbtn" class="on">＋ New</button>
           <button id="pa-c-galclose">Close</button>
         </div>
       </div>
@@ -331,13 +369,7 @@ export class CharacterEditor {
         <div class="row">
           <div class="prevbox"><canvas id="pa-c-preview" width="16" height="32"></canvas></div>
           <span class="sizelabel">Preview</span>
-          <select id="pa-c-pose" title="Animation shown in the preview">
-            <option value="idle">Idle</option>
-            <option value="walk" selected>Walk</option>
-            <option value="typing">Typing</option>
-            <option value="reading">Reading</option>
-            <option value="coffee">Coffee</option>
-          </select>
+          <select id="pa-c-pose" title="Animation shown in the preview"></select>
           <span class="sizelabel" style="font-size:0.8rem">· current direction</span>
         </div>
         <div class="strip" id="pa-c-strip"></div>
@@ -501,42 +533,70 @@ export class CharacterEditor {
     }
   }
 
+  private renderCategoryTabs(): void {
+    const host = this.panel.querySelector<HTMLDivElement>('#pa-c-cats');
+    if (!host) return;
+    host.innerHTML = '';
+    if (this.opts.categories.length < 2) return; // no toggle needed for a single category
+    this.opts.categories.forEach((c, i) => {
+      const b = document.createElement('button');
+      b.className = 'tab' + (i === this.catIndex ? ' on' : '');
+      b.textContent = c.label;
+      b.onclick = () => {
+        if (i === this.catIndex) return;
+        this.catIndex = i;
+        this.renderGallery();
+      };
+      host.appendChild(b);
+    });
+  }
+
   private renderGallery(): void {
-    const tpl = this.opts.getTemplates() ?? [];
-    const defaults = this.opts.getDefaultCount();
+    this.renderCategoryTabs();
+    const cat = this.cat();
+    const tpl = cat.getTemplates() ?? [];
+    const defaults = cat.getDefaultCount();
+    // New is only offered for categories that allow creating entities.
+    this.panel.querySelector<HTMLButtonElement>('#pa-c-newbtn')!.style.display = cat.canCreate ? '' : 'none';
     this.cardsHost.innerHTML = '';
     tpl.forEach((c, i) => {
+      const name = cat.nameOf(i);
       const card = document.createElement('div');
       card.className = 'card';
       const cv = document.createElement('canvas');
       this.drawPreview(cv, c);
       const nm = document.createElement('div');
       nm.className = 'nm';
-      nm.textContent = c.name ? `${c.name} (char_${i})` : `char_${i}`;
+      nm.textContent = c.name ? `${c.name} (${name})` : name;
       const edit = document.createElement('button');
       edit.textContent = 'Edit';
       edit.onclick = () => {
         this.loadChar(i);
         this.showEdit();
       };
-      const copy = document.createElement('button');
-      copy.textContent = 'Copy';
-      copy.onclick = () => {
-        this.createNew(i);
-        this.showEdit();
-      };
+      const buttons: HTMLButtonElement[] = [edit];
+      if (cat.canCreate) {
+        const copy = document.createElement('button');
+        copy.textContent = 'Copy';
+        copy.onclick = () => {
+          this.createNew(i);
+          this.showEdit();
+        };
+        buttons.push(copy);
+      }
       const third = document.createElement('button');
-      const isUser = i >= defaults;
+      const isUser = cat.canCreate && i >= defaults;
       third.textContent = isUser ? 'Delete' : 'Reset';
       if (isUser) third.className = 'del';
-      third.title = isUser ? 'Delete this character' : 'Reset to bundled default';
+      third.title = isUser ? 'Delete this entry' : 'Reset to bundled default';
       third.onclick = async () => {
         if (isUser && !(await confirmDialog(`Delete ${nm.textContent}?`, { danger: true, confirmLabel: 'Delete' })))
           return;
-        this.opts.reset(`char_${i}`);
+        cat.reset(name);
         window.setTimeout(() => this.renderGallery(), 250);
       };
-      card.append(cv, nm, edit, copy, third);
+      buttons.push(third);
+      card.append(cv, nm, ...buttons);
       this.cardsHost.appendChild(card);
     });
   }
@@ -544,7 +604,7 @@ export class CharacterEditor {
   // ── Editing ──────────────────────────────────────────────────────
   /** Load an existing character into the editor (clamped to range). */
   private loadChar(index: number): void {
-    const tpl = this.opts.getTemplates() ?? [];
+    const tpl = this.cat().getTemplates() ?? [];
     if (tpl.length === 0) return;
     this.charIndex = Math.max(0, Math.min(index, tpl.length - 1));
     this.isNew = false;
@@ -554,7 +614,7 @@ export class CharacterEditor {
 
   /** Create a new character, copied from `srcIndex` or blank. */
   private createNew(srcIndex: number | null): void {
-    const tpl = this.opts.getTemplates() ?? [];
+    const tpl = this.cat().getTemplates() ?? [];
     this.charIndex = tpl.length;
     this.isNew = true;
     if (srcIndex !== null && tpl[srcIndex]) {
@@ -564,7 +624,7 @@ export class CharacterEditor {
       this.W = 16;
       this.H = 32;
       const blank = (): SpriteData[] =>
-        Array.from({ length: BLANK_FRAMES }, () => emptyFrame(this.W, this.H));
+        Array.from({ length: this.cat().blankFrames }, () => emptyFrame(this.W, this.H));
       this.work = { down: blank(), up: blank(), right: blank() };
     }
     this.work.name = undefined;
@@ -628,9 +688,9 @@ export class CharacterEditor {
   private ensureSpec(): void {
     const fc = this.work.down.length;
     const sp = this.work.spec;
-    const knownNames = (t: CharacterTrack): boolean => TRACK_DEFS.some((d) => d.name === t.name);
+    const knownNames = (t: CharacterTrack): boolean => this.trackDefs().some((d) => d.name === t.name);
     const usable = sp && specFrameCount(sp) === fc && sp.tracks.every(knownNames) && sp.tracks.length > 0;
-    const tracks = usable ? sp!.tracks.map((t) => ({ ...t })) : deriveSpecTracks(fc);
+    const tracks = usable ? sp!.tracks.map((t) => ({ ...t })) : deriveSpecTracks(fc, this.trackDefs());
     this.work.spec = { frame: { w: this.W, h: this.H }, tracks };
   }
 
@@ -645,8 +705,8 @@ export class CharacterEditor {
 
   /** Add a frame to a track (creating an optional track if currently absent). */
   private addTrackFrame(name: string): void {
-    if (this.work.down.length >= TRACK_DEFS.length * MAX_TRACK_FRAMES) return;
-    const slots = specSlots(this.spec());
+    if (this.work.down.length >= this.trackDefs().length * MAX_TRACK_FRAMES) return;
+    const slots = specSlots(this.spec(), this.trackDefs());
     const slot = slots.find((s) => s.name === name);
     if (slot) {
       if (slot.count >= MAX_TRACK_FRAMES) return;
@@ -654,7 +714,7 @@ export class CharacterEditor {
       this.spec().tracks.find((t) => t.name === name)!.frames += 1;
       this.frame = slot.start + slot.count; // select the new frame
     } else {
-      const def = TRACK_DEFS.find((d) => d.name === name);
+      const def = this.trackDefs().find((d) => d.name === name);
       if (!def) return;
       this.insertFrameAt(this.work.down.length); // optional tracks live at the end
       this.spec().tracks.push({ name, frames: 1, play: def.play });
@@ -666,8 +726,8 @@ export class CharacterEditor {
 
   /** Remove a frame from a track; drops the track when an optional one hits 0. */
   private removeTrackFrame(name: string): void {
-    const def = TRACK_DEFS.find((d) => d.name === name);
-    const slot = specSlots(this.spec()).find((s) => s.name === name);
+    const def = this.trackDefs().find((d) => d.name === name);
+    const slot = specSlots(this.spec(), this.trackDefs()).find((s) => s.name === name);
     if (!def || !slot || slot.count <= def.min) return;
     this.removeFrameAt(slot.start + slot.count - 1);
     const t = this.spec().tracks.find((x) => x.name === name)!;
@@ -703,8 +763,8 @@ export class CharacterEditor {
     const host = this.panel.querySelector<HTMLDivElement>('#pa-c-tracks');
     if (!host) return;
     host.innerHTML = '';
-    const slots = specSlots(this.spec());
-    for (const def of TRACK_DEFS) {
+    const slots = specSlots(this.spec(), this.trackDefs());
+    for (const def of this.trackDefs()) {
       const slot = slots.find((s) => s.name === def.name);
       const row = document.createElement('div');
       row.className = 'trackrow';
@@ -743,7 +803,7 @@ export class CharacterEditor {
   private openNewDialog(): void {
     const grid = this.panel.querySelector<HTMLDivElement>('#pa-c-newgrid')!;
     grid.innerHTML = '';
-    const tpl = this.opts.getTemplates() ?? [];
+    const tpl = this.cat().getTemplates() ?? [];
     tpl.forEach((c, i) => {
       const opt = document.createElement('div');
       opt.className = 'opt';
@@ -796,7 +856,7 @@ export class CharacterEditor {
   }
 
   private charName(): string {
-    return `char_${this.charIndex}`;
+    return this.cat().nameOf(this.charIndex);
   }
 
   /** Frames for a direction; `left` mirrors `right` until explicitly edited. */
@@ -833,7 +893,7 @@ export class CharacterEditor {
     // Persist the current frame size + track layout with the sprite data.
     if (this.work.spec) this.work.spec.frame = { w: this.W, h: this.H };
     const idx = this.charIndex;
-    this.opts.save(this.charName(), this.work);
+    this.cat().save(this.charName(), this.work);
     this.dirty = false;
     this.showStatus(`Saved ${this.displayName()} ✓`);
     // After the broadcast lands, a new char becomes a normal (existing) entry.
@@ -917,11 +977,7 @@ export class CharacterEditor {
     const hasName = !!this.work.name?.trim();
     saveBtn.disabled = !hasName;
     saveBtn.title = hasName ? '' : 'Enter a name first';
-    // A pose can only be previewed if its track exists.
-    for (const def of TRACK_DEFS) {
-      const opt = this.panel.querySelector<HTMLOptionElement>(`#pa-c-pose option[value="${def.name}"]`);
-      if (opt) opt.disabled = !this.spec().tracks.some((t) => t.name === def.name);
-    }
+    this.renderPoseOptions();
     this.renderStrip();
     this.renderPaint();
     this.updateImportTarget();
@@ -962,7 +1018,7 @@ export class CharacterEditor {
       c.height = this.H * sc;
       this.drawFrameTo(c.getContext('2d')!, f, sc);
       const lab = document.createElement('span');
-      lab.textContent = frameLabelFor(this.spec(), i);
+      lab.textContent = frameLabelFor(this.spec(), i, this.trackDefs());
       wrap.appendChild(c);
       wrap.appendChild(lab);
       wrap.onclick = () => {
@@ -1006,10 +1062,11 @@ export class CharacterEditor {
   /** Frame indices that make up a pose's playback loop, derived from the spec
    *  tracks (mirrors the engine's buildTrackSeq). Idle / missing track → stand. */
   private poseFrames(pose: PreviewPose): number[] {
-    const slots = specSlots(this.spec());
+    const slots = specSlots(this.spec(), this.trackDefs());
     const walk = slots.find((s) => s.name === 'walk');
     const stand = walk ? walk.start + Math.min(1, walk.count - 1) : 0;
-    if (pose === 'idle') return [stand];
+    // A pose uses its same-named track if present (incl. NPC `idle`), else the
+    // neutral stand frame (e.g. an agent's idle has no track).
     const slot = slots.find((s) => s.name === pose);
     if (!slot) return [stand];
     const seq: number[] = [];
@@ -1019,7 +1076,8 @@ export class CharacterEditor {
     }
     return seq;
   }
-  /** Per-frame duration (ms) matching the engine; 0 = static (no timer). */
+  /** Per-frame duration (ms) for the preview; 0 = static. Other tracks (sit,
+   *  sleep, …) animate at a default cadence. */
   private poseDurationMs(pose: PreviewPose): number {
     switch (pose) {
       case 'walk':
@@ -1029,9 +1087,30 @@ export class CharacterEditor {
         return 300;
       case 'coffee':
         return 500;
+      case 'idle':
+        return 400;
       default:
-        return 0;
+        return 250;
     }
+  }
+
+  /** Populate the preview pose dropdown from the present tracks (+ idle),
+   *  repairing the selection when the current pose no longer exists. */
+  private renderPoseOptions(): void {
+    const sel = this.panel.querySelector<HTMLSelectElement>('#pa-c-pose');
+    if (!sel) return;
+    const present = this.spec().tracks.map((t) => t.name);
+    const names: string[] = [];
+    for (const d of this.trackDefs()) if (present.includes(d.name)) names.push(d.name);
+    if (!names.includes('idle')) names.push('idle');
+    const label = (n: string): string =>
+      this.trackDefs().find((d) => d.name === n)?.label ?? n.charAt(0).toUpperCase() + n.slice(1);
+    sel.innerHTML = names.map((n) => `<option value="${n}">${label(n)}</option>`).join('');
+    if (!names.includes(this.previewPose)) {
+      this.previewPose = names.includes('walk') ? 'walk' : names[0];
+      this.startPreview();
+    }
+    sel.value = this.previewPose;
   }
 
   private startPreview(): void {
@@ -1266,12 +1345,12 @@ export class CharacterEditor {
     frames[this.frame] = grid;
     this.dirty = true;
     this.render();
-    this.showStatus(`Imported into ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame)} ✓`);
+    this.showStatus(`Imported into ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame, this.trackDefs())} ✓`);
   }
 
   private updateImportTarget(): void {
     const el = this.importPanel?.querySelector<HTMLSpanElement>('#pa-imp-target');
-    if (el) el.textContent = this.importOpen ? `→ ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame)}` : '';
+    if (el) el.textContent = this.importOpen ? `→ ${DIR_LABEL[this.dir]} · ${frameLabelFor(this.spec(), this.frame, this.trackDefs())}` : '';
   }
 
   private bindPaint(): void {

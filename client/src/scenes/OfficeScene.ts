@@ -29,11 +29,11 @@ import {
   type Pet,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getCharacterSize, getCharacterTemplates, getPosePlaybackLength, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
-import { CharacterEditor } from '../editor/CharacterEditor.js';
+import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS } from '../editor/CharacterEditor.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
@@ -164,11 +164,35 @@ export class OfficeScene extends Phaser.Scene {
     this.createLayoutsPanel();
     this.createSettingsPanel();
     this.charEditor = new CharacterEditor({
-      getTemplates: () => getCharacterTemplates(),
-      save: (name, data: LoadedCharacterData) =>
-        this.room?.send('saveAsset', { assetType: 'character', name, data }),
-      reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
-      getDefaultCount: () => this.charDefaultCount,
+      categories: [
+        {
+          key: 'agent',
+          label: 'Agents',
+          getTemplates: () => getCharacterTemplates(),
+          nameOf: (i) => `char_${i}`,
+          save: (name, data) => this.room?.send('saveAsset', { assetType: 'character', name, data }),
+          reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
+          getDefaultCount: () => this.charDefaultCount,
+          tracks: AGENT_TRACKS,
+          blankFrames: 7,
+          canCreate: true,
+        },
+        {
+          key: 'npc',
+          label: 'NPCs',
+          getTemplates: () => getNpcRoster().map((r) => r.data),
+          nameOf: (i) => {
+            const r = getNpcRoster()[i];
+            return r ? `${r.kind}_${r.variant}` : `npc_${i}`;
+          },
+          save: (name, data) => this.room?.send('saveAsset', { assetType: 'pet', name, data }),
+          reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
+          getDefaultCount: () => getNpcRoster().length, // all bundled (no new NPCs yet)
+          tracks: NPC_TRACKS,
+          blankFrames: 6,
+          canCreate: false,
+        },
+      ],
       topbar: this.topbar,
       // Mutually exclusive with the other top-bar popovers.
       requestToggle: () => this.setMenu(this.charEditor.isOpen() ? null : 'chars'),
