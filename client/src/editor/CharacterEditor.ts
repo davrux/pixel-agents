@@ -4,6 +4,7 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
 
 type Dir = 'down' | 'up' | 'right' | 'left';
+type PreviewPose = 'idle' | 'walk' | 'typing' | 'reading' | 'coffee';
 
 export interface CharacterEditorOpts {
   /** Current raw character frames (down/up/right per palette). */
@@ -29,7 +30,9 @@ function sanitizeName(raw: string): string {
     .slice(0, 16);
 }
 
-const CELL = 13; // on-screen pixels per sprite pixel
+const CELL = 13; // baseline on-screen pixels per sprite pixel (scaled down for large frames)
+/** Max character frame dimension (px). Mirrored by the server-side validator. */
+const MAX_DIM = 64;
 const DIRS: Dir[] = ['down', 'up', 'right', 'left'];
 const DIR_LABEL: Record<Dir, string> = { down: 'Front', up: 'Back', right: 'Right', left: 'Left' };
 /** The 7 base frames (always present, may be empty): walk 0-2, type 3-4, read 5-6. */
@@ -107,6 +110,19 @@ export class CharacterEditor {
   private view: 'gallery' | 'edit' = 'gallery';
   /** Unsaved-edit flag for the current edit session (prompts before leaving). */
   private dirty = false;
+  // ── Live preview ──
+  private previewCanvas!: HTMLCanvasElement;
+  private previewPose: PreviewPose = 'walk';
+  private previewFrameIdx = 0;
+  private previewTimer?: number;
+  // ── PNG sheet import ──
+  private importPanel!: HTMLDivElement;
+  private importCanvas!: HTMLCanvasElement;
+  private importImg: HTMLImageElement | null = null;
+  private importOpen = false;
+  /** Cell grid over the loaded sheet (source pixels). cell defaults to char W×H. */
+  private imp = { cw: 16, ch: 32, ox: 0, oy: 0, gx: 0, gy: 0, scale: 3 };
+  private impHover: { col: number; row: number } | null = null;
   private charIndex = 0;
   private isNew = false;
   private dir: Dir = 'down';
@@ -142,6 +158,8 @@ export class CharacterEditor {
   close(): void {
     this.open = false;
     this.panel.style.display = 'none';
+    this.stopPreview();
+    this.closeImport();
   }
 
   /** True if it's safe to leave the current edit (no unsaved edits, or the user
@@ -161,6 +179,8 @@ export class CharacterEditor {
     this.view = 'gallery';
     this.editPane.style.display = 'none';
     this.galleryPane.style.display = 'block';
+    this.stopPreview();
+    this.closeImport();
     this.renderGallery();
   }
   private showEdit(): void {
@@ -168,6 +188,7 @@ export class CharacterEditor {
     this.galleryPane.style.display = 'none';
     this.editPane.style.display = 'block';
     this.render();
+    this.startPreview();
   }
 
   // ── DOM ──────────────────────────────────────────────────────────
@@ -183,6 +204,13 @@ export class CharacterEditor {
       #pa-chars select,#pa-chars button,#pa-chars input[type=text]{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
         border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;}
       #pa-chars input[type=text]{cursor:text;}
+      #pa-chars input[type=number]{width:3.2rem;background:#14161c;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
+      #pa-chars .sizelabel{color:#9aa3b2;}
+      #pa-chars .prevbox{height:5rem;min-width:3rem;padding:0.2rem;border:1px solid #3a4150;border-radius:0.3rem;
+        display:flex;align-items:flex-end;justify-content:center;
+        background:repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/0.6rem 0.6rem;}
+      #pa-chars #pa-c-preview{height:100%;width:auto;image-rendering:pixelated;}
       #pa-chars button.on{background:#3a6df0;border-color:#3a6df0;}
       #pa-chars .tab{padding:0.4rem 0.8rem;}
       #pa-chars .strip{display:flex;gap:0.35rem;flex-wrap:wrap;margin:0.5rem 0;}
@@ -215,6 +243,21 @@ export class CharacterEditor {
       #pa-c-newdlg .grid canvas{width:2.4rem;height:4.8rem;image-rendering:pixelated;background:#0d0f14;border:1px solid #3a4150;}
       #pa-c-newdlg .grid .blank{width:2.4rem;height:4.8rem;display:flex;align-items:center;justify-content:center;
         background:#0d0f14;border:1px dashed #3a4150;color:#6b7280;font-size:1.4rem;}
+      #pa-c-import{position:fixed;top:3.4rem;left:0.5rem;z-index:61;display:none;max-width:30rem;background:#1b1f2a;
+        border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
+        box-shadow:0 4px 0 rgba(0,0,0,.4);max-height:92vh;overflow:auto;}
+      #pa-c-import .row{display:flex;align-items:center;gap:0.4rem;margin:0.45rem 0;font-size:0.95rem;flex-wrap:wrap;}
+      #pa-c-import strong{font-size:1.1rem;color:#cdd3dd;}
+      #pa-c-import button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;
+        font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.6rem;cursor:pointer;}
+      #pa-c-import label{color:#9aa3b2;}
+      #pa-c-import input[type=number]{width:3rem;background:#14161c;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.3rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.25rem 0.3rem;}
+      #pa-c-import .tgt{margin-left:auto;color:#7cc4ff;font-size:0.9rem;}
+      #pa-c-import .canvaswrap{overflow:auto;max-height:62vh;border:1px solid #3a4150;
+        background:repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/1rem 1rem;}
+      #pa-c-import canvas{image-rendering:pixelated;display:block;cursor:crosshair;}
+      #pa-c-import .hint{font-size:0.8rem;color:#8b93a3;margin-top:0.4rem;}
     `;
     document.head.appendChild(style);
 
@@ -239,7 +282,23 @@ export class CharacterEditor {
       <div id="pa-c-edit" style="display:none">
         <div class="row"><button id="pa-c-back">← Back</button>
           <input id="pa-c-name" type="text" maxlength="16" placeholder="char name" style="flex:1;min-width:0;"></div>
+        <div class="row"><span class="sizelabel">Size</span>
+          <input id="pa-c-w" type="number" min="1" max="64"><span class="sizelabel">×</span>
+          <input id="pa-c-h" type="number" min="1" max="64">
+          <span class="sizelabel" style="font-size:0.8rem">px · max 64×64</span></div>
         <div class="row" id="pa-c-dirs"></div>
+        <div class="row">
+          <div class="prevbox"><canvas id="pa-c-preview" width="16" height="32"></canvas></div>
+          <span class="sizelabel">Preview</span>
+          <select id="pa-c-pose" title="Animation shown in the preview">
+            <option value="idle">Idle</option>
+            <option value="walk" selected>Walk</option>
+            <option value="typing">Typing</option>
+            <option value="reading">Reading</option>
+            <option value="coffee">Coffee</option>
+          </select>
+          <span class="sizelabel" style="font-size:0.8rem">· current direction</span>
+        </div>
         <div class="strip" id="pa-c-strip"></div>
         <div class="row">
           <input id="pa-c-color" type="color" value="${this.color}">
@@ -254,6 +313,9 @@ export class CharacterEditor {
           <button id="pa-c-addframe">+ Coffee frame</button>
           <button id="pa-c-delframe">Delete frame</button>
         </div>
+        <div class="row">
+          <button id="pa-c-import-btn" title="Pick frames from a PNG sprite sheet">⇪ Import from PNG…</button>
+        </div>
         <div class="row" style="justify-content:flex-end;min-height:16px;margin:0;"><span id="pa-c-status">​</span></div>
         <div class="foot">
           <button id="pa-c-save" class="on">Save</button>
@@ -263,16 +325,43 @@ export class CharacterEditor {
       <div id="pa-c-newdlg"><div class="box"><h4>New character — copy from</h4><div class="grid" id="pa-c-newgrid"></div>
         <div class="row" style="justify-content:flex-end;"><button id="pa-c-newcancel">Cancel</button></div></div></div>`;
 
+    const importPanel = document.createElement('div');
+    importPanel.id = 'pa-c-import';
+    importPanel.className = 'pa-ui';
+    importPanel.innerHTML = `
+      <div class="row"><strong>Import from PNG</strong>
+        <span class="tgt" id="pa-imp-target"></span>
+        <button id="pa-imp-close" style="margin-left:0.4rem">✕</button></div>
+      <div class="row"><button id="pa-imp-load">Load PNG…</button>
+        <label>zoom</label><button id="pa-imp-zo">−</button><button id="pa-imp-zi">＋</button></div>
+      <div class="row">
+        <label>cell</label><input id="pa-imp-cw" type="number" min="1" max="128">×<input id="pa-imp-ch" type="number" min="1" max="128">
+        <label>off</label><input id="pa-imp-ox" type="number" min="0" max="4096"><input id="pa-imp-oy" type="number" min="0" max="4096">
+        <label>gap</label><input id="pa-imp-gx" type="number" min="0" max="256"><input id="pa-imp-gy" type="number" min="0" max="256">
+      </div>
+      <div class="canvaswrap"><canvas id="pa-imp-canvas" width="0" height="0"></canvas></div>
+      <div class="hint">Pick a frame on the right, then click a cell here to drop it in (scaled to the frame size if it differs).</div>
+      <input id="pa-imp-file" type="file" accept="image/png,image/*" hidden>`;
+
     const host = document.getElementById('game') ?? document.body;
     if (this.opts.topbar) this.opts.topbar.appendChild(btn);
     else host.appendChild(btn);
     host.appendChild(panel);
+    host.appendChild(importPanel);
+    this.importPanel = importPanel;
+    this.importCanvas = importPanel.querySelector<HTMLCanvasElement>('#pa-imp-canvas')!;
+    this.wireImport();
     this.panel = panel;
     this.galleryPane = panel.querySelector<HTMLDivElement>('#pa-c-gallery')!;
     this.editPane = panel.querySelector<HTMLDivElement>('#pa-c-edit')!;
     this.cardsHost = panel.querySelector<HTMLDivElement>('#pa-c-cards')!;
     this.canvas = panel.querySelector<HTMLCanvasElement>('#pa-paint')!;
     this.strip = panel.querySelector<HTMLDivElement>('#pa-c-strip')!;
+    this.previewCanvas = panel.querySelector<HTMLCanvasElement>('#pa-c-preview')!;
+    panel.querySelector<HTMLSelectElement>('#pa-c-pose')!.onchange = (e) => {
+      this.previewPose = (e.target as HTMLSelectElement).value as PreviewPose;
+      this.startPreview();
+    };
 
     // Direction tabs
     const dirsRow = panel.querySelector<HTMLDivElement>('#pa-c-dirs')!;
@@ -306,6 +395,18 @@ export class CharacterEditor {
       this.dirty = true;
       this.render(); // Save button enables/disables with the name.
     };
+    const wEl = panel.querySelector<HTMLInputElement>('#pa-c-w')!;
+    const hEl = panel.querySelector<HTMLInputElement>('#pa-c-h')!;
+    const onSize = (): void => {
+      const w = Math.max(1, Math.min(MAX_DIM, Math.round(Number(wEl.value) || this.W)));
+      const h = Math.max(1, Math.min(MAX_DIM, Math.round(Number(hEl.value) || this.H)));
+      if (w === this.W && h === this.H) return;
+      this.resizeWork(w, h);
+      this.dirty = true;
+      this.render();
+    };
+    wEl.onchange = onSize;
+    hEl.onchange = onSize;
     const colorEl = panel.querySelector<HTMLInputElement>('#pa-c-color')!;
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -328,6 +429,7 @@ export class CharacterEditor {
     panel.querySelector<HTMLButtonElement>('#pa-c-delframe')!.onclick = () => this.deleteFrameset();
     panel.querySelector<HTMLButtonElement>('#pa-c-save')!.onclick = () => this.doSave();
     panel.querySelector<HTMLButtonElement>('#pa-c-export')!.onclick = () => this.doExport();
+    panel.querySelector<HTMLButtonElement>('#pa-c-import-btn')!.onclick = () => this.toggleImport();
 
     this.bindPaint();
   }
@@ -422,6 +524,9 @@ export class CharacterEditor {
     if (srcIndex !== null && tpl[srcIndex]) {
       this.work = cloneChar(tpl[srcIndex]);
     } else {
+      // Fresh blank characters start at the default 16×32 (resizable in-editor).
+      this.W = 16;
+      this.H = 32;
       const blank = (): SpriteData[] =>
         Array.from({ length: BASE_FRAMES }, () => emptyFrame(this.W, this.H));
       this.work = { down: blank(), up: blank(), right: blank() };
@@ -438,8 +543,36 @@ export class CharacterEditor {
     }
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
+    this.syncSizeInputs();
     this.dirty = false;
     if (this.view === 'edit') this.render();
+  }
+
+  private syncSizeInputs(): void {
+    const w = this.panel?.querySelector<HTMLInputElement>('#pa-c-w');
+    const h = this.panel?.querySelector<HTMLInputElement>('#pa-c-h');
+    if (w) w.value = String(this.W);
+    if (h) h.value = String(this.H);
+  }
+
+  /** Resize every frame (all directions) to w×h, keeping the top-left pixels
+   *  (crop on shrink, pad with transparent on grow). */
+  private resizeWork(w: number, h: number): void {
+    const resizeFrame = (f: SpriteData): SpriteData => {
+      const out = emptyFrame(w, h);
+      for (let y = 0; y < Math.min(h, f.length); y++) {
+        for (let x = 0; x < Math.min(w, f[y]?.length ?? 0); x++) out[y][x] = f[y][x];
+      }
+      return out;
+    };
+    const resizeFrames = (frames: SpriteData[]): SpriteData[] => frames.map(resizeFrame);
+    this.work.down = resizeFrames(this.work.down);
+    this.work.up = resizeFrames(this.work.up);
+    this.work.right = resizeFrames(this.work.right);
+    if (this.work.left) this.work.left = resizeFrames(this.work.left);
+    this.W = w;
+    this.H = h;
+    this.syncSizeInputs();
   }
 
   /** Canonical frame count (down/up/right stay equal length). */
@@ -472,6 +605,13 @@ export class CharacterEditor {
     if (this.work.left) this.work.left.splice(start, last.count);
     this.frame = Math.min(this.frame, this.baseLen() - 1);
     this.dirty = true;
+    // Don't keep previewing a pose whose frames just went away.
+    if (this.previewPose === 'coffee' && presentFramesets(this.baseLen()) === 0) {
+      this.previewPose = 'walk';
+      const sel = this.panel.querySelector<HTMLSelectElement>('#pa-c-pose');
+      if (sel) sel.value = 'walk';
+      this.startPreview();
+    }
     this.render();
   }
 
@@ -628,8 +768,12 @@ export class CharacterEditor {
     const hasName = !!this.work.name?.trim();
     saveBtn.disabled = !hasName;
     saveBtn.title = hasName ? '' : 'Enter a name first';
+    // Coffee preview only makes sense once the coffee frame-set exists.
+    const coffeeOpt = this.panel.querySelector<HTMLOptionElement>('#pa-c-pose option[value="coffee"]');
+    if (coffeeOpt) coffeeOpt.disabled = presentFramesets(this.baseLen()) === 0;
     this.renderStrip();
     this.renderPaint();
+    this.updateImportTarget();
   }
 
   private drawFrameTo(ctx: CanvasRenderingContext2D, f: SpriteData, cell: number, alpha = 1): void {
@@ -645,16 +789,27 @@ export class CharacterEditor {
     ctx.globalAlpha = 1;
   }
 
+  /** On-screen pixels per sprite pixel for the paint canvas, shrunk so large
+   *  frames still fit the panel (≈340px wide / ≈460px tall budget). */
+  private paintCell(): number {
+    return Math.max(2, Math.min(CELL, Math.floor(340 / this.W), Math.floor(460 / this.H)));
+  }
+  /** Scale for the frame-strip thumbnails (keeps them ≈56px tall). */
+  private stripCell(): number {
+    return Math.max(1, Math.min(3, Math.round(56 / this.H)));
+  }
+
   private renderStrip(): void {
     const frames = this.dirFrames(this.dir);
+    const sc = this.stripCell();
     this.strip.innerHTML = '';
     frames.forEach((f, i) => {
       const wrap = document.createElement('div');
       wrap.className = 'fr' + (i === this.frame ? ' sel' : '');
       const c = document.createElement('canvas');
-      c.width = this.W * 2;
-      c.height = this.H * 2;
-      this.drawFrameTo(c.getContext('2d')!, f, 2);
+      c.width = this.W * sc;
+      c.height = this.H * sc;
+      this.drawFrameTo(c.getContext('2d')!, f, sc);
       const lab = document.createElement('span');
       lab.textContent = frameLabel(i);
       wrap.appendChild(c);
@@ -668,30 +823,307 @@ export class CharacterEditor {
   }
 
   private renderPaint(): void {
-    this.canvas.width = this.W * CELL;
-    this.canvas.height = this.H * CELL;
+    const cell = this.paintCell();
+    this.canvas.width = this.W * cell;
+    this.canvas.height = this.H * cell;
     const ctx = this.canvas.getContext('2d')!;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     // Onion skin: previous frame faint.
     const frames = this.dirFrames(this.dir);
     if (this.onion && this.frame > 0) {
-      this.drawFrameTo(ctx, frames[this.frame - 1], CELL, 0.25);
+      this.drawFrameTo(ctx, frames[this.frame - 1], cell, 0.25);
     }
-    this.drawFrameTo(ctx, frames[this.frame], CELL, 1);
+    this.drawFrameTo(ctx, frames[this.frame], cell, 1);
     // Grid
     ctx.strokeStyle = 'rgba(255,255,255,0.06)';
     for (let x = 0; x <= this.W; x++) {
       ctx.beginPath();
-      ctx.moveTo(x * CELL, 0);
-      ctx.lineTo(x * CELL, this.H * CELL);
+      ctx.moveTo(x * cell, 0);
+      ctx.lineTo(x * cell, this.H * cell);
       ctx.stroke();
     }
     for (let y = 0; y <= this.H; y++) {
       ctx.beginPath();
-      ctx.moveTo(0, y * CELL);
-      ctx.lineTo(this.W * CELL, y * CELL);
+      ctx.moveTo(0, y * cell);
+      ctx.lineTo(this.W * cell, y * cell);
       ctx.stroke();
     }
+    this.renderPreview(); // reflect edits live in the preview
+  }
+
+  // ── Live preview ─────────────────────────────────────────────────
+  /** Editor frame indices that make up an animation pose's loop. */
+  private poseFrames(pose: PreviewPose): number[] {
+    switch (pose) {
+      case 'walk':
+        return [0, 1, 2, 1];
+      case 'typing':
+        return [3, 4];
+      case 'reading':
+        return [5, 6];
+      case 'coffee':
+        if (presentFramesets(this.baseLen()) > 0) {
+          return Array.from({ length: EXT_FRAMESETS[0].count }, (_, i) => BASE_FRAMES + i);
+        }
+        return [1];
+      case 'idle':
+      default:
+        return [1];
+    }
+  }
+  /** Per-frame duration (ms) matching the engine; 0 = static (no timer). */
+  private poseDurationMs(pose: PreviewPose): number {
+    switch (pose) {
+      case 'walk':
+        return 150;
+      case 'typing':
+      case 'reading':
+        return 300;
+      case 'coffee':
+        return 500;
+      default:
+        return 0;
+    }
+  }
+
+  private startPreview(): void {
+    this.stopPreview();
+    this.previewFrameIdx = 0;
+    this.renderPreview();
+    const ms = this.poseDurationMs(this.previewPose);
+    if (ms > 0 && this.poseFrames(this.previewPose).length > 1) {
+      this.previewTimer = window.setInterval(() => {
+        this.previewFrameIdx++;
+        this.renderPreview();
+      }, ms);
+    }
+  }
+  private stopPreview(): void {
+    if (this.previewTimer !== undefined) {
+      window.clearInterval(this.previewTimer);
+      this.previewTimer = undefined;
+    }
+  }
+
+  /** Draw the current pose/direction frame into the preview canvas (native size;
+   *  CSS scales it up crisply, bottom-anchored like the in-game sprite). */
+  private renderPreview(): void {
+    const cv = this.previewCanvas;
+    if (!cv) return;
+    const frames = this.dirFrames(this.dir);
+    const seq = this.poseFrames(this.previewPose);
+    const idx = seq[this.previewFrameIdx % seq.length];
+    const sprite = frames[idx] ?? frames[frames.length - 1];
+    cv.width = this.W;
+    cv.height = this.H;
+    const ctx = cv.getContext('2d')!;
+    ctx.clearRect(0, 0, this.W, this.H);
+    if (sprite) this.drawFrameTo(ctx, sprite, 1);
+  }
+
+  // ── PNG sheet import ─────────────────────────────────────────────
+  /** Wire the (left-docked) import panel: file load, grid inputs, zoom and the
+   *  hover/click cell picker. The picked cell drops into the selected frame. */
+  private wireImport(): void {
+    const p = this.importPanel;
+    const file = p.querySelector<HTMLInputElement>('#pa-imp-file')!;
+    p.querySelector<HTMLButtonElement>('#pa-imp-close')!.onclick = () => this.closeImport();
+    p.querySelector<HTMLButtonElement>('#pa-imp-load')!.onclick = () => file.click();
+    file.onchange = () => {
+      const f = file.files?.[0];
+      if (f) this.loadImportFile(f);
+      file.value = '';
+    };
+    p.querySelector<HTMLButtonElement>('#pa-imp-zi')!.onclick = () => {
+      this.imp.scale = Math.min(16, this.imp.scale + 1);
+      this.renderImportCanvas();
+    };
+    p.querySelector<HTMLButtonElement>('#pa-imp-zo')!.onclick = () => {
+      this.imp.scale = Math.max(1, this.imp.scale - 1);
+      this.renderImportCanvas();
+    };
+    const num = (id: string, key: 'cw' | 'ch' | 'ox' | 'oy' | 'gx' | 'gy', min: number, max: number): void => {
+      const el = p.querySelector<HTMLInputElement>(id)!;
+      el.oninput = () => {
+        this.imp[key] = Math.max(min, Math.min(max, Math.round(Number(el.value) || min)));
+        this.impHover = null;
+        this.renderImportCanvas();
+      };
+    };
+    num('#pa-imp-cw', 'cw', 1, 128);
+    num('#pa-imp-ch', 'ch', 1, 128);
+    num('#pa-imp-ox', 'ox', 0, 4096);
+    num('#pa-imp-oy', 'oy', 0, 4096);
+    num('#pa-imp-gx', 'gx', 0, 256);
+    num('#pa-imp-gy', 'gy', 0, 256);
+    this.importCanvas.addEventListener('pointermove', (e) => {
+      const c = this.cellFromPointer(e);
+      if (c?.col !== this.impHover?.col || c?.row !== this.impHover?.row) {
+        this.impHover = c;
+        this.renderImportCanvas();
+      }
+    });
+    this.importCanvas.addEventListener('pointerleave', () => {
+      this.impHover = null;
+      this.renderImportCanvas();
+    });
+    this.importCanvas.addEventListener('click', (e) => {
+      const c = this.cellFromPointer(e);
+      if (c) this.importCell(c.col, c.row);
+    });
+  }
+
+  private toggleImport(): void {
+    this.importOpen ? this.closeImport() : this.openImport();
+  }
+  private openImport(): void {
+    this.importOpen = true;
+    this.importPanel.style.display = 'block';
+    this.updateImportTarget();
+  }
+  private closeImport(): void {
+    this.importOpen = false;
+    if (this.importPanel) this.importPanel.style.display = 'none';
+  }
+
+  private loadImportFile(f: File): void {
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      this.importImg = img;
+      // Default the cell to the character frame size; reset offset/gap so a
+      // grid-aligned sheet at the same size grabs 1:1.
+      this.imp.cw = this.W;
+      this.imp.ch = this.H;
+      this.imp.ox = 0;
+      this.imp.oy = 0;
+      this.imp.gx = 0;
+      this.imp.gy = 0;
+      this.imp.scale = Math.max(1, Math.min(8, Math.floor(360 / img.naturalWidth) || 1));
+      this.impHover = null;
+      this.syncImportInputs();
+      this.renderImportCanvas();
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      this.showStatus('Could not load image');
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  }
+
+  private syncImportInputs(): void {
+    const set = (id: string, v: number): void => {
+      const el = this.importPanel.querySelector<HTMLInputElement>(id);
+      if (el) el.value = String(v);
+    };
+    set('#pa-imp-cw', this.imp.cw);
+    set('#pa-imp-ch', this.imp.ch);
+    set('#pa-imp-ox', this.imp.ox);
+    set('#pa-imp-oy', this.imp.oy);
+    set('#pa-imp-gx', this.imp.gx);
+    set('#pa-imp-gy', this.imp.gy);
+  }
+
+  private impCols(): number {
+    if (!this.importImg) return 0;
+    return Math.max(0, Math.floor((this.importImg.naturalWidth - this.imp.ox + this.imp.gx) / (this.imp.cw + this.imp.gx)));
+  }
+  private impRows(): number {
+    if (!this.importImg) return 0;
+    return Math.max(0, Math.floor((this.importImg.naturalHeight - this.imp.oy + this.imp.gy) / (this.imp.ch + this.imp.gy)));
+  }
+
+  private renderImportCanvas(): void {
+    const cv = this.importCanvas;
+    const img = this.importImg;
+    if (!img) {
+      cv.width = 0;
+      cv.height = 0;
+      return;
+    }
+    const { cw, ch, ox, oy, gx, gy, scale: s } = this.imp;
+    cv.width = img.naturalWidth * s;
+    cv.height = img.naturalHeight * s;
+    const ctx = cv.getContext('2d')!;
+    ctx.imageSmoothingEnabled = false;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(img, 0, 0, cv.width, cv.height);
+    // Cell grid overlay.
+    const cols = this.impCols();
+    const rows = this.impRows();
+    ctx.strokeStyle = 'rgba(122,196,255,0.5)';
+    ctx.lineWidth = 1;
+    for (let c = 0; c < cols; c++) {
+      for (let r = 0; r < rows; r++) {
+        ctx.strokeRect((ox + c * (cw + gx)) * s + 0.5, (oy + r * (ch + gy)) * s + 0.5, cw * s - 1, ch * s - 1);
+      }
+    }
+    // Hover highlight.
+    if (this.impHover) {
+      const x = (ox + this.impHover.col * (cw + gx)) * s;
+      const y = (oy + this.impHover.row * (ch + gy)) * s;
+      ctx.fillStyle = 'rgba(58,109,240,0.3)';
+      ctx.fillRect(x, y, cw * s, ch * s);
+      ctx.strokeStyle = '#3a6df0';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, cw * s - 2, ch * s - 2);
+    }
+  }
+
+  private cellFromPointer(e: PointerEvent): { col: number; row: number } | null {
+    if (!this.importImg) return null;
+    const r = this.importCanvas.getBoundingClientRect();
+    const s = this.imp.scale;
+    const px = (e.clientX - r.left) / s;
+    const py = (e.clientY - r.top) / s;
+    const { cw, ch, ox, oy, gx, gy } = this.imp;
+    if (px < ox || py < oy) return null;
+    const col = Math.floor((px - ox) / (cw + gx));
+    const row = Math.floor((py - oy) / (ch + gy));
+    if (col < 0 || row < 0 || col >= this.impCols() || row >= this.impRows()) return null;
+    // Reject clicks that land in the gap between cells.
+    if ((px - ox) - col * (cw + gx) > cw || (py - oy) - row * (ch + gy) > ch) return null;
+    return { col, row };
+  }
+
+  /** Drop the chosen sheet cell into the selected frame, scaled (nearest-
+   *  neighbor) to the character frame size so any cell size fits. */
+  private importCell(col: number, row: number): void {
+    const img = this.importImg;
+    if (!img) return;
+    const { cw, ch, ox, oy, gx, gy } = this.imp;
+    const sx = ox + col * (cw + gx);
+    const sy = oy + row * (ch + gy);
+    const tmp = document.createElement('canvas');
+    tmp.width = this.W;
+    tmp.height = this.H;
+    const tctx = tmp.getContext('2d')!;
+    tctx.imageSmoothingEnabled = false;
+    tctx.clearRect(0, 0, this.W, this.H);
+    tctx.drawImage(img, sx, sy, cw, ch, 0, 0, this.W, this.H);
+    const data = tctx.getImageData(0, 0, this.W, this.H).data;
+    const hx = (n: number): string => n.toString(16).padStart(2, '0');
+    const grid: SpriteData = [];
+    for (let y = 0; y < this.H; y++) {
+      const rowArr: string[] = [];
+      for (let x = 0; x < this.W; x++) {
+        const i = (y * this.W + x) * 4;
+        const a = data[i + 3];
+        rowArr.push(a === 0 ? '' : `#${hx(data[i])}${hx(data[i + 1])}${hx(data[i + 2])}${a < 255 ? hx(a) : ''}`);
+      }
+      grid.push(rowArr);
+    }
+    const frames = this.dir === 'left' ? this.ensureLeft() : this.work[this.dir];
+    frames[this.frame] = grid;
+    this.dirty = true;
+    this.render();
+    this.showStatus(`Imported into ${DIR_LABEL[this.dir]} · ${frameLabel(this.frame)} ✓`);
+  }
+
+  private updateImportTarget(): void {
+    const el = this.importPanel?.querySelector<HTMLSpanElement>('#pa-imp-target');
+    if (el) el.textContent = this.importOpen ? `→ ${DIR_LABEL[this.dir]} · ${frameLabel(this.frame)}` : '';
   }
 
   private bindPaint(): void {

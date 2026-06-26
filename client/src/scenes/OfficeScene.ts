@@ -3,7 +3,7 @@ import { getStateCallbacks, type Room } from 'colyseus.js';
 
 import { OfficeState } from '@pixel/shared/office/engine/index.js';
 import {
-  CHARACTER_HIT_HALF_WIDTH,
+  CHARACTER_BASELINE_HEIGHT,
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
   FUEL_COLOR_CRITICAL,
@@ -26,7 +26,7 @@ import {
   type Pet,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getCharacterTemplates, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor } from '../editor/CharacterEditor.js';
@@ -505,10 +505,14 @@ export class OfficeScene extends Phaser.Scene {
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       const cx = ch.x ?? ch.tx;
       const cy = (ch.y ?? ch.ty) + sit;
+      // Hit box tracks the character's actual sprite size (anchored bottom-centre).
+      const { w, h } = getCharacterSize(ch.palette ?? 0);
+      const halfW = w / 2;
+      const hitH = (CHARACTER_HIT_HEIGHT * h) / CHARACTER_BASELINE_HEIGHT;
       if (
-        wx >= cx - CHARACTER_HIT_HALF_WIDTH &&
-        wx <= cx + CHARACTER_HIT_HALF_WIDTH &&
-        wy >= cy - CHARACTER_HIT_HEIGHT &&
+        wx >= cx - halfW &&
+        wx <= cx + halfW &&
+        wy >= cy - hitH &&
         wy <= cy &&
         cy > bestY
       ) {
@@ -772,12 +776,18 @@ export class OfficeScene extends Phaser.Scene {
       if (!t) return;
       const charPanel = document.getElementById('pa-chars');
       const furnPanel = document.getElementById('pa-furn');
+      // The char editor's PNG-import panel and the in-game confirm/prompt dialog
+      // are separate top-level elements — clicks there must not close the menu.
+      const importPanel = document.getElementById('pa-c-import');
+      const modal = document.getElementById('pa-modal');
       if (
         this.topbar?.contains(t) ||
         this.settingsPanel?.contains(t) ||
         this.layoutsPanel?.contains(t) ||
         charPanel?.contains(t) ||
-        furnPanel?.contains(t)
+        furnPanel?.contains(t) ||
+        importPanel?.contains(t) ||
+        modal?.contains(t)
       )
         return;
       this.setMenu(null);
@@ -922,8 +932,10 @@ export class OfficeScene extends Phaser.Scene {
       }
       el.textContent = name;
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      // Lift the label above the head proportionally to the sprite height.
+      const headOff = (20 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - 20 - wv.y) * cam.zoom)}px`;
+      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
     for (const [id, el] of this.nameLabels) {
       if (!live.has(id)) {
@@ -973,8 +985,10 @@ export class OfficeScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const wv = cam.worldView;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+    // Place the tooltip above the head, scaled to the character's sprite height.
+    const tipOff = (TOOL_OVERLAY_VERTICAL_OFFSET * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
     const sx = ((ch.x ?? ch.tx) - wv.x) * cam.zoom;
-    const sy = ((ch.y ?? ch.ty) + sit - TOOL_OVERLAY_VERTICAL_OFFSET - wv.y) * cam.zoom;
+    const sy = ((ch.y ?? ch.ty) + sit - tipOff - wv.y) * cam.zoom;
     this.tip.style.left = `${Math.round(sx)}px`;
     this.tip.style.top = `${Math.round(sy)}px`;
 

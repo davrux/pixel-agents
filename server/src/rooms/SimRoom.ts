@@ -233,14 +233,17 @@ export class SimRoom extends Room<RoomState> {
     if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
     const dims = { w: -1, h: -1 };
     const hex = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
+    // Frame dimensions are capped at 64×64 (Stufe A); frame *count* per direction
+    // is bounded separately (base + frame-sets).
+    const MAX_DIM = 64;
     const validFrames = (frames: unknown): boolean => {
       if (!Array.isArray(frames) || frames.length === 0 || frames.length > 64) return false;
       for (const frame of frames) {
-        if (!Array.isArray(frame) || frame.length === 0 || frame.length > 128) return false;
+        if (!Array.isArray(frame) || frame.length === 0 || frame.length > MAX_DIM) return false;
         if (dims.h === -1) dims.h = frame.length;
         else if (frame.length !== dims.h) return false;
         for (const row of frame as unknown[]) {
-          if (!Array.isArray(row) || row.length === 0 || row.length > 128) return false;
+          if (!Array.isArray(row) || row.length === 0 || row.length > MAX_DIM) return false;
           if (dims.w === -1) dims.w = row.length;
           else if (row.length !== dims.w) return false;
           for (const cell of row as unknown[]) {

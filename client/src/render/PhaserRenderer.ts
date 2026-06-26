@@ -12,6 +12,7 @@ import {
   BUBBLE_FADE_DURATION_SEC,
   BUBBLE_SITTING_OFFSET_PX,
   BUBBLE_VERTICAL_OFFSET_PX,
+  CHARACTER_BASELINE_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
   CHARACTER_Z_SORT_OFFSET,
   PET_EFFECT_DURATION_SEC,
@@ -224,7 +225,10 @@ export class PhaserRenderer {
       const bsd = ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE;
       g.bubble.setTexture(spriteTexture(this.scene, bsd)).setVisible(true);
       const bsit = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
-      g.bubble.setPosition(Math.round(ch.x), Math.round(ch.y + bsit - BUBBLE_VERTICAL_OFFSET_PX));
+      // Lift the bubble proportionally to the sprite height so it clears the head
+      // of taller characters (baseline 32px → the original 24px offset).
+      const vOff = (BUBBLE_VERTICAL_OFFSET_PX * sd.length) / CHARACTER_BASELINE_HEIGHT;
+      g.bubble.setPosition(Math.round(ch.x), Math.round(ch.y + bsit - vOff));
       let ba = 1;
       if (ch.bubbleType === 'waiting' && ch.bubbleTimer < BUBBLE_FADE_DURATION_SEC) {
         ba = ch.bubbleTimer / BUBBLE_FADE_DURATION_SEC;

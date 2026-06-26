@@ -57,6 +57,17 @@ export function getLoadedCharacterCount(): number {
   return loadedCharacters ? loadedCharacters.length : PALETTE_COUNT;
 }
 
+/** Frame size (w×h, px) of a character template by palette index. All frames of
+ *  a character share one size; falls back to 16×32 before templates load. Used
+ *  by the renderer/hit-test to place overlays correctly for any character size. */
+export function getCharacterSize(paletteIndex: number): { w: number; h: number } {
+  if (loadedCharacters && loadedCharacters.length > 0) {
+    const f = loadedCharacters[paletteIndex % loadedCharacters.length]?.down?.[0];
+    if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
+  }
+  return { w: 16, h: 32 };
+}
+
 /** Flip a SpriteData horizontally (for generating left sprites from right) */
 function flipSpriteHorizontal(sprite: SpriteData): SpriteData {
   return sprite.map((row) => [...row].reverse());

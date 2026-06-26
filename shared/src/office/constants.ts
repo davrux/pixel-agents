@@ -69,6 +69,10 @@ export const MATRIX_TRAIL_MID_THRESHOLD = 0.33;
 export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
 
 // ── Rendering ────────────────────────────────────────────────
+/** Baseline character frame height (px) the tuned overlay offsets below were
+ *  authored for. Characters may now be other sizes (≤64×64); "above-the-head"
+ *  offsets (bubble/tooltip/name) scale by actual height ÷ this. */
+export const CHARACTER_BASELINE_HEIGHT = 32;
 export const CHARACTER_SITTING_OFFSET_PX = 6;
 export const CHARACTER_Z_SORT_OFFSET = 0.5;
 export const OUTLINE_Z_SORT_OFFSET = 0.001;
