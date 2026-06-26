@@ -68,6 +68,10 @@ export class SimRoom extends Room<RoomState> {
     // The active layout (persisted, falling back to the bundled default).
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
     this.os = new OfficeState(this.migratedActiveLayout());
+    // Restore per-user pinned character palettes (so a user's skin stays stable).
+    for (const [name, palette] of Object.entries(appStore.getCharPrefs())) {
+      this.os.setPalettePref(name, palette);
+    }
 
     // Seed any agents that already exist (mock/feed started before this room).
     for (const a of director.snapshot()) {
@@ -94,9 +98,10 @@ export class SimRoom extends Room<RoomState> {
     client.send('m', this.activeLayoutMessage());
     client.send('m', this.layoutListMessage());
 
-    // Who this viewer logged in as (for per-user sounds) + current settings.
+    // Who this viewer logged in as (for per-user sounds) + their pinned skin.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-    client.send('m', { type: 'viewerIdentity', username });
+    const characterPalette = username ? (appStore.getCharPrefs()[username] ?? null) : null;
+    client.send('m', { type: 'viewerIdentity', username, characterPalette });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -168,6 +173,20 @@ export class SimRoom extends Room<RoomState> {
     this.onMessage('setAlertVolume', (_c, msg: { volume?: number }) => {
       const v = Number(msg?.volume);
       appStore.setSetting('alertVolume', Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1);
+    });
+
+    // Pin the viewer's character palette (keyed by their identity). Applies to
+    // their current/future agents and persists across restarts.
+    this.onMessage('setCharacter', (client, msg: { palette?: number; name?: string }) => {
+      const palette = Number(msg?.palette);
+      if (!Number.isInteger(palette) || palette < 0 || palette > 999) return;
+      const auth = (client.auth as { username?: string } | undefined)?.username;
+      const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
+        .trim()
+        .slice(0, 16);
+      if (!name) return;
+      appStore.setCharPref(name, palette);
+      this.os.setPalettePref(name, palette);
     });
 
     // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge

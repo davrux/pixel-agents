@@ -55,6 +55,10 @@ class AppStore {
     return { username: r.username };
   }
 
+  deleteSession(sid: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
+  }
+
   cleanupExpired(): void {
     this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   }
@@ -102,6 +106,16 @@ class AppStore {
   deleteAsset(type: string, name: string): boolean {
     const r = this.db.prepare('DELETE FROM assets WHERE type = ? AND name = ?').run(type, name);
     return Number(r.changes) > 0;
+  }
+
+  // ── Per-user character palette preference ────────────────────────
+  getCharPrefs(): Record<string, number> {
+    return this.getSetting<Record<string, number>>('charPrefs', {});
+  }
+  setCharPref(name: string, palette: number): void {
+    const prefs = this.getCharPrefs();
+    prefs[name] = palette;
+    this.setSetting('charPrefs', prefs);
   }
 
   // ── Settings (global; matches the original single-server fork) ───

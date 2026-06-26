@@ -83,6 +83,8 @@ export class OfficeState {
   /** Reverse lookup: sub-agent character ID → parent info */
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
+  /** Per-user pinned character palette (folderName → palette index). */
+  private palettePrefs = new Map<string, number>();
 
   // ── Pets ──────────────────────────────────────────────────
   /** Live pets, keyed by a dedicated id space (disjoint from characters). */
@@ -407,6 +409,18 @@ export class OfficeState {
     return { palette, hueShift };
   }
 
+  /** Pin a user's character palette and recolor any of their live agents. */
+  setPalettePref(folderName: string, palette: number): void {
+    if (!folderName) return;
+    this.palettePrefs.set(folderName, palette);
+    for (const ch of this.characters.values()) {
+      if (!ch.isSubagent && ch.folderName === folderName) {
+        ch.palette = palette;
+        ch.hueShift = 0;
+      }
+    }
+  }
+
   addAgent(
     id: number,
     preferredPalette?: number,
@@ -419,9 +433,14 @@ export class OfficeState {
 
     let palette: number;
     let hueShift: number;
+    const pref = folderName ? this.palettePrefs.get(folderName) : undefined;
     if (preferredPalette !== undefined) {
       palette = preferredPalette;
       hueShift = preferredHueShift ?? 0;
+    } else if (pref !== undefined) {
+      // The viewer pinned a character for this user → always use it.
+      palette = pref;
+      hueShift = 0;
     } else {
       const pick = this.pickDiversePalette();
       palette = pick.palette;

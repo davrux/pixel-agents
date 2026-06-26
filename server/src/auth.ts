@@ -82,6 +82,14 @@ export function registerAuth(app: Express, token: string): void {
     res.status(401).type('html').send(loginHtml('Invalid token.'));
   });
 
+  // Logout: drop the session + expire the cookie, then back to the login screen.
+  app.get('/logout', (req: Request, res: Response) => {
+    const sid = parseCookies(req.headers.cookie)[VIEWER_COOKIE];
+    if (sid) appStore.deleteSession(sid);
+    res.setHeader('Set-Cookie', `${VIEWER_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax`);
+    res.redirect(303, '/');
+  });
+
   // Gate the SPA document; assets, /health, /login and Colyseus matchmaking pass
   // through (the room validates the session cookie itself via onAuth).
   app.use((req: Request, res: Response, next: NextFunction) => {
