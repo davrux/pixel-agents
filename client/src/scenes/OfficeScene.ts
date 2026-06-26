@@ -61,6 +61,9 @@ export class OfficeScene extends Phaser.Scene {
   private selectedId: number | null = null;
   private tip!: HTMLDivElement;
   private editor!: LayoutEditor;
+  private topbar?: HTMLElement;
+  private settingsBtn?: HTMLButtonElement;
+  private layoutsBtn?: HTMLButtonElement;
   private layoutsPanel!: HTMLDivElement;
   // Settings + viewer identity (sounds play only for the viewer's own agents;
   // an empty name means "all agents are mine"). A name set in Settings overrides
@@ -97,6 +100,7 @@ export class OfficeScene extends Phaser.Scene {
       onChange: () => (this.furnitureDirty = true),
       rebuildStatic: () => this.view.buildStatic(),
       save: (layout) => this.saveEditedLayout(layout),
+      onEditingChange: (editing) => this.setEditMode(editing),
     });
     // A name chosen in Settings (remembered per browser) wins over the login id.
     try {
@@ -292,19 +296,38 @@ export class OfficeScene extends Phaser.Scene {
     let moved = false;
     let lx = 0;
     let ly = 0;
+    // While a paint tool (floor/wall) is active, left-drag paints and right-drag
+    // erases (v1 behaviour) — the camera pans with the middle mouse instead.
+    let paintMode: 'paint' | 'erase' | null = null;
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       unlockAudio(); // browsers require a gesture before audio can play
       dragging = true;
       moved = false;
       lx = p.x;
       ly = p.y;
-      if (this.editor.isEditing() && p.rightButtonDown()) {
-        this.editor.handleRightClick(p.worldX, p.worldY);
+      paintMode = null;
+      if (this.editor.isEditing()) {
+        const paintTool = this.editor.isPaintTool();
+        if (paintTool && p.leftButtonDown()) {
+          paintMode = 'paint';
+          this.editor.beginStroke();
+          this.editor.strokePaint(p.worldX, p.worldY, false);
+        } else if (p.rightButtonDown()) {
+          if (paintTool) {
+            paintMode = 'erase';
+            this.editor.beginStroke();
+            this.editor.strokePaint(p.worldX, p.worldY, true);
+          } else {
+            this.editor.handleRightClick(p.worldX, p.worldY);
+          }
+        }
       }
     });
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       dragging = false;
-      if (moved) return;
+      const wasPainting = paintMode !== null;
+      paintMode = null;
+      if (moved || wasPainting) return; // a drag (pan) or a paint stroke isn't a click
       if (this.editor.isEditing()) {
         if (p.leftButtonReleased()) {
           this.editor.handleLeftClick(p.worldX, p.worldY);
@@ -323,6 +346,11 @@ export class OfficeScene extends Phaser.Scene {
         this.hoveredId = this.hitTest(p.worldX, p.worldY);
         this.input.manager.canvas.style.cursor = this.hoveredId !== null ? 'pointer' : 'default';
       }
+      if (paintMode) {
+        // Continuous drag-paint/erase — never pans the camera.
+        this.editor.strokePaint(p.worldX, p.worldY, paintMode === 'erase');
+        return;
+      }
       if (dragging) {
         if (Math.abs(p.x - lx) + Math.abs(p.y - ly) > 2) moved = true;
         cam.scrollX -= (p.x - lx) / cam.zoom;
@@ -334,12 +362,19 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private saveEditedLayout(layout: OfficeLayout): void {
-    if (this.layoutListData.active === 'Default') {
-      const name = prompt('Default is read-only — save your edits as a new layout named:');
-      if (!name) return;
+    const active = this.layoutListData.active;
+    if (active === 'Default') {
+      // The bundled Default is read-only — edits must be saved as a named copy.
+      const name = prompt('Default is read-only — save your edits as a new layout named:', 'My Office');
+      if (!name) {
+        setStatus('Save cancelled — Default is read-only; enter a name to save a copy.');
+        return;
+      }
       this.room?.send('saveLayoutAs', { name, layout });
+      setStatus(`Saved layout “${name}”`);
     } else {
       this.room?.send('saveLayout', { layout });
+      setStatus(`Saved layout “${active}”`);
     }
     this.editor.toggle(); // leave edit mode; the server broadcast becomes the source of truth
   }
@@ -388,10 +423,37 @@ export class OfficeScene extends Phaser.Scene {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;
       p.y = (p.y ?? p.ty) + (p.ty - (p.y ?? p.ty)) * k;
     }
+    // Hide live agents/pets while editing — they sit on the server's (un-edited)
+    // layout, so they'd appear to jump when the grid expands left/up.
+    this.view.hideEntities = this.editor.isEditing();
     this.view.update();
     this.editor.tickUI();
     this.updateTooltip();
     this.updateNameLabels();
+  }
+
+  // ── Menus (mutually-exclusive popovers) ──────────────────────────
+
+  /**
+   * Show exactly one of the top-bar popovers (or none). Settings and Layouts
+   * are mutually exclusive; opening either closes the other. The layout editor
+   * is intentionally not managed here — it's the exception that stays open.
+   */
+  private setMenu(menu: 'settings' | 'layouts' | null): void {
+    if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
+    if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
+    if (menu === 'layouts') this.room?.send('requestLayouts');
+  }
+
+  /** Edit mode owns the screen: close + disable the other menus while editing. */
+  private setEditMode(editing: boolean): void {
+    this.setMenu(null);
+    for (const b of [this.settingsBtn, this.layoutsBtn]) {
+      if (!b) continue;
+      b.disabled = editing;
+      b.style.opacity = editing ? '0.4' : '';
+      b.style.pointerEvents = editing ? 'none' : '';
+    }
   }
 
   // ── Layouts panel (DOM overlay) ──────────────────────────────────
@@ -400,46 +462,49 @@ export class OfficeScene extends Phaser.Scene {
     const style = document.createElement('style');
     style.textContent = `
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
-      #pa-layouts-btn,#pa-edit-btn{position:fixed;top:8px;z-index:60;cursor:pointer;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:6px;color:#eef1f6;
-        font:19px 'FS Pixel Sans',monospace;padding:8px 14px;}
-      #pa-layouts-btn{right:8px;}
-      #pa-edit-btn{right:150px;}
-      #pa-layouts{position:fixed;top:52px;right:8px;z-index:60;display:none;width:330px;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:8px;color:#eef1f6;
-        padding:12px;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-layouts h4{margin:0 0 10px;font-size:20px;color:#cdd3dd;}
-      #pa-layouts .item{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:18px;}
+      /* Top-right toolbar: a flex row so the buttons auto-space at any UI scale. */
+      #pa-topbar{position:fixed;top:0.5rem;right:0.5rem;z-index:60;display:flex;gap:0.5rem;}
+      #pa-topbar button{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
+        color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;white-space:nowrap;}
+      #pa-layouts{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
+        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
+        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
+      #pa-layouts h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-layouts .item{display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;font-size:1.1rem;}
       #pa-layouts .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
       #pa-layouts .item .active{color:#ffd24a;}
       #pa-layouts button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:4px;font:16px 'FS Pixel Sans',monospace;padding:5px 10px;}
-      #pa-layouts .foot{margin-top:12px;display:flex;flex-direction:column;gap:8px;}
-      #pa-layouts .foot button{padding:9px;}
+        border-radius:0.25rem;font:1rem 'FS Pixel Sans',monospace;padding:0.3rem 0.6rem;}
+      #pa-layouts .foot{margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;}
+      #pa-layouts .foot button{padding:0.55rem;}
     `;
     document.head.appendChild(style);
 
+    const host = document.getElementById('game') ?? document.body;
+    const topbar = document.createElement('div');
+    topbar.id = 'pa-topbar';
+    topbar.className = 'pa-ui';
+    host.appendChild(topbar);
+    this.topbar = topbar;
+
     const btn = document.createElement('button');
     btn.id = 'pa-layouts-btn';
-    btn.className = 'pa-ui';
     btn.textContent = '⚙ Layouts';
+    this.layoutsBtn = btn;
     const panel = document.createElement('div');
     panel.id = 'pa-layouts';
     panel.className = 'pa-ui';
-    btn.onclick = () => {
-      const open = panel.style.display !== 'block';
-      panel.style.display = open ? 'block' : 'none';
-      if (open) this.room?.send('requestLayouts');
-    };
+    btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'layouts');
     const editBtn = document.createElement('button');
     editBtn.id = 'pa-edit-btn';
-    editBtn.className = 'pa-ui';
     editBtn.textContent = '✏ Edit';
-    editBtn.onclick = () => this.editor.toggle();
+    // The editor ("layout menu") is exclusive with the popovers: close them first.
+    editBtn.onclick = () => {
+      this.setMenu(null);
+      this.editor.toggle();
+    };
 
-    const host = document.getElementById('game') ?? document.body;
-    host.appendChild(btn);
-    host.appendChild(editBtn);
+    topbar.append(editBtn, btn);
     host.appendChild(panel);
     this.layoutsPanel = panel;
     this.renderLayoutsPanel();
@@ -500,7 +565,11 @@ export class OfficeScene extends Phaser.Scene {
     const mine = !this.viewerUsername || folderName === this.viewerUsername;
     const active = !!cs.isActive;
     const bubble = (cs.bubble as string) ?? '';
-    if (mine && p.active && !active) void playDoneSound(); // turn finished
+    // Chime once when the turn genuinely finishes — signalled by the "done"
+    // (waiting) bubble appearing. Keying off this rather than every isActive drop
+    // means mid-task pauses (which go 'idle' silently) no longer chime; only the
+    // turn end does, like v1.
+    if (mine && p.bubble !== 'waiting' && bubble === 'waiting') void playDoneSound();
     if (mine && p.bubble !== 'permission' && bubble === 'permission') void playPermissionSound();
     this.prevState.set(id, { active, bubble });
   }
@@ -518,26 +587,23 @@ export class OfficeScene extends Phaser.Scene {
   private createSettingsPanel(): void {
     const style = document.createElement('style');
     style.textContent = `
-      #pa-settings-btn{position:fixed;top:8px;right:290px;z-index:60;cursor:pointer;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:6px;color:#eef1f6;
-        font:19px 'FS Pixel Sans',monospace;padding:8px 14px;}
-      #pa-settings{position:fixed;top:52px;right:8px;z-index:60;display:none;width:280px;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:8px;color:#eef1f6;padding:14px;
+      #pa-settings{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:19rem;
+        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;
         font-family:'FS Pixel Sans',monospace;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-settings h4{margin:0 0 12px;font-size:20px;color:#cdd3dd;}
-      #pa-settings .row{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:16px;}
+      #pa-settings h4{margin:0 0 0.75rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-settings .row{display:flex;align-items:center;gap:0.5rem;margin:0.65rem 0;font-size:1rem;}
       #pa-settings .row input[type=range]{flex:1;}
       #pa-settings .row label{flex:1;}
       #pa-settings .row input[type=text]{flex:1;min-width:0;background:#14161c;color:#eef1f6;
-        border:2px solid #3a4150;border-radius:5px;padding:5px 7px;font:15px 'FS Pixel Sans',monospace;}
-      #pa-settings .hint{font-size:13px;color:#8b93a3;margin:-4px 0 10px;}
+        border:2px solid #3a4150;border-radius:0.3rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;}
+      #pa-settings .hint{font-size:0.8rem;color:#8b93a3;margin:-0.25rem 0 0.65rem;}
     `;
     document.head.appendChild(style);
 
     const btn = document.createElement('button');
     btn.id = 'pa-settings-btn';
-    btn.className = 'pa-ui';
     btn.textContent = '🔊 Settings';
+    this.settingsBtn = btn;
     const panel = document.createElement('div');
     panel.id = 'pa-settings';
     panel.innerHTML = `<h4>Settings</h4>
@@ -546,13 +612,22 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>`;
-    btn.onclick = () => {
-      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-    };
+    btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'settings');
     const host = document.getElementById('game') ?? document.body;
-    host.appendChild(btn);
+    // Sit leftmost in the shared top-bar (created by the layouts panel).
+    if (this.topbar) this.topbar.prepend(btn);
+    else host.appendChild(btn);
     host.appendChild(panel);
     this.settingsPanel = panel;
+
+    // Only one popover open at a time: a click outside the toolbar/panels closes
+    // them. The editor (the "layout menu") is exempt — you edit via the canvas.
+    window.addEventListener('pointerdown', (e) => {
+      const t = e.target as Node | null;
+      if (!t) return;
+      if (this.topbar?.contains(t) || this.settingsPanel?.contains(t) || this.layoutsPanel?.contains(t)) return;
+      this.setMenu(null);
+    });
 
     const name = panel.querySelector<HTMLInputElement>('#pa-name')!;
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
@@ -608,6 +683,11 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private updateNameLabels(): void {
+    // Agents are hidden while editing, so drop their labels too.
+    if (this.editor.isEditing()) {
+      if (this.nameLabels.size) this.clearNameLabels();
+      return;
+    }
     if (!this.alwaysShowLabels) return;
     const cam = this.cameras.main;
     const wv = cam.worldView;
@@ -622,7 +702,7 @@ export class OfficeScene extends Phaser.Scene {
         el = document.createElement('div');
         el.style.cssText =
           "position:absolute;z-index:45;transform:translate(-50%,-100%);pointer-events:none;" +
-          "font:12px 'FS Pixel Sans',monospace;color:#e6e9ef;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
+          "font:0.9rem 'FS Pixel Sans',monospace;color:#e6e9ef;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
         host.appendChild(el);
         this.nameLabels.set(ch.id, el);
       }
@@ -649,13 +729,13 @@ export class OfficeScene extends Phaser.Scene {
         .pa-tip{position:absolute;z-index:50;transform:translate(-50%,-100%);
           pointer-events:none;display:none;flex-direction:column;align-items:center;
           font-family:'FS Pixel Sans',ui-monospace,monospace;}
-        .pa-tip .row{display:flex;align-items:center;gap:7px;
-          background:#1b1f2a;border:2px solid #3a4150;border-radius:5px;
-          padding:6px 11px;white-space:nowrap;box-shadow:0 2px 0 rgba(0,0,0,.4);}
-        .pa-tip .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;}
-        .pa-tip .act{color:#eef1f6;font-size:19px;line-height:1.15;}
-        .pa-tip .name{color:#9aa4b2;font-size:14px;line-height:1.15;}
-        .pa-tip .fuel{width:52px;height:5px;background:#222;margin-top:3px;}
+        .pa-tip .row{display:flex;align-items:center;gap:0.45rem;
+          background:#1b1f2a;border:2px solid #3a4150;border-radius:0.3rem;
+          padding:0.4rem 0.7rem;white-space:nowrap;box-shadow:0 2px 0 rgba(0,0,0,.4);}
+        .pa-tip .dot{width:0.65rem;height:0.65rem;border-radius:50%;flex:0 0 auto;}
+        .pa-tip .act{color:#eef1f6;font-size:1.2rem;line-height:1.15;}
+        .pa-tip .name{color:#9aa4b2;font-size:0.9rem;line-height:1.15;}
+        .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#222;margin-top:0.2rem;}
         .pa-tip .fuel > div{height:100%;}
       `;
       document.head.appendChild(style);

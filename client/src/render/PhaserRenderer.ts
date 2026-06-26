@@ -155,9 +155,22 @@ export class PhaserRenderer {
     return img;
   }
 
+  /** When true, characters/pets are hidden (set during layout editing — they are
+   *  server-positioned on the un-edited layout, so they can't track local edits
+   *  like grid expansion; the server repositions them after the layout is saved). */
+  hideEntities = false;
+
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
     this.syncFurniture();
+    if (this.hideEntities) {
+      for (const g of this.chars.values()) {
+        g.body.setVisible(false);
+        g.bubble.setVisible(false);
+      }
+      for (const img of this.pets.values()) img.setVisible(false);
+      return;
+    }
     this.syncCharacters();
     this.syncPets();
   }
@@ -198,6 +211,7 @@ export class PhaserRenderer {
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
     g.body.setAlpha(1);
+    g.body.setVisible(true); // restore after edit-mode hiding (hideEntities)
 
     // Hide bubbles while the character is materialising/dissolving.
     if (ch.matrixEffect) {
@@ -261,6 +275,7 @@ export class PhaserRenderer {
       img.setTexture(tex);
       img.setPosition(pet.x, pet.y);
       img.setDepth(pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET);
+      img.setVisible(true); // restore after edit-mode hiding (hideEntities)
       let alpha = 1;
       if (pet.effect === 'spawn') alpha = Math.min(1, pet.effectTimer / PET_EFFECT_DURATION_SEC);
       else if (pet.effect === 'despawn' || pet.state === PetState.DESPAWN) {

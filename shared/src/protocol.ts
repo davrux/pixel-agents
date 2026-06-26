@@ -46,7 +46,10 @@ export const MAX_CONTEXT_TOKENS = 200_000;
 export type AgentEvent =
   | { t: 'created'; id: number; label?: string; isExternal?: boolean }
   | { t: 'removed'; id: number }
-  | { t: 'status'; id: number; status: 'active' | 'waiting' }
+  // 'waiting' = the turn genuinely finished (shows the done bubble + chime);
+  // 'idle' = went quiet via the inactivity timeout (goes inactive silently, no
+  // "done" notification — avoids chiming on every mid-task thinking pause).
+  | { t: 'status'; id: number; status: 'active' | 'waiting' | 'idle' }
   | { t: 'toolStart'; id: number; toolId: string; status: string; toolName?: string }
   | { t: 'toolDone'; id: number; toolId: string }
   | { t: 'toolsClear'; id: number }
