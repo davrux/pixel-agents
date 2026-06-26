@@ -2,7 +2,7 @@ import type { ColorValue } from '../colorTypes.js';
 import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
-import { CharacterPose as Pose, Direction as Dir } from '../types.js';
+import { Direction as Dir } from '../types.js';
 import { DEFAULT_CHARACTER_SPEC } from './characterSpec.js';
 import type { CharacterSpec } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
@@ -185,52 +185,35 @@ export function getPetSprites(kind: PetKindName, variant: number): PetSprites {
 // ════════════════════════════════════════════════════════════════
 
 export interface CharacterSprites {
-  /** Ready-to-play frame *sequences* per direction (track-driven; walk is the
-   *  ping-pong expansion, e.g. [0,1,2,1]). Lengths come from the character's
-   *  CharacterSpec tracks, so they vary per character. A `coffee` track with no
-   *  art falls back to a single standing frame. */
-  walk: Record<Direction, SpriteData[]>;
-  typing: Record<Direction, SpriteData[]>;
-  reading: Record<Direction, SpriteData[]>;
-  coffee: Record<Direction, SpriteData[]>;
+  /** Track name → ready-to-play per-direction frame *sequences* (the ping-pong
+   *  expansion is baked in, e.g. walk = [0,1,2,1]). Track names are arbitrary —
+   *  agents use walk/typing/reading/coffee, NPCs use walk/sit/idle/sleep, … —
+   *  and a pose maps to a track by name. Lengths come from the CharacterSpec, so
+   *  they vary per entity. A track with no art falls back to the stand frame. */
+  byTrack: Record<string, Record<Direction, SpriteData[]>>;
+  /** Neutral standing frame per direction, used for the idle pose and for any
+   *  pose whose track is absent. */
+  stand: Record<Direction, SpriteData>;
 }
 
 /**
- * Single source of truth mapping an animation pose to a sprite frame. New poses
- * (or dedicated art for an existing one, e.g. a real coffee animation) only need
- * a branch here plus the frames on CharacterSprites — no FSM/renderer changes.
+ * Resolve the sprite frame for a pose. A pose is just a track *name*; the frame
+ * cycles the track's sequence. `idle` (and any pose without a matching track)
+ * falls back to the neutral standing frame. This is the single mapping point —
+ * new poses need only a track on the spec, no code branch here.
  */
 export function spriteForPose(
-  pose: CharacterPose,
+  pose: CharacterPose | string,
   dir: Direction,
   frame: number,
   sprites: CharacterSprites,
 ): SpriteData {
-  switch (pose) {
-    case Pose.WALK: {
-      const seq = sprites.walk[dir];
-      return seq[frame % seq.length];
-    }
-    case Pose.TYPING: {
-      const seq = sprites.typing[dir];
-      return seq[frame % seq.length];
-    }
-    case Pose.READING: {
-      const seq = sprites.reading[dir];
-      return seq[frame % seq.length];
-    }
-    case Pose.COFFEE: {
-      // Cycle the dedicated frames; a single-frame fallback stays static.
-      const seq = sprites.coffee[dir];
-      return seq[frame % seq.length];
-    }
-    case Pose.IDLE:
-    default: {
-      // Neutral standing frame: the second walk frame when present.
-      const seq = sprites.walk[dir];
-      return seq[Math.min(1, seq.length - 1)];
-    }
-  }
+  // A pose uses its same-named track when present; otherwise the neutral stand
+  // frame. So an agent's `idle` (no idle track) stands still, while an NPC with
+  // a dedicated `idle` track animates it.
+  const seq = sprites.byTrack[pose]?.[dir];
+  if (!seq || seq.length === 0) return sprites.stand[dir];
+  return seq[frame % seq.length];
 }
 
 const spriteCache = new Map<string, CharacterSprites>();
@@ -245,11 +228,16 @@ function hueShiftSprites(sprites: CharacterSprites, hueShift: number): Character
     [Dir.RIGHT]: rec[Dir.RIGHT].map(shift),
     [Dir.LEFT]: rec[Dir.LEFT].map(shift),
   });
+  const byTrack: Record<string, Record<Direction, SpriteData[]>> = {};
+  for (const [name, dirs] of Object.entries(sprites.byTrack)) byTrack[name] = shiftDirs(dirs);
   return {
-    walk: shiftDirs(sprites.walk),
-    typing: shiftDirs(sprites.typing),
-    reading: shiftDirs(sprites.reading),
-    coffee: shiftDirs(sprites.coffee),
+    byTrack,
+    stand: {
+      [Dir.DOWN]: shift(sprites.stand[Dir.DOWN]),
+      [Dir.UP]: shift(sprites.stand[Dir.UP]),
+      [Dir.RIGHT]: shift(sprites.stand[Dir.RIGHT]),
+      [Dir.LEFT]: shift(sprites.stand[Dir.LEFT]),
+    },
   };
 }
 
@@ -329,68 +317,36 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
     const available = d.length;
     const walk = slots.get('walk');
     const standIdx = walk ? walk.start + Math.min(1, walk.count - 1) : 1;
-    const seq = (track: string, get: (i: number) => SpriteData): SpriteData[] =>
-      buildTrackSeq(slots.get(track), get, available, standIdx);
     const getD = (i: number): SpriteData => d[i];
     const getU = (i: number): SpriteData => u[i];
     const getR = (i: number): SpriteData => rt[i];
 
+    // Build a per-direction playback sequence for every track the spec declares.
+    const byTrack: Record<string, Record<Direction, SpriteData[]>> = {};
+    for (const t of spec.tracks) {
+      const slot = slots.get(t.name);
+      byTrack[t.name] = {
+        [Dir.DOWN]: buildTrackSeq(slot, getD, available, standIdx),
+        [Dir.UP]: buildTrackSeq(slot, getU, available, standIdx),
+        [Dir.RIGHT]: buildTrackSeq(slot, getR, available, standIdx),
+        [Dir.LEFT]: buildTrackSeq(slot, L, available, standIdx),
+      };
+    }
     sprites = {
-      walk: {
-        [Dir.DOWN]: seq('walk', getD),
-        [Dir.UP]: seq('walk', getU),
-        [Dir.RIGHT]: seq('walk', getR),
-        [Dir.LEFT]: seq('walk', L),
-      },
-      typing: {
-        [Dir.DOWN]: seq('typing', getD),
-        [Dir.UP]: seq('typing', getU),
-        [Dir.RIGHT]: seq('typing', getR),
-        [Dir.LEFT]: seq('typing', L),
-      },
-      reading: {
-        [Dir.DOWN]: seq('reading', getD),
-        [Dir.UP]: seq('reading', getU),
-        [Dir.RIGHT]: seq('reading', getR),
-        [Dir.LEFT]: seq('reading', L),
-      },
-      coffee: {
-        [Dir.DOWN]: seq('coffee', getD),
-        [Dir.UP]: seq('coffee', getU),
-        [Dir.RIGHT]: seq('coffee', getR),
-        [Dir.LEFT]: seq('coffee', L),
+      byTrack,
+      stand: {
+        [Dir.DOWN]: getD(standIdx),
+        [Dir.UP]: getU(standIdx),
+        [Dir.RIGHT]: getR(standIdx),
+        [Dir.LEFT]: L(standIdx),
       },
     };
   } else {
-    // Fallback: return transparent placeholder sprites (16×32)
+    // Fallback: a single transparent placeholder stand frame (16×32).
     const e = emptySprite(16, 32);
-    const walkSet: [SpriteData, SpriteData, SpriteData, SpriteData] = [e, e, e, e];
-    const pairSet: [SpriteData, SpriteData] = [e, e];
     sprites = {
-      walk: {
-        [Dir.DOWN]: walkSet,
-        [Dir.UP]: walkSet,
-        [Dir.RIGHT]: walkSet,
-        [Dir.LEFT]: walkSet,
-      },
-      typing: {
-        [Dir.DOWN]: pairSet,
-        [Dir.UP]: pairSet,
-        [Dir.RIGHT]: pairSet,
-        [Dir.LEFT]: pairSet,
-      },
-      reading: {
-        [Dir.DOWN]: pairSet,
-        [Dir.UP]: pairSet,
-        [Dir.RIGHT]: pairSet,
-        [Dir.LEFT]: pairSet,
-      },
-      coffee: {
-        [Dir.DOWN]: [e],
-        [Dir.UP]: [e],
-        [Dir.RIGHT]: [e],
-        [Dir.LEFT]: [e],
-      },
+      byTrack: {},
+      stand: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e },
     };
   }
 
@@ -410,24 +366,8 @@ export function getCharacterSprites(paletteIndex: number, hueShift = 0): Charact
  * frames the sheet actually provides (e.g. a missing coffee track → 1). Always
  * ≥ 1. Server and client agree because both build from the same templates.
  */
-export function getPosePlaybackLength(paletteIndex: number, pose: CharacterPose): number {
+export function getPosePlaybackLength(paletteIndex: number, pose: CharacterPose | string): number {
   const s = getCharacterSprites(paletteIndex);
-  let seq: SpriteData[];
-  switch (pose) {
-    case Pose.WALK:
-      seq = s.walk[Dir.DOWN];
-      break;
-    case Pose.TYPING:
-      seq = s.typing[Dir.DOWN];
-      break;
-    case Pose.READING:
-      seq = s.reading[Dir.DOWN];
-      break;
-    case Pose.COFFEE:
-      seq = s.coffee[Dir.DOWN];
-      break;
-    default:
-      return 1; // idle is static
-  }
-  return Math.max(1, seq.length);
+  const seq = s.byTrack[pose]?.[Dir.DOWN];
+  return Math.max(1, seq?.length ?? 1); // poses without a track are static
 }
