@@ -137,16 +137,21 @@ function decodeDirectionalSheet(
  * Decode a single character PNG (112×96) into direction-keyed frame arrays.
  * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
  */
-export function decodeCharacterPng(pngBuffer: Buffer): CharacterDirectionSprites {
+export function decodeCharacterPng(
+  pngBuffer: Buffer,
+  frameW: number = CHAR_FRAME_W,
+  frameH: number = CHAR_FRAME_H,
+): CharacterDirectionSprites {
   // Frames per row are derived from the sheet width, so a character file can
   // carry the 7 base frames or extra frame-sets (e.g. coffee) without a fixed
-  // constant — the default-character assets stay extensible.
+  // constant — the default-character assets stay extensible. The frame size
+  // defaults to 16×32 but can be overridden via a per-character manifest.
   const png = PNG.sync.read(pngBuffer);
-  const framesPerRow = Math.max(1, Math.floor(png.width / CHAR_FRAME_W));
+  const framesPerRow = Math.max(1, Math.floor(png.width / frameW));
   return decodeDirectionalSheet(
     pngBuffer,
-    CHAR_FRAME_W,
-    CHAR_FRAME_H,
+    frameW,
+    frameH,
     framesPerRow,
     CHARACTER_DIRECTIONS,
   ) as unknown as CharacterDirectionSprites;

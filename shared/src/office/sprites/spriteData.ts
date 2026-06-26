@@ -3,8 +3,13 @@ import { PALETTE_COUNT } from '../constants.js';
 import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { CharacterPose as Pose, Direction as Dir } from '../types.js';
+import { DEFAULT_CHARACTER_SPEC } from './characterSpec.js';
+import type { CharacterSpec } from './characterSpec.js';
 import bubblePermissionData from './bubble-permission.json';
 import bubbleWaitingData from './bubble-waiting.json';
+
+export type { CharacterSpec, CharacterTrack, TrackPlay } from './characterSpec.js';
+export { DEFAULT_CHARACTER_SPEC, resolveCharacterSpec, specFrameCount, MAX_CHAR_DIM } from './characterSpec.js';
 
 // ── Speech Bubble Sprites ───────────────────────────────────────
 
@@ -36,6 +41,9 @@ export interface LoadedCharacterData {
   left?: SpriteData[];
   /** Optional display name (editor metadata; the engine keys by palette index). */
   name?: string;
+  /** Optional animation spec (frame size + per-pose tracks). Absent → the
+   *  DEFAULT_CHARACTER_SPEC (historical 16×32, walk3/type2/read2 layout). */
+  spec?: CharacterSpec;
 }
 
 let loadedCharacters: LoadedCharacterData[] | null = null;
@@ -66,6 +74,13 @@ export function getCharacterSize(paletteIndex: number): { w: number; h: number }
     if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
   }
   return { w: 16, h: 32 };
+}
+
+/** Animation spec of a character template by palette index, or the default
+ *  (historical) layout when the template carries none. */
+export function getCharacterSpec(paletteIndex: number): CharacterSpec {
+  const c = loadedCharacters?.[paletteIndex % (loadedCharacters.length || 1)];
+  return c?.spec ?? DEFAULT_CHARACTER_SPEC;
 }
 
 /** Flip a SpriteData horizontally (for generating left sprites from right) */

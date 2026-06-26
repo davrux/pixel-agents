@@ -76,10 +76,16 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   `useDefineForClassFields:false`. `tsconfig` maps `@pixel/shared/office/*` to
   source so tsx applies decorators correctly. Don't "fix" these into a bundle.
 - **Sprites are data:** `SpriteData = string[][]` of hex colours
-  (`'' ` = transparent). Character sheets are 16×32, 3 direction rows (down/up/
-  right; left is mirrored), 7 frames/row (0–2 walk, 3–4 typing, 5–6 reading).
-  Dedicated extra frames (index 7+) feed the `coffee` pose automatically — to add
-  art, widen the PNGs, bump `CHAR_FRAMES_PER_ROW`, adjust `COFFEE_FRAME_COUNT`.
+  (`'' ` = transparent). Character sheets default to 16×32, 3 direction rows
+  (down/up/right; left is mirrored), 7 frames/row (0–2 walk, 3–4 typing, 5–6
+  reading; index 7+ feeds the `coffee` pose). Frame *size* is per-character and
+  may differ (≤64×64): the editor resizes in-place, and a bundled PNG can carry
+  an optional sibling manifest `assets/characters/char_N.json` =
+  `CharacterSpec` (`{ frame:{w,h}, tracks:[{name,frames,play}] }`, see
+  `shared/.../sprites/characterSpec.ts`). Absent → `DEFAULT_CHARACTER_SPEC`
+  (the historical layout). The spec rides on `LoadedCharacterData.spec` to the
+  client. Per-pose frame *counts* are still fixed in the engine/`spriteForPose`
+  for now (track-driven playback is the next step).
 - **Config via `PIXEL_STREAM_*` env** (matches the original + the feeder):
   `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`, `PIXEL_STREAM_TOKEN`,
   `PIXEL_STREAM_DATA_DIR`. Token also via `--token`.

@@ -28,6 +28,10 @@ import type {
   PetDirectionSprites,
 } from './core/assets/types.js';
 export type { CharacterDirectionSprites, PetDirectionSprites } from './core/assets/types.js';
+import {
+  resolveCharacterSpec,
+  type CharacterSpec,
+} from '@pixel/shared/office/sprites/characterSpec.js';
 
 import { LAYOUT_REVISION_KEY } from './constants.js';
 
@@ -361,8 +365,27 @@ export function mergeCharacterSprites(
 }
 
 /**
- * Load pre-colored character sprites from assets/characters/ (6 PNGs, each 112×96).
- * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
+ * Read an optional character manifest (char_N.json) and resolve it into a
+ * CharacterSpec. Missing/invalid files fall back to the default 16×32 layout
+ * (never throws), so dropping in a manifest is purely additive.
+ */
+function readCharacterSpec(manifestPath: string): CharacterSpec {
+  try {
+    if (fs.existsSync(manifestPath)) {
+      return resolveCharacterSpec(JSON.parse(fs.readFileSync(manifestPath, 'utf-8')));
+    }
+  } catch (err) {
+    console.warn(
+      `[AssetLoader] Ignoring invalid character manifest ${path.basename(manifestPath)}: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+  return resolveCharacterSpec(undefined); // default spec
+}
+
+/**
+ * Load pre-colored character sprites from assets/characters/ (PNGs, default 112×96).
+ * Each PNG has 3 direction rows (down, up, right) × N frames (default 16×32 each);
+ * an optional char_N.json manifest overrides the frame size + declares tracks.
  */
 export async function loadCharacterSprites(
   assetsRoot: string,
@@ -381,7 +404,15 @@ export async function loadCharacterSprites(
     const characters: CharacterDirectionSprites[] = [];
     for (const ci of found) {
       if (ci !== characters.length) break; // stop at the first gap (keep indices stable)
-      characters.push(decodeCharacterPng(fs.readFileSync(path.join(charDir, `char_${ci}.png`))));
+      // Optional per-character manifest (char_N.json) overrides frame size and
+      // declares animation tracks; absent → the default 16×32 layout.
+      const spec = readCharacterSpec(path.join(charDir, `char_${ci}.json`));
+      const decoded = decodeCharacterPng(
+        fs.readFileSync(path.join(charDir, `char_${ci}.png`)),
+        spec.frame.w,
+        spec.frame.h,
+      );
+      characters.push({ ...decoded, spec });
     }
     if (characters.length === 0) {
       console.log(`[AssetLoader] No char_N.png files found in ${charDir}`);
