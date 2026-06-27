@@ -5,6 +5,7 @@ import {
   getCatalogEntry,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
+import { confirmDialog } from '../ui/dialog.js';
 
 /** A raw catalog item (the buildDynamicCatalog INPUT shape, keyed by `id`). It
  *  carries group fields (groupId/orientation/state/…) we must preserve on edit. */
@@ -67,9 +68,14 @@ interface FurnWork {
  */
 export class FurnitureEditor {
   private panel!: HTMLDivElement;
+  private galleryPane!: HTMLDivElement;
+  private editPane!: HTMLDivElement;
+  private cardsHost!: HTMLDivElement;
   private canvas!: HTMLCanvasElement;
-  private picker!: HTMLSelectElement;
   private open = false;
+  private view: 'gallery' | 'edit' = 'gallery';
+  private dirty = false;
+  private isNew = false;
   private color = '#9b7653';
   private tool: 'paint' | 'erase' | 'pick' = 'paint';
   private cell = 12;
@@ -88,12 +94,31 @@ export class FurnitureEditor {
   show(): void {
     this.open = true;
     this.panel.style.display = 'block';
-    this.refreshList();
-    this.loadFromPicker();
+    this.showGallery();
   }
-  close(): void {
+  async close(): Promise<void> {
+    if (!(await this.confirmDiscard())) return;
     this.open = false;
     this.panel.style.display = 'none';
+  }
+
+  /** Guard navigation away from unsaved edits. */
+  private async confirmDiscard(): Promise<boolean> {
+    if (this.view !== 'edit' || !this.dirty) return true;
+    return confirmDialog('Discard unsaved changes?', { danger: true, confirmLabel: 'Discard' });
+  }
+
+  private showGallery(): void {
+    this.view = 'gallery';
+    this.editPane.style.display = 'none';
+    this.galleryPane.style.display = 'block';
+    this.renderGallery();
+  }
+  private showEdit(): void {
+    this.view = 'edit';
+    this.galleryPane.style.display = 'none';
+    this.editPane.style.display = 'block';
+    this.render();
   }
 
   private blank(): FurnWork {
@@ -135,6 +160,16 @@ export class FurnitureEditor {
       #pa-furn .foot button{flex:1;padding:0.6rem;}
       #pa-furn #pa-f-status{color:#7cfc9a;font-size:0.9rem;opacity:0;transition:opacity .4s;}
       #pa-furn .chk{flex:0 0 auto;}
+      #pa-furn .cathead{margin:0.7rem 0 0.2rem;font-size:0.95rem;color:#8b94a6;text-transform:uppercase;letter-spacing:0.04em;}
+      /* Scroll the card list within a bounded area so the New button (above) and
+         Close (below) stay on screen even with many items. */
+      #pa-furn #pa-f-cards{max-height:68vh;overflow-y:auto;}
+      #pa-furn #pa-f-cards .card{display:flex;align-items:center;gap:0.6rem;background:#222734;border:1px solid #3a4150;
+        border-radius:0.4rem;padding:0.35rem 0.5rem;margin:0.3rem 0;}
+      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0d0f14;border:1px solid #3a4150;flex:0 0 auto;}
+      #pa-furn #pa-f-cards .card .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #pa-furn #pa-f-cards .card button{padding:0.3rem 0.55rem;font-size:0.9rem;flex:0 0 auto;}
+      #pa-furn #pa-f-cards .card button.del{background:#3a2230;border-color:#6d3a4a;color:#ffd2dc;}
     `;
     document.head.appendChild(style);
 
@@ -150,7 +185,13 @@ export class FurnitureEditor {
     panel.className = 'pa-ui';
     panel.innerHTML = `
       <h4>Furniture editor</h4>
-      <div class="row"><select id="pa-f-sel" style="flex:1;"></select></div>
+      <div id="pa-f-gallery">
+        <div class="row"><button id="pa-f-newbtn" class="on">＋ New furniture</button></div>
+        <div id="pa-f-cards"></div>
+        <div class="foot"><button id="pa-f-galclose">Close</button></div>
+      </div>
+      <div id="pa-f-edit" style="display:none">
+      <div class="row"><button id="pa-f-back">← Back</button></div>
       <div class="row"><label class="f" for="pa-f-id">ID</label><input id="pa-f-id" type="text" maxlength="40" placeholder="MY_ITEM"></div>
       <div class="row"><label class="f" for="pa-f-label">Label</label><input id="pa-f-label" type="text" maxlength="32"></div>
       <div class="row"><label class="f" for="pa-f-cat">Category</label><select id="pa-f-cat" style="flex:1;">${catOpts}</select></div>
@@ -179,7 +220,7 @@ export class FurnitureEditor {
       <div class="foot">
         <button id="pa-f-save" class="on">Save</button>
         <button id="pa-f-reset">Reset / delete</button>
-        <button id="pa-f-close">Close</button>
+      </div>
       </div>`;
 
     const host = document.getElementById('game') ?? document.body;
@@ -188,34 +229,58 @@ export class FurnitureEditor {
     host.appendChild(panel);
     this.panel = panel;
     this.canvas = panel.querySelector<HTMLCanvasElement>('#pa-f-canvas')!;
-    this.picker = panel.querySelector<HTMLSelectElement>('#pa-f-sel')!;
+    this.galleryPane = panel.querySelector<HTMLDivElement>('#pa-f-gallery')!;
+    this.editPane = panel.querySelector<HTMLDivElement>('#pa-f-edit')!;
+    this.cardsHost = panel.querySelector<HTMLDivElement>('#pa-f-cards')!;
 
-    this.picker.onchange = () => this.loadFromPicker();
+    this.field('#pa-f-newbtn').onclick = () => {
+      this.loadNew();
+      this.showEdit();
+    };
+    this.field('#pa-f-galclose').onclick = () => this.close();
+    this.field('#pa-f-back').onclick = async () => {
+      if (await this.confirmDiscard()) this.showGallery();
+    };
     this.field('#pa-f-id').oninput = (e) => {
       const el = e.target as HTMLInputElement;
       const v = sanitizeId(el.value);
       if (v !== el.value) el.value = v;
       this.work.id = v;
+      this.dirty = true;
     };
     this.field('#pa-f-label').oninput = (e) => {
       const el = e.target as HTMLInputElement;
       const v = sanitizeLabel(el.value);
       if (v !== el.value) el.value = v;
       this.work.label = v;
+      this.dirty = true;
     };
     this.field('#pa-f-cat').onchange = (e) => {
       this.work.category = (e.target as HTMLSelectElement).value;
+      this.dirty = true;
     };
     this.field('#pa-f-fw').onchange = () => this.onFootprintChange();
     this.field('#pa-f-fh').onchange = () => this.onFootprintChange();
     this.field('#pa-f-bg').onchange = (e) => {
       this.work.backgroundTiles = Math.max(0, Math.floor(Number((e.target as HTMLInputElement).value) || 0));
+      this.dirty = true;
     };
-    this.field('#pa-f-desk').onchange = (e) => (this.work.isDesk = (e.target as HTMLInputElement).checked);
-    this.field('#pa-f-surf').onchange = (e) =>
-      (this.work.canPlaceOnSurfaces = (e.target as HTMLInputElement).checked);
-    this.field('#pa-f-wall').onchange = (e) => (this.work.canPlaceOnWalls = (e.target as HTMLInputElement).checked);
-    this.field('#pa-f-appliance').onchange = (e) => (this.work.appliance = (e.target as HTMLSelectElement).value);
+    this.field('#pa-f-desk').onchange = (e) => {
+      this.work.isDesk = (e.target as HTMLInputElement).checked;
+      this.dirty = true;
+    };
+    this.field('#pa-f-surf').onchange = (e) => {
+      this.work.canPlaceOnSurfaces = (e.target as HTMLInputElement).checked;
+      this.dirty = true;
+    };
+    this.field('#pa-f-wall').onchange = (e) => {
+      this.work.canPlaceOnWalls = (e.target as HTMLInputElement).checked;
+      this.dirty = true;
+    };
+    this.field('#pa-f-appliance').onchange = (e) => {
+      this.work.appliance = (e.target as HTMLSelectElement).value;
+      this.dirty = true;
+    };
     const colorEl = this.field('#pa-f-color');
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -226,7 +291,6 @@ export class FurnitureEditor {
     this.field('#pa-f-pick').onclick = () => this.setTool('pick');
     this.field('#pa-f-save').onclick = () => this.doSave();
     this.field('#pa-f-reset').onclick = () => this.doReset();
-    this.field('#pa-f-close').onclick = () => this.close();
 
     this.bindPaint();
   }
@@ -243,33 +307,68 @@ export class FurnitureEditor {
   }
 
   // ── Data ─────────────────────────────────────────────────────────
-  private refreshList(): void {
-    this.picker.innerHTML = '';
+
+  /** Render the browsable card grid, grouped by furniture category. */
+  private renderGallery(): void {
+    this.cardsHost.innerHTML = '';
     for (const cat of getActiveCategories()) {
-      const group = document.createElement('optgroup');
-      group.label = cat.label;
-      for (const e of getCatalogByCategory(cat.id)) {
-        const o = document.createElement('option');
-        o.value = e.type;
-        o.textContent = `${e.label} (${e.type})`;
-        group.appendChild(o);
+      const entries = getCatalogByCategory(cat.id);
+      if (!entries.length) continue;
+      const head = document.createElement('div');
+      head.className = 'cathead';
+      head.textContent = cat.label;
+      this.cardsHost.appendChild(head);
+      for (const e of entries) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        const cv = document.createElement('canvas');
+        this.drawThumb(cv, e.sprite);
+        const nm = document.createElement('div');
+        nm.className = 'nm';
+        nm.textContent = `${e.label} (${e.type})`;
+        const edit = document.createElement('button');
+        edit.textContent = 'Edit';
+        edit.onclick = () => {
+          this.loadItem(e.type);
+          this.showEdit();
+        };
+        const reset = document.createElement('button');
+        reset.textContent = 'Reset';
+        reset.className = 'del';
+        reset.title = 'Revert to the bundled default (or delete a custom item)';
+        reset.onclick = async () => {
+          if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+          this.opts.reset(e.type);
+          window.setTimeout(() => this.renderGallery(), 250);
+        };
+        card.append(cv, nm, edit, reset);
+        this.cardsHost.appendChild(card);
       }
-      if (group.children.length) this.picker.appendChild(group);
     }
-    const o = document.createElement('option');
-    o.value = ' new';
-    o.textContent = '+ New furniture';
-    this.picker.appendChild(o);
   }
 
-  private loadFromPicker(): void {
-    const v = this.picker.value;
-    if (v === ' new' || !v) this.loadNew();
-    else this.loadItem(v);
+  /** Draw a furniture sprite 1:1 into a tiny canvas (CSS scales it, pixelated). */
+  private drawThumb(cv: HTMLCanvasElement, sprite: SpriteData): void {
+    const h = sprite.length;
+    const w = h > 0 ? sprite[0].length : 0;
+    cv.width = Math.max(1, w);
+    cv.height = Math.max(1, h);
+    const ctx = cv.getContext('2d')!;
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < sprite[y].length; x++) {
+        const c = sprite[y][x];
+        if (!c) continue;
+        ctx.fillStyle = c;
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
   }
 
   private loadNew(): void {
     this.work = this.blank();
+    this.isNew = true;
+    this.dirty = false;
     this.syncFields(true);
     this.render();
   }
@@ -295,6 +394,8 @@ export class FurnitureEditor {
       sprite,
       base: raw,
     };
+    this.isNew = false;
+    this.dirty = false;
     this.syncFields(false);
     this.render();
   }
@@ -321,6 +422,7 @@ export class FurnitureEditor {
     this.field('#pa-f-fw').value = String(fw);
     this.field('#pa-f-fh').value = String(fh);
     this.work.sprite = resizeSprite(this.work.sprite, fw * TILE, fh * TILE);
+    this.dirty = true;
     this.render();
   }
 
@@ -356,18 +458,18 @@ export class FurnitureEditor {
       appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
     };
     this.opts.save(w.id, { sprite: w.sprite, catalog });
+    this.dirty = false;
+    this.isNew = false;
+    this.field('#pa-f-id').readOnly = true; // id is fixed once saved
     this.showStatus(`Saved ${w.id} ✓`);
-    window.setTimeout(() => this.refreshList(), 250);
   }
 
   private doReset(): void {
     if (!this.work.id) return;
     this.opts.reset(this.work.id);
+    this.dirty = false;
     this.showStatus(`Reset ${this.work.id} ✓`);
-    window.setTimeout(() => {
-      this.refreshList();
-      this.loadNew();
-    }, 250);
+    window.setTimeout(() => this.showGallery(), 250);
   }
 
   // ── Rendering ────────────────────────────────────────────────────
@@ -428,6 +530,7 @@ export class FurnitureEditor {
         return;
       }
       this.work.sprite[p.y][p.x] = this.tool === 'erase' ? '' : this.color;
+      this.dirty = true;
       this.render();
     };
     this.canvas.addEventListener('pointerdown', (e) => {
