@@ -11,6 +11,7 @@ import {
   WANDER_PAUSE_MAX_SEC,
   WANDER_PAUSE_MIN_SEC,
 } from '../constants.js';
+import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
 import { spriteForPose } from '../sprites/spriteData.js';
@@ -23,36 +24,13 @@ import type {
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
-import { CharacterPose as Pose, CharacterState, Direction, TILE_SIZE } from '../types.js';
+import { CharacterPose as Pose, CharacterState, Direction } from '../types.js';
 
 /** Whether a tool should show the reading animation (vs typing). Taxonomy comes
  *  from the active HookProvider via the `providerCapabilities` message. */
 export function isReadingTool(tool: string | null): boolean {
   if (!tool) return false;
   return isReadingToolName(tool);
-}
-
-/** Pixel center of a tile */
-function tileCenter(col: number, row: number): { x: number; y: number } {
-  return {
-    x: col * TILE_SIZE + TILE_SIZE / 2,
-    y: row * TILE_SIZE + TILE_SIZE / 2,
-  };
-}
-
-/** Direction from one tile to an adjacent tile */
-function directionBetween(
-  fromCol: number,
-  fromRow: number,
-  toCol: number,
-  toRow: number,
-): Direction {
-  const dc = toCol - fromCol;
-  const dr = toRow - fromRow;
-  if (dc > 0) return Direction.RIGHT;
-  if (dc < 0) return Direction.LEFT;
-  if (dr > 0) return Direction.DOWN;
-  return Direction.UP;
 }
 
 export function createCharacter(
@@ -243,9 +221,7 @@ export function updateCharacter(
     case CharacterState.WALK: {
       if (ch.path.length === 0) {
         // Path complete — snap to tile center and transition
-        const center = tileCenter(ch.tileCol, ch.tileRow);
-        ch.x = center.x;
-        ch.y = center.y;
+        snapToTile(ch);
 
         // Arrived at an interaction station → stand facing the furniture.
         if (ch.stationId) {
@@ -312,27 +288,8 @@ export function updateCharacter(
         break;
       }
 
-      // Move toward next tile in path
-      const nextTile = ch.path[0];
-      ch.dir = directionBetween(ch.tileCol, ch.tileRow, nextTile.col, nextTile.row);
-
-      ch.moveProgress += (WALK_SPEED_PX_PER_SEC / TILE_SIZE) * dt;
-
-      const fromCenter = tileCenter(ch.tileCol, ch.tileRow);
-      const toCenter = tileCenter(nextTile.col, nextTile.row);
-      const t = Math.min(ch.moveProgress, 1);
-      ch.x = fromCenter.x + (toCenter.x - fromCenter.x) * t;
-      ch.y = fromCenter.y + (toCenter.y - fromCenter.y) * t;
-
-      if (ch.moveProgress >= 1) {
-        // Arrived at next tile
-        ch.tileCol = nextTile.col;
-        ch.tileRow = nextTile.row;
-        ch.x = toCenter.x;
-        ch.y = toCenter.y;
-        ch.path.shift();
-        ch.moveProgress = 0;
-      }
+      // Move toward next tile in path (shared entity movement).
+      stepAlongPath(ch, dt, WALK_SPEED_PX_PER_SEC);
 
       // If work resumed while walking to a coffee break, abandon the claim.
       if (ch.isActive && ch.stationId) {

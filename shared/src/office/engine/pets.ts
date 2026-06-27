@@ -25,9 +25,10 @@ import {
   PET_WANDER_PAUSE_MAX_SEC,
   PET_WANDER_PAUSE_MIN_SEC,
 } from '../constants.js';
+import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
 import type { Pet, PetKind, TileType as TileTypeVal } from '../types.js';
-import { Direction, PetState, TILE_SIZE } from '../types.js';
+import { Direction, PetState } from '../types.js';
 
 /**
  * The high-level activity an NPC brain can choose and the actuator can execute.
@@ -99,19 +100,6 @@ export interface PetUpdateContext {
    *  advance `frame` spec-driven instead of with hardcoded per-state moduli.
    *  Server resolves it from the pet's sheet; absent → a static single frame. */
   posePlaybackLength?: (pet: Pet) => number;
-}
-
-function tileCenter(col: number, row: number): { x: number; y: number } {
-  return { x: col * TILE_SIZE + TILE_SIZE / 2, y: row * TILE_SIZE + TILE_SIZE / 2 };
-}
-
-function directionBetween(fromCol: number, fromRow: number, toCol: number, toRow: number): Direction {
-  const dc = toCol - fromCol;
-  const dr = toRow - fromRow;
-  if (dc > 0) return Direction.RIGHT;
-  if (dc < 0) return Direction.LEFT;
-  if (dr > 0) return Direction.DOWN;
-  return Direction.UP;
 }
 
 function randomRange(min: number, max: number): number {
@@ -285,9 +273,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
       advancePetFrame(pet, ctx, PET_WALK_FRAME_DURATION_SEC, 4);
 
       if (pet.path.length === 0) {
-        const center = tileCenter(pet.tileCol, pet.tileRow);
-        pet.x = center.x;
-        pet.y = center.y;
+        snapToTile(pet);
         // Arrived: if we were heading to a claimed target's sit tile, sit
         if (
           pet.targetKind &&
@@ -309,24 +295,8 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         break;
       }
 
-      const nextTile = pet.path[0];
-      pet.dir = directionBetween(pet.tileCol, pet.tileRow, nextTile.col, nextTile.row);
-      pet.moveProgress += (PET_WALK_SPEED_PX_PER_SEC / TILE_SIZE) * dt;
-
-      const fromCenter = tileCenter(pet.tileCol, pet.tileRow);
-      const toCenter = tileCenter(nextTile.col, nextTile.row);
-      const t = Math.min(pet.moveProgress, 1);
-      pet.x = fromCenter.x + (toCenter.x - fromCenter.x) * t;
-      pet.y = fromCenter.y + (toCenter.y - fromCenter.y) * t;
-
-      if (pet.moveProgress >= 1) {
-        pet.tileCol = nextTile.col;
-        pet.tileRow = nextTile.row;
-        pet.x = toCenter.x;
-        pet.y = toCenter.y;
-        pet.path.shift();
-        pet.moveProgress = 0;
-      }
+      // Move toward next tile in path (shared entity movement).
+      stepAlongPath(pet, dt, PET_WALK_SPEED_PX_PER_SEC);
       break;
     }
 
