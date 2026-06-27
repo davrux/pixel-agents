@@ -27,7 +27,8 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
-import type { Pet, PetKind, TileType as TileTypeVal } from '../types.js';
+import { getNpcSprites, spriteForPose } from '../sprites/spriteData.js';
+import type { Pet, PetKind, SpriteData, TileType as TileTypeVal } from '../types.js';
 import { Direction, PetState } from '../types.js';
 
 /**
@@ -423,4 +424,11 @@ export function petPose(pet: Pet): string {
     default:
       return 'idle';
   }
+}
+
+/** Current sprite for a pet — the entity→sprite resolver, symmetric with
+ *  getCharacterSprite. Each entity kind exposes one of these (built on the shared
+ *  track pipeline), so the renderer treats every kind the same way. */
+export function getPetSprite(pet: Pet): SpriteData {
+  return spriteForPose(petPose(pet), pet.dir, pet.frame, getNpcSprites(pet.kind, pet.variant));
 }
