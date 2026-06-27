@@ -13,32 +13,23 @@ export const WORLD_ROOM = 'world';
 
 export const DEFAULT_ZONE = 'office';
 
-/** A walk-in portal: stepping onto (col,row) sends the player to (toCol,toRow)
- *  in zone `toZone`. Destinations must not sit on the target zone's portal. */
-export interface Portal {
-  col: number;
-  row: number;
-  toZone: string;
-  toCol: number;
-  toRow: number;
-}
-
 export interface ZoneConfig {
   id: string;
   label: string;
   /** Named layout to load for this zone. Absent → the room's active/default
    *  layout (keeps the office zone behaving exactly as before). */
   layoutName?: string;
-  /** Walk-in portals to other zones (P5). */
-  portals?: Portal[];
+  /** Where players arriving via a portal land (a walkable tile away from this
+   *  zone's portal furniture, so they don't immediately re-trigger). */
+  arrive?: { col: number; row: number };
 }
 
 /** Registry of known zones. The office uses its persisted/default layout; the
- *  plaza uses a generated builtin layout (createPlazaLayout, resolved server-side).
- *  Portal tiles are picked to be walkable in each zone (server validates). */
+ *  plaza uses a generated builtin layout. Portals themselves are now placed
+ *  furniture (catalog `portal` flag) — walking up to one offers a zone picker. */
 export const ZONES: Record<string, ZoneConfig> = {
-  office: { id: 'office', label: 'Office', portals: [{ col: 1, row: 16, toZone: 'plaza', toCol: 2, toRow: 2 }] },
-  plaza: { id: 'plaza', label: 'Plaza', portals: [{ col: 1, row: 1, toZone: 'office', toCol: 2, toRow: 16 }] },
+  office: { id: 'office', label: 'Office', arrive: { col: 9, row: 11 } },
+  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 } },
 };
 
 /** Resolve a zone id to its config, falling back to the default zone. */

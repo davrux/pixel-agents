@@ -52,6 +52,7 @@
     null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null
   ],
   "furniture": [
+    {"uid": "portal-door", "type": "DOOR", "col": 2, "row": 11},
     {"uid": "f-1773353910654-5cdg", "type": "TABLE_FRONT", "col": 4, "row": 16},
     {"uid": "f-1773354646615-jhxl", "type": "COFFEE_TABLE", "col": 14, "row": 14},
     {"uid": "f-1773354664329-hxsh", "type": "SOFA_SIDE", "col": 13, "row": 14},

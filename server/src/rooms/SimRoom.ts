@@ -1,6 +1,6 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 
-import { resolveZone } from '@pixel/shared';
+import { resolveZone, ZONES } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -88,8 +88,7 @@ export class SimRoom extends Room<RoomState> {
 
     // The active layout (persisted, falling back to the bundled default).
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
-    this.os = new OfficeState(this.zoneLayout());
-    this.os.setPortals(this.zone.portals ?? []); // walk-in portals for this zone (P5)
+    this.os = new OfficeState(this.zoneLayout()); // portals derive from placed furniture (P5 v2)
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
     this.os.setNpcDecider((_pet, aff) =>
@@ -318,6 +317,22 @@ export class SimRoom extends Room<RoomState> {
       if (Number.isInteger(col) && Number.isInteger(row)) this.os.walkPlayer(id, col, row);
     });
 
+    // Destination picked at a portal → land at the target zone's arrival tile
+    // (via P4 respawn) and tell the client to reconnect there.
+    this.onMessage('portalGo', (client, msg: { zone?: string }) => {
+      const target = typeof msg?.zone === 'string' ? ZONES[msg.zone] : undefined;
+      if (!target || target.id === this.zone.id) return;
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (username && target.arrive) {
+        appStore.setPlayerPos(username, target.id, target.arrive.col, target.arrive.row);
+      }
+      this.os.removePlayer(id);
+      this.players.delete(client.sessionId);
+      client.send('m', { type: 'zoneTransition', zone: target.id });
+    });
+
     // The viewer's display name for their player avatar (auth username for
     // logged-in viewers; a chosen name for anonymous ones).
     this.onMessage('setPlayerName', (client, msg: { name?: string }) => {
@@ -523,27 +538,31 @@ export class SimRoom extends Room<RoomState> {
     this.syncFurniture();
   }
 
-  /** Players that stepped on a portal this tick: persist the destination, remove
-   *  the avatar here, and tell the client to reconnect to the target zone. */
+  /** Players that stepped on a portal this tick → offer them the other zones as
+   *  destinations (the client shows a picker; choosing sends `portalGo`). */
   private handlePortals(): void {
-    for (const { id, portal } of this.os.takePendingPortals()) {
-      let sessionId: string | undefined;
-      for (const [sid, pid] of this.players) {
-        if (pid === id) {
-          sessionId = sid;
-          break;
-        }
-      }
-      if (!sessionId) continue;
-      let client: Client | undefined;
-      for (const c of this.clients) if (c.sessionId === sessionId) client = c;
-      const username = (client?.auth as { username?: string } | undefined)?.username ?? '';
-      // Logged-in players land at the portal's destination (via P4 respawn).
-      if (username) appStore.setPlayerPos(username, portal.toZone, portal.toCol, portal.toRow);
-      this.os.removePlayer(id);
-      this.players.delete(sessionId);
-      client?.send('m', { type: 'zoneTransition', zone: portal.toZone });
+    for (const id of this.os.takePendingPortals()) {
+      const client = this.clientForPlayer(id);
+      if (!client) continue;
+      const zones = Object.values(ZONES)
+        .filter((z) => z.id !== this.zone.id)
+        .map((z) => ({ id: z.id, label: z.label }));
+      if (zones.length) client.send('m', { type: 'portalOptions', zones });
     }
+  }
+
+  /** The connected client controlling player avatar `id`, or undefined. */
+  private clientForPlayer(id: number): Client | undefined {
+    let sessionId: string | undefined;
+    for (const [sid, pid] of this.players) {
+      if (pid === id) {
+        sessionId = sid;
+        break;
+      }
+    }
+    if (!sessionId) return undefined;
+    for (const c of this.clients) if (c.sessionId === sessionId) return c;
+    return undefined;
   }
 
   private syncCharacters(): void {

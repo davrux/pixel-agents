@@ -287,7 +287,15 @@ export function createPlazaLayout(): OfficeLayout {
       tileColors.push(null);
     }
   }
-  return { version: 1, cols, rows, tiles, tileColors, furniture: [] };
+  return {
+    version: 1,
+    cols,
+    rows,
+    tiles,
+    tileColors,
+    // A beam pad (walk onto it → zone picker). Walkable via backgroundTiles.
+    furniture: [{ uid: 'plaza-beam', type: 'BEAM_PAD', col: 3, row: 3 }],
+  };
 }
 
 /** Serialize layout to JSON string

@@ -131,8 +131,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Previous (active,bubble) per agent — to detect transitions for sounds. */
   private readonly prevState = new Map<number, { active: boolean; bubble: string }>();
   private readonly nameLabels = new Map<number, HTMLDivElement>();
-  /** Portal markers for the current zone, keyed by "col,row". */
-  private readonly portalMarkers = new Map<string, HTMLDivElement>();
   private layoutListData: { layouts: Array<{ name: string; readOnly: boolean }>; active: string } = {
     layouts: [],
     active: 'Default',
@@ -300,6 +298,7 @@ export class OfficeScene extends Phaser.Scene {
           this.renderCharSwatches();
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
+        else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
         else if (m.type === 'zoneTransition') this.goToZone(m.zone as string); // walked into a portal (P5)
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
@@ -693,7 +692,6 @@ export class OfficeScene extends Phaser.Scene {
     this.editor.tickUI();
     this.updateTooltip();
     this.updateNameLabels();
-    this.updatePortalMarkers();
   }
 
   // ── Menus (mutually-exclusive popovers) ──────────────────────────
@@ -1028,6 +1026,45 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /** Destination picker shown when the player reaches a portal (P5 v2): a list of
+   *  the other zones; choosing one sends `portalGo` (server transitions). */
+  private showPortalPicker(zones: Array<{ id: string; label: string }>): void {
+    if (!zones?.length) return;
+    document.getElementById('pa-portal')?.remove(); // only one at a time
+    const el = document.createElement('div');
+    el.id = 'pa-portal';
+    el.className = 'pa-ui';
+    el.style.cssText =
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:80;background:#1b1f2a;' +
+      'border:2px solid #3a4150;border-radius:0.6rem;padding:1rem;color:#eef1f6;min-width:12rem;text-align:center;' +
+      "font:1rem 'FS Pixel Sans',monospace;box-shadow:0 6px 0 rgba(0,0,0,.4);";
+    const head = document.createElement('div');
+    head.textContent = '🚪 Travel to…';
+    head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#cdd3dd;';
+    el.appendChild(head);
+    const close = (): void => el.remove();
+    for (const z of zones) {
+      const b = document.createElement('button');
+      b.textContent = z.label;
+      b.style.cssText =
+        'display:block;width:100%;margin:0.3rem 0;padding:0.55rem;cursor:pointer;background:#2a2f3a;' +
+        "border:1px solid #3a4150;border-radius:0.4rem;color:#eef1f6;font:1rem 'FS Pixel Sans',monospace;";
+      b.onclick = () => {
+        this.room?.send('portalGo', { zone: z.id });
+        close();
+      };
+      el.appendChild(b);
+    }
+    const cancel = document.createElement('button');
+    cancel.textContent = 'Cancel';
+    cancel.style.cssText =
+      'margin-top:0.5rem;padding:0.4rem 0.8rem;cursor:pointer;background:#222734;border:1px solid #3a4150;' +
+      "border-radius:0.4rem;color:#9aa3b2;font:0.9rem 'FS Pixel Sans',monospace;";
+    cancel.onclick = close;
+    el.appendChild(cancel);
+    (document.getElementById('game') ?? document.body).appendChild(el);
+  }
+
   /** Switch to another zone (remember it, then reload at ?zone=). Used by the
    *  zone switcher and by walk-in portals (P5). */
   private goToZone(zone: string): void {
@@ -1105,36 +1142,6 @@ export class OfficeScene extends Phaser.Scene {
   private clearNameLabels(): void {
     for (const el of this.nameLabels.values()) el.remove();
     this.nameLabels.clear();
-  }
-
-  /** Floating "🚪 <zone>" markers over the current zone's portal tiles. */
-  private updatePortalMarkers(): void {
-    const portals = ZONES[currentZone()]?.portals ?? [];
-    if (this.editor.isEditing()) {
-      for (const el of this.portalMarkers.values()) el.style.display = 'none';
-      return;
-    }
-    const cam = this.cameras.main;
-    const wv = cam.worldView;
-    const host = document.getElementById('game') ?? document.body;
-    for (const p of portals) {
-      const key = `${p.col},${p.row}`;
-      let el = this.portalMarkers.get(key);
-      if (!el) {
-        el = document.createElement('div');
-        el.style.cssText =
-          'position:absolute;z-index:44;transform:translate(-50%,-100%);pointer-events:none;' +
-          "font:0.85rem 'FS Pixel Sans',monospace;color:#ffe08a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
-        host.appendChild(el);
-        this.portalMarkers.set(key, el);
-      }
-      el.style.display = '';
-      el.textContent = `🚪 ${ZONES[p.toZone]?.label ?? p.toZone}`;
-      const wx = p.col * TILE_SIZE + TILE_SIZE / 2;
-      const wy = p.row * TILE_SIZE + TILE_SIZE / 2;
-      el.style.left = `${Math.round((wx - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round((wy - wv.y) * cam.zoom)}px`;
-    }
   }
 
   private updateNameLabels(): void {

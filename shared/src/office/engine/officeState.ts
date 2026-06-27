@@ -55,7 +55,6 @@ import {
   PetState,
   TILE_SIZE,
 } from '../types.js';
-import type { Portal } from '../../protocol.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
@@ -105,10 +104,11 @@ export class OfficeState {
   /** Player avatar ids live in their own band (agents use Claude ids, subagents
    *  negative, pets 1_000_000+). */
   private nextPlayerId = 2_000_000;
-  /** Walk-in portals in this zone + players that just stepped on one (drained by
-   *  the room, which performs the cross-room transition). */
-  private portals: Portal[] = [];
-  private pendingPortals: Array<{ id: number; portal: Portal }> = [];
+  /** Tiles that trigger a zone portal (derived from placed `portal` furniture:
+   *  the walkable footprint tiles + their walkable neighbours), and player ids
+   *  that just stepped on one (drained by the room → destination picker). */
+  private portalTiles: Set<string> = new Set();
+  private pendingPortals: number[] = [];
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -121,6 +121,7 @@ export class OfficeState {
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
+    this.computePortalTiles();
   }
 
   /** Rebuild all derived state from a new layout. Reassigns existing characters.
@@ -142,6 +143,7 @@ export class OfficeState {
 
     // Station uids are regenerated; drop stale claims on every character.
     this.buildStations();
+    this.computePortalTiles();
     for (const ch of this.characters.values()) {
       ch.stationId = null;
       ch.stationTimer = 0;
@@ -653,13 +655,36 @@ export class OfficeState {
     return true;
   }
 
-  /** Walk-in portals for this zone (P5); the room sets these from the zone config. */
-  setPortals(portals: Portal[]): void {
-    this.portals = portals;
+  /** Recompute portal trigger tiles from placed `portal` furniture: each such
+   *  item's walkable footprint tiles (e.g. a beam pad) plus their walkable
+   *  orthogonal neighbours (e.g. standing in front of a door). */
+  private computePortalTiles(): void {
+    const tiles = new Set<string>();
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      if (!entry?.portal) continue;
+      for (let dr = 0; dr < entry.footprintH; dr++) {
+        for (let dc = 0; dc < entry.footprintW; dc++) {
+          const fc = item.col + dc;
+          const fr = item.row + dr;
+          for (const [c, r] of [
+            [fc, fr],
+            [fc + 1, fr],
+            [fc - 1, fr],
+            [fc, fr + 1],
+            [fc, fr - 1],
+          ]) {
+            if (isWalkable(c, r, this.tileMap, this.blockedTiles)) tiles.add(`${c},${r}`);
+          }
+        }
+      }
+    }
+    this.portalTiles = tiles;
   }
 
-  /** Drain players that stepped onto a portal this tick (room performs the move). */
-  takePendingPortals(): Array<{ id: number; portal: Portal }> {
+  /** Drain players that stepped onto a portal tile this tick (room shows them a
+   *  destination picker). */
+  takePendingPortals(): number[] {
     if (this.pendingPortals.length === 0) return [];
     const out = this.pendingPortals;
     this.pendingPortals = [];
@@ -678,9 +703,8 @@ export class OfficeState {
     if (ch.path.length === 0) {
       snapToTile(ch);
       ch.state = CharacterState.IDLE;
-      // Stepped onto a portal tile → queue a zone transition for the room.
-      const portal = this.portals.find((p) => p.col === ch.tileCol && p.row === ch.tileRow);
-      if (portal) this.pendingPortals.push({ id: ch.id, portal });
+      // Reached a portal tile → queue it (the room offers a destination picker).
+      if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
     }
   }
 
