@@ -38,6 +38,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
+import { DEFAULT_ZONE, ZONES } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -72,6 +73,13 @@ function matrixSeeds(id: number): number[] {
     seeds.push(s / 0xffffffff);
   }
   return seeds;
+}
+
+/** The zone to connect to, from the `?zone=` URL param (validated against the
+ *  registry), defaulting to the office. */
+function currentZone(): string {
+  const z = new URLSearchParams(window.location.search).get('zone') ?? '';
+  return ZONES[z] ? z : DEFAULT_ZONE;
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -231,7 +239,7 @@ export class OfficeScene extends Phaser.Scene {
   private async open(): Promise<void> {
     const assetBridge = createAssetBridge(this.os, (layout) => this.onLayout(layout));
     try {
-      this.room = await connect();
+      this.room = await connect(currentZone());
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'viewerIdentity') {
@@ -663,7 +671,7 @@ export class OfficeScene extends Phaser.Scene {
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
       /* Top-right toolbar: a flex row so the buttons auto-space at any UI scale. */
       #pa-topbar{position:fixed;top:0.5rem;right:0.5rem;z-index:60;display:flex;gap:0.5rem;}
-      #pa-topbar button{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
+      #pa-topbar button,#pa-topbar select{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
         color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;white-space:nowrap;}
       #pa-layouts{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
         background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
@@ -685,6 +693,25 @@ export class OfficeScene extends Phaser.Scene {
     topbar.className = 'pa-ui';
     host.appendChild(topbar);
     this.topbar = topbar;
+
+    // Zone switcher (foundation spike F5): pick a zone → reconnect to its room.
+    // A reload-based transition for now; a walk-in portal lands with the player.
+    const zoneSel = document.createElement('select');
+    zoneSel.id = 'pa-zone';
+    zoneSel.title = 'Zone';
+    for (const z of Object.values(ZONES)) {
+      const o = document.createElement('option');
+      o.value = z.id;
+      o.textContent = `🚪 ${z.label}`;
+      zoneSel.appendChild(o);
+    }
+    zoneSel.value = currentZone();
+    zoneSel.onchange = () => {
+      const params = new URLSearchParams(window.location.search);
+      params.set('zone', zoneSel.value);
+      window.location.search = params.toString();
+    };
+    topbar.appendChild(zoneSel);
 
     const btn = document.createElement('button');
     btn.id = 'pa-layouts-btn';

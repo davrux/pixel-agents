@@ -9,7 +9,7 @@ import { PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { createPlazaLayout, migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
@@ -140,9 +140,11 @@ export class SimRoom extends Room<RoomState> {
     return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
   }
 
-  /** Layout for this room's zone: the zone's named layout when set + present,
-   *  else the active/default layout (so the office zone is unchanged). */
+  /** Layout for this room's zone: a builtin generated layout (plaza), else the
+   *  zone's named layout when set + present, else the active/default layout (so
+   *  the office zone is unchanged). */
   private zoneLayout(): OfficeLayout | undefined {
+    if (this.zone.id === 'plaza') return createPlazaLayout();
     const name = this.zone.layoutName;
     if (name && this.store.has(name)) {
       const raw = this.store.resolve(name) as OfficeLayout | null;
@@ -154,8 +156,10 @@ export class SimRoom extends Room<RoomState> {
   private activeLayoutMessage(): Record<string, unknown> {
     return {
       type: 'layoutLoaded',
-      layout: this.store.getActiveLayout(),
-      activeLayout: this.store.getActiveName(),
+      // The layout this room actually simulates (the zone's), so the client
+      // renders the right floor/walls — not always the store's active layout.
+      layout: this.os.getLayout(),
+      activeLayout: this.zone.id === 'office' ? this.store.getActiveName() : this.zone.id,
       force: true,
     };
   }
@@ -167,7 +171,7 @@ export class SimRoom extends Room<RoomState> {
   /** Rebuild the simulation from the (new) active layout and push it to all
    *  viewers (floor/walls via layoutLoaded; furniture re-syncs through schema). */
   private applyActiveLayout(): void {
-    const layout = this.migratedActiveLayout();
+    const layout = this.zoneLayout();
     if (layout) this.os.rebuildFromLayout(layout);
     this.lastFurnitureRef = null; // force furniture re-sync
     this.broadcast('m', this.activeLayoutMessage());

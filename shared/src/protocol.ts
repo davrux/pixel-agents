@@ -21,9 +21,11 @@ export interface ZoneConfig {
   layoutName?: string;
 }
 
-/** Registry of known zones. F5 adds a second entry (e.g. a plaza) + a portal. */
+/** Registry of known zones. The office uses its persisted/default layout; the
+ *  plaza uses a generated builtin layout (createPlazaLayout, resolved server-side). */
 export const ZONES: Record<string, ZoneConfig> = {
   office: { id: 'office', label: 'Office' },
+  plaza: { id: 'plaza', label: 'Plaza' },
 };
 
 /** Resolve a zone id to its config, falling back to the default zone. */

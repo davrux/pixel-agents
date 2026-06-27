@@ -272,6 +272,24 @@ export function createDefaultLayout(): OfficeLayout {
   return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
 }
 
+/** A simple open plaza zone: a wall-bordered field of FLOOR_3, no furniture.
+ *  Used as the second zone for the multi-zone foundation (F5) — deliberately
+ *  visually distinct from the office so a zone switch is obvious. */
+export function createPlazaLayout(): OfficeLayout {
+  const cols = 20;
+  const rows = 14;
+  const tiles: TileTypeVal[] = [];
+  const tileColors: Array<ColorValue | null> = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
+      tiles.push(edge ? TileType.WALL : TileType.FLOOR_3);
+      tileColors.push(null);
+    }
+  }
+  return { version: 1, cols, rows, tiles, tileColors, furniture: [] };
+}
+
 /** Serialize layout to JSON string
  * @internal */
 export function serializeLayout(layout: OfficeLayout): string {
