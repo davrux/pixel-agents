@@ -113,6 +113,10 @@ export class OfficeScene extends Phaser.Scene {
   private myPalette: number | null = null;
   /** This viewer's own player-avatar id (from viewerIdentity), or null. */
   private myPlayerId: number | null = null;
+  /** This viewer's chosen player-avatar palette (null = default/random). */
+  private myPlayerPalette: number | null = null;
+  /** Whether the viewer wants a visible player avatar (false = spectator). */
+  private playerVisible = true;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -156,6 +160,10 @@ export class OfficeScene extends Phaser.Scene {
     try {
       const savedChar = localStorage.getItem('pa-viewer-char');
       if (savedChar !== null && savedChar !== '') this.myPalette = Number(savedChar);
+      const savedPlayer = localStorage.getItem('pa-player-char');
+      if (savedPlayer !== null && savedPlayer !== '') this.myPlayerPalette = Number(savedPlayer);
+      const savedVis = localStorage.getItem('pa-player-visible');
+      if (savedVis !== null) this.playerVisible = savedVis === '1';
       const saved = localStorage.getItem('pa-viewer-name');
       if (saved) {
         this.viewerUsername = saved;
@@ -247,6 +255,24 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
+          // Adopt the account's saved player skin / spectator pref only when this
+          // browser has no local choice; otherwise assert the local choice so the
+          // session reflects it (covers anonymous viewers + cross-device).
+          let hasLocalVis = false;
+          try {
+            if (this.myPlayerPalette === null && typeof m.playerPalette === 'number') {
+              this.myPlayerPalette = m.playerPalette;
+            }
+            hasLocalVis = localStorage.getItem('pa-player-visible') !== null;
+          } catch {
+            /* localStorage unavailable */
+          }
+          if (!hasLocalVis && typeof m.spectator === 'boolean') this.playerVisible = !m.spectator;
+          else this.room?.send('setPlayerVisible', { visible: this.playerVisible });
+          if (this.myPlayerPalette !== null) {
+            this.room?.send('setPlayerCharacter', { palette: this.myPlayerPalette });
+          }
+          if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
 
           // Adopt the server-pinned skin only if the viewer hasn't picked one here.
           if (this.myPalette === null && typeof m.characterPalette === 'number') {
@@ -512,6 +538,12 @@ export class OfficeScene extends Phaser.Scene {
   private async toggleEditMode(): Promise<void> {
     if (this.editor.isEditing()) {
       this.editor.toggle(); // exit (setEditMode flushes the final autosave)
+      return;
+    }
+    // Only the office zone is store-backed; generated zones (plaza) are read-only
+    // and share the office's layout store, so editing there is blocked server-side.
+    if (currentZone() !== 'office') {
+      setStatus('This zone is read-only — layout editing is only available in the office.');
       return;
     }
     let target = this.layoutListData.active;
@@ -829,13 +861,13 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings .row input[type=text]{flex:1;min-width:0;background:#14161c;color:#eef1f6;
         border:2px solid #3a4150;border-radius:0.3rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;}
       #pa-settings .hint{font-size:0.8rem;color:#8b93a3;margin:-0.25rem 0 0.65rem;}
-      #pa-char{display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0 0.65rem;}
-      #pa-char canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
+      #pa-char,#pa-pchar{display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0 0.65rem;}
+      #pa-char canvas,#pa-pchar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
         border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;}
-      #pa-char canvas.sel{border-color:#3a6df0;}
-      #pa-char .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
+      #pa-char canvas.sel,#pa-pchar canvas.sel{border-color:#3a6df0;}
+      #pa-char .rnd,#pa-pchar .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
         background:#14161c;border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;font-size:1.1rem;}
-      #pa-char .rnd.sel{border-color:#3a6df0;}
+      #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#3a6df0;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
         color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
@@ -850,9 +882,13 @@ export class OfficeScene extends Phaser.Scene {
     panel.innerHTML = `<h4>Settings</h4>
       <div class="row"><label for="pa-name">Your name</label><input id="pa-name" type="text" maxlength="16" placeholder="(all agents)"></div>
       <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
-      <div class="row"><label>Your character</label></div>
+      <div class="row"><label>Your avatar</label></div>
+      <div id="pa-pchar"></div>
+      <div class="row"><input id="pa-spectate" type="checkbox"><label for="pa-spectate">Show me in the world</label></div>
+      <div class="hint">Off = spectator (you watch without an avatar).</div>
+      <div class="row"><label>Agents' avatar</label></div>
       <div id="pa-char"></div>
-      <div class="hint">Pick a skin to keep your agent's look consistent.</div>
+      <div class="hint">Pick a skin to keep your agents' look consistent.</div>
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
@@ -908,6 +944,7 @@ export class OfficeScene extends Phaser.Scene {
         /* localStorage unavailable */
       }
       unlockAudio();
+      this.room?.send('setPlayerName', { name: v }); // rename the live player avatar
       this.clearNameLabels(); // labels re-render with the new name on next tick
     };
     snd.onchange = () => {
@@ -926,31 +963,60 @@ export class OfficeScene extends Phaser.Scene {
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
     };
+    const spectate = panel.querySelector<HTMLInputElement>('#pa-spectate')!;
+    spectate.onchange = () => {
+      this.playerVisible = spectate.checked;
+      try {
+        localStorage.setItem('pa-player-visible', this.playerVisible ? '1' : '0');
+      } catch {
+        /* localStorage unavailable */
+      }
+      this.room?.send('setPlayerVisible', { visible: this.playerVisible });
+    };
     const logoutBtn = panel.querySelector<HTMLButtonElement>('#pa-logout')!;
     logoutBtn.style.display = 'none'; // shown only when a login session is active
     logoutBtn.onclick = () => gotoLogout();
     this.syncSettingsInputs();
   }
 
-  /** Render the character-skin swatches (front standing frame of each palette). */
+  /** Render both avatar swatch rows: the viewer's own player avatar + the skin
+   *  pinned for their agents. */
   private renderCharSwatches(): void {
-    const host = this.settingsPanel?.querySelector<HTMLDivElement>('#pa-char');
+    this.renderSwatchRow('#pa-pchar', this.myPlayerPalette, (i) => {
+      this.myPlayerPalette = i;
+      this.persistPref('pa-player-char', i);
+      this.room?.send('setPlayerCharacter', { palette: i ?? -1 });
+    });
+    this.renderSwatchRow('#pa-char', this.myPalette, (i) => {
+      this.myPalette = i;
+      this.persistPref('pa-viewer-char', i);
+      this.room?.send('setCharacter', { palette: i ?? -1, name: this.viewerUsername });
+    });
+  }
+
+  private persistPref(key: string, i: number | null): void {
+    try {
+      if (i === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, String(i));
+    } catch {
+      /* localStorage unavailable */
+    }
+  }
+
+  /** Render one avatar swatch row (random + each palette's front standing frame),
+   *  highlighting `selected`; clicking a swatch calls `onPick`. */
+  private renderSwatchRow(hostSel: string, selected: number | null, onPick: (i: number | null) => void): void {
+    const host = this.settingsPanel?.querySelector<HTMLDivElement>(hostSel);
     if (!host) return;
     const tpl = getCharacterTemplates() ?? [];
     host.innerHTML = '';
     // "Default (Random)" = no pin; the server diversifies the skin.
     const rnd = document.createElement('div');
-    rnd.className = 'rnd' + (this.myPalette === null ? ' sel' : '');
+    rnd.className = 'rnd' + (selected === null ? ' sel' : '');
     rnd.textContent = '🎲';
     rnd.title = 'Default (random skin)';
     rnd.onclick = () => {
-      this.myPalette = null;
-      try {
-        localStorage.removeItem('pa-viewer-char');
-      } catch {
-        /* localStorage unavailable */
-      }
-      this.room?.send('setCharacter', { palette: -1, name: this.viewerUsername });
+      onPick(null);
       this.renderCharSwatches();
     };
     host.appendChild(rnd);
@@ -973,16 +1039,10 @@ export class OfficeScene extends Phaser.Scene {
           }
         }
       }
-      if (this.myPalette === i) cv.classList.add('sel');
+      if (selected === i) cv.classList.add('sel');
       cv.title = c.name ? `${c.name} (char_${i})` : `char_${i}`;
       cv.onclick = () => {
-        this.myPalette = i;
-        try {
-          localStorage.setItem('pa-viewer-char', String(i));
-        } catch {
-          /* localStorage unavailable */
-        }
-        this.room?.send('setCharacter', { palette: i, name: this.viewerUsername });
+        onPick(i);
         this.renderCharSwatches();
       };
       host.appendChild(cv);
@@ -997,6 +1057,8 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
+    const spectate = this.settingsPanel.querySelector<HTMLInputElement>('#pa-spectate');
+    if (spectate) spectate.checked = this.playerVisible;
   }
 
   // ── Always-on name labels ────────────────────────────────────────
@@ -1018,7 +1080,16 @@ export class OfficeScene extends Phaser.Scene {
     const host = document.getElementById('game') ?? document.body;
     const live = new Set<number>();
     for (const ch of this.characters.values()) {
-      const name = ch.agentName || ch.folderName;
+      // Players show their own name; agents are tagged "<owner>-Agent".
+      let name: string;
+      if (ch.isPlayer) {
+        name = ch.folderName || ch.agentName || '';
+      } else if (ch.isSubagent) {
+        name = ch.agentName || ch.folderName || '';
+      } else {
+        const owner = ch.folderName || ch.agentName || '';
+        name = owner ? `${owner}-Agent` : '';
+      }
       if (!name) continue;
       live.add(ch.id);
       let el = this.nameLabels.get(ch.id);
@@ -1092,8 +1163,14 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.left = `${Math.round(sx)}px`;
     this.tip.style.top = `${Math.round(sy)}px`;
 
-    const act = ch.bubbleType === 'permission' ? 'Needs approval' : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
-    const name = ch.agentName || ch.folderName || `agent ${id}`;
+    const act = ch.isPlayer
+      ? 'Player'
+      : ch.bubbleType === 'permission'
+        ? 'Needs approval'
+        : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
+    const name = ch.isPlayer
+      ? ch.folderName || 'Player'
+      : ch.agentName || ch.folderName || `agent ${id}`;
     const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#44cc44' : '';
     const total = (ch.inputTokens ?? 0) + (ch.outputTokens ?? 0);
     const ratio = total / MAX_CONTEXT_TOKENS;

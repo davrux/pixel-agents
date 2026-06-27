@@ -126,6 +126,27 @@ class AppStore {
     }
   }
 
+  // ── Per-user player-avatar preferences (palette + spectator) ─────
+  /** Player-avatar palette per user (-1/absent = default random). */
+  getPlayerPrefs(): Record<string, number> {
+    return this.getSetting<Record<string, number>>('playerPrefs', {});
+  }
+  setPlayerPref(name: string, palette: number): void {
+    const prefs = this.getPlayerPrefs();
+    prefs[name] = palette;
+    this.setSetting('playerPrefs', prefs);
+  }
+  /** Users who opted out of a visible player avatar (spectator mode). */
+  getSpectatorPrefs(): Record<string, boolean> {
+    return this.getSetting<Record<string, boolean>>('spectatorPrefs', {});
+  }
+  setSpectatorPref(name: string, spectator: boolean): void {
+    const prefs = this.getSpectatorPrefs();
+    if (spectator) prefs[name] = true;
+    else delete prefs[name];
+    this.setSetting('spectatorPrefs', prefs);
+  }
+
   // ── Settings (global; matches the original single-server fork) ───
   getSetting<T>(key: string, fallback: T): T {
     const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as

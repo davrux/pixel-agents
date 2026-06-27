@@ -575,7 +575,7 @@ export class OfficeState {
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
    *  FSM) at a free walkable tile. Returns its id. */
-  addPlayer(preferredPalette?: number): number {
+  addPlayer(preferredPalette?: number, name?: string): number {
     const id = this.nextPlayerId++;
     let palette: number;
     let hueShift: number;
@@ -591,6 +591,7 @@ export class OfficeState {
     ch.isPlayer = true;
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
+    if (name) ch.folderName = name; // the owning user — shown as the avatar's name
     const spawn =
       this.walkableTiles.length > 0
         ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
@@ -604,6 +605,21 @@ export class OfficeState {
     ch.matrixEffectSeeds = matrixEffectSeeds();
     this.characters.set(id, ch);
     return id;
+  }
+
+  /** Recolor a character (used to change a player's chosen avatar skin). */
+  setCharacterPalette(id: number, palette: number, hueShift = 0): void {
+    const ch = this.characters.get(id);
+    if (ch) {
+      ch.palette = palette;
+      ch.hueShift = hueShift;
+    }
+  }
+
+  /** Set a character's owner name (a player's display name; shown as its label). */
+  setCharacterName(id: number, name: string): void {
+    const ch = this.characters.get(id);
+    if (ch) ch.folderName = name;
   }
 
   /** Remove a player's avatar (immediate; viewers leave abruptly). */

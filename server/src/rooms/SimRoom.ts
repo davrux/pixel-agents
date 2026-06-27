@@ -133,13 +133,20 @@ export class SimRoom extends Room<RoomState> {
     client.send('m', this.activeLayoutMessage());
     client.send('m', this.layoutListMessage());
 
-    // Who this viewer logged in as (for per-user sounds) + their pinned skin.
+    // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
     const characterPalette = username ? (appStore.getCharPrefs()[username] ?? null) : null;
-    // Spawn this viewer's player avatar in the zone (their own controllable body).
-    const playerId = this.os.addPlayer(characterPalette ?? undefined);
-    this.players.set(client.sessionId, playerId);
-    client.send('m', { type: 'viewerIdentity', username, characterPalette, playerId });
+    const playerPalette = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
+    const spectator = username ? !!appStore.getSpectatorPrefs()[username] : false;
+    // Spawn this viewer's player avatar (their own controllable body) unless they
+    // opted into spectator mode. Anonymous viewers re-assert their choice via
+    // setPlayer* after join (localStorage-backed).
+    let playerId: number | null = null;
+    if (!spectator) {
+      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined);
+      this.players.set(client.sessionId, playerId);
+    }
+    client.send('m', { type: 'viewerIdentity', username, characterPalette, playerPalette, playerId, spectator });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -201,19 +208,29 @@ export class SimRoom extends Room<RoomState> {
     this.broadcast('m', this.layoutListMessage());
   }
 
+  /** Whether this zone's layout is store-backed (editable). Generated zones
+   *  (e.g. the plaza) are read-only — they share the office's LayoutStore/DB, so
+   *  letting them save would overwrite the office layout. */
+  private layoutEditable(): boolean {
+    return this.zone.id === 'office';
+  }
+
   private registerLayoutHandlers(): void {
     this.onMessage('requestLayouts', (client) => client.send('m', this.layoutListMessage()));
 
     this.onMessage('loadLayout', (_c, msg: { name?: string }) => {
+      if (!this.layoutEditable()) return;
       if (typeof msg?.name === 'string' && this.store.setActive(msg.name)) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayout', (_c, msg: { layout?: Record<string, unknown> }) => {
+      if (!this.layoutEditable()) return; // a generated zone must not touch the store
       // Autosave the active layout (no-op on read-only Default).
       if (msg?.layout && this.store.saveActive(msg.layout, Date.now())) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayoutAs', (_c, msg: { name?: string; layout?: Record<string, unknown> }) => {
+      if (!this.layoutEditable()) return;
       if (typeof msg?.name === 'string' && msg.layout && LayoutStore.isValidUserName(msg.name)) {
         this.store.saveAs(msg.name, msg.layout, Date.now());
         this.applyActiveLayout();
@@ -221,6 +238,7 @@ export class SimRoom extends Room<RoomState> {
     });
 
     this.onMessage('deleteLayout', (_c, msg: { name?: string }) => {
+      if (!this.layoutEditable()) return;
       if (typeof msg?.name === 'string' && this.store.delete(msg.name)) this.applyActiveLayout();
     });
 
@@ -252,6 +270,47 @@ export class SimRoom extends Room<RoomState> {
         appStore.setCharPref(name, palette);
         this.os.setPalettePref(name, palette);
       }
+    });
+
+    // Pick the viewer's own player-avatar skin (recolors their live avatar +
+    // persists per user; -1 = default/random on next spawn).
+    this.onMessage('setPlayerCharacter', (client, msg: { palette?: number }) => {
+      const palette = Number(msg?.palette);
+      if (!Number.isInteger(palette) || palette > 999) return;
+      const name = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (name) {
+        if (palette < 0) appStore.setPlayerPref(name, -1);
+        else appStore.setPlayerPref(name, palette);
+      }
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined && palette >= 0) this.os.setCharacterPalette(id, palette);
+    });
+
+    // Toggle the viewer's visibility as a player (spectator mode): spawn/despawn
+    // their avatar + persist the choice per user.
+    this.onMessage('setPlayerVisible', (client, msg: { visible?: boolean }) => {
+      const visible = !!msg?.visible;
+      const name = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (name) appStore.setSpectatorPref(name, !visible);
+      const existing = this.players.get(client.sessionId);
+      if (visible && existing === undefined) {
+        const palette = name ? (appStore.getPlayerPrefs()[name] ?? null) : null;
+        this.players.set(client.sessionId, this.os.addPlayer(palette ?? undefined, name || undefined));
+      } else if (!visible && existing !== undefined) {
+        this.os.removePlayer(existing);
+        this.players.delete(client.sessionId);
+      }
+    });
+
+    // The viewer's display name for their player avatar (auth username for
+    // logged-in viewers; a chosen name for anonymous ones).
+    this.onMessage('setPlayerName', (client, msg: { name?: string }) => {
+      const auth = (client.auth as { username?: string } | undefined)?.username;
+      const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
+        .trim()
+        .slice(0, 16);
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined) this.os.setCharacterName(id, name);
     });
 
     // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge
