@@ -567,12 +567,7 @@ export class OfficeScene extends Phaser.Scene {
       this.editor.toggle(); // exit (setEditMode flushes the final autosave)
       return;
     }
-    // Only the office zone is store-backed; generated zones (plaza) are read-only
-    // and share the office's layout store, so editing there is blocked server-side.
-    if (currentZone() !== 'office') {
-      setStatus('This zone is read-only — layout editing is only available in the office.');
-      return;
-    }
+    // Every zone is now independently editable (its own layouts + Default).
     let target = this.layoutListData.active;
     let fork = false;
     if (!this.isValidLayoutName(target)) {
@@ -812,8 +807,9 @@ export class OfficeScene extends Phaser.Scene {
       })
       .join('');
 
+    const zoneLabel = ZONES[currentZone()]?.label ?? 'Zone';
     this.layoutsPanel.innerHTML =
-      `<h4>Office Layouts</h4>${rows}` +
+      `<h4>${esc(zoneLabel)} Layouts</h4>${rows}` +
       `<div class="foot">
          <button data-edit class="edit">✏ Edit layout</button>
          <button data-new>New from current…</button>

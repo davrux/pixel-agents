@@ -86,8 +86,12 @@ export class SimRoom extends Room<RoomState> {
       sprites: this.bundle.raw.furnitureSprites as never,
     });
 
-    // The active layout (persisted, falling back to the bundled default).
+    // The active layout (persisted per zone, falling back to the zone's builtin
+    // default). The office Default is the bundled layout; generated zones (plaza)
+    // register their builtin as their read-only Default below.
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
+    const builtin = this.zoneDefaultLayout();
+    if (builtin) this.store.registerZoneDefault(this.zone.id, builtin as unknown as Record<string, unknown>);
     this.os = new OfficeState(this.zoneLayout()); // portals derive from placed furniture (P5 v2)
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
@@ -172,20 +176,21 @@ export class SimRoom extends Room<RoomState> {
   // ── Layout management (server-authoritative) ─────────────────────
 
   private migratedActiveLayout(): OfficeLayout | undefined {
-    const raw = this.store.getActiveLayout() as OfficeLayout | null;
+    const raw = this.store.getActiveLayout(this.zone.id) as OfficeLayout | null;
     return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
   }
 
-  /** Layout for this room's zone: a builtin generated layout (plaza), else the
-   *  zone's named layout when set + present, else the active/default layout (so
-   *  the office zone is unchanged). */
-  private zoneLayout(): OfficeLayout | undefined {
+  /** This zone's builtin/read-only Default layout, for zones the store can't get
+   *  from the bundle (generated zones). The office's Default is the bundled
+   *  layout (registered by the store itself), so it returns undefined here. */
+  private zoneDefaultLayout(): OfficeLayout | undefined {
     if (this.zone.id === 'plaza') return createPlazaLayout();
-    const name = this.zone.layoutName;
-    if (name && this.store.has(name)) {
-      const raw = this.store.resolve(name) as OfficeLayout | null;
-      return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
-    }
+    return undefined;
+  }
+
+  /** Layout this room's zone simulates: its active layout, falling back to the
+   *  zone's read-only builtin Default. Each zone is independent. */
+  private zoneLayout(): OfficeLayout | undefined {
     return this.migratedActiveLayout();
   }
 
@@ -195,13 +200,17 @@ export class SimRoom extends Room<RoomState> {
       // The layout this room actually simulates (the zone's), so the client
       // renders the right floor/walls — not always the store's active layout.
       layout: this.os.getLayout(),
-      activeLayout: this.zone.id === 'office' ? this.store.getActiveName() : this.zone.id,
+      activeLayout: this.store.getActiveName(this.zone.id),
       force: true,
     };
   }
 
   private layoutListMessage(): Record<string, unknown> {
-    return { type: 'layoutList', layouts: this.store.list(), active: this.store.getActiveName() };
+    return {
+      type: 'layoutList',
+      layouts: this.store.list(this.zone.id),
+      active: this.store.getActiveName(this.zone.id),
+    };
   }
 
   /** Rebuild the simulation from the (new) active layout and push it to all
@@ -214,38 +223,28 @@ export class SimRoom extends Room<RoomState> {
     this.broadcast('m', this.layoutListMessage());
   }
 
-  /** Whether this zone's layout is store-backed (editable). Generated zones
-   *  (e.g. the plaza) are read-only — they share the office's LayoutStore/DB, so
-   *  letting them save would overwrite the office layout. */
-  private layoutEditable(): boolean {
-    return this.zone.id === 'office';
-  }
-
   private registerLayoutHandlers(): void {
+    const zone = this.zone.id;
     this.onMessage('requestLayouts', (client) => client.send('m', this.layoutListMessage()));
 
     this.onMessage('loadLayout', (_c, msg: { name?: string }) => {
-      if (!this.layoutEditable()) return;
-      if (typeof msg?.name === 'string' && this.store.setActive(msg.name)) this.applyActiveLayout();
+      if (typeof msg?.name === 'string' && this.store.setActive(zone, msg.name)) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayout', (_c, msg: { layout?: Record<string, unknown> }) => {
-      if (!this.layoutEditable()) return; // a generated zone must not touch the store
-      // Autosave the active layout (no-op on read-only Default).
-      if (msg?.layout && this.store.saveActive(msg.layout, Date.now())) this.applyActiveLayout();
+      // Autosave this zone's active layout (no-op on its read-only Default).
+      if (msg?.layout && this.store.saveActive(zone, msg.layout, Date.now())) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayoutAs', (_c, msg: { name?: string; layout?: Record<string, unknown> }) => {
-      if (!this.layoutEditable()) return;
       if (typeof msg?.name === 'string' && msg.layout && LayoutStore.isValidUserName(msg.name)) {
-        this.store.saveAs(msg.name, msg.layout, Date.now());
+        this.store.saveAs(zone, msg.name, msg.layout, Date.now());
         this.applyActiveLayout();
       }
     });
 
     this.onMessage('deleteLayout', (_c, msg: { name?: string }) => {
-      if (!this.layoutEditable()) return;
-      if (typeof msg?.name === 'string' && this.store.delete(msg.name)) this.applyActiveLayout();
+      if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
     });
 
     // Settings (global, persisted in SQLite).
