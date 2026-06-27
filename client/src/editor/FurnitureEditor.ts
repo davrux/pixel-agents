@@ -1,6 +1,7 @@
 import {
   FURNITURE_CATEGORIES,
   getActiveCategories,
+  getAnimationFrames,
   getCatalogByCategory,
   getCatalogEntry,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
@@ -44,6 +45,14 @@ function resizeSprite(src: SpriteData, w: number, h: number): SpriteData {
   return out;
 }
 
+/** One animation frame of a furniture item: its catalog id, sprite, and the
+ *  original raw item (group metadata preserved on save). Static items have one. */
+interface FurnFrame {
+  id: string;
+  sprite: SpriteData;
+  base?: RawCatalogItem;
+}
+
 interface FurnWork {
   id: string;
   label: string;
@@ -56,6 +65,14 @@ interface FurnWork {
   backgroundTiles: number;
   /** Interaction station this furniture provides ('' = none, 'coffee', …). */
   appliance: string;
+  /** Animation frames (length 1 for a static item). */
+  frames: FurnFrame[];
+  /** Selected frame index. */
+  frameIdx: number;
+  /** Animation group id when frames.length > 1, else null. */
+  animGroup: string | null;
+  /** The selected frame's sprite — always === frames[frameIdx].sprite (same
+   *  array ref), so paint/render keep using `work.sprite` unchanged. */
   sprite: SpriteData;
   /** Original raw item (group fields preserved on save), or undefined for new. */
   base?: RawCatalogItem;
@@ -79,6 +96,7 @@ export class FurnitureEditor {
   private color = '#9b7653';
   private tool: 'paint' | 'erase' | 'pick' = 'paint';
   private cell = 12;
+  private playTimer: number | null = null;
   private work: FurnWork = this.blank();
 
   constructor(private readonly opts: FurnitureEditorOpts) {
@@ -98,6 +116,7 @@ export class FurnitureEditor {
   }
   async close(): Promise<void> {
     if (!(await this.confirmDiscard())) return;
+    this.stopPlay();
     this.open = false;
     this.panel.style.display = 'none';
   }
@@ -109,6 +128,7 @@ export class FurnitureEditor {
   }
 
   private showGallery(): void {
+    this.stopPlay();
     this.view = 'gallery';
     this.editPane.style.display = 'none';
     this.galleryPane.style.display = 'block';
@@ -122,6 +142,7 @@ export class FurnitureEditor {
   }
 
   private blank(): FurnWork {
+    const sprite = emptySprite(TILE, TILE);
     return {
       id: '',
       label: '',
@@ -133,7 +154,10 @@ export class FurnitureEditor {
       canPlaceOnWalls: false,
       backgroundTiles: 0,
       appliance: '',
-      sprite: emptySprite(TILE, TILE),
+      frames: [{ id: '', sprite }],
+      frameIdx: 0,
+      animGroup: null,
+      sprite,
     };
   }
 
@@ -152,6 +176,10 @@ export class FurnitureEditor {
       #pa-furn input[type=text],#pa-furn input[type=number]{cursor:text;flex:1;min-width:0;}
       #pa-furn input[type=number]{flex:0 0 4rem;}
       #pa-furn button.on{background:#3a6df0;border-color:#3a6df0;}
+      #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
+      #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0d0f14;
+        border:2px solid #3a4150;border-radius:0.25rem;cursor:pointer;}
+      #pa-furn #pa-f-frames canvas.on{border-color:#3a6df0;}
       #pa-furn #pa-f-paintarea{display:flex;justify-content:center;margin:0.5rem 0;}
       #pa-furn #pa-f-canvas{image-rendering:pixelated;background:
         repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/1rem 1rem;border:1px solid #3a4150;cursor:crosshair;touch-action:none;}
@@ -214,6 +242,11 @@ export class FurnitureEditor {
         <button id="pa-f-paint" class="on">✏ Paint</button>
         <button id="pa-f-erase">⌫ Erase</button>
         <button id="pa-f-pick">⦿ Pick</button>
+      </div>
+      <div class="row" id="pa-f-framesrow" style="display:none">
+        <span class="f" style="flex:0 0 auto;">Frames</span>
+        <div id="pa-f-frames"></div>
+        <button id="pa-f-play" title="Play the animation">▶</button>
       </div>
       <div id="pa-f-paintarea"><canvas id="pa-f-canvas"></canvas></div>
       <div class="row" style="justify-content:flex-end;min-height:1rem;margin:0;"><span id="pa-f-status">​</span></div>
@@ -291,6 +324,7 @@ export class FurnitureEditor {
     this.field('#pa-f-pick').onclick = () => this.setTool('pick');
     this.field('#pa-f-save').onclick = () => this.doSave();
     this.field('#pa-f-reset').onclick = () => this.doReset();
+    this.field('#pa-f-play').onclick = () => this.togglePlay();
 
     this.bindPaint();
   }
@@ -375,10 +409,19 @@ export class FurnitureEditor {
 
   private loadItem(type: string): void {
     const entry = getCatalogEntry(type);
-    const raw = (this.opts.getRawCatalog() ?? []).find((c) => c.id === type);
+    const rawCatalog = this.opts.getRawCatalog() ?? [];
+    const rawOf = (id: string): RawCatalogItem | undefined => rawCatalog.find((c) => c.id === id);
+    const raw = rawOf(type);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
-    const sprite = entry?.sprite ? entry.sprite.map((r) => r.slice()) : emptySprite(fw * TILE, fh * TILE);
+    const cloneOf = (id: string): SpriteData => {
+      const e = getCatalogEntry(id);
+      return e?.sprite ? e.sprite.map((r) => r.slice()) : emptySprite(fw * TILE, fh * TILE);
+    };
+    // Animation members (ordered frame ids), or just this item as a single frame.
+    const memberIds = getAnimationFrames(type) ?? [type];
+    const frames: FurnFrame[] = memberIds.map((id) => ({ id, sprite: cloneOf(id), base: rawOf(id) }));
+    const animGroup = frames.length > 1 ? ((raw?.animationGroup as string | undefined) ?? type) : null;
     this.work = {
       id: type,
       label: entry?.label ?? type,
@@ -391,12 +434,23 @@ export class FurnitureEditor {
       backgroundTiles: entry?.backgroundTiles ?? 0,
       // Resolved entry includes the bundled coffee-machine legacy default.
       appliance: entry?.appliance ?? '',
-      sprite,
+      frames,
+      frameIdx: 0,
+      animGroup,
+      sprite: frames[0].sprite,
       base: raw,
     };
     this.isNew = false;
     this.dirty = false;
     this.syncFields(false);
+    this.render();
+  }
+
+  /** Switch the selected animation frame (paint canvas + strip follow). */
+  private selectFrame(i: number): void {
+    if (i < 0 || i >= this.work.frames.length) return;
+    this.work.frameIdx = i;
+    this.work.sprite = this.work.frames[i].sprite; // re-point the alias
     this.render();
   }
 
@@ -421,7 +475,9 @@ export class FurnitureEditor {
     this.work.footprintH = fh;
     this.field('#pa-f-fw').value = String(fw);
     this.field('#pa-f-fh').value = String(fh);
-    this.work.sprite = resizeSprite(this.work.sprite, fw * TILE, fh * TILE);
+    // Footprint applies to the whole item → resize every frame, then re-point.
+    for (const f of this.work.frames) f.sprite = resizeSprite(f.sprite, fw * TILE, fh * TILE);
+    this.work.sprite = this.work.frames[this.work.frameIdx].sprite;
     this.dirty = true;
     this.render();
   }
@@ -439,29 +495,37 @@ export class FurnitureEditor {
       return;
     }
     const w = this.work;
-    const h = w.sprite.length;
-    const width = h > 0 ? w.sprite[0].length : 0;
-    // Preserve original group/meta fields on edit; new items are standalone.
-    const catalog: Record<string, unknown> = {
-      ...(w.base ?? {}),
-      id: w.id,
-      label: w.label || w.id,
-      category: w.category,
-      width,
-      height: h,
-      footprintW: w.footprintW,
-      footprintH: w.footprintH,
-      isDesk: w.isDesk,
-      canPlaceOnSurfaces: w.canPlaceOnSurfaces,
-      canPlaceOnWalls: w.canPlaceOnWalls,
-      backgroundTiles: w.backgroundTiles,
-      appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
-    };
-    this.opts.save(w.id, { sprite: w.sprite, catalog });
+    const animated = w.frames.length > 1;
+    // Save every animation frame as its own catalog member; static items save one.
+    w.frames.forEach((f, i) => {
+      const id = f.id || w.id; // a fresh blank item has no per-frame id yet
+      const h = f.sprite.length;
+      const width = h > 0 ? f.sprite[0].length : 0;
+      const catalog: Record<string, unknown> = {
+        ...(f.base ?? w.base ?? {}), // preserve group/meta fields on edit
+        id,
+        label: w.label || w.id,
+        category: w.category,
+        width,
+        height: h,
+        footprintW: w.footprintW,
+        footprintH: w.footprintH,
+        isDesk: w.isDesk,
+        canPlaceOnSurfaces: w.canPlaceOnSurfaces,
+        canPlaceOnWalls: w.canPlaceOnWalls,
+        backgroundTiles: w.backgroundTiles,
+        appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
+      };
+      if (animated && w.animGroup) {
+        catalog.animationGroup = w.animGroup;
+        catalog.frame = i;
+      }
+      this.opts.save(id, { sprite: f.sprite, catalog });
+    });
     this.dirty = false;
     this.isNew = false;
     this.field('#pa-f-id').readOnly = true; // id is fixed once saved
-    this.showStatus(`Saved ${w.id} ✓`);
+    this.showStatus(`Saved ${w.id}${animated ? ` (${w.frames.length} frames)` : ''} ✓`);
   }
 
   private doReset(): void {
@@ -504,6 +568,48 @@ export class FurnitureEditor {
       ctx.lineTo(w * this.cell, y * this.cell);
       ctx.stroke();
     }
+    this.renderFrames();
+  }
+
+  /** Render the animation frame strip (one thumbnail per frame, selected one
+   *  highlighted; click to edit). Hidden for single-frame static items. */
+  private renderFrames(): void {
+    const row = this.field<HTMLDivElement>('#pa-f-framesrow');
+    const host = this.field<HTMLDivElement>('#pa-f-frames');
+    const multi = this.work.frames.length > 1;
+    row.style.display = multi ? 'flex' : 'none';
+    if (!multi) return;
+    host.innerHTML = '';
+    this.work.frames.forEach((f, i) => {
+      const cv = document.createElement('canvas');
+      this.drawThumb(cv, f.sprite);
+      cv.classList.toggle('on', i === this.work.frameIdx);
+      cv.title = `Frame ${i + 1}`;
+      cv.onclick = () => {
+        this.stopPlay();
+        this.selectFrame(i);
+      };
+      host.appendChild(cv);
+    });
+  }
+
+  private togglePlay(): void {
+    if (this.playTimer !== null) {
+      this.stopPlay();
+      return;
+    }
+    if (this.work.frames.length < 2) return;
+    this.field('#pa-f-play').textContent = '⏸';
+    this.playTimer = window.setInterval(() => {
+      this.selectFrame((this.work.frameIdx + 1) % this.work.frames.length);
+    }, 250);
+  }
+
+  private stopPlay(): void {
+    if (this.playTimer === null) return;
+    window.clearInterval(this.playTimer);
+    this.playTimer = null;
+    this.field('#pa-f-play').textContent = '▶';
   }
 
   private bindPaint(): void {
@@ -534,6 +640,7 @@ export class FurnitureEditor {
       this.render();
     };
     this.canvas.addEventListener('pointerdown', (e) => {
+      this.stopPlay(); // don't fight the user while a frame is being painted
       painting = true;
       this.canvas.setPointerCapture(e.pointerId);
       apply(e);
