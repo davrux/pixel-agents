@@ -111,6 +111,8 @@ export class OfficeScene extends Phaser.Scene {
   private nameOverridden = false;
   /** Pinned character palette for this viewer, or null (server diversifies). */
   private myPalette: number | null = null;
+  /** This viewer's own player-avatar id (from viewerIdentity), or null. */
+  private myPlayerId: number | null = null;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -244,6 +246,8 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
+          if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
+
           // Adopt the server-pinned skin only if the viewer hasn't picked one here.
           if (this.myPalette === null && typeof m.characterPalette === 'number') {
             this.myPalette = m.characterPalette;
@@ -354,6 +358,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     rc.matrixEffect = me;
     rc.isSubagent = cs.isSubagent as boolean;
+    rc.isPlayer = cs.isPlayer as boolean;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;

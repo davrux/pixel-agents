@@ -49,6 +49,8 @@ export class SimRoom extends Room<RoomState> {
   private os!: OfficeState;
   private store!: LayoutStore;
   private zone!: ZoneConfig;
+  /** Player avatar id per connected client session. */
+  private readonly players = new Map<string, number>();
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
@@ -134,7 +136,10 @@ export class SimRoom extends Room<RoomState> {
     // Who this viewer logged in as (for per-user sounds) + their pinned skin.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
     const characterPalette = username ? (appStore.getCharPrefs()[username] ?? null) : null;
-    client.send('m', { type: 'viewerIdentity', username, characterPalette });
+    // Spawn this viewer's player avatar in the zone (their own controllable body).
+    const playerId = this.os.addPlayer(characterPalette ?? undefined);
+    this.players.set(client.sessionId, playerId);
+    client.send('m', { type: 'viewerIdentity', username, characterPalette, playerId });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -143,7 +148,13 @@ export class SimRoom extends Room<RoomState> {
     });
   }
 
-  onLeave(): void {}
+  onLeave(client: Client): void {
+    const playerId = this.players.get(client.sessionId);
+    if (playerId !== undefined) {
+      this.os.removePlayer(playerId);
+      this.players.delete(client.sessionId);
+    }
+  }
 
   // ── Layout management (server-authoritative) ─────────────────────
 
@@ -459,6 +470,7 @@ export class SimRoom extends Room<RoomState> {
       cs.matrixEffect = ch.matrixEffect ?? '';
       cs.matrixEffectTimer = ch.matrixEffectTimer;
       cs.isSubagent = ch.isSubagent;
+      cs.isPlayer = ch.isPlayer;
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';

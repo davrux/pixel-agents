@@ -19,6 +19,7 @@ import {
   PET_FLEE_RANGE_TILES,
   PET_SHOO_RADIUS_TILES,
   WAITING_BUBBLE_DURATION_SEC,
+  WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
@@ -55,6 +56,7 @@ import {
   TILE_SIZE,
 } from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
+import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
@@ -99,6 +101,9 @@ export class OfficeState {
   /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
   private nextPetId = 1_000_000;
+  /** Player avatar ids live in their own band (agents use Claude ids, subagents
+   *  negative, pets 1_000_000+). */
+  private nextPlayerId = 2_000_000;
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -566,6 +571,63 @@ export class OfficeState {
     ch.bubbleType = null;
   }
 
+  // ── Players (human viewer avatars) ────────────────────────────────
+
+  /** Spawn a human player's avatar (a viewer-driven Character, not the agent
+   *  FSM) at a free walkable tile. Returns its id. */
+  addPlayer(preferredPalette?: number): number {
+    const id = this.nextPlayerId++;
+    let palette: number;
+    let hueShift: number;
+    if (preferredPalette !== undefined) {
+      palette = preferredPalette;
+      hueShift = 0;
+    } else {
+      const pick = this.pickDiversePalette();
+      palette = pick.palette;
+      hueShift = pick.hueShift;
+    }
+    const ch = createCharacter(id, palette, null, null, hueShift);
+    ch.isPlayer = true;
+    ch.isActive = false;
+    ch.state = CharacterState.IDLE;
+    const spawn =
+      this.walkableTiles.length > 0
+        ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
+        : { col: 1, row: 1 };
+    ch.tileCol = spawn.col;
+    ch.tileRow = spawn.row;
+    ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
+    ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
+    ch.matrixEffect = 'spawn';
+    ch.matrixEffectTimer = 0;
+    ch.matrixEffectSeeds = matrixEffectSeeds();
+    this.characters.set(id, ch);
+    return id;
+  }
+
+  /** Remove a player's avatar (immediate; viewers leave abruptly). */
+  removePlayer(id: number): void {
+    if (this.selectedAgentId === id) this.selectedAgentId = null;
+    if (this.cameraFollowId === id) this.cameraFollowId = null;
+    this.characters.delete(id);
+  }
+
+  /** Advance a player's avatar along its commanded path (P2 feeds the path). */
+  private updatePlayerMovement(ch: Character, dt: number): void {
+    if (ch.path.length === 0) {
+      if (ch.state !== CharacterState.IDLE) ch.state = CharacterState.IDLE;
+      return;
+    }
+    ch.state = CharacterState.WALK;
+    ch.frameTimer += dt;
+    stepAlongPath(ch, dt, WALK_SPEED_PX_PER_SEC);
+    if (ch.path.length === 0) {
+      snapToTile(ch);
+      ch.state = CharacterState.IDLE;
+    }
+  }
+
   /** Find seat uid at a given tile position, or null */
   getSeatAtTile(col: number, row: number): string | null {
     for (const [uid, seat] of this.seats) {
@@ -970,6 +1032,13 @@ export class OfficeState {
         continue; // skip normal FSM while effect is active
       }
 
+      // Players are viewer-driven, not run by the agent FSM — just advance along
+      // any commanded path (movement input lands in P2).
+      if (ch.isPlayer) {
+        this.updatePlayerMovement(ch, dt);
+        continue;
+      }
+
       // Maybe head off for a coffee break (idle, inactive agents only).
       this.maybeStartCoffeeBreak(ch, dt);
 
@@ -1131,7 +1200,7 @@ export class OfficeState {
   getConnectedAgentCount(): number {
     let n = 0;
     for (const ch of this.characters.values()) {
-      if (ch.id > 0 && !ch.isSubagent && ch.matrixEffect !== 'despawn') n++;
+      if (ch.id > 0 && !ch.isSubagent && !ch.isPlayer && ch.matrixEffect !== 'despawn') n++;
     }
     return n;
   }

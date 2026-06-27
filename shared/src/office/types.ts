@@ -286,6 +286,9 @@ export interface Character {
   seatTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
   isSubagent: boolean;
+  /** Whether this character is a human player's avatar (viewer-driven, not the
+   *  agent FSM; spawned on join). */
+  isPlayer: boolean;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

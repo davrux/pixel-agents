@@ -37,6 +37,7 @@ export class CharacterSync extends EntitySync {
   @type('string') matrixEffect = '';
   @type('number') matrixEffectTimer = 0;
   @type('boolean') isSubagent = false;
+  @type('boolean') isPlayer = false;
   // Identity + tooltip
   @type('string') folderName = '';
   @type('string') teamName = '';

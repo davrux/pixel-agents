@@ -70,6 +70,7 @@ export function createCharacter(
     bubbleTimer: 0,
     seatTimer: 0,
     isSubagent: false,
+    isPlayer: false,
     parentAgentId: null,
     matrixEffect: null,
     matrixEffectTimer: 0,
