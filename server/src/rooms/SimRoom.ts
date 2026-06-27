@@ -2,7 +2,7 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 
 import { resolveZone } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
-import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
+import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
 import { PetKind } from '@pixel/shared/office/types.js';
@@ -30,6 +30,18 @@ const TICK_HZ = 20;
  * the render-state into the Colyseus schema, so all viewers see one identical
  * world. Clients are pure renderers.
  */
+/** Copy the shared entity transform (position + facing + coarse state) onto a
+ *  synced EntitySync. Each kind's sync loop then sets its own fields on top. */
+function writeEntityTransform(
+  sync: EntitySync,
+  e: { x: number; y: number; dir: number; state: string },
+): void {
+  sync.x = e.x;
+  sync.y = e.y;
+  sync.dir = e.dir;
+  sync.state = e.state;
+}
+
 export class SimRoom extends Room<RoomState> {
   /** Read-only file defaults; `bundle` is these merged with DB asset overrides. */
   private defaults!: AssetBundle;
@@ -435,10 +447,7 @@ export class SimRoom extends Room<RoomState> {
         cs.id = ch.id;
         this.state.characters.set(key, cs);
       }
-      cs.x = ch.x;
-      cs.y = ch.y;
-      cs.dir = ch.dir;
-      cs.state = ch.state;
+      writeEntityTransform(cs, ch);
       cs.pose = getCharacterPose(ch);
       // cs.frame intentionally not synced — animation phase is client-timed.
       cs.palette = ch.palette;
@@ -474,12 +483,9 @@ export class SimRoom extends Room<RoomState> {
         ps.id = pet.id;
         this.state.pets.set(key, ps);
       }
+      writeEntityTransform(ps, pet);
       ps.kind = pet.kind === PetKind.CAT ? 1 : pet.kind === PetKind.DUCK ? 2 : 0;
       ps.variant = pet.variant;
-      ps.x = pet.x;
-      ps.y = pet.y;
-      ps.dir = pet.dir;
-      ps.state = pet.state;
       ps.frame = pet.frame & 0xff;
       ps.effect = pet.effect ?? '';
       ps.effectTimer = pet.effectTimer;

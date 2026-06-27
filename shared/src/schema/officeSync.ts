@@ -6,13 +6,21 @@ import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
  * render — so every viewer sees the exact same world. Field names/encodings are
  * chosen so the client can rebuild a render-only Character/Pet cheaply.
  */
-export class CharacterSync extends Schema {
+/**
+ * Fields every synced entity shares: id + transform + coarse FSM state. Kind-
+ * specific schemas (characters, pets, later players/monsters) extend this, so a
+ * new entity kind reuses the transform sync instead of redeclaring it.
+ */
+export class EntitySync extends Schema {
   @type('int32') id = 0;
   @type('number') x = 0;
   @type('number') y = 0;
   @type('uint8') dir = 0;
-  /** 'idle' | 'walk' | 'type' (CharacterState). */
+  /** Coarse FSM state string (CharacterState / PetState / …). */
   @type('string') state = 'idle';
+}
+
+export class CharacterSync extends EntitySync {
   /** Animation pose (CharacterPose): idle|walk|typing|reading|coffee. The
    *  animation *frame phase* is cosmetic and timed client-side from this pose +
    *  dir, so it is intentionally NOT synced (see AGENTS.md). */
@@ -40,15 +48,9 @@ export class CharacterSync extends Schema {
   @type('uint32') outputTokens = 0;
 }
 
-export class PetSync extends Schema {
-  @type('int32') id = 0;
-  @type('uint8') kind = 0; // 0 dog, 1 cat
+export class PetSync extends EntitySync {
+  @type('uint8') kind = 0; // 0 dog, 1 cat, 2 duck
   @type('uint8') variant = 0;
-  @type('number') x = 0;
-  @type('number') y = 0;
-  @type('uint8') dir = 0;
-  /** PetState string. */
-  @type('string') state = 'idle';
   @type('uint8') frame = 0;
   /** '' | 'spawn' | 'despawn'. */
   @type('string') effect = '';
