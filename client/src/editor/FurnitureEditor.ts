@@ -97,6 +97,8 @@ export class FurnitureEditor {
   private tool: 'paint' | 'erase' | 'pick' = 'paint';
   private cell = 12;
   private playTimer: number | null = null;
+  /** Catalog ids of frames removed since load — deleted (override-reset) on save. */
+  private removedIds = new Set<string>();
   private work: FurnWork = this.blank();
 
   constructor(private readonly opts: FurnitureEditorOpts) {
@@ -176,6 +178,7 @@ export class FurnitureEditor {
       #pa-furn input[type=text],#pa-furn input[type=number]{cursor:text;flex:1;min-width:0;}
       #pa-furn input[type=number]{flex:0 0 4rem;}
       #pa-furn button.on{background:#3a6df0;border-color:#3a6df0;}
+      #pa-furn button:disabled{opacity:0.4;cursor:not-allowed;}
       #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
       #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0d0f14;
         border:2px solid #3a4150;border-radius:0.25rem;cursor:pointer;}
@@ -243,9 +246,11 @@ export class FurnitureEditor {
         <button id="pa-f-erase">⌫ Erase</button>
         <button id="pa-f-pick">⦿ Pick</button>
       </div>
-      <div class="row" id="pa-f-framesrow" style="display:none">
+      <div class="row" id="pa-f-framesrow">
         <span class="f" style="flex:0 0 auto;">Frames</span>
         <div id="pa-f-frames"></div>
+        <button id="pa-f-addframe" title="Add an animation frame">＋</button>
+        <button id="pa-f-delframe" title="Remove the selected frame">－</button>
         <button id="pa-f-play" title="Play the animation">▶</button>
       </div>
       <div id="pa-f-paintarea"><canvas id="pa-f-canvas"></canvas></div>
@@ -325,6 +330,8 @@ export class FurnitureEditor {
     this.field('#pa-f-save').onclick = () => this.doSave();
     this.field('#pa-f-reset').onclick = () => this.doReset();
     this.field('#pa-f-play').onclick = () => this.togglePlay();
+    this.field('#pa-f-addframe').onclick = () => this.addFrame();
+    this.field('#pa-f-delframe').onclick = () => this.removeFrame();
 
     this.bindPaint();
   }
@@ -403,6 +410,7 @@ export class FurnitureEditor {
     this.work = this.blank();
     this.isNew = true;
     this.dirty = false;
+    this.removedIds.clear();
     this.syncFields(true);
     this.render();
   }
@@ -442,6 +450,7 @@ export class FurnitureEditor {
     };
     this.isNew = false;
     this.dirty = false;
+    this.removedIds.clear();
     this.syncFields(false);
     this.render();
   }
@@ -452,6 +461,41 @@ export class FurnitureEditor {
     this.work.frameIdx = i;
     this.work.sprite = this.work.frames[i].sprite; // re-point the alias
     this.render();
+  }
+
+  /** Append a blank animation frame (turning a static item into an animation on
+   *  the first add). Frame 0 keeps the item's id so existing placements survive;
+   *  added frames get `${animGroup}_N` ids. */
+  private addFrame(): void {
+    this.stopPlay();
+    const w = this.work;
+    if (!w.frames[0].id) w.frames[0].id = w.id; // a fresh blank item
+    if (!w.animGroup) w.animGroup = w.frames[0].id || w.id || 'ANIM';
+    const used = new Set(w.frames.map((f) => f.id));
+    let n = w.frames.length;
+    let id = `${w.animGroup}_${n}`;
+    while (used.has(id) || getCatalogEntry(id)) id = `${w.animGroup}_${++n}`;
+    const cur = w.frames[w.frameIdx].sprite;
+    const h = cur.length;
+    const width = h > 0 ? cur[0].length : TILE;
+    w.frames.push({ id, sprite: emptySprite(width, h) });
+    this.dirty = true;
+    this.selectFrame(w.frames.length - 1);
+  }
+
+  /** Remove the selected frame (≥2 required). A previously-saved member is
+   *  queued for override-deletion on save; dropping to one frame reverts to a
+   *  static item. (Removing a bundled frame can't fully delete it — the bundle
+   *  re-asserts it; works for user-added/overridden frames.) */
+  private removeFrame(): void {
+    this.stopPlay();
+    const w = this.work;
+    if (w.frames.length <= 1) return;
+    const [removed] = w.frames.splice(w.frameIdx, 1);
+    if (removed.base || getCatalogEntry(removed.id)) this.removedIds.add(removed.id);
+    if (w.frames.length === 1) w.animGroup = null; // back to a static item
+    this.dirty = true;
+    this.selectFrame(Math.min(w.frameIdx, w.frames.length - 1));
   }
 
   private syncFields(isNew: boolean): void {
@@ -522,6 +566,10 @@ export class FurnitureEditor {
       }
       this.opts.save(id, { sprite: f.sprite, catalog });
     });
+    // Delete overrides for frames the user removed (best-effort; a bundled frame
+    // would re-assert from the bundle — only user/overridden frames truly drop).
+    for (const id of this.removedIds) if (!w.frames.some((f) => (f.id || w.id) === id)) this.opts.reset(id);
+    this.removedIds.clear();
     this.dirty = false;
     this.isNew = false;
     this.field('#pa-f-id').readOnly = true; // id is fixed once saved
@@ -574,11 +622,8 @@ export class FurnitureEditor {
   /** Render the animation frame strip (one thumbnail per frame, selected one
    *  highlighted; click to edit). Hidden for single-frame static items. */
   private renderFrames(): void {
-    const row = this.field<HTMLDivElement>('#pa-f-framesrow');
     const host = this.field<HTMLDivElement>('#pa-f-frames');
     const multi = this.work.frames.length > 1;
-    row.style.display = multi ? 'flex' : 'none';
-    if (!multi) return;
     host.innerHTML = '';
     this.work.frames.forEach((f, i) => {
       const cv = document.createElement('canvas');
@@ -591,6 +636,8 @@ export class FurnitureEditor {
       };
       host.appendChild(cv);
     });
+    (this.field('#pa-f-delframe')).disabled = !multi; // need ≥2 frames to remove
+    (this.field('#pa-f-play')).disabled = !multi;
   }
 
   private togglePlay(): void {
