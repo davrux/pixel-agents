@@ -8,6 +8,7 @@ import {
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
+import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
 
 /** A raw catalog item (the buildDynamicCatalog INPUT shape, keyed by `id`). It
  *  carries group fields (groupId/orientation/state/…) we must preserve on edit. */
@@ -97,7 +98,9 @@ export class FurnitureEditor {
   private dirty = false;
   private isNew = false;
   private color = '#9b7653';
-  private tool: 'paint' | 'erase' | 'pick' = 'paint';
+  private tool: 'paint' | 'erase' | 'pick' | 'select' = 'paint';
+  /** Active marquee selection (sprite-pixel coords), or null. */
+  private selection: PixelRect | null = null;
   private cell = 12;
   private playTimer: number | null = null;
   /** Catalog ids of frames removed since load — deleted (override-reset) on save. */
@@ -248,6 +251,8 @@ export class FurnitureEditor {
         <button id="pa-f-paint" class="on">✏ Paint</button>
         <button id="pa-f-erase">⌫ Erase</button>
         <button id="pa-f-pick">⦿ Pick</button>
+        <button id="pa-f-select" title="Select a region to copy">⬚ Select</button>
+        <button id="pa-f-paste" title="Paste the copied region here">⎘ Paste</button>
       </div>
       <div class="row" id="pa-f-framesrow">
         <span class="f" id="pa-f-frameslabel" style="flex:0 0 auto;">Frames</span>
@@ -330,6 +335,8 @@ export class FurnitureEditor {
     this.field('#pa-f-paint').onclick = () => this.setTool('paint');
     this.field('#pa-f-erase').onclick = () => this.setTool('erase');
     this.field('#pa-f-pick').onclick = () => this.setTool('pick');
+    this.field('#pa-f-select').onclick = () => this.setTool('select');
+    this.field('#pa-f-paste').onclick = () => this.doPaste();
     this.field('#pa-f-save').onclick = () => this.doSave();
     this.field('#pa-f-reset').onclick = () => this.doReset();
     this.field('#pa-f-play').onclick = () => this.togglePlay();
@@ -343,9 +350,14 @@ export class FurnitureEditor {
     return this.panel.querySelector<T>(sel)!;
   }
 
-  private setTool(t: 'paint' | 'erase' | 'pick'): void {
+  private setTool(t: 'paint' | 'erase' | 'pick' | 'select'): void {
     this.tool = t;
-    for (const [id, name] of [['#pa-f-paint', 'paint'], ['#pa-f-erase', 'erase'], ['#pa-f-pick', 'pick']] as const) {
+    for (const [id, name] of [
+      ['#pa-f-paint', 'paint'],
+      ['#pa-f-erase', 'erase'],
+      ['#pa-f-pick', 'pick'],
+      ['#pa-f-select', 'select'],
+    ] as const) {
       this.field(id).classList.toggle('on', t === name);
     }
   }
@@ -414,6 +426,7 @@ export class FurnitureEditor {
     this.isNew = true;
     this.dirty = false;
     this.removedIds.clear();
+    this.selection = null;
     this.syncFields(true);
     this.render();
   }
@@ -470,6 +483,7 @@ export class FurnitureEditor {
     this.isNew = false;
     this.dirty = false;
     this.removedIds.clear();
+    this.selection = null;
     this.syncFields(false);
     this.render();
   }
@@ -542,6 +556,7 @@ export class FurnitureEditor {
     // Footprint applies to the whole item → resize every frame, then re-point.
     for (const f of this.work.frames) f.sprite = resizeSprite(f.sprite, fw * TILE, fh * TILE);
     this.work.sprite = this.work.frames[this.work.frameIdx].sprite;
+    this.selection = null; // coords no longer valid after a resize
     this.dirty = true;
     this.render();
   }
@@ -637,7 +652,30 @@ export class FurnitureEditor {
       ctx.lineTo(w * this.cell, y * this.cell);
       ctx.stroke();
     }
+    // Marquee selection overlay.
+    if (this.selection) {
+      const s = this.selection;
+      ctx.strokeStyle = '#ffd34d';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(s.x * this.cell, s.y * this.cell, s.w * this.cell, s.h * this.cell);
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
     this.renderFrames();
+  }
+
+  /** Paste the shared clipboard at the current selection's top-left (or 0,0). */
+  private doPaste(): void {
+    if (!hasClipboard()) {
+      this.showStatus('Nothing copied yet');
+      return;
+    }
+    const at = this.selection ?? { x: 0, y: 0, w: 0, h: 0 };
+    pasteRegion(this.work.sprite, at.x, at.y);
+    this.dirty = true;
+    this.render();
+    this.showStatus('Pasted ✓');
   }
 
   /** Render the animation frame strip (one thumbnail per frame, selected one
@@ -686,13 +724,25 @@ export class FurnitureEditor {
 
   private bindPaint(): void {
     let painting = false;
+    let selStart: { x: number; y: number } | null = null;
+    const dims = (): { w: number; h: number } => ({
+      w: this.work.sprite[0]?.length ?? TILE,
+      h: this.work.sprite.length,
+    });
     const at = (e: PointerEvent): { x: number; y: number } | null => {
       const r = this.canvas.getBoundingClientRect();
-      const w = this.work.sprite[0]?.length ?? TILE;
-      const h = this.work.sprite.length;
+      const { w, h } = dims();
       const x = Math.floor(((e.clientX - r.left) / r.width) * w);
       const y = Math.floor(((e.clientY - r.top) / r.height) * h);
       if (x < 0 || y < 0 || x >= w || y >= h) return null;
+      return { x, y };
+    };
+    // Clamped cell (never null) — for marquee dragging past the canvas edge.
+    const cell = (e: PointerEvent): { x: number; y: number } => {
+      const r = this.canvas.getBoundingClientRect();
+      const { w, h } = dims();
+      const x = Math.max(0, Math.min(w - 1, Math.floor(((e.clientX - r.left) / r.width) * w)));
+      const y = Math.max(0, Math.min(h - 1, Math.floor(((e.clientY - r.top) / r.height) * h)));
       return { x, y };
     };
     const apply = (e: PointerEvent): void => {
@@ -713,13 +763,34 @@ export class FurnitureEditor {
     };
     this.canvas.addEventListener('pointerdown', (e) => {
       this.stopPlay(); // don't fight the user while a frame is being painted
-      painting = true;
       this.canvas.setPointerCapture(e.pointerId);
+      if (this.tool === 'select') {
+        selStart = cell(e);
+        this.selection = rectFromCorners(selStart.x, selStart.y, selStart.x, selStart.y);
+        this.render();
+        return;
+      }
+      painting = true;
       apply(e);
     });
     this.canvas.addEventListener('pointermove', (e) => {
+      if (selStart) {
+        const p = cell(e);
+        this.selection = rectFromCorners(selStart.x, selStart.y, p.x, p.y);
+        this.render();
+        return;
+      }
       if (painting && this.tool !== 'pick') apply(e);
     });
-    this.canvas.addEventListener('pointerup', () => (painting = false));
+    this.canvas.addEventListener('pointerup', () => {
+      if (selStart) {
+        selStart = null;
+        if (this.selection) {
+          copyRegion(this.work.sprite, this.selection);
+          this.showStatus(`Copied ${this.selection.w}×${this.selection.h}`);
+        }
+      }
+      painting = false;
+    });
   }
 }

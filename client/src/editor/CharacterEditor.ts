@@ -9,6 +9,7 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
+import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
 
 type Dir = 'down' | 'up' | 'right' | 'left';
 /** A pose previewed in the editor: a track name, or 'idle' (neutral stand). */
@@ -208,7 +209,9 @@ export class CharacterEditor {
   private dir: Dir = 'down';
   private frame = 0;
   private color = '#e0b48c';
-  private tool: 'paint' | 'erase' | 'pick' = 'paint';
+  private tool: 'paint' | 'erase' | 'pick' | 'select' = 'paint';
+  /** Active marquee selection (sprite-pixel coords), or null. */
+  private selection: PixelRect | null = null;
   private onion = true;
   private work: LoadedCharacterData = { down: [], up: [], right: [] };
   private W = 16;
@@ -406,6 +409,8 @@ export class CharacterEditor {
           <button id="pa-c-paint" class="on">✏ Paint</button>
           <button id="pa-c-erase">⌫ Erase</button>
           <button id="pa-c-pick">⦿ Pick</button>
+          <button id="pa-c-select" title="Select a region to copy">⬚</button>
+          <button id="pa-c-paste" title="Paste the copied region here">⎘</button>
           <label style="margin-left:auto;font-size:14px;"><input id="pa-c-onion" type="checkbox" checked> Onion</label>
         </div>
         <div class="row"><canvas id="pa-paint"></canvas></div>
@@ -552,6 +557,8 @@ export class CharacterEditor {
     panel.querySelector<HTMLButtonElement>('#pa-c-paint')!.onclick = () => this.setTool('paint');
     panel.querySelector<HTMLButtonElement>('#pa-c-erase')!.onclick = () => this.setTool('erase');
     panel.querySelector<HTMLButtonElement>('#pa-c-pick')!.onclick = () => this.setTool('pick');
+    panel.querySelector<HTMLButtonElement>('#pa-c-select')!.onclick = () => this.setTool('select');
+    panel.querySelector<HTMLButtonElement>('#pa-c-paste')!.onclick = () => this.doPaste();
     panel.querySelector<HTMLInputElement>('#pa-c-onion')!.onchange = (e) => {
       this.onion = (e.target as HTMLInputElement).checked;
       this.render();
@@ -569,12 +576,13 @@ export class CharacterEditor {
     this.bindPaint();
   }
 
-  private setTool(t: 'paint' | 'erase' | 'pick'): void {
+  private setTool(t: 'paint' | 'erase' | 'pick' | 'select'): void {
     this.tool = t;
     for (const [id, name] of [
       ['#pa-c-paint', 'paint'],
       ['#pa-c-erase', 'erase'],
       ['#pa-c-pick', 'pick'],
+      ['#pa-c-select', 'select'],
     ] as const) {
       this.panel.querySelector<HTMLButtonElement>(id)!.classList.toggle('on', t === name);
     }
@@ -714,6 +722,7 @@ export class CharacterEditor {
     if (this.cat().derivedName) this.work.name = this.work.name?.trim() || this.charName();
     this.frame = Math.min(this.frame, this.dirFrames(this.dir).length - 1);
     if (this.nameEl) this.nameEl.value = this.work.name ?? '';
+    this.selection = null;
     this.syncSizeInputs();
     this.dirty = false;
     if (this.view === 'edit') this.render();
@@ -785,6 +794,7 @@ export class CharacterEditor {
     this.W = w;
     this.H = h;
     if (this.work.spec) this.work.spec.frame = { w, h };
+    this.selection = null; // coords no longer valid after a resize
     this.syncSizeInputs();
   }
 
@@ -1176,7 +1186,32 @@ export class CharacterEditor {
       ctx.lineTo(this.W * cell, y * cell);
       ctx.stroke();
     }
+    if (this.selection) {
+      const s = this.selection;
+      ctx.strokeStyle = '#ffd34d';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.strokeRect(s.x * cell, s.y * cell, s.w * cell, s.h * cell);
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+    }
     this.renderPreview(); // reflect edits live in the preview
+  }
+
+  /** Paste the shared clipboard into the current frame at the selection's
+   *  top-left (or 0,0). 'left' is materialised first so edits persist. */
+  private doPaste(): void {
+    if (!hasClipboard()) {
+      this.showStatus('Nothing copied yet');
+      return;
+    }
+    const frames = this.dir === 'left' ? this.ensureLeft() : this.work[this.dir];
+    const at = this.selection ?? { x: 0, y: 0, w: 0, h: 0 };
+    pasteRegion(frames[this.frame], at.x, at.y);
+    this.dirty = true;
+    this.renderPaint();
+    this.renderStrip();
+    this.showStatus('Pasted ✓');
   }
 
   // ── Live preview ─────────────────────────────────────────────────
@@ -1476,11 +1511,18 @@ export class CharacterEditor {
 
   private bindPaint(): void {
     let painting = false;
+    let selStart: { x: number; y: number } | null = null;
     const at = (e: PointerEvent): { x: number; y: number } | null => {
       const r = this.canvas.getBoundingClientRect();
       const x = Math.floor(((e.clientX - r.left) / r.width) * this.W);
       const y = Math.floor(((e.clientY - r.top) / r.height) * this.H);
       if (x < 0 || y < 0 || x >= this.W || y >= this.H) return null;
+      return { x, y };
+    };
+    const cell = (e: PointerEvent): { x: number; y: number } => {
+      const r = this.canvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(this.W - 1, Math.floor(((e.clientX - r.left) / r.width) * this.W)));
+      const y = Math.max(0, Math.min(this.H - 1, Math.floor(((e.clientY - r.top) / r.height) * this.H)));
       return { x, y };
     };
     const apply = (e: PointerEvent): void => {
@@ -1502,14 +1544,34 @@ export class CharacterEditor {
       this.renderPaint();
     };
     this.canvas.addEventListener('pointerdown', (e) => {
-      painting = true;
       this.canvas.setPointerCapture(e.pointerId);
+      if (this.tool === 'select') {
+        selStart = cell(e);
+        this.selection = rectFromCorners(selStart.x, selStart.y, selStart.x, selStart.y);
+        this.renderPaint();
+        return;
+      }
+      painting = true;
       apply(e);
     });
     this.canvas.addEventListener('pointermove', (e) => {
+      if (selStart) {
+        const p = cell(e);
+        this.selection = rectFromCorners(selStart.x, selStart.y, p.x, p.y);
+        this.renderPaint();
+        return;
+      }
       if (painting && this.tool !== 'pick') apply(e);
     });
     this.canvas.addEventListener('pointerup', () => {
+      if (selStart) {
+        selStart = null;
+        if (this.selection) {
+          copyRegion(this.dirFrames(this.dir)[this.frame], this.selection);
+          this.showStatus(`Copied ${this.selection.w}×${this.selection.h}`);
+        }
+        return;
+      }
       painting = false;
       this.renderStrip();
     });
