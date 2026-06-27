@@ -4,6 +4,7 @@ import {
   getAnimationFrames,
   getCatalogByCategory,
   getCatalogEntry,
+  getOnStateType,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
@@ -51,6 +52,8 @@ interface FurnFrame {
   id: string;
   sprite: SpriteData;
   base?: RawCatalogItem;
+  /** Set for on/off state variants (PC, laptop) instead of animation frames. */
+  state?: 'on' | 'off';
 }
 
 interface FurnWork {
@@ -247,7 +250,7 @@ export class FurnitureEditor {
         <button id="pa-f-pick">⦿ Pick</button>
       </div>
       <div class="row" id="pa-f-framesrow">
-        <span class="f" style="flex:0 0 auto;">Frames</span>
+        <span class="f" id="pa-f-frameslabel" style="flex:0 0 auto;">Frames</span>
         <div id="pa-f-frames"></div>
         <button id="pa-f-addframe" title="Add an animation frame">＋</button>
         <button id="pa-f-delframe" title="Remove the selected frame">－</button>
@@ -426,10 +429,26 @@ export class FurnitureEditor {
       const e = getCatalogEntry(id);
       return e?.sprite ? e.sprite.map((r) => r.slice()) : emptySprite(fw * TILE, fh * TILE);
     };
-    // Animation members (ordered frame ids), or just this item as a single frame.
-    const memberIds = getAnimationFrames(type) ?? [type];
-    const frames: FurnFrame[] = memberIds.map((id) => ({ id, sprite: cloneOf(id), base: rawOf(id) }));
-    const animGroup = frames.length > 1 ? ((raw?.animationGroup as string | undefined) ?? type) : null;
+    // Members to edit: animation frames, else on/off state variants, else just
+    // this single sprite.
+    const animMembers = getAnimationFrames(type);
+    const onType = getOnStateType(type);
+    let frames: FurnFrame[];
+    let animGroup: string | null;
+    if (animMembers) {
+      frames = animMembers.map((id) => ({ id, sprite: cloneOf(id), base: rawOf(id) }));
+      animGroup = (raw?.animationGroup as string | undefined) ?? type;
+    } else if (onType !== type) {
+      // Stateful item (PC/laptop): edit both the off (visible) and on variants.
+      frames = [
+        { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
+        { id: onType, sprite: cloneOf(onType), base: rawOf(onType), state: 'on' },
+      ];
+      animGroup = null;
+    } else {
+      frames = [{ id: type, sprite: cloneOf(type), base: raw }];
+      animGroup = null;
+    }
     this.work = {
       id: type,
       label: entry?.label ?? type,
@@ -469,6 +488,7 @@ export class FurnitureEditor {
   private addFrame(): void {
     this.stopPlay();
     const w = this.work;
+    if (w.frames.some((f) => f.state)) return; // state pairs aren't frame animations
     if (!w.frames[0].id) w.frames[0].id = w.id; // a fresh blank item
     if (!w.animGroup) w.animGroup = w.frames[0].id || w.id || 'ANIM';
     const used = new Set(w.frames.map((f) => f.id));
@@ -573,7 +593,8 @@ export class FurnitureEditor {
     this.dirty = false;
     this.isNew = false;
     this.field('#pa-f-id').readOnly = true; // id is fixed once saved
-    this.showStatus(`Saved ${w.id}${animated ? ` (${w.frames.length} frames)` : ''} ✓`);
+    const unit = w.frames.some((f) => f.state) ? 'states' : 'frames';
+    this.showStatus(`Saved ${w.id}${animated ? ` (${w.frames.length} ${unit})` : ''} ✓`);
   }
 
   private doReset(): void {
@@ -623,21 +644,25 @@ export class FurnitureEditor {
    *  highlighted; click to edit). Hidden for single-frame static items. */
   private renderFrames(): void {
     const host = this.field<HTMLDivElement>('#pa-f-frames');
-    const multi = this.work.frames.length > 1;
+    const w = this.work;
+    const isState = w.frames.some((f) => f.state);
+    const isAnim = !!w.animGroup;
     host.innerHTML = '';
-    this.work.frames.forEach((f, i) => {
+    w.frames.forEach((f, i) => {
       const cv = document.createElement('canvas');
       this.drawThumb(cv, f.sprite);
-      cv.classList.toggle('on', i === this.work.frameIdx);
-      cv.title = `Frame ${i + 1}`;
+      cv.classList.toggle('on', i === w.frameIdx);
+      cv.title = f.state ? f.state.toUpperCase() : `Frame ${i + 1}`;
       cv.onclick = () => {
         this.stopPlay();
         this.selectFrame(i);
       };
       host.appendChild(cv);
     });
-    (this.field('#pa-f-delframe')).disabled = !multi; // need ≥2 frames to remove
-    (this.field('#pa-f-play')).disabled = !multi;
+    this.field<HTMLSpanElement>('#pa-f-frameslabel').textContent = isState ? 'States' : 'Frames';
+    (this.field('#pa-f-addframe')).disabled = isState; // can't add frames to a state pair
+    (this.field('#pa-f-delframe')).disabled = isState || w.frames.length <= 1;
+    (this.field('#pa-f-play')).disabled = !isAnim; // only time-animations play
   }
 
   private togglePlay(): void {
