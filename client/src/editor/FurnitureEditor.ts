@@ -53,6 +53,8 @@ interface FurnWork {
   canPlaceOnSurfaces: boolean;
   canPlaceOnWalls: boolean;
   backgroundTiles: number;
+  /** Interaction station this furniture provides ('' = none, 'coffee', …). */
+  appliance: string;
   sprite: SpriteData;
   /** Original raw item (group fields preserved on save), or undefined for new. */
   base?: RawCatalogItem;
@@ -105,6 +107,7 @@ export class FurnitureEditor {
       canPlaceOnSurfaces: false,
       canPlaceOnWalls: false,
       backgroundTiles: 0,
+      appliance: '',
       sprite: emptySprite(TILE, TILE),
     };
   }
@@ -160,6 +163,11 @@ export class FurnitureEditor {
         <label class="chk"><input id="pa-f-surf" type="checkbox"> On surfaces</label>
         <label class="chk"><input id="pa-f-wall" type="checkbox"> On walls</label>
       </div>
+      <div class="row"><label class="f" for="pa-f-appliance">Action</label>
+        <select id="pa-f-appliance" style="flex:1;">
+          <option value="">None</option>
+          <option value="coffee">Coffee (NPCs visit)</option>
+        </select></div>
       <div class="row">
         <input id="pa-f-color" type="color" value="${this.color}">
         <button id="pa-f-paint" class="on">✏ Paint</button>
@@ -207,6 +215,7 @@ export class FurnitureEditor {
     this.field('#pa-f-surf').onchange = (e) =>
       (this.work.canPlaceOnSurfaces = (e.target as HTMLInputElement).checked);
     this.field('#pa-f-wall').onchange = (e) => (this.work.canPlaceOnWalls = (e.target as HTMLInputElement).checked);
+    this.field('#pa-f-appliance').onchange = (e) => (this.work.appliance = (e.target as HTMLSelectElement).value);
     const colorEl = this.field('#pa-f-color');
     colorEl.oninput = () => {
       this.color = colorEl.value;
@@ -281,6 +290,8 @@ export class FurnitureEditor {
       canPlaceOnSurfaces: !!entry?.canPlaceOnSurfaces,
       canPlaceOnWalls: !!entry?.canPlaceOnWalls,
       backgroundTiles: entry?.backgroundTiles ?? 0,
+      // Resolved entry includes the bundled coffee-machine legacy default.
+      appliance: entry?.appliance ?? '',
       sprite,
       base: raw,
     };
@@ -299,6 +310,7 @@ export class FurnitureEditor {
     (this.field('#pa-f-desk')).checked = this.work.isDesk;
     (this.field('#pa-f-surf')).checked = this.work.canPlaceOnSurfaces;
     (this.field('#pa-f-wall')).checked = this.work.canPlaceOnWalls;
+    this.field<HTMLSelectElement>('#pa-f-appliance').value = this.work.appliance;
   }
 
   private onFootprintChange(): void {
@@ -341,6 +353,7 @@ export class FurnitureEditor {
       canPlaceOnSurfaces: w.canPlaceOnSurfaces,
       canPlaceOnWalls: w.canPlaceOnWalls,
       backgroundTiles: w.backgroundTiles,
+      appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
     };
     this.opts.save(w.id, { sprite: w.sprite, catalog });
     this.showStatus(`Saved ${w.id} ✓`);

@@ -39,6 +39,7 @@ export interface FurnitureManifest {
   canPlaceOnWalls: boolean;
   canPlaceOnSurfaces: boolean;
   backgroundTiles: number;
+  appliance?: string; // interaction station kind ('coffee', …)
   // If type is 'asset', these fields are present:
   type: 'asset' | 'group';
   file?: string;

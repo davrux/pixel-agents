@@ -355,6 +355,9 @@ export class SimRoom extends Room<RoomState> {
         return false;
       }
       if (typeof c.category !== 'string') return false;
+      if (c.appliance !== undefined && (typeof c.appliance !== 'string' || c.appliance.length > 32)) {
+        return false;
+      }
     }
     return true;
   }

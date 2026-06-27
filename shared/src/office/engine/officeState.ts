@@ -59,9 +59,6 @@ import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
-/** Furniture types that yield a standing interaction point (a place to walk to
- *  and stand at). Coffee machine for now; extend with FRIDGE, WATER_COOLER, … */
-const APPLIANCE_TYPES = new Set(['COFFEE_MACHINE']);
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -248,9 +245,9 @@ export class OfficeState {
   private buildStations(): void {
     this.stations = new Map();
     for (const item of this.layout.furniture) {
-      if (!APPLIANCE_TYPES.has(item.type)) continue;
       const entry = getCatalogEntry(item.type);
-      if (!entry) continue;
+      if (!entry?.appliance) continue; // data-driven: only furniture marked as an appliance
+
       const w = entry.footprintW;
       const h = entry.footprintH;
 

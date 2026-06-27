@@ -3,6 +3,7 @@
   "name": "Coffee Machine",
   "category": "electronics",
   "type": "asset",
+  "appliance": "coffee",
   "canPlaceOnWalls": false,
   "canPlaceOnSurfaces": true,
   "backgroundTiles": 0,

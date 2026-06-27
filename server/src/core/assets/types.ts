@@ -42,6 +42,7 @@ export interface CatalogEntry {
   footprintH: number;
   isDesk: boolean;
   canPlaceOnWalls: boolean;
+  appliance?: string; // interaction station kind ('coffee', …)
   canPlaceOnSurfaces?: boolean;
   backgroundTiles?: number;
   groupId?: string;

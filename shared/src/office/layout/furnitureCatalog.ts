@@ -1,4 +1,4 @@
-import type { FurnitureCatalogEntry, SpriteData } from '../types.js';
+import type { ApplianceKind, FurnitureCatalogEntry, SpriteData } from '../types.js';
 
 export interface LoadedAssetData {
   catalog: Array<{
@@ -17,6 +17,7 @@ export interface LoadedAssetData {
     backgroundTiles?: number;
     canPlaceOnWalls?: boolean;
     mirrorSide?: boolean;
+    appliance?: string; // interaction station kind ('coffee', …)
     rotationScheme?: string;
     animationGroup?: string;
     frame?: number;
@@ -99,6 +100,12 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
+        // Appliance station kind. An explicit value (incl. '' to disable) wins;
+        // when never set, the bundled COFFEE_MACHINE legacy-defaults to coffee.
+        ...(() => {
+          const a = typeof asset.appliance === 'string' ? asset.appliance : asset.id === 'COFFEE_MACHINE' ? 'coffee' : '';
+          return a ? { appliance: a as ApplianceKind } : {};
+        })(),
       };
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);

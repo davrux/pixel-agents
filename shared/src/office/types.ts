@@ -186,6 +186,11 @@ export const EditTool = {
 } as const;
 export type EditTool = (typeof EditTool)[keyof typeof EditTool];
 
+/** A furniture item's interaction affordance: marks it as an appliance station
+ *  an NPC (or agent) walks up to and uses. Coffee for now; extensible (fridge,
+ *  water cooler, …). Empty/undefined = ordinary furniture. */
+export type ApplianceKind = 'coffee';
+
 export interface FurnitureCatalogEntry {
   type: string; // asset ID from furniture manifest
   label: string;
@@ -194,6 +199,8 @@ export interface FurnitureCatalogEntry {
   sprite: SpriteData;
   isDesk: boolean;
   category?: string;
+  /** Interaction station this furniture provides (coffee, …), or undefined. */
+  appliance?: ApplianceKind;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
