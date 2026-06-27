@@ -748,6 +748,7 @@ export class OfficeScene extends Phaser.Scene {
         border-radius:0.25rem;font:1rem 'FS Pixel Sans',monospace;padding:0.3rem 0.6rem;}
       #pa-layouts .foot{margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-layouts .foot button{padding:0.55rem;}
+      #pa-layouts .foot button.edit{background:#2f6f3a;border-color:#3f8f4a;font-size:1.15rem;}
     `;
     document.head.appendChild(style);
 
@@ -781,16 +782,8 @@ export class OfficeScene extends Phaser.Scene {
     panel.id = 'pa-layouts';
     panel.className = 'pa-ui';
     btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'layouts');
-    const editBtn = document.createElement('button');
-    editBtn.id = 'pa-edit-btn';
-    editBtn.textContent = '✏ Edit';
-    // The editor ("layout menu") is exclusive with the popovers: close them first.
-    editBtn.onclick = () => {
-      this.setMenu(null);
-      void this.toggleEditMode();
-    };
 
-    topbar.append(editBtn, btn);
+    topbar.append(btn);
     host.appendChild(panel);
     this.layoutsPanel = panel;
     this.renderLayoutsPanel();
@@ -822,9 +815,17 @@ export class OfficeScene extends Phaser.Scene {
     this.layoutsPanel.innerHTML =
       `<h4>Office Layouts</h4>${rows}` +
       `<div class="foot">
+         <button data-edit class="edit">✏ Edit layout</button>
          <button data-new>New from current…</button>
          <button data-default>Reset to Default</button>
        </div>`;
+
+    // Enter the layout editor. Exclusive with the popovers: setEditMode closes
+    // them; the editor's own ✓ Done button exits (so it needn't live up here).
+    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-edit]')!.onclick = () => {
+      this.setMenu(null);
+      void this.toggleEditMode();
+    };
 
     this.layoutsPanel.querySelectorAll<HTMLButtonElement>('[data-load]').forEach((b) => {
       b.onclick = () => send('loadLayout', { name: b.dataset.load });
