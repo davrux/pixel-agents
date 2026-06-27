@@ -22,6 +22,7 @@ import {
 } from '@pixel/shared/office/constants.js';
 import {
   CharacterState,
+  Direction,
   TILE_SIZE,
   type Character,
   type FurnitureInstance,
@@ -549,6 +550,64 @@ export class OfficeScene extends Phaser.Scene {
         cam.scrollY -= (p.y - ly) / cam.zoom;
         lx = p.x;
         ly = p.y;
+      }
+    });
+    this.setupKeyboardMovement();
+  }
+
+  /**
+   * WASD / arrow-key walking (control scheme "A"). Sends the held cardinal
+   * direction to the server, which steps the avatar tile-by-tile (server-
+   * authoritative); null on release. The most recently pressed key wins, so
+   * releasing it resumes the previously held one. Ignored while editing, while
+   * typing in a field, or when this viewer has no avatar (spectator).
+   */
+  private setupKeyboardMovement(): void {
+    const KEY_DIR: Record<string, Direction> = {
+      KeyW: Direction.UP,
+      ArrowUp: Direction.UP,
+      KeyS: Direction.DOWN,
+      ArrowDown: Direction.DOWN,
+      KeyA: Direction.LEFT,
+      ArrowLeft: Direction.LEFT,
+      KeyD: Direction.RIGHT,
+      ArrowRight: Direction.RIGHT,
+    };
+    const held: string[] = []; // pressed movement keys, oldest → newest
+    let sent: Direction | null = null;
+
+    const blocked = (): boolean => {
+      if (this.myPlayerId === null || this.editor.isEditing()) return true;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement)?.isContentEditable === true;
+    };
+
+    const flush = (): void => {
+      const dir = held.length ? KEY_DIR[held[held.length - 1]] : null;
+      if (dir === sent) return;
+      sent = dir;
+      this.room?.send('playerDir', { dir });
+    };
+
+    window.addEventListener('keydown', (e) => {
+      if (!(e.code in KEY_DIR) || e.repeat) return;
+      if (blocked()) return;
+      e.preventDefault();
+      if (!held.includes(e.code)) held.push(e.code);
+      flush();
+    });
+    window.addEventListener('keyup', (e) => {
+      const i = held.indexOf(e.code);
+      if (i === -1) return;
+      held.splice(i, 1);
+      flush();
+    });
+    // Lost focus (tab/window switch) → release so the avatar doesn't run on.
+    window.addEventListener('blur', () => {
+      if (held.length) {
+        held.length = 0;
+        flush();
       }
     });
   }

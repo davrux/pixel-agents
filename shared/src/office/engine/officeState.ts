@@ -596,6 +596,7 @@ export class OfficeState {
     }
     const ch = createCharacter(id, palette, null, null, hueShift);
     ch.isPlayer = true;
+    ch.heldDir = null;
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
     if (name) ch.folderName = name; // the owning user — shown as the avatar's name
@@ -647,12 +648,43 @@ export class OfficeState {
     if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
     const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
     if (path.length === 0) return false;
+    ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
     ch.frame = 0;
     ch.frameTimer = 0;
     return true;
+  }
+
+  /** Set (or clear, with null) a player's held WASD direction. Continuous
+   *  keyboard walking: while held, the player steps tile-by-tile that way
+   *  (validated per step). Abandons any in-flight click-to-walk path. */
+  setPlayerDir(id: number, dir: Direction | null): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    ch.heldDir = dir;
+    // Drop a click-to-walk target so the key takes over, but keep the current
+    // in-progress step so the avatar isn't stranded mid-tile.
+    if (dir !== null && ch.path.length > 1) ch.path = [ch.path[0]];
+    return true;
+  }
+
+  /** If a held direction is set, queue a single step to the adjacent tile that
+   *  way (when walkable); otherwise just face it. */
+  private tryStepHeldDir(ch: Character): void {
+    const d = ch.heldDir;
+    if (d === null || d === undefined) return;
+    const dc = d === Direction.LEFT ? -1 : d === Direction.RIGHT ? 1 : 0;
+    const dr = d === Direction.UP ? -1 : d === Direction.DOWN ? 1 : 0;
+    const col = ch.tileCol + dc;
+    const row = ch.tileRow + dr;
+    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) {
+      ch.dir = d; // face the wall, don't move
+      return;
+    }
+    ch.path = [{ col, row }];
+    ch.moveProgress = 0;
   }
 
   /** Recompute portal trigger tiles from placed `portal` furniture: each such
@@ -691,20 +723,29 @@ export class OfficeState {
     return out;
   }
 
-  /** Advance a player's avatar along its commanded path (P2 feeds the path). */
+  /** Advance a player's avatar: click-to-walk feeds a path; WASD feeds a held
+   *  direction that steps tile-by-tile (chained so it doesn't stutter). */
   private updatePlayerMovement(ch: Character, dt: number): void {
+    // Standing at a tile with a key held → begin a step that way.
+    if (ch.path.length === 0) this.tryStepHeldDir(ch);
+
     if (ch.path.length === 0) {
       if (ch.state !== CharacterState.IDLE) ch.state = CharacterState.IDLE;
-      return;
+      return; // idle (no portal check here — only fires on arrival, below)
     }
     ch.state = CharacterState.WALK;
     ch.frameTimer += dt;
     stepAlongPath(ch, dt, WALK_SPEED_PX_PER_SEC);
     if (ch.path.length === 0) {
       snapToTile(ch);
-      ch.state = CharacterState.IDLE;
-      // Reached a portal tile → queue it (the room offers a destination picker).
-      if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+      // Chain the next held step so continuous walking has no per-tile idle frame.
+      this.tryStepHeldDir(ch);
+      if (ch.path.length === 0) {
+        ch.state = CharacterState.IDLE;
+        // Came to rest on a portal tile → queue it (room offers a destination
+        // picker). Only on arrival/rest, so walking across doesn't spam it.
+        if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+      }
     }
   }
 

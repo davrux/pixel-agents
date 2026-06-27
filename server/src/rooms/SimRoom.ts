@@ -5,7 +5,7 @@ import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
-import { PetKind } from '@pixel/shared/office/types.js';
+import { Direction, PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
@@ -314,6 +314,16 @@ export class SimRoom extends Room<RoomState> {
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
       if (Number.isInteger(col) && Number.isInteger(row)) this.os.walkPlayer(id, col, row);
+    });
+
+    // Keyboard (WASD) walk: a held cardinal direction, or null to stop. The
+    // server steps the avatar tile-by-tile while held (validated per step).
+    this.onMessage('playerDir', (client, msg: { dir?: number | null }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const d = msg?.dir;
+      const dir = Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 3 ? (d as Direction) : null;
+      this.os.setPlayerDir(id, dir);
     });
 
     // Destination picked at a portal → land at the target zone's arrival tile
