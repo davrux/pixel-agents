@@ -18,6 +18,7 @@ export interface LoadedAssetData {
     canPlaceOnWalls?: boolean;
     mirrorSide?: boolean;
     appliance?: string; // interaction station kind ('coffee', …)
+    portal?: boolean; // zone portal (door / beam pad)
     rotationScheme?: string;
     animationGroup?: string;
     frame?: number;
@@ -106,6 +107,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
           const a = typeof asset.appliance === 'string' ? asset.appliance : asset.id === 'COFFEE_MACHINE' ? 'coffee' : '';
           return a ? { appliance: a as ApplianceKind } : {};
         })(),
+        ...(asset.portal ? { portal: true } : {}),
       };
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);

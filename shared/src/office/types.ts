@@ -201,6 +201,9 @@ export interface FurnitureCatalogEntry {
   category?: string;
   /** Interaction station this furniture provides (coffee, …), or undefined. */
   appliance?: ApplianceKind;
+  /** Whether this furniture is a zone portal (door / beam pad): walking to it
+   *  offers a destination picker. */
+  portal?: boolean;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
