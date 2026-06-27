@@ -61,7 +61,9 @@ async function main(): Promise<void> {
   const gameServer = new Server({
     transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
   });
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined });
+  // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
+  // the same instance for a zone and a separate instance per other zone.
+  gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined }).filterBy(['zone']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).

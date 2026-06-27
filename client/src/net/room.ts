@@ -1,5 +1,5 @@
 import { Client, type Room } from 'colyseus.js';
-import { WORLD_ROOM } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, WORLD_ROOM } from '@pixel/shared/protocol';
 
 /** Resolve the Colyseus endpoint. In Vite dev the page is on :5173 while the
  *  server is on :2567; in production they share an origin. */
@@ -35,7 +35,7 @@ export function gotoLogout(): void {
   window.location.href = `${serverHttpOrigin()}/logout`;
 }
 
-export async function connect(): Promise<Room> {
+export async function connect(zone: string = DEFAULT_ZONE): Promise<Room> {
   const client = new Client(endpoint());
-  return client.joinOrCreate(WORLD_ROOM);
+  return client.joinOrCreate(WORLD_ROOM, { zone });
 }

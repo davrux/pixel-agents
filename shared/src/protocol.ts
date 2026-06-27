@@ -6,6 +6,31 @@
 
 export const WORLD_ROOM = 'world';
 
+// ── Zones ─────────────────────────────────────────────────────────
+// A zone is one explorable space (the office, later a plaza, a dungeon, …),
+// hosted as its own Colyseus room instance of WORLD_ROOM (matchmade by `zone`).
+// Each zone loads its own layout; assets are shared across zones for now.
+
+export const DEFAULT_ZONE = 'office';
+
+export interface ZoneConfig {
+  id: string;
+  label: string;
+  /** Named layout to load for this zone. Absent → the room's active/default
+   *  layout (keeps the office zone behaving exactly as before). */
+  layoutName?: string;
+}
+
+/** Registry of known zones. F5 adds a second entry (e.g. a plaza) + a portal. */
+export const ZONES: Record<string, ZoneConfig> = {
+  office: { id: 'office', label: 'Office' },
+};
+
+/** Resolve a zone id to its config, falling back to the default zone. */
+export function resolveZone(id: string | undefined): ZoneConfig {
+  return (id && ZONES[id]) || ZONES[DEFAULT_ZONE];
+}
+
 // ── Simulation tuning (ported from the original engine constants) ─
 
 export const SIM = {

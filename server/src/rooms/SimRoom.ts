@@ -1,6 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 
-import type { AgentEvent } from '@pixel/shared';
+import { resolveZone } from '@pixel/shared';
+import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
@@ -35,6 +36,7 @@ export class SimRoom extends Room<RoomState> {
   private bundle!: AssetBundle;
   private os!: OfficeState;
   private store!: LayoutStore;
+  private zone!: ZoneConfig;
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
@@ -52,10 +54,11 @@ export class SimRoom extends Room<RoomState> {
     return { username: usernameFromCookie(cookie) ?? '' };
   }
 
-  onCreate(options: { bundle: AssetBundle; token?: string }): void {
+  onCreate(options: { bundle: AssetBundle; token?: string; zone?: string }): void {
     this.defaults = options.bundle;
     this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
     this.token = options.token ?? '';
+    this.zone = resolveZone(options.zone); // which space this room instance hosts
     this.setState(new RoomState());
     this.autoDispose = false;
 
@@ -71,7 +74,7 @@ export class SimRoom extends Room<RoomState> {
 
     // The active layout (persisted, falling back to the bundled default).
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
-    this.os = new OfficeState(this.migratedActiveLayout());
+    this.os = new OfficeState(this.zoneLayout());
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
     this.os.setNpcDecider((_pet, aff) =>
@@ -135,6 +138,17 @@ export class SimRoom extends Room<RoomState> {
   private migratedActiveLayout(): OfficeLayout | undefined {
     const raw = this.store.getActiveLayout() as OfficeLayout | null;
     return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
+  }
+
+  /** Layout for this room's zone: the zone's named layout when set + present,
+   *  else the active/default layout (so the office zone is unchanged). */
+  private zoneLayout(): OfficeLayout | undefined {
+    const name = this.zone.layoutName;
+    if (name && this.store.has(name)) {
+      const raw = this.store.resolve(name) as OfficeLayout | null;
+      return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
+    }
+    return this.migratedActiveLayout();
   }
 
   private activeLayoutMessage(): Record<string, unknown> {
