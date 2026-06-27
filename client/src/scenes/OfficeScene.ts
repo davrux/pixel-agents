@@ -131,6 +131,8 @@ export class OfficeScene extends Phaser.Scene {
   /** Previous (active,bubble) per agent — to detect transitions for sounds. */
   private readonly prevState = new Map<number, { active: boolean; bubble: string }>();
   private readonly nameLabels = new Map<number, HTMLDivElement>();
+  /** Portal markers for the current zone, keyed by "col,row". */
+  private readonly portalMarkers = new Map<string, HTMLDivElement>();
   private layoutListData: { layouts: Array<{ name: string; readOnly: boolean }>; active: string } = {
     layouts: [],
     active: 'Default',
@@ -298,6 +300,7 @@ export class OfficeScene extends Phaser.Scene {
           this.renderCharSwatches();
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
+        else if (m.type === 'zoneTransition') this.goToZone(m.zone as string); // walked into a portal (P5)
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
@@ -690,6 +693,7 @@ export class OfficeScene extends Phaser.Scene {
     this.editor.tickUI();
     this.updateTooltip();
     this.updateNameLabels();
+    this.updatePortalMarkers();
   }
 
   // ── Menus (mutually-exclusive popovers) ──────────────────────────
@@ -768,11 +772,7 @@ export class OfficeScene extends Phaser.Scene {
       zoneSel.appendChild(o);
     }
     zoneSel.value = currentZone();
-    zoneSel.onchange = () => {
-      const params = new URLSearchParams(window.location.search);
-      params.set('zone', zoneSel.value);
-      window.location.search = params.toString();
-    };
+    zoneSel.onchange = () => this.goToZone(zoneSel.value);
     topbar.appendChild(zoneSel);
 
     const btn = document.createElement('button');
@@ -1028,6 +1028,20 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /** Switch to another zone (remember it, then reload at ?zone=). Used by the
+   *  zone switcher and by walk-in portals (P5). */
+  private goToZone(zone: string): void {
+    if (!ZONES[zone]) return;
+    try {
+      localStorage.setItem('pa-last-zone', zone);
+    } catch {
+      /* localStorage unavailable */
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.set('zone', zone);
+    window.location.search = params.toString();
+  }
+
   /** Render one avatar swatch row (random + each palette's front standing frame),
    *  highlighting `selected`; clicking a swatch calls `onPick`. */
   private renderSwatchRow(hostSel: string, selected: number | null, onPick: (i: number | null) => void): void {
@@ -1091,6 +1105,36 @@ export class OfficeScene extends Phaser.Scene {
   private clearNameLabels(): void {
     for (const el of this.nameLabels.values()) el.remove();
     this.nameLabels.clear();
+  }
+
+  /** Floating "🚪 <zone>" markers over the current zone's portal tiles. */
+  private updatePortalMarkers(): void {
+    const portals = ZONES[currentZone()]?.portals ?? [];
+    if (this.editor.isEditing()) {
+      for (const el of this.portalMarkers.values()) el.style.display = 'none';
+      return;
+    }
+    const cam = this.cameras.main;
+    const wv = cam.worldView;
+    const host = document.getElementById('game') ?? document.body;
+    for (const p of portals) {
+      const key = `${p.col},${p.row}`;
+      let el = this.portalMarkers.get(key);
+      if (!el) {
+        el = document.createElement('div');
+        el.style.cssText =
+          'position:absolute;z-index:44;transform:translate(-50%,-100%);pointer-events:none;' +
+          "font:0.85rem 'FS Pixel Sans',monospace;color:#ffe08a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
+        host.appendChild(el);
+        this.portalMarkers.set(key, el);
+      }
+      el.style.display = '';
+      el.textContent = `🚪 ${ZONES[p.toZone]?.label ?? p.toZone}`;
+      const wx = p.col * TILE_SIZE + TILE_SIZE / 2;
+      const wy = p.row * TILE_SIZE + TILE_SIZE / 2;
+      el.style.left = `${Math.round((wx - wv.x) * cam.zoom)}px`;
+      el.style.top = `${Math.round((wy - wv.y) * cam.zoom)}px`;
+    }
   }
 
   private updateNameLabels(): void {

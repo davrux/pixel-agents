@@ -55,6 +55,7 @@ import {
   PetState,
   TILE_SIZE,
 } from '../types.js';
+import type { Portal } from '../../protocol.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
@@ -104,6 +105,10 @@ export class OfficeState {
   /** Player avatar ids live in their own band (agents use Claude ids, subagents
    *  negative, pets 1_000_000+). */
   private nextPlayerId = 2_000_000;
+  /** Walk-in portals in this zone + players that just stepped on one (drained by
+   *  the room, which performs the cross-room transition). */
+  private portals: Portal[] = [];
+  private pendingPortals: Array<{ id: number; portal: Portal }> = [];
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -648,6 +653,19 @@ export class OfficeState {
     return true;
   }
 
+  /** Walk-in portals for this zone (P5); the room sets these from the zone config. */
+  setPortals(portals: Portal[]): void {
+    this.portals = portals;
+  }
+
+  /** Drain players that stepped onto a portal this tick (room performs the move). */
+  takePendingPortals(): Array<{ id: number; portal: Portal }> {
+    if (this.pendingPortals.length === 0) return [];
+    const out = this.pendingPortals;
+    this.pendingPortals = [];
+    return out;
+  }
+
   /** Advance a player's avatar along its commanded path (P2 feeds the path). */
   private updatePlayerMovement(ch: Character, dt: number): void {
     if (ch.path.length === 0) {
@@ -660,6 +678,9 @@ export class OfficeState {
     if (ch.path.length === 0) {
       snapToTile(ch);
       ch.state = CharacterState.IDLE;
+      // Stepped onto a portal tile → queue a zone transition for the room.
+      const portal = this.portals.find((p) => p.col === ch.tileCol && p.row === ch.tileRow);
+      if (portal) this.pendingPortals.push({ id: ch.id, portal });
     }
   }
 

@@ -89,6 +89,7 @@ export class SimRoom extends Room<RoomState> {
     // The active layout (persisted, falling back to the bundled default).
     this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
     this.os = new OfficeState(this.zoneLayout());
+    this.os.setPortals(this.zone.portals ?? []); // walk-in portals for this zone (P5)
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
     this.os.setNpcDecider((_pet, aff) =>
@@ -516,9 +517,33 @@ export class SimRoom extends Room<RoomState> {
 
   private tick(dt: number): void {
     this.os.update(Math.min(dt, 0.1));
+    this.handlePortals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
+  }
+
+  /** Players that stepped on a portal this tick: persist the destination, remove
+   *  the avatar here, and tell the client to reconnect to the target zone. */
+  private handlePortals(): void {
+    for (const { id, portal } of this.os.takePendingPortals()) {
+      let sessionId: string | undefined;
+      for (const [sid, pid] of this.players) {
+        if (pid === id) {
+          sessionId = sid;
+          break;
+        }
+      }
+      if (!sessionId) continue;
+      let client: Client | undefined;
+      for (const c of this.clients) if (c.sessionId === sessionId) client = c;
+      const username = (client?.auth as { username?: string } | undefined)?.username ?? '';
+      // Logged-in players land at the portal's destination (via P4 respawn).
+      if (username) appStore.setPlayerPos(username, portal.toZone, portal.toCol, portal.toRow);
+      this.os.removePlayer(id);
+      this.players.delete(sessionId);
+      client?.send('m', { type: 'zoneTransition', zone: portal.toZone });
+    }
   }
 
   private syncCharacters(): void {
