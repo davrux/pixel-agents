@@ -1,10 +1,19 @@
-# pixel-agents2
+# pixel-agents
 
 A port of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents) onto a
 **game-engine stack**: the original office — **all of its graphics, animations,
 fonts, layout and agent behaviour** — runs **1:1**, with only the plumbing
 swapped: **[Colyseus](https://colyseus.io/)** replaces the WebSocket transport
-and **[Phaser](https://phaser.io/)** replaces the canvas renderer.
+and **[Phaser](https://phaser.io/)** replaces the canvas renderer. From that base
+it is growing into a small **MMO-style** world (multiple zones, human players
+alongside the agents, NPCs, portals).
+
+> 🎮 **This is a fun, hobby project** — built for the joy of it, not as a hardened
+> product. Expect rough edges; no stability, security, or support guarantees. Use
+> it at your own risk and have fun. 🙂
+>
+> 🤖 **It is also a pure AI project** — essentially all of the code in this fork was
+> written by an AI coding agent. Treat it accordingly.
 
 Multiple Claude clients stream their transcripts to the server; each agent
 becomes a pixel character that walks to a desk, types/reads, idles and wanders,

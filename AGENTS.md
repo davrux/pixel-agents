@@ -4,6 +4,17 @@ Guidance for any human or AI agent extending **pixel-agents**. Read this before
 adding features. The golden rule: **build on the existing stack — Colyseus +
 Phaser — don't introduce a parallel engine.**
 
+> 🎮 **This is a fun, hobby project** — built for the joy of it, not as a hardened
+> product. Expect rough edges; no stability, security, or support guarantees. Use
+> it at your own risk and have fun. 🙂
+>
+> 🤖 **It is also a pure AI project** — essentially all of the code here was written
+> by AI coding agents. Treat it accordingly. Because contributors are many and
+> mostly autonomous, the architecture invariants below are not style preferences —
+> they are the contract that keeps independent extensions composable. A change that
+> breaks one is a regression even if it "works". When in doubt, run the
+> `mmo-readiness` skill (see *Before you ship*) — it checks the contract for you.
+
 ## What this is
 
 A multi-agent "office" world: Claude agents stream their activity to a central
@@ -23,6 +34,54 @@ outcomes**; keep the client a renderer + input forwarder. When you add an entity
 or behaviour, ask "does this still work with N players and NPCs moving and
 interacting?" — favour authoritative server state + client interpolation over
 client-side truth. (We are not there yet; just don't paint us into a corner.)
+
+## MMO foundation — what's already in place
+
+The groundwork for the MMO direction is built; **reuse it, don't reinvent it.**
+New features must extend these, not grow a parallel mechanism beside them.
+
+- **Unified entity model.** `EntitySync` (id + transform + coarse `state`) is the
+  base schema; `CharacterSync`/`PetSync` extend it, and a new entity kind
+  (monster, NPC, item) extends it too — never redeclare transform/sync. Movement,
+  pathing and pose primitives live in `shared/office/engine/entity.ts`
+  (`MovingEntity`, `stepAlongPath`, `snapToTile`) and are shared by every moving
+  thing. **Players are `Character`s with `isPlayer = true`** — not a separate code
+  path. Add capabilities by extending the entity/schema, not by forking it.
+- **Zones = rooms.** Each explorable space is its own instance of the one room
+  type, matchmade by `zone` (`gameServer.define(WORLD_ROOM, SimRoom).filterBy(['zone'])`,
+  `ZONES`/`ZoneConfig`/`resolveZone` in `protocol.ts`). Add a zone by adding a
+  `ZONES` entry + a layout — **do not** add a new room class per zone.
+- **Portals are content, not code.** A portal is placed furniture carrying the
+  catalog `portal` flag (a door, a beam pad); the server derives trigger tiles
+  from where it is placed and offers a destination picker. Add travel by placing
+  furniture and editing `ZONES`, never by hard-coding a coordinate jump.
+- **Human players.** Spawn/despawn (spectator toggle), click-to-walk (server
+  resolves the path), avatar/skin selection, naming (own avatar = player name;
+  agents = `<player>-Agent`), and per-`(name, zone)` persistence of position +
+  prefs (SQLite `appStore`). Player input arrives as messages and is resolved
+  server-side — see the validation rule below.
+- **Data-driven content + editors.** Furniture affordances (`appliance`,
+  `portal`), animation groups and on/off state groups are catalog data, authored
+  in the in-browser editors (character, NPC, furniture) with a shared pixel
+  select/paste tool. New content is data + a catalog entry, not new render code.
+- **Server-only NPC brain.** NPC decisions run through a mistreevous behaviour
+  tree **on the server**. The BT and its deps must **never** enter the client
+  bundle (the skill greps `client/dist` for this).
+
+**Known gaps — fill these the MMO-correct way (don't design around them):**
+
+- **No interest management (AOI).** Every client in a zone currently receives the
+  full zone state. This is fine at today's counts but won't scale; when it bites,
+  add spatial/range filtering (Colyseus `@filter`/`StateView` or per-client views)
+  — **do not** "solve" scale by moving authority to the client.
+- **No reconnection grace.** `onLeave` despawns immediately; a dropped socket
+  loses the entity until rejoin. Prefer `allowReconnection` when this matters.
+- **Single process.** matchMaking + state are in-process; horizontal scale needs a
+  Colyseus presence/driver (e.g. Redis). Keep rooms shared-nothing so that stays
+  possible — no module-global mutable game state outside a room.
+- **No progression / chat / combat yet.** Levels, stats, chat channels, monsters
+  and dungeons are intended but unbuilt. When you add them, put the authority and
+  rules server-side and sync results, exactly like movement and interaction.
 
 ## Tech stack (the basis for all extensions)
 
@@ -141,6 +200,11 @@ needs only a browser; an agent needs only Claude + `feeder/pixel-agents-feeder.c
 
 ## Before you ship
 
+- **Run the `mmo-readiness` skill** (`.claude/skills/mmo-readiness/`). It audits
+  the architecture contract automatically: typecheck + build, no behaviour-tree /
+  server-only deps in `client/dist`, no second game/physics engine, every
+  `onMessage` handler has a server-side guard, and the entity/zone/portal
+  invariants above. Treat its failures as blockers.
 - `pnpm -r run check-types` (or `tsc --noEmit` per package) must be clean.
 - `pnpm build` must succeed.
 - For engine changes, prefer a small headless test driving `OfficeState`

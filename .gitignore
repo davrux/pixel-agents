@@ -12,7 +12,9 @@ data/
 !.env.example
 
 .agent-shell/
-.claude/
+# Local agent config stays out of the repo, but shared skills are versioned.
+.claude/*
+!.claude/skills/
 
 .DS_Store
 Thumbs.db
