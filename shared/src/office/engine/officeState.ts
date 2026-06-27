@@ -575,7 +575,7 @@ export class OfficeState {
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
    *  FSM) at a free walkable tile. Returns its id. */
-  addPlayer(preferredPalette?: number, name?: string): number {
+  addPlayer(preferredPalette?: number, name?: string, spawnAt?: { col: number; row: number }): number {
     const id = this.nextPlayerId++;
     let palette: number;
     let hueShift: number;
@@ -592,10 +592,13 @@ export class OfficeState {
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
     if (name) ch.folderName = name; // the owning user — shown as the avatar's name
+    // Respawn at the saved tile when it's still walkable, else a random one.
     const spawn =
-      this.walkableTiles.length > 0
-        ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
-        : { col: 1, row: 1 };
+      spawnAt && isWalkable(spawnAt.col, spawnAt.row, this.tileMap, this.blockedTiles)
+        ? spawnAt
+        : this.walkableTiles.length > 0
+          ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
+          : { col: 1, row: 1 };
     ch.tileCol = spawn.col;
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -1106,6 +1109,11 @@ export class OfficeState {
 
   getCharacters(): Character[] {
     return Array.from(this.characters.values());
+  }
+
+  /** A single character by id, or undefined. */
+  getCharacter(id: number): Character | undefined {
+    return this.characters.get(id);
   }
 
   getPets(): Pet[] {

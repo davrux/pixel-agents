@@ -75,11 +75,18 @@ function matrixSeeds(id: number): number[] {
   return seeds;
 }
 
-/** The zone to connect to, from the `?zone=` URL param (validated against the
- *  registry), defaulting to the office. */
+/** The zone to connect to: the `?zone=` URL param if valid, else the last zone
+ *  this browser visited (P4), else the office. */
 function currentZone(): string {
   const z = new URLSearchParams(window.location.search).get('zone') ?? '';
-  return ZONES[z] ? z : DEFAULT_ZONE;
+  if (ZONES[z]) return z;
+  try {
+    const last = localStorage.getItem('pa-last-zone');
+    if (last && ZONES[last]) return last;
+  } catch {
+    /* localStorage unavailable */
+  }
+  return DEFAULT_ZONE;
 }
 
 export class OfficeScene extends Phaser.Scene {
@@ -249,7 +256,13 @@ export class OfficeScene extends Phaser.Scene {
   private async open(): Promise<void> {
     const assetBridge = createAssetBridge(this.os, (layout) => this.onLayout(layout));
     try {
-      this.room = await connect(currentZone());
+      const zone = currentZone();
+      try {
+        localStorage.setItem('pa-last-zone', zone); // remember for the next load (P4)
+      } catch {
+        /* localStorage unavailable */
+      }
+      this.room = await connect(zone);
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'viewerIdentity') {

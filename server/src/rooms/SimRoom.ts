@@ -143,7 +143,9 @@ export class SimRoom extends Room<RoomState> {
     // setPlayer* after join (localStorage-backed).
     let playerId: number | null = null;
     if (!spectator) {
-      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined);
+      // Respawn where this user last stood in this zone (logged-in only).
+      const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
+      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined, saved ?? undefined);
       this.players.set(client.sessionId, playerId);
     }
     client.send('m', { type: 'viewerIdentity', username, characterPalette, playerPalette, playerId, spectator });
@@ -158,6 +160,10 @@ export class SimRoom extends Room<RoomState> {
   onLeave(client: Client): void {
     const playerId = this.players.get(client.sessionId);
     if (playerId !== undefined) {
+      // Persist the avatar's last tile (logged-in users respawn there next time).
+      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+      const ch = this.os.getCharacter(playerId);
+      if (username && ch) appStore.setPlayerPos(username, this.zone.id, ch.tileCol, ch.tileRow);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }

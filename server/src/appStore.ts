@@ -147,6 +147,18 @@ class AppStore {
     this.setSetting('spectatorPrefs', prefs);
   }
 
+  // ── Per-user player position (per zone), to respawn where they left ──
+  /** Last player tile for a user in a zone, or null. */
+  getPlayerPos(name: string, zone: string): { col: number; row: number } | null {
+    const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
+    return all[`${name}|${zone}`] ?? null;
+  }
+  setPlayerPos(name: string, zone: string, col: number, row: number): void {
+    const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
+    all[`${name}|${zone}`] = { col, row };
+    this.setSetting('playerPos', all);
+  }
+
   // ── Settings (global; matches the original single-server fork) ───
   getSetting<T>(key: string, fallback: T): T {
     const r = this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
