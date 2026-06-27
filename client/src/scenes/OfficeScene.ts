@@ -494,7 +494,19 @@ export class OfficeScene extends Phaser.Scene {
         }
       } else {
         const hit = this.hitTest(p.worldX, p.worldY);
-        this.selectedId = hit !== null && hit === this.selectedId ? null : hit;
+        if (hit !== null) {
+          this.selectedId = hit === this.selectedId ? null : hit;
+        } else {
+          this.selectedId = null;
+          // Click empty floor → walk my own avatar there (P2). Spectators have
+          // no avatar (myPlayerId null) → no-op. Server validates the tile.
+          if (this.myPlayerId !== null && p.leftButtonReleased()) {
+            this.room?.send('playerMove', {
+              col: Math.floor(p.worldX / TILE_SIZE),
+              row: Math.floor(p.worldY / TILE_SIZE),
+            });
+          }
+        }
       }
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {

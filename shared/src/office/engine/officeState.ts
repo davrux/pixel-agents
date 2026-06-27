@@ -629,6 +629,22 @@ export class OfficeState {
     this.characters.delete(id);
   }
 
+  /** Walk a player's avatar to a tile (viewer click-to-move). Paths via the
+   *  shared pathfinder; returns false if the target is unreachable/unwalkable. */
+  walkPlayer(id: number, col: number, row: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
+    const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
+    if (path.length === 0) return false;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    return true;
+  }
+
   /** Advance a player's avatar along its commanded path (P2 feeds the path). */
   private updatePlayerMovement(ch: Character, dt: number): void {
     if (ch.path.length === 0) {

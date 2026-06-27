@@ -302,6 +302,15 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
+    // Click-to-move: walk the viewer's own avatar to a tile (server validates).
+    this.onMessage('playerMove', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (Number.isInteger(col) && Number.isInteger(row)) this.os.walkPlayer(id, col, row);
+    });
+
     // The viewer's display name for their player avatar (auth username for
     // logged-in viewers; a chosen name for anonymous ones).
     this.onMessage('setPlayerName', (client, msg: { name?: string }) => {
