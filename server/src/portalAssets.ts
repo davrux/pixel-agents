@@ -76,6 +76,7 @@ export function portalAssets(): PortalAsset[] {
         footprintW: 1,
         footprintH: 1,
         isDesk: false,
+        backgroundTiles: 1, // non-blocking → you step onto the door tile to use it
         portal: true,
       },
       sprite: doorSprite(),

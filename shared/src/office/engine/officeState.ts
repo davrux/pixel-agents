@@ -687,9 +687,10 @@ export class OfficeState {
     ch.moveProgress = 0;
   }
 
-  /** Recompute portal trigger tiles from placed `portal` furniture: each such
-   *  item's walkable footprint tiles (e.g. a beam pad) plus their walkable
-   *  orthogonal neighbours (e.g. standing in front of a door). */
+  /** Recompute portal trigger tiles from placed `portal` furniture: only the
+   *  item's own walkable footprint tiles — you activate a door/beam pad by
+   *  standing on it, not by approaching from an adjacent tile. Portal furniture
+   *  is non-blocking (backgroundTiles), so its tile is walkable. */
   private computePortalTiles(): void {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
@@ -699,15 +700,7 @@ export class OfficeState {
         for (let dc = 0; dc < entry.footprintW; dc++) {
           const fc = item.col + dc;
           const fr = item.row + dr;
-          for (const [c, r] of [
-            [fc, fr],
-            [fc + 1, fr],
-            [fc - 1, fr],
-            [fc, fr + 1],
-            [fc, fr - 1],
-          ]) {
-            if (isWalkable(c, r, this.tileMap, this.blockedTiles)) tiles.add(`${c},${r}`);
-          }
+          if (isWalkable(fc, fr, this.tileMap, this.blockedTiles)) tiles.add(`${fc},${fr}`);
         }
       }
     }
