@@ -57,6 +57,9 @@ export class SimRoom extends Room<RoomState> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
+  /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
+  private readonly chatLog: Array<{ from: string; text: string }> = [];
+  private readonly lastChatAt = new Map<string, number>();
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
@@ -149,6 +152,7 @@ export class SimRoom extends Room<RoomState> {
     client.send('m', this.activeLayoutMessage());
     client.send('m', this.layoutListMessage());
     client.send('m', this.zoneListMessage());
+    client.send('m', { type: 'chatHistory', messages: this.chatLog });
 
     // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
@@ -187,6 +191,15 @@ export class SimRoom extends Room<RoomState> {
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }
+    this.lastChatAt.delete(client.sessionId);
+  }
+
+  /** Display name for a chatter: their avatar's name, else login username, else Guest. */
+  private chatNameFor(client: Client): string {
+    const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+    const id = this.players.get(client.sessionId);
+    const ch = id !== undefined ? this.os.getCharacter(id) : null;
+    return ch?.folderName || username || 'Guest';
   }
 
   // ── Layout management (server-authoritative) ─────────────────────
@@ -284,6 +297,21 @@ export class SimRoom extends Room<RoomState> {
 
     this.onMessage('deleteLayout', (_c, msg: { name?: string }) => {
       if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
+    });
+
+    // Zone-local chat: validate + rate-limit, then broadcast (and keep recent
+    // history for joiners). `id` lets clients show a bubble over the sender.
+    this.onMessage('chat', (client, msg: { text?: string }) => {
+      const now = Date.now();
+      if (now - (this.lastChatAt.get(client.sessionId) ?? 0) < 700) return; // ~1.4/s
+      const text = (typeof msg?.text === 'string' ? msg.text : '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      if (!text) return;
+      this.lastChatAt.set(client.sessionId, now);
+      const from = this.chatNameFor(client);
+      const id = this.players.get(client.sessionId) ?? null;
+      this.chatLog.push({ from, text });
+      if (this.chatLog.length > 50) this.chatLog.shift();
+      this.broadcast('m', { type: 'chat', from, text, id });
     });
 
     // ── Zone registry (create / edit / delete; everyone may, office protected) ──

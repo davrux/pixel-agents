@@ -108,6 +108,15 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
   private tip!: HTMLDivElement;
+  private chatBox?: HTMLDivElement;
+  private chatLogEl?: HTMLDivElement;
+  private chatInputEl?: HTMLInputElement;
+  /** Idle-fade clock for the chat (performance.now() ms); fades when idle. */
+  private chatActiveUntil = 0;
+  private chatFaded = false;
+  /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
+   *  performance.now() clock). */
+  private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
   private furnEditor!: FurnitureEditor;
@@ -205,6 +214,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createTooltip();
     this.createLayoutsPanel();
     this.createSettingsPanel();
+    this.createChat();
     this.charEditor = new CharacterEditor({
       categories: [
         {
@@ -293,6 +303,8 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
+        else if (m.type === 'chat') this.onChat(m);
+        else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
@@ -795,6 +807,8 @@ export class OfficeScene extends Phaser.Scene {
     this.editor.tickUI();
     this.updateTooltip();
     this.updateNameLabels();
+    this.updateChatBubbles();
+    this.tickChatFade();
   }
 
   // ── Menus (mutually-exclusive popovers) ──────────────────────────
@@ -1538,6 +1552,155 @@ export class OfficeScene extends Phaser.Scene {
         el.remove();
         this.nameLabels.delete(id);
       }
+    }
+  }
+
+  // ── Chat (zone-local; log + input + bubbles over avatars) ────────
+
+  private createChat(): void {
+    if (!document.getElementById('pa-chat-style')) {
+      const style = document.createElement('style');
+      style.id = 'pa-chat-style';
+      style.textContent = `
+        #pa-chat{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;width:24rem;max-width:46vw;
+          display:flex;flex-direction:column;gap:0.35rem;font-family:'FS Pixel Sans',ui-monospace,monospace;
+          transition:opacity 0.8s ease;}
+        /* Stay fully visible while hovered or while typing, even when idle. */
+        #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
+        #pa-chatlog{max-height:13rem;overflow-y:auto;background:rgba(20,24,33,.72);border:1px solid #2c323e;
+          border-radius:0.4rem;padding:0.45rem 0.6rem;color:#dfe4ee;font-size:1rem;line-height:1.35;
+          display:flex;flex-direction:column;gap:0.1rem;}
+        #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
+        #pa-chatlog .ln b{color:#9ad0ff;}
+        #pa-chatinput{background:rgba(20,24,33,.85);border:2px solid #3a4150;border-radius:0.4rem;color:#eef1f6;
+          font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;}
+        #pa-chatinput::placeholder{color:#7d8597;}
+        .pa-chatbubble{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
+          max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
+          font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
+          box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
+      `;
+      document.head.appendChild(style);
+    }
+    const host = document.getElementById('game') ?? document.body;
+    const box = document.createElement('div');
+    box.id = 'pa-chat';
+    box.className = 'pa-ui';
+    const log = document.createElement('div');
+    log.id = 'pa-chatlog';
+    const input = document.createElement('input');
+    input.id = 'pa-chatinput';
+    input.type = 'text';
+    input.maxLength = 200;
+    input.placeholder = 'Press Enter to chat…';
+    input.autocomplete = 'off';
+    box.onmouseenter = () => this.bumpChat();
+    input.onfocus = () => this.bumpChat();
+    input.onkeydown = (e) => {
+      this.bumpChat();
+      if (e.key === 'Enter') {
+        const text = input.value.trim();
+        if (text) this.room?.send('chat', { text });
+        input.value = '';
+        // Keep the cursor in the field so you can keep typing; Escape returns
+        // control to the game (movement keys).
+        e.preventDefault();
+      } else if (e.key === 'Escape') {
+        input.value = '';
+        input.blur();
+      }
+      e.stopPropagation(); // typing never reaches game-key handlers
+    };
+    box.append(log, input);
+    host.appendChild(box);
+    this.chatBox = box;
+    this.chatLogEl = log;
+    this.chatInputEl = input;
+    this.bumpChat(); // visible briefly on load, then fades if idle
+
+    // Enter focuses the chat (unless already typing or editing the layout).
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || this.editor.isEditing()) return;
+      input.focus();
+    });
+  }
+
+  private onChatHistory(m: Record<string, unknown>): void {
+    const msgs = (m.messages as Array<{ from?: string; text?: string }>) ?? [];
+    for (const c of msgs) this.appendChatLine(c.from ?? '?', c.text ?? '');
+  }
+
+  private onChat(m: Record<string, unknown>): void {
+    const from = (m.from as string) ?? '?';
+    const text = (m.text as string) ?? '';
+    this.appendChatLine(from, text);
+    if (typeof m.id === 'number') this.showChatBubble(m.id, text);
+  }
+
+  private appendChatLine(from: string, text: string): void {
+    const log = this.chatLogEl;
+    if (!log) return;
+    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
+    const ln = document.createElement('div');
+    ln.className = 'ln';
+    ln.innerHTML = `<b>${esc(from)}:</b> ${esc(text)}`;
+    log.appendChild(ln);
+    while (log.childElementCount > 120) log.firstElementChild?.remove();
+    if (atBottom) log.scrollTop = log.scrollHeight; // follow only if already at bottom
+    this.bumpChat();
+  }
+
+  /** Mark the chat active (a message, focus, hover, or typing) → show it; it
+   *  fades again after a quiet stretch (see tickChatFade). */
+  private bumpChat(): void {
+    this.chatActiveUntil = performance.now() + 8000;
+    if (this.chatBox) this.chatBox.style.opacity = '1';
+    this.chatFaded = false;
+  }
+
+  /** Fade the chat out once it's been idle (hover/focus override via CSS). */
+  private tickChatFade(): void {
+    if (!this.chatBox) return;
+    const idle = performance.now() >= this.chatActiveUntil;
+    if (idle !== this.chatFaded) {
+      this.chatFaded = idle;
+      this.chatBox.style.opacity = idle ? '0.1' : '1';
+    }
+  }
+
+  private showChatBubble(id: number, text: string): void {
+    let b = this.chatBubbles.get(id);
+    if (!b) {
+      const el = document.createElement('div');
+      el.className = 'pa-chatbubble';
+      (document.getElementById('game') ?? document.body).appendChild(el);
+      b = { el, until: 0 };
+      this.chatBubbles.set(id, b);
+    }
+    b.el.textContent = text.length > 120 ? `${text.slice(0, 119)}…` : text;
+    b.until = performance.now() + 5000;
+  }
+
+  /** Position chat bubbles above their avatars; drop expired/gone ones. */
+  private updateChatBubbles(): void {
+    if (this.chatBubbles.size === 0) return;
+    const now = performance.now();
+    const cam = this.cameras.main;
+    const wv = cam.worldView;
+    for (const [id, b] of this.chatBubbles) {
+      const ch = this.characters.get(id);
+      if (!ch || now >= b.until || this.editor.isEditing()) {
+        b.el.remove();
+        this.chatBubbles.delete(id);
+        continue;
+      }
+      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      // Sit a little higher than the name label so both are readable.
+      const headOff = (32 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+      b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
+      b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
   }
 
