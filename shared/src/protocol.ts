@@ -29,6 +29,10 @@ export interface ZoneConfig {
   /** Protected zones can't be deleted (currently only the office). Hidden in the
    *  UI for now; the flag is here so it can be exposed/changed later. */
   readOnly?: boolean;
+  /** Which NPC variants spawn here, as `"<kind>_<variant>"` keys (e.g. `cat_0`).
+   *  Absent/null = all active variants (the office default); an array (possibly
+   *  empty) = exactly those. New zones default to none. */
+  npc?: string[] | null;
 }
 
 /** Builtin zones, used to seed the persistent zone registry on first run. After
@@ -37,7 +41,7 @@ export interface ZoneConfig {
  *  `portal` flag) — walking up to one offers a picker of the other zones. */
 export const ZONES: Record<string, ZoneConfig> = {
   office: { id: 'office', label: 'Office', arrive: { col: 9, row: 11 }, readOnly: true },
-  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 }, cols: 20, rows: 14 },
+  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 }, cols: 20, rows: 14, npc: [] },
 };
 
 /** Resolve a zone id to its config, falling back to the default zone. */

@@ -28,6 +28,7 @@ interface ZoneRow {
   rows: number | null;
   read_only: number;
   created_at: number;
+  npc: string | null;
 }
 
 export class ZoneStore {
@@ -42,11 +43,25 @@ export class ZoneStore {
         arrive_col INTEGER, arrive_row INTEGER,
         cols INTEGER, rows INTEGER,
         read_only INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL DEFAULT 0
+        created_at INTEGER NOT NULL DEFAULT 0,
+        npc TEXT
       );
       CREATE TABLE IF NOT EXISTS zone_meta ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
     `);
+    this.migrateColumns();
     this.seed();
+  }
+
+  /** Add columns introduced after the table first shipped. The `npc` per-zone
+   *  spawn set is new: existing non-office zones predate it, so default them to
+   *  "no NPCs" (the office keeps null = all). Runs once (only when the column is
+   *  actually missing). */
+  private migrateColumns(): void {
+    const cols = this.db.prepare('PRAGMA table_info(zones)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'npc')) {
+      this.db.exec('ALTER TABLE zones ADD COLUMN npc TEXT');
+      this.db.prepare('UPDATE zones SET npc = ? WHERE id != ?').run('[]', DEFAULT_ZONE);
+    }
   }
 
   static slugify(label: string): string {
@@ -81,13 +96,22 @@ export class ZoneStore {
     const r = this.clampSize(rows);
     const id = this.uniqueId(ZoneStore.slugify(label));
     const arrive = { col: Math.floor(c / 2), row: Math.floor(r / 2) };
+    // New zones start with no NPCs (empty set) — you enable variants per zone.
     this.db
       .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at)
-         VALUES(?,?,?,?,?,?,0,?)`,
+        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc)
+         VALUES(?,?,?,?,?,?,0,?,'[]')`,
       )
       .run(id, label, arrive.col, arrive.row, c, r, now);
     return id;
+  }
+
+  /** Set which NPC variants spawn in a zone. null = all active variants. */
+  setNpc(id: string, variants: string[] | null): boolean {
+    if (!this.has(id)) return false;
+    const value = variants === null ? null : JSON.stringify(variants.filter((v) => typeof v === 'string'));
+    this.db.prepare('UPDATE zones SET npc = ? WHERE id = ?').run(value, id);
+    return true;
   }
 
   /** Edit a zone's label and/or arrival tile. Never changes read-only (hidden). */
@@ -120,6 +144,15 @@ export class ZoneStore {
 
   // ── internals ───────────────────────────────────────────────────
   private toConfig(r: ZoneRow): ZoneConfig {
+    let npc: string[] | null = null; // null = all active variants
+    if (r.npc != null) {
+      try {
+        const p = JSON.parse(r.npc);
+        if (Array.isArray(p)) npc = p.filter((x): x is string => typeof x === 'string');
+      } catch {
+        /* corrupt → treat as all */
+      }
+    }
     return {
       id: r.id,
       label: r.label,
@@ -127,6 +160,7 @@ export class ZoneStore {
       cols: r.cols ?? undefined,
       rows: r.rows ?? undefined,
       readOnly: !!r.read_only,
+      npc,
     };
   }
 
@@ -155,13 +189,14 @@ export class ZoneStore {
   }
 
   private upsertBuiltin(z: ZoneConfig): void {
+    const npc = z.npc == null ? null : JSON.stringify(z.npc);
     this.db
       .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at)
-         VALUES(?,?,?,?,?,?,?,0)
+        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc)
+         VALUES(?,?,?,?,?,?,?,0,?)
          ON CONFLICT(id) DO UPDATE SET label=excluded.label, read_only=excluded.read_only`,
       )
-      .run(z.id, z.label, z.arrive?.col ?? null, z.arrive?.row ?? null, z.cols ?? null, z.rows ?? null, z.readOnly ? 1 : 0);
+      .run(z.id, z.label, z.arrive?.col ?? null, z.arrive?.row ?? null, z.cols ?? null, z.rows ?? null, z.readOnly ? 1 : 0, npc);
   }
 
   private meta(key: string): string | undefined {

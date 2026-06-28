@@ -116,6 +116,8 @@ export class SimRoom extends Room<RoomState> {
         canTalk: aff.canTalk,
       }),
     );
+    this.applyZoneNpcFilter(); // which NPC variants spawn in this zone (per-zone)
+
     // Restore per-user pinned character palettes (so a user's skin stays stable).
     for (const [name, palette] of Object.entries(appStore.getCharPrefs())) {
       this.os.setPalettePref(name, palette);
@@ -207,6 +209,18 @@ export class SimRoom extends Room<RoomState> {
     return this.migratedActiveLayout();
   }
 
+  /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
+   *  variants; an array = only those `"<kind>_<variant>"` keys. */
+  private applyZoneNpcFilter(): void {
+    const npc = this.zone.npc;
+    if (npc == null) {
+      this.os.setNpcSpawnFilter(() => true);
+    } else {
+      const set = new Set(npc);
+      this.os.setNpcSpawnFilter((kind, variant) => set.has(`${kind}_${variant}`));
+    }
+  }
+
   private activeLayoutMessage(): Record<string, unknown> {
     return {
       type: 'layoutLoaded',
@@ -296,6 +310,25 @@ export class SimRoom extends Room<RoomState> {
       // The office is read-only and can never be deleted (enforced in the store).
       if (typeof msg?.id === 'string' && this.zones.delete(msg.id)) {
         this.store.deleteZoneLayouts(msg.id); // drop the zone's saved layouts too
+        this.broadcastZoneList();
+      }
+    });
+
+    // Per-zone NPC spawn set: which variants appear in a zone (null = all).
+    this.onMessage('setZoneNpc', (_c, msg: { id?: string; npc?: string[] | null }) => {
+      if (typeof msg?.id !== 'string') return;
+      const npc =
+        msg.npc === null || msg.npc === undefined
+          ? null
+          : Array.isArray(msg.npc)
+            ? msg.npc.filter((x): x is string => typeof x === 'string').slice(0, 256)
+            : undefined;
+      if (npc === undefined) return; // malformed
+      if (this.zones.setNpc(msg.id, npc)) {
+        if (msg.id === this.zone.id) {
+          this.zone = this.zones.get(msg.id) ?? this.zone;
+          this.applyZoneNpcFilter(); // takes effect now (despawns disallowed pets)
+        }
         this.broadcastZoneList();
       }
     });

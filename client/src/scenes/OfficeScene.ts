@@ -994,7 +994,8 @@ export class OfficeScene extends Phaser.Scene {
         // The office (read-only) can't be deleted; everything else can.
         const del = z.readOnly ? '' : ` <button data-del="${esc(z.id)}">✕</button>`;
         const lock = z.readOnly ? ' 🔒' : '';
-        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)}</small></span>${tag}<button data-edit="${esc(z.id)}">✎</button>${del}</div>`;
+        const npcN = z.npc == null ? 'all' : String(z.npc.length);
+        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>${del}</div>`;
       })
       .join('');
 
@@ -1014,6 +1015,9 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach((b) => {
       b.onclick = () => void this.editZoneDialog(b.dataset.edit!);
+    });
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-npc]').forEach((b) => {
+      b.onclick = () => this.showZoneNpcEditor(b.dataset.npc!);
     });
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
       b.onclick = async () => {
@@ -1052,6 +1056,85 @@ export class OfficeScene extends Phaser.Scene {
   private async offerJumpToNewZone(id: string): Promise<void> {
     if (!isZoneId(id)) return;
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
+  }
+
+  /** Per-zone NPC editor: which pet variants spawn in this zone. Checkboxes come
+   *  from the loaded roster; toggling one sends setZoneNpc immediately. Sends
+   *  null ("all, incl. future variants") when every box is checked. */
+  private showZoneNpcEditor(id: string): void {
+    const zone = this.zoneList.find((z) => z.id === id);
+    if (!zone) return;
+    const roster = getNpcRoster().map((r) => ({ key: `${r.kind}_${r.variant}`, label: `${r.kind} ${r.variant}` }));
+    const enabled = new Set(zone.npc == null ? roster.map((r) => r.key) : zone.npc);
+
+    document.getElementById('pa-znpc')?.remove();
+    const el = document.createElement('div');
+    el.id = 'pa-znpc';
+    el.className = 'pa-ui';
+    el.style.cssText =
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#1b1f2a;' +
+      'border:2px solid #3a4150;border-radius:0.6rem;padding:1rem;color:#eef1f6;min-width:14rem;max-height:70vh;' +
+      "overflow:auto;font:1rem 'FS Pixel Sans',monospace;box-shadow:0 6px 0 rgba(0,0,0,.4);";
+
+    const send = (): void => {
+      const keys = roster.map((r) => r.key).filter((k) => enabled.has(k));
+      const npc = keys.length === roster.length ? null : keys; // all → null (future-proof)
+      this.room?.send('setZoneNpc', { id, npc });
+    };
+
+    const head = document.createElement('div');
+    head.textContent = `🐾 NPCs — ${zone.label}`;
+    head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#cdd3dd;';
+    el.appendChild(head);
+
+    if (!roster.length) {
+      const none = document.createElement('div');
+      none.textContent = 'No NPC variants loaded.';
+      none.style.cssText = 'color:#9aa3b2;margin-bottom:0.6rem;';
+      el.appendChild(none);
+    }
+    for (const r of roster) {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;cursor:pointer;';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = enabled.has(r.key);
+      cb.onchange = () => {
+        cb.checked ? enabled.add(r.key) : enabled.delete(r.key);
+        send();
+      };
+      const span = document.createElement('span');
+      span.textContent = r.label;
+      row.append(cb, span);
+      el.appendChild(row);
+    }
+
+    const bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:0.5rem;margin-top:0.7rem;';
+    const mk = (txt: string, fn: () => void): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.textContent = txt;
+      b.style.cssText =
+        'flex:1;padding:0.4rem;cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;border-radius:0.4rem;' +
+        "color:#eef1f6;font:0.95rem 'FS Pixel Sans',monospace;";
+      b.onclick = fn;
+      return b;
+    };
+    bar.append(
+      mk('All', () => {
+        roster.forEach((r) => enabled.add(r.key));
+        send();
+        this.showZoneNpcEditor(id); // re-render checkboxes
+      }),
+      mk('None', () => {
+        enabled.clear();
+        send();
+        this.showZoneNpcEditor(id);
+      }),
+      mk('Close', () => el.remove()),
+    );
+    el.appendChild(bar);
+    (document.getElementById('game') ?? document.body).appendChild(el);
   }
 
   // ── Sounds + settings ────────────────────────────────────────────
@@ -1150,11 +1233,13 @@ export class OfficeScene extends Phaser.Scene {
       // are separate top-level elements — clicks there must not close the menu.
       const importPanel = document.getElementById('pa-c-import');
       const modal = document.getElementById('pa-modal');
+      const znpc = document.getElementById('pa-znpc');
       if (
         this.topbar?.contains(t) ||
         this.settingsPanel?.contains(t) ||
         this.layoutsPanel?.contains(t) ||
         this.zonesPanel?.contains(t) ||
+        znpc?.contains(t) ||
         charPanel?.contains(t) ||
         furnPanel?.contains(t) ||
         importPanel?.contains(t) ||

@@ -100,6 +100,9 @@ export class OfficeState {
   private petTalkClaims: Set<number> = new Set();
   /** Per-NPC-variant spawn countdown (seconds), keyed by `${kind}_${variant}`. */
   private petSpawnTimers = new Map<string, number>();
+  /** Which NPC variants may spawn in this room/zone (per-zone config). Default:
+   *  all. Set by the room from the zone's `npc` setting. */
+  private npcSpawnFilter: (kind: PetKind, variant: number) => boolean = () => true;
   private nextPetId = 1_000_000;
   /** Player avatar ids live in their own band (agents use Claude ids, subagents
    *  negative, pets 1_000_000+). */
@@ -1377,7 +1380,8 @@ export class OfficeState {
       for (let v = 0; v < count; v++) {
         const key = `${name}_${v}`;
         const cfg = getNpcConfig(name, v);
-        if (!cfg.active) {
+        // Globally active AND enabled for this zone (per-zone NPC config).
+        if (!cfg.active || !this.npcSpawnFilter(name as PetKind, v)) {
           this.petSpawnTimers.delete(key); // re-staggers when reactivated
           continue;
         }
@@ -1414,6 +1418,16 @@ export class OfficeState {
   despawnPet(id: number): void {
     const pet = this.pets.get(id);
     if (pet) beginPetDespawn(pet, { releaseClaim: (p) => this.releasePetClaim(p) });
+  }
+
+  /** Restrict which NPC variants spawn in this zone (per-zone config). Also
+   *  despawns any currently-living pets that the new filter disallows, so a
+   *  change takes effect immediately. */
+  setNpcSpawnFilter(fn: (kind: PetKind, variant: number) => boolean): void {
+    this.npcSpawnFilter = fn;
+    for (const p of this.pets.values()) {
+      if (p.state !== PetState.DESPAWN && !fn(p.kind as PetKind, p.variant)) this.despawnPet(p.id);
+    }
   }
 
   // ── Pet furniture interaction ─────────────────────────────
