@@ -603,13 +603,9 @@ export class OfficeState {
     ch.isActive = false;
     ch.state = CharacterState.IDLE;
     if (name) ch.folderName = name; // the owning user — shown as the avatar's name
-    // Respawn at the saved tile when it's still walkable, else a random one.
-    const spawn =
-      spawnAt && isWalkable(spawnAt.col, spawnAt.row, this.tileMap, this.blockedTiles)
-        ? spawnAt
-        : this.walkableTiles.length > 0
-          ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
-          : { col: 1, row: 1 };
+    // Spawn at the requested tile when it's free, else a free random tile (never
+    // on a wall, furniture, or another entity).
+    const spawn = this.findFreeSpawnTile(spawnAt);
     ch.tileCol = spawn.col;
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -619,6 +615,31 @@ export class OfficeState {
     ch.matrixEffectSeeds = matrixEffectSeeds();
     this.characters.set(id, ch);
     return id;
+  }
+
+  /** A free walkable tile to spawn on: not a wall/blocked tile, not under any
+   *  furniture footprint, and not occupied by another character or pet. Prefers
+   *  `preferred` (e.g. a zone's arrival tile) when it's free; else a random free
+   *  tile; else any walkable tile as a last resort. */
+  private findFreeSpawnTile(preferred?: { col: number; row: number }): { col: number; row: number } {
+    const occupied = new Set<string>();
+    for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
+    for (const p of this.pets.values()) occupied.add(`${p.tileCol},${p.tileRow}`);
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      const fw = entry?.footprintW ?? 1;
+      const fh = entry?.footprintH ?? 1;
+      for (let dr = 0; dr < fh; dr++) {
+        for (let dc = 0; dc < fw; dc++) occupied.add(`${item.col + dc},${item.row + dr}`);
+      }
+    }
+    const isFree = (t: { col: number; row: number }): boolean =>
+      isWalkable(t.col, t.row, this.tileMap, this.blockedTiles) && !occupied.has(`${t.col},${t.row}`);
+
+    if (preferred && isFree(preferred)) return preferred;
+    const free = this.walkableTiles.filter(isFree);
+    const pool = free.length > 0 ? free : this.walkableTiles;
+    return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
   }
 
   /** Recolor a character (used to change a player's chosen avatar skin). */

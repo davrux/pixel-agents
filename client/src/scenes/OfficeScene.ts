@@ -133,6 +133,10 @@ export class OfficeScene extends Phaser.Scene {
   private myPalette: number | null = null;
   /** This viewer's own player-avatar id (from viewerIdentity), or null. */
   private myPlayerId: number | null = null;
+  /** The tile the portal picker opened on — close it once the avatar leaves. */
+  private portalPickerTile: { col: number; row: number } | null = null;
+  /** Armed "click a tile to set this zone's arrival point" mode. */
+  private arrivePickActive = false;
   /** This viewer's chosen player-avatar palette (null = default/random). */
   private myPlayerPalette: number | null = null;
   /** Whether the viewer wants a visible player avatar (false = spectator). */
@@ -275,7 +279,16 @@ export class OfficeScene extends Phaser.Scene {
       } catch {
         /* localStorage unavailable */
       }
-      this.room = await connect(zone);
+      // Did we get here by actively entering this zone (menu/portal)? goToZone
+      // leaves a one-shot flag; consume it so a plain refresh keeps your spot.
+      let arriving = false;
+      try {
+        arriving = sessionStorage.getItem('pa-arrive') === zone;
+        sessionStorage.removeItem('pa-arrive');
+      } catch {
+        /* sessionStorage unavailable */
+      }
+      this.room = await connect(zone, arriving);
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
@@ -518,6 +531,16 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       if (moved) return; // a pan drag isn't a click
+      // Arming "set arrival point": the next floor click sets this zone's arrive
+      // tile (server-side; new arrivals land here). Takes precedence over walking.
+      if (this.arrivePickActive && p.leftButtonReleased()) {
+        this.arrivePickActive = false;
+        const col = Math.floor(p.worldX / TILE_SIZE);
+        const row = Math.floor(p.worldY / TILE_SIZE);
+        this.room?.send('editZone', { id: currentZone(), arrive: { col, row } });
+        setStatus(`Arrival point set to (${col}, ${row}).`);
+        return;
+      }
       if (this.editor.isEditing()) {
         if (p.leftButtonReleased()) {
           this.editor.handleLeftClick(p.worldX, p.worldY);
@@ -712,6 +735,18 @@ export class OfficeScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.room) return;
+    // Close the destination picker once the avatar moves off the portal tile.
+    if (this.portalPickerTile) {
+      const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
+      const onTile =
+        me &&
+        Math.floor(me.tx / TILE_SIZE) === this.portalPickerTile.col &&
+        Math.floor(me.ty / TILE_SIZE) === this.portalPickerTile.row;
+      if (!onTile) {
+        document.getElementById('pa-portal')?.remove();
+        this.portalPickerTile = null;
+      }
+    }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
     if (this.furnitureDirty && !this.editor.isEditing()) {
@@ -1002,6 +1037,7 @@ export class OfficeScene extends Phaser.Scene {
     this.zonesPanel.innerHTML =
       `<h4>Zones</h4>${rows}` +
       `<div class="foot">
+         <button data-arrive>📍 Set arrival point (this zone)</button>
          <input id="pa-z-label" type="text" maxlength="40" placeholder="New zone name" />
          <div class="sz">
            <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
@@ -1026,6 +1062,11 @@ export class OfficeScene extends Phaser.Scene {
           send('deleteZone', { id: b.dataset.del });
       };
     });
+    this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]')!.onclick = () => {
+      this.arrivePickActive = true;
+      this.setMenu(null);
+      setStatus('Click a floor tile to set where players arrive in this zone.');
+    };
     this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = () => {
       const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
       const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
@@ -1328,6 +1369,11 @@ export class OfficeScene extends Phaser.Scene {
   private showPortalPicker(zones: Array<{ id: string; label: string }>): void {
     if (!zones?.length) return;
     document.getElementById('pa-portal')?.remove(); // only one at a time
+    // Remember the portal tile so update() can auto-close if the player walks off.
+    const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
+    this.portalPickerTile = me
+      ? { col: Math.floor(me.tx / TILE_SIZE), row: Math.floor(me.ty / TILE_SIZE) }
+      : null;
     const el = document.createElement('div');
     el.id = 'pa-portal';
     el.className = 'pa-ui';
@@ -1339,7 +1385,10 @@ export class OfficeScene extends Phaser.Scene {
     head.textContent = '🚪 Travel to…';
     head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#cdd3dd;';
     el.appendChild(head);
-    const close = (): void => el.remove();
+    const close = (): void => {
+      el.remove();
+      this.portalPickerTile = null;
+    };
     for (const z of zones) {
       const b = document.createElement('button');
       b.textContent = z.label;
@@ -1368,8 +1417,11 @@ export class OfficeScene extends Phaser.Scene {
     if (!isZoneId(zone)) return;
     try {
       localStorage.setItem('pa-last-zone', zone);
+      // One-shot: tell the post-reload connect() to land at the zone's arrival
+      // tile (this is an active entry, not a refresh).
+      sessionStorage.setItem('pa-arrive', zone);
     } catch {
-      /* localStorage unavailable */
+      /* storage unavailable */
     }
     const params = new URLSearchParams(window.location.search);
     params.set('zone', zone);

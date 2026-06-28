@@ -35,7 +35,10 @@ export function gotoLogout(): void {
   window.location.href = `${serverHttpOrigin()}/logout`;
 }
 
-export async function connect(zone: string = DEFAULT_ZONE): Promise<Room> {
+export async function connect(zone: string = DEFAULT_ZONE, arrive = false): Promise<Room> {
   const client = new Client(endpoint());
-  return client.joinOrCreate(WORLD_ROOM, { zone });
+  // `arrive` = the player actively entered this zone (menu switch or portal), so
+  // the server should land them at the zone's arrival tile rather than where they
+  // last stood. Resolved per-client in onJoin.
+  return client.joinOrCreate(WORLD_ROOM, { zone, arrive });
 }

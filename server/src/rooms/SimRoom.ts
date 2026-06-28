@@ -139,7 +139,7 @@ export class SimRoom extends Room<RoomState> {
     this.zones?.close();
   }
 
-  onJoin(client: Client): void {
+  onJoin(client: Client, options?: { arrive?: boolean }): void {
     // Decoded assets so the client can render. The layoutLoaded from the static
     // bundle is replaced by the live active layout; agent state flows via schema.
     client.send('m', this.bundle.providerCapabilities);
@@ -160,9 +160,12 @@ export class SimRoom extends Room<RoomState> {
     // setPlayer* after join (localStorage-backed).
     let playerId: number | null = null;
     if (!spectator) {
-      // Respawn where this user last stood in this zone (logged-in only).
+      // Active entry (menu switch or portal) → land at the zone's arrival tile;
+      // a plain refresh resumes where this user last stood. The engine picks a
+      // free tile (not on furniture/another entity), falling back to random.
       const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
-      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined, saved ?? undefined);
+      const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
+      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined, spawnAt ?? undefined);
       this.players.set(client.sessionId, playerId);
     }
     client.send('m', { type: 'viewerIdentity', username, characterPalette, playerPalette, playerId, spectator });
@@ -419,10 +422,8 @@ export class SimRoom extends Room<RoomState> {
       if (!target || target.id === this.zone.id) return;
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
-      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (username && target.arrive) {
-        appStore.setPlayerPos(username, target.id, target.arrive.col, target.arrive.row);
-      }
+      // The client reloads into the target zone with the arrival flag set, so the
+      // target room's onJoin lands the player at its arrival tile.
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
       client.send('m', { type: 'zoneTransition', zone: target.id });
