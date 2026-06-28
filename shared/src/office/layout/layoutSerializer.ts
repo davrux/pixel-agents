@@ -272,12 +272,14 @@ export function createDefaultLayout(): OfficeLayout {
   return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
 }
 
-/** A simple open plaza zone: a wall-bordered field of FLOOR_3, no furniture.
- *  Used as the second zone for the multi-zone foundation (F5) — deliberately
- *  visually distinct from the office so a zone switch is obvious. */
-export function createPlazaLayout(): OfficeLayout {
-  const cols = 20;
-  const rows = 14;
+/** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
+ *  zone (the plaza, and every user-created zone). Optional furniture (e.g. a beam
+ *  pad) is placed on top. Resizing happens later via the layout editor. */
+export function createBlankZoneLayout(
+  cols: number,
+  rows: number,
+  furniture: OfficeLayout['furniture'] = [],
+): OfficeLayout {
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<ColorValue | null> = [];
   for (let r = 0; r < rows; r++) {
@@ -287,15 +289,14 @@ export function createPlazaLayout(): OfficeLayout {
       tileColors.push(null);
     }
   }
-  return {
-    version: 1,
-    cols,
-    rows,
-    tiles,
-    tileColors,
-    // A beam pad (walk onto it → zone picker). Walkable via backgroundTiles.
-    furniture: [{ uid: 'plaza-beam', type: 'BEAM_PAD', col: 3, row: 3 }],
-  };
+  return { version: 1, cols, rows, tiles, tileColors, furniture };
+}
+
+/** The plaza: the second builtin zone, with a beam pad (walk onto it → zone
+ *  picker). Deliberately visually distinct from the office. */
+export function createPlazaLayout(): OfficeLayout {
+  // Walkable beam pad via backgroundTiles.
+  return createBlankZoneLayout(20, 14, [{ uid: 'plaza-beam', type: 'BEAM_PAD', col: 3, row: 3 }]);
 }
 
 /** Serialize layout to JSON string

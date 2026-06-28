@@ -132,6 +132,12 @@ export class LayoutStore {
     return true;
   }
 
+  /** Remove all of a zone's layouts + its active pointer (when a zone is deleted). */
+  deleteZoneLayouts(zone: string): void {
+    this.db.prepare('DELETE FROM layouts WHERE name LIKE ?').run(`${zone}/%`);
+    this.db.prepare('DELETE FROM meta WHERE key = ?').run(this.activeKey(zone));
+  }
+
   close(): void {
     this.db.close();
   }

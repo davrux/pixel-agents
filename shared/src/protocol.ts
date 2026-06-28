@@ -22,14 +22,22 @@ export interface ZoneConfig {
   /** Where players arriving via a portal land (a walkable tile away from this
    *  zone's portal furniture, so they don't immediately re-trigger). */
   arrive?: { col: number; row: number };
+  /** Initial blank-field size for generated zones (the read-only Default is
+   *  regenerated from this; the active layout may be resized in the editor). */
+  cols?: number;
+  rows?: number;
+  /** Protected zones can't be deleted (currently only the office). Hidden in the
+   *  UI for now; the flag is here so it can be exposed/changed later. */
+  readOnly?: boolean;
 }
 
-/** Registry of known zones. The office uses its persisted/default layout; the
- *  plaza uses a generated builtin layout. Portals themselves are now placed
- *  furniture (catalog `portal` flag) — walking up to one offers a zone picker. */
+/** Builtin zones, used to seed the persistent zone registry on first run. After
+ *  that zones are user-managed (created/edited/deleted at runtime); the office is
+ *  read-only so it can never be deleted. Portals are placed furniture (catalog
+ *  `portal` flag) — walking up to one offers a picker of the other zones. */
 export const ZONES: Record<string, ZoneConfig> = {
-  office: { id: 'office', label: 'Office', arrive: { col: 9, row: 11 } },
-  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 } },
+  office: { id: 'office', label: 'Office', arrive: { col: 9, row: 11 }, readOnly: true },
+  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 }, cols: 20, rows: 14 },
 };
 
 /** Resolve a zone id to its config, falling back to the default zone. */

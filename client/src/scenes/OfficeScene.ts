@@ -39,7 +39,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
-import { DEFAULT_ZONE, ZONES } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, type ZoneConfig } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -76,14 +76,21 @@ function matrixSeeds(id: number): number[] {
   return seeds;
 }
 
+/** A plausible zone id (slug). The server is authoritative and falls back to the
+ *  office for unknown ids, so the client only sanitises the shape. */
+function isZoneId(z: string | null | undefined): z is string {
+  return !!z && /^[a-z0-9-]{1,32}$/.test(z);
+}
+
 /** The zone to connect to: the `?zone=` URL param if valid, else the last zone
- *  this browser visited (P4), else the office. */
+ *  this browser visited (P4), else the office. User-created zones aren't in the
+ *  bundled ZONES, so we accept any slug-shaped id and let the server resolve it. */
 function currentZone(): string {
   const z = new URLSearchParams(window.location.search).get('zone') ?? '';
-  if (ZONES[z]) return z;
+  if (isZoneId(z)) return z;
   try {
     const last = localStorage.getItem('pa-last-zone');
-    if (last && ZONES[last]) return last;
+    if (isZoneId(last)) return last;
   } catch {
     /* localStorage unavailable */
   }
@@ -112,6 +119,11 @@ export class OfficeScene extends Phaser.Scene {
   private settingsBtn?: HTMLButtonElement;
   private layoutsBtn?: HTMLButtonElement;
   private layoutsPanel!: HTMLDivElement;
+  private zonesBtn?: HTMLButtonElement;
+  private zonesPanel!: HTMLDivElement;
+  private zoneSel?: HTMLSelectElement;
+  /** Dynamic zone registry from the server (seeded with the bundled builtins). */
+  private zoneList: ZoneConfig[] = Object.values(ZONES);
   // Settings + viewer identity (sounds play only for the viewer's own agents;
   // an empty name means "all agents are mine"). A name set in Settings overrides
   // the login identity and is remembered per browser.
@@ -266,6 +278,8 @@ export class OfficeScene extends Phaser.Scene {
       this.room = await connect(zone);
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
+        else if (m.type === 'zoneList') this.updateZoneList(m);
+        else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
@@ -755,20 +769,22 @@ export class OfficeScene extends Phaser.Scene {
    * Furniture), or none — opening one closes the others. The layout editor is
    * intentionally not managed here — it's the exception that stays open.
    */
-  private async setMenu(menu: 'settings' | 'layouts' | 'chars' | 'furniture' | null): Promise<void> {
+  private async setMenu(menu: 'settings' | 'layouts' | 'zones' | 'chars' | 'furniture' | null): Promise<void> {
     // Leaving an open character editor with unsaved edits → confirm/discard first.
     if (this.charEditor?.isOpen() && menu !== 'chars' && !(await this.charEditor.confirmLeave())) return;
     if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
     if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
+    if (this.zonesPanel) this.zonesPanel.style.display = menu === 'zones' ? 'block' : 'none';
     if (this.charEditor) menu === 'chars' ? this.charEditor.show() : this.charEditor.close();
     if (this.furnEditor) menu === 'furniture' ? this.furnEditor.show() : this.furnEditor.close();
     if (menu === 'layouts') this.room?.send('requestLayouts');
+    if (menu === 'zones') this.room?.send('requestZones');
   }
 
   /** Edit mode owns the screen: close + disable the other menus while editing. */
   private setEditMode(editing: boolean): void {
     this.setMenu(null);
-    for (const b of [this.settingsBtn, this.layoutsBtn]) {
+    for (const b of [this.settingsBtn, this.layoutsBtn, this.zonesBtn]) {
       if (!b) continue;
       b.disabled = editing;
       b.style.opacity = editing ? '0.4' : '';
@@ -803,6 +819,24 @@ export class OfficeScene extends Phaser.Scene {
       #pa-layouts .foot{margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-layouts .foot button{padding:0.55rem;}
       #pa-layouts .foot button.edit{background:#2f6f3a;border-color:#3f8f4a;font-size:1.15rem;}
+      /* Zones manager — mirrors the layouts panel. */
+      #pa-zones{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
+        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
+        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
+      #pa-zones h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-zones .item{display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;font-size:1.1rem;}
+      #pa-zones .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
+      #pa-zones .item .here{color:#ffd24a;}
+      #pa-zones .item small{color:#7d8597;}
+      #pa-zones button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.25rem;font:1rem 'FS Pixel Sans',monospace;padding:0.3rem 0.6rem;}
+      #pa-zones .foot{margin-top:0.75rem;border-top:1px solid #2c323e;padding-top:0.6rem;display:flex;
+        flex-direction:column;gap:0.45rem;}
+      #pa-zones .foot input{background:#11151d;border:1px solid #3a4150;color:#eef1f6;border-radius:0.25rem;
+        padding:0.4rem 0.5rem;font:1rem 'FS Pixel Sans',monospace;}
+      #pa-zones .foot .sz{display:flex;gap:0.4rem;}
+      #pa-zones .foot .sz input{width:50%;}
+      #pa-zones .foot button.new{background:#2f5f8f;border-color:#3f7fbf;padding:0.55rem;font-size:1.1rem;}
     `;
     document.head.appendChild(style);
 
@@ -813,20 +847,15 @@ export class OfficeScene extends Phaser.Scene {
     host.appendChild(topbar);
     this.topbar = topbar;
 
-    // Zone switcher (foundation spike F5): pick a zone → reconnect to its room.
-    // A reload-based transition for now; a walk-in portal lands with the player.
+    // Zone switcher: pick a zone → reconnect to its room (reload-based; a walk-in
+    // portal lands with the player). Options come from the live registry.
     const zoneSel = document.createElement('select');
     zoneSel.id = 'pa-zone';
     zoneSel.title = 'Zone';
-    for (const z of Object.values(ZONES)) {
-      const o = document.createElement('option');
-      o.value = z.id;
-      o.textContent = `🚪 ${z.label}`;
-      zoneSel.appendChild(o);
-    }
-    zoneSel.value = currentZone();
     zoneSel.onchange = () => this.goToZone(zoneSel.value);
+    this.zoneSel = zoneSel;
     topbar.appendChild(zoneSel);
+    this.renderZoneSwitcher();
 
     const btn = document.createElement('button');
     btn.id = 'pa-layouts-btn';
@@ -837,10 +866,61 @@ export class OfficeScene extends Phaser.Scene {
     panel.className = 'pa-ui';
     btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'layouts');
 
-    topbar.append(btn);
-    host.appendChild(panel);
+    // Zones manager (create / edit / delete).
+    const zbtn = document.createElement('button');
+    zbtn.id = 'pa-zones-btn';
+    zbtn.textContent = '🌍 Zones';
+    this.zonesBtn = zbtn;
+    const zpanel = document.createElement('div');
+    zpanel.id = 'pa-zones';
+    zpanel.className = 'pa-ui';
+    zbtn.onclick = () => this.setMenu(zpanel.style.display === 'block' ? null : 'zones');
+
+    topbar.append(btn, zbtn);
+    host.append(panel, zpanel);
     this.layoutsPanel = panel;
+    this.zonesPanel = zpanel;
     this.renderLayoutsPanel();
+    this.renderZonesPanel();
+  }
+
+  /** (Re)populate the top-bar zone switcher from the live registry. */
+  private renderZoneSwitcher(): void {
+    const sel = this.zoneSel;
+    if (!sel) return;
+    const cur = currentZone();
+    sel.innerHTML = '';
+    for (const z of this.zoneList) {
+      const o = document.createElement('option');
+      o.value = z.id;
+      o.textContent = `🚪 ${z.label}`;
+      sel.appendChild(o);
+    }
+    // Keep the current zone selected even if it isn't in the list yet.
+    if (!this.zoneList.some((z) => z.id === cur)) {
+      const o = document.createElement('option');
+      o.value = cur;
+      o.textContent = `🚪 ${cur}`;
+      sel.appendChild(o);
+    }
+    sel.value = cur;
+  }
+
+  private updateZoneList(msg: Record<string, unknown>): void {
+    const zones = msg.zones as ZoneConfig[] | undefined;
+    if (Array.isArray(zones) && zones.length) this.zoneList = zones;
+    // The server may have resolved us into a different zone than requested
+    // (e.g. an unknown id fell back to the office) — remember the real one.
+    const cur = msg.current as string | undefined;
+    if (isZoneId(cur)) {
+      try {
+        localStorage.setItem('pa-last-zone', cur);
+      } catch {
+        /* localStorage unavailable */
+      }
+    }
+    this.renderZoneSwitcher();
+    this.renderZonesPanel();
   }
 
   private updateLayoutsPanel(msg: Record<string, unknown>): void {
@@ -866,7 +946,8 @@ export class OfficeScene extends Phaser.Scene {
       })
       .join('');
 
-    const zoneLabel = ZONES[currentZone()]?.label ?? 'Zone';
+    const cur = currentZone();
+    const zoneLabel = this.zoneList.find((z) => z.id === cur)?.label ?? 'Zone';
     this.layoutsPanel.innerHTML =
       `<h4>${esc(zoneLabel)} Layouts</h4>${rows}` +
       `<div class="foot">
@@ -897,6 +978,80 @@ export class OfficeScene extends Phaser.Scene {
     };
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-default]')!.onclick = () =>
       send('loadLayout', { name: 'Default' });
+  }
+
+  // ── Zones panel (create / edit / delete) ─────────────────────────
+
+  private renderZonesPanel(): void {
+    if (!this.zonesPanel) return;
+    const cur = currentZone();
+    const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
+
+    const rows = this.zoneList
+      .map((z) => {
+        const here = z.id === cur;
+        const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
+        // The office (read-only) can't be deleted; everything else can.
+        const del = z.readOnly ? '' : ` <button data-del="${esc(z.id)}">✕</button>`;
+        const lock = z.readOnly ? ' 🔒' : '';
+        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)}</small></span>${tag}<button data-edit="${esc(z.id)}">✎</button>${del}</div>`;
+      })
+      .join('');
+
+    this.zonesPanel.innerHTML =
+      `<h4>Zones</h4>${rows}` +
+      `<div class="foot">
+         <input id="pa-z-label" type="text" maxlength="40" placeholder="New zone name" />
+         <div class="sz">
+           <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
+           <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
+         </div>
+         <button data-new class="new">＋ Create zone</button>
+       </div>`;
+
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
+      b.onclick = () => this.goToZone(b.dataset.go!);
+    });
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-edit]').forEach((b) => {
+      b.onclick = () => void this.editZoneDialog(b.dataset.edit!);
+    });
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
+      b.onclick = async () => {
+        const z = this.zoneList.find((x) => x.id === b.dataset.del);
+        if (await confirmDialog(`Delete zone "${z?.label ?? b.dataset.del}" and its layouts?`, { danger: true, confirmLabel: 'Delete' }))
+          send('deleteZone', { id: b.dataset.del });
+      };
+    });
+    this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = () => {
+      const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
+      const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
+      const rows = Number((this.zonesPanel.querySelector('#pa-z-rows') as HTMLInputElement)?.value);
+      if (!label) {
+        setStatus('Enter a name for the new zone.');
+        return;
+      }
+      send('createZone', { label, cols, rows });
+    };
+  }
+
+  /** Edit a zone's label (and arrival tile via "col,row"). */
+  private async editZoneDialog(id: string): Promise<void> {
+    const z = this.zoneList.find((x) => x.id === id);
+    if (!z) return;
+    const label = await promptDialog(`Rename zone "${z.label}":`, z.label, { maxLength: 40 });
+    if (label === null) return;
+    const name = label.trim();
+    if (!name) {
+      setStatus('A zone name can’t be empty.');
+      return;
+    }
+    this.room?.send('editZone', { id, label: name });
+  }
+
+  /** A zone was just created (by this viewer) → offer to jump straight to it. */
+  private async offerJumpToNewZone(id: string): Promise<void> {
+    if (!isZoneId(id)) return;
+    if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
   }
 
   // ── Sounds + settings ────────────────────────────────────────────
@@ -999,6 +1154,7 @@ export class OfficeScene extends Phaser.Scene {
         this.topbar?.contains(t) ||
         this.settingsPanel?.contains(t) ||
         this.layoutsPanel?.contains(t) ||
+        this.zonesPanel?.contains(t) ||
         charPanel?.contains(t) ||
         furnPanel?.contains(t) ||
         importPanel?.contains(t) ||
@@ -1124,7 +1280,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Switch to another zone (remember it, then reload at ?zone=). Used by the
    *  zone switcher and by walk-in portals (P5). */
   private goToZone(zone: string): void {
-    if (!ZONES[zone]) return;
+    if (!isZoneId(zone)) return;
     try {
       localStorage.setItem('pa-last-zone', zone);
     } catch {

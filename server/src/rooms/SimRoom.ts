@@ -1,6 +1,6 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 
-import { resolveZone, ZONES } from '@pixel/shared';
+import { resolveZone } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -9,13 +9,18 @@ import { Direction, PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { createPlazaLayout, migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
+import {
+  createBlankZoneLayout,
+  createPlazaLayout,
+  migrateLayoutColors,
+} from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
 import { director } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
 import { LayoutStore } from '../layoutStore.js';
+import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, usernameFromCookie } from '../auth.js';
@@ -48,6 +53,7 @@ export class SimRoom extends Room<RoomState> {
   private bundle!: AssetBundle;
   private os!: OfficeState;
   private store!: LayoutStore;
+  private zones!: ZoneStore;
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
@@ -72,7 +78,10 @@ export class SimRoom extends Room<RoomState> {
     this.defaults = options.bundle;
     this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
     this.token = options.token ?? '';
-    this.zone = resolveZone(options.zone); // which space this room instance hosts
+    // Resolve which space this room hosts from the persistent registry (user
+    // zones included); fall back to the builtin config for safety.
+    this.zones = new ZoneStore();
+    this.zone = (options.zone && this.zones.get(options.zone)) || resolveZone(options.zone);
     this.setState(new RoomState());
     this.autoDispose = false;
 
@@ -125,6 +134,7 @@ export class SimRoom extends Room<RoomState> {
   onDispose(): void {
     director.off('event', this.onEvent);
     this.store?.close();
+    this.zones?.close();
   }
 
   onJoin(client: Client): void {
@@ -136,6 +146,7 @@ export class SimRoom extends Room<RoomState> {
     }
     client.send('m', this.activeLayoutMessage());
     client.send('m', this.layoutListMessage());
+    client.send('m', this.zoneListMessage());
 
     // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
@@ -180,12 +191,14 @@ export class SimRoom extends Room<RoomState> {
     return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
   }
 
-  /** This zone's builtin/read-only Default layout, for zones the store can't get
-   *  from the bundle (generated zones). The office's Default is the bundled
-   *  layout (registered by the store itself), so it returns undefined here. */
+  /** This zone's builtin/read-only Default layout, for generated zones. The
+   *  office's Default is the bundled layout (registered by the store itself), so
+   *  it returns undefined here. The plaza keeps its beam pad; every other
+   *  generated/user zone is a blank wall-bordered field of its size. */
   private zoneDefaultLayout(): OfficeLayout | undefined {
+    if (this.zone.id === 'office') return undefined;
     if (this.zone.id === 'plaza') return createPlazaLayout();
-    return undefined;
+    return createBlankZoneLayout(this.zone.cols ?? 20, this.zone.rows ?? 14);
   }
 
   /** Layout this room's zone simulates: its active layout, falling back to the
@@ -211,6 +224,15 @@ export class SimRoom extends Room<RoomState> {
       layouts: this.store.list(this.zone.id),
       active: this.store.getActiveName(this.zone.id),
     };
+  }
+
+  private zoneListMessage(): Record<string, unknown> {
+    return { type: 'zoneList', zones: this.zones.list(), current: this.zone.id };
+  }
+
+  /** Re-read + push the zone registry to everyone in this room (after a CRUD). */
+  private broadcastZoneList(): void {
+    this.broadcast('m', this.zoneListMessage());
   }
 
   /** Rebuild the simulation from the (new) active layout and push it to all
@@ -245,6 +267,37 @@ export class SimRoom extends Room<RoomState> {
 
     this.onMessage('deleteLayout', (_c, msg: { name?: string }) => {
       if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
+    });
+
+    // ── Zone registry (create / edit / delete; everyone may, office protected) ──
+    this.onMessage('requestZones', (client) => client.send('m', this.zoneListMessage()));
+
+    this.onMessage('createZone', (client, msg: { label?: string; cols?: number; rows?: number }) => {
+      if (typeof msg?.label !== 'string') return;
+      const id = this.zones.create(msg.label, Number(msg?.cols), Number(msg?.rows), Date.now());
+      // Tell the creator the new id (so the client can offer to jump there) +
+      // refresh everyone here.
+      if (id) client.send('m', { type: 'zoneCreated', id });
+      this.broadcastZoneList();
+    });
+
+    this.onMessage('editZone', (_c, msg: { id?: string; label?: string; arrive?: { col: number; row: number } }) => {
+      if (typeof msg?.id !== 'string') return;
+      const patch: { label?: string; arrive?: { col: number; row: number } } = {};
+      if (typeof msg.label === 'string') patch.label = msg.label;
+      if (msg.arrive && Number.isInteger(msg.arrive.col) && Number.isInteger(msg.arrive.row)) patch.arrive = msg.arrive;
+      if (this.zones.edit(msg.id, patch)) {
+        if (msg.id === this.zone.id) this.zone = this.zones.get(msg.id) ?? this.zone;
+        this.broadcastZoneList();
+      }
+    });
+
+    this.onMessage('deleteZone', (_c, msg: { id?: string }) => {
+      // The office is read-only and can never be deleted (enforced in the store).
+      if (typeof msg?.id === 'string' && this.zones.delete(msg.id)) {
+        this.store.deleteZoneLayouts(msg.id); // drop the zone's saved layouts too
+        this.broadcastZoneList();
+      }
     });
 
     // Settings (global, persisted in SQLite).
@@ -329,7 +382,7 @@ export class SimRoom extends Room<RoomState> {
     // Destination picked at a portal → land at the target zone's arrival tile
     // (via P4 respawn) and tell the client to reconnect there.
     this.onMessage('portalGo', (client, msg: { zone?: string }) => {
-      const target = typeof msg?.zone === 'string' ? ZONES[msg.zone] : undefined;
+      const target = typeof msg?.zone === 'string' ? this.zones.get(msg.zone) : null;
       if (!target || target.id === this.zone.id) return;
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
@@ -553,7 +606,8 @@ export class SimRoom extends Room<RoomState> {
     for (const id of this.os.takePendingPortals()) {
       const client = this.clientForPlayer(id);
       if (!client) continue;
-      const zones = Object.values(ZONES)
+      const zones = this.zones
+        .list()
         .filter((z) => z.id !== this.zone.id)
         .map((z) => ({ id: z.id, label: z.label }));
       if (zones.length) client.send('m', { type: 'portalOptions', zones });
