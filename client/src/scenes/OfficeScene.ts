@@ -121,6 +121,8 @@ export class OfficeScene extends Phaser.Scene {
   private chatFaded = false;
   /** The conference monitor (anchor tile) this viewer has joined, or null. */
   private myConference: { col: number; row: number } | null = null;
+  /** A monitor we clicked and are walking toward (join finalizes on arrival). */
+  private pendingConference: { col: number; row: number } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   private confPanel?: HTMLDivElement;
@@ -632,7 +634,10 @@ export class OfficeScene extends Phaser.Scene {
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
             if (conf) this.toggleConference(conf);
-            else this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
+            else {
+              this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
+              this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
+            }
           }
         }
       }
@@ -1258,21 +1263,22 @@ export class OfficeScene extends Phaser.Scene {
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
       this.room?.send('conferenceLeave', anchor);
       this.leaveConferenceLocal();
-    } else {
-      if (this.myConference) this.room?.send('conferenceLeave', this.myConference); // one call at a time
-      void this.conf?.disconnect();
-      this.conf = undefined;
-      this.myConference = { ...anchor };
-      this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
-      this.room?.send('conferenceJoin', anchor);
-      this.room?.send('conferenceToken', anchor); // request a LiveKit token (→ media)
+      return;
     }
-    this.renderConferencePanel();
+    // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
+    // then we connect the media. Leave any current call.
+    if (this.myConference) {
+      this.room?.send('conferenceLeave', this.myConference);
+      this.leaveConferenceLocal();
+    }
+    this.pendingConference = { ...anchor };
+    this.room?.send('conferenceApproach', anchor);
   }
 
   /** Tear down the local call (disconnect LiveKit) and clear our membership. */
   private leaveConferenceLocal(): void {
     this.myConference = null;
+    this.pendingConference = null;
     void this.conf?.disconnect();
     this.conf = undefined;
     this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
@@ -1285,12 +1291,23 @@ export class OfficeScene extends Phaser.Scene {
     const members = (m.members as Array<{ id: number; name: string }>) ?? [];
     if (members.length) this.conferenceMembers.set(key, members);
     else this.conferenceMembers.delete(key);
+    const iAmIn = this.myPlayerId !== null && members.some((p) => p.id === this.myPlayerId);
+    // Arrived + joined by the server (walk-to-monitor) → connect our media now.
+    if (
+      iAmIn &&
+      !this.myConference &&
+      this.pendingConference &&
+      `${this.pendingConference.col},${this.pendingConference.row}` === key
+    ) {
+      this.myConference = this.pendingConference;
+      this.pendingConference = null;
+      this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
+      this.room?.send('conferenceToken', this.myConference); // → media
+    }
     // If the server dropped us from our call (despawn, zone change, …), tear down.
-    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
-      if (this.myPlayerId === null || !members.some((p) => p.id === this.myPlayerId)) {
-        this.leaveConferenceLocal();
-        return;
-      }
+    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key && !iAmIn) {
+      this.leaveConferenceLocal();
+      return;
     }
     this.renderConferencePanel();
   }

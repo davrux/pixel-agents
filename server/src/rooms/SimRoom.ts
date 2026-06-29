@@ -350,20 +350,14 @@ export class SimRoom extends Room<RoomState> {
 
     // ── Conference monitors: click a monitor → join/leave its video call. The
     // monitor is identified by its anchor tile (stable, shared with the client). ──
-    this.onMessage('conferenceJoin', (client, msg: { col?: number; row?: number }) => {
+    // Click a monitor → walk the avatar in front of it, then join on arrival.
+    this.onMessage('conferenceApproach', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
       if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
-      const key = `${col},${row}`;
-      let set = this.conferences.get(key);
-      if (!set) {
-        set = new Set();
-        this.conferences.set(key, set);
-      }
-      set.add(id);
-      this.broadcast('m', this.conferenceMembersMsg(key));
+      this.os.walkPlayerToConference(id, col, row);
     });
 
     this.onMessage('conferenceLeave', (client, msg: { col?: number; row?: number }) => {
@@ -761,6 +755,7 @@ export class SimRoom extends Room<RoomState> {
   private tick(dt: number): void {
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
+    this.handleConferenceArrivals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
@@ -777,6 +772,19 @@ export class SimRoom extends Room<RoomState> {
         .filter((z) => z.id !== this.zone.id)
         .map((z) => ({ id: z.id, label: z.label }));
       if (zones.length) client.send('m', { type: 'portalOptions', zones });
+    }
+  }
+
+  /** Players who reached a conference monitor this tick → add them to its call. */
+  private handleConferenceArrivals(): void {
+    for (const { id, key } of this.os.takePendingConferenceJoins()) {
+      let set = this.conferences.get(key);
+      if (!set) {
+        set = new Set();
+        this.conferences.set(key, set);
+      }
+      set.add(id);
+      this.broadcast('m', this.conferenceMembersMsg(key));
     }
   }
 

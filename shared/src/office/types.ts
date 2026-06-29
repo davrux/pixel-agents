@@ -303,6 +303,9 @@ export interface Character {
   /** When walking to a seat (click-to-sit), the direction to face on arrival;
    *  null = no pending sit. Server-only intent. */
   pendingSitFacing?: Direction | null;
+  /** When walking to a conference monitor, the monitor key to join + the facing
+   *  on arrival; null = none. Server-only intent. */
+  pendingConference?: { key: string; facing: Direction } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */
