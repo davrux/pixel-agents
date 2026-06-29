@@ -268,6 +268,22 @@ function buildTrackSeq(
   return frames;
 }
 
+/** A rough seated silhouette from a standing frame: shift the figure down so the
+ *  head lowers and the feet/lower legs fold off the bottom. A placeholder for the
+ *  `sit` pose until a real sit track is authored in the character editor. */
+function synthesizeSitFrame(frame: SpriteData): SpriteData {
+  const h = frame.length;
+  if (h === 0) return frame;
+  const w = frame[0]?.length ?? 0;
+  const dy = Math.max(2, Math.round(h * 0.28));
+  const out: SpriteData = [];
+  for (let y = 0; y < h; y++) {
+    const src = y - dy;
+    out.push(src >= 0 ? frame[src].slice() : new Array(w).fill(''));
+  }
+  return out;
+}
+
 /** Build track-driven sprite sequences from one entity template (agent or NPC).
  *  Track layout/lengths come from the template's spec; frames missing from the
  *  sheet fall back to a stand frame. Shared by characters and NPCs. */
@@ -296,6 +312,16 @@ function buildCharacterSprites(char: LoadedCharacterData): CharacterSprites {
       [Dir.UP]: buildTrackSeq(slot, getU, available, standIdx),
       [Dir.RIGHT]: buildTrackSeq(slot, getR, available, standIdx),
       [Dir.LEFT]: buildTrackSeq(slot, L, available, standIdx),
+    };
+  }
+  // Placeholder `sit` pose when no sit track was authored, so players can sit
+  // anywhere. A real authored `sit` track (in the spec) takes precedence.
+  if (!byTrack['sit']) {
+    byTrack['sit'] = {
+      [Dir.DOWN]: [synthesizeSitFrame(getD(standIdx))],
+      [Dir.UP]: [synthesizeSitFrame(getU(standIdx))],
+      [Dir.RIGHT]: [synthesizeSitFrame(getR(standIdx))],
+      [Dir.LEFT]: [synthesizeSitFrame(L(standIdx))],
     };
   }
   return {

@@ -87,6 +87,7 @@ export const AGENT_TRACKS: TrackDef[] = [
   { name: 'reading', label: 'Reading', min: 1, play: 'loop', def: 2 },
   { name: 'coffee', label: 'Coffee', min: 0, play: 'loop', def: 2 },
   { name: 'idle', label: 'Idle', min: 0, play: 'loop', def: 1 },
+  { name: 'sit', label: 'Sit', min: 0, play: 'loop', def: 2 },
 ];
 /** NPC animation tracks (walk/sit/idle + optional sleep/drink). Idle is the
  *  universal fallback (see AGENT_TRACKS). */

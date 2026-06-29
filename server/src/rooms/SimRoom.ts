@@ -443,6 +443,21 @@ export class SimRoom extends Room<RoomState> {
       this.os.setPlayerDir(id, dir);
     });
 
+    // Sit-in-place toggle for the player's avatar (a rest emote).
+    this.onMessage('playerSit', (client, msg: { sit?: boolean }) => {
+      const id = this.players.get(client.sessionId);
+      if (id !== undefined) this.os.setPlayerSit(id, !!msg?.sit);
+    });
+
+    // Click-to-sit on a chair/bench: walk to the seat tile and sit facing it.
+    this.onMessage('playerSitAt', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (Number.isInteger(col) && Number.isInteger(row)) this.os.sitPlayerAt(id, col, row);
+    });
+
     // Destination picked at a portal → land at the target zone's arrival tile
     // (via P4 respawn) and tell the client to reconnect there.
     this.onMessage('portalGo', (client, msg: { zone?: string }) => {

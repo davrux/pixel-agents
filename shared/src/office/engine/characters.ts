@@ -329,6 +329,8 @@ export function getCharacterPose(ch: Character): CharacterPose {
   switch (ch.state) {
     case CharacterState.WALK:
       return Pose.WALK;
+    case CharacterState.SIT:
+      return Pose.SIT;
     case CharacterState.TYPE:
       return isReadingTool(ch.currentTool) ? Pose.READING : Pose.TYPING;
     case CharacterState.IDLE:

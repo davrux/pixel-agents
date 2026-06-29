@@ -673,11 +673,49 @@ export class OfficeState {
     const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
+    ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
     ch.frame = 0;
     ch.frameTimer = 0;
+    return true;
+  }
+
+  /** Walk a player to a seat tile (chair/bench) and sit there, facing the seat's
+   *  direction. Returns false if there's no seat at the tile or it's unreachable.
+   *  The seat tile is normally blocked, so it's temporarily unblocked to path. */
+  sitPlayerAt(id: number, col: number, row: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    let seat: Seat | undefined;
+    for (const s of this.seats.values()) {
+      if (s.seatCol === col && s.seatRow === row) {
+        seat = s;
+        break;
+      }
+    }
+    if (!seat) return false;
+    ch.heldDir = null;
+    if (ch.tileCol === col && ch.tileRow === row) {
+      ch.path = [];
+      ch.moveProgress = 0;
+      snapToTile(ch);
+      ch.dir = seat.facingDir;
+      ch.state = CharacterState.SIT;
+      ch.pendingSitFacing = null;
+      return true;
+    }
+    const key = `${col},${row}`;
+    const wasBlocked = this.blockedTiles.has(key);
+    if (wasBlocked) this.blockedTiles.delete(key); // allow pathing onto the seat
+    const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
+    if (wasBlocked) this.blockedTiles.add(key);
+    if (path.length === 0) return false;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.pendingSitFacing = seat.facingDir; // sit on arrival
     return true;
   }
 
@@ -687,10 +725,30 @@ export class OfficeState {
   setPlayerDir(id: number, dir: Direction | null): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
+    if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
+    if (dir !== null) ch.pendingSitFacing = null; // cancel a walk-to-seat
     ch.heldDir = dir;
     // Drop a click-to-walk target so the key takes over, but keep the current
     // in-progress step so the avatar isn't stranded mid-tile.
     if (dir !== null && ch.path.length > 1) ch.path = [ch.path[0]];
+    return true;
+  }
+
+  /** Toggle a player's sit-in-place rest. Sitting clears any movement; standing
+   *  returns to idle. Moving (click/WASD) also stands the player up. */
+  setPlayerSit(id: number, sit: boolean): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    if (sit) {
+      ch.path = [];
+      ch.heldDir = null;
+      ch.pendingSitFacing = null;
+      ch.moveProgress = 0;
+      snapToTile(ch);
+      ch.state = CharacterState.SIT;
+    } else if (ch.state === CharacterState.SIT) {
+      ch.state = CharacterState.IDLE;
+    }
     return true;
   }
 
@@ -743,6 +801,7 @@ export class OfficeState {
   /** Advance a player's avatar: click-to-walk feeds a path; WASD feeds a held
    *  direction that steps tile-by-tile (chained so it doesn't stutter). */
   private updatePlayerMovement(ch: Character, dt: number): void {
+    if (ch.state === CharacterState.SIT) return; // sitting still; movement input stands up
     // Standing at a tile with a key held → begin a step that way.
     if (ch.path.length === 0) this.tryStepHeldDir(ch);
 
@@ -758,10 +817,17 @@ export class OfficeState {
       // Chain the next held step so continuous walking has no per-tile idle frame.
       this.tryStepHeldDir(ch);
       if (ch.path.length === 0) {
-        ch.state = CharacterState.IDLE;
-        // Came to rest on a portal tile → queue it (room offers a destination
-        // picker). Only on arrival/rest, so walking across doesn't spam it.
-        if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+        if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
+          // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
+          ch.dir = ch.pendingSitFacing;
+          ch.state = CharacterState.SIT;
+          ch.pendingSitFacing = null;
+        } else {
+          ch.state = CharacterState.IDLE;
+          // Came to rest on a portal tile → queue it (room offers a destination
+          // picker). Only on arrival/rest, so walking across doesn't spam it.
+          if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+        }
       }
     }
   }

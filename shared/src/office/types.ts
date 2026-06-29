@@ -30,6 +30,7 @@ export const CharacterState = {
   IDLE: 'idle',
   WALK: 'walk',
   TYPE: 'type',
+  SIT: 'sit', // player rest emote (sit in place); cleared by moving
 } as const;
 export type CharacterState = (typeof CharacterState)[keyof typeof CharacterState];
 
@@ -46,6 +47,7 @@ export const CharacterPose = {
   TYPING: 'typing',
   READING: 'reading',
   COFFEE: 'coffee',
+  SIT: 'sit', // sit-in-place; uses a synthesized seated frame until art is authored
 } as const;
 export type CharacterPose = (typeof CharacterPose)[keyof typeof CharacterPose];
 
@@ -295,6 +297,9 @@ export interface Character {
   /** Held WASD direction for continuous keyboard walking, or null. Server-only
    *  movement intent (not synced) — the resulting transform/state is synced. */
   heldDir?: Direction | null;
+  /** When walking to a seat (click-to-sit), the direction to face on arrival;
+   *  null = no pending sit. Server-only intent. */
+  pendingSitFacing?: Direction | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

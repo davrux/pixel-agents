@@ -30,6 +30,7 @@ import {
   type Pet,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -62,6 +63,7 @@ const POSE_FRAME_MS: Record<string, number> = {
   typing: TYPE_FRAME_DURATION_SEC * 1000,
   reading: TYPE_FRAME_DURATION_SEC * 1000,
   coffee: COFFEE_FRAME_DURATION_SEC * 1000,
+  sit: TYPE_FRAME_DURATION_SEC * 1000, // static placeholder; animates if a sit track is authored
 };
 
 /** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
@@ -104,6 +106,8 @@ export class OfficeScene extends Phaser.Scene {
   private readonly characters = new Map<number, RenderChar>();
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
+  /** Placed furniture (type + tile) from the room state, for click hit-testing. */
+  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number }> = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -130,6 +134,8 @@ export class OfficeScene extends Phaser.Scene {
   private layoutsPanel!: HTMLDivElement;
   private zonesBtn?: HTMLButtonElement;
   private zonesPanel!: HTMLDivElement;
+  private helpBtn?: HTMLButtonElement;
+  private helpPanel!: HTMLDivElement;
   private zoneSel?: HTMLSelectElement;
   /** Dynamic zone registry from the server (seeded with the bundled builtins). */
   private zoneList: ZoneConfig[] = Object.values(ZONES);
@@ -466,7 +472,22 @@ export class OfficeScene extends Phaser.Scene {
     const arr = (this.room!.state as { furniture: Array<{ type: string; col: number; row: number }> })
       .furniture;
     const placements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row }));
+    this.furniturePlacements = placements;
     this.furnitureArr = layoutToFurnitureInstances(placements);
+  }
+
+  /** True if the tile is a sittable seat (a 'chairs'-category furniture tile,
+   *  below any walk-through backrest rows) — click it to sit. */
+  private isSeatTile(col: number, row: number): boolean {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry || entry.category !== 'chairs') continue;
+      const bg = entry.backgroundTiles ?? 0;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row + bg && row < f.row + entry.footprintH) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private onLayout(layout: OfficeLayout): void {
@@ -563,13 +584,12 @@ export class OfficeScene extends Phaser.Scene {
           this.selectedId = hit === this.selectedId ? null : hit;
         } else {
           this.selectedId = null;
-          // Click empty floor → walk my own avatar there (P2). Spectators have
-          // no avatar (myPlayerId null) → no-op. Server validates the tile.
+          // Click a chair/bench → sit there; click empty floor → walk there (P2).
+          // Spectators have no avatar (myPlayerId null) → no-op. Server validates.
           if (this.myPlayerId !== null && p.leftButtonReleased()) {
-            this.room?.send('playerMove', {
-              col: Math.floor(p.worldX / TILE_SIZE),
-              row: Math.floor(p.worldY / TILE_SIZE),
-            });
+            const col = Math.floor(p.worldX / TILE_SIZE);
+            const row = Math.floor(p.worldY / TILE_SIZE);
+            this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
           }
         }
       }
@@ -658,6 +678,14 @@ export class OfficeScene extends Phaser.Scene {
         held.length = 0;
         flush();
       }
+    });
+    // Sit toggle (C): rest in place; moving stands the avatar back up (server-side).
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyC' || e.repeat || blocked()) return;
+      e.preventDefault();
+      const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
+      const sitting = me?.state === CharacterState.SIT;
+      this.room?.send('playerSit', { sit: !sitting });
     });
   }
 
@@ -818,12 +846,13 @@ export class OfficeScene extends Phaser.Scene {
    * Furniture), or none — opening one closes the others. The layout editor is
    * intentionally not managed here — it's the exception that stays open.
    */
-  private async setMenu(menu: 'settings' | 'layouts' | 'zones' | 'chars' | 'furniture' | null): Promise<void> {
+  private async setMenu(menu: 'settings' | 'layouts' | 'zones' | 'help' | 'chars' | 'furniture' | null): Promise<void> {
     // Leaving an open character editor with unsaved edits → confirm/discard first.
     if (this.charEditor?.isOpen() && menu !== 'chars' && !(await this.charEditor.confirmLeave())) return;
     if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
     if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
     if (this.zonesPanel) this.zonesPanel.style.display = menu === 'zones' ? 'block' : 'none';
+    if (this.helpPanel) this.helpPanel.style.display = menu === 'help' ? 'block' : 'none';
     if (this.charEditor) menu === 'chars' ? this.charEditor.show() : this.charEditor.close();
     if (this.furnEditor) menu === 'furniture' ? this.furnEditor.show() : this.furnEditor.close();
     if (menu === 'layouts') this.room?.send('requestLayouts');
@@ -833,7 +862,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Edit mode owns the screen: close + disable the other menus while editing. */
   private setEditMode(editing: boolean): void {
     this.setMenu(null);
-    for (const b of [this.settingsBtn, this.layoutsBtn, this.zonesBtn]) {
+    for (const b of [this.settingsBtn, this.layoutsBtn, this.zonesBtn, this.helpBtn]) {
       if (!b) continue;
       b.disabled = editing;
       b.style.opacity = editing ? '0.4' : '';
@@ -886,6 +915,14 @@ export class OfficeScene extends Phaser.Scene {
       #pa-zones .foot .sz{display:flex;gap:0.4rem;}
       #pa-zones .foot .sz input{width:50%;}
       #pa-zones .foot button.new{background:#2f5f8f;border-color:#3f7fbf;padding:0.55rem;font-size:1.1rem;}
+      /* Help / controls reference. */
+      #pa-help{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:26rem;max-width:92vw;
+        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
+        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
+      #pa-help h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-help .row{display:flex;align-items:baseline;gap:0.6rem;padding:0.28rem 0;font-size:1.05rem;}
+      #pa-help kbd{flex:0 0 11rem;color:#9ad0ff;font-family:inherit;}
+      #pa-help .row span{color:#dfe4ee;}
     `;
     document.head.appendChild(style);
 
@@ -925,12 +962,45 @@ export class OfficeScene extends Phaser.Scene {
     zpanel.className = 'pa-ui';
     zbtn.onclick = () => this.setMenu(zpanel.style.display === 'block' ? null : 'zones');
 
-    topbar.append(btn, zbtn);
-    host.append(panel, zpanel);
+    // Help (keyboard + mouse reference).
+    const hbtn = document.createElement('button');
+    hbtn.id = 'pa-help-btn';
+    hbtn.textContent = '❓ Help';
+    this.helpBtn = hbtn;
+    const hpanel = document.createElement('div');
+    hpanel.id = 'pa-help';
+    hpanel.className = 'pa-ui';
+    hbtn.onclick = () => this.setMenu(hpanel.style.display === 'block' ? null : 'help');
+
+    topbar.append(btn, zbtn, hbtn);
+    host.append(panel, zpanel, hpanel);
     this.layoutsPanel = panel;
     this.zonesPanel = zpanel;
+    this.helpPanel = hpanel;
     this.renderLayoutsPanel();
     this.renderZonesPanel();
+    this.renderHelpPanel();
+  }
+
+  private renderHelpPanel(): void {
+    if (!this.helpPanel) return;
+    const rows: Array<[string, string]> = [
+      ['W A S D / Arrows', 'Move'],
+      ['Left-click floor', 'Walk there'],
+      ['Left-click chair / bench', 'Sit down'],
+      ['C', 'Sit / stand (in place)'],
+      ['Walk onto a door / beam pad', 'Choose a destination zone'],
+      ['Enter', 'Chat — focus, then send (cursor stays)'],
+      ['Esc', 'Leave the chat field'],
+      ['Click an avatar', 'Select (show tooltip)'],
+      ['Mouse wheel', 'Zoom'],
+      ['Drag (empty space)', 'Pan the camera'],
+      ['🌍 Zones', 'Create / edit / delete zones, set arrival, NPCs'],
+      ['⚙ Layouts → ✏ Edit', 'Edit this zone’s layout'],
+    ];
+    this.helpPanel.innerHTML =
+      `<h4>Controls</h4>` +
+      rows.map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('');
   }
 
   /** (Re)populate the top-bar zone switcher from the live registry. */
@@ -1294,6 +1364,7 @@ export class OfficeScene extends Phaser.Scene {
         this.settingsPanel?.contains(t) ||
         this.layoutsPanel?.contains(t) ||
         this.zonesPanel?.contains(t) ||
+        this.helpPanel?.contains(t) ||
         znpc?.contains(t) ||
         charPanel?.contains(t) ||
         furnPanel?.contains(t) ||
