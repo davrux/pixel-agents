@@ -315,6 +315,15 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
+        else if (m.type === 'playerSpawned') {
+          // Visibility toggled at runtime: adopt (or clear) our avatar id without
+          // a reload, then re-assert our chosen skin/name onto the fresh avatar.
+          this.myPlayerId = typeof m.playerId === 'number' ? m.playerId : null;
+          if (this.myPlayerId !== null) {
+            if (this.myPlayerPalette !== null) this.room?.send('setPlayerCharacter', { palette: this.myPlayerPalette });
+            if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
+          }
+        }
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar

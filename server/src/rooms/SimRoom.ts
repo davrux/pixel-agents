@@ -417,10 +417,14 @@ export class SimRoom extends Room<RoomState> {
       const existing = this.players.get(client.sessionId);
       if (visible && existing === undefined) {
         const palette = name ? (appStore.getPlayerPrefs()[name] ?? null) : null;
-        this.players.set(client.sessionId, this.os.addPlayer(palette ?? undefined, name || undefined));
+        const id = this.os.addPlayer(palette ?? undefined, name || undefined);
+        this.players.set(client.sessionId, id);
+        // Tell the client its new avatar id so it can control it without a reload.
+        client.send('m', { type: 'playerSpawned', playerId: id });
       } else if (!visible && existing !== undefined) {
         this.os.removePlayer(existing);
         this.players.delete(client.sessionId);
+        client.send('m', { type: 'playerSpawned', playerId: null });
       }
     });
 
