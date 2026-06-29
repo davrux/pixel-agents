@@ -118,6 +118,11 @@ export class OfficeScene extends Phaser.Scene {
   /** Idle-fade clock for the chat (performance.now() ms); fades when idle. */
   private chatActiveUntil = 0;
   private chatFaded = false;
+  /** The conference monitor (anchor tile) this viewer has joined, or null. */
+  private myConference: { col: number; row: number } | null = null;
+  /** Conference rosters by "col,row" anchor key (from the server). */
+  private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
+  private confPanel?: HTMLDivElement;
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -315,6 +320,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
+        else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our chosen skin/name onto the fresh avatar.
@@ -503,6 +509,19 @@ export class OfficeScene extends Phaser.Scene {
     return false;
   }
 
+  /** If the tile is covered by a conference monitor, its anchor tile (used as the
+   *  monitor's stable id), else null. */
+  private conferenceAnchorAt(col: number, row: number): { col: number; row: number } | null {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.conference) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row };
+      }
+    }
+    return null;
+  }
+
   private onLayout(layout: OfficeLayout): void {
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
@@ -602,7 +621,9 @@ export class OfficeScene extends Phaser.Scene {
           if (this.myPlayerId !== null && p.leftButtonReleased()) {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
-            this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
+            const conf = this.conferenceAnchorAt(col, row);
+            if (conf) this.toggleConference(conf);
+            else this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
           }
         }
       }
@@ -1218,6 +1239,69 @@ export class OfficeScene extends Phaser.Scene {
   private async offerJumpToNewZone(id: string): Promise<void> {
     if (!isZoneId(id)) return;
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
+  }
+
+  // ── Conference monitors (C-RTC) ──────────────────────────────────
+
+  /** Join (or leave, if already in it) a conference monitor by its anchor tile. */
+  private toggleConference(anchor: { col: number; row: number }): void {
+    const key = `${anchor.col},${anchor.row}`;
+    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
+      this.room?.send('conferenceLeave', anchor);
+      this.myConference = null;
+    } else {
+      if (this.myConference) this.room?.send('conferenceLeave', this.myConference); // one call at a time
+      this.room?.send('conferenceJoin', anchor);
+      this.myConference = { ...anchor };
+    }
+    this.renderConferencePanel();
+  }
+
+  private onConferenceMembers(m: Record<string, unknown>): void {
+    const key = `${m.col},${m.row}`;
+    const members = (m.members as Array<{ id: number; name: string }>) ?? [];
+    if (members.length) this.conferenceMembers.set(key, members);
+    else this.conferenceMembers.delete(key);
+    // If the server dropped us from our call (despawn, etc.), reflect it.
+    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
+      if (this.myPlayerId === null || !members.some((p) => p.id === this.myPlayerId)) this.myConference = null;
+    }
+    this.renderConferencePanel();
+  }
+
+  /** Show the roster + Leave control for the conference this viewer is in (no
+   *  video yet — C-RTC-1). Hidden when not in a call. */
+  private renderConferencePanel(): void {
+    if (!this.confPanel) {
+      const style = document.createElement('style');
+      style.textContent = `
+        #pa-conf{position:fixed;left:50%;bottom:0.5rem;transform:translateX(-50%);z-index:56;display:none;
+          background:rgba(20,24,33,.9);border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
+          padding:0.5rem 0.75rem;font:1rem 'FS Pixel Sans',monospace;align-items:center;gap:0.75rem;}
+        #pa-conf b{color:#9ad0ff;}
+        #pa-conf button{cursor:pointer;background:#7a2f2f;border:1px solid #a14a4a;color:#fff;
+          border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
+      `;
+      document.head.appendChild(style);
+      const el = document.createElement('div');
+      el.id = 'pa-conf';
+      el.className = 'pa-ui';
+      (document.getElementById('game') ?? document.body).appendChild(el);
+      this.confPanel = el;
+    }
+    const panel = this.confPanel;
+    if (!this.myConference) {
+      panel.style.display = 'none';
+      return;
+    }
+    const key = `${this.myConference.col},${this.myConference.row}`;
+    const members = this.conferenceMembers.get(key) ?? [];
+    const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
+    panel.innerHTML = `<span>📹 <b>Conference</b> — ${esc(names)}</span><button data-leave>Leave</button>`;
+    panel.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
+      if (this.myConference) this.toggleConference(this.myConference);
+    };
+    panel.style.display = 'flex';
   }
 
   /** Per-zone NPC editor: which pet variants spawn in this zone. Checkboxes come

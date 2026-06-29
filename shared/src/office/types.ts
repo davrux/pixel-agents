@@ -206,6 +206,9 @@ export interface FurnitureCatalogEntry {
   /** Whether this furniture is a zone portal (door / beam pad): walking to it
    *  offers a destination picker. */
   portal?: boolean;
+  /** Whether this furniture is a conference monitor: clicking it joins a
+   *  per-monitor video call (WebRTC). */
+  conference?: boolean;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
