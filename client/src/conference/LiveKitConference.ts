@@ -14,6 +14,13 @@ export interface ConferenceState {
   error?: string;
 }
 
+export interface ConferenceDevices {
+  cameras: MediaDeviceInfo[];
+  mics: MediaDeviceInfo[];
+  camId?: string;
+  micId?: string;
+}
+
 export class LiveKitConference {
   private room: Room | null = null;
   /** Attached media elements/tiles, keyed by track sid (for clean teardown). */
@@ -27,6 +34,7 @@ export class LiveKitConference {
   constructor(
     private readonly grid: HTMLElement,
     private readonly onState: (s: ConferenceState) => void,
+    private readonly onDevices?: (d: ConferenceDevices) => void,
   ) {}
 
   async connect(url: string, token: string): Promise<void> {
@@ -39,12 +47,14 @@ export class LiveKitConference {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => this.removeTrack(pub.trackSid))
+      .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
       await room.localParticipant.setCameraEnabled(true);
       await room.localParticipant.setMicrophoneEnabled(true);
       this.notify();
+      await this.emitDevices(); // labels are available now that permission is granted
     } catch (e) {
       this.notify((e as Error)?.message || 'connection failed');
       throw e;
@@ -159,6 +169,35 @@ export class LiveKitConference {
       this.screenOn = false; // user cancelled the picker or permission denied
     }
     this.notify();
+  }
+
+  /** Enumerate cameras + mics (labels need the permission granted on connect)
+   *  and report the active device ids, so the UI can offer a picker. */
+  private async emitDevices(): Promise<void> {
+    const room = this.room;
+    if (!room || !this.onDevices) return;
+    try {
+      const cameras = await Room.getLocalDevices('videoinput');
+      const mics = await Room.getLocalDevices('audioinput');
+      this.onDevices({
+        cameras,
+        mics,
+        camId: room.getActiveDevice('videoinput'),
+        micId: room.getActiveDevice('audioinput'),
+      });
+    } catch {
+      /* enumeration failed — leave the picker as-is */
+    }
+  }
+
+  async switchCamera(deviceId: string): Promise<void> {
+    await this.room?.switchActiveDevice('videoinput', deviceId);
+    await this.emitDevices();
+  }
+
+  async switchMic(deviceId: string): Promise<void> {
+    await this.room?.switchActiveDevice('audioinput', deviceId);
+    await this.emitDevices();
   }
 
   get cam(): boolean {

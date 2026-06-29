@@ -31,7 +31,7 @@ import {
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { LiveKitConference, type ConferenceState } from '../conference/LiveKitConference.js';
+import { LiveKitConference, type ConferenceState, type ConferenceDevices } from '../conference/LiveKitConference.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -129,6 +129,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
   private confState: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
+  private confDevices: ConferenceDevices = { cameras: [], mics: [] };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -1275,6 +1276,7 @@ export class OfficeScene extends Phaser.Scene {
     void this.conf?.disconnect();
     this.conf = undefined;
     this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
+    this.confDevices = { cameras: [], mics: [] };
     this.renderConferencePanel();
   }
 
@@ -1303,10 +1305,17 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     if (!this.confGrid) return;
-    this.conf = new LiveKitConference(this.confGrid, (s) => {
-      this.confState = s;
-      this.renderConferencePanel();
-    });
+    this.conf = new LiveKitConference(
+      this.confGrid,
+      (s) => {
+        this.confState = s;
+        this.renderConferencePanel();
+      },
+      (d) => {
+        this.confDevices = d;
+        this.renderConferencePanel();
+      },
+    );
     void this.conf.connect(m.url as string, m.token as string).catch(() => {
       /* connect() reports via the state callback */
     });
@@ -1327,6 +1336,8 @@ export class OfficeScene extends Phaser.Scene {
       #pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
       #pa-conf-bar button.off{opacity:0.55;}
       #pa-conf-bar button.active{background:#2f6f3a;border-color:#3f8f4a;color:#fff;}
+      #pa-conf-bar select{max-width:11rem;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
     `;
     document.head.appendChild(style);
     const panel = document.createElement('div');
@@ -1359,12 +1370,26 @@ export class OfficeScene extends Phaser.Scene {
     const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
     const st = this.confState;
     const status = st.error ? `<span class="err">${esc(st.error)}</span>` : st.connected ? '🟢 live' : '… connecting';
+    // Device pickers — only when there's a choice (more than one of that kind).
+    const d = this.confDevices;
+    const picker = (icon: string, attr: string, list: MediaDeviceInfo[], active?: string): string => {
+      if (list.length < 2) return '';
+      const opts = list
+        .map((dev, i) => {
+          const sel = dev.deviceId === active ? ' selected' : '';
+          return `<option value="${esc(dev.deviceId)}"${sel}>${esc(dev.label || `${icon} ${i + 1}`)}</option>`;
+        })
+        .join('');
+      return `<select ${attr} title="${icon}">${opts}</select>`;
+    };
     bar.innerHTML =
       `<span>📹 <b>Conference</b> — ${esc(names)} · ${status}</span>` +
       (st.connected
         ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
           `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
-          `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>`
+          `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>` +
+          picker('📷', 'data-camsel', d.cameras, d.camId) +
+          picker('🎙', 'data-micsel', d.mics, d.micId)
         : '') +
       `<button data-leave class="leave">Leave</button>`;
     bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
@@ -1373,6 +1398,10 @@ export class OfficeScene extends Phaser.Scene {
     bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
     bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
     bar.querySelector<HTMLButtonElement>('[data-screen]')?.addEventListener('click', () => void this.conf?.toggleScreen());
+    bar.querySelector<HTMLSelectElement>('[data-camsel]')?.addEventListener('change', (e) =>
+      void this.conf?.switchCamera((e.target as HTMLSelectElement).value));
+    bar.querySelector<HTMLSelectElement>('[data-micsel]')?.addEventListener('change', (e) =>
+      void this.conf?.switchMic((e.target as HTMLSelectElement).value));
     panel.style.display = 'flex';
   }
 
