@@ -1,4 +1,5 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
+import { AccessToken } from 'livekit-server-sdk';
 
 import { resolveZone } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -369,6 +370,31 @@ export class SimRoom extends Room<RoomState> {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
       this.leaveConference(id, `${Math.floor(Number(msg?.col))},${Math.floor(Number(msg?.row))}`);
+    });
+
+    // Mint a LiveKit access token for a monitor's call — only for a player who
+    // has actually joined that monitor (server-authoritative gate). The room name
+    // is shared by everyone at the same monitor in this zone.
+    this.onMessage('conferenceToken', async (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      const key = `${col},${row}`;
+      if (!this.conferences.get(key)?.has(id)) return; // not a member → no token
+      const url = process.env.LIVEKIT_URL;
+      const apiKey = process.env.LIVEKIT_API_KEY;
+      const apiSecret = process.env.LIVEKIT_API_SECRET;
+      if (!url || !apiKey || !apiSecret) {
+        client.send('m', { type: 'conferenceToken', col, row, error: 'not-configured' });
+        return;
+      }
+      const room = `${this.zone.id}-${col}-${row}`;
+      const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
+      const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
+      at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+      const token = await at.toJwt();
+      client.send('m', { type: 'conferenceToken', col, row, url, token, room });
     });
 
     // ── Zone registry (create / edit / delete; everyone may, office protected) ──

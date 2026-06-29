@@ -14,6 +14,14 @@ import { WORLD_ROOM } from '@pixel/shared';
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth } from './auth.js';
+
+// Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
+// Node's built-in loader (no dependency). Missing file is fine.
+try {
+  process.loadEnvFile(fileURLToPath(new URL('../../.env', import.meta.url)));
+} catch {
+  /* no .env present */
+}
 import { SimRoom } from './rooms/SimRoom.js';
 import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';

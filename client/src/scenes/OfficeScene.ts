@@ -31,6 +31,7 @@ import {
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { LiveKitConference, type ConferenceState } from '../conference/LiveKitConference.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -123,6 +124,11 @@ export class OfficeScene extends Phaser.Scene {
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   private confPanel?: HTMLDivElement;
+  private confGrid?: HTMLDivElement;
+  private confBar?: HTMLDivElement;
+  /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
+  private conf?: LiveKitConference;
+  private confState: ConferenceState = { connected: false, camOn: true, micOn: true };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -227,6 +233,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createLayoutsPanel();
     this.createSettingsPanel();
     this.createChat();
+    this.createConferencePanel();
     this.charEditor = new CharacterEditor({
       categories: [
         {
@@ -321,6 +328,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
+        else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our chosen skin/name onto the fresh avatar.
@@ -1248,12 +1256,25 @@ export class OfficeScene extends Phaser.Scene {
     const key = `${anchor.col},${anchor.row}`;
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
       this.room?.send('conferenceLeave', anchor);
-      this.myConference = null;
+      this.leaveConferenceLocal();
     } else {
       if (this.myConference) this.room?.send('conferenceLeave', this.myConference); // one call at a time
-      this.room?.send('conferenceJoin', anchor);
+      void this.conf?.disconnect();
+      this.conf = undefined;
       this.myConference = { ...anchor };
+      this.confState = { connected: false, camOn: true, micOn: true };
+      this.room?.send('conferenceJoin', anchor);
+      this.room?.send('conferenceToken', anchor); // request a LiveKit token (→ media)
     }
+    this.renderConferencePanel();
+  }
+
+  /** Tear down the local call (disconnect LiveKit) and clear our membership. */
+  private leaveConferenceLocal(): void {
+    this.myConference = null;
+    void this.conf?.disconnect();
+    this.conf = undefined;
+    this.confState = { connected: false, camOn: true, micOn: true };
     this.renderConferencePanel();
   }
 
@@ -1262,45 +1283,93 @@ export class OfficeScene extends Phaser.Scene {
     const members = (m.members as Array<{ id: number; name: string }>) ?? [];
     if (members.length) this.conferenceMembers.set(key, members);
     else this.conferenceMembers.delete(key);
-    // If the server dropped us from our call (despawn, etc.), reflect it.
+    // If the server dropped us from our call (despawn, zone change, …), tear down.
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
-      if (this.myPlayerId === null || !members.some((p) => p.id === this.myPlayerId)) this.myConference = null;
+      if (this.myPlayerId === null || !members.some((p) => p.id === this.myPlayerId)) {
+        this.leaveConferenceLocal();
+        return;
+      }
     }
     this.renderConferencePanel();
   }
 
-  /** Show the roster + Leave control for the conference this viewer is in (no
-   *  video yet — C-RTC-1). Hidden when not in a call. */
-  private renderConferencePanel(): void {
-    if (!this.confPanel) {
-      const style = document.createElement('style');
-      style.textContent = `
-        #pa-conf{position:fixed;left:50%;bottom:0.5rem;transform:translateX(-50%);z-index:56;display:none;
-          background:rgba(20,24,33,.9);border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
-          padding:0.5rem 0.75rem;font:1rem 'FS Pixel Sans',monospace;align-items:center;gap:0.75rem;}
-        #pa-conf b{color:#9ad0ff;}
-        #pa-conf button{cursor:pointer;background:#7a2f2f;border:1px solid #a14a4a;color:#fff;
-          border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
-      `;
-      document.head.appendChild(style);
-      const el = document.createElement('div');
-      el.id = 'pa-conf';
-      el.className = 'pa-ui';
-      (document.getElementById('game') ?? document.body).appendChild(el);
-      this.confPanel = el;
+  /** Server minted a LiveKit token (or reported it's unconfigured). Connect the
+   *  media for the call we're currently in. */
+  private onConferenceToken(m: Record<string, unknown>): void {
+    if (!this.myConference || `${this.myConference.col},${this.myConference.row}` !== `${m.col},${m.row}`) return;
+    if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
+      this.confState = { ...this.confState, error: 'Video not configured on the server.' };
+      this.renderConferencePanel();
+      return;
     }
+    if (!this.confGrid) return;
+    this.conf = new LiveKitConference(this.confGrid, (s) => {
+      this.confState = s;
+      this.renderConferencePanel();
+    });
+    void this.conf.connect(m.url as string, m.token as string).catch(() => {
+      /* connect() reports via the state callback */
+    });
+  }
+
+  private createConferencePanel(): void {
+    const style = document.createElement('style');
+    style.textContent = `
+      #pa-conf{position:fixed;left:50%;bottom:0.5rem;transform:translateX(-50%);z-index:56;display:none;
+        flex-direction:column;gap:0.4rem;max-width:92vw;background:rgba(20,24,33,.92);border:2px solid #3a4150;
+        border-radius:0.5rem;color:#eef1f6;padding:0.5rem 0.6rem;font:1rem 'FS Pixel Sans',monospace;}
+      #pa-conf-grid{display:flex;flex-wrap:wrap;gap:0.4rem;justify-content:center;max-height:42vh;overflow:auto;}
+      #pa-conf-bar{display:flex;align-items:center;gap:0.6rem;justify-content:center;}
+      #pa-conf-bar b{color:#9ad0ff;}
+      #pa-conf-bar .err{color:#ff9a9a;}
+      #pa-conf-bar button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
+      #pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
+      #pa-conf-bar button.off{opacity:0.55;}
+    `;
+    document.head.appendChild(style);
+    const panel = document.createElement('div');
+    panel.id = 'pa-conf';
+    panel.className = 'pa-ui';
+    const grid = document.createElement('div');
+    grid.id = 'pa-conf-grid'; // LiveKitConference attaches video tiles here
+    const bar = document.createElement('div');
+    bar.id = 'pa-conf-bar';
+    panel.append(grid, bar);
+    (document.getElementById('game') ?? document.body).appendChild(panel);
+    this.confPanel = panel;
+    this.confGrid = grid;
+    this.confBar = bar;
+  }
+
+  /** Update the conference bar (roster + cam/mic/leave) + panel visibility. The
+   *  video grid is managed live by LiveKitConference and never rebuilt here. */
+  private renderConferencePanel(): void {
     const panel = this.confPanel;
+    const bar = this.confBar;
+    if (!panel || !bar) return;
     if (!this.myConference) {
       panel.style.display = 'none';
+      bar.innerHTML = '';
       return;
     }
     const key = `${this.myConference.col},${this.myConference.row}`;
     const members = this.conferenceMembers.get(key) ?? [];
     const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
-    panel.innerHTML = `<span>📹 <b>Conference</b> — ${esc(names)}</span><button data-leave>Leave</button>`;
-    panel.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
+    const st = this.confState;
+    const status = st.error ? `<span class="err">${esc(st.error)}</span>` : st.connected ? '🟢 live' : '… connecting';
+    bar.innerHTML =
+      `<span>📹 <b>Conference</b> — ${esc(names)} · ${status}</span>` +
+      (st.connected
+        ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
+          `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>`
+        : '') +
+      `<button data-leave class="leave">Leave</button>`;
+    bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
       if (this.myConference) this.toggleConference(this.myConference);
     };
+    bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
+    bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
     panel.style.display = 'flex';
   }
 
