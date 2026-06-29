@@ -633,7 +633,7 @@ export class OfficeScene extends Phaser.Scene {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
-            if (conf) this.toggleConference(conf);
+            if (conf) void this.toggleConference(conf);
             else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
@@ -1258,13 +1258,15 @@ export class OfficeScene extends Phaser.Scene {
   // ── Conference monitors (C-RTC) ──────────────────────────────────
 
   /** Join (or leave, if already in it) a conference monitor by its anchor tile. */
-  private toggleConference(anchor: { col: number; row: number }): void {
+  private async toggleConference(anchor: { col: number; row: number }): Promise<void> {
     const key = `${anchor.col},${anchor.row}`;
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
       this.room?.send('conferenceLeave', anchor);
       this.leaveConferenceLocal();
       return;
     }
+    // Confirm before joining (it turns your camera/mic on).
+    if (!(await confirmDialog('Join the conference at this monitor?', { confirmLabel: 'Join' }))) return;
     // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
     // then we connect the media. Leave any current call.
     if (this.myConference) {
@@ -1410,7 +1412,7 @@ export class OfficeScene extends Phaser.Scene {
         : '') +
       `<button data-leave class="leave">Leave</button>`;
     bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
-      if (this.myConference) this.toggleConference(this.myConference);
+      if (this.myConference) void this.toggleConference(this.myConference);
     };
     bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
     bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
