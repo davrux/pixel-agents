@@ -10,6 +10,7 @@ export interface ConferenceState {
   connected: boolean;
   camOn: boolean;
   micOn: boolean;
+  screenOn: boolean;
   error?: string;
 }
 
@@ -19,6 +20,7 @@ export class LiveKitConference {
   private readonly tiles = new Map<string, HTMLElement>();
   private camOn = true;
   private micOn = true;
+  private screenOn = false;
 
   constructor(
     private readonly grid: HTMLElement,
@@ -50,13 +52,16 @@ export class LiveKitConference {
   private addTrack(track: LkTrack, p: Participant, local: boolean): void {
     const sid = track.sid || `${p.identity}-${track.kind}`;
     if (track.kind === Track.Kind.Video) {
+      const isScreen = track.source === Track.Source.ScreenShare;
       const video = track.attach() as HTMLVideoElement;
-      video.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:0.35rem;background:#000;';
-      if (local) video.style.transform = 'scaleX(-1)'; // mirror your own camera
+      video.style.cssText = `width:100%;height:100%;object-fit:${isScreen ? 'contain' : 'cover'};border-radius:0.35rem;background:#000;`;
+      if (local && !isScreen) video.style.transform = 'scaleX(-1)'; // mirror your own camera (not your screen)
       const tile = document.createElement('div');
-      tile.style.cssText = 'position:relative;width:9rem;height:6.5rem;flex:0 0 auto;';
+      // Screen shares get a wider tile so they're readable.
+      tile.style.cssText = `position:relative;${isScreen ? 'width:18rem;height:10.5rem' : 'width:9rem;height:6.5rem'};flex:0 0 auto;`;
       const tag = document.createElement('span');
-      tag.textContent = local ? 'You' : p.name || p.identity;
+      const who = local ? 'You' : p.name || p.identity;
+      tag.textContent = isScreen ? `🖥 ${who}` : who;
       tag.style.cssText =
         'position:absolute;left:0.25rem;bottom:0.2rem;font:0.8rem ui-monospace,monospace;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;';
       tile.append(video, tag);
@@ -92,11 +97,26 @@ export class LiveKitConference {
     this.notify();
   }
 
+  /** Start/stop screen sharing (browser shows the picker; cancelling reverts). */
+  async toggleScreen(): Promise<void> {
+    const next = !this.screenOn;
+    try {
+      await this.room?.localParticipant.setScreenShareEnabled(next);
+      this.screenOn = next;
+    } catch {
+      this.screenOn = false; // user cancelled the picker or permission denied
+    }
+    this.notify();
+  }
+
   get cam(): boolean {
     return this.camOn;
   }
   get mic(): boolean {
     return this.micOn;
+  }
+  get screen(): boolean {
+    return this.screenOn;
   }
   isConnected(): boolean {
     return this.room?.state === 'connected';
@@ -115,6 +135,6 @@ export class LiveKitConference {
   }
 
   private notify(error?: string): void {
-    this.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, error });
+    this.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
   }
 }

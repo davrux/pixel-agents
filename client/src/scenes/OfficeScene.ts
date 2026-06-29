@@ -128,7 +128,7 @@ export class OfficeScene extends Phaser.Scene {
   private confBar?: HTMLDivElement;
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
-  private confState: ConferenceState = { connected: false, camOn: true, micOn: true };
+  private confState: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -1262,7 +1262,7 @@ export class OfficeScene extends Phaser.Scene {
       void this.conf?.disconnect();
       this.conf = undefined;
       this.myConference = { ...anchor };
-      this.confState = { connected: false, camOn: true, micOn: true };
+      this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
       this.room?.send('conferenceJoin', anchor);
       this.room?.send('conferenceToken', anchor); // request a LiveKit token (→ media)
     }
@@ -1274,7 +1274,7 @@ export class OfficeScene extends Phaser.Scene {
     this.myConference = null;
     void this.conf?.disconnect();
     this.conf = undefined;
-    this.confState = { connected: false, camOn: true, micOn: true };
+    this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
     this.renderConferencePanel();
   }
 
@@ -1362,7 +1362,8 @@ export class OfficeScene extends Phaser.Scene {
       `<span>📹 <b>Conference</b> — ${esc(names)} · ${status}</span>` +
       (st.connected
         ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
-          `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>`
+          `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
+          `<button data-screen class="${st.screenOn ? '' : 'off'}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>`
         : '') +
       `<button data-leave class="leave">Leave</button>`;
     bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
@@ -1370,6 +1371,7 @@ export class OfficeScene extends Phaser.Scene {
     };
     bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
     bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
+    bar.querySelector<HTMLButtonElement>('[data-screen]')?.addEventListener('click', () => void this.conf?.toggleScreen());
     panel.style.display = 'flex';
   }
 
