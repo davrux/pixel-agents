@@ -1326,6 +1326,7 @@ export class OfficeScene extends Phaser.Scene {
         border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
       #pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
       #pa-conf-bar button.off{opacity:0.55;}
+      #pa-conf-bar button.active{background:#2f6f3a;border-color:#3f8f4a;color:#fff;}
     `;
     document.head.appendChild(style);
     const panel = document.createElement('div');
@@ -1363,7 +1364,7 @@ export class OfficeScene extends Phaser.Scene {
       (st.connected
         ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
           `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
-          `<button data-screen class="${st.screenOn ? '' : 'off'}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>`
+          `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>`
         : '') +
       `<button data-leave class="leave">Leave</button>`;
     bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
