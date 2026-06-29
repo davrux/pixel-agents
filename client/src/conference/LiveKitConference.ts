@@ -57,14 +57,34 @@ export class LiveKitConference {
       video.style.cssText = `width:100%;height:100%;object-fit:${isScreen ? 'contain' : 'cover'};border-radius:0.35rem;background:#000;`;
       if (local && !isScreen) video.style.transform = 'scaleX(-1)'; // mirror your own camera (not your screen)
       const tile = document.createElement('div');
-      // Screen shares get a wider tile so they're readable.
-      tile.style.cssText = `position:relative;${isScreen ? 'width:18rem;height:10.5rem' : 'width:9rem;height:6.5rem'};flex:0 0 auto;`;
       const tag = document.createElement('span');
       const who = local ? 'You' : p.name || p.identity;
       tag.textContent = isScreen ? `🖥 ${who}` : who;
       tag.style.cssText =
-        'position:absolute;left:0.25rem;bottom:0.2rem;font:0.8rem ui-monospace,monospace;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;';
+        'position:absolute;left:0.25rem;bottom:0.2rem;font:0.8rem ui-monospace,monospace;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;';
       tile.append(video, tag);
+      if (isScreen) {
+        // Screen shares get a wider tile + a toggle to blow them up to ~tab size
+        // (and back), so a shared screen is actually readable.
+        const small = 'position:relative;width:18rem;height:10.5rem;flex:0 0 auto;';
+        const big =
+          'position:fixed;left:4vw;top:4vh;width:92vw;height:86vh;z-index:90;flex:0 0 auto;box-shadow:0 0 0 9999px rgba(0,0,0,.6);';
+        tile.style.cssText = small;
+        const zoom = document.createElement('button');
+        zoom.textContent = '⤢ Tab size';
+        zoom.style.cssText =
+          'position:absolute;right:0.25rem;top:0.25rem;z-index:2;cursor:pointer;background:rgba(20,24,33,.85);' +
+          'border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;font:0.8rem ui-monospace,monospace;padding:0.2rem 0.45rem;';
+        let enlarged = false;
+        zoom.onclick = () => {
+          enlarged = !enlarged;
+          tile.style.cssText = enlarged ? big : small;
+          zoom.textContent = enlarged ? '⤡ Shrink' : '⤢ Tab size';
+        };
+        tile.appendChild(zoom);
+      } else {
+        tile.style.cssText = 'position:relative;width:9rem;height:6.5rem;flex:0 0 auto;';
+      }
       this.tiles.set(sid, tile);
       this.grid.appendChild(tile);
     } else if (track.kind === Track.Kind.Audio && !local) {
