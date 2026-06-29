@@ -228,6 +228,8 @@ export interface PlacedFurniture {
   row: number;
   /** Optional color override for furniture */
   color?: ColorValue;
+  /** Optional instance name (e.g. a conference monitor's stable room name). */
+  name?: string;
 }
 
 export interface OfficeLayout {

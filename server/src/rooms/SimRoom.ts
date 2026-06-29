@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone } from '@pixel/shared';
+import { resolveZone, conferenceKey } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -383,7 +383,12 @@ export class SimRoom extends Room<RoomState> {
         client.send('m', { type: 'conferenceToken', col, row, error: 'not-configured' });
         return;
       }
-      const room = `${this.zone.id}-${col}-${row}`;
+      // Stable room from the monitor's name when set (survives moving it), else
+      // its position. Sanitised to LiveKit's allowed room-name characters.
+      const monitor = this.os
+        .getLayout()
+        .furniture.find((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.conference);
+      const room = `${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`.replace(/[^A-Za-z0-9_-]/g, '-');
       const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
       const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
       at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
@@ -872,6 +877,7 @@ export class SimRoom extends Room<RoomState> {
       fs.type = p.type;
       fs.col = p.col;
       fs.row = p.row;
+      fs.name = p.name ?? '';
       this.state.furniture.push(fs);
     }
   }

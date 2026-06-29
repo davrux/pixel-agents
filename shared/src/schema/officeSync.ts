@@ -63,6 +63,8 @@ export class FurnitureSync extends Schema {
   @type('string') type = '';
   @type('uint8') col = 0;
   @type('uint8') row = 0;
+  /** Optional instance name (e.g. a conference monitor's stable room name). */
+  @type('string') name = '';
 }
 
 export class RoomState extends Schema {

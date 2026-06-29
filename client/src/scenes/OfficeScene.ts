@@ -41,7 +41,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
-import { DEFAULT_ZONE, ZONES, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, conferenceLabel, type ZoneConfig } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -107,8 +107,8 @@ export class OfficeScene extends Phaser.Scene {
   private readonly characters = new Map<number, RenderChar>();
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
-  /** Placed furniture (type + tile) from the room state, for click hit-testing. */
-  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number }> = [];
+  /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
+  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number; name?: string }> = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -119,10 +119,10 @@ export class OfficeScene extends Phaser.Scene {
   /** Idle-fade clock for the chat (performance.now() ms); fades when idle. */
   private chatActiveUntil = 0;
   private chatFaded = false;
-  /** The conference monitor (anchor tile) this viewer has joined, or null. */
-  private myConference: { col: number; row: number } | null = null;
+  /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
+  private myConference: { col: number; row: number; name?: string } | null = null;
   /** A monitor we clicked and are walking toward (join finalizes on arrival). */
-  private pendingConference: { col: number; row: number } | null = null;
+  private pendingConference: { col: number; row: number; name?: string } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   private confPanel?: HTMLDivElement;
@@ -499,11 +499,11 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private rebuildFurniture(): void {
-    const arr = (this.room!.state as { furniture: Array<{ type: string; col: number; row: number }> })
-      .furniture;
-    const placements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row }));
-    this.furniturePlacements = placements;
-    this.furnitureArr = layoutToFurnitureInstances(placements);
+    const arr = (this.room!.state as {
+      furniture: Array<{ type: string; col: number; row: number; name?: string }>;
+    }).furniture;
+    this.furniturePlacements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row, name: f.name }));
+    this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }
 
   /** True if the tile is a sittable seat (a 'chairs'-category furniture tile,
@@ -522,12 +522,12 @@ export class OfficeScene extends Phaser.Scene {
 
   /** If the tile is covered by a conference monitor, its anchor tile (used as the
    *  monitor's stable id), else null. */
-  private conferenceAnchorAt(col: number, row: number): { col: number; row: number } | null {
+  private conferenceAnchorAt(col: number, row: number): { col: number; row: number; name?: string } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
       if (!entry?.conference) continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row };
+        return { col: f.col, row: f.row, name: f.name };
       }
     }
     return null;
@@ -1258,15 +1258,16 @@ export class OfficeScene extends Phaser.Scene {
   // ── Conference monitors (C-RTC) ──────────────────────────────────
 
   /** Join (or leave, if already in it) a conference monitor by its anchor tile. */
-  private async toggleConference(anchor: { col: number; row: number }): Promise<void> {
+  private async toggleConference(anchor: { col: number; row: number; name?: string }): Promise<void> {
     const key = `${anchor.col},${anchor.row}`;
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
-      this.room?.send('conferenceLeave', anchor);
+      this.room?.send('conferenceLeave', { col: anchor.col, row: anchor.row });
       this.leaveConferenceLocal();
       return;
     }
     // Confirm before joining (it turns your camera/mic on).
-    if (!(await confirmDialog('Join the conference at this monitor?', { confirmLabel: 'Join' }))) return;
+    const label = conferenceLabel(anchor.name, anchor.col, anchor.row);
+    if (!(await confirmDialog(`Join the conference “${label}”?`, { confirmLabel: 'Join' }))) return;
     // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
     // then we connect the media. Leave any current call.
     if (this.myConference) {
@@ -1274,7 +1275,7 @@ export class OfficeScene extends Phaser.Scene {
       this.leaveConferenceLocal();
     }
     this.pendingConference = { ...anchor };
-    this.room?.send('conferenceApproach', anchor);
+    this.room?.send('conferenceApproach', { col: anchor.col, row: anchor.row });
   }
 
   /** Tear down the local call (disconnect LiveKit) and clear our membership. */
@@ -1387,6 +1388,7 @@ export class OfficeScene extends Phaser.Scene {
     const key = `${this.myConference.col},${this.myConference.row}`;
     const members = this.conferenceMembers.get(key) ?? [];
     const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
+    const clabel = conferenceLabel(this.myConference.name, this.myConference.col, this.myConference.row);
     const st = this.confState;
     const status = st.error ? `<span class="err">${esc(st.error)}</span>` : st.connected ? '🟢 live' : '… connecting';
     // Device pickers — only when there's a choice (more than one of that kind).
@@ -1402,7 +1404,7 @@ export class OfficeScene extends Phaser.Scene {
       return `<select ${attr} title="${icon}">${opts}</select>`;
     };
     bar.innerHTML =
-      `<span>📹 <b>Conference</b> — ${esc(names)} · ${status}</span>` +
+      `<span>📹 <b>${esc(clabel)}</b> — ${esc(names)} · ${status}</span>` +
       (st.connected
         ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
           `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
