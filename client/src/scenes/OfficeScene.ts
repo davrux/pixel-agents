@@ -755,7 +755,7 @@ export class OfficeScene extends Phaser.Scene {
     let target = this.layoutListData.active;
     let fork = false;
     if (!this.isValidLayoutName(target)) {
-      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 40 });
+      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 32 });
       if (name === null) return; // cancelled → don't enter edit
       target = name.trim();
       if (!this.isValidLayoutName(target)) {
@@ -1164,7 +1164,7 @@ export class OfficeScene extends Phaser.Scene {
       };
     });
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = async () => {
-      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 40 });
+      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 32 });
       if (name) send('saveLayoutAs', { name, layout: this.os.getLayout() });
     };
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-default]')!.onclick = () =>
@@ -1194,7 +1194,7 @@ export class OfficeScene extends Phaser.Scene {
       `<h4>Zones</h4>${rows}` +
       `<div class="foot">
          <button data-arrive>📍 Set arrival point (this zone)</button>
-         <input id="pa-z-label" type="text" maxlength="40" placeholder="New zone name" />
+         <input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
          <div class="sz">
            <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
            <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
@@ -1239,7 +1239,7 @@ export class OfficeScene extends Phaser.Scene {
   private async editZoneDialog(id: string): Promise<void> {
     const z = this.zoneList.find((x) => x.id === id);
     if (!z) return;
-    const label = await promptDialog(`Rename zone "${z.label}":`, z.label, { maxLength: 40 });
+    const label = await promptDialog(`Rename zone "${z.label}":`, z.label, { maxLength: 32 });
     if (label === null) return;
     const name = label.trim();
     if (!name) {

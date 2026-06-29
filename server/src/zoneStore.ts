@@ -11,13 +11,13 @@
 import { DatabaseSync } from 'node:sqlite';
 
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
-import { ZONES, DEFAULT_ZONE, type ZoneConfig } from '@pixel/shared';
+import { ZONES, DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
 
 import { dataPath } from './paths.js';
 
 const DB_FILE = 'zones.db';
 const MIN_SIZE = 6;
-const LABEL_RE = /^[\x20-\x7e]{1,40}$/;
+const LABEL_RE = new RegExp(`^[\\x20-\\x7e]{1,${MAX_NAME_LEN}}$`);
 
 interface ZoneRow {
   id: string;
@@ -91,10 +91,11 @@ export class ZoneStore {
   /** Create a user zone from a label + initial size. Returns the new id, or null
    *  if the input is invalid. The id is a unique slug derived from the label. */
   create(label: string, cols: number, rows: number, now: number): string | null {
-    if (!LABEL_RE.test(label)) return null;
+    const clean = cleanName(label);
+    if (!LABEL_RE.test(clean)) return null;
     const c = this.clampSize(cols);
     const r = this.clampSize(rows);
-    const id = this.uniqueId(ZoneStore.slugify(label));
+    const id = this.uniqueId(ZoneStore.slugify(clean));
     const arrive = { col: Math.floor(c / 2), row: Math.floor(r / 2) };
     // New zones start with no NPCs (empty set) — you enable variants per zone.
     this.db
@@ -102,7 +103,7 @@ export class ZoneStore {
         `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc)
          VALUES(?,?,?,?,?,?,0,?,'[]')`,
       )
-      .run(id, label, arrive.col, arrive.row, c, r, now);
+      .run(id, clean, arrive.col, arrive.row, c, r, now);
     return id;
   }
 
@@ -118,7 +119,7 @@ export class ZoneStore {
   edit(id: string, patch: { label?: string; arrive?: { col: number; row: number } }): boolean {
     const r = this.db.prepare('SELECT * FROM zones WHERE id = ?').get(id) as ZoneRow | undefined;
     if (!r) return false;
-    const label = patch.label !== undefined ? patch.label : r.label;
+    const label = patch.label !== undefined ? cleanName(patch.label) : r.label;
     if (!LABEL_RE.test(label)) return false;
     const arriveCol = patch.arrive ? Math.floor(patch.arrive.col) : r.arrive_col;
     const arriveRow = patch.arrive ? Math.floor(patch.arrive.row) : r.arrive_row;

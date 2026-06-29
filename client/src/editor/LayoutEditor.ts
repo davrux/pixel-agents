@@ -28,6 +28,7 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog } from '../ui/dialog.js';
+import { cleanName, MAX_NAME_LEN } from '@pixel/shared/protocol';
 
 export interface EditorDeps {
   getLayout: () => OfficeLayout;
@@ -848,9 +849,9 @@ export class LayoutEditor {
     if (!this.layout || !this.selectedUid) return;
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
     if (!f || !getCatalogEntry(f.type)?.conference) return;
-    const input = await promptDialog('Monitor name (its conference room id):', f.name ?? '', { maxLength: 40 });
+    const input = await promptDialog('Monitor name (its conference room id):', f.name ?? '', { maxLength: MAX_NAME_LEN });
     if (input === null) return; // cancelled
-    const name = input.trim();
+    const name = cleanName(input);
     this.beginGesture();
     if (name) f.name = name;
     else delete f.name;

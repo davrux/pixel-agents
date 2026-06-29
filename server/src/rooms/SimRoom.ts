@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone, conferenceKey } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -323,8 +323,9 @@ export class SimRoom extends Room<RoomState> {
     });
 
     this.onMessage('saveLayoutAs', (_c, msg: { name?: string; layout?: Record<string, unknown> }) => {
-      if (typeof msg?.name === 'string' && msg.layout && LayoutStore.isValidUserName(msg.name)) {
-        this.store.saveAs(zone, msg.name, msg.layout, Date.now());
+      const name = cleanName(msg?.name);
+      if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
+        this.store.saveAs(zone, name, msg.layout, Date.now());
         this.applyActiveLayout();
       }
     });
@@ -615,7 +616,10 @@ export class SimRoom extends Room<RoomState> {
       npc?: unknown;
     };
     if (!d || typeof d !== 'object') return false;
-    if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
+    if (typeof d.name !== 'string') return false;
+    const name = cleanName(d.name); // trim + collapse whitespace + cap
+    d.name = name; // persisted on save
+    if (!/^[\x20-\x7e]{1,32}$/.test(name)) return false;
     const dims = { w: -1, h: -1 };
     const hex = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
     // Frame dimensions are capped at 64×64 (Stufe A); frame *count* per direction

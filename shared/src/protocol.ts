@@ -116,6 +116,16 @@ export type AgentEvent =
 /** The four Modern Interiors (free) characters, by index. */
 export const CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
 
+/** Max length for user-entered names (furniture/monitor, characters, zones,
+ *  layouts, …). Login/agent identity names keep their own 16-char convention. */
+export const MAX_NAME_LEN = 32;
+
+/** Normalise a user-entered name: collapse runs of whitespace to one space, trim
+ *  the ends, and cap at `max` chars. Use everywhere names are accepted. */
+export function cleanName(input: unknown, max: number = MAX_NAME_LEN): string {
+  return (typeof input === 'string' ? input : '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
 /** Stable identity of a conference monitor's call: its name (slugged) when set —
  *  so the room survives the monitor being moved — else its tile position. Shared
  *  by client + server so both agree on the key. */
