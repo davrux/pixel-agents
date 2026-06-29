@@ -129,6 +129,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Number of bundled (file) characters — indices >= it are user-added. */
   private charDefaultCount = 0;
   private topbar?: HTMLElement;
+  private menubar?: HTMLElement;
   private settingsBtn?: HTMLButtonElement;
   private layoutsBtn?: HTMLButtonElement;
   private layoutsPanel!: HTMLDivElement;
@@ -265,6 +266,9 @@ export class OfficeScene extends Phaser.Scene {
       // Mutually exclusive with the other top-bar popovers.
       requestToggle: () => this.setMenu(this.furnEditor.isOpen() ? null : 'furniture'),
     });
+    // Keep Help as the rightmost menu button, after the editor buttons appended
+    // their own entries above.
+    if (this.helpBtn && this.topbar) this.topbar.appendChild(this.helpBtn);
     this.setupInput();
     void this.open();
   }
@@ -875,6 +879,15 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /** Reveal/collapse the menu-button row behind the single ☰ toggle. Collapsing
+   *  also closes any open popover. */
+  private toggleMenu(): void {
+    if (!this.topbar) return;
+    const open = this.topbar.style.display !== 'none';
+    this.topbar.style.display = open ? 'none' : 'flex';
+    if (open) void this.setMenu(null);
+  }
+
   // ── Layouts panel (DOM overlay) ──────────────────────────────────
 
   private createLayoutsPanel(): void {
@@ -882,9 +895,12 @@ export class OfficeScene extends Phaser.Scene {
     style.textContent = `
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
       /* Top-right toolbar: a flex row so the buttons auto-space at any UI scale. */
-      #pa-topbar{position:fixed;top:0.5rem;right:0.5rem;z-index:60;display:flex;gap:0.5rem;}
-      #pa-topbar button,#pa-topbar select{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
+      /* One ☰ toggle (always visible) + a collapsible row of menu buttons. */
+      #pa-menubar{position:fixed;top:0.5rem;right:0.5rem;z-index:60;display:flex;gap:0.5rem;align-items:flex-start;}
+      #pa-topbar{display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:flex-end;max-width:78vw;}
+      #pa-menubar button,#pa-menubar select{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
         color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;white-space:nowrap;}
+      #pa-menu-toggle{flex:0 0 auto;}
       #pa-layouts{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
         background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
         padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
@@ -927,11 +943,23 @@ export class OfficeScene extends Phaser.Scene {
     document.head.appendChild(style);
 
     const host = document.getElementById('game') ?? document.body;
+    // A single ☰ toggle (always visible) reveals the menu-button row.
+    const menubar = document.createElement('div');
+    menubar.id = 'pa-menubar';
+    menubar.className = 'pa-ui';
     const topbar = document.createElement('div');
     topbar.id = 'pa-topbar';
     topbar.className = 'pa-ui';
-    host.appendChild(topbar);
+    topbar.style.display = 'none'; // collapsed by default
+    const toggle = document.createElement('button');
+    toggle.id = 'pa-menu-toggle';
+    toggle.textContent = '☰';
+    toggle.title = 'Menu';
+    toggle.onclick = () => this.toggleMenu();
+    menubar.append(topbar, toggle); // buttons to the left, ☰ on the right
+    host.appendChild(menubar);
     this.topbar = topbar;
+    this.menubar = menubar;
 
     // Zone switcher: pick a zone → reconnect to its room (reload-based; a walk-in
     // portal lands with the player). Options come from the live registry.
@@ -1360,7 +1388,7 @@ export class OfficeScene extends Phaser.Scene {
       const modal = document.getElementById('pa-modal');
       const znpc = document.getElementById('pa-znpc');
       if (
-        this.topbar?.contains(t) ||
+        this.menubar?.contains(t) ||
         this.settingsPanel?.contains(t) ||
         this.layoutsPanel?.contains(t) ||
         this.zonesPanel?.contains(t) ||
