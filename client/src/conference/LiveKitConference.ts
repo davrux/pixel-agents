@@ -47,6 +47,10 @@ export class LiveKitConference {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => this.removeTrack(pub.trackSid))
+      // Cam/mic off may mute (not unpublish) depending on version — hide/show the
+      // tile either way, so your own preview disappears the instant you toggle it.
+      .on(RoomEvent.TrackMuted, (pub) => this.setTileHidden(pub.trackSid, true))
+      .on(RoomEvent.TrackUnmuted, (pub) => this.setTileHidden(pub.trackSid, false))
       .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
@@ -134,6 +138,13 @@ export class LiveKitConference {
     overlay.append(video, tag, close);
     document.body.appendChild(overlay);
     this.overlays.set(sid, overlay);
+  }
+
+  /** Hide/show a track's tile (camera/video mute) without tearing it down. */
+  private setTileHidden(sid: string | undefined, hidden: boolean): void {
+    if (!sid) return;
+    const el = this.tiles.get(sid);
+    if (el) el.style.display = hidden ? 'none' : '';
   }
 
   private removeTrack(sid: string | undefined): void {
