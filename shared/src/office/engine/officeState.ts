@@ -112,6 +112,9 @@ export class OfficeState {
    *  that just stepped on one (drained by the room → destination picker). */
   private portalTiles: Set<string> = new Set();
   private pendingPortals: number[] = [];
+  /** Players who reached a conference monitor (walk-to-join), drained by the room
+   *  → conference membership. {id, key=monitor anchor "col,row"}. */
+  private pendingConferenceJoins: Array<{ id: number; key: string }> = [];
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -674,6 +677,7 @@ export class OfficeState {
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
+    ch.pendingConference = null; // …and a pending walk-to-monitor
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
@@ -697,6 +701,7 @@ export class OfficeState {
     }
     if (!seat) return false;
     ch.heldDir = null;
+    ch.pendingConference = null; // a click-to-sit cancels a pending walk-to-monitor
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
       ch.moveProgress = 0;
@@ -726,7 +731,10 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
-    if (dir !== null) ch.pendingSitFacing = null; // cancel a walk-to-seat
+    if (dir !== null) {
+      ch.pendingSitFacing = null; // cancel a walk-to-seat
+      ch.pendingConference = null; // …and a walk-to-monitor
+    }
     ch.heldDir = dir;
     // Drop a click-to-walk target so the key takes over, but keep the current
     // in-progress step so the avatar isn't stranded mid-tile.
@@ -743,6 +751,7 @@ export class OfficeState {
       ch.path = [];
       ch.heldDir = null;
       ch.pendingSitFacing = null;
+      ch.pendingConference = null;
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
@@ -798,6 +807,78 @@ export class OfficeState {
     return out;
   }
 
+  /** Drain players who reached a conference monitor this tick (room adds them to
+   *  the call). */
+  takePendingConferenceJoins(): Array<{ id: number; key: string }> {
+    if (this.pendingConferenceJoins.length === 0) return [];
+    const out = this.pendingConferenceJoins;
+    this.pendingConferenceJoins = [];
+    return out;
+  }
+
+  /** Walk a player to a free tile in front of a conference monitor (anchor tile),
+   *  facing it, then queue them to join on arrival. Joins in place if already
+   *  adjacent or if nowhere to stand. Returns false if there's no furniture there. */
+  walkPlayerToConference(id: number, anchorCol: number, anchorRow: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    const item = this.layout.furniture.find((f) => f.col === anchorCol && f.row === anchorRow);
+    if (!item) return false;
+    const entry = getCatalogEntry(item.type);
+    const fw = entry?.footprintW ?? 1;
+    const fh = entry?.footprintH ?? 1;
+    const key = `${anchorCol},${anchorRow}`;
+    ch.heldDir = null;
+    ch.pendingSitFacing = null;
+
+    // Walkable orthogonal neighbours of the footprint, each facing the monitor.
+    const seen = new Set<string>();
+    const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
+    for (let dr = 0; dr < fh; dr++) {
+      for (let dc = 0; dc < fw; dc++) {
+        const fc = item.col + dc;
+        const fr = item.row + dr;
+        const cands: Array<[number, number, Direction]> = [
+          [fc, fr - 1, Direction.DOWN],
+          [fc, fr + 1, Direction.UP],
+          [fc - 1, fr, Direction.RIGHT],
+          [fc + 1, fr, Direction.LEFT],
+        ];
+        for (const [nc, nr, facing] of cands) {
+          const k = `${nc},${nr}`;
+          const inFoot = nc >= item.col && nc < item.col + fw && nr >= item.row && nr < item.row + fh;
+          if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
+          seen.add(k);
+          approaches.push({ col: nc, row: nr, facing });
+        }
+      }
+    }
+
+    const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
+    if (here || approaches.length === 0) {
+      if (here) ch.dir = here.facing;
+      ch.pendingConference = null;
+      this.pendingConferenceJoins.push({ id, key }); // already in place → join now
+      return true;
+    }
+    let best: { path: Array<{ col: number; row: number }>; facing: Direction } | null = null;
+    for (const a of approaches) {
+      const path = findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles);
+      if (path.length === 0) continue;
+      if (!best || path.length < best.path.length) best = { path, facing: a.facing };
+    }
+    if (!best) {
+      ch.pendingConference = null;
+      this.pendingConferenceJoins.push({ id, key }); // unreachable approach → join in place
+      return true;
+    }
+    ch.path = best.path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.pendingConference = { key, facing: best.facing };
+    return true;
+  }
+
   /** Advance a player's avatar: click-to-walk feeds a path; WASD feeds a held
    *  direction that steps tile-by-tile (chained so it doesn't stutter). */
   private updatePlayerMovement(ch: Character, dt: number): void {
@@ -817,7 +898,13 @@ export class OfficeState {
       // Chain the next held step so continuous walking has no per-tile idle frame.
       this.tryStepHeldDir(ch);
       if (ch.path.length === 0) {
-        if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
+        if (ch.pendingConference) {
+          // Reached a conference monitor → face it + queue the join (room adds us).
+          ch.dir = ch.pendingConference.facing;
+          ch.state = CharacterState.IDLE;
+          this.pendingConferenceJoins.push({ id: ch.id, key: ch.pendingConference.key });
+          ch.pendingConference = null;
+        } else if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
           // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
           ch.dir = ch.pendingSitFacing;
           ch.state = CharacterState.SIT;

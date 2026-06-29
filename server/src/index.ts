@@ -1,7 +1,8 @@
 import { createServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
@@ -11,7 +12,16 @@ import express from 'express';
 import { WORLD_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
+import { dataPath } from './paths.js';
 import { registerAuth } from './auth.js';
+
+// Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
+// Node's built-in loader (no dependency). Missing file is fine.
+try {
+  process.loadEnvFile(fileURLToPath(new URL('../../.env', import.meta.url)));
+} catch {
+  /* no .env present */
+}
 import { SimRoom } from './rooms/SimRoom.js';
 import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';
@@ -53,7 +63,17 @@ async function main(): Promise<void> {
     console.log(`[server] serving client build from ${clientDist}`);
   }
 
-  const httpServer = createServer(app);
+  // TLS: if a cert + key are present in the data dir (alongside the SQLite DB),
+  // serve HTTPS/WSS — required for camera/mic/screen-share (secure context) and
+  // used for dev + first-step production. Falls back to plain HTTP otherwise
+  // (e.g. behind a TLS-terminating reverse proxy). Override paths with
+  // PIXEL_TLS_CERT / PIXEL_TLS_KEY (e.g. later for Let's Encrypt).
+  const certPath = process.env.PIXEL_TLS_CERT || dataPath('cert.pem');
+  const keyPath = process.env.PIXEL_TLS_KEY || dataPath('key.pem');
+  const useTls = existsSync(certPath) && existsSync(keyPath);
+  const httpServer = useTls
+    ? createHttpsServer({ cert: readFileSync(certPath), key: readFileSync(keyPath) }, app)
+    : createServer(app);
   // ws-transport defaults maxPayload to 4 KB — far too small for saved layouts
   // (an expanded office with per-tile colours) and asset-editor saves (a single
   // character is ~100 KB of SpriteData). Editor ops are authenticated, so allow
@@ -70,7 +90,9 @@ async function main(): Promise<void> {
   attachFeedServer(httpServer, TOKEN);
 
   httpServer.listen(PORT, HOST, () => {
-    console.log(`[server] listening on ${HOST}:${PORT} (viewer + Colyseus + /feed)`);
+    const scheme = useTls ? 'https' : 'http';
+    console.log(`[server] listening on ${scheme}://${HOST}:${PORT} (viewer + Colyseus + /feed)`);
+    if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
   });
 
   if (MOCK > 0) startMockDriver(MOCK);

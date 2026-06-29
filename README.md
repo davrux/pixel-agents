@@ -113,3 +113,9 @@ and waiting bubbles, sub-agents, team colours, and pets.
 Not yet ported: the in-browser layout **editor**, the per-pixel **matrix**
 spawn/despawn effect (currently a fade), and furniture auto-on/animation
 (furniture renders in its default state). These are deferred.
+
+## Credits
+
+The character/world art is based on the amazing work of **JIK-A-4 — Metro City**
+(free top-down character pack):
+<https://jik-a-4.itch.io/metrocity-free-topdown-character-pack>.

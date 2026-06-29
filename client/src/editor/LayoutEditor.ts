@@ -27,6 +27,8 @@ import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
+import { promptDialog } from '../ui/dialog.js';
+import { cleanName, MAX_NAME_LEN } from '@pixel/shared/protocol';
 
 export interface EditorDeps {
   getLayout: () => OfficeLayout;
@@ -105,6 +107,7 @@ export class LayoutEditor {
   private rotateBtn!: HTMLButtonElement;
   private actionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
+  private nameBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
@@ -840,6 +843,22 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout!, true);
   }
 
+  /** Name the selected conference monitor — its name becomes the stable call/room
+   *  id (so it survives the monitor being moved). Empty clears it. */
+  private async nameSelected(): Promise<void> {
+    if (!this.layout || !this.selectedUid) return;
+    const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+    if (!f || !getCatalogEntry(f.type)?.conference) return;
+    const input = await promptDialog('Monitor name (its conference room id):', f.name ?? '', { maxLength: MAX_NAME_LEN });
+    if (input === null) return; // cancelled
+    const name = cleanName(input);
+    this.beginGesture();
+    if (name) f.name = name;
+    else delete f.name;
+    this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
+  }
+
   private deleteSelected(): void {
     if (!this.layout || !this.selectedUid) return;
     const i = this.layout.furniture.findIndex((x) => x.uid === this.selectedUid);
@@ -884,6 +903,7 @@ export class LayoutEditor {
     this.actionBar.style.top = `${Math.round(sy)}px`;
     this.actionBar.style.display = 'flex';
     this.rotateBtnInBar.style.display = isRotatable(f.type) ? 'inline-block' : 'none';
+    this.nameBtnInBar.style.display = e.conference ? 'inline-block' : 'none';
   }
 
   // ── Color ────────────────────────────────────────────────────────
@@ -1108,9 +1128,10 @@ export class LayoutEditor {
       return b;
     };
     this.rotateBtnInBar = mkAct('⟳', 'Rotate (R)', () => this.rotateSelected());
+    this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
     const delBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelected());
     delBtn.style.borderColor = '#7a3a3a';
-    this.actionBar.append(this.rotateBtnInBar, delBtn);
+    this.actionBar.append(this.rotateBtnInBar, this.nameBtnInBar, delBtn);
     host.appendChild(this.actionBar);
 
     this.selectTool('select');

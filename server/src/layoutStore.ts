@@ -22,7 +22,7 @@ export const DEFAULT_ZONE_ID = 'office';
 
 const DB_FILE = 'layouts.db';
 /** Printable ASCII, but never '/' (reserved as the zone/name separator). */
-const NAME_RE = /^[\x20-\x2e\x30-\x7e]{1,40}$/;
+const NAME_RE = /^[\x20-\x2e\x30-\x7e]{1,32}$/;
 
 export interface LayoutListEntry {
   name: string;

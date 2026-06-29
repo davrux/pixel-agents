@@ -206,6 +206,9 @@ export interface FurnitureCatalogEntry {
   /** Whether this furniture is a zone portal (door / beam pad): walking to it
    *  offers a destination picker. */
   portal?: boolean;
+  /** Whether this furniture is a conference monitor: clicking it joins a
+   *  per-monitor video call (WebRTC). */
+  conference?: boolean;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
@@ -225,6 +228,8 @@ export interface PlacedFurniture {
   row: number;
   /** Optional color override for furniture */
   color?: ColorValue;
+  /** Optional instance name (e.g. a conference monitor's stable room name). */
+  name?: string;
 }
 
 export interface OfficeLayout {
@@ -300,6 +305,9 @@ export interface Character {
   /** When walking to a seat (click-to-sit), the direction to face on arrival;
    *  null = no pending sit. Server-only intent. */
   pendingSitFacing?: Direction | null;
+  /** When walking to a conference monitor, the monitor key to join + the facing
+   *  on arrival; null = none. Server-only intent. */
+  pendingConference?: { key: string; facing: Direction } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

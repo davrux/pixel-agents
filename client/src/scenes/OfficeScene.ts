@@ -31,6 +31,7 @@ import {
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { LiveKitConference, type ConferenceState, type ConferenceDevices } from '../conference/LiveKitConference.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -40,7 +41,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
-import { DEFAULT_ZONE, ZONES, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, conferenceLabel, type ZoneConfig } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -106,8 +107,8 @@ export class OfficeScene extends Phaser.Scene {
   private readonly characters = new Map<number, RenderChar>();
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
-  /** Placed furniture (type + tile) from the room state, for click hit-testing. */
-  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number }> = [];
+  /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
+  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number; name?: string }> = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -118,6 +119,19 @@ export class OfficeScene extends Phaser.Scene {
   /** Idle-fade clock for the chat (performance.now() ms); fades when idle. */
   private chatActiveUntil = 0;
   private chatFaded = false;
+  /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
+  private myConference: { col: number; row: number; name?: string } | null = null;
+  /** A monitor we clicked and are walking toward (join finalizes on arrival). */
+  private pendingConference: { col: number; row: number; name?: string } | null = null;
+  /** Conference rosters by "col,row" anchor key (from the server). */
+  private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
+  private confPanel?: HTMLDivElement;
+  private confGrid?: HTMLDivElement;
+  private confBar?: HTMLDivElement;
+  /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
+  private conf?: LiveKitConference;
+  private confState: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
+  private confDevices: ConferenceDevices = { cameras: [], mics: [] };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -222,6 +236,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createLayoutsPanel();
     this.createSettingsPanel();
     this.createChat();
+    this.createConferencePanel();
     this.charEditor = new CharacterEditor({
       categories: [
         {
@@ -315,6 +330,8 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
+        else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
+        else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our chosen skin/name onto the fresh avatar.
@@ -482,11 +499,11 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private rebuildFurniture(): void {
-    const arr = (this.room!.state as { furniture: Array<{ type: string; col: number; row: number }> })
-      .furniture;
-    const placements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row }));
-    this.furniturePlacements = placements;
-    this.furnitureArr = layoutToFurnitureInstances(placements);
+    const arr = (this.room!.state as {
+      furniture: Array<{ type: string; col: number; row: number; name?: string }>;
+    }).furniture;
+    this.furniturePlacements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row, name: f.name }));
+    this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }
 
   /** True if the tile is a sittable seat (a 'chairs'-category furniture tile,
@@ -501,6 +518,19 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
     return false;
+  }
+
+  /** If the tile is covered by a conference monitor, its anchor tile (used as the
+   *  monitor's stable id), else null. */
+  private conferenceAnchorAt(col: number, row: number): { col: number; row: number; name?: string } | null {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.conference) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row, name: f.name };
+      }
+    }
+    return null;
   }
 
   private onLayout(layout: OfficeLayout): void {
@@ -602,7 +632,12 @@ export class OfficeScene extends Phaser.Scene {
           if (this.myPlayerId !== null && p.leftButtonReleased()) {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
-            this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
+            const conf = this.conferenceAnchorAt(col, row);
+            if (conf) void this.toggleConference(conf);
+            else {
+              this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
+              this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
+            }
           }
         }
       }
@@ -720,7 +755,7 @@ export class OfficeScene extends Phaser.Scene {
     let target = this.layoutListData.active;
     let fork = false;
     if (!this.isValidLayoutName(target)) {
-      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 40 });
+      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 32 });
       if (name === null) return; // cancelled → don't enter edit
       target = name.trim();
       if (!this.isValidLayoutName(target)) {
@@ -1129,7 +1164,7 @@ export class OfficeScene extends Phaser.Scene {
       };
     });
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = async () => {
-      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 40 });
+      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 32 });
       if (name) send('saveLayoutAs', { name, layout: this.os.getLayout() });
     };
     this.layoutsPanel.querySelector<HTMLButtonElement>('[data-default]')!.onclick = () =>
@@ -1159,7 +1194,7 @@ export class OfficeScene extends Phaser.Scene {
       `<h4>Zones</h4>${rows}` +
       `<div class="foot">
          <button data-arrive>📍 Set arrival point (this zone)</button>
-         <input id="pa-z-label" type="text" maxlength="40" placeholder="New zone name" />
+         <input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
          <div class="sz">
            <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
            <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
@@ -1204,7 +1239,7 @@ export class OfficeScene extends Phaser.Scene {
   private async editZoneDialog(id: string): Promise<void> {
     const z = this.zoneList.find((x) => x.id === id);
     if (!z) return;
-    const label = await promptDialog(`Rename zone "${z.label}":`, z.label, { maxLength: 40 });
+    const label = await promptDialog(`Rename zone "${z.label}":`, z.label, { maxLength: 32 });
     if (label === null) return;
     const name = label.trim();
     if (!name) {
@@ -1218,6 +1253,177 @@ export class OfficeScene extends Phaser.Scene {
   private async offerJumpToNewZone(id: string): Promise<void> {
     if (!isZoneId(id)) return;
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
+  }
+
+  // ── Conference monitors (C-RTC) ──────────────────────────────────
+
+  /** Join (or leave, if already in it) a conference monitor by its anchor tile. */
+  private async toggleConference(anchor: { col: number; row: number; name?: string }): Promise<void> {
+    const key = `${anchor.col},${anchor.row}`;
+    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
+      this.room?.send('conferenceLeave', { col: anchor.col, row: anchor.row });
+      this.leaveConferenceLocal();
+      return;
+    }
+    // Confirm before joining (it turns your camera/mic on).
+    const label = conferenceLabel(anchor.name, anchor.col, anchor.row);
+    if (!(await confirmDialog(`Join the conference “${label}”?`, { confirmLabel: 'Join' }))) return;
+    // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
+    // then we connect the media. Leave any current call.
+    if (this.myConference) {
+      this.room?.send('conferenceLeave', this.myConference);
+      this.leaveConferenceLocal();
+    }
+    this.pendingConference = { ...anchor };
+    this.room?.send('conferenceApproach', { col: anchor.col, row: anchor.row });
+  }
+
+  /** Tear down the local call (disconnect LiveKit) and clear our membership. */
+  private leaveConferenceLocal(): void {
+    this.myConference = null;
+    this.pendingConference = null;
+    void this.conf?.disconnect();
+    this.conf = undefined;
+    this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
+    this.confDevices = { cameras: [], mics: [] };
+    this.renderConferencePanel();
+  }
+
+  private onConferenceMembers(m: Record<string, unknown>): void {
+    const key = `${m.col},${m.row}`;
+    const members = (m.members as Array<{ id: number; name: string }>) ?? [];
+    if (members.length) this.conferenceMembers.set(key, members);
+    else this.conferenceMembers.delete(key);
+    const iAmIn = this.myPlayerId !== null && members.some((p) => p.id === this.myPlayerId);
+    // Arrived + joined by the server (walk-to-monitor) → connect our media now.
+    if (
+      iAmIn &&
+      !this.myConference &&
+      this.pendingConference &&
+      `${this.pendingConference.col},${this.pendingConference.row}` === key
+    ) {
+      this.myConference = this.pendingConference;
+      this.pendingConference = null;
+      this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
+      this.room?.send('conferenceToken', this.myConference); // → media
+    }
+    // If the server dropped us from our call (despawn, zone change, …), tear down.
+    if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key && !iAmIn) {
+      this.leaveConferenceLocal();
+      return;
+    }
+    this.renderConferencePanel();
+  }
+
+  /** Server minted a LiveKit token (or reported it's unconfigured). Connect the
+   *  media for the call we're currently in. */
+  private onConferenceToken(m: Record<string, unknown>): void {
+    if (!this.myConference || `${this.myConference.col},${this.myConference.row}` !== `${m.col},${m.row}`) return;
+    if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
+      this.confState = { ...this.confState, error: 'Video not configured on the server.' };
+      this.renderConferencePanel();
+      return;
+    }
+    if (!this.confGrid) return;
+    this.conf = new LiveKitConference(
+      this.confGrid,
+      (s) => {
+        this.confState = s;
+        this.renderConferencePanel();
+      },
+      (d) => {
+        this.confDevices = d;
+        this.renderConferencePanel();
+      },
+    );
+    void this.conf.connect(m.url as string, m.token as string).catch(() => {
+      /* connect() reports via the state callback */
+    });
+  }
+
+  private createConferencePanel(): void {
+    const style = document.createElement('style');
+    style.textContent = `
+      #pa-conf{position:fixed;left:50%;bottom:0.5rem;transform:translateX(-50%);z-index:56;display:none;
+        flex-direction:column;gap:0.4rem;max-width:92vw;background:rgba(20,24,33,.92);border:2px solid #3a4150;
+        border-radius:0.5rem;color:#eef1f6;padding:0.5rem 0.6rem;font:1rem 'FS Pixel Sans',monospace;}
+      #pa-conf-grid{display:flex;flex-wrap:wrap;gap:0.4rem;justify-content:center;max-height:42vh;overflow:auto;}
+      #pa-conf-bar{display:flex;align-items:center;gap:0.6rem;justify-content:center;}
+      #pa-conf-bar b{color:#9ad0ff;}
+      #pa-conf-bar .err{color:#ff9a9a;}
+      #pa-conf-bar button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
+      #pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
+      #pa-conf-bar button.off{opacity:0.55;}
+      #pa-conf-bar button.active{background:#2f6f3a;border-color:#3f8f4a;color:#fff;}
+      #pa-conf-bar select{max-width:11rem;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
+    `;
+    document.head.appendChild(style);
+    const panel = document.createElement('div');
+    panel.id = 'pa-conf';
+    panel.className = 'pa-ui';
+    const grid = document.createElement('div');
+    grid.id = 'pa-conf-grid'; // LiveKitConference attaches video tiles here
+    const bar = document.createElement('div');
+    bar.id = 'pa-conf-bar';
+    panel.append(grid, bar);
+    (document.getElementById('game') ?? document.body).appendChild(panel);
+    this.confPanel = panel;
+    this.confGrid = grid;
+    this.confBar = bar;
+  }
+
+  /** Update the conference bar (roster + cam/mic/leave) + panel visibility. The
+   *  video grid is managed live by LiveKitConference and never rebuilt here. */
+  private renderConferencePanel(): void {
+    const panel = this.confPanel;
+    const bar = this.confBar;
+    if (!panel || !bar) return;
+    if (!this.myConference) {
+      panel.style.display = 'none';
+      bar.innerHTML = '';
+      return;
+    }
+    const key = `${this.myConference.col},${this.myConference.row}`;
+    const members = this.conferenceMembers.get(key) ?? [];
+    const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
+    const clabel = conferenceLabel(this.myConference.name, this.myConference.col, this.myConference.row);
+    const st = this.confState;
+    const status = st.error ? `<span class="err">${esc(st.error)}</span>` : st.connected ? '🟢 live' : '… connecting';
+    // Device pickers — only when there's a choice (more than one of that kind).
+    const d = this.confDevices;
+    const picker = (icon: string, attr: string, list: MediaDeviceInfo[], active?: string): string => {
+      if (list.length < 2) return '';
+      const opts = list
+        .map((dev, i) => {
+          const sel = dev.deviceId === active ? ' selected' : '';
+          return `<option value="${esc(dev.deviceId)}"${sel}>${esc(dev.label || `${icon} ${i + 1}`)}</option>`;
+        })
+        .join('');
+      return `<select ${attr} title="${icon}">${opts}</select>`;
+    };
+    bar.innerHTML =
+      `<span>📹 <b>${esc(clabel)}</b> — ${esc(names)} · ${status}</span>` +
+      (st.connected
+        ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
+          `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
+          `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>` +
+          picker('📷', 'data-camsel', d.cameras, d.camId) +
+          picker('🎙', 'data-micsel', d.mics, d.micId)
+        : '') +
+      `<button data-leave class="leave">Leave</button>`;
+    bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
+      if (this.myConference) void this.toggleConference(this.myConference);
+    };
+    bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
+    bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
+    bar.querySelector<HTMLButtonElement>('[data-screen]')?.addEventListener('click', () => void this.conf?.toggleScreen());
+    bar.querySelector<HTMLSelectElement>('[data-camsel]')?.addEventListener('change', (e) =>
+      void this.conf?.switchCamera((e.target as HTMLSelectElement).value));
+    bar.querySelector<HTMLSelectElement>('[data-micsel]')?.addEventListener('change', (e) =>
+      void this.conf?.switchMic((e.target as HTMLSelectElement).value));
+    panel.style.display = 'flex';
   }
 
   /** Per-zone NPC editor: which pet variants spawn in this zone. Checkboxes come

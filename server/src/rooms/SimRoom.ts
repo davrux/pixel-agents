@@ -1,6 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
+import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -8,7 +9,7 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared
 import { Direction, PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import {
   createBlankZoneLayout,
   createPlazaLayout,
@@ -60,6 +61,8 @@ export class SimRoom extends Room<RoomState> {
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
   private readonly chatLog: Array<{ from: string; text: string }> = [];
   private readonly lastChatAt = new Map<string, number>();
+  /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
+  private readonly conferences = new Map<string, Set<number>>();
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
@@ -153,6 +156,7 @@ export class SimRoom extends Room<RoomState> {
     client.send('m', this.layoutListMessage());
     client.send('m', this.zoneListMessage());
     client.send('m', { type: 'chatHistory', messages: this.chatLog });
+    for (const key of this.conferences.keys()) client.send('m', this.conferenceMembersMsg(key));
 
     // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
@@ -188,10 +192,40 @@ export class SimRoom extends Room<RoomState> {
       const username = (client.auth as { username?: string } | undefined)?.username ?? '';
       const ch = this.os.getCharacter(playerId);
       if (username && ch) appStore.setPlayerPos(username, this.zone.id, ch.tileCol, ch.tileRow);
+      this.leaveAllConferences(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }
     this.lastChatAt.delete(client.sessionId);
+  }
+
+  /** Whether a conference monitor is placed with its anchor at this tile. */
+  private hasConferenceAt(col: number, row: number): boolean {
+    for (const item of this.os.getLayout().furniture) {
+      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.conference) return true;
+    }
+    return false;
+  }
+
+  /** Current members of a conference (by "col,row" key), for broadcast. */
+  private conferenceMembersMsg(key: string): Record<string, unknown> {
+    const [col, row] = key.split(',').map(Number);
+    const ids = this.conferences.get(key) ?? new Set<number>();
+    const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
+    return { type: 'conferenceMembers', col, row, members };
+  }
+
+  /** Remove a player from one conference (by key) + broadcast the new roster. */
+  private leaveConference(playerId: number, key: string): void {
+    const set = this.conferences.get(key);
+    if (!set || !set.delete(playerId)) return;
+    if (set.size === 0) this.conferences.delete(key);
+    this.broadcast('m', this.conferenceMembersMsg(key));
+  }
+
+  /** Remove a player from every conference (on leave / despawn / zone change). */
+  private leaveAllConferences(playerId: number): void {
+    for (const key of [...this.conferences.keys()]) this.leaveConference(playerId, key);
   }
 
   /** Display name for a chatter: their avatar's name, else login username, else Guest. */
@@ -289,8 +323,9 @@ export class SimRoom extends Room<RoomState> {
     });
 
     this.onMessage('saveLayoutAs', (_c, msg: { name?: string; layout?: Record<string, unknown> }) => {
-      if (typeof msg?.name === 'string' && msg.layout && LayoutStore.isValidUserName(msg.name)) {
-        this.store.saveAs(zone, msg.name, msg.layout, Date.now());
+      const name = cleanName(msg?.name);
+      if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
+        this.store.saveAs(zone, name, msg.layout, Date.now());
         this.applyActiveLayout();
       }
     });
@@ -312,6 +347,54 @@ export class SimRoom extends Room<RoomState> {
       this.chatLog.push({ from, text });
       if (this.chatLog.length > 50) this.chatLog.shift();
       this.broadcast('m', { type: 'chat', from, text, id });
+    });
+
+    // ── Conference monitors: click a monitor → join/leave its video call. The
+    // monitor is identified by its anchor tile (stable, shared with the client). ──
+    // Click a monitor → walk the avatar in front of it, then join on arrival.
+    this.onMessage('conferenceApproach', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
+      this.os.walkPlayerToConference(id, col, row);
+    });
+
+    this.onMessage('conferenceLeave', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      this.leaveConference(id, `${Math.floor(Number(msg?.col))},${Math.floor(Number(msg?.row))}`);
+    });
+
+    // Mint a LiveKit access token for a monitor's call — only for a player who
+    // has actually joined that monitor (server-authoritative gate). The room name
+    // is shared by everyone at the same monitor in this zone.
+    this.onMessage('conferenceToken', async (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      const key = `${col},${row}`;
+      if (!this.conferences.get(key)?.has(id)) return; // not a member → no token
+      const url = process.env.LIVEKIT_URL;
+      const apiKey = process.env.LIVEKIT_API_KEY;
+      const apiSecret = process.env.LIVEKIT_API_SECRET;
+      if (!url || !apiKey || !apiSecret) {
+        client.send('m', { type: 'conferenceToken', col, row, error: 'not-configured' });
+        return;
+      }
+      // Stable room from the monitor's name when set (survives moving it), else
+      // its position. Sanitised to LiveKit's allowed room-name characters.
+      const monitor = this.os
+        .getLayout()
+        .furniture.find((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.conference);
+      const room = `${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`.replace(/[^A-Za-z0-9_-]/g, '-');
+      const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
+      const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
+      at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+      const token = await at.toJwt();
+      client.send('m', { type: 'conferenceToken', col, row, url, token, room });
     });
 
     // ── Zone registry (create / edit / delete; everyone may, office protected) ──
@@ -422,6 +505,7 @@ export class SimRoom extends Room<RoomState> {
         // Tell the client its new avatar id so it can control it without a reload.
         client.send('m', { type: 'playerSpawned', playerId: id });
       } else if (!visible && existing !== undefined) {
+        this.leaveAllConferences(existing);
         this.os.removePlayer(existing);
         this.players.delete(client.sessionId);
         client.send('m', { type: 'playerSpawned', playerId: null });
@@ -471,6 +555,7 @@ export class SimRoom extends Room<RoomState> {
       if (id === undefined) return;
       // The client reloads into the target zone with the arrival flag set, so the
       // target room's onJoin lands the player at its arrival tile.
+      this.leaveAllConferences(id);
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
       client.send('m', { type: 'zoneTransition', zone: target.id });
@@ -531,7 +616,10 @@ export class SimRoom extends Room<RoomState> {
       npc?: unknown;
     };
     if (!d || typeof d !== 'object') return false;
-    if (typeof d.name !== 'string' || !/^[\x20-\x7e]{1,16}$/.test(d.name)) return false;
+    if (typeof d.name !== 'string') return false;
+    const name = cleanName(d.name); // trim + collapse whitespace + cap
+    d.name = name; // persisted on save
+    if (!/^[\x20-\x7e]{1,32}$/.test(name)) return false;
     const dims = { w: -1, h: -1 };
     const hex = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
     // Frame dimensions are capped at 64×64 (Stufe A); frame *count* per direction
@@ -676,6 +764,7 @@ export class SimRoom extends Room<RoomState> {
   private tick(dt: number): void {
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
+    this.handleConferenceArrivals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
@@ -692,6 +781,19 @@ export class SimRoom extends Room<RoomState> {
         .filter((z) => z.id !== this.zone.id)
         .map((z) => ({ id: z.id, label: z.label }));
       if (zones.length) client.send('m', { type: 'portalOptions', zones });
+    }
+  }
+
+  /** Players who reached a conference monitor this tick → add them to its call. */
+  private handleConferenceArrivals(): void {
+    for (const { id, key } of this.os.takePendingConferenceJoins()) {
+      let set = this.conferences.get(key);
+      if (!set) {
+        set = new Set();
+        this.conferences.set(key, set);
+      }
+      set.add(id);
+      this.broadcast('m', this.conferenceMembersMsg(key));
     }
   }
 
@@ -779,6 +881,7 @@ export class SimRoom extends Room<RoomState> {
       fs.type = p.type;
       fs.col = p.col;
       fs.row = p.row;
+      fs.name = p.name ?? '';
       this.state.furniture.push(fs);
     }
   }

@@ -29,8 +29,9 @@ export interface CharacterEditorOpts {
 function sanitizeName(raw: string): string {
   return raw
     .replace(/[^\x20-\x7e]/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, 16);
+    .slice(0, 32);
 }
 
 const CELL = 13; // baseline on-screen pixels per sprite pixel (scaled down for large frames)
@@ -379,7 +380,7 @@ export class CharacterEditor {
       </div>
       <div id="pa-c-edit" style="display:none">
         <div class="row"><button id="pa-c-back">← Back</button>
-          <input id="pa-c-name" type="text" maxlength="16" placeholder="char name" style="flex:1;min-width:0;"></div>
+          <input id="pa-c-name" type="text" maxlength="32" placeholder="char name" style="flex:1;min-width:0;"></div>
         <div class="row"><span class="sizelabel">Size</span>
           <input id="pa-c-w" type="number" min="1" max="64"><span class="sizelabel">×</span>
           <input id="pa-c-h" type="number" min="1" max="64">

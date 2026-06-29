@@ -116,6 +116,34 @@ export type AgentEvent =
 /** The four Modern Interiors (free) characters, by index. */
 export const CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
 
+/** Max length for user-entered names (furniture/monitor, characters, zones,
+ *  layouts, …). Login/agent identity names keep their own 16-char convention. */
+export const MAX_NAME_LEN = 32;
+
+/** Normalise a user-entered name: collapse runs of whitespace to one space, trim
+ *  the ends, and cap at `max` chars. Use everywhere names are accepted. */
+export function cleanName(input: unknown, max: number = MAX_NAME_LEN): string {
+  return (typeof input === 'string' ? input : '').replace(/\s+/g, ' ').trim().slice(0, max);
+}
+
+/** Stable identity of a conference monitor's call: its name (slugged) when set —
+ *  so the room survives the monitor being moved — else its tile position. Shared
+ *  by client + server so both agree on the key. */
+export function conferenceKey(name: string | undefined, col: number, row: number): string {
+  const slug = (name ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32);
+  return slug ? `n:${slug}` : `p:${col},${row}`;
+}
+
+/** Human-readable label for a conference monitor (its name, else its position). */
+export function conferenceLabel(name: string | undefined, col: number, row: number): string {
+  return (name ?? '').trim() || `Monitor (${col}, ${row})`;
+}
+
 /** Cheap deterministic string hash (FNV-1a). */
 export function hashString(s: string): number {
   let h = 0x811c9dc5;
