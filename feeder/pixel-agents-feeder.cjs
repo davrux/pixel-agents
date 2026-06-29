@@ -12,6 +12,7 @@
  * Usage (node feeder/pixel-agents-feeder.cjs ...):
  *   node feeder/pixel-agents-feeder.cjs --server ws://<server>:6161/feed \
  *        --user <name> --token <AUTH-TOKEN> [--root <dir>] [--interval 1000]
+ *        [--insecure]   # accept a self-signed cert on a wss:// server (dev only)
  *
  * Env alternatives: PIXEL_SERVER_URL, PIXEL_USER, PIXEL_STREAM_TOKEN,
  *                    PIXEL_PROJECTS_ROOT, PIXEL_FEED_INTERVAL, PIXEL_FEED_MAXAGE
@@ -25,6 +26,9 @@ function arg(name, def) {
   const i = process.argv.indexOf(name);
   return i !== -1 && process.argv[i + 1] ? process.argv[i + 1] : def;
 }
+function flag(name) {
+  return process.argv.includes(name);
+}
 
 const SERVER = arg('--server', process.env.PIXEL_SERVER_URL || '');
 const USER = arg('--user', process.env.PIXEL_USER || os.hostname()).slice(0, 16);
@@ -32,6 +36,14 @@ const TOKEN = arg('--token', process.env.PIXEL_STREAM_TOKEN || '');
 const ROOT = arg('--root', process.env.PIXEL_PROJECTS_ROOT || path.join(os.homedir(), '.claude', 'projects'));
 const INTERVAL = parseInt(arg('--interval', process.env.PIXEL_FEED_INTERVAL || '1000'), 10);
 const MAXAGE = parseInt(arg('--maxage', process.env.PIXEL_FEED_MAXAGE || '600000'), 10);
+// --insecure: accept a self-signed TLS cert on the (wss) --server. Scoped to this
+// feeder process only (it talks to nothing but our server). Dev use only — for
+// real deployments use a trusted cert (Let's Encrypt / mkcert) instead.
+const INSECURE = flag('--insecure') || process.env.PIXEL_FEED_INSECURE === '1';
+if (INSECURE) {
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  console.warn('[client] WARNING: --insecure — TLS certificate verification disabled (self-signed dev only).');
+}
 
 if (!SERVER || !TOKEN) {
   console.error('[client] ERROR: --server <ws-url> and --token <t> are required (or PIXEL_SERVER_URL/PIXEL_STREAM_TOKEN).');
