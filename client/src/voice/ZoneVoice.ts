@@ -51,6 +51,13 @@ export interface ZoneVoiceState {
   error?: string;
 }
 
+export interface ZoneVoiceDevices {
+  mics: MediaDeviceInfo[];
+  speakers: MediaDeviceInfo[];
+  micId?: string;
+  speakerId?: string;
+}
+
 export class ZoneVoice {
   private room: Room | null = null;
   private readonly audioBin: HTMLElement;
@@ -63,15 +70,20 @@ export class ZoneVoice {
   private micOn = false; // start muted: joining a zone shouldn't open a hot mic
   private proximity: boolean;
   private master: number;
+  private micId: string | undefined;
+  private speakerId: string | undefined;
   private proximityTimer: number | null = null;
 
   constructor(
     private readonly hooks: ZoneVoiceHooks,
     private readonly onState: (s: ZoneVoiceState) => void,
     private readonly onPeers: (peers: Peer[]) => void,
+    private readonly onDevices: (d: ZoneVoiceDevices) => void,
   ) {
     this.proximity = localStorage.getItem('pa-zv-proximity') === '1';
     this.master = clamp01(Number(localStorage.getItem('pa-zv-master') ?? '1'));
+    this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
+    this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
     this.audioBin = document.createElement('div');
     this.audioBin.style.display = 'none';
     document.body.appendChild(this.audioBin);
@@ -147,15 +159,20 @@ export class ZoneVoice {
       .on(RoomEvent.ParticipantConnected, (p) => this.addPeer(p))
       .on(RoomEvent.ParticipantDisconnected, (p) => this.removePeer(p.identity))
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.onActiveSpeakers(speakers))
+      .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(msg.url, msg.token);
       await room.startAudio().catch(() => undefined); // resume audio after the join gesture
       await room.localParticipant.setMicrophoneEnabled(this.micOn);
+      // Re-apply the saved input/output devices (best-effort; ids can change).
+      if (this.micId) await room.switchActiveDevice('audioinput', this.micId).catch(() => undefined);
+      if (this.speakerId) await room.switchActiveDevice('audiooutput', this.speakerId).catch(() => undefined);
       this.connecting = false;
       room.remoteParticipants.forEach((p) => this.addPeer(p));
       this.startProximity();
       this.emitState();
+      await this.emitDevices(); // labels are available now that mic permission is granted
     } catch (e) {
       this.connecting = false;
       this.emitState((e as Error)?.message || 'connection failed');
@@ -179,6 +196,7 @@ export class ZoneVoice {
     this.room = null;
     this.connecting = false;
     this.onPeers([]);
+    this.onDevices({ mics: [], speakers: [] });
     this.hooks.onSpeakers(new Set()); // clear talking indicators
     this.emitState();
   }
@@ -219,6 +237,7 @@ export class ZoneVoice {
     const audio = track.attach();
     audio.style.display = 'none';
     this.audioBin.appendChild(audio);
+    if (this.speakerId) void setSinkId(audio, this.speakerId);
     this.tracks.set(p.identity, track as RemoteAudioTrack);
     this.applyVolume(p.identity);
   }
@@ -294,6 +313,41 @@ export class ZoneVoice {
     this.emitState();
   }
 
+  async switchMic(deviceId: string): Promise<void> {
+    this.micId = deviceId;
+    localStorage.setItem('pa-zv-mic', deviceId);
+    await this.room?.switchActiveDevice('audioinput', deviceId).catch(() => undefined);
+    await this.emitDevices();
+  }
+
+  async switchSpeaker(deviceId: string): Promise<void> {
+    this.speakerId = deviceId;
+    localStorage.setItem('pa-zv-speaker', deviceId);
+    // LiveKit routes its managed elements; also set the sink on ours directly.
+    await this.room?.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
+    for (const el of Array.from(this.audioBin.children)) {
+      void setSinkId(el as HTMLMediaElement, deviceId);
+    }
+    await this.emitDevices();
+  }
+
+  /** Enumerate mics + speakers (labels need mic permission, granted on connect). */
+  private async emitDevices(): Promise<void> {
+    if (!this.room) return;
+    try {
+      const mics = await Room.getLocalDevices('audioinput');
+      const speakers = await Room.getLocalDevices('audiooutput');
+      this.onDevices({
+        mics,
+        speakers,
+        micId: this.room.getActiveDevice('audioinput') ?? this.micId,
+        speakerId: this.room.getActiveDevice('audiooutput') ?? this.speakerId,
+      });
+    } catch {
+      /* enumeration failed — leave the pickers as-is */
+    }
+  }
+
   setPeerVolume(identity: string, v: number): void {
     const peer = this.peers.get(identity);
     if (!peer) return;
@@ -332,6 +386,14 @@ export class ZoneVoice {
 function parsePlayerId(identity: string): number | null {
   const m = /^p(\d+)$/.exec(identity);
   return m ? Number(m[1]) : null;
+}
+
+/** Route an audio element to a specific output device (where supported). */
+async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
+  const sinkable = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
+  if (typeof sinkable.setSinkId === 'function') {
+    await sinkable.setSinkId(deviceId).catch(() => undefined);
+  }
 }
 
 function clamp01(v: number): number {

@@ -1,4 +1,10 @@
-import { ZoneVoice, type Peer, type ZoneVoiceHooks, type ZoneVoiceState } from './ZoneVoice.js';
+import {
+  ZoneVoice,
+  type Peer,
+  type ZoneVoiceDevices,
+  type ZoneVoiceHooks,
+  type ZoneVoiceState,
+} from './ZoneVoice.js';
 
 /**
  * Top-bar UI for zone voice (sits next to the main menu). A Join/Leave toggle, a
@@ -16,6 +22,8 @@ export class ZoneVoiceUI {
   private peersEl!: HTMLElement;
   private masterEl!: HTMLInputElement;
   private proxEl!: HTMLInputElement;
+  private micSel!: HTMLSelectElement;
+  private spkSel!: HTMLSelectElement;
   private open = false;
   private lastState: ZoneVoiceState;
 
@@ -24,6 +32,7 @@ export class ZoneVoiceUI {
       hooks,
       (s) => this.renderState(s),
       (peers) => this.renderPeers(peers),
+      (devices) => this.renderDevices(devices),
     );
     this.lastState = this.voice.state;
     this.injectStyles();
@@ -72,8 +81,11 @@ export class ZoneVoiceUI {
       #pa-zv-pop.open{display:block;}
       #pa-zv-pop h4{margin:0 0 0.5rem;font-size:1.15rem;color:#cdd3dd;}
       #pa-zv-pop .row{display:flex;align-items:center;gap:0.5rem;margin:0.35rem 0;}
-      #pa-zv-pop .row label{flex:0 0 auto;color:#aab2c0;font-size:0.9rem;}
+      #pa-zv-pop .row label{flex:0 0 auto;min-width:3.2rem;color:#aab2c0;font-size:0.9rem;}
       #pa-zv-pop input[type=range]{flex:1;}
+      #pa-zv-pop select{flex:1;min-width:0;background:#11151d;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.3rem;padding:0.25rem 0.3rem;font:0.85rem 'FS Pixel Sans',monospace;}
+      #pa-zv-pop select:disabled{opacity:0.5;}
       #pa-zv-pop .hint{color:#8b93a1;font-size:0.8rem;margin:0.1rem 0 0.4rem;}
       #pa-zv-peers{margin-top:0.4rem;border-top:1px solid #3a4150;padding-top:0.4rem;
         max-height:14rem;overflow-y:auto;}
@@ -119,6 +131,8 @@ export class ZoneVoiceUI {
     this.popover.id = 'pa-zv-pop';
     this.popover.innerHTML = `
       <h4>Zone voice</h4>
+      <div class="row"><label>Mic</label><select id="pa-zv-mic"></select></div>
+      <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
       <div class="row"><label>Volume</label><input id="pa-zv-master" type="range" min="0" max="100"></div>
       <div class="row"><label><input id="pa-zv-prox" type="checkbox"> Proximity</label></div>
       <div class="hint">Nearby players sound louder; distant ones fade out.</div>
@@ -128,8 +142,13 @@ export class ZoneVoiceUI {
     this.peersEl = this.popover.querySelector('#pa-zv-peers')!;
     this.masterEl = this.popover.querySelector('#pa-zv-master')!;
     this.proxEl = this.popover.querySelector('#pa-zv-prox')!;
+    this.micSel = this.popover.querySelector('#pa-zv-mic')!;
+    this.spkSel = this.popover.querySelector('#pa-zv-spk')!;
     this.masterEl.addEventListener('input', () => this.voice.setMaster(Number(this.masterEl.value) / 100));
     this.proxEl.addEventListener('change', () => this.voice.setProximity(this.proxEl.checked));
+    this.micSel.addEventListener('change', () => void this.voice.switchMic(this.micSel.value));
+    this.spkSel.addEventListener('change', () => void this.voice.switchSpeaker(this.spkSel.value));
+    this.renderDevices({ mics: [], speakers: [] });
   }
 
   private togglePopover(): void {
@@ -162,6 +181,30 @@ export class ZoneVoiceUI {
 
     this.masterEl.value = String(Math.round(s.master * 100));
     this.proxEl.checked = s.proximity;
+  }
+
+  private renderDevices(d: ZoneVoiceDevices): void {
+    this.fillSelect(this.micSel, d.mics, d.micId);
+    this.fillSelect(this.spkSel, d.speakers, d.speakerId);
+  }
+
+  private fillSelect(sel: HTMLSelectElement, devices: MediaDeviceInfo[], activeId?: string): void {
+    sel.replaceChildren();
+    sel.disabled = devices.length === 0;
+    if (devices.length === 0) {
+      const o = document.createElement('option');
+      o.value = '';
+      o.textContent = '—';
+      sel.appendChild(o);
+      return;
+    }
+    devices.forEach((dev, i) => {
+      const o = document.createElement('option');
+      o.value = dev.deviceId;
+      o.textContent = dev.label || `Device ${i + 1}`;
+      if (dev.deviceId === activeId) o.selected = true;
+      sel.appendChild(o);
+    });
   }
 
   private renderPeers(peers: Peer[]): void {

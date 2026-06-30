@@ -17,8 +17,10 @@ export interface ConferenceState {
 export interface ConferenceDevices {
   cameras: MediaDeviceInfo[];
   mics: MediaDeviceInfo[];
+  speakers: MediaDeviceInfo[];
   camId?: string;
   micId?: string;
+  speakerId?: string;
 }
 
 export class LiveKitConference {
@@ -30,6 +32,7 @@ export class LiveKitConference {
   private camOn = true;
   private micOn = true;
   private screenOn = false;
+  private speakerId?: string;
 
   constructor(
     private readonly grid: HTMLElement,
@@ -99,6 +102,7 @@ export class LiveKitConference {
       // Play remote audio (hidden); never attach our own mic (would echo).
       const audio = track.attach();
       audio.style.display = 'none';
+      if (this.speakerId) void setSinkId(audio, this.speakerId);
       this.tiles.set(sid, audio);
       this.grid.appendChild(audio);
     }
@@ -190,11 +194,14 @@ export class LiveKitConference {
     try {
       const cameras = await Room.getLocalDevices('videoinput');
       const mics = await Room.getLocalDevices('audioinput');
+      const speakers = await Room.getLocalDevices('audiooutput');
       this.onDevices({
         cameras,
         mics,
+        speakers,
         camId: room.getActiveDevice('videoinput'),
         micId: room.getActiveDevice('audioinput'),
+        speakerId: room.getActiveDevice('audiooutput') ?? this.speakerId,
       });
     } catch {
       /* enumeration failed — leave the picker as-is */
@@ -208,6 +215,16 @@ export class LiveKitConference {
 
   async switchMic(deviceId: string): Promise<void> {
     await this.room?.switchActiveDevice('audioinput', deviceId);
+    await this.emitDevices();
+  }
+
+  async switchSpeaker(deviceId: string): Promise<void> {
+    this.speakerId = deviceId;
+    // LiveKit routes its managed elements; also set the sink on ours directly.
+    await this.room?.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
+    for (const el of this.tiles.values()) {
+      if (el instanceof HTMLMediaElement) void setSinkId(el, deviceId);
+    }
     await this.emitDevices();
   }
 
@@ -240,5 +257,13 @@ export class LiveKitConference {
 
   private notify(error?: string): void {
     this.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
+  }
+}
+
+/** Route a media element to a specific output device (where supported). */
+async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
+  const sinkable = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
+  if (typeof sinkable.setSinkId === 'function') {
+    await sinkable.setSinkId(deviceId).catch(() => undefined);
   }
 }

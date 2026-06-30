@@ -135,7 +135,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
   private zoneVoiceStarted = false;
-  private confDevices: ConferenceDevices = { cameras: [], mics: [] };
+  private confDevices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -143,6 +143,8 @@ export class OfficeScene extends Phaser.Scene {
   private voiceSpeakers = new Set<number>();
   /** Live "talking" indicators over speaking avatars, keyed by player id. */
   private readonly voiceBubbles = new Map<number, HTMLDivElement>();
+  /** Per-speaker grace deadline (ms) so the icon stays on through speech gaps. */
+  private readonly voiceSpeakUntil = new Map<number, number>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
   private furnEditor!: FurnitureEditor;
@@ -1316,7 +1318,7 @@ export class OfficeScene extends Phaser.Scene {
     void this.conf?.disconnect();
     this.conf = undefined;
     this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
-    this.confDevices = { cameras: [], mics: [] };
+    this.confDevices = { cameras: [], mics: [], speakers: [] };
     this.renderConferencePanel();
     // Back out of the meeting → rejoin zone voice if the user had it on.
     this.zoneVoice?.voice.resume();
@@ -1456,7 +1458,8 @@ export class OfficeScene extends Phaser.Scene {
           `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
           `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>` +
           picker('📷', 'data-camsel', d.cameras, d.camId) +
-          picker('🎙', 'data-micsel', d.mics, d.micId)
+          picker('🎙', 'data-micsel', d.mics, d.micId) +
+          picker('🔊', 'data-spksel', d.speakers, d.speakerId)
         : '') +
       `<button data-leave class="leave">Leave</button>`;
     bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
@@ -1469,6 +1472,8 @@ export class OfficeScene extends Phaser.Scene {
       void this.conf?.switchCamera((e.target as HTMLSelectElement).value));
     bar.querySelector<HTMLSelectElement>('[data-micsel]')?.addEventListener('change', (e) =>
       void this.conf?.switchMic((e.target as HTMLSelectElement).value));
+    bar.querySelector<HTMLSelectElement>('[data-spksel]')?.addEventListener('change', (e) =>
+      void this.conf?.switchSpeaker((e.target as HTMLSelectElement).value));
     panel.style.display = 'flex';
   }
 
@@ -1940,13 +1945,10 @@ export class OfficeScene extends Phaser.Scene {
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
         .pa-voicebubble{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
-          background:#f2f4f8;border-radius:0.6rem;padding:0.3rem 0.45rem;box-shadow:0 2px 0 rgba(0,0,0,.35);
-          display:flex;gap:0.18rem;align-items:center;}
-        .pa-voicebubble i{width:0.34rem;height:0.34rem;border-radius:50%;background:#2e9e57;
-          animation:pa-voice 1s infinite ease-in-out;}
-        .pa-voicebubble i:nth-child(2){animation-delay:.15s;}
-        .pa-voicebubble i:nth-child(3){animation-delay:.3s;}
-        @keyframes pa-voice{0%,60%,100%{transform:translateY(0);opacity:.45;}30%{transform:translateY(-0.2rem);opacity:1;}}
+          background:#f2f4f8;border-radius:0.6rem;padding:0.14rem 0.38rem;box-shadow:0 2px 0 rgba(0,0,0,.35);
+          font-size:1.05rem;line-height:1;}
+        .pa-voicebubble span{display:inline-block;animation:pa-voice 0.9s infinite ease-in-out;}
+        @keyframes pa-voice{0%,100%{transform:scale(0.9);opacity:.7;}50%{transform:scale(1.12);opacity:1;}}
       `;
       document.head.appendChild(style);
     }
@@ -2074,28 +2076,38 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Show an animated "talking" bubble over avatars speaking via zone voice. */
   private updateVoiceBubbles(): void {
-    if (this.voiceBubbles.size === 0 && this.voiceSpeakers.size === 0) return;
+    const now = performance.now();
+    // Refresh a short grace window while a player is in the active-speaker set,
+    // so the icon stays steady through the gaps between words/sentences (the
+    // LiveKit speaking flag toggles off in those pauses).
+    const GRACE_MS = 800;
+    for (const id of this.voiceSpeakers) this.voiceSpeakUntil.set(id, now + GRACE_MS);
+    for (const [id, until] of this.voiceSpeakUntil) {
+      if (now >= until) this.voiceSpeakUntil.delete(id);
+    }
+
+    if (this.voiceBubbles.size === 0 && this.voiceSpeakUntil.size === 0) return;
     const cam = this.cameras.main;
     const wv = cam.worldView;
     const editing = this.editor.isEditing();
 
-    // Drop indicators that stopped, left, or while editing.
+    // Drop indicators that stopped (grace expired), left, or while editing.
     for (const [id, el] of this.voiceBubbles) {
-      if (editing || !this.voiceSpeakers.has(id) || !this.characters.get(id)) {
+      if (editing || !this.voiceSpeakUntil.has(id) || !this.characters.get(id)) {
         el.remove();
         this.voiceBubbles.delete(id);
       }
     }
     if (editing) return;
 
-    for (const id of this.voiceSpeakers) {
+    for (const id of this.voiceSpeakUntil.keys()) {
       const ch = this.characters.get(id);
       if (!ch) continue;
       let el = this.voiceBubbles.get(id);
       if (!el) {
         el = document.createElement('div');
         el.className = 'pa-voicebubble';
-        el.innerHTML = '<i></i><i></i><i></i>';
+        el.innerHTML = '<span>🔊</span>';
         (document.getElementById('game') ?? document.body).appendChild(el);
         this.voiceBubbles.set(id, el);
       }
