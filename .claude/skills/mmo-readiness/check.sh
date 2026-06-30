@@ -83,6 +83,7 @@ else
 fi
 man "new travel = placed 'portal' furniture + a ZONES entry, not a hard-coded jump"
 man "no module-global mutable game state outside a room (keep rooms shared-nothing)"
+man "client works in BOTH Chrome and Firefox (esp. media: setSinkId on elements, not AudioContext; no single-browser-only API without graceful fallback)"
 
 # 6 — Build & typecheck ------------------------------------------------------
 if [[ $STATIC_ONLY -eq 0 ]]; then

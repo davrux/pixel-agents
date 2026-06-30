@@ -150,6 +150,17 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
    `validCharacterData`, `validFurnitureData`, the asset-id regex, layout-name
    rules). When you add a new editable asset or message, add its server-side
    validator in the same change — a frontend-only check is not a check.
+8. **Support Chrome AND Firefox.** The client is a cross-browser web app — every
+   feature must work in both current Chrome/Chromium and Firefox (the desktop
+   Electron shell is Chromium and counts as Chrome). This matters most for media:
+   prefer APIs both implement, and when one lacks an API, degrade gracefully
+   rather than break. Concrete examples already in the codebase: output-device
+   selection uses `HTMLMediaElement.setSinkId` (both) — **not**
+   `AudioContext.setSinkId` (Chrome-only); voice volume boost routes through a
+   Web Audio `GainNode` into an `<audio>` element (both), with a muted "pump"
+   element for Chrome's remote-track-into-WebAudio quirk. Don't ship a feature
+   that only works in one browser; if unavoidable, gate it and keep the other
+   browser functional.
 
 ## Conventions
 
