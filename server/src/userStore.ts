@@ -165,7 +165,17 @@ class UserStore {
   }
 
   markAdmin(userId: string): void {
-    this.db.prepare('UPDATE users SET is_admin = 1 WHERE user_id = ?').run(userId);
+    this.setAdmin(userId, true);
+  }
+  setAdmin(userId: string, on: boolean): void {
+    this.db.prepare('UPDATE users SET is_admin = ? WHERE user_id = ?').run(on ? 1 : 0, userId);
+  }
+
+  /** Delete a user row. Returns true if it existed. (Caller cleans up the user's
+   *  avatar/prefs/zone-admin rows.) */
+  deleteUser(userId: string): boolean {
+    const r = this.db.prepare('DELETE FROM users WHERE user_id = ?').run(userId);
+    return Number(r.changes) > 0;
   }
 
   regenerateAgentToken(userId: string): string {

@@ -34,6 +34,36 @@ export const COMMANDS: CommandSpec[] = [
     usage: '/afk',
     summary: 'Toggle an "afk" marker over your avatar; it clears when you move or run /afk again.',
   },
+  {
+    name: 'users',
+    group: 'user',
+    usage: '/users [all]',
+    summary: 'List users in your zone; /users all lists everyone online with their zone.',
+  },
+  {
+    name: 'add',
+    group: 'admin',
+    usage: '/add <loginid> <password>',
+    summary: 'Create a user account (password min 6 characters).',
+  },
+  {
+    name: 'delete',
+    group: 'admin',
+    usage: '/delete <loginid>',
+    summary: 'Delete a user account and its avatar/prefs.',
+  },
+  {
+    name: 'set-admin',
+    group: 'admin',
+    usage: '/set-admin <loginid>',
+    summary: 'Grant a user global admin rights.',
+  },
+  {
+    name: 'remove-admin',
+    group: 'admin',
+    usage: '/remove-admin <loginid>',
+    summary: 'Revoke a user\'s global admin rights.',
+  },
 ];
 
 /** Look up a command by name (case-insensitive, leading slash tolerated). */

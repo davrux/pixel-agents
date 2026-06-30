@@ -74,6 +74,10 @@ export class ZoneStore {
       this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
     }
   }
+  /** Drop all zone-admin grants for a user (e.g. when the account is deleted). */
+  removeUserFromAllZones(userId: string): void {
+    this.db.prepare('DELETE FROM zone_admins WHERE user_id = ?').run(userId);
+  }
   listZoneAdmins(zoneId: string): string[] {
     const rows = this.db
       .prepare('SELECT user_id FROM zone_admins WHERE zone_id = ? ORDER BY user_id')

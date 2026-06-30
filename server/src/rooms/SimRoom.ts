@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, type CommandSpec } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -26,8 +26,9 @@ import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie } from '../auth.js';
-import { userStore, UserStore, isValidPassword, normalizeLoginId } from '../userStore.js';
+import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
+import { presence } from '../presence.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -275,6 +276,7 @@ export class SimRoom extends Room<RoomState> {
     // This user is now viewing this zone, so their agents should live here. The
     // reroute hands them over from whatever zone they were in (no-op if same).
     director.setOwnerZone(userId, this.zone.id);
+    if (userId) presence.join(userId, this.zone.id, username || userId);
     const characterSkin = userId ? (appStore.getCharPrefs()[userId] ?? null) : null;
 
     // Zone-local avatar loading: give the joiner every owned avatar already
@@ -328,6 +330,7 @@ export class SimRoom extends Room<RoomState> {
 
   onLeave(client: Client): void {
     const { userId } = authOf(client);
+    if (userId) presence.leave(userId);
     const playerId = this.players.get(client.sessionId);
     if (playerId !== undefined) {
       // Persist the avatar's last tile (logged-in users respawn there next time).
@@ -778,16 +781,12 @@ export class SimRoom extends Room<RoomState> {
     // Slash commands (/afk, …). The shared registry gates by group; client-only
     // commands (/help) never reach here. Feedback is sent back as a 'system' line.
     this.onMessage('command', (client, msg: { name?: string; args?: string }) => {
-      const sys = (text: string): void => void client.send('m', { type: 'system', text });
       const spec = findCommand(typeof msg?.name === 'string' ? msg.name : '');
-      if (!spec) return sys(`Unknown command. Try /help.`);
-      if (!mayRunCommand(spec, authOf(client).isAdmin)) return sys(`/${spec.name} is for admins only.`);
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      if (spec.name === 'afk') {
-        const now = this.os.setPlayerAfk(id);
-        sys(now ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
+      if (!spec) return void client.send('m', { type: 'system', text: 'Unknown command. Try /help.' });
+      if (!mayRunCommand(spec, authOf(client).isAdmin)) {
+        return void client.send('m', { type: 'system', text: `/${spec.name} is for admins only.` });
       }
+      this.runCommand(client, spec, typeof msg?.args === 'string' ? msg.args : '');
     });
 
     // Click-to-sit on a chair/bench: walk to the seat tile and sit facing it.
@@ -857,6 +856,79 @@ export class SimRoom extends Room<RoomState> {
   private isKnownSkin(id: string): boolean {
     if (!/^char_\d+$/.test(id)) return false;
     return (this.bundle.raw.characters as Array<{ id: string }>).some((c) => c.id === id);
+  }
+
+  // ── Slash-command execution ──────────────────────────────────────
+
+  /** Execute a (group-checked) slash command. Feedback goes back as 'system'
+   *  chat lines. Admin commands handle user management. */
+  private runCommand(client: Client, spec: CommandSpec, argStr: string): void {
+    const sys = (text: string): void => void client.send('m', { type: 'system', text });
+    const args = argStr.trim() ? argStr.trim().split(/\s+/) : [];
+    const me = authOf(client);
+
+    switch (spec.name) {
+      case 'afk': {
+        const id = this.players.get(client.sessionId);
+        if (id === undefined) return;
+        const now = this.os.setPlayerAfk(id);
+        sys(now ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
+        return;
+      }
+      case 'users': {
+        if (args[0]?.toLowerCase() === 'all') {
+          const all = presence
+            .list()
+            .sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
+          sys(
+            all.length
+              ? `Online users (${all.length}):\n` + all.map((u) => `• ${u.name} (${u.userId}) — ${u.zone}`).join('\n')
+              : 'No users online.',
+          );
+        } else {
+          const here = presence.list().filter((u) => u.zone === this.zone.id);
+          sys(
+            here.length
+              ? `Users in ${this.zone.label} (${here.length}):\n` + here.map((u) => `• ${u.name} (${u.userId})`).join('\n')
+              : 'No users in this zone.',
+          );
+        }
+        return;
+      }
+      case 'add': {
+        const [loginId, password] = args;
+        if (!loginId || !password) return sys(`Usage: ${spec.usage}`);
+        if (!isValidPassword(password)) return sys(`Password must be at least ${MIN_PASSWORD_LEN} characters.`);
+        if (userStore.exists(loginId)) return sys(`User "${normalizeLoginId(loginId)}" already exists.`);
+        const u = userStore.createUser(loginId, password);
+        sys(`Created user "${u.userId}".`);
+        return;
+      }
+      case 'delete': {
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        if (loginId === me.userId) return sys(`You can't delete yourself.`);
+        if (!userStore.deleteUser(loginId)) return sys(`No such user: "${loginId}".`);
+        // Clean up the user's owned data + zone-admin grants.
+        appStore.deletePlayerAvatar(loginId);
+        appStore.clearCharPref(loginId);
+        appStore.clearPlayerPref(loginId);
+        this.zones.removeUserFromAllZones(loginId);
+        sys(`Deleted user "${loginId}" and its data.`);
+        return;
+      }
+      case 'set-admin':
+      case 'remove-admin': {
+        const on = spec.name === 'set-admin';
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        if (!on && loginId === me.userId) return sys(`You can't remove your own admin rights.`);
+        if (!userStore.exists(loginId)) return sys(`No such user: "${loginId}".`);
+        userStore.setAdmin(loginId, on);
+        sys(`${loginId} is ${on ? 'now a global admin' : 'no longer an admin'} (takes effect on their next login).`);
+        return;
+      }
+    }
   }
 
   // ── Player-owned avatars ─────────────────────────────────────────
