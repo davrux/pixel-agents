@@ -215,6 +215,19 @@ export class SimRoom extends Room<RoomState> {
     return { type: 'conferenceMembers', col, row, members };
   }
 
+  /** Mint a LiveKit access token for player `id` in `room` (identity p<id>, so
+   *  the client can map a participant back to its avatar for proximity audio).
+   *  Returns null if LiveKit isn't configured. */
+  private async mintVoiceToken(id: number, room: string): Promise<string | null> {
+    const apiKey = process.env.LIVEKIT_API_KEY;
+    const apiSecret = process.env.LIVEKIT_API_SECRET;
+    if (!apiKey || !apiSecret) return null;
+    const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
+    const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+    return at.toJwt();
+  }
+
   /** Remove a player from one conference (by key) + broadcast the new roster. */
   private leaveConference(playerId: number, key: string): void {
     const set = this.conferences.get(key);
@@ -390,11 +403,29 @@ export class SimRoom extends Room<RoomState> {
         .getLayout()
         .furniture.find((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.conference);
       const room = `${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`.replace(/[^A-Za-z0-9_-]/g, '-');
-      const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
-      const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
-      at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
-      const token = await at.toJwt();
+      const token = await this.mintVoiceToken(id, room);
+      if (!token) return;
       client.send('m', { type: 'conferenceToken', col, row, url, token, room });
+    });
+
+    // Zone voice: one LiveKit room per zone. Any player with a visible avatar can
+    // join; entering a different zone is a different room (the client reconnects
+    // on zone change). Proximity attenuation is applied client-side.
+    this.onMessage('zoneVoiceToken', async (client) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) {
+        client.send('m', { type: 'zoneVoiceToken', error: 'no-avatar' });
+        return;
+      }
+      const url = process.env.LIVEKIT_URL;
+      if (!url || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
+        client.send('m', { type: 'zoneVoiceToken', error: 'not-configured' });
+        return;
+      }
+      const room = `zv-${this.zone.id}`.replace(/[^A-Za-z0-9_-]/g, '-');
+      const token = await this.mintVoiceToken(id, room);
+      if (!token) return;
+      client.send('m', { type: 'zoneVoiceToken', url, token, room });
     });
 
     // ── Zone registry (create / edit / delete; everyone may, office protected) ──

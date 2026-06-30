@@ -32,6 +32,7 @@ import {
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference, type ConferenceState, type ConferenceDevices } from '../conference/LiveKitConference.js';
+import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -131,10 +132,17 @@ export class OfficeScene extends Phaser.Scene {
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
   private confState: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
+  /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
+  private zoneVoice?: ZoneVoiceUI;
+  private zoneVoiceStarted = false;
   private confDevices: ConferenceDevices = { cameras: [], mics: [] };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
+  /** Player ids currently talking via zone voice (client-side, from LiveKit). */
+  private voiceSpeakers = new Set<number>();
+  /** Live "talking" indicators over speaking avatars, keyed by player id. */
+  private readonly voiceBubbles = new Map<number, HTMLDivElement>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
   private furnEditor!: FurnitureEditor;
@@ -284,6 +292,21 @@ export class OfficeScene extends Phaser.Scene {
     // Keep Help as the rightmost menu button, after the editor buttons appended
     // their own entries above.
     if (this.helpBtn && this.topbar) this.topbar.appendChild(this.helpBtn);
+
+    // Zone voice control — mounted in the always-visible menubar (NOT the
+    // collapsible button row), so it's directly clickable. Positions for
+    // proximity come from the synced avatars we render.
+    if (this.menubar) {
+      this.zoneVoice = new ZoneVoiceUI(this.menubar, {
+        requestToken: () => this.room?.send('zoneVoiceToken'),
+        myPosition: () => this.playerPosition(this.myPlayerId),
+        positionOf: (id) => this.playerPosition(id),
+        onSpeakers: (ids) => {
+          this.voiceSpeakers = ids;
+        },
+      });
+    }
+
     this.setupInput();
     void this.open();
   }
@@ -332,6 +355,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
+        else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our chosen skin/name onto the fresh avatar.
@@ -344,6 +368,12 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
+          // Once we know our avatar + the room is live, (re)join zone voice if the
+          // user left it enabled. Runs once; a zone change reloads the page.
+          if (!this.zoneVoiceStarted) {
+            this.zoneVoiceStarted = true;
+            this.zoneVoice?.start();
+          }
           // Adopt the account's saved player skin / spectator pref only when this
           // browser has no local choice; otherwise assert the local choice so the
           // session reflects it (covers anonymous viewers + cross-device).
@@ -884,6 +914,7 @@ export class OfficeScene extends Phaser.Scene {
     this.updateTooltip();
     this.updateNameLabels();
     this.updateChatBubbles();
+    this.updateVoiceBubbles();
     this.tickChatFade();
   }
 
@@ -1287,6 +1318,8 @@ export class OfficeScene extends Phaser.Scene {
     this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
     this.confDevices = { cameras: [], mics: [] };
     this.renderConferencePanel();
+    // Back out of the meeting → rejoin zone voice if the user had it on.
+    this.zoneVoice?.voice.resume();
   }
 
   private onConferenceMembers(m: Record<string, unknown>): void {
@@ -1317,6 +1350,16 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Server minted a LiveKit token (or reported it's unconfigured). Connect the
    *  media for the call we're currently in. */
+  /** Interpolated pixel position of a player avatar, for proximity audio. */
+  private playerPosition(id: number | null): { x: number; y: number } | null {
+    if (id === null) return null;
+    const c = this.characters.get(id);
+    if (!c) return null;
+    const x = c.x ?? c.tx;
+    const y = c.y ?? c.ty;
+    return typeof x === 'number' && typeof y === 'number' ? { x, y } : null;
+  }
+
   private onConferenceToken(m: Record<string, unknown>): void {
     if (!this.myConference || `${this.myConference.col},${this.myConference.row}` !== `${m.col},${m.row}`) return;
     if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
@@ -1336,6 +1379,9 @@ export class OfficeScene extends Phaser.Scene {
         this.renderConferencePanel();
       },
     );
+    // You can't be in two voice calls at once — pause zone voice while in the
+    // meeting (resumed in leaveConferenceLocal).
+    this.zoneVoice?.voice.suspend();
     void this.conf.connect(m.url as string, m.token as string).catch(() => {
       /* connect() reports via the state callback */
     });
@@ -1893,6 +1939,14 @@ export class OfficeScene extends Phaser.Scene {
           max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
+        .pa-voicebubble{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
+          background:#f2f4f8;border-radius:0.6rem;padding:0.3rem 0.45rem;box-shadow:0 2px 0 rgba(0,0,0,.35);
+          display:flex;gap:0.18rem;align-items:center;}
+        .pa-voicebubble i{width:0.34rem;height:0.34rem;border-radius:50%;background:#2e9e57;
+          animation:pa-voice 1s infinite ease-in-out;}
+        .pa-voicebubble i:nth-child(2){animation-delay:.15s;}
+        .pa-voicebubble i:nth-child(3){animation-delay:.3s;}
+        @keyframes pa-voice{0%,60%,100%{transform:translateY(0);opacity:.45;}30%{transform:translateY(-0.2rem);opacity:1;}}
       `;
       document.head.appendChild(style);
     }
@@ -2015,6 +2069,41 @@ export class OfficeScene extends Phaser.Scene {
       const headOff = (32 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
       b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
+    }
+  }
+
+  /** Show an animated "talking" bubble over avatars speaking via zone voice. */
+  private updateVoiceBubbles(): void {
+    if (this.voiceBubbles.size === 0 && this.voiceSpeakers.size === 0) return;
+    const cam = this.cameras.main;
+    const wv = cam.worldView;
+    const editing = this.editor.isEditing();
+
+    // Drop indicators that stopped, left, or while editing.
+    for (const [id, el] of this.voiceBubbles) {
+      if (editing || !this.voiceSpeakers.has(id) || !this.characters.get(id)) {
+        el.remove();
+        this.voiceBubbles.delete(id);
+      }
+    }
+    if (editing) return;
+
+    for (const id of this.voiceSpeakers) {
+      const ch = this.characters.get(id);
+      if (!ch) continue;
+      let el = this.voiceBubbles.get(id);
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'pa-voicebubble';
+        el.innerHTML = '<i></i><i></i><i></i>';
+        (document.getElementById('game') ?? document.body).appendChild(el);
+        this.voiceBubbles.set(id, el);
+      }
+      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      const headOff = (32 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+      // Sit a little above where a chat bubble would, so both can coexist.
+      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
+      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - 12 - wv.y) * cam.zoom)}px`;
     }
   }
 
