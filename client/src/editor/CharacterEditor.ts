@@ -161,6 +161,16 @@ function cloneFrame(f: SpriteData): SpriteData {
 function flipH(f: SpriteData): SpriteData {
   return f.map((row) => row.slice().reverse());
 }
+
+/** Display label for a skin: its name, or the stable id when unnamed. The id is
+ *  appended in parens ONLY when another skin shares the same name, so duplicate
+ *  names stay distinguishable without otherwise exposing the technical id. */
+export function skinLabel(c: CharacterTemplate, all: CharacterTemplate[]): string {
+  const name = c.data.name;
+  if (!name) return c.id;
+  const duplicate = all.some((o) => o !== c && o.data.name === name);
+  return duplicate ? `${name} (${c.id})` : name;
+}
 function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
   const out: LoadedCharacterData = {
     down: c.down.map(cloneFrame),
@@ -646,7 +656,7 @@ export class CharacterEditor {
       this.drawPreview(cv, c.data);
       const nm = document.createElement('div');
       nm.className = 'nm';
-      nm.textContent = c.data.name ? `${c.data.name} (${id})` : id;
+      nm.textContent = skinLabel(c, tpl);
       const edit = document.createElement('button');
       edit.textContent = 'Edit';
       edit.onclick = () => {
@@ -964,7 +974,7 @@ export class CharacterEditor {
         }
       }
       const lab = document.createElement('span');
-      lab.textContent = c.data.name || c.id;
+      lab.textContent = skinLabel(c, tpl);
       opt.append(cv, lab);
       opt.onclick = () => {
         this.createNew(i);
@@ -1018,8 +1028,7 @@ export class CharacterEditor {
   }
 
   private displayName(): string {
-    const slot = this.charName();
-    return this.work.name && this.work.name !== slot ? `${this.work.name} (${slot})` : slot;
+    return this.work.name || this.charName();
   }
   private doSave(): void {
     // A name is mandatory (also enforced server-side). Guard in case the button

@@ -37,7 +37,7 @@ import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackL
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
-import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS } from '../editor/CharacterEditor.js';
+import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
@@ -1854,7 +1854,7 @@ export class OfficeScene extends Phaser.Scene {
         }
       }
       if (selected === c.id) cv.classList.add('sel');
-      cv.title = c.data.name ? `${c.data.name} (${c.id})` : c.id;
+      cv.title = skinLabel(c, tpl);
       cv.onclick = () => {
         onPick(c.id);
         this.renderCharSwatches();

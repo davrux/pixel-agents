@@ -56,7 +56,13 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // creating/deleting skins can't silently drop others.
   const bundledChars = raw.characters as unknown[];
   const bundledIds = bundledChars.map((_, i) => `char_${i}`);
-  const characters = bundledChars.map((data, i) => ({ id: `char_${i}`, data }));
+  // Give bundled skins a friendly default display name (editable in the editor)
+  // so the UI never has to show the technical id. User overrides always carry a
+  // name (server-validated), so only file defaults need this.
+  const characters: Array<{ id: string; data: unknown }> = bundledChars.map((data, i) => ({
+    id: `char_${i}`,
+    data: (data as { name?: string }).name ? data : { ...(data as object), name: `Skin ${i + 1}` },
+  }));
   // orderedAssets sorts by numeric index so appended user skins stay in order
   // (char_6, char_7, … — not lexical char_10 before char_6) for a tidy gallery.
   for (const { name, data } of orderedAssets('character')) {
