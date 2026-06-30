@@ -63,6 +63,8 @@ export interface ZoneVoiceState {
   deafened: boolean;
   /** Mic input gain / sensitivity (0..2, 1 = unity). */
   micGain: number;
+  /** Voice-activity threshold (0..1; 0 = always transmit). */
+  micThreshold: number;
   proximity: boolean;
   master: number;
   error?: string;
@@ -109,16 +111,25 @@ export class ZoneVoice {
   private micRawStream: MediaStream | null = null;
   private micTrack: MediaStreamTrack | null = null;
   private micPub: LocalTrackPublication | null = null;
+  // Voice-activity gate: below the threshold we silence outgoing audio (a gate
+  // gain node after the user gain), so quiet background noise isn't transmitted.
+  private micThreshold = 0; // 0 = always transmit (no gate)
+  private gateNode: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private gateTimer: number | null = null;
+  private gateOpenUntil = 0; // hold-open deadline (ms) for a smooth release
 
   constructor(
     private readonly hooks: ZoneVoiceHooks,
     private readonly onState: (s: ZoneVoiceState) => void,
     private readonly onPeers: (peers: Peer[]) => void,
     private readonly onDevices: (d: ZoneVoiceDevices) => void,
+    private readonly onMicLevel: (level: number) => void,
   ) {
     this.proximity = localStorage.getItem('pa-zv-proximity') === '1';
     this.master = clampVol(Number(localStorage.getItem('pa-zv-master') ?? '1'));
     this.micGain = clampGain(Number(localStorage.getItem('pa-zv-micgain') ?? '1'));
+    this.micThreshold = clamp01(Number(localStorage.getItem('pa-zv-micthresh') ?? '0'));
     // Persist mic/deafen across zone switches (a zone change reloads the page),
     // so you stay live/muted/deafened exactly as in the previous zone.
     this.micOn = localStorage.getItem('pa-zv-micon') === '1';
@@ -415,6 +426,45 @@ export class ZoneVoice {
     this.emitState();
   }
 
+  /** Set the voice-activity threshold (0..1; 0 = always transmit). */
+  setMicThreshold(v: number): void {
+    this.micThreshold = clamp01(v);
+    localStorage.setItem('pa-zv-micthresh', String(this.micThreshold));
+    this.emitState();
+  }
+
+  /** Sample the mic level ~20 Hz to drive the gate (open above threshold, with a
+   *  short release hold) and the UI meter. */
+  private startGate(): void {
+    if (this.gateTimer !== null || !this.analyser) return;
+    const buf = new Float32Array(this.analyser.fftSize);
+    this.gateTimer = window.setInterval(() => {
+      const an = this.analyser;
+      const gate = this.gateNode;
+      if (!an || !gate) return;
+      an.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+      // Perceptual (dB) scale so quiet speech is clearly visible: map -60 dB → 0,
+      // -10 dB → 1. Linear RMS barely moves for normal voice levels.
+      const db = 20 * Math.log10(rms || 1e-7);
+      const level = Math.max(0, Math.min(1, (db + 60) / 50));
+      this.onMicLevel(level);
+      const now = performance.now();
+      if (this.micThreshold <= 0 || level >= this.micThreshold) this.gateOpenUntil = now + 250;
+      gate.gain.value = now < this.gateOpenUntil ? 1 : 0;
+    }, 50);
+  }
+
+  private stopGate(): void {
+    if (this.gateTimer !== null) {
+      clearInterval(this.gateTimer);
+      this.gateTimer = null;
+    }
+    this.onMicLevel(0);
+  }
+
   /** Capture the mic, run it through a gain node, and publish the result. */
   private async publishMic(): Promise<void> {
     if (!this.room || this.micTrack) return;
@@ -432,16 +482,27 @@ export class ZoneVoice {
       const source = ctx.createMediaStreamSource(raw);
       const gain = ctx.createGain();
       gain.gain.value = this.micGain;
+      // Voice-activity gate after the user gain; an analyser taps the level to
+      // drive the gate + the UI meter. source → gain → gate → dest.
+      const gate = ctx.createGain();
+      gate.gain.value = 1;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
       const dest = ctx.createMediaStreamDestination();
       source.connect(gain);
-      gain.connect(dest);
+      gain.connect(analyser); // tap (leaf; doesn't affect audio)
+      gain.connect(gate);
+      gate.connect(dest);
       const track = dest.stream.getAudioTracks()[0];
       this.micCtx = ctx;
       this.micSource = source;
       this.micGainNode = gain;
+      this.gateNode = gate;
+      this.analyser = analyser;
       this.micDest = dest;
       this.micRawStream = raw;
       this.micTrack = track;
+      this.startGate();
       this.micPub = await this.room.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
       if (!this.micOn) await this.micPub.mute();
       this.emitVoiceStatus();
@@ -453,13 +514,18 @@ export class ZoneVoice {
 
   /** Tear down the mic capture graph (on disconnect / failure). */
   private stopMicGraph(): void {
+    this.stopGate();
     this.micRawStream?.getTracks().forEach((t) => t.stop());
     this.micSource?.disconnect();
     this.micGainNode?.disconnect();
+    this.gateNode?.disconnect();
+    this.analyser?.disconnect();
     void this.micCtx?.close().catch(() => undefined);
     this.micCtx = null;
     this.micSource = null;
     this.micGainNode = null;
+    this.gateNode = null;
+    this.analyser = null;
     this.micDest = null;
     this.micRawStream = null;
     this.micTrack = null;
@@ -569,6 +635,7 @@ export class ZoneVoice {
       micOn: this.micOn,
       deafened: this.deafened,
       micGain: this.micGain,
+      micThreshold: this.micThreshold,
       proximity: this.proximity,
       master: this.master,
     };
@@ -608,6 +675,12 @@ async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> 
   if (typeof sinkable.setSinkId === 'function') {
     await sinkable.setSinkId(deviceId).catch(() => undefined);
   }
+}
+
+/** Clamp to 0..1 (default 0 for non-finite input) — used for the mic threshold. */
+function clamp01(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
 }
 
 /** Clamp a volume slider value to 0..2 (1 = unity, 2 = +100% boost). */

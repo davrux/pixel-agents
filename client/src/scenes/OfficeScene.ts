@@ -41,7 +41,7 @@ import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, redirectToLogin, gotoLogout } from '../net/room.js';
+import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, type ZoneConfig } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
@@ -173,6 +173,11 @@ export class OfficeScene extends Phaser.Scene {
   private helpBtn?: HTMLButtonElement;
   private helpPanel!: HTMLDivElement;
   private zoneSel?: HTMLSelectElement;
+  /** Set before our own navigation (zone switch / portal) so the resulting room
+   *  leave isn't treated as a dropped connection. */
+  private leavingIntentionally = false;
+  /** True while waiting for the server to come back after a dropped connection. */
+  private reconnecting = false;
   /** Dynamic zone registry from the server (seeded with the bundled builtins). */
   private zoneList: ZoneConfig[] = Object.values(ZONES);
   // Settings + viewer identity (sounds play only for the viewer's own agents;
@@ -360,6 +365,12 @@ export class OfficeScene extends Phaser.Scene {
         /* sessionStorage unavailable */
       }
       this.room = await connect(zone, arriving);
+      // Auto-reconnect: if the connection drops (e.g. a server restart), wait for
+      // the server to come back and reload — so the player is back in the game
+      // without a manual refresh. A consented leave / our own navigation is skipped.
+      this.room.onLeave((code) => {
+        if (!this.leavingIntentionally && code !== 1000) this.handleDisconnect();
+      });
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
@@ -1783,8 +1794,34 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Switch to another zone (remember it, then reload at ?zone=). Used by the
    *  zone switcher and by walk-in portals (P5). */
+  /** Connection dropped (likely a server restart): wait for /health, then reload
+   *  so the player rejoins automatically. Shows a small "reconnecting" overlay. */
+  private handleDisconnect(): void {
+    if (this.reconnecting || this.leavingIntentionally) return;
+    this.reconnecting = true;
+    let overlay = document.getElementById('pa-reconnect');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'pa-reconnect';
+      overlay.style.cssText =
+        'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
+        "background:rgba(10,12,18,.82);color:#eef1f6;font:1.1rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;";
+      overlay.textContent = 'Connection lost — reconnecting…';
+      (document.getElementById('game') ?? document.body).appendChild(overlay);
+    }
+    const poll = async (): Promise<void> => {
+      if (await isServerUp()) {
+        window.location.reload();
+        return;
+      }
+      window.setTimeout(() => void poll(), 2000);
+    };
+    window.setTimeout(() => void poll(), 1500);
+  }
+
   private goToZone(zone: string): void {
     if (!isZoneId(zone)) return;
+    this.leavingIntentionally = true; // our own navigation — not a dropped connection
     try {
       localStorage.setItem('pa-last-zone', zone);
       // One-shot: tell the post-reload connect() to land at the zone's arrival
@@ -1936,6 +1973,9 @@ export class OfficeScene extends Phaser.Scene {
         /* Tiny zone-voice status icon over an avatar (very small, no bubble). */
         .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
           font-size:0.6rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
+        /* crossed-out: a red diagonal slash over the icon (muted / sound off). */
+        .pa-vstat.crossed::after{content:'';position:absolute;left:-12%;top:45%;width:124%;height:0.1rem;
+          background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
         .pa-vstat.spk{animation:pa-voice 0.9s infinite ease-in-out;}
         @keyframes pa-voice{0%,100%{transform:translate(-50%,-100%) scale(0.92);opacity:.75;}50%{transform:translate(-50%,-100%) scale(1.1);opacity:1;}}
       `;
@@ -2063,8 +2103,9 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Tiny zone-voice status icon over each in-voice avatar: 🔊 speaking,
-   *  🙉 sound off (deafened), 🔇 mic muted, 🎤 listening. */
+  /** Tiny zone-voice status icon over each in-voice avatar: 🎤 in voice,
+   *  crossed 🎤 muted, crossed 🔊 sound off (deafened); the mic pulses while
+   *  speaking. */
   private updateVoiceBubbles(): void {
     const now = performance.now();
     // Grace window so the speaking icon stays steady through gaps between words
@@ -2099,10 +2140,13 @@ export class OfficeScene extends Phaser.Scene {
         (document.getElementById('game') ?? document.body).appendChild(el);
         this.voiceBubbles.set(id, el);
       }
-      // Priority: speaking > sound-off (deaf) > mic-muted > listening.
+      // Sound off → crossed speaker; mic muted → crossed mic; speaking → pulsing
+      // mic; otherwise (in voice, listening) → plain mic. Priority: deaf > muted
+      // > speaking > listening.
       const speaking = this.voiceSpeakUntil.has(id);
-      el.textContent = speaking ? '🔊' : st.deaf ? '🙉' : st.muted ? '🔇' : '🎤';
-      el.classList.toggle('spk', speaking);
+      el.textContent = st.deaf ? '🔊' : '🎤';
+      el.classList.toggle('crossed', st.deaf || st.muted);
+      el.classList.toggle('spk', !st.deaf && !st.muted && speaking);
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       // Just above the head (a touch higher than the name label at 20).
       const headOff = (24 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;

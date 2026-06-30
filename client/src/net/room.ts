@@ -11,10 +11,20 @@ function endpoint(): string {
 }
 
 /** HTTP(S) origin of the server — where the login page / auth gate lives. */
-function serverHttpOrigin(): string {
+export function serverHttpOrigin(): string {
   const loc = window.location;
   if (loc.port === '5173') return `${loc.protocol}//${loc.hostname}:2567`;
   return loc.origin;
+}
+
+/** Resolve once the server's /health responds OK — used to wait out a restart. */
+export async function isServerUp(): Promise<boolean> {
+  try {
+    const res = await fetch(`${serverHttpOrigin()}/health`, { cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Did the room reject the join because the session cookie is missing/invalid?

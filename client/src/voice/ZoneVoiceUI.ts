@@ -27,6 +27,9 @@ export class ZoneVoiceUI {
   private micSel!: HTMLSelectElement;
   private spkSel!: HTMLSelectElement;
   private micGainEl!: HTMLInputElement;
+  private threshEl!: HTMLInputElement;
+  private meterLvl!: HTMLElement;
+  private meterThr!: HTMLElement;
   private open = false;
   private lastState: ZoneVoiceState;
 
@@ -36,6 +39,7 @@ export class ZoneVoiceUI {
       (s) => this.renderState(s),
       (peers) => this.renderPeers(peers),
       (devices) => this.renderDevices(devices),
+      (level) => this.renderMicLevel(level),
     );
     this.lastState = this.voice.state;
     this.injectStyles();
@@ -93,6 +97,11 @@ export class ZoneVoiceUI {
       #pa-zv-pop select{flex:1;min-width:0;background:#11151d;border:1px solid #3a4150;color:#eef1f6;
         border-radius:0.3rem;padding:0.25rem 0.3rem;font:0.85rem 'FS Pixel Sans',monospace;}
       #pa-zv-pop select:disabled{opacity:0.5;}
+      #pa-zv-meter{position:relative;flex:1;height:0.6rem;background:#11151d;border:1px solid #3a4150;
+        border-radius:0.3rem;overflow:hidden;}
+      #pa-zv-meter .lvl{position:absolute;left:0;top:0;bottom:0;width:0;background:#6b7280;transition:width .05s linear;}
+      #pa-zv-meter .lvl.on{background:#4caf73;}
+      #pa-zv-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#ffd24a;}
       #pa-zv-pop .hint{color:#8b93a1;font-size:0.8rem;margin:0.1rem 0 0.4rem;}
       #pa-zv-peers{margin-top:0.4rem;border-top:1px solid #3a4150;padding-top:0.4rem;
         max-height:14rem;overflow-y:auto;}
@@ -146,6 +155,8 @@ export class ZoneVoiceUI {
         <div class="row"><label>Mic</label><select id="pa-zv-mic"></select></div>
         <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
         <div class="row"><label>Mic sens.</label><input id="pa-zv-micgain" type="range" min="0" max="200"></div>
+        <div class="row"><label>Threshold</label><input id="pa-zv-thresh" type="range" min="0" max="100"></div>
+        <div class="row"><label>Level</label><div id="pa-zv-meter"><div class="lvl"></div><div class="thr"></div></div></div>
       </div>
       <div class="row"><label>Volume</label><input id="pa-zv-master" type="range" min="0" max="200"></div>
       <div class="row"><label><input id="pa-zv-prox" type="checkbox"> Proximity</label></div>
@@ -161,6 +172,10 @@ export class ZoneVoiceUI {
     this.spkSel = this.popover.querySelector('#pa-zv-spk')!;
     this.micGainEl = this.popover.querySelector('#pa-zv-micgain')!;
     this.micGainEl.addEventListener('input', () => this.voice.setMicSensitivity(Number(this.micGainEl.value) / 100));
+    this.threshEl = this.popover.querySelector('#pa-zv-thresh')!;
+    this.threshEl.addEventListener('input', () => this.voice.setMicThreshold(Number(this.threshEl.value) / 100));
+    this.meterLvl = this.popover.querySelector('#pa-zv-meter .lvl')!;
+    this.meterThr = this.popover.querySelector('#pa-zv-meter .thr')!;
     this.masterEl.addEventListener('input', () => this.voice.setMaster(Number(this.masterEl.value) / 100));
     this.proxEl.addEventListener('change', () => this.voice.setProximity(this.proxEl.checked));
     this.micSel.addEventListener('change', () => void this.voice.switchMic(this.micSel.value));
@@ -208,8 +223,18 @@ export class ZoneVoiceUI {
     this.devicesEl.style.display = connected ? '' : 'none';
 
     this.micGainEl.value = String(Math.round(s.micGain * 100));
+    this.threshEl.value = String(Math.round(s.micThreshold * 100));
+    this.meterThr.style.left = `${Math.round(s.micThreshold * 100)}%`;
     this.masterEl.value = String(Math.round(s.master * 100));
     this.proxEl.checked = s.proximity;
+  }
+
+  /** Live mic input level (0..1) → meter fill; green above threshold, dim below. */
+  private renderMicLevel(level: number): void {
+    if (!this.meterLvl) return;
+    this.meterLvl.style.width = `${Math.round(level * 100)}%`;
+    const open = level >= this.lastState.micThreshold && this.lastState.micThreshold >= 0;
+    this.meterLvl.classList.toggle('on', open && level > 0.001);
   }
 
   private renderDevices(d: ZoneVoiceDevices): void {
