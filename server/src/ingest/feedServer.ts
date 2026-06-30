@@ -30,11 +30,19 @@ function b64urlDecode(s: string): string {
 
 let nextAgentId = 1;
 
-/** Mark an agent idle after this long with no new lines and no tools in flight.
- *  Ports the original's text-idle fallback: `turn_duration` only ends turns that
- *  used tools; a text-only (typically final) turn never emits it, so without this
- *  the agent would stay "active" showing its last task until new lines arrive. */
-const IDLE_AFTER_MS = 4000;
+/** Text-idle fallback: a turn that used NO tools never emits `turn_duration`,
+ *  so without this a settled text-only (typically final) turn would keep showing
+ *  its last state until new lines arrive. Safe to keep short — such a turn is over
+ *  the moment its single assistant message lands. */
+const TEXT_IDLE_AFTER_MS = 4000;
+
+/** Safety net for a turn that HAS used tools. Such a turn ends definitively via
+ *  `turn_duration` ('waiting'/done chime), so we must NOT idle it on the short
+ *  timer — the gaps between tool calls (model thinking) routinely exceed a few
+ *  seconds and the agent is still mid-task. Only fall back to idle if the
+ *  definitive end never arrives (crashed / truncated transcript, or a replay
+ *  backlog that stopped mid-turn). Long enough to never trip on real thinking. */
+const ACTIVE_IDLE_AFTER_MS = 90_000;
 
 interface FeedConn {
   user: string;
@@ -145,12 +153,15 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
     });
   });
 
-  // Inactivity → idle. An agent with no new lines for IDLE_AFTER_MS and no tools
-  // in flight goes quiet (toolsClear + idle), so it stops showing its last task —
-  // covering text-only turns and the initial replay. This is NOT a turn-completion
-  // signal (no "done" chime): the real turn end is the transcript's turn_duration
-  // event, which still emits 'waiting'. Otherwise every mid-task thinking pause
-  // longer than IDLE_AFTER_MS would chime.
+  // Inactivity → idle. A quiet agent goes idle (toolsClear + idle) so it stops
+  // showing its last task. This is NOT a turn-completion signal (no "done" chime):
+  // the real turn end is the transcript's turn_duration event ('waiting').
+  //
+  // Crucially, a turn mid-task — one that has used a tool but not yet hit
+  // turn_duration — must NOT idle on the short timer: the model thinks between
+  // tool calls and those gaps routinely exceed a few seconds. Such turns end
+  // definitively via turn_duration, so we only apply a long safety-net timeout
+  // (for crashed/truncated transcripts or a replay backlog that stopped mid-turn).
   const idleTimer = setInterval(() => {
     const now = Date.now();
     for (const conn of conns) {
@@ -158,8 +169,9 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
         if (conn.idled.has(agentId)) continue;
         const st = conn.parsers.get(agentId);
         if (st && st.activeToolNames.size > 0) continue; // a tool is still running
+        const idleAfter = st?.hadToolsInTurn ? ACTIVE_IDLE_AFTER_MS : TEXT_IDLE_AFTER_MS;
         const last = conn.lastActivity.get(agentId) ?? 0;
-        if (now - last < IDLE_AFTER_MS) continue;
+        if (now - last < idleAfter) continue;
         conn.idled.add(agentId);
         director.apply({ t: 'toolsClear', id: agentId });
         director.apply({ t: 'status', id: agentId, status: 'idle' });
