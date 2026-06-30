@@ -86,11 +86,13 @@ Stream a **real** Claude agent into the office (the feed shares the viewer port)
 
 ```bash
 node feeder/pixel-agents-feeder.cjs \
-  --server ws://localhost:2567/feed --user alice --token local
+  --server ws://localhost:2567/feed --token <your-agent-token>
 ```
 
-`--token` is required by the feeder; the server only enforces it when
-`PIXEL_STREAM_TOKEN` is set (otherwise any value is accepted).
+`--token` is your **per-user agent token** (copy it from in-app Settings); the
+server resolves it to your account and labels your agents accordingly. In open
+dev mode (no `PIXEL_ADMIN_TOKEN`) there are no accounts, so any value is accepted
+and the agents are labelled generically.
 
 ### Build & run (single server, single port)
 

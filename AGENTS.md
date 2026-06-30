@@ -182,12 +182,23 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   (walk/typing/reading/coffee) — the saved override carries its `spec`, and the
   server validates that track frames sum to the frame count. Adding a *new* pose
   still means a new `CharacterPose` + a `spriteForPose` branch + a track name.
-- **Config via `PIXEL_STREAM_*` env** (matches the original + the feeder):
-  `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`, `PIXEL_STREAM_TOKEN`,
-  `PIXEL_STREAM_DATA_DIR`. Token also via `--token`.
-- **Auth:** token login → HttpOnly cookie session in SQLite (`pixel_stream_sid`),
-  validated in `SimRoom.onAuth`. Expired sessions auto-pruned. The feeder's
-  `--user` becomes the agent's `folderName` (used for per-viewer sound filtering).
+- **Config via env:** `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`,
+  `PIXEL_ADMIN_TOKEN` (admin login token; also `--token`), `PIXEL_STREAM_DATA_DIR`
+  (holds the single `pixel.db`).
+- **Accounts & auth:** users live in the `users` table (`UserStore`), keyed by a
+  lowercase `user_id` (login id, also the agent owner key) with a free display
+  `username`, a scrypt password (`pw_algo` records the scheme), an `is_admin`
+  flag, and a per-user `agent_token`. Login = login id + password → HttpOnly
+  cookie session in SQLite (`pixel_stream_sid`, keyed by `user_id`), validated in
+  `SimRoom.onAuth` → `{userId, username, isAdmin}`. Presenting `PIXEL_ADMIN_TOKEN`
+  at login makes that user an admin and creates the account if new (the only way
+  to create users for now — no open self-registration). No admin token set →
+  open dev mode (anonymous, no login). World/asset editing is admin-only. Agents
+  authenticate the feed with their own `agent_token` (resolves to the owner);
+  the avatar's name is always the player's display name.
+- **One database:** all state lives in `pixel.db` via the shared `db.ts`
+  connection (sessions, users, settings, assets, layouts, zones); a one-time
+  migration imports the old split `layouts.db` + `zones.db`.
 - **Default layout is read-only** and must never be overwritten.
 - **Commits:** imperative, no `Co-Authored-By`/AI trailer. Don't commit or push
   without being asked.
@@ -207,7 +218,8 @@ pnpm start               # serves client/dist + Colyseus + /feed on one port
 There is **no separate client server in production** — `pnpm start` (and the
 multi-stage `Dockerfile`) serve the built client from the same origin. A viewer
 needs only a browser; an agent needs only Claude + `feeder/pixel-agents-feeder.cjs`
-(`--server ws://host:PORT/feed --user <name> --token <t>`).
+(`--server ws://host:PORT/feed --token <your-agent-token>` — the per-user token
+identifies the owner; copy it from in-app Settings).
 
 ## Before you ship
 

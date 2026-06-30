@@ -1,14 +1,17 @@
 /**
- * Viewer token-login (cookie session). The browser logs in once with the shared
- * AUTH token (in the POST body, never the URL); the server stores a session in
- * SQLite and sets an opaque HttpOnly cookie. Same model as the original fork,
- * adapted to Express. Active only when PIXEL_TOKEN is set.
+ * Account login (cookie session). Users sign in with a login id + password
+ * (scrypt-verified). Additionally presenting the admin token makes that user an
+ * admin and creates the account if it doesn't exist yet (the only way to create
+ * a user for now — there is no open self-registration). The server stores a
+ * session in SQLite keyed by user_id and sets an opaque HttpOnly cookie. Active
+ * only when an admin token is configured (PIXEL_ADMIN_TOKEN / --token).
  */
 import * as crypto from 'node:crypto';
 import type { Express, Request, Response, NextFunction } from 'express';
 import express from 'express';
 
 import { appStore } from './appStore.js';
+import { userStore, normalizeLoginId, isValidPassword, MIN_PASSWORD_LEN } from './userStore.js';
 
 const VIEWER_COOKIE = 'pixel_stream_sid';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -31,17 +34,10 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-function sanitizeUsername(raw: unknown): string {
-  return String(raw ?? '')
-    .trim()
-    .replace(/[^\x21-\x7e]/g, '')
-    .slice(0, 16);
-}
-
-/** Resolve the logged-in username for a request's cookie (or undefined). */
-export function usernameFromCookie(cookieHeader: string | undefined): string | undefined {
+/** Resolve the logged-in user id for a request's cookie (or undefined). */
+export function userIdFromCookie(cookieHeader: string | undefined): string | undefined {
   const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
-  return appStore.getSession(sid)?.username || undefined;
+  return appStore.getSession(sid)?.userId || undefined;
 }
 
 export function hasValidSession(cookieHeader: string | undefined): boolean {
@@ -56,30 +52,65 @@ function loginHtml(err = ''): string {
 font-family:ui-monospace,monospace;display:flex;align-items:center;justify-content:center}
 form{background:#1b1f2a;border:2px solid #3a4150;border-radius:8px;padding:24px 28px}
 h3{margin:0 0 14px}.err{color:#ff8888;min-height:1.2em;margin:6px 0}
+label{font-size:12px;color:#9aa3b2;display:block;margin:8px 0 2px}
 input{background:#14161c;color:#e6e9ef;border:2px solid #3a4150;border-radius:5px;padding:9px;width:300px;
-font:14px ui-monospace,monospace;display:block;margin-bottom:8px}
-button{margin-top:12px;background:#3a6df0;color:#fff;border:0;border-radius:5px;padding:10px 18px;
+font:14px ui-monospace,monospace;display:block}
+.hint{color:#6b7280;font-size:11px;margin-top:4px;max-width:320px}
+button{margin-top:14px;background:#3a6df0;color:#fff;border:0;border-radius:5px;padding:10px 18px;
 font:bold 14px ui-monospace,monospace;cursor:pointer}</style></head><body>
 <form method="post" action="/login"><h3>pixel-agents</h3><div class="err">${err}</div>
-<input name="username" type="text" placeholder="Username (matches your --user)" maxlength="16" autofocus autocomplete="username">
-<input name="token" type="password" placeholder="AUTH token" autocomplete="current-password">
+<label for="u">Login id</label>
+<input id="u" name="username" type="text" placeholder="your login id" maxlength="32" autofocus autocomplete="username">
+<label for="p">Password</label>
+<input id="p" name="password" type="password" placeholder="password" autocomplete="current-password">
+<label for="t">Admin token (optional)</label>
+<input id="t" name="token" type="password" placeholder="only to create / become admin" autocomplete="off">
+<div class="hint">First time? Enter the admin token with a new login id + password to create an admin account.</div>
 <div><button type="submit">Sign in</button></div></form></body></html>`;
 }
 
-/** Register login + the HTML auth gate. No-op semantics when token is empty. */
-export function registerAuth(app: Express, token: string): void {
+/** Register login + the HTML auth gate. `adminToken` is required (caller only
+ *  mounts this when one is configured). */
+export function registerAuth(app: Express, adminToken: string): void {
   app.use(express.urlencoded({ extended: false }));
 
+  const setSession = (res: Response, userId: string): void => {
+    const sid = appStore.createSession(userId);
+    res.setHeader(
+      'Set-Cookie',
+      `${VIEWER_COOKIE}=${sid}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Lax`,
+    );
+    res.redirect(303, '/');
+  };
+
   app.post('/login', (req: Request, res: Response) => {
-    const submitted = String((req.body as Record<string, unknown>)?.token ?? '');
-    const username = sanitizeUsername((req.body as Record<string, unknown>)?.username);
-    if (tokenEquals(submitted, token)) {
-      const sid = appStore.createSession(username);
-      res.setHeader('Set-Cookie', `${VIEWER_COOKIE}=${sid}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Lax`);
-      res.redirect(303, '/');
-      return;
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const loginId = normalizeLoginId(body.username);
+    const password = String(body.password ?? '');
+    const token = String(body.token ?? '');
+    const fail = (msg: string): void => void res.status(401).type('html').send(loginHtml(msg));
+
+    if (!loginId) return fail('Enter a login id.');
+
+    if (token) {
+      // Admin path: the token must be exact; it grants admin and creates the
+      // account if new (a password — min length — is required to create one).
+      if (!tokenEquals(token, adminToken)) return fail('Invalid admin token.');
+      const existing = userStore.get(loginId);
+      if (existing) {
+        userStore.markAdmin(existing.userId);
+        return setSession(res, existing.userId);
+      }
+      if (!isValidPassword(password)) return fail(`A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.`);
+      const user = userStore.createUser(loginId, password, { isAdmin: true });
+      return setSession(res, user.userId);
     }
-    res.status(401).type('html').send(loginHtml('Invalid token.'));
+
+    // Normal path: an existing user with the right password. No self-registration.
+    if (!userStore.exists(loginId) || !userStore.verifyPassword(loginId, password)) {
+      return fail('Invalid login id or password.');
+    }
+    return setSession(res, loginId);
   });
 
   // Logout: drop the session + expire the cookie, then back to the login screen.

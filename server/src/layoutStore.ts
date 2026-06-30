@@ -13,14 +13,12 @@
  *
  * Editing one zone therefore can never touch another zone's layout.
  */
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 
-import { dataPath } from './paths.js';
+import { db } from './db.js';
 
 export const DEFAULT_LAYOUT_NAME = 'Default';
 export const DEFAULT_ZONE_ID = 'office';
-
-const DB_FILE = 'layouts.db';
 /** Printable ASCII, but never '/' (reserved as the zone/name separator). */
 const NAME_RE = /^[\x20-\x2e\x30-\x7e]{1,32}$/;
 
@@ -38,7 +36,7 @@ export class LayoutStore {
   private readonly defaults = new Map<string, Layout | null>();
 
   constructor(bundledDefault: Layout | null) {
-    this.db = new DatabaseSync(dataPath(DB_FILE));
+    this.db = db;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS layouts (
         name TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL
@@ -139,7 +137,7 @@ export class LayoutStore {
   }
 
   close(): void {
-    this.db.close();
+    // The DB connection is process-shared (see db.ts) — nothing to close here.
   }
 
   // ── internals ───────────────────────────────────────────────────

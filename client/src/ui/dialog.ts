@@ -88,6 +88,39 @@ export function confirmDialog(
 }
 
 /**
+ * Pixel-styled replacement for window.alert: a single OK button (no Cancel).
+ * Resolves when dismissed (OK / Enter / Esc / backdrop click).
+ */
+export function alertDialog(message: string, opts: { confirmLabel?: string } = {}): Promise<void> {
+  const { overlay, box } = buildModal(message);
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const ok = document.createElement('button');
+  ok.textContent = opts.confirmLabel ?? 'OK';
+  ok.className = 'ok';
+  foot.append(ok);
+  box.appendChild(foot);
+
+  return new Promise<void>((resolve) => {
+    const done = (): void => {
+      window.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve();
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' || e.key === 'Enter') done();
+    };
+    ok.onclick = () => done();
+    overlay.onclick = (e) => {
+      if (e.target === overlay) done();
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    ok.focus();
+  });
+}
+
+/**
  * Pixel-styled replacement for window.prompt. Resolves to the entered string,
  * or null on cancel / Esc / backdrop click.
  */

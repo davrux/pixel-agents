@@ -39,7 +39,7 @@ import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
-import { confirmDialog, promptDialog } from '../ui/dialog.js';
+import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
@@ -185,6 +185,11 @@ export class OfficeScene extends Phaser.Scene {
   // the login identity and is remembered per browser.
   private viewerUsername = '';
   private nameOverridden = false;
+  /** This viewer's account: stable login id, admin flag, per-user agent token
+   *  (empty in open dev mode / anonymous). */
+  private myUserId = '';
+  private isAdmin = false;
+  private agentToken = '';
   /** Pinned character skin id for this viewer, or null (server diversifies). */
   private mySkin: string | null = null;
   /** This viewer's own player-avatar id (from viewerIdentity), or null. */
@@ -261,7 +266,7 @@ export class OfficeScene extends Phaser.Scene {
       categories: [
         {
           key: 'agent',
-          label: 'Agents',
+          label: 'Avatars',
           getTemplates: () => getCharacterTemplates(),
           // New skins get the next free char_<n> id (ids are stable, never reused).
           newId: (existing) => {
@@ -323,9 +328,12 @@ export class OfficeScene extends Phaser.Scene {
       // Mutually exclusive with the other top-bar popovers.
       requestToggle: () => this.setMenu(this.furnEditor.isOpen() ? null : 'furniture'),
     });
-    // Keep Help as the rightmost menu button, after the editor buttons appended
-    // their own entries above.
-    if (this.helpBtn && this.topbar) this.topbar.appendChild(this.helpBtn);
+    // Keep Help as the rightmost menu button (after the editor buttons appended
+    // their own entries above), with Settings as its immediate left neighbour.
+    if (this.helpBtn && this.topbar) {
+      this.topbar.appendChild(this.helpBtn);
+      if (this.settingsBtn) this.topbar.insertBefore(this.settingsBtn, this.helpBtn);
+    }
 
     // Zone voice control — mounted in the always-visible menubar (NOT the
     // collapsible button row), so it's directly clickable. Positions for
@@ -404,12 +412,20 @@ export class OfficeScene extends Phaser.Scene {
           // a reload, then re-assert our name onto the fresh avatar (the owned
           // avatar's skin is assigned server-side).
           this.myPlayerId = typeof m.playerId === 'number' ? m.playerId : null;
-          if (this.myPlayerId !== null && this.viewerUsername) {
+          // Anonymous (open dev) viewers re-assert their chosen name; logged-in
+          // users get their display name from the server.
+          if (this.myPlayerId !== null && !this.myUserId && this.viewerUsername) {
             this.room?.send('setPlayerName', { name: this.viewerUsername });
           }
         }
         else if (m.type === 'viewerIdentity') {
-          if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
+          this.myUserId = (m.userId as string) ?? '';
+          this.isAdmin = !!m.isAdmin;
+          this.agentToken = (m.agentToken as string) ?? '';
+          // Logged-in users: display name is server-owned. Anonymous (open dev):
+          // keep a locally chosen name if any.
+          if (this.myUserId) this.viewerUsername = (m.username as string) ?? '';
+          else if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
           // Show the server version next to the connection status (arrives just
           // after the bare "connected" set at connect time).
@@ -420,20 +436,27 @@ export class OfficeScene extends Phaser.Scene {
             this.zoneVoiceStarted = true;
             this.zoneVoice?.start();
           }
-          // The server assigns this viewer's owned avatar (pa:<user>) — remember
+          // The server assigns this viewer's owned avatar (pa:<userId>) — remember
           // its id so "My avatar" edits/preview target the right skin.
           if (typeof m.playerSkin === 'string') this.myAvatarId = m.playerSkin;
-          if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
+          // Anonymous viewers carry their chosen name to the avatar; logged-in
+          // users' avatar name is the server-set display name.
+          if (!this.myUserId && this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
 
           // Adopt the server-pinned skin only if the viewer hasn't picked one here.
           if (this.mySkin === null && typeof m.characterSkin === 'string') {
             this.mySkin = m.characterSkin;
           }
-          // A non-empty auth username means login is active → offer logout.
+          // Logged-in → offer logout; hide editing entry points from non-admins.
           const logout = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-logout');
-          if (logout) logout.style.display = (m.username as string) ? '' : 'none';
+          if (logout) logout.style.display = this.myUserId ? '' : 'none';
+          this.applyAdminVisibility();
           this.syncSettingsInputs();
           this.renderCharSwatches();
+        }
+        else if (m.type === 'agentToken') {
+          this.agentToken = (m.token as string) ?? '';
+          this.syncSettingsInputs();
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
@@ -1243,22 +1266,27 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zonesPanel) return;
     const cur = currentZone();
     const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
+    // Travelling is open to all; creating/editing/deleting zones is admin-only
+    // (open dev mode without accounts treats everyone as an editor).
+    const admin = !this.myUserId || this.isAdmin;
 
     const rows = this.zoneList
       .map((z) => {
         const here = z.id === cur;
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
-        // The office (read-only) can't be deleted; everything else can.
-        const del = z.readOnly ? '' : ` <button data-del="${esc(z.id)}">✕</button>`;
         const lock = z.readOnly ? ' 🔒' : '';
         const npcN = z.npc == null ? 'all' : String(z.npc.length);
-        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>${del}</div>`;
+        // Per-zone admin controls (NPCs / edit / delete) only for admins.
+        const del = admin && !z.readOnly ? ` <button data-del="${esc(z.id)}">✕</button>` : '';
+        const adminBtns = admin
+          ? `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>${del}`
+          : '';
+        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${adminBtns}</div>`;
       })
       .join('');
 
-    this.zonesPanel.innerHTML =
-      `<h4>Zones</h4>${rows}` +
-      `<div class="foot">
+    const foot = admin
+      ? `<div class="foot">
          <button data-arrive>📍 Set arrival point (this zone)</button>
          <input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
          <div class="sz">
@@ -1266,7 +1294,9 @@ export class OfficeScene extends Phaser.Scene {
            <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
          </div>
          <button data-new class="new">＋ Create zone</button>
-       </div>`;
+       </div>`
+      : '';
+    this.zonesPanel.innerHTML = `<h4>Zones</h4>${rows}${foot}`;
 
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
       b.onclick = () => this.goToZone(b.dataset.go!);
@@ -1284,21 +1314,25 @@ export class OfficeScene extends Phaser.Scene {
           send('deleteZone', { id: b.dataset.del });
       };
     });
-    this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]')!.onclick = () => {
-      this.arrivePickActive = true;
-      this.setMenu(null);
-      setStatus('Click a floor tile to set where players arrive in this zone.');
-    };
-    this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = () => {
-      const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
-      const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
-      const rows = Number((this.zonesPanel.querySelector('#pa-z-rows') as HTMLInputElement)?.value);
-      if (!label) {
-        setStatus('Enter a name for the new zone.');
-        return;
-      }
-      send('createZone', { label, cols, rows });
-    };
+    const arrive = this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]');
+    if (arrive)
+      arrive.onclick = () => {
+        this.arrivePickActive = true;
+        this.setMenu(null);
+        setStatus('Click a floor tile to set where players arrive in this zone.');
+      };
+    const newBtn = this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]');
+    if (newBtn)
+      newBtn.onclick = () => {
+        const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
+        const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
+        const rows = Number((this.zonesPanel.querySelector('#pa-z-rows') as HTMLInputElement)?.value);
+        if (!label) {
+          setStatus('Enter a name for the new zone.');
+          return;
+        }
+        send('createZone', { label, cols, rows });
+      };
   }
 
   /** Edit a zone's label (and arrival tile via "col,row"). */
@@ -1621,6 +1655,7 @@ export class OfficeScene extends Phaser.Scene {
     const style = document.createElement('style');
     style.textContent = `
       #pa-settings{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:19rem;
+        max-height:calc(100vh - 4.4rem);overflow-y:auto;overscroll-behavior:contain;
         background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;
         font-family:'FS Pixel Sans',monospace;box-shadow:0 4px 0 rgba(0,0,0,.4);}
       #pa-settings h4{margin:0 0 0.75rem;font-size:1.25rem;color:#cdd3dd;}
@@ -1641,9 +1676,15 @@ export class OfficeScene extends Phaser.Scene {
       #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
         border:2px solid #3a4150;border-radius:0.3rem;}
       #pa-avatar .pa-av-btns{display:flex;flex-direction:column;gap:0.35rem;flex:1;}
-      #pa-avatar button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;
-        font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;}
-      #pa-avatar button:disabled{opacity:0.5;cursor:default;}
+      #pa-avatar button,#pa-account button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
+        border-radius:0.3rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;}
+      #pa-avatar button:disabled,#pa-account button:disabled{opacity:0.5;cursor:default;}
+      /* Account buttons fill their row (single → full width; pair → split evenly). */
+      #pa-account button{flex:1;}
+      #pa-userinfo{font-size:0.85rem;color:#9aa3b2;margin:-0.35rem 0 0.7rem;display:flex;
+        align-items:center;gap:0.4rem;flex-wrap:wrap;}
+      #pa-userinfo code{color:#cdd3dd;background:#14161c;border:1px solid #3a4150;border-radius:0.25rem;padding:0.05rem 0.3rem;}
+      #pa-userinfo .admin{background:#2d4a2f;border:1px solid #3f6d43;color:#cdeccf;border-radius:0.25rem;padding:0.05rem 0.35rem;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
         color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
@@ -1656,8 +1697,16 @@ export class OfficeScene extends Phaser.Scene {
     const panel = document.createElement('div');
     panel.id = 'pa-settings';
     panel.innerHTML = `<h4>Settings</h4>
-      <div class="row"><label for="pa-name">Your name</label><input id="pa-name" type="text" maxlength="16" placeholder="(all agents)"></div>
-      <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
+      <div id="pa-userinfo"></div>
+      <div class="row"><label for="pa-name">Display name</label><input id="pa-name" type="text" maxlength="32" placeholder="(your login id)"></div>
+      <div class="hint">Shown on your avatar. Empty = your login id.</div>
+      <div id="pa-account">
+        <div class="row"><label for="pa-pw">New password</label><input id="pa-pw" type="password" maxlength="64" placeholder="min 6 chars" autocomplete="new-password"></div>
+        <div class="row"><button id="pa-pw-set">Change password</button></div>
+        <div class="row"><label for="pa-token">Agent token</label><input id="pa-token" type="text" readonly></div>
+        <div class="row"><button id="pa-token-copy">Copy</button><button id="pa-token-new">Regenerate</button></div>
+        <div class="hint">Your agents authenticate with this token (<code>--token</code>); keep it secret.</div>
+      </div>
       <div class="row"><label>Your avatar</label></div>
       <div id="pa-avatar">
         <canvas id="pa-avatar-pic"></canvas>
@@ -1682,8 +1731,9 @@ export class OfficeScene extends Phaser.Scene {
       if (opening) this.renderCharSwatches();
     };
     const host = document.getElementById('game') ?? document.body;
-    // Sit leftmost in the shared top-bar (created by the layouts panel).
-    if (this.topbar) this.topbar.prepend(btn);
+    // Add to the shared top-bar (created by the layouts panel); final position is
+    // set in create() — Settings ends up as Help's immediate left neighbour.
+    if (this.topbar) this.topbar.appendChild(btn);
     else host.appendChild(btn);
     host.appendChild(panel);
     this.settingsPanel = panel;
@@ -1732,22 +1782,50 @@ export class OfficeScene extends Phaser.Scene {
       this.room?.send('avatarToTemplate', { name: nm });
     };
 
+    // Account controls (logged-in users): password + per-user agent token.
+    panel.querySelector<HTMLButtonElement>('#pa-pw-set')!.onclick = async () => {
+      const pw = panel.querySelector<HTMLInputElement>('#pa-pw')!;
+      const v = pw.value;
+      if (v.length < 6) {
+        await alertDialog('Password must be at least 6 characters.');
+        return;
+      }
+      this.room?.send('setPassword', { password: v });
+      pw.value = '';
+      await alertDialog('Password changed.');
+    };
+    panel.querySelector<HTMLButtonElement>('#pa-token-copy')!.onclick = () => {
+      void navigator.clipboard?.writeText(this.agentToken);
+    };
+    panel.querySelector<HTMLButtonElement>('#pa-token-new')!.onclick = async () => {
+      if (await confirmDialog('Regenerate your agent token? The old one stops working.', { danger: true, confirmLabel: 'Regenerate' })) {
+        this.room?.send('regenerateAgentToken', {});
+      }
+    };
+
     const name = panel.querySelector<HTMLInputElement>('#pa-name')!;
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
     name.onchange = () => {
-      const v = name.value.trim().slice(0, 16);
+      const v = name.value.trim().slice(0, 32);
       this.viewerUsername = v;
-      this.nameOverridden = true;
-      try {
-        if (v) localStorage.setItem('pa-viewer-name', v);
-        else localStorage.removeItem('pa-viewer-name');
-      } catch {
-        /* localStorage unavailable */
-      }
       unlockAudio();
-      this.room?.send('setPlayerName', { name: v }); // rename the live player avatar
+      if (this.myUserId) {
+        // Logged-in: persist the display name on the account (server renames the
+        // live avatar).
+        this.room?.send('setUsername', { username: v });
+      } else {
+        // Anonymous (open dev): a locally chosen name on the avatar.
+        this.nameOverridden = true;
+        try {
+          if (v) localStorage.setItem('pa-viewer-name', v);
+          else localStorage.removeItem('pa-viewer-name');
+        } catch {
+          /* localStorage unavailable */
+        }
+        this.room?.send('setPlayerName', { name: v });
+      }
       this.clearNameLabels(); // labels re-render with the new name on next tick
     };
     snd.onchange = () => {
@@ -1987,6 +2065,33 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
+    // Account section: only for logged-in users; reflect the current agent token.
+    const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
+    if (account) account.style.display = this.myUserId ? '' : 'none';
+    const tok = this.settingsPanel.querySelector<HTMLInputElement>('#pa-token');
+    if (tok) tok.value = this.agentToken;
+    // Identity line: login id + admin badge (logged-in users only).
+    const info = this.settingsPanel.querySelector<HTMLDivElement>('#pa-userinfo');
+    if (info) {
+      info.style.display = this.myUserId ? '' : 'none';
+      info.innerHTML = this.myUserId
+        ? `<span>User ID</span><code>${esc(this.myUserId)}</code>${this.isAdmin ? '<span class="admin">★ Admin</span>' : ''}`
+        : '';
+    }
+  }
+
+  /** Show editing entry points (character/furniture/layout editors, zone admin,
+   *  save-as-template) only to admins; in open dev mode everyone is treated as
+   *  an editor. Server enforcement is authoritative — this is just UX. */
+  private applyAdminVisibility(): void {
+    const canEdit = !this.myUserId || this.isAdmin; // open dev (no account) → allow
+    this.charEditor?.setButtonVisible(canEdit);
+    this.furnEditor?.setButtonVisible(canEdit);
+    if (this.layoutsBtn) this.layoutsBtn.style.display = canEdit ? '' : 'none';
+    const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
+    if (save) save.style.display = canEdit ? '' : 'none';
+    // The zones panel stays available for travel, but its admin controls hide.
+    this.renderZonesPanel?.();
   }
 
   // ── Always-on name labels ────────────────────────────────────────

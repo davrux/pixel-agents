@@ -8,14 +8,13 @@
  * "Default" layout can be regenerated; the active layout may be resized later in
  * the editor (LayoutStore owns the layouts themselves).
  */
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { ZONES, DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
 
-import { dataPath } from './paths.js';
+import { db } from './db.js';
 
-const DB_FILE = 'zones.db';
 const MIN_SIZE = 6;
 const LABEL_RE = new RegExp(`^[\\x20-\\x7e]{1,${MAX_NAME_LEN}}$`);
 
@@ -35,7 +34,7 @@ export class ZoneStore {
   private readonly db: DatabaseSync;
 
   constructor() {
-    this.db = new DatabaseSync(dataPath(DB_FILE));
+    this.db = db;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS zones (
         id TEXT PRIMARY KEY,
@@ -140,7 +139,7 @@ export class ZoneStore {
   }
 
   close(): void {
-    this.db.close();
+    // The DB connection is process-shared (see db.ts) — nothing to close here.
   }
 
   // ── internals ───────────────────────────────────────────────────

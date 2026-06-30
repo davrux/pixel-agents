@@ -25,7 +25,8 @@ import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
-import { hasValidSession, usernameFromCookie } from '../auth.js';
+import { hasValidSession, userIdFromCookie } from '../auth.js';
+import { userStore, UserStore, isValidPassword } from '../userStore.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -55,6 +56,19 @@ function cloneCharacterData(data: LoadedCharacterData): LoadedCharacterData {
   return JSON.parse(JSON.stringify(data)) as LoadedCharacterData;
 }
 
+/** Per-connection identity resolved in onAuth: stable `userId` (the key for all
+ *  per-user state), `username` (free display name), and `isAdmin`. */
+interface AuthInfo {
+  userId: string;
+  username: string;
+  isAdmin: boolean;
+}
+
+function authOf(client: Client): AuthInfo {
+  const a = client.auth as Partial<AuthInfo> | undefined;
+  return { userId: a?.userId ?? '', username: a?.username ?? '', isAdmin: !!a?.isAdmin };
+}
+
 export class SimRoom extends Room<RoomState> {
   /** Read-only file defaults; `bundle` is these merged with DB asset overrides. */
   private defaults!: AssetBundle;
@@ -78,7 +92,9 @@ export class SimRoom extends Room<RoomState> {
   /** Per-deployment prefix for LiveKit room names (env override, else a stable
    *  random id from the DB) so dev + prod never share a voice room. */
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
-  private token = '';
+  /** Whether login is enforced (an admin token is configured). When false the
+   *  room runs in open dev mode with an anonymous viewer. */
+  private authRequired = false;
   /** Server version (git describe / release file), surfaced to the client's
    *  connection status indicator. */
   private version = '';
@@ -155,19 +171,23 @@ export class SimRoom extends Room<RoomState> {
     }
   }
 
-  /** Gate joins on the cookie session when a token is configured; expose the
-   *  viewer's username so the client can play sounds only for its own agents. */
-  onAuth(_client: Client, _options: unknown, context: AuthContext): { username: string } {
-    if (!this.token) return { username: '' };
+  /** Gate joins on the cookie session when login is enforced; resolve the viewer
+   *  to {userId (identity key), username (display name), isAdmin}. Open dev mode
+   *  (no admin token) yields an anonymous viewer. */
+  onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
+    if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
     const cookie = (context?.headers as Record<string, string | undefined> | undefined)?.cookie;
     if (!hasValidSession(cookie)) throw new Error('unauthorized');
-    return { username: usernameFromCookie(cookie) ?? '' };
+    const userId = userIdFromCookie(cookie) ?? '';
+    const user = userId ? userStore.get(userId) : undefined;
+    if (!user) throw new Error('unauthorized');
+    return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
   }
 
-  onCreate(options: { bundle: AssetBundle; token?: string; zone?: string; version?: string }): void {
+  onCreate(options: { bundle: AssetBundle; authRequired?: boolean; zone?: string; version?: string }): void {
     this.defaults = options.bundle;
     this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
-    this.token = options.token ?? '';
+    this.authRequired = options.authRequired ?? false;
     this.version = options.version ?? '';
     // Resolve which space this room hosts from the persistent registry (user
     // zones included); fall back to the builtin config for safety.
@@ -248,24 +268,25 @@ export class SimRoom extends Room<RoomState> {
     client.send('m', { type: 'chatHistory', messages: this.chatLog });
     for (const key of this.conferences.keys()) client.send('m', this.conferenceMembersMsg(key));
 
-    // Who this viewer logged in as (for per-user sounds) + their pinned skins.
-    const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+    // This viewer's identity: userId keys all per-user state; username is the
+    // (free) display name shown on the avatar.
+    const { userId, username, isAdmin } = authOf(client);
     // This user is now viewing this zone, so their agents should live here. The
     // reroute hands them over from whatever zone they were in (no-op if same).
-    director.setOwnerZone(username, this.zone.id);
-    const characterSkin = username ? (appStore.getCharPrefs()[username] ?? null) : null;
+    director.setOwnerZone(userId, this.zone.id);
+    const characterSkin = userId ? (appStore.getCharPrefs()[userId] ?? null) : null;
 
     // Zone-local avatar loading: give the joiner every owned avatar already
     // present in this zone, so it can render the players standing here without
     // pulling in avatars from other zones.
     for (const [sid, data] of this.avatarData) client.send('m', { type: 'playerAvatar', id: sid, data });
 
-    // Logged-in viewers own a private, editable avatar (pa:<user>); anonymous
-    // viewers (no stable identity) fall back to a random gallery skin.
+    // Logged-in viewers own a private, editable avatar (pa:<userId>); anonymous
+    // viewers (open dev mode) fall back to a random gallery skin.
     let playerSkin: string | null = null;
-    if (username) {
-      const data = this.ensurePlayerAvatar(username);
-      const sid = playerAvatarSkinId(username);
+    if (userId) {
+      const data = this.ensurePlayerAvatar(userId);
+      const sid = playerAvatarSkinId(userId);
       playerSkin = sid;
       this.avatarData.set(sid, data);
       this.avatarRefs.set(sid, (this.avatarRefs.get(sid) ?? 0) + 1);
@@ -275,11 +296,24 @@ export class SimRoom extends Room<RoomState> {
     // Everyone who joins gets a player avatar (no spectator mode). Active entry
     // (menu switch or portal) → land at the zone's arrival tile; a plain refresh
     // resumes where this user last stood (engine picks a free tile, else random).
-    const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
+    const saved = userId ? appStore.getPlayerPos(userId, this.zone.id) : null;
     const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
-    const playerId = this.os.addPlayer(playerSkin ?? undefined, username || undefined, spawnAt ?? undefined);
+    // The avatar's name is always the player's display name (username or userId).
+    const displayName = username || userId || undefined;
+    const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
-    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId, version: this.version });
+    const agentToken = userId ? (userStore.get(userId)?.agentToken ?? '') : '';
+    client.send('m', {
+      type: 'viewerIdentity',
+      userId,
+      username,
+      isAdmin,
+      agentToken,
+      characterSkin,
+      playerSkin,
+      playerId,
+      version: this.version,
+    });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -289,20 +323,20 @@ export class SimRoom extends Room<RoomState> {
   }
 
   onLeave(client: Client): void {
-    const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+    const { userId } = authOf(client);
     const playerId = this.players.get(client.sessionId);
     if (playerId !== undefined) {
       // Persist the avatar's last tile (logged-in users respawn there next time).
       const ch = this.os.getCharacter(playerId);
-      if (username && ch) appStore.setPlayerPos(username, this.zone.id, ch.tileCol, ch.tileRow);
+      if (userId && ch) appStore.setPlayerPos(userId, this.zone.id, ch.tileCol, ch.tileRow);
       this.leaveAllConferences(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }
     // Release this user's owned avatar from the zone once their last session
     // here is gone, so other clients can drop the no-longer-needed sprite data.
-    if (username) {
-      const sid = playerAvatarSkinId(username);
+    if (userId) {
+      const sid = playerAvatarSkinId(userId);
       const n = (this.avatarRefs.get(sid) ?? 1) - 1;
       if (n > 0) {
         this.avatarRefs.set(sid, n);
@@ -364,12 +398,12 @@ export class SimRoom extends Room<RoomState> {
     for (const key of [...this.conferences.keys()]) this.leaveConference(playerId, key);
   }
 
-  /** Display name for a chatter: their avatar's name, else login username, else Guest. */
+  /** Display name for a chatter: their avatar's name, else display name, else Guest. */
   private chatNameFor(client: Client): string {
-    const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+    const { userId, username } = authOf(client);
     const id = this.players.get(client.sessionId);
     const ch = id !== undefined ? this.os.getCharacter(id) : null;
-    return ch?.folderName || username || 'Guest';
+    return ch?.folderName || username || userId || 'Guest';
   }
 
   // ── Layout management (server-authoritative) ─────────────────────
@@ -449,16 +483,19 @@ export class SimRoom extends Room<RoomState> {
     const zone = this.zone.id;
     this.onMessage('requestLayouts', (client) => client.send('m', this.layoutListMessage()));
 
-    this.onMessage('loadLayout', (_c, msg: { name?: string }) => {
+    this.onMessage('loadLayout', (client, msg: { name?: string }) => {
+      if (!this.canEdit(client)) return;
       if (typeof msg?.name === 'string' && this.store.setActive(zone, msg.name)) this.applyActiveLayout();
     });
 
-    this.onMessage('saveLayout', (_c, msg: { layout?: Record<string, unknown> }) => {
+    this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
+      if (!this.canEdit(client)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
       if (msg?.layout && this.store.saveActive(zone, msg.layout, Date.now())) this.applyActiveLayout();
     });
 
-    this.onMessage('saveLayoutAs', (_c, msg: { name?: string; layout?: Record<string, unknown> }) => {
+    this.onMessage('saveLayoutAs', (client, msg: { name?: string; layout?: Record<string, unknown> }) => {
+      if (!this.canEdit(client)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
         this.store.saveAs(zone, name, msg.layout, Date.now());
@@ -466,7 +503,8 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    this.onMessage('deleteLayout', (_c, msg: { name?: string }) => {
+    this.onMessage('deleteLayout', (client, msg: { name?: string }) => {
+      if (!this.canEdit(client)) return;
       if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
     });
 
@@ -551,10 +589,11 @@ export class SimRoom extends Room<RoomState> {
       client.send('m', { type: 'zoneVoiceToken', url, token, room });
     });
 
-    // ── Zone registry (create / edit / delete; everyone may, office protected) ──
+    // ── Zone registry (create / edit / delete; admins only, office protected) ──
     this.onMessage('requestZones', (client) => client.send('m', this.zoneListMessage()));
 
     this.onMessage('createZone', (client, msg: { label?: string; cols?: number; rows?: number }) => {
+      if (!this.canEdit(client)) return;
       if (typeof msg?.label !== 'string') return;
       const id = this.zones.create(msg.label, Number(msg?.cols), Number(msg?.rows), Date.now());
       // Tell the creator the new id (so the client can offer to jump there) +
@@ -563,7 +602,8 @@ export class SimRoom extends Room<RoomState> {
       this.broadcastZoneList();
     });
 
-    this.onMessage('editZone', (_c, msg: { id?: string; label?: string; arrive?: { col: number; row: number } }) => {
+    this.onMessage('editZone', (client, msg: { id?: string; label?: string; arrive?: { col: number; row: number } }) => {
+      if (!this.canEdit(client)) return;
       if (typeof msg?.id !== 'string') return;
       const patch: { label?: string; arrive?: { col: number; row: number } } = {};
       if (typeof msg.label === 'string') patch.label = msg.label;
@@ -574,7 +614,8 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    this.onMessage('deleteZone', (_c, msg: { id?: string }) => {
+    this.onMessage('deleteZone', (client, msg: { id?: string }) => {
+      if (!this.canEdit(client)) return;
       // The office is read-only and can never be deleted (enforced in the store).
       if (typeof msg?.id === 'string' && this.zones.delete(msg.id)) {
         this.store.deleteZoneLayouts(msg.id); // drop the zone's saved layouts too
@@ -583,7 +624,8 @@ export class SimRoom extends Room<RoomState> {
     });
 
     // Per-zone NPC spawn set: which variants appear in a zone (null = all).
-    this.onMessage('setZoneNpc', (_c, msg: { id?: string; npc?: string[] | null }) => {
+    this.onMessage('setZoneNpc', (client, msg: { id?: string; npc?: string[] | null }) => {
+      if (!this.canEdit(client)) return;
       if (typeof msg?.id !== 'string') return;
       const npc =
         msg.npc === null || msg.npc === undefined
@@ -616,49 +658,76 @@ export class SimRoom extends Room<RoomState> {
     this.onMessage('setCharacter', (client, msg: { skin?: string; name?: string }) => {
       const skin = typeof msg?.skin === 'string' ? msg.skin : '';
       if (skin && !this.isKnownSkin(skin)) return;
-      const auth = (client.auth as { username?: string } | undefined)?.username;
-      const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
-        .trim()
-        .slice(0, 16);
-      if (!name) return;
+      const { userId } = authOf(client);
+      // Keyed by userId (matches the agent label) for logged-in users; an
+      // anonymous viewer (open dev) may pass a name.
+      const key = (userId || (typeof msg?.name === 'string' ? msg.name : '')).trim().slice(0, 32);
+      if (!key) return;
       if (!skin) {
         // Default (random) → unpin and re-randomise the user's agents.
-        appStore.clearCharPref(name);
-        this.os.clearSkinPref(name);
+        appStore.clearCharPref(key);
+        this.os.clearSkinPref(key);
       } else {
-        appStore.setCharPref(name, skin);
-        this.os.setSkinPref(name, skin);
+        appStore.setCharPref(key, skin);
+        this.os.setSkinPref(key, skin);
       }
+    });
+
+    // ── Account (logged-in users) ──────────────────────────────────
+    // Set/change password (scrypt; min length enforced).
+    this.onMessage('setPassword', (client, msg: { password?: string }) => {
+      const { userId } = authOf(client);
+      const pw = String(msg?.password ?? '');
+      if (!userId || !isValidPassword(pw)) return;
+      userStore.setPassword(userId, pw);
+    });
+
+    // Change the free display name; the avatar's name follows it live.
+    this.onMessage('setUsername', (client, msg: { username?: string }) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      userStore.setUsername(userId, String(msg?.username ?? ''));
+      const user = userStore.get(userId);
+      const id = this.players.get(client.sessionId);
+      if (user && id !== undefined) this.os.setCharacterName(id, UserStore.displayName(user));
+    });
+
+    // Rotate the per-user agent token (invalidates the old one immediately).
+    this.onMessage('regenerateAgentToken', (client) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      client.send('m', { type: 'agentToken', token: userStore.regenerateAgentToken(userId) });
     });
 
     // Reset the viewer's owned avatar from a gallery template (a fresh copy —
     // the template stays independent; later edits/deletes never affect it).
     this.onMessage('avatarFromTemplate', (client, msg: { templateId?: string }) => {
-      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (!username) return;
+      const { userId } = authOf(client);
+      if (!userId) return;
       const id = typeof msg?.templateId === 'string' ? msg.templateId : '';
       if (!this.isKnownSkin(id)) return;
       const src = (this.bundle.raw.characters as Array<{ id: string; data: LoadedCharacterData }>).find(
         (c) => c.id === id,
       );
-      if (src) this.setAvatar(username, cloneCharacterData(src.data));
+      if (src) this.setAvatar(userId, cloneCharacterData(src.data));
     });
 
     // Save edits to the viewer's own avatar (its private sprite data).
     this.onMessage('saveAvatar', (client, msg: { data?: unknown }) => {
-      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (!username || msg?.data === undefined || !this.validCharacterData(msg.data)) return;
-      this.setAvatar(username, msg.data as LoadedCharacterData);
+      const { userId } = authOf(client);
+      if (!userId || msg?.data === undefined || !this.validCharacterData(msg.data)) return;
+      this.setAvatar(userId, msg.data as LoadedCharacterData);
     });
 
     // Copy the viewer's own avatar into the shared gallery as a new template
-    // (a snapshot — the avatar stays the player's own, independent copy).
+    // (a snapshot — the avatar stays the player's own, independent copy). Adding
+    // to the shared gallery is an admin action.
     this.onMessage('avatarToTemplate', (client, msg: { name?: string }) => {
-      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (!username) return;
-      const data = appStore.getPlayerAvatar<LoadedCharacterData>(username);
+      const { userId, username, isAdmin } = authOf(client);
+      if (!userId || !isAdmin) return;
+      const data = appStore.getPlayerAvatar<LoadedCharacterData>(userId);
       if (!data) return;
-      const name = ((typeof msg?.name === 'string' ? msg.name : '').trim() || username).slice(0, 16);
+      const name = ((typeof msg?.name === 'string' ? msg.name : '').trim() || username || userId).slice(0, 16);
       const toSave = { ...cloneCharacterData(data), name };
       if (!this.validCharacterData(toSave)) return;
       appStore.saveAsset('character', this.nextCharTemplateId(), toSave);
@@ -714,20 +783,21 @@ export class SimRoom extends Room<RoomState> {
       client.send('m', { type: 'zoneTransition', zone: target.id });
     });
 
-    // The viewer's display name for their player avatar (auth username for
-    // logged-in viewers; a chosen name for anonymous ones).
+    // The player avatar's name is always the user's display name (logged-in);
+    // an anonymous viewer (open dev) may pass a chosen name.
     this.onMessage('setPlayerName', (client, msg: { name?: string }) => {
-      const auth = (client.auth as { username?: string } | undefined)?.username;
-      const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
-        .trim()
-        .slice(0, 16);
+      const { userId, username } = authOf(client);
+      const name = userId
+        ? username || userId
+        : (typeof msg?.name === 'string' ? msg.name : '').trim().slice(0, 16);
       const id = this.players.get(client.sessionId);
       if (id !== undefined) this.os.setCharacterName(id, name);
     });
 
     // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge
     // + re-apply to the engine + broadcast the refreshed *Loaded message.
-    this.onMessage('saveAsset', (_c, msg: { assetType?: string; name?: string; data?: unknown }) => {
+    this.onMessage('saveAsset', (client, msg: { assetType?: string; name?: string; data?: unknown }) => {
+      if (!this.canEdit(client)) return;
       const type = this.validAssetType(msg?.assetType);
       if (!type || typeof msg?.name !== 'string' || msg.data === undefined) return;
       // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
@@ -738,7 +808,8 @@ export class SimRoom extends Room<RoomState> {
       appStore.saveAsset(type, msg.name, msg.data);
       this.reapplyAsset(type);
     });
-    this.onMessage('deleteAsset', (_c, msg: { assetType?: string; name?: string }) => {
+    this.onMessage('deleteAsset', (client, msg: { assetType?: string; name?: string }) => {
+      if (!this.canEdit(client)) return;
       const type = this.validAssetType(msg?.assetType);
       if (!type || typeof msg?.name !== 'string') return;
       if (appStore.deleteAsset(type, msg.name)) this.reapplyAsset(type);
@@ -759,24 +830,24 @@ export class SimRoom extends Room<RoomState> {
 
   // ── Player-owned avatars ─────────────────────────────────────────
 
-  /** This user's private avatar sprite data, creating it on first use by
-   *  copying their old gallery pin (migration) or the first template. */
-  private ensurePlayerAvatar(username: string): LoadedCharacterData {
-    const existing = appStore.getPlayerAvatar<LoadedCharacterData>(username);
+  /** This user's private avatar sprite data (keyed by userId), creating it on
+   *  first use by copying their old gallery pin (migration) or the first template. */
+  private ensurePlayerAvatar(userId: string): LoadedCharacterData {
+    const existing = appStore.getPlayerAvatar<LoadedCharacterData>(userId);
     if (existing) return existing;
     const chars = this.bundle.raw.characters as Array<{ id: string; data: LoadedCharacterData }>;
-    const oldPin = appStore.getPlayerPrefs()[username];
+    const oldPin = appStore.getPlayerPrefs()[userId];
     const src = (oldPin ? chars.find((c) => c.id === oldPin) : undefined) ?? chars[0];
     const data = cloneCharacterData(src.data);
-    appStore.setPlayerAvatar(username, data);
+    appStore.setPlayerAvatar(userId, data);
     return data;
   }
 
   /** Persist a user's avatar data and push it to everyone in this zone (live
-   *  re-render). The skin id stays pa:<user>; only the sprite data changes. */
-  private setAvatar(username: string, data: LoadedCharacterData): void {
-    appStore.setPlayerAvatar(username, data);
-    const sid = playerAvatarSkinId(username);
+   *  re-render). The skin id stays pa:<userId>; only the sprite data changes. */
+  private setAvatar(userId: string, data: LoadedCharacterData): void {
+    appStore.setPlayerAvatar(userId, data);
+    const sid = playerAvatarSkinId(userId);
     if (this.avatarData.has(sid)) this.avatarData.set(sid, data);
     this.broadcast('m', { type: 'playerAvatar', id: sid, data });
   }
@@ -789,6 +860,12 @@ export class SimRoom extends Room<RoomState> {
       if (m) max = Math.max(max, Number(m[1]));
     }
     return `char_${max + 1}`;
+  }
+
+  /** Whether this client may edit shared world/assets: admins only when login is
+   *  enforced; everyone in open dev mode (no auth, no admin concept). */
+  private canEdit(client: Client): boolean {
+    return !this.authRequired || authOf(client).isAdmin;
   }
 
   /**

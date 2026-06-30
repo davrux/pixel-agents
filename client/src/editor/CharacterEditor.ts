@@ -191,6 +191,7 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
  */
 export class CharacterEditor {
   private panel!: HTMLDivElement;
+  private btn!: HTMLButtonElement;
   private galleryPane!: HTMLDivElement;
   private editPane!: HTMLDivElement;
   private cardsHost!: HTMLDivElement;
@@ -238,6 +239,11 @@ export class CharacterEditor {
 
   isOpen(): boolean {
     return this.open;
+  }
+  /** Show/hide the top-bar entry button (used to hide editing from non-admins). */
+  setButtonVisible(visible: boolean): void {
+    this.btn.style.display = visible ? '' : 'none';
+    if (!visible && this.open) this.close();
   }
   /** The active editable category. */
   private cat(): EditorCategory {
@@ -481,6 +487,7 @@ export class CharacterEditor {
     const host = document.getElementById('game') ?? document.body;
     if (this.opts.topbar) this.opts.topbar.appendChild(btn);
     else host.appendChild(btn);
+    this.btn = btn;
     host.appendChild(panel);
     host.appendChild(importPanel);
     this.importPanel = importPanel;

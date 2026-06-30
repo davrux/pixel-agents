@@ -4,7 +4,7 @@
 # Phaser client, served as a static build from the same origin).
 #
 # Build:  docker build -t pixel-agents .
-# Run:    docker run --rm -e PIXEL_STREAM_TOKEN=<secret> -p 6161:6161 \
+# Run:    docker run --rm -e PIXEL_ADMIN_TOKEN=<secret> -p 6161:6161 \
 #                 -v pixel-data:/data pixel-agents
 #
 # Single port: the browser, Colyseus and the agent feed (/feed) all share it.
@@ -12,8 +12,10 @@
 # Env (see server/src/index.ts + server/src/paths.ts):
 #   PIXEL_STREAM_PORT        viewer + Colyseus + /feed port (default 6161)
 #   PIXEL_STREAM_HOST        bind address           (default 0.0.0.0)
-#   PIXEL_STREAM_TOKEN       shared AUTH token       (empty → open, no login)
-#   PIXEL_STREAM_DATA_DIR    SQLite sessions/layouts (default /data; mount a volume)
+#   PIXEL_ADMIN_TOKEN        admin login token: presenting it at login makes that
+#                            user an admin (and creates them); empty → open dev
+#                            mode (no login). Agents use their own per-user token.
+#   PIXEL_STREAM_DATA_DIR    SQLite database (pixel.db; default /data, mount a volume)
 #
 # node:24 is required for the built-in node:sqlite (sessions + layout database).
 #

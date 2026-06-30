@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { isSubagentToolName } from '@pixel/shared/office/toolUtils.js';
 
 import { director } from '../sim/director.js';
+import { userStore } from '../userStore.js';
 import { newParseState, parseLine, type ParseState } from './transcriptParser.js';
 
 /** Credentials travel in Sec-WebSocket-Protocol (base64url), never the URL. */
@@ -70,7 +71,7 @@ const conns = new Set<FeedConn>();
  * `upgrade` event, so we route `/feed` upgrades to our own (noServer) wss and
  * delegate everything else back to Colyseus's original upgrade listeners.
  */
-export function attachFeedServer(httpServer: HttpServer, token: string | null): WebSocketServer {
+export function attachFeedServer(httpServer: HttpServer, opts: { authRequired: boolean }): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   // Colyseus' ws-transport has already registered its upgrade listener(s) by
@@ -95,12 +96,16 @@ export function attachFeedServer(httpServer: HttpServer, token: string | null): 
 
   wss.on('connection', (ws: WebSocket, req) => {
     const creds = decodeProtocols(req.headers['sec-websocket-protocol']);
-    if (token && creds.token !== token) {
+    // The per-user agent token identifies the owner: it resolves to a user,
+    // whose user_id labels their agents (so they follow that user across zones).
+    const owner = creds.token ? userStore.getByAgentToken(creds.token) : undefined;
+    if (opts.authRequired && !owner) {
       ws.close(4001, 'unauthorized');
       return;
     }
     const conn: FeedConn = {
-      user: (creds.user || 'agent').slice(0, 16),
+      // Authenticated: the token's user. Open dev mode: fall back to --user.
+      user: owner?.userId ?? (creds.user || 'agent').slice(0, 16),
       sessions: new Map(),
       parsers: new Map(),
       lastActivity: new Map(),

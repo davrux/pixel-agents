@@ -5,21 +5,27 @@
  * (used to play task sounds only for that viewer's own agents). Expired sessions
  * are purged on startup and on an interval so the table never grows unbounded.
  */
-import { DatabaseSync } from 'node:sqlite';
 import * as crypto from 'node:crypto';
 
-import { dataPath } from './paths.js';
+import { db } from './db.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 
 class AppStore {
-  private readonly db = new DatabaseSync(dataPath('layouts.db'));
+  private readonly db = db;
 
   constructor() {
+    // Sessions are keyed by user_id now (password auth replaced the free-text
+    // username login); a legacy username-based table is just dropped — those
+    // sessions are invalid under the new model and re-login is required.
+    const cols = this.db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
+    if (cols.some((c) => c.name === 'username') && !cols.some((c) => c.name === 'user_id')) {
+      this.db.exec('DROP TABLE sessions');
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS sessions (
-        sid TEXT PRIMARY KEY, username TEXT NOT NULL, expires INTEGER NOT NULL
+        sid TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
       CREATE TABLE IF NOT EXISTS assets (
@@ -33,26 +39,26 @@ class AppStore {
   }
 
   // ── Sessions ─────────────────────────────────────────────────────
-  createSession(username: string): string {
+  createSession(userId: string): string {
     const sid = crypto.randomBytes(32).toString('base64url'); // opaque, never the token
     this.db
-      .prepare('INSERT INTO sessions(sid, username, expires) VALUES(?, ?, ?)')
-      .run(sid, username, Date.now() + SESSION_TTL_MS);
+      .prepare('INSERT INTO sessions(sid, user_id, expires) VALUES(?, ?, ?)')
+      .run(sid, userId, Date.now() + SESSION_TTL_MS);
     return sid;
   }
 
   /** Live session for a sid, or undefined if missing/expired (lazy-deleted). */
-  getSession(sid: string | undefined): { username: string } | undefined {
+  getSession(sid: string | undefined): { userId: string } | undefined {
     if (!sid) return undefined;
-    const r = this.db.prepare('SELECT username, expires FROM sessions WHERE sid = ?').get(sid) as
-      | { username: string; expires: number }
+    const r = this.db.prepare('SELECT user_id, expires FROM sessions WHERE sid = ?').get(sid) as
+      | { user_id: string; expires: number }
       | undefined;
     if (!r) return undefined;
     if (Date.now() > r.expires) {
       this.db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
       return undefined;
     }
-    return { username: r.username };
+    return { userId: r.user_id };
   }
 
   deleteSession(sid: string): void {

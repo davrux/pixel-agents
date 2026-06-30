@@ -61,9 +61,12 @@ function arg(name: string, def: string): string {
 // (with PORT as a fallback for local dev).
 const PORT = Number(process.env.PIXEL_STREAM_PORT ?? process.env.PORT ?? 2567);
 const HOST = process.env.PIXEL_STREAM_HOST?.trim() || '0.0.0.0';
-// Viewer/feed AUTH token — pass --token <T> at start, or set PIXEL_STREAM_TOKEN
-// (same name the feeder uses). Empty → no login required (open dev mode).
-const TOKEN = arg('--token', process.env.PIXEL_STREAM_TOKEN ?? '').trim() || null;
+// Admin login token — pass --token <T> at start, or set PIXEL_ADMIN_TOKEN.
+// Presenting it at login makes that user an admin (and creates them if new).
+// When set, login (user id + password) is required and there is no anonymous
+// mode; empty → open dev mode (no login, anonymous viewer). Agents authenticate
+// the feed with their own per-user token, not this one.
+const ADMIN_TOKEN = arg('--token', process.env.PIXEL_ADMIN_TOKEN ?? '').trim() || null;
 const MOCK = Number(process.env.MOCK ?? 0);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -78,10 +81,10 @@ async function main(): Promise<void> {
   const app = express();
   app.use(cors());
   app.get('/health', (_req, res) => res.json({ ok: true }));
-  // Token login + cookie-session gate (only when a token is configured).
-  if (TOKEN) {
-    registerAuth(app, TOKEN);
-    console.log('[server] viewer login required (--token / PIXEL_STREAM_TOKEN set)');
+  // Login + cookie-session gate (only when an admin token is configured).
+  if (ADMIN_TOKEN) {
+    registerAuth(app, ADMIN_TOKEN);
+    console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));
@@ -111,11 +114,11 @@ async function main(): Promise<void> {
   const version = serverVersion();
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined, version }).filterBy(['zone']);
+  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: !!ADMIN_TOKEN, version }).filterBy(['zone']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
-  attachFeedServer(httpServer, TOKEN);
+  attachFeedServer(httpServer, { authRequired: !!ADMIN_TOKEN });
 
   httpServer.listen(PORT, HOST, () => {
     const scheme = useTls ? 'https' : 'http';
