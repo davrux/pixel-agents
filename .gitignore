@@ -25,3 +25,6 @@ Thumbs.db
 /MetroCity/
 /moderninteriors/
 tmp/
+
+# Generated at release time (pnpm release / docker:build) — server logs it.
+server/version.txt

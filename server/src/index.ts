@@ -1,8 +1,33 @@
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
+
+/** Version for the startup log: env override, else the release-time version.txt,
+ *  else a live `git describe` in dev, else "dev". */
+function serverVersion(): string {
+  const env = process.env.PIXEL_VERSION?.trim();
+  if (env) return env;
+  try {
+    return readFileSync(fileURLToPath(new URL('../version.txt', import.meta.url)), 'utf8').trim() || 'dev';
+  } catch {
+    /* no release file — try git, else dev */
+  }
+  try {
+    return (
+      execSync('git describe --tags --always --dirty', {
+        cwd: fileURLToPath(new URL('.', import.meta.url)),
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .toString()
+        .trim() || 'dev'
+    );
+  } catch {
+    return 'dev';
+  }
+}
 
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
@@ -91,6 +116,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(PORT, HOST, () => {
     const scheme = useTls ? 'https' : 'http';
+    console.log(`[server] pixel-agents ${serverVersion()}`);
     console.log(`[server] listening on ${scheme}://${HOST}:${PORT} (viewer + Colyseus + /feed)`);
     if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
   });

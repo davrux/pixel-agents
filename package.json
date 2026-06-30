@@ -17,7 +17,9 @@
     "start": "pnpm --filter @pixel/server run start",
     "serve": "pnpm --filter @pixel/server run start",
     "check-types": "pnpm -r run check-types",
-    "docker:build": "docker build -t \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\" .",
+    "version:gen": "node scripts/gen-version.mjs",
+    "release": "pnpm run version:gen && pnpm run build",
+    "docker:build": "pnpm run version:gen && docker build -t \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\" .",
     "docker:push": "docker push \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\"",
     "docker:release": "pnpm run docker:build && pnpm run docker:push"
   }
