@@ -48,6 +48,9 @@ export class CharacterSync extends EntitySync {
   @type('string') activity = '';
   @type('uint32') inputTokens = 0;
   @type('uint32') outputTokens = 0;
+  /** Player set themselves away (/afk) — shows an "afk" marker; clears on move.
+   *  Appended last (schema-evolution safe: never shift existing field indices). */
+  @type('boolean') afk = false;
 }
 
 export class PetSync extends EntitySync {

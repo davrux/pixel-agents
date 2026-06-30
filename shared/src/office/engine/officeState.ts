@@ -681,6 +681,7 @@ export class OfficeState {
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
     ch.pendingConference = null; // …and a pending walk-to-monitor
+    ch.afk = false; // moving clears the afk marker
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
@@ -704,6 +705,7 @@ export class OfficeState {
     }
     if (!seat) return false;
     ch.heldDir = null;
+    ch.afk = false; // moving to a seat clears the afk marker
     ch.pendingConference = null; // a click-to-sit cancels a pending walk-to-monitor
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
@@ -737,6 +739,7 @@ export class OfficeState {
     if (dir !== null) {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
       ch.pendingConference = null; // …and a walk-to-monitor
+      ch.afk = false; // moving clears the afk marker
     }
     ch.heldDir = dir;
     // Drop a click-to-walk target so the key takes over, but keep the current
@@ -762,6 +765,15 @@ export class OfficeState {
       ch.state = CharacterState.IDLE;
     }
     return true;
+  }
+
+  /** Toggle (or set) a player's afk marker. Returns the new state, or null if
+   *  the id isn't a player. Cleared automatically on movement (see clearAfk). */
+  setPlayerAfk(id: number, on?: boolean): boolean | null {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return null;
+    ch.afk = on ?? !ch.afk;
+    return ch.afk;
   }
 
   /** If a held direction is set, queue a single step to the adjacent tile that

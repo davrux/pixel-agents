@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -775,6 +775,21 @@ export class SimRoom extends Room<RoomState> {
       if (id !== undefined) this.os.setPlayerSit(id, !!msg?.sit);
     });
 
+    // Slash commands (/afk, …). The shared registry gates by group; client-only
+    // commands (/help) never reach here. Feedback is sent back as a 'system' line.
+    this.onMessage('command', (client, msg: { name?: string; args?: string }) => {
+      const sys = (text: string): void => void client.send('m', { type: 'system', text });
+      const spec = findCommand(typeof msg?.name === 'string' ? msg.name : '');
+      if (!spec) return sys(`Unknown command. Try /help.`);
+      if (!mayRunCommand(spec, authOf(client).isAdmin)) return sys(`/${spec.name} is for admins only.`);
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      if (spec.name === 'afk') {
+        const now = this.os.setPlayerAfk(id);
+        sys(now ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
+      }
+    });
+
     // Click-to-sit on a chair/bench: walk to the seat tile and sit facing it.
     this.onMessage('playerSitAt', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
@@ -1126,6 +1141,7 @@ export class SimRoom extends Room<RoomState> {
       cs.matrixEffectTimer = ch.matrixEffectTimer;
       cs.isSubagent = ch.isSubagent;
       cs.isPlayer = ch.isPlayer;
+      cs.afk = ch.afk ?? false;
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';

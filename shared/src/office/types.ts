@@ -304,6 +304,8 @@ export interface Character {
   /** Whether this character is a human player's avatar (viewer-driven, not the
    *  agent FSM; spawned on join). */
   isPlayer: boolean;
+  /** Player marked themselves away (/afk); shows an "afk" marker, cleared on move. */
+  afk?: boolean;
   /** Held WASD direction for continuous keyboard walking, or null. Server-only
    *  movement intent (not synced) — the resulting transform/state is synced. */
   heldDir?: Direction | null;

@@ -71,6 +71,7 @@ export function createCharacter(
     seatTimer: 0,
     isSubagent: false,
     isPlayer: false,
+    afk: false,
     parentAgentId: null,
     matrixEffect: null,
     matrixEffectTimer: 0,
