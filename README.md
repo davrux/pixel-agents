@@ -105,6 +105,27 @@ In production there is **no separate client server** — `pnpm start` (and the
 Docker image) serve the built client from the same origin. A viewer only needs
 a browser pointed at the server URL; an agent only needs Claude + the feeder.
 
+### Accounts & login
+
+Set **`PIXEL_ADMIN_TOKEN`** (or `--token`) to enable accounts. Players sign in
+with a **login id + password**; presenting the admin token additionally makes
+that user an **admin** and **creates the account if it doesn't exist yet**
+(a password, min 6 chars, is required to create one). There is no open
+self-registration and no anonymous mode while the token is set — bootstrap the
+first admin by logging in with the token, a new login id, and a password.
+
+- **Login id** (`user_id`) is lowercase-unique and immutable; the **display
+  name** is free and shown on your avatar (empty → the login id).
+- Each user gets a **per-user agent token** (Settings → copy) that their agents
+  pass as `--token`; it identifies the owner, so their agents follow them.
+- **Editing the world/assets** (layouts, zones, the shared character gallery) is
+  **admin-only**. Everyone can edit their own avatar.
+- Change password / display name and view your agent token under **Settings**.
+
+With no admin token set, the server runs in **open dev mode**: no login, an
+anonymous viewer, and editing open to all. All state lives in a single
+`pixel.db` (in `PIXEL_STREAM_DATA_DIR`, default `~/.pixel-agents2`).
+
 ## Status
 
 Ported 1:1 and verified: the default office layout, the original character /
