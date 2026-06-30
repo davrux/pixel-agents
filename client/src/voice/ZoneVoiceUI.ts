@@ -17,13 +17,16 @@ export class ZoneVoiceUI {
 
   private voiceBtn!: HTMLButtonElement;
   private micBtn!: HTMLButtonElement;
+  private deafenBtn!: HTMLButtonElement;
   private gearBtn!: HTMLButtonElement;
   private popover!: HTMLElement;
+  private devicesEl!: HTMLElement;
   private peersEl!: HTMLElement;
   private masterEl!: HTMLInputElement;
   private proxEl!: HTMLInputElement;
   private micSel!: HTMLSelectElement;
   private spkSel!: HTMLSelectElement;
+  private micGainEl!: HTMLInputElement;
   private open = false;
   private lastState: ZoneVoiceState;
 
@@ -74,6 +77,7 @@ export class ZoneVoiceUI {
       #pa-zv-grp button:hover{background:#262c3a;}
       #pa-zv-grp button.on{background:#23402e;border-color:#3f7a52;color:#bdf0cd;}
       #pa-zv-grp button.live{background:#2e4636;border-color:#4caf73;color:#d6ffe2;}
+      #pa-zv-grp button.off{background:#46302e;border-color:#7a3f3f;color:#f0bdbd;}
       #pa-zv-grp button:disabled{opacity:0.45;cursor:default;}
       #pa-zv-pop{position:fixed;top:3.4rem;right:0.5rem;z-index:61;width:18rem;display:none;
         background:#1b1f2af2;border:2px solid #3a4150;border-radius:0.5rem;padding:0.6rem 0.7rem;
@@ -115,12 +119,16 @@ export class ZoneVoiceUI {
     this.micBtn.title = 'Mute / unmute your microphone';
     this.micBtn.addEventListener('click', () => this.voice.toggleMic());
 
+    this.deafenBtn = document.createElement('button');
+    this.deafenBtn.title = 'Silence everyone / un-silence (deafen)';
+    this.deafenBtn.addEventListener('click', () => this.voice.toggleDeafen());
+
     this.gearBtn = document.createElement('button');
     this.gearBtn.textContent = '▾'; // ▾
     this.gearBtn.title = 'Voice settings';
     this.gearBtn.addEventListener('click', () => this.togglePopover());
 
-    grp.append(this.voiceBtn, this.micBtn, this.gearBtn);
+    grp.append(this.voiceBtn, this.micBtn, this.deafenBtn, this.gearBtn);
     // Prepend so it sits at the left of the always-visible menubar, separate
     // from the collapsible ☰ button row.
     mount.insertBefore(grp, mount.firstChild);
@@ -131,19 +139,25 @@ export class ZoneVoiceUI {
     this.popover.id = 'pa-zv-pop';
     this.popover.innerHTML = `
       <h4>Zone voice</h4>
-      <div class="row"><label>Mic</label><select id="pa-zv-mic"></select></div>
-      <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
+      <div id="pa-zv-devices">
+        <div class="row"><label>Mic</label><select id="pa-zv-mic"></select></div>
+        <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
+        <div class="row"><label>Mic sens.</label><input id="pa-zv-micgain" type="range" min="0" max="200"></div>
+      </div>
       <div class="row"><label>Volume</label><input id="pa-zv-master" type="range" min="0" max="100"></div>
       <div class="row"><label><input id="pa-zv-prox" type="checkbox"> Proximity</label></div>
       <div class="hint">Nearby players sound louder; distant ones fade out.</div>
       <div id="pa-zv-peers"></div>
     `;
     document.body.appendChild(this.popover);
+    this.devicesEl = this.popover.querySelector('#pa-zv-devices')!;
     this.peersEl = this.popover.querySelector('#pa-zv-peers')!;
     this.masterEl = this.popover.querySelector('#pa-zv-master')!;
     this.proxEl = this.popover.querySelector('#pa-zv-prox')!;
     this.micSel = this.popover.querySelector('#pa-zv-mic')!;
     this.spkSel = this.popover.querySelector('#pa-zv-spk')!;
+    this.micGainEl = this.popover.querySelector('#pa-zv-micgain')!;
+    this.micGainEl.addEventListener('input', () => this.voice.setMicSensitivity(Number(this.micGainEl.value) / 100));
     this.masterEl.addEventListener('input', () => this.voice.setMaster(Number(this.masterEl.value) / 100));
     this.proxEl.addEventListener('change', () => this.voice.setProximity(this.proxEl.checked));
     this.micSel.addEventListener('change', () => void this.voice.switchMic(this.micSel.value));
@@ -176,9 +190,19 @@ export class ZoneVoiceUI {
     this.voiceBtn.title = this.voice.isEnabled ? 'Leave this zone’s voice chat' : 'Join this zone’s voice chat';
 
     this.micBtn.style.display = connected ? '' : 'none';
-    this.micBtn.textContent = s.micOn ? '🎤 Live' : '🔇 Muted';
+    this.micBtn.textContent = s.micOn ? '🎤 Live' : '🎤 Muted';
     this.micBtn.classList.toggle('live', s.micOn);
 
+    // Deafen = silence everyone you hear (independent of your mic).
+    this.deafenBtn.style.display = connected ? '' : 'none';
+    this.deafenBtn.textContent = s.deafened ? '🔇 Silenced' : '🔊 Sound';
+    this.deafenBtn.classList.toggle('off', s.deafened);
+
+    // Mic/Speaker pickers only make sense once connected (devices need the live
+    // room + mic permission); hide them otherwise.
+    this.devicesEl.style.display = connected ? '' : 'none';
+
+    this.micGainEl.value = String(Math.round(s.micGain * 100));
     this.masterEl.value = String(Math.round(s.master * 100));
     this.proxEl.checked = s.proximity;
   }

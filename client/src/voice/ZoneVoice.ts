@@ -46,6 +46,10 @@ export interface ZoneVoiceState {
   connected: boolean;
   connecting: boolean;
   micOn: boolean;
+  /** Whether all incoming zone voice is silenced (you hear no one). */
+  deafened: boolean;
+  /** Mic input gain / sensitivity (0..2, 1 = unity). */
+  micGain: number;
   proximity: boolean;
   master: number;
   error?: string;
@@ -70,9 +74,22 @@ export class ZoneVoice {
   private micOn = false; // start muted: joining a zone shouldn't open a hot mic
   private proximity: boolean;
   private master: number;
+  /** Silence all incoming voice (deafen). Mic is independent (see micOn). */
+  private deafened = false;
   private micId: string | undefined;
   private speakerId: string | undefined;
   private proximityTimer: number | null = null;
+
+  // Mic capture graph: raw mic → gain → destination → published track. We own it
+  // (rather than LiveKit's setMicrophoneEnabled) so a sensitivity slider can set
+  // the gain, while device switching just swaps the source feeding the gain.
+  private micGain = 1;
+  private micCtx: AudioContext | null = null;
+  private micGainNode: GainNode | null = null;
+  private micDest: MediaStreamAudioDestinationNode | null = null;
+  private micSource: MediaStreamAudioSourceNode | null = null;
+  private micRawStream: MediaStream | null = null;
+  private micTrack: MediaStreamTrack | null = null;
 
   constructor(
     private readonly hooks: ZoneVoiceHooks,
@@ -82,6 +99,7 @@ export class ZoneVoice {
   ) {
     this.proximity = localStorage.getItem('pa-zv-proximity') === '1';
     this.master = clamp01(Number(localStorage.getItem('pa-zv-master') ?? '1'));
+    this.micGain = clampGain(Number(localStorage.getItem('pa-zv-micgain') ?? '1'));
     this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
     this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
     this.audioBin = document.createElement('div');
@@ -164,9 +182,10 @@ export class ZoneVoice {
     try {
       await room.connect(msg.url, msg.token);
       await room.startAudio().catch(() => undefined); // resume audio after the join gesture
-      await room.localParticipant.setMicrophoneEnabled(this.micOn);
-      // Re-apply the saved input/output devices (best-effort; ids can change).
-      if (this.micId) await room.switchActiveDevice('audioinput', this.micId).catch(() => undefined);
+      // Publish our gain-processed mic only if unmuted (mic starts muted, so no
+      // getUserMedia prompt on join until the user actually unmutes).
+      if (this.micOn) await this.publishMic();
+      // Re-apply the saved output device (best-effort; ids can change).
       if (this.speakerId) await room.switchActiveDevice('audiooutput', this.speakerId).catch(() => undefined);
       this.connecting = false;
       room.remoteParticipants.forEach((p) => this.addPeer(p));
@@ -190,6 +209,7 @@ export class ZoneVoice {
 
   private cleanup(): void {
     this.stopProximity();
+    this.stopMicGraph();
     this.tracks.clear();
     this.peers.clear();
     this.audioBin.replaceChildren();
@@ -256,8 +276,8 @@ export class ZoneVoice {
     const track = this.tracks.get(identity);
     const peer = this.peers.get(identity);
     if (!track || !peer) return;
-    let v = this.master * (peer.muted ? 0 : peer.volume);
-    if (this.proximity) v *= this.distanceFactor(peer.playerId);
+    let v = this.deafened ? 0 : this.master * (peer.muted ? 0 : peer.volume);
+    if (!this.deafened && this.proximity) v *= this.distanceFactor(peer.playerId);
     track.setVolume(clamp01(v));
   }
 
@@ -295,7 +315,72 @@ export class ZoneVoice {
 
   toggleMic(): void {
     this.micOn = !this.micOn;
-    void this.room?.localParticipant.setMicrophoneEnabled(this.micOn);
+    if (this.micOn && !this.micTrack) void this.publishMic();
+    else if (this.micTrack) this.micTrack.enabled = this.micOn;
+    this.emitState();
+  }
+
+  /** Set mic input gain / sensitivity (0..2, 1 = unity). */
+  setMicSensitivity(v: number): void {
+    this.micGain = clampGain(v);
+    localStorage.setItem('pa-zv-micgain', String(this.micGain));
+    if (this.micGainNode) this.micGainNode.gain.value = this.micGain;
+    this.emitState();
+  }
+
+  /** Capture the mic, run it through a gain node, and publish the result. */
+  private async publishMic(): Promise<void> {
+    if (!this.room || this.micTrack) return;
+    try {
+      const raw = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: this.micId ? { exact: this.micId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false, // we provide manual gain (the sensitivity slider)
+        },
+      });
+      const ctx = new AudioContext();
+      await ctx.resume().catch(() => undefined);
+      const source = ctx.createMediaStreamSource(raw);
+      const gain = ctx.createGain();
+      gain.gain.value = this.micGain;
+      const dest = ctx.createMediaStreamDestination();
+      source.connect(gain);
+      gain.connect(dest);
+      const track = dest.stream.getAudioTracks()[0];
+      track.enabled = this.micOn;
+      this.micCtx = ctx;
+      this.micSource = source;
+      this.micGainNode = gain;
+      this.micDest = dest;
+      this.micRawStream = raw;
+      this.micTrack = track;
+      await this.room.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+    } catch (e) {
+      this.stopMicGraph();
+      this.emitState(`mic unavailable: ${(e as Error)?.message ?? e}`);
+    }
+  }
+
+  /** Tear down the mic capture graph (on disconnect / failure). */
+  private stopMicGraph(): void {
+    this.micRawStream?.getTracks().forEach((t) => t.stop());
+    this.micSource?.disconnect();
+    this.micGainNode?.disconnect();
+    void this.micCtx?.close().catch(() => undefined);
+    this.micCtx = null;
+    this.micSource = null;
+    this.micGainNode = null;
+    this.micDest = null;
+    this.micRawStream = null;
+    this.micTrack = null;
+  }
+
+  /** Silence / un-silence all incoming zone voice at once (deafen). */
+  toggleDeafen(): void {
+    this.deafened = !this.deafened;
+    this.applyAllVolumes();
     this.emitState();
   }
 
@@ -314,17 +399,34 @@ export class ZoneVoice {
   }
 
   async switchMic(deviceId: string): Promise<void> {
+    if (!this.room) return; // device switching only applies to a live room
     this.micId = deviceId;
     localStorage.setItem('pa-zv-mic', deviceId);
-    await this.room?.switchActiveDevice('audioinput', deviceId).catch(() => undefined);
+    // If the mic graph is live, swap the source feeding the gain node so the
+    // published track (and its gain) stays the same — no republish needed.
+    if (this.micCtx && this.micGainNode) {
+      try {
+        const raw = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+        });
+        this.micSource?.disconnect();
+        this.micRawStream?.getTracks().forEach((t) => t.stop());
+        this.micRawStream = raw;
+        this.micSource = this.micCtx.createMediaStreamSource(raw);
+        this.micSource.connect(this.micGainNode);
+      } catch {
+        /* keep the old source on failure */
+      }
+    }
     await this.emitDevices();
   }
 
   async switchSpeaker(deviceId: string): Promise<void> {
+    if (!this.room) return;
     this.speakerId = deviceId;
     localStorage.setItem('pa-zv-speaker', deviceId);
     // LiveKit routes its managed elements; also set the sink on ours directly.
-    await this.room?.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
+    await this.room.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
     for (const el of Array.from(this.audioBin.children)) {
       void setSinkId(el as HTMLMediaElement, deviceId);
     }
@@ -340,7 +442,7 @@ export class ZoneVoice {
       this.onDevices({
         mics,
         speakers,
-        micId: this.room.getActiveDevice('audioinput') ?? this.micId,
+        micId: this.micId, // we own the mic graph, so track our own selection
         speakerId: this.room.getActiveDevice('audiooutput') ?? this.speakerId,
       });
     } catch {
@@ -369,6 +471,8 @@ export class ZoneVoice {
       connected: this.room?.state === 'connected',
       connecting: this.connecting,
       micOn: this.micOn,
+      deafened: this.deafened,
+      micGain: this.micGain,
       proximity: this.proximity,
       master: this.master,
     };
@@ -399,4 +503,10 @@ async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> 
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 1;
   return Math.max(0, Math.min(1, v));
+}
+
+/** Clamp mic gain to 0..2 (1 = unity); default 1 for non-finite input. */
+function clampGain(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return Math.max(0, Math.min(2, v));
 }
