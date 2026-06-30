@@ -106,9 +106,12 @@ async function main(): Promise<void> {
   const gameServer = new Server({
     transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
   });
+  // Resolve the version once: logged at startup and handed to each room so the
+  // client can show it next to the connection status.
+  const version = serverVersion();
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined }).filterBy(['zone']);
+  gameServer.define(WORLD_ROOM, SimRoom, { bundle, token: TOKEN ?? undefined, version }).filterBy(['zone']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
@@ -116,7 +119,7 @@ async function main(): Promise<void> {
 
   httpServer.listen(PORT, HOST, () => {
     const scheme = useTls ? 'https' : 'http';
-    console.log(`[server] pixel-agents ${serverVersion()}`);
+    console.log(`[server] pixel-agents ${version}`);
     console.log(`[server] listening on ${scheme}://${HOST}:${PORT} (viewer + Colyseus + /feed)`);
     if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
   });

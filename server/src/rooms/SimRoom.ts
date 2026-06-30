@@ -67,6 +67,9 @@ export class SimRoom extends Room<RoomState> {
    *  random id from the DB) so dev + prod never share a voice room. */
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private token = '';
+  /** Server version (git describe / release file), surfaced to the client's
+   *  connection status indicator. */
+  private version = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
   /** Server-only NPC behaviour tree (decides pet activity; not in client bundle). */
@@ -149,10 +152,11 @@ export class SimRoom extends Room<RoomState> {
     return { username: usernameFromCookie(cookie) ?? '' };
   }
 
-  onCreate(options: { bundle: AssetBundle; token?: string; zone?: string }): void {
+  onCreate(options: { bundle: AssetBundle; token?: string; zone?: string; version?: string }): void {
     this.defaults = options.bundle;
     this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
     this.token = options.token ?? '';
+    this.version = options.version ?? '';
     // Resolve which space this room hosts from the persistent registry (user
     // zones included); fall back to the builtin config for safety.
     this.zones = new ZoneStore();
@@ -246,7 +250,7 @@ export class SimRoom extends Room<RoomState> {
     const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
     const playerId = this.os.addPlayer(playerSkin ?? undefined, username || undefined, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
-    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId });
+    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId, version: this.version });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),

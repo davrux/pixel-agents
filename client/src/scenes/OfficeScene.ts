@@ -392,6 +392,9 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           if (!this.nameOverridden) this.viewerUsername = (m.username as string) ?? '';
           if (typeof m.playerId === 'number') this.myPlayerId = m.playerId; // this viewer's avatar
+          // Show the server version next to the connection status (arrives just
+          // after the bare "connected" set at connect time).
+          if (typeof m.version === 'string' && m.version) setStatus(`connected · ${m.version}`);
           // Once we know our avatar + the room is live, (re)join zone voice if the
           // user left it enabled. Runs once; a zone change reloads the page.
           if (!this.zoneVoiceStarted) {
