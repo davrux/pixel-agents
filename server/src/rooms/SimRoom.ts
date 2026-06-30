@@ -217,7 +217,9 @@ export class SimRoom extends Room<RoomState> {
     if (!apiKey || !apiSecret) return null;
     const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
     const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
-    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true });
+    // canUpdateOwnMetadata lets a participant publish its own attributes (we use
+    // a `deaf` attribute so others can see when someone has their sound off).
+    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canUpdateOwnMetadata: true });
     return at.toJwt();
   }
 

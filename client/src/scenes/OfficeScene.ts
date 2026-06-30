@@ -150,8 +150,8 @@ export class OfficeScene extends Phaser.Scene {
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
   /** Player ids currently talking via zone voice (client-side, from LiveKit). */
   private voiceSpeakers = new Set<number>();
-  /** Per-player zone-voice presence + mic-mute (from LiveKit), for status icons. */
-  private voiceStatus = new Map<number, { muted: boolean }>();
+  /** Per-player zone-voice presence + mic-mute + sound-off (from LiveKit). */
+  private voiceStatus = new Map<number, { muted: boolean; deaf: boolean }>();
   /** Small voice status icons over avatars (in-voice players), keyed by player id. */
   private readonly voiceBubbles = new Map<number, HTMLDivElement>();
   /** Per-speaker grace deadline (ms) so the talking icon stays on through gaps. */
@@ -2064,7 +2064,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** Tiny zone-voice status icon over each in-voice avatar: 🔊 speaking,
-   *  🔇 muted, 🎤 listening (in voice, mic live but quiet). */
+   *  🙉 sound off (deafened), 🔇 mic muted, 🎤 listening. */
   private updateVoiceBubbles(): void {
     const now = performance.now();
     // Grace window so the speaking icon stays steady through gaps between words
@@ -2099,14 +2099,15 @@ export class OfficeScene extends Phaser.Scene {
         (document.getElementById('game') ?? document.body).appendChild(el);
         this.voiceBubbles.set(id, el);
       }
-      // Priority: speaking > muted > listening.
+      // Priority: speaking > sound-off (deaf) > mic-muted > listening.
       const speaking = this.voiceSpeakUntil.has(id);
-      el.textContent = speaking ? '🔊' : st.muted ? '🔇' : '🎤';
+      el.textContent = speaking ? '🔊' : st.deaf ? '🙉' : st.muted ? '🔇' : '🎤';
       el.classList.toggle('spk', speaking);
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      const headOff = (32 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
+      // Just above the head (a touch higher than the name label at 20).
+      const headOff = (24 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - 10 - wv.y) * cam.zoom)}px`;
+      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
   }
 

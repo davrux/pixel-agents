@@ -33,9 +33,9 @@ export interface ZoneVoiceHooks {
   positionOf(playerId: number): { x: number; y: number } | null;
   /** Players currently talking (by id), for a talking indicator over avatars. */
   onSpeakers(playerIds: Set<number>): void;
-  /** Per-player zone-voice presence + mic state, for small status icons over
-   *  avatars (key present = in voice; muted = mic off / just listening). */
-  onVoiceStatus(status: Map<number, { muted: boolean }>): void;
+  /** Per-player zone-voice presence + mic/sound state, for small status icons
+   *  over avatars (key present = in voice; muted = mic off; deaf = sound off). */
+  onVoiceStatus(status: Map<number, { muted: boolean; deaf: boolean }>): void;
 }
 
 export interface Peer {
@@ -188,6 +188,7 @@ export class ZoneVoice {
       .on(RoomEvent.TrackUnmuted, () => this.emitVoiceStatus())
       .on(RoomEvent.TrackPublished, () => this.emitVoiceStatus())
       .on(RoomEvent.TrackUnpublished, () => this.emitVoiceStatus())
+      .on(RoomEvent.ParticipantAttributesChanged, () => this.emitVoiceStatus())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(msg.url, msg.token);
@@ -200,6 +201,7 @@ export class ZoneVoice {
       this.connecting = false;
       room.remoteParticipants.forEach((p) => this.addPeer(p));
       this.startProximity();
+      if (this.deafened) this.broadcastDeaf(); // announce sound-off if we joined deafened
       this.emitState();
       this.emitVoiceStatus();
       await this.emitDevices(); // labels are available now that mic permission is granted
@@ -400,7 +402,16 @@ export class ZoneVoice {
   toggleDeafen(): void {
     this.deafened = !this.deafened;
     this.applyAllVolumes();
+    this.broadcastDeaf(); // let others see our sound-off state
     this.emitState();
+    this.emitVoiceStatus();
+  }
+
+  /** Publish our deafened state as a participant attribute (others read it). */
+  private broadcastDeaf(): void {
+    void this.room?.localParticipant
+      .setAttributes({ deaf: this.deafened ? '1' : '0' })
+      .catch(() => undefined);
   }
 
   setMaster(v: number): void {
@@ -507,13 +518,13 @@ export class ZoneVoice {
 
   /** Per-player presence + mic-mute state (self + remotes), for status icons. */
   private emitVoiceStatus(): void {
-    const status = new Map<number, { muted: boolean }>();
+    const status = new Map<number, { muted: boolean; deaf: boolean }>();
     if (this.room) {
       const me = parsePlayerId(this.room.localParticipant.identity);
-      if (me !== null) status.set(me, { muted: !this.micOn });
+      if (me !== null) status.set(me, { muted: !this.micOn, deaf: this.deafened });
       this.room.remoteParticipants.forEach((p) => {
         const id = parsePlayerId(p.identity);
-        if (id !== null) status.set(id, { muted: !p.isMicrophoneEnabled });
+        if (id !== null) status.set(id, { muted: !p.isMicrophoneEnabled, deaf: p.attributes?.deaf === '1' });
       });
     }
     this.hooks.onVoiceStatus(status);
