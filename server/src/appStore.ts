@@ -108,16 +108,16 @@ class AppStore {
     return Number(r.changes) > 0;
   }
 
-  // ── Per-user character palette preference ────────────────────────
-  getCharPrefs(): Record<string, number> {
-    return this.getSetting<Record<string, number>>('charPrefs', {});
+  // ── Per-user character skin preference (skin id, e.g. "char_3") ──
+  getCharPrefs(): Record<string, string> {
+    return migrateSkinPrefs(this.getSetting<Record<string, unknown>>('charPrefs', {}));
   }
-  setCharPref(name: string, palette: number): void {
+  setCharPref(name: string, skin: string): void {
     const prefs = this.getCharPrefs();
-    prefs[name] = palette;
+    prefs[name] = skin;
     this.setSetting('charPrefs', prefs);
   }
-  /** Remove a user's pinned palette (e.g. when that character was deleted). */
+  /** Remove a user's pinned skin (e.g. when that character was deleted). */
   clearCharPref(name: string): void {
     const prefs = this.getCharPrefs();
     if (name in prefs) {
@@ -126,15 +126,23 @@ class AppStore {
     }
   }
 
-  // ── Per-user player-avatar preferences (palette + spectator) ─────
-  /** Player-avatar palette per user (-1/absent = default random). */
-  getPlayerPrefs(): Record<string, number> {
-    return this.getSetting<Record<string, number>>('playerPrefs', {});
+  // ── Per-user player-avatar preferences (skin id + spectator) ─────
+  /** Player-avatar skin id per user (absent = default random). */
+  getPlayerPrefs(): Record<string, string> {
+    return migrateSkinPrefs(this.getSetting<Record<string, unknown>>('playerPrefs', {}));
   }
-  setPlayerPref(name: string, palette: number): void {
+  setPlayerPref(name: string, skin: string): void {
     const prefs = this.getPlayerPrefs();
-    prefs[name] = palette;
+    prefs[name] = skin;
     this.setSetting('playerPrefs', prefs);
+  }
+  /** Unpin a user's player-avatar skin (fall back to a random skin on spawn). */
+  clearPlayerPref(name: string): void {
+    const prefs = this.getPlayerPrefs();
+    if (name in prefs) {
+      delete prefs[name];
+      this.setSetting('playerPrefs', prefs);
+    }
   }
   /** Users who opted out of a visible player avatar (spectator mode). */
   getSpectatorPrefs(): Record<string, boolean> {
@@ -180,3 +188,15 @@ class AppStore {
 }
 
 export const appStore = new AppStore();
+
+/** Migrate skin prefs to string ids: an old numeric palette index N → "char_N"
+ *  (the index always named char_N); strings pass through; negatives/junk (the
+ *  old "-1 = random") are dropped so the user falls back to a diverse skin. */
+function migrateSkinPrefs(raw: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, val] of Object.entries(raw)) {
+    if (typeof val === 'string') out[name] = val;
+    else if (typeof val === 'number' && Number.isInteger(val) && val >= 0) out[name] = `char_${val}`;
+  }
+  return out;
+}

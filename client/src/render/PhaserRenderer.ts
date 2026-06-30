@@ -200,7 +200,7 @@ export class PhaserRenderer {
   }
 
   private drawCharacter(ch: Character, g: CharGObjects): void {
-    const sprites = getCharacterSprites(ch.palette, ch.hueShift);
+    const sprites = getCharacterSprites(ch.skin, ch.hueShift);
     const sd = getCharacterSprite(ch, sprites);
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 

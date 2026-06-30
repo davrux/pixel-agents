@@ -35,7 +35,7 @@ export function isReadingTool(tool: string | null): boolean {
 
 export function createCharacter(
   id: number,
-  palette: number,
+  skin: string,
   seatId: string | null,
   seat: Seat | null,
   hueShift = 0,
@@ -54,7 +54,7 @@ export function createCharacter(
     path: [],
     moveProgress: 0,
     currentTool: null,
-    palette,
+    skin,
     hueShift,
     frame: 0,
     frameTimer: 0,

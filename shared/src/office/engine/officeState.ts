@@ -31,7 +31,8 @@ import {
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
 import {
-  getLoadedCharacterCount,
+  firstSkinId,
+  getSkinIds,
   getLoadedPetVariantCount,
   getNpcConfig,
   getNpcPosePlaybackLength,
@@ -85,8 +86,8 @@ export class OfficeState {
   /** Reverse lookup: sub-agent character ID → parent info */
   subagentMeta: Map<number, { parentAgentId: number; parentToolId: string }> = new Map();
   private nextSubagentId = -1;
-  /** Per-user pinned character palette (folderName → palette index). */
-  private palettePrefs = new Map<string, number>();
+  /** Per-user pinned character skin (folderName → skin id). */
+  private skinPrefs = new Map<string, string>();
 
   // ── Pets ──────────────────────────────────────────────────
   /** Live pets, keyed by a dedicated id space (disjoint from characters). */
@@ -423,71 +424,69 @@ export class OfficeState {
    * First 6 agents each get a unique skin (random order). Beyond 6, skins
    * repeat in balanced rounds with a random hue shift (≥45°).
    */
-  private pickDiversePalette(): { palette: number; hueShift: number } {
-    // Count how many non-sub-agents use each base palette (0-5)
-    const paletteCount = getLoadedCharacterCount();
-    const counts = new Array(paletteCount).fill(0) as number[];
+  private pickDiverseSkin(): { skin: string; hueShift: number } {
+    // Count how many non-sub-agents use each loaded skin id.
+    const ids = getSkinIds();
+    if (ids.length === 0) return { skin: firstSkinId(), hueShift: 0 };
+    const counts = new Map<string, number>(ids.map((id) => [id, 0]));
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
-      if (ch.palette < paletteCount) counts[ch.palette]++;
+      if (counts.has(ch.skin)) counts.set(ch.skin, (counts.get(ch.skin) ?? 0) + 1);
     }
-    const minCount = Math.min(...counts);
-    // Available = palettes at the minimum count (least used)
-    const available: number[] = [];
-    for (let i = 0; i < paletteCount; i++) {
-      if (counts[i] === minCount) available.push(i);
-    }
-    const palette = available[Math.floor(Math.random() * available.length)];
+    const minCount = Math.min(...counts.values());
+    // Available = skins at the minimum count (least used).
+    const available = ids.filter((id) => counts.get(id) === minCount);
+    const skin = available[Math.floor(Math.random() * available.length)];
     // First round (minCount === 0): no hue shift. Subsequent rounds: random ≥45°.
     let hueShift = 0;
     if (minCount > 0) {
       hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
     }
-    return { palette, hueShift };
+    return { skin, hueShift };
   }
 
-  /** After the character roster shrinks, drop pinned palettes that no longer
-   *  exist and re-randomise (diverse) any live agents stuck on a missing
-   *  palette — so a deleted custom character falls back to a random skin.
-   *  Returns the folderNames whose pinned palette was dropped. */
-  dropInvalidPalettes(count: number): string[] {
+  /** After the skin roster changes, drop pinned skins that no longer exist and
+   *  re-randomise (diverse) any live agents stuck on a missing skin — so a
+   *  deleted custom character falls back to a random skin. Returns the
+   *  folderNames whose pinned skin was dropped. */
+  dropInvalidSkins(validIds: Set<string>): string[] {
     const dropped: string[] = [];
-    for (const [name, pal] of this.palettePrefs) {
-      if (pal >= count) {
-        this.palettePrefs.delete(name);
+    for (const [name, skin] of this.skinPrefs) {
+      if (!validIds.has(skin)) {
+        this.skinPrefs.delete(name);
         dropped.push(name);
       }
     }
     for (const ch of this.characters.values()) {
-      if (ch.isSubagent || ch.palette < count) continue;
-      const pick = this.pickDiversePalette();
-      ch.palette = pick.palette;
+      if (ch.isSubagent || validIds.has(ch.skin)) continue;
+      const pick = this.pickDiverseSkin();
+      ch.skin = pick.skin;
       ch.hueShift = pick.hueShift;
     }
     return dropped;
   }
 
-  /** Unpin a user's character palette and re-randomise their live agents
+  /** Unpin a user's character skin and re-randomise their live agents
    *  (back to a diverse skin). */
-  clearPalettePref(folderName: string): void {
-    if (!folderName || !this.palettePrefs.has(folderName)) return;
-    this.palettePrefs.delete(folderName);
+  clearSkinPref(folderName: string): void {
+    if (!folderName || !this.skinPrefs.has(folderName)) return;
+    this.skinPrefs.delete(folderName);
     for (const ch of this.characters.values()) {
       if (!ch.isSubagent && ch.folderName === folderName) {
-        const pick = this.pickDiversePalette();
-        ch.palette = pick.palette;
+        const pick = this.pickDiverseSkin();
+        ch.skin = pick.skin;
         ch.hueShift = pick.hueShift;
       }
     }
   }
 
-  /** Pin a user's character palette and recolor any of their live agents. */
-  setPalettePref(folderName: string, palette: number): void {
+  /** Pin a user's character skin and recolor any of their live agents. */
+  setSkinPref(folderName: string, skin: string): void {
     if (!folderName) return;
-    this.palettePrefs.set(folderName, palette);
+    this.skinPrefs.set(folderName, skin);
     for (const ch of this.characters.values()) {
       if (!ch.isSubagent && ch.folderName === folderName) {
-        ch.palette = palette;
+        ch.skin = skin;
         ch.hueShift = 0;
       }
     }
@@ -495,7 +494,7 @@ export class OfficeState {
 
   addAgent(
     id: number,
-    preferredPalette?: number,
+    preferredSkin?: string,
     preferredHueShift?: number,
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
@@ -503,19 +502,19 @@ export class OfficeState {
   ): void {
     if (this.characters.has(id)) return;
 
-    let palette: number;
+    let skin: string;
     let hueShift: number;
-    const pref = folderName ? this.palettePrefs.get(folderName) : undefined;
-    if (preferredPalette !== undefined) {
-      palette = preferredPalette;
+    const pref = folderName ? this.skinPrefs.get(folderName) : undefined;
+    if (preferredSkin !== undefined) {
+      skin = preferredSkin;
       hueShift = preferredHueShift ?? 0;
     } else if (pref !== undefined) {
       // The viewer pinned a character for this user → always use it.
-      palette = pref;
+      skin = pref;
       hueShift = 0;
     } else {
-      const pick = this.pickDiversePalette();
-      palette = pick.palette;
+      const pick = this.pickDiverseSkin();
+      skin = pick.skin;
       hueShift = pick.hueShift;
     }
 
@@ -535,14 +534,14 @@ export class OfficeState {
     if (seatId) {
       const seat = this.seats.get(seatId)!;
       seat.assigned = true;
-      ch = createCharacter(id, palette, seatId, seat, hueShift);
+      ch = createCharacter(id, skin, seatId, seat, hueShift);
     } else {
       // No seats — spawn at random walkable tile
       const spawn =
         this.walkableTiles.length > 0
           ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
           : { col: 1, row: 1 };
-      ch = createCharacter(id, palette, null, null, hueShift);
+      ch = createCharacter(id, skin, null, null, hueShift);
       ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
       ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
       ch.tileCol = spawn.col;
@@ -588,19 +587,19 @@ export class OfficeState {
 
   /** Spawn a human player's avatar (a viewer-driven Character, not the agent
    *  FSM) at a free walkable tile. Returns its id. */
-  addPlayer(preferredPalette?: number, name?: string, spawnAt?: { col: number; row: number }): number {
+  addPlayer(preferredSkin?: string, name?: string, spawnAt?: { col: number; row: number }): number {
     const id = this.nextPlayerId++;
-    let palette: number;
+    let skin: string;
     let hueShift: number;
-    if (preferredPalette !== undefined) {
-      palette = preferredPalette;
+    if (preferredSkin !== undefined) {
+      skin = preferredSkin;
       hueShift = 0;
     } else {
-      const pick = this.pickDiversePalette();
-      palette = pick.palette;
+      const pick = this.pickDiverseSkin();
+      skin = pick.skin;
       hueShift = pick.hueShift;
     }
-    const ch = createCharacter(id, palette, null, null, hueShift);
+    const ch = createCharacter(id, skin, null, null, hueShift);
     ch.isPlayer = true;
     ch.heldDir = null;
     ch.isActive = false;
@@ -646,10 +645,10 @@ export class OfficeState {
   }
 
   /** Recolor a character (used to change a player's chosen avatar skin). */
-  setCharacterPalette(id: number, palette: number, hueShift = 0): void {
+  setCharacterSkin(id: number, skin: string, hueShift = 0): void {
     const ch = this.characters.get(id);
     if (ch) {
-      ch.palette = palette;
+      ch.skin = skin;
       ch.hueShift = hueShift;
     }
   }
@@ -1018,7 +1017,7 @@ export class OfficeState {
 
     const id = this.nextSubagentId--;
     const parentCh = this.characters.get(parentAgentId);
-    const palette = parentCh ? parentCh.palette : 0;
+    const skin = parentCh ? parentCh.skin : firstSkinId();
     const hueShift = parentCh ? parentCh.hueShift : 0;
 
     // Find the closest walkable tile to the parent, avoiding tiles occupied by other characters
@@ -1047,7 +1046,7 @@ export class OfficeState {
       spawn = closest;
     }
 
-    const ch = createCharacter(id, palette, null, null, hueShift);
+    const ch = createCharacter(id, skin, null, null, hueShift);
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
     ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
     ch.tileCol = spawn.col;

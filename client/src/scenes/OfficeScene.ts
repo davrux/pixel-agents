@@ -86,6 +86,15 @@ function isZoneId(z: string | null | undefined): z is string {
   return !!z && /^[a-z0-9-]{1,32}$/.test(z);
 }
 
+/** Normalise a stored skin choice to a skin id, or null (default/random). An
+ *  old numeric palette index N migrates to "char_N"; a char_* id passes through. */
+function migrateSkin(raw: string | null): string | null {
+  if (raw === null || raw === '') return null;
+  if (/^char_\d+$/.test(raw)) return raw;
+  if (/^\d+$/.test(raw)) return `char_${raw}`;
+  return null;
+}
+
 /** The zone to connect to: the `?zone=` URL param if valid, else the last zone
  *  this browser visited (P4), else the office. User-created zones aren't in the
  *  bundled ZONES, so we accept any slug-shaped id and let the server resolve it. */
@@ -150,8 +159,8 @@ export class OfficeScene extends Phaser.Scene {
   private furnEditor!: FurnitureEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
-  /** Number of bundled (file) characters — indices >= it are user-added. */
-  private charDefaultCount = 0;
+  /** Bundled (file) skin ids — anything else is user-added (deletable). */
+  private bundledSkinIds = new Set<string>();
   private topbar?: HTMLElement;
   private menubar?: HTMLElement;
   private settingsBtn?: HTMLButtonElement;
@@ -169,16 +178,16 @@ export class OfficeScene extends Phaser.Scene {
   // the login identity and is remembered per browser.
   private viewerUsername = '';
   private nameOverridden = false;
-  /** Pinned character palette for this viewer, or null (server diversifies). */
-  private myPalette: number | null = null;
+  /** Pinned character skin id for this viewer, or null (server diversifies). */
+  private mySkin: string | null = null;
   /** This viewer's own player-avatar id (from viewerIdentity), or null. */
   private myPlayerId: number | null = null;
   /** The tile the portal picker opened on — close it once the avatar leaves. */
   private portalPickerTile: { col: number; row: number } | null = null;
   /** Armed "click a tile to set this zone's arrival point" mode. */
   private arrivePickActive = false;
-  /** This viewer's chosen player-avatar palette (null = default/random). */
-  private myPlayerPalette: number | null = null;
+  /** This viewer's chosen player-avatar skin id (null = default/random). */
+  private myPlayerSkin: string | null = null;
   /** Whether the viewer wants a visible player avatar (false = spectator). */
   private playerVisible = true;
   private alwaysShowLabels = false;
@@ -222,10 +231,8 @@ export class OfficeScene extends Phaser.Scene {
     });
     // A name/character chosen in Settings (remembered per browser).
     try {
-      const savedChar = localStorage.getItem('pa-viewer-char');
-      if (savedChar !== null && savedChar !== '') this.myPalette = Number(savedChar);
-      const savedPlayer = localStorage.getItem('pa-player-char');
-      if (savedPlayer !== null && savedPlayer !== '') this.myPlayerPalette = Number(savedPlayer);
+      this.mySkin = migrateSkin(localStorage.getItem('pa-viewer-char'));
+      this.myPlayerSkin = migrateSkin(localStorage.getItem('pa-player-char'));
       const savedVis = localStorage.getItem('pa-player-visible');
       if (savedVis !== null) this.playerVisible = savedVis === '1';
       const saved = localStorage.getItem('pa-viewer-name');
@@ -253,10 +260,16 @@ export class OfficeScene extends Phaser.Scene {
           key: 'agent',
           label: 'Agents',
           getTemplates: () => getCharacterTemplates(),
-          nameOf: (i) => `char_${i}`,
+          // New skins get the next free char_<n> id (ids are stable, never reused).
+          newId: (existing) => {
+            let n = 0;
+            const taken = new Set(existing);
+            while (taken.has(`char_${n}`)) n++;
+            return `char_${n}`;
+          },
           save: (name, data) => this.room?.send('saveAsset', { assetType: 'character', name, data }),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
-          getDefaultCount: () => this.charDefaultCount,
+          isBundled: (id) => this.bundledSkinIds.has(id),
           tracks: AGENT_TRACKS,
           blankFrames: 7,
           canCreate: true,
@@ -264,14 +277,11 @@ export class OfficeScene extends Phaser.Scene {
         {
           key: 'npc',
           label: 'NPCs',
-          getTemplates: () => getNpcRoster().map((r) => r.data),
-          nameOf: (i) => {
-            const r = getNpcRoster()[i];
-            return r ? `${r.kind}_${r.variant}` : `npc_${i}`;
-          },
+          getTemplates: () => getNpcRoster().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
+          newId: () => 'npc_0', // unused (canCreate=false)
           save: (name, data) => this.room?.send('saveAsset', { assetType: 'pet', name, data }),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
-          getDefaultCount: () => getNpcRoster().length, // all bundled (no new NPCs yet)
+          isBundled: () => true, // all NPCs are bundled (no new NPCs yet)
           tracks: NPC_TRACKS,
           blankFrames: 6,
           canCreate: false,
@@ -363,7 +373,7 @@ export class OfficeScene extends Phaser.Scene {
           // a reload, then re-assert our chosen skin/name onto the fresh avatar.
           this.myPlayerId = typeof m.playerId === 'number' ? m.playerId : null;
           if (this.myPlayerId !== null) {
-            if (this.myPlayerPalette !== null) this.room?.send('setPlayerCharacter', { palette: this.myPlayerPalette });
+            if (this.myPlayerSkin !== null) this.room?.send('setPlayerCharacter', { skin: this.myPlayerSkin });
             if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
           }
         }
@@ -381,8 +391,8 @@ export class OfficeScene extends Phaser.Scene {
           // session reflects it (covers anonymous viewers + cross-device).
           let hasLocalVis = false;
           try {
-            if (this.myPlayerPalette === null && typeof m.playerPalette === 'number') {
-              this.myPlayerPalette = m.playerPalette;
+            if (this.myPlayerSkin === null && typeof m.playerSkin === 'string') {
+              this.myPlayerSkin = m.playerSkin;
             }
             hasLocalVis = localStorage.getItem('pa-player-visible') !== null;
           } catch {
@@ -390,14 +400,14 @@ export class OfficeScene extends Phaser.Scene {
           }
           if (!hasLocalVis && typeof m.spectator === 'boolean') this.playerVisible = !m.spectator;
           else this.room?.send('setPlayerVisible', { visible: this.playerVisible });
-          if (this.myPlayerPalette !== null) {
-            this.room?.send('setPlayerCharacter', { palette: this.myPlayerPalette });
+          if (this.myPlayerSkin !== null) {
+            this.room?.send('setPlayerCharacter', { skin: this.myPlayerSkin });
           }
           if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
 
           // Adopt the server-pinned skin only if the viewer hasn't picked one here.
-          if (this.myPalette === null && typeof m.characterPalette === 'number') {
-            this.myPalette = m.characterPalette;
+          if (this.mySkin === null && typeof m.characterSkin === 'string') {
+            this.mySkin = m.characterSkin;
           }
           // A non-empty auth username means login is active → offer logout.
           const logout = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-logout');
@@ -413,8 +423,8 @@ export class OfficeScene extends Phaser.Scene {
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
           }
-          if (m.type === 'characterSpritesLoaded' && typeof m.defaultCount === 'number') {
-            this.charDefaultCount = m.defaultCount;
+          if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
+            this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
           assetBridge(m);
         }
@@ -488,7 +498,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.state = cs.state as Character['state'];
     rc.pose = cs.pose as Character['pose'];
     // rc.frame is not synced — the animation phase is timed locally (see update()).
-    rc.palette = cs.palette as number;
+    rc.skin = cs.skin as string;
     rc.hueShift = cs.hueShift as number;
     rc.isActive = cs.isActive as boolean;
     rc.currentTool = (cs.reading as boolean) ? 'Read' : null;
@@ -836,7 +846,7 @@ export class OfficeScene extends Phaser.Scene {
       const cx = ch.x ?? ch.tx;
       const cy = (ch.y ?? ch.ty) + sit;
       // Hit box tracks the character's actual sprite size (anchored bottom-centre).
-      const { w, h } = getCharacterSize(ch.palette ?? 0);
+      const { w, h } = getCharacterSize(ch.skin ?? "");
       const halfW = w / 2;
       const hitH = (CHARACTER_HIT_HEIGHT * h) / CHARACTER_BASELINE_HEIGHT;
       if (
@@ -895,7 +905,7 @@ export class OfficeScene extends Phaser.Scene {
         if (durMs > 0) {
           ch.animTimer = (ch.animTimer ?? 0) + delta;
           if (ch.animTimer >= durMs) {
-            const len = getPosePlaybackLength(ch.palette ?? 0, pose);
+            const len = getPosePlaybackLength(ch.skin ?? "", pose);
             while (ch.animTimer >= durMs) {
               ch.animTimer -= durMs;
               ch.frame = ((ch.frame ?? 0) + 1) % len;
@@ -1722,19 +1732,19 @@ export class OfficeScene extends Phaser.Scene {
   /** Render both avatar swatch rows: the viewer's own player avatar + the skin
    *  pinned for their agents. */
   private renderCharSwatches(): void {
-    this.renderSwatchRow('#pa-pchar', this.myPlayerPalette, (i) => {
-      this.myPlayerPalette = i;
-      this.persistPref('pa-player-char', i);
-      this.room?.send('setPlayerCharacter', { palette: i ?? -1 });
+    this.renderSwatchRow('#pa-pchar', this.myPlayerSkin, (skin) => {
+      this.myPlayerSkin = skin;
+      this.persistPref('pa-player-char', skin);
+      this.room?.send('setPlayerCharacter', { skin: skin ?? '' });
     });
-    this.renderSwatchRow('#pa-char', this.myPalette, (i) => {
-      this.myPalette = i;
-      this.persistPref('pa-viewer-char', i);
-      this.room?.send('setCharacter', { palette: i ?? -1, name: this.viewerUsername });
+    this.renderSwatchRow('#pa-char', this.mySkin, (skin) => {
+      this.mySkin = skin;
+      this.persistPref('pa-viewer-char', skin);
+      this.room?.send('setCharacter', { skin: skin ?? '', name: this.viewerUsername });
     });
   }
 
-  private persistPref(key: string, i: number | null): void {
+  private persistPref(key: string, i: string | null): void {
     try {
       if (i === null) localStorage.removeItem(key);
       else localStorage.setItem(key, String(i));
@@ -1809,7 +1819,7 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Render one avatar swatch row (random + each palette's front standing frame),
    *  highlighting `selected`; clicking a swatch calls `onPick`. */
-  private renderSwatchRow(hostSel: string, selected: number | null, onPick: (i: number | null) => void): void {
+  private renderSwatchRow(hostSel: string, selected: string | null, onPick: (skin: string | null) => void): void {
     const host = this.settingsPanel?.querySelector<HTMLDivElement>(hostSel);
     if (!host) return;
     const tpl = getCharacterTemplates() ?? [];
@@ -1824,8 +1834,8 @@ export class OfficeScene extends Phaser.Scene {
       this.renderCharSwatches();
     };
     host.appendChild(rnd);
-    tpl.forEach((c, i) => {
-      const frame = c.down?.[1] ?? c.down?.[0];
+    tpl.forEach((c) => {
+      const frame = c.data.down?.[1] ?? c.data.down?.[0];
       const w = frame?.[0]?.length ?? 16;
       const h = frame?.length ?? 32;
       const cv = document.createElement('canvas');
@@ -1843,10 +1853,10 @@ export class OfficeScene extends Phaser.Scene {
           }
         }
       }
-      if (selected === i) cv.classList.add('sel');
-      cv.title = c.name ? `${c.name} (char_${i})` : `char_${i}`;
+      if (selected === c.id) cv.classList.add('sel');
+      cv.title = c.data.name ? `${c.data.name} (${c.id})` : c.id;
       cv.onclick = () => {
-        onPick(i);
+        onPick(c.id);
         this.renderCharSwatches();
       };
       host.appendChild(cv);
@@ -1908,7 +1918,7 @@ export class OfficeScene extends Phaser.Scene {
       el.textContent = name;
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       // Lift the label above the head proportionally to the sprite height.
-      const headOff = (20 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+      const headOff = (20 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
@@ -2068,7 +2078,7 @@ export class OfficeScene extends Phaser.Scene {
       }
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       // Sit a little higher than the name label so both are readable.
-      const headOff = (32 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
       b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
@@ -2112,7 +2122,7 @@ export class OfficeScene extends Phaser.Scene {
         this.voiceBubbles.set(id, el);
       }
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      const headOff = (32 * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
       // Sit a little above where a chat bubble would, so both can coexist.
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - 12 - wv.y) * cam.zoom)}px`;
@@ -2160,7 +2170,7 @@ export class OfficeScene extends Phaser.Scene {
     const wv = cam.worldView;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
     // Place the tooltip above the head, scaled to the character's sprite height.
-    const tipOff = (TOOL_OVERLAY_VERTICAL_OFFSET * getCharacterSize(ch.palette ?? 0).h) / CHARACTER_BASELINE_HEIGHT;
+    const tipOff = (TOOL_OVERLAY_VERTICAL_OFFSET * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
     const sx = ((ch.x ?? ch.tx) - wv.x) * cam.zoom;
     const sy = ((ch.y ?? ch.ty) + sit - tipOff - wv.y) * cam.zoom;
     this.tip.style.left = `${Math.round(sx)}px`;

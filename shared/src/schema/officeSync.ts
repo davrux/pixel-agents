@@ -25,7 +25,8 @@ export class CharacterSync extends EntitySync {
    *  animation *frame phase* is cosmetic and timed client-side from this pose +
    *  dir, so it is intentionally NOT synced (see AGENTS.md). */
   @type('string') pose = 'idle';
-  @type('uint8') palette = 0;
+  /** Stable skin id (e.g. char_3) — which character template this avatar uses. */
+  @type('string') skin = 'char_0';
   @type('number') hueShift = 0;
   @type('boolean') isActive = false;
   /** Current tool is a reading tool → reading vs typing animation. */

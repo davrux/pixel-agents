@@ -48,7 +48,7 @@ export interface LoadedCharacterData {
   /** Optional left-facing frames. When absent, left is mirrored from `right`
    *  (the bundled defaults have no left row); the editor can override it. */
   left?: SpriteData[];
-  /** Optional display name (editor metadata; the engine keys by palette index). */
+  /** Optional display name (editor metadata; the engine keys by skin id). */
   name?: string;
   /** Optional animation spec (frame size + per-pose tracks). Absent → the
    *  DEFAULT_CHARACTER_SPEC (historical 16×32, walk3/type2/read2 layout). */
@@ -57,41 +57,66 @@ export interface LoadedCharacterData {
   npc?: NpcConfig;
 }
 
-let loadedCharacters: LoadedCharacterData[] | null = null;
+/** A loaded character skin with its stable string id (e.g. `char_3`). */
+export interface CharacterTemplate {
+  id: string;
+  data: LoadedCharacterData;
+}
 
-/** Set pre-colored character sprites loaded from PNG assets. Call this when characterSpritesLoaded message arrives. */
-export function setCharacterTemplates(data: LoadedCharacterData[]): void {
-  loadedCharacters = data;
+let loadedCharacters: CharacterTemplate[] | null = null;
+let charById = new Map<string, LoadedCharacterData>();
+
+/** Set pre-colored character skins loaded from PNG assets. Call this when the
+ *  characterSpritesLoaded message arrives. Keyed by stable id, not position. */
+export function setCharacterTemplates(list: CharacterTemplate[]): void {
+  loadedCharacters = list;
+  charById = new Map(list.map((c) => [c.id, c.data]));
   // Clear cache so sprites are rebuilt from loaded data
   spriteCache.clear();
 }
 
-/** Raw per-character frame data (down/up/right), for the character editor. */
-export function getCharacterTemplates(): LoadedCharacterData[] | null {
+/** Ordered skin templates (id + frame data), for the character editor/swatches. */
+export function getCharacterTemplates(): CharacterTemplate[] | null {
   return loadedCharacters;
 }
 
-/** Return the number of loaded character palettes, or PALETTE_COUNT as fallback. */
+/** The first/default skin id (fallback for an unknown skin or before load). */
+export function firstSkinId(): string {
+  return loadedCharacters?.[0]?.id ?? 'char_0';
+}
+
+/** All loaded skin ids, in order. */
+export function getSkinIds(): string[] {
+  return loadedCharacters ? loadedCharacters.map((c) => c.id) : [];
+}
+
+/** Whether a skin id is currently loaded. */
+export function hasSkin(id: string): boolean {
+  return charById.has(id);
+}
+
+/** Number of loaded character skins, or PALETTE_COUNT as a fallback. */
 export function getLoadedCharacterCount(): number {
   return loadedCharacters ? loadedCharacters.length : PALETTE_COUNT;
 }
 
-/** Frame size (w×h, px) of a character template by palette index. All frames of
- *  a character share one size; falls back to 16×32 before templates load. Used
- *  by the renderer/hit-test to place overlays correctly for any character size. */
-export function getCharacterSize(paletteIndex: number): { w: number; h: number } {
-  if (loadedCharacters && loadedCharacters.length > 0) {
-    const f = loadedCharacters[paletteIndex % loadedCharacters.length]?.down?.[0];
-    if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
-  }
+/** Resolve a skin's data by id, falling back to the first loaded skin. */
+function resolveCharData(skin: string): LoadedCharacterData | undefined {
+  return charById.get(skin) ?? loadedCharacters?.[0]?.data;
+}
+
+/** Frame size (w×h, px) of a character skin. All frames of a skin share one
+ *  size; falls back to 16×32 before templates load or for an unknown skin. */
+export function getCharacterSize(skin: string): { w: number; h: number } {
+  const f = resolveCharData(skin)?.down?.[0];
+  if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
   return { w: 16, h: 32 };
 }
 
-/** Animation spec of a character template by palette index, or the default
- *  (historical) layout when the template carries none. */
-export function getCharacterSpec(paletteIndex: number): CharacterSpec {
-  const c = loadedCharacters?.[paletteIndex % (loadedCharacters.length || 1)];
-  return c?.spec ?? DEFAULT_CHARACTER_SPEC;
+/** Animation spec of a character skin, or the default (historical) layout when
+ *  the skin carries none. */
+export function getCharacterSpec(skin: string): CharacterSpec {
+  return resolveCharData(skin)?.spec ?? DEFAULT_CHARACTER_SPEC;
 }
 
 /** Flip a SpriteData horizontally (for generating left sprites from right) */
@@ -340,14 +365,15 @@ function emptyCharacterSprites(w: number, h: number): CharacterSprites {
   return { byTrack: {}, stand: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e } };
 }
 
-export function getCharacterSprites(paletteIndex: number, hueShift = 0): CharacterSprites {
-  const cacheKey = `${paletteIndex}:${hueShift}`;
+export function getCharacterSprites(skin: string, hueShift = 0): CharacterSprites {
+  const cacheKey = `${skin}:${hueShift}`;
   const cached = spriteCache.get(cacheKey);
   if (cached) return cached;
 
   let sprites: CharacterSprites;
-  if (loadedCharacters && loadedCharacters.length > 0) {
-    sprites = buildCharacterSprites(loadedCharacters[paletteIndex % loadedCharacters.length]);
+  const data = resolveCharData(skin);
+  if (data) {
+    sprites = buildCharacterSprites(data);
     if (hueShift !== 0) sprites = hueShiftSprites(sprites, hueShift);
   } else {
     sprites = emptyCharacterSprites(16, 32);
@@ -415,8 +441,8 @@ export function getNpcSize(kind: PetKindName, variant: number): { w: number; h: 
  * frames the sheet actually provides (e.g. a missing coffee track → 1). Always
  * ≥ 1. Server and client agree because both build from the same templates.
  */
-export function getPosePlaybackLength(paletteIndex: number, pose: CharacterPose | string): number {
-  const s = getCharacterSprites(paletteIndex);
+export function getPosePlaybackLength(skin: string, pose: CharacterPose | string): number {
+  const s = getCharacterSprites(skin);
   // Mirror spriteForPose's fallback: action track, else the idle track, else 1.
   const seq = s.byTrack[pose]?.[Dir.DOWN] ?? (pose !== 'idle' ? s.byTrack['idle']?.[Dir.DOWN] : undefined);
   return Math.max(1, seq?.length ?? 1);

@@ -264,8 +264,8 @@ export interface Character {
   moveProgress: number;
   /** Current tool name for typing vs reading animation, or null */
   currentTool: string | null;
-  /** Palette index (0-5) */
-  palette: number;
+  /** Stable skin id (e.g. `char_3`) — which character template this uses. */
+  skin: string;
   /** Hue shift in degrees (0 = no shift, ≥45 for repeated palettes) */
   hueShift: number;
   /** Animation frame index */

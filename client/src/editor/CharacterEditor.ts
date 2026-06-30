@@ -2,6 +2,7 @@ import {
   resolveNpcConfig,
   specFrameCount,
   type CharacterSpec,
+  type CharacterTemplate,
   type CharacterTrack,
   type LoadedCharacterData,
   type NpcConfig,
@@ -58,13 +59,13 @@ export interface TrackDef {
 export interface EditorCategory {
   key: string;
   label: string;
-  getTemplates: () => LoadedCharacterData[] | null;
-  /** Asset name for the flat template index (e.g. `char_3`, `dog_1`). */
-  nameOf: (i: number) => string;
+  getTemplates: () => CharacterTemplate[] | null;
+  /** Allocate an id for a new entity (e.g. `char_7`), given the existing ids. */
+  newId: (existing: string[]) => string;
   save: (name: string, data: LoadedCharacterData) => void;
   reset: (name: string) => void;
-  /** Indices < this are bundled defaults (Reset); ≥ are user-added (Delete). */
-  getDefaultCount: () => number;
+  /** Bundled (file-default) ids → Reset; everything else is user-added → Delete. */
+  isBundled: (id: string) => boolean;
   /** Animation-track preset for this category. */
   tracks: TrackDef[];
   /** Frames in a fresh blank entity (sum of the mandatory tracks' `def`). */
@@ -207,6 +208,8 @@ export class CharacterEditor {
   private imp = { cw: 16, ch: 32, ox: 0, oy: 0, gx: 0, gy: 0, scale: 3 };
   private impHover: { col: number; row: number } | null = null;
   private charIndex = 0;
+  /** Stable id of the entity being edited (e.g. `char_3`); the asset name on save. */
+  private charId = 'char_0';
   private isNew = false;
   private dir: Dir = 'down';
   private frame = 0;
@@ -632,19 +635,18 @@ export class CharacterEditor {
     this.renderCategoryTabs();
     const cat = this.cat();
     const tpl = cat.getTemplates() ?? [];
-    const defaults = cat.getDefaultCount();
     // New is only offered for categories that allow creating entities.
     this.panel.querySelector<HTMLButtonElement>('#pa-c-newbtn')!.style.display = cat.canCreate ? '' : 'none';
     this.cardsHost.innerHTML = '';
     tpl.forEach((c, i) => {
-      const name = cat.nameOf(i);
+      const id = c.id;
       const card = document.createElement('div');
       card.className = 'card';
       const cv = document.createElement('canvas');
-      this.drawPreview(cv, c);
+      this.drawPreview(cv, c.data);
       const nm = document.createElement('div');
       nm.className = 'nm';
-      nm.textContent = c.name ? `${c.name} (${name})` : name;
+      nm.textContent = c.data.name ? `${c.data.name} (${id})` : id;
       const edit = document.createElement('button');
       edit.textContent = 'Edit';
       edit.onclick = () => {
@@ -662,14 +664,14 @@ export class CharacterEditor {
         buttons.push(copy);
       }
       const third = document.createElement('button');
-      const isUser = cat.canCreate && i >= defaults;
+      const isUser = cat.canCreate && !cat.isBundled(id);
       third.textContent = isUser ? 'Delete' : 'Reset';
       if (isUser) third.className = 'del';
       third.title = isUser ? 'Delete this entry' : 'Reset to bundled default';
       third.onclick = async () => {
         if (isUser && !(await confirmDialog(`Delete ${nm.textContent}?`, { danger: true, confirmLabel: 'Delete' })))
           return;
-        cat.reset(name);
+        cat.reset(id);
         window.setTimeout(() => this.renderGallery(), 250);
       };
       buttons.push(third);
@@ -684,18 +686,27 @@ export class CharacterEditor {
     const tpl = this.cat().getTemplates() ?? [];
     if (tpl.length === 0) return;
     this.charIndex = Math.max(0, Math.min(index, tpl.length - 1));
+    this.charId = tpl[this.charIndex].id;
     this.isNew = false;
-    this.work = cloneChar(tpl[this.charIndex]);
+    this.work = cloneChar(tpl[this.charIndex].data);
     this.afterLoad();
+  }
+
+  /** Reload the entity with id `id` after a save/broadcast (keeps it selected). */
+  private loadCharById(id: string): void {
+    const tpl = this.cat().getTemplates() ?? [];
+    const i = tpl.findIndex((t) => t.id === id);
+    if (i >= 0) this.loadChar(i);
   }
 
   /** Create a new character, copied from `srcIndex` or blank. */
   private createNew(srcIndex: number | null): void {
     const tpl = this.cat().getTemplates() ?? [];
     this.charIndex = tpl.length;
+    this.charId = this.cat().newId(tpl.map((t) => t.id));
     this.isNew = true;
     if (srcIndex !== null && tpl[srcIndex]) {
-      this.work = cloneChar(tpl[srcIndex]);
+      this.work = cloneChar(tpl[srcIndex].data);
     } else {
       // Fresh blank characters start at the default 16×32 (resizable in-editor).
       this.W = 16;
@@ -934,7 +945,7 @@ export class CharacterEditor {
     tpl.forEach((c, i) => {
       const opt = document.createElement('div');
       opt.className = 'opt';
-      const frame = c.down?.[1] ?? c.down?.[0];
+      const frame = c.data.down?.[1] ?? c.data.down?.[0];
       const w = frame?.[0]?.length ?? 16;
       const h = frame?.length ?? 32;
       const cv = document.createElement('canvas');
@@ -953,7 +964,7 @@ export class CharacterEditor {
         }
       }
       const lab = document.createElement('span');
-      lab.textContent = c.name || `char_${i}`;
+      lab.textContent = c.data.name || c.id;
       opt.append(cv, lab);
       opt.onclick = () => {
         this.createNew(i);
@@ -983,7 +994,7 @@ export class CharacterEditor {
   }
 
   private charName(): string {
-    return this.cat().nameOf(this.charIndex);
+    return this.charId;
   }
 
   /** Frames for a direction; `left` mirrors `right` until explicitly edited. */
@@ -1020,14 +1031,14 @@ export class CharacterEditor {
     }
     // Persist the current frame size + track layout with the sprite data.
     if (this.work.spec) this.work.spec.frame = { w: this.W, h: this.H };
-    const idx = this.charIndex;
+    const id = this.charId;
     this.cat().save(this.charName(), this.work);
     this.dirty = false;
     this.showStatus(`Saved ${this.displayName()} ✓`);
     // After the broadcast lands, a new char becomes a normal (existing) entry.
     window.setTimeout(() => {
       this.isNew = false;
-      this.loadChar(idx);
+      this.loadCharById(id);
     }, 250);
   }
 

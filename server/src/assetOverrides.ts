@@ -21,6 +21,20 @@ function indexOf(name: string, prefix: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Trailing `_<n>` index of an asset name (0 if none) — for ordering. */
+function trailingIndex(name: string): number {
+  const m = /_(\d+)$/.exec(name);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Overrides sorted by their numeric index, ascending. `place()` only appends
+ *  when i === length, so user-added assets (char_6, char_7, …) must be applied
+ *  in ascending order — SQLite returns rows unordered, and a lexical sort breaks
+ *  at two digits (char_10 < char_6). Without this, higher indices are dropped. */
+function orderedAssets(type: string): Array<{ name: string; data: unknown }> {
+  return appStore.listAssets(type).sort((a, b) => trailingIndex(a.name) - trailingIndex(b.name));
+}
+
 /** Set arr[i]=data, or append when i === length (so new assets can be added). */
 function place<T>(arr: T[], i: number, data: T): void {
   if (i >= 0 && i < arr.length) arr[i] = data;
@@ -36,18 +50,27 @@ function findMessage(bundle: AssetBundle, type: string): Record<string, unknown>
 export function buildMerged(defaults: AssetBundle): AssetBundle {
   const raw = defaults.raw;
 
-  // Characters
-  const characters = [...(raw.characters as unknown[])];
-  for (const { name, data } of appStore.listAssets('character')) {
-    const i = indexOf(name, 'char');
-    if (i !== null) place(characters, i, data);
+  // Characters are id-keyed by a stable skin id (NOT array position). Bundled
+  // skins get ids char_0..char_{N-1}; an override named char_<n> replaces that
+  // id when present, else adds a new skin. Order and gaps no longer matter, so
+  // creating/deleting skins can't silently drop others.
+  const bundledChars = raw.characters as unknown[];
+  const bundledIds = bundledChars.map((_, i) => `char_${i}`);
+  const characters = bundledChars.map((data, i) => ({ id: `char_${i}`, data }));
+  // orderedAssets sorts by numeric index so appended user skins stay in order
+  // (char_6, char_7, … — not lexical char_10 before char_6) for a tidy gallery.
+  for (const { name, data } of orderedAssets('character')) {
+    if (!/^char_\d+$/.test(name)) continue;
+    const k = characters.findIndex((c) => c.id === name);
+    if (k >= 0) characters[k] = { id: name, data };
+    else characters.push({ id: name, data });
   }
 
   // Pets / NPCs (dogs + cats + ducks)
   const dogs = [...(raw.dogs as unknown[])];
   const cats = [...(raw.cats as unknown[])];
   const ducks = [...((raw.ducks as unknown[]) ?? [])];
-  for (const { name, data } of appStore.listAssets('pet')) {
+  for (const { name, data } of orderedAssets('pet')) {
     const di = indexOf(name, 'dog');
     if (di !== null) {
       place(dogs, di, data);
@@ -66,7 +89,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
   const furnitureSprites = { ...(raw.furnitureSprites as Record<string, unknown>) };
   const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ id?: string }>)];
-  for (const { name, data } of appStore.listAssets('furniture')) {
+  for (const { name, data } of orderedAssets('furniture')) {
     const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
     if (d && d.sprite !== undefined) furnitureSprites[name] = d.sprite;
     if (d && d.catalog) {
@@ -79,12 +102,12 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
 
   // Floors + walls live only in their broadcast messages (not in raw).
   const floors = [...(((findMessage(defaults, 'floorTilesLoaded')?.sprites as unknown[]) ?? []))];
-  for (const { name, data } of appStore.listAssets('floor')) {
+  for (const { name, data } of orderedAssets('floor')) {
     const i = indexOf(name, 'floor');
     if (i !== null) place(floors, i, data);
   }
   const walls = [...(((findMessage(defaults, 'wallTilesLoaded')?.sets as unknown[]) ?? []))];
-  for (const { name, data } of appStore.listAssets('wall')) {
+  for (const { name, data } of orderedAssets('wall')) {
     const i = indexOf(name, 'wall');
     if (i !== null) place(walls, i, data);
   }
@@ -93,13 +116,9 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   const messages = defaults.messages.map((m) => {
     switch (m.type) {
       case 'characterSpritesLoaded':
-        // defaultCount = bundled (file) characters; indices >= it are user-added
-        // (deletable), below it revert to their bundled default.
-        return {
-          type: 'characterSpritesLoaded',
-          characters,
-          defaultCount: (raw.characters as unknown[]).length,
-        };
+        // Each entry is { id, data }; bundledIds are the non-deletable skins
+        // (anything not in bundledIds is user-added and deletable).
+        return { type: 'characterSpritesLoaded', characters, bundledIds };
       case 'petSpritesLoaded':
         return { type: 'petSpritesLoaded', dogs, cats, ducks };
       case 'floorTilesLoaded':

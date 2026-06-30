@@ -124,9 +124,9 @@ export class SimRoom extends Room<RoomState> {
     );
     this.applyZoneNpcFilter(); // which NPC variants spawn in this zone (per-zone)
 
-    // Restore per-user pinned character palettes (so a user's skin stays stable).
-    for (const [name, palette] of Object.entries(appStore.getCharPrefs())) {
-      this.os.setPalettePref(name, palette);
+    // Restore per-user pinned character skins (so a user's skin stays stable).
+    for (const [name, skin] of Object.entries(appStore.getCharPrefs())) {
+      this.os.setSkinPref(name, skin);
     }
 
     // Seed any agents that already exist (mock/feed started before this room).
@@ -160,8 +160,8 @@ export class SimRoom extends Room<RoomState> {
 
     // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
-    const characterPalette = username ? (appStore.getCharPrefs()[username] ?? null) : null;
-    const playerPalette = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
+    const characterSkin = username ? (appStore.getCharPrefs()[username] ?? null) : null;
+    const playerSkin = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
     const spectator = username ? !!appStore.getSpectatorPrefs()[username] : false;
     // Spawn this viewer's player avatar (their own controllable body) unless they
     // opted into spectator mode. Anonymous viewers re-assert their choice via
@@ -173,10 +173,10 @@ export class SimRoom extends Room<RoomState> {
       // free tile (not on furniture/another entity), falling back to random.
       const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
       const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
-      playerId = this.os.addPlayer(playerPalette ?? undefined, username || undefined, spawnAt ?? undefined);
+      playerId = this.os.addPlayer(playerSkin ?? undefined, username || undefined, spawnAt ?? undefined);
       this.players.set(client.sessionId, playerId);
     }
-    client.send('m', { type: 'viewerIdentity', username, characterPalette, playerPalette, playerId, spectator });
+    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId, spectator });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -488,38 +488,38 @@ export class SimRoom extends Room<RoomState> {
       appStore.setSetting('alertVolume', Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1);
     });
 
-    // Pin the viewer's character palette (keyed by their identity). Applies to
-    // their current/future agents and persists across restarts.
-    this.onMessage('setCharacter', (client, msg: { palette?: number; name?: string }) => {
-      const palette = Number(msg?.palette);
-      if (!Number.isInteger(palette) || palette > 999) return;
+    // Pin the viewer's character skin (keyed by their identity). Applies to
+    // their current/future agents and persists across restarts. '' = default.
+    this.onMessage('setCharacter', (client, msg: { skin?: string; name?: string }) => {
+      const skin = typeof msg?.skin === 'string' ? msg.skin : '';
+      if (skin && !this.isKnownSkin(skin)) return;
       const auth = (client.auth as { username?: string } | undefined)?.username;
       const name = (auth && auth.length ? auth : typeof msg?.name === 'string' ? msg.name : '')
         .trim()
         .slice(0, 16);
       if (!name) return;
-      if (palette < 0) {
+      if (!skin) {
         // Default (random) → unpin and re-randomise the user's agents.
         appStore.clearCharPref(name);
-        this.os.clearPalettePref(name);
+        this.os.clearSkinPref(name);
       } else {
-        appStore.setCharPref(name, palette);
-        this.os.setPalettePref(name, palette);
+        appStore.setCharPref(name, skin);
+        this.os.setSkinPref(name, skin);
       }
     });
 
     // Pick the viewer's own player-avatar skin (recolors their live avatar +
-    // persists per user; -1 = default/random on next spawn).
-    this.onMessage('setPlayerCharacter', (client, msg: { palette?: number }) => {
-      const palette = Number(msg?.palette);
-      if (!Number.isInteger(palette) || palette > 999) return;
+    // persists per user; '' = default/random on next spawn).
+    this.onMessage('setPlayerCharacter', (client, msg: { skin?: string }) => {
+      const skin = typeof msg?.skin === 'string' ? msg.skin : '';
+      if (skin && !this.isKnownSkin(skin)) return;
       const name = (client.auth as { username?: string } | undefined)?.username ?? '';
       if (name) {
-        if (palette < 0) appStore.setPlayerPref(name, -1);
-        else appStore.setPlayerPref(name, palette);
+        if (!skin) appStore.clearPlayerPref(name);
+        else appStore.setPlayerPref(name, skin);
       }
       const id = this.players.get(client.sessionId);
-      if (id !== undefined && palette >= 0) this.os.setCharacterPalette(id, palette);
+      if (id !== undefined && skin) this.os.setCharacterSkin(id, skin);
     });
 
     // Toggle the viewer's visibility as a player (spectator mode): spawn/despawn
@@ -530,8 +530,8 @@ export class SimRoom extends Room<RoomState> {
       if (name) appStore.setSpectatorPref(name, !visible);
       const existing = this.players.get(client.sessionId);
       if (visible && existing === undefined) {
-        const palette = name ? (appStore.getPlayerPrefs()[name] ?? null) : null;
-        const id = this.os.addPlayer(palette ?? undefined, name || undefined);
+        const skin = name ? (appStore.getPlayerPrefs()[name] ?? null) : null;
+        const id = this.os.addPlayer(skin ?? undefined, name || undefined);
         this.players.set(client.sessionId, id);
         // Tell the client its new avatar id so it can control it without a reload.
         client.send('m', { type: 'playerSpawned', playerId: id });
@@ -627,6 +627,12 @@ export class SimRoom extends Room<RoomState> {
 
   private validAssetType(t: unknown): AssetType | null {
     return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+  }
+
+  /** Is `id` a currently-loaded skin id (char_<n>)? Gates skin-pin messages. */
+  private isKnownSkin(id: string): boolean {
+    if (!/^char_\d+$/.test(id)) return false;
+    return (this.bundle.raw.characters as Array<{ id: string }>).some((c) => c.id === id);
   }
 
   /**
@@ -761,10 +767,10 @@ export class SimRoom extends Room<RoomState> {
     switch (type) {
       case 'character': {
         setCharacterTemplates(this.bundle.raw.characters as never);
-        // A deleted custom character invalidates anyone pinned to it → drop the
-        // pin (persisted) and re-randomise affected live agents.
-        const count = (this.bundle.raw.characters as unknown[]).length;
-        for (const name of this.os.dropInvalidPalettes(count)) appStore.clearCharPref(name);
+        // A deleted custom skin invalidates anyone pinned to it → drop the pin
+        // (persisted) and re-randomise affected live agents.
+        const validIds = new Set((this.bundle.raw.characters as Array<{ id: string }>).map((c) => c.id));
+        for (const name of this.os.dropInvalidSkins(validIds)) appStore.clearCharPref(name);
         break;
       }
       case 'pet':
@@ -856,7 +862,7 @@ export class SimRoom extends Room<RoomState> {
       writeEntityTransform(cs, ch);
       cs.pose = getCharacterPose(ch);
       // cs.frame intentionally not synced — animation phase is client-timed.
-      cs.palette = ch.palette;
+      cs.skin = ch.skin;
       cs.hueShift = ch.hueShift;
       cs.isActive = ch.isActive;
       cs.reading = isReadingTool(ch.currentTool);
