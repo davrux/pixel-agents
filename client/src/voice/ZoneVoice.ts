@@ -105,6 +105,10 @@ export class ZoneVoice {
     this.proximity = localStorage.getItem('pa-zv-proximity') === '1';
     this.master = clamp01(Number(localStorage.getItem('pa-zv-master') ?? '1'));
     this.micGain = clampGain(Number(localStorage.getItem('pa-zv-micgain') ?? '1'));
+    // Persist mic/deafen across zone switches (a zone change reloads the page),
+    // so you stay live/muted/deafened exactly as in the previous zone.
+    this.micOn = localStorage.getItem('pa-zv-micon') === '1';
+    this.deafened = localStorage.getItem('pa-zv-deaf') === '1';
     this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
     this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
     this.audioBin = document.createElement('div');
@@ -331,6 +335,7 @@ export class ZoneVoice {
 
   toggleMic(): void {
     this.micOn = !this.micOn;
+    localStorage.setItem('pa-zv-micon', this.micOn ? '1' : '0');
     // Use the LiveKit publication's mute/unmute (signals to other clients, so
     // they can show our mute state) — not just track.enabled.
     if (this.micOn && !this.micPub) void this.publishMic();
@@ -401,6 +406,7 @@ export class ZoneVoice {
   /** Silence / un-silence all incoming zone voice at once (deafen). */
   toggleDeafen(): void {
     this.deafened = !this.deafened;
+    localStorage.setItem('pa-zv-deaf', this.deafened ? '1' : '0');
     this.applyAllVolumes();
     this.broadcastDeaf(); // let others see our sound-off state
     this.emitState();
