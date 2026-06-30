@@ -57,6 +57,8 @@ export class PetSync extends EntitySync {
   /** '' | 'spawn' | 'despawn'. */
   @type('string') effect = '';
   @type('number') effectTimer = 0;
+  /** Vertical render lift (px) while resting on a desk surface (0 otherwise). */
+  @type('uint16') restLift = 0;
 }
 
 /** A placed furniture tile after auto-on/animation has been applied. */

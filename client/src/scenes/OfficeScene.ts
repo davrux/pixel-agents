@@ -538,6 +538,7 @@ export class OfficeScene extends Phaser.Scene {
     rp.frame = ps.frame as number;
     rp.effect = ((ps.effect as string) || null) as never;
     rp.effectTimer = ps.effectTimer as number;
+    rp.restLift = ps.restLift as number;
   }
 
   private rebuildFurniture(): void {

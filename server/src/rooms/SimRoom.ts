@@ -902,6 +902,7 @@ export class SimRoom extends Room<RoomState> {
       ps.frame = pet.frame & 0xff;
       ps.effect = pet.effect ?? '';
       ps.effectTimer = pet.effectTimer;
+      ps.restLift = pet.restLift;
     }
     for (const key of [...this.state.pets.keys()]) {
       if (!live.has(key)) this.state.pets.delete(key);

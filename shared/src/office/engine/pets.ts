@@ -77,6 +77,8 @@ export interface PetTarget {
   sitCol: number;
   sitRow: number;
   facing: Direction;
+  /** Vertical render lift (px) for a desk-surface rest (0 for seats/floor). */
+  restLift: number;
   /** Path from the pet's current tile to the sit tile (excludes start). */
   path: Array<{ col: number; row: number }>;
 }
@@ -152,6 +154,7 @@ export function createPet(
     sitTileRow: 0,
     sitFacingDir: Direction.DOWN,
     sitTimer: 0,
+    restLift: 0,
     lifespanTimer: 0,
     effect: 'spawn',
     effectTimer: 0,
@@ -174,6 +177,7 @@ function clearTarget(pet: Pet): void {
   pet.targetStationId = null;
   pet.targetAgentId = null;
   pet.targetFurnitureUid = null;
+  pet.restLift = 0;
 }
 
 export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
@@ -227,6 +231,7 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
           pet.sitTileCol = target.sitCol;
           pet.sitTileRow = target.sitRow;
           pet.sitFacingDir = target.facing;
+          pet.restLift = target.restLift;
           if (target.path.length > 0) {
             pet.path = target.path;
             pet.moveProgress = 0;

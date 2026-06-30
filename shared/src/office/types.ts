@@ -151,6 +151,9 @@ export interface Pet {
   sitFacingDir: Direction;
   /** Remaining time to stay seated */
   sitTimer: number;
+  /** Vertical render lift (px) while resting: >0 when sitting ON a desk surface,
+   *  so the renderer draws the pet up on the desk top (0 for floor/chair sits). */
+  restLift: number;
   /** Counts up; despawn triggered at PET_LIFESPAN_SEC */
   lifespanTimer: number;
   /** Active spawn/despawn fade effect */

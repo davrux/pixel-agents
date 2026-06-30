@@ -1424,18 +1424,64 @@ export class OfficeState {
     return null;
   }
 
-  /** A free seat (any pet) or, for cats, a free desk exists somewhere. */
-  private hasRestAffordance(pet: Pet): boolean {
+  /** A free seat or a free desk surface (a desk with at least one column clear of
+   *  computers/mugs) exists somewhere — any pet may rest on either. Cheap: no
+   *  pathfinding (reachability is confirmed later by findFreePetTarget). */
+  private hasRestAffordance(_pet: Pet): boolean {
     for (const seat of this.seats.values()) {
       if (!seat.assigned) return true;
     }
-    if (pet.kind === PetKindEnum.CAT) {
-      for (const item of this.layout.furniture) {
-        const entry = getCatalogEntry(item.type);
-        if (entry?.category === 'desks' && this.isFurnitureFreeForPet(item.uid)) return true;
-      }
+    const occupied = this.occupiedDeskSurfaceTiles();
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      if (entry?.category !== 'desks') continue;
+      if (!this.isFurnitureFreeForPet(item.uid)) continue;
+      if (this.freeDeskRestColumn(item, entry, occupied) !== null) return true;
     }
     return false;
+  }
+
+  /** Tiles covered by an on-desk item — a computer (electronics) or a coffee mug /
+   *  other surface object (canPlaceOnSurfaces) — so a pet won't rest on that spot. */
+  private occupiedDeskSurfaceTiles(): Set<string> {
+    const tiles = new Set<string>();
+    for (const item of this.layout.furniture) {
+      const entry = getCatalogEntry(item.type);
+      if (!entry) continue;
+      if (entry.category !== 'electronics' && !entry.canPlaceOnSurfaces) continue;
+      for (let dr = 0; dr < entry.footprintH; dr++) {
+        for (let dc = 0; dc < entry.footprintW; dc++) {
+          tiles.add(`${item.col + dc},${item.row + dr}`);
+        }
+      }
+    }
+    return tiles;
+  }
+
+  /** First desk column with no computer/mug on any of its tiles, as a rest spot
+   *  anchored on the desk's BOTTOM footprint row (so it depth-sorts in front of
+   *  the desk sprite) plus the lift that raises the pet onto the surface. Null if
+   *  every column is occupied. Pure existence check — no reachability. */
+  private freeDeskRestColumn(
+    item: PlacedFurniture,
+    entry: { footprintW: number; footprintH: number; sprite: { length: number } },
+    occupied: Set<string>,
+  ): { col: number; row: number; lift: number } | null {
+    const bottomRow = item.row + entry.footprintH - 1;
+    for (let dc = 0; dc < entry.footprintW; dc++) {
+      let columnFree = true;
+      for (let dr = 0; dr < entry.footprintH; dr++) {
+        if (occupied.has(`${item.col + dc},${item.row + dr}`)) {
+          columnFree = false;
+          break;
+        }
+      }
+      if (!columnFree) continue;
+      // Desk sprites are exactly footprintH tiles tall, so lifting by the part
+      // above the bottom row (spriteH − one tile) lands the pet on the surface.
+      return { col: item.col + dc, row: bottomRow, lift: entry.sprite.length - TILE_SIZE };
+    }
+    return null;
   }
 
   /** Nearest non-despawning pet of `kind` within PET_SHOO_RADIUS_TILES (tile
@@ -1654,35 +1700,10 @@ export class OfficeState {
     return false;
   }
 
-  /** First walkable tile adjacent to a furniture footprint (for cats to sit beside). */
-  private firstAdjacentWalkableTile(
-    item: PlacedFurniture,
-    entry: { footprintW: number; footprintH: number },
-  ): { col: number; row: number } | null {
-    const dirs = [
-      { dc: 0, dr: -1 },
-      { dc: 0, dr: 1 },
-      { dc: -1, dr: 0 },
-      { dc: 1, dr: 0 },
-    ];
-    for (let dr = 0; dr < entry.footprintH; dr++) {
-      for (let dc = 0; dc < entry.footprintW; dc++) {
-        for (const d of dirs) {
-          const col = item.col + dc + d.dc;
-          const row = item.row + dr + d.dr;
-          if (isWalkable(col, row, this.tileMap, this.blockedTiles)) {
-            return { col, row };
-          }
-        }
-      }
-    }
-    return null;
-  }
-
   /**
    * Find + claim a free interaction target reachable from the pet for `action`:
-   *  - 'sit'  → any free chair seat (dogs & cats) or, for cats, a tile adjacent
-   *             to a free desk/table
+   *  - 'sit'  → any free chair seat, or a free desk surface column (no computer
+   *             or coffee mug on it) the pet rests on top of — any kind
    *  - 'drink' → a free appliance station (coffee), any kind
    * Returns the claimed target (with a path), or null.
    */
@@ -1706,6 +1727,7 @@ export class OfficeState {
           sitCol: s.col,
           sitRow: s.row,
           facing: s.facingDir,
+          restLift: 0,
           path,
         });
       }
@@ -1731,6 +1753,7 @@ export class OfficeState {
           sitCol: approach.col,
           sitRow: approach.row,
           facing: approach.facing,
+          restLift: 0,
           path,
         });
       }
@@ -1764,32 +1787,30 @@ export class OfficeState {
         sitCol: seat.seatCol,
         sitRow: seat.seatRow,
         facing: seat.facingDir,
+        restLift: 0,
         path,
       });
     }
 
-    // Desks/tables (cats only) — sit on an adjacent walkable tile
-    if (action === 'sit' && pet.kind === PetKindEnum.CAT) {
+    // Desks/tables — rest ON the surface, but only on a column with no computer
+    // or coffee mug. Anchor on the desk's bottom row (so the pet depth-sorts in
+    // front of the desk) and carry the lift that raises it onto the surface; the
+    // bottom tile is normally blocked, so unblock it just long enough to path on.
+    if (action === 'sit') {
+      const occupied = this.occupiedDeskSurfaceTiles();
       for (const item of this.layout.furniture) {
         const entry = getCatalogEntry(item.type);
         if (!entry || entry.category !== 'desks') continue;
         if (!this.isFurnitureFreeForPet(item.uid)) continue;
-        const adj = this.firstAdjacentWalkableTile(item, entry);
-        if (!adj) continue;
-        const path = findPath(pet.tileCol, pet.tileRow, adj.col, adj.row, this.tileMap, this.blockedTiles);
-        const reachable = path.length > 0 || (pet.tileCol === adj.col && pet.tileRow === adj.row);
+        const spot = this.freeDeskRestColumn(item, entry, occupied);
+        if (!spot) continue;
+        const key = `${spot.col},${spot.row}`;
+        const had = this.blockedTiles.has(key);
+        if (had) this.blockedTiles.delete(key);
+        const path = findPath(pet.tileCol, pet.tileRow, spot.col, spot.row, this.tileMap, this.blockedTiles);
+        if (had) this.blockedTiles.add(key);
+        const reachable = path.length > 0 || (pet.tileCol === spot.col && pet.tileRow === spot.row);
         if (!reachable) continue;
-        // Face from the sit tile toward the furniture
-        const dc = item.col - adj.col;
-        const dr = item.row - adj.row;
-        const facing =
-          Math.abs(dc) >= Math.abs(dr)
-            ? dc >= 0
-              ? Direction.RIGHT
-              : Direction.LEFT
-            : dr >= 0
-              ? Direction.DOWN
-              : Direction.UP;
         candidates.push({
           kind: 'furniture',
           action: 'sit',
@@ -1797,9 +1818,11 @@ export class OfficeState {
           furnitureUid: item.uid,
           stationId: null,
           agentId: null,
-          sitCol: adj.col,
-          sitRow: adj.row,
-          facing,
+          sitCol: spot.col,
+          sitRow: spot.row,
+          // Face the viewer while lounging on the desk top.
+          facing: Direction.DOWN,
+          restLift: spot.lift,
           path,
         });
       }

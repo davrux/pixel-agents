@@ -275,7 +275,9 @@ export class PhaserRenderer {
       }
       const tex = spriteTexture(this.scene, getPetSprite(pet));
       img.setTexture(tex);
-      img.setPosition(pet.x, pet.y);
+      // Resting on a desk: lift the sprite onto the surface, but keep depth from
+      // the (un-lifted) bottom-row anchor so the pet sorts in front of the desk.
+      img.setPosition(pet.x, pet.y - (pet.restLift ?? 0));
       img.setDepth(pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET);
       img.setVisible(true); // restore after edit-mode hiding (hideEntities)
       let alpha = 1;
