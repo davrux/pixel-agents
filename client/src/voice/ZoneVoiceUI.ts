@@ -78,6 +78,9 @@ export class ZoneVoiceUI {
       #pa-zv-grp button.on{background:#23402e;border-color:#3f7a52;color:#bdf0cd;}
       #pa-zv-grp button.live{background:#2e4636;border-color:#4caf73;color:#d6ffe2;}
       #pa-zv-grp button.off{background:#46302e;border-color:#7a3f3f;color:#f0bdbd;}
+      #pa-zv-grp button.micoff .mi{position:relative;}
+      #pa-zv-grp button.micoff .mi::after{content:'';position:absolute;left:-15%;top:45%;width:130%;height:0.14em;
+        background:#f0696e;transform:rotate(-20deg);border-radius:1px;}
       #pa-zv-grp button:disabled{opacity:0.45;cursor:default;}
       #pa-zv-pop{position:fixed;top:3.4rem;right:0.5rem;z-index:61;width:18rem;display:none;
         background:#1b1f2af2;border:2px solid #3a4150;border-radius:0.5rem;padding:0.6rem 0.7rem;
@@ -190,8 +193,10 @@ export class ZoneVoiceUI {
     this.voiceBtn.title = this.voice.isEnabled ? 'Leave this zone’s voice chat' : 'Join this zone’s voice chat';
 
     this.micBtn.style.display = connected ? '' : 'none';
-    this.micBtn.textContent = s.micOn ? '🎤 Live' : '🎤 Muted';
+    // Strike the mic glyph through when muted (the label stays readable).
+    this.micBtn.innerHTML = `<span class="mi">🎤</span> ${s.micOn ? 'Live' : 'Muted'}`;
     this.micBtn.classList.toggle('live', s.micOn);
+    this.micBtn.classList.toggle('micoff', !s.micOn);
 
     // Deafen = silence everyone you hear (independent of your mic).
     this.deafenBtn.style.display = connected ? '' : 'none';
