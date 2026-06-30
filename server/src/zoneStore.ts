@@ -46,9 +46,39 @@ export class ZoneStore {
         npc TEXT
       );
       CREATE TABLE IF NOT EXISTS zone_meta ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
+      CREATE TABLE IF NOT EXISTS zone_admins (
+        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
+      );
     `);
     this.migrateColumns();
     this.seed();
+  }
+
+  // ── Per-zone admins ──────────────────────────────────────────────
+  // A zone admin may layout/edit THAT zone (not the shared galleries). Global
+  // admins can edit every zone regardless. (See SimRoom.canEditZone.)
+  isZoneAdmin(zoneId: string, userId: string): boolean {
+    if (!zoneId || !userId) return false;
+    return (
+      this.db.prepare('SELECT 1 FROM zone_admins WHERE zone_id = ? AND user_id = ?').get(zoneId, userId) !==
+      undefined
+    );
+  }
+  setZoneAdmin(zoneId: string, userId: string, on: boolean): void {
+    if (!zoneId || !userId) return;
+    if (on) {
+      this.db
+        .prepare('INSERT OR IGNORE INTO zone_admins(zone_id, user_id) VALUES(?, ?)')
+        .run(zoneId, userId);
+    } else {
+      this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
+    }
+  }
+  listZoneAdmins(zoneId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT user_id FROM zone_admins WHERE zone_id = ? ORDER BY user_id')
+      .all(zoneId) as Array<{ user_id: string }>;
+    return rows.map((r) => r.user_id);
   }
 
   /** Add columns introduced after the table first shipped. The `npc` per-zone

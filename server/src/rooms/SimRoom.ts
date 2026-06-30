@@ -26,7 +26,7 @@ import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie } from '../auth.js';
-import { userStore, UserStore, isValidPassword } from '../userStore.js';
+import { userStore, UserStore, isValidPassword, normalizeLoginId } from '../userStore.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -303,11 +303,14 @@ export class SimRoom extends Room<RoomState> {
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
     const agentToken = userId ? (userStore.get(userId)?.agentToken ?? '') : '';
+    // Whether this viewer may layout the CURRENT zone (designated zone admin).
+    const zoneAdmin = !!userId && this.zones.isZoneAdmin(this.zone.id, userId);
     client.send('m', {
       type: 'viewerIdentity',
       userId,
       username,
       isAdmin,
+      zoneAdmin,
       agentToken,
       characterSkin,
       playerSkin,
@@ -484,18 +487,18 @@ export class SimRoom extends Room<RoomState> {
     this.onMessage('requestLayouts', (client) => client.send('m', this.layoutListMessage()));
 
     this.onMessage('loadLayout', (client, msg: { name?: string }) => {
-      if (!this.canEdit(client)) return;
+      if (!this.canEditZone(client, zone)) return;
       if (typeof msg?.name === 'string' && this.store.setActive(zone, msg.name)) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
-      if (!this.canEdit(client)) return;
+      if (!this.canEditZone(client, zone)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
       if (msg?.layout && this.store.saveActive(zone, msg.layout, Date.now())) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayoutAs', (client, msg: { name?: string; layout?: Record<string, unknown> }) => {
-      if (!this.canEdit(client)) return;
+      if (!this.canEditZone(client, zone)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
         this.store.saveAs(zone, name, msg.layout, Date.now());
@@ -504,7 +507,7 @@ export class SimRoom extends Room<RoomState> {
     });
 
     this.onMessage('deleteLayout', (client, msg: { name?: string }) => {
-      if (!this.canEdit(client)) return;
+      if (!this.canEditZone(client, zone)) return;
       if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
     });
 
@@ -603,8 +606,7 @@ export class SimRoom extends Room<RoomState> {
     });
 
     this.onMessage('editZone', (client, msg: { id?: string; label?: string; arrive?: { col: number; row: number } }) => {
-      if (!this.canEdit(client)) return;
-      if (typeof msg?.id !== 'string') return;
+      if (typeof msg?.id !== 'string' || !this.canEditZone(client, msg.id)) return;
       const patch: { label?: string; arrive?: { col: number; row: number } } = {};
       if (typeof msg.label === 'string') patch.label = msg.label;
       if (msg.arrive && Number.isInteger(msg.arrive.col) && Number.isInteger(msg.arrive.row)) patch.arrive = msg.arrive;
@@ -623,10 +625,21 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
+    // Grant/revoke a per-zone admin (global admins only). A zone admin may then
+    // layout/edit that zone (see canEditZone). `admin` omitted → toggle.
+    this.onMessage('setZoneAdmin', (client, msg: { zoneId?: string; userId?: string; admin?: boolean }) => {
+      if (!this.canEdit(client)) return;
+      const zoneId = typeof msg?.zoneId === 'string' ? msg.zoneId : '';
+      const targetId = normalizeLoginId(msg?.userId);
+      if (!zoneId || !this.zones.get(zoneId) || !targetId || !userStore.get(targetId)) return;
+      const on = typeof msg?.admin === 'boolean' ? msg.admin : !this.zones.isZoneAdmin(zoneId, targetId);
+      this.zones.setZoneAdmin(zoneId, targetId, on);
+      client.send('m', { type: 'zoneAdmins', zoneId, admins: this.zones.listZoneAdmins(zoneId) });
+    });
+
     // Per-zone NPC spawn set: which variants appear in a zone (null = all).
     this.onMessage('setZoneNpc', (client, msg: { id?: string; npc?: string[] | null }) => {
-      if (!this.canEdit(client)) return;
-      if (typeof msg?.id !== 'string') return;
+      if (typeof msg?.id !== 'string' || !this.canEditZone(client, msg.id)) return;
       const npc =
         msg.npc === null || msg.npc === undefined
           ? null
@@ -862,10 +875,18 @@ export class SimRoom extends Room<RoomState> {
     return `char_${max + 1}`;
   }
 
-  /** Whether this client may edit shared world/assets: admins only when login is
-   *  enforced; everyone in open dev mode (no auth, no admin concept). */
+  /** May edit the **shared** world/assets (the avatar/NPC/furniture galleries,
+   *  creating/deleting zones): global admins only (everyone in open dev mode). */
   private canEdit(client: Client): boolean {
     return !this.authRequired || authOf(client).isAdmin;
+  }
+
+  /** May edit a **specific zone** (its layout, arrival tile, name, NPC spawn
+   *  set): global admins, or a designated admin of that zone. */
+  private canEditZone(client: Client, zoneId: string): boolean {
+    if (!this.authRequired) return true;
+    const { userId, isAdmin } = authOf(client);
+    return isAdmin || (!!userId && this.zones.isZoneAdmin(zoneId, userId));
   }
 
   /**

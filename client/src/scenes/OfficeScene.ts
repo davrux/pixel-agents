@@ -189,6 +189,9 @@ export class OfficeScene extends Phaser.Scene {
    *  (empty in open dev mode / anonymous). */
   private myUserId = '';
   private isAdmin = false;
+  /** Whether this viewer is a designated admin of the CURRENT zone (may layout
+   *  it even without being a global admin). */
+  private myZoneAdmin = false;
   private agentToken = '';
   /** Pinned character skin id for this viewer, or null (server diversifies). */
   private mySkin: string | null = null;
@@ -421,6 +424,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           this.myUserId = (m.userId as string) ?? '';
           this.isAdmin = !!m.isAdmin;
+          this.myZoneAdmin = !!m.zoneAdmin;
           this.agentToken = (m.agentToken as string) ?? '';
           // Logged-in users: display name is server-owned. Anonymous (open dev):
           // keep a locally chosen name if any.
@@ -457,6 +461,10 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'agentToken') {
           this.agentToken = (m.token as string) ?? '';
           this.syncSettingsInputs();
+        }
+        else if (m.type === 'zoneAdmins') {
+          const admins = (m.admins as string[]) ?? [];
+          void alertDialog(`Zone admins for “${m.zoneId}”:\n${admins.length ? admins.join(', ') : '(none)'}`);
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
@@ -1266,36 +1274,41 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zonesPanel) return;
     const cur = currentZone();
     const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
-    // Travelling is open to all; creating/editing/deleting zones is admin-only
-    // (open dev mode without accounts treats everyone as an editor).
-    const admin = !this.myUserId || this.isAdmin;
+    // Travelling is open to all. Creating/deleting zones + granting zone admins
+    // is global-admin only; editing a zone (layout/rename/NPCs/arrival) is open
+    // to that zone's admin too — but the client only knows its OWN zone-admin
+    // status for the CURRENT zone, so per-row edit beyond the current zone needs
+    // global admin. (open dev mode without accounts → everyone edits.)
+    const assetsAdmin = this.assetsAdmin;
 
     const rows = this.zoneList
       .map((z) => {
         const here = z.id === cur;
+        const rowEdit = assetsAdmin || (here && this.myZoneAdmin);
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
         const lock = z.readOnly ? ' 🔒' : '';
         const npcN = z.npc == null ? 'all' : String(z.npc.length);
-        // Per-zone admin controls (NPCs / edit / delete) only for admins.
-        const del = admin && !z.readOnly ? ` <button data-del="${esc(z.id)}">✕</button>` : '';
-        const adminBtns = admin
-          ? `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>${del}`
-          : '';
-        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${adminBtns}</div>`;
+        let ctrls = '';
+        if (rowEdit)
+          ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
+        if (assetsAdmin && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
+        if (assetsAdmin) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
+        return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${ctrls}</div>`;
       })
       .join('');
 
-    const foot = admin
-      ? `<div class="foot">
-         <button data-arrive>📍 Set arrival point (this zone)</button>
-         <input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
+    const footParts: string[] = [];
+    if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
+    if (assetsAdmin)
+      footParts.push(
+        `<input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
          <div class="sz">
            <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
            <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
          </div>
-         <button data-new class="new">＋ Create zone</button>
-       </div>`
-      : '';
+         <button data-new class="new">＋ Create zone</button>`,
+      );
+    const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
     this.zonesPanel.innerHTML = `<h4>Zones</h4>${rows}${foot}`;
 
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
@@ -1312,6 +1325,18 @@ export class OfficeScene extends Phaser.Scene {
         const z = this.zoneList.find((x) => x.id === b.dataset.del);
         if (await confirmDialog(`Delete zone "${z?.label ?? b.dataset.del}" and its layouts?`, { danger: true, confirmLabel: 'Delete' }))
           send('deleteZone', { id: b.dataset.del });
+      };
+    });
+    // Grant/revoke a per-zone admin (global admin): prompt for a login id; the
+    // server toggles it and replies with the current admin list.
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-admins]').forEach((b) => {
+      b.onclick = async () => {
+        const id = b.dataset.admins!;
+        const uid = await promptDialog(`Toggle a zone admin for “${id}” — enter a user login id:`, '', {
+          maxLength: 32,
+          confirmLabel: 'Toggle',
+        });
+        if (uid && uid.trim()) send('setZoneAdmin', { zoneId: id, userId: uid.trim() });
       };
     });
     const arrive = this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]');
@@ -2080,17 +2105,28 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Show editing entry points (character/furniture/layout editors, zone admin,
-   *  save-as-template) only to admins; in open dev mode everyone is treated as
-   *  an editor. Server enforcement is authoritative — this is just UX. */
+  /** Whether this viewer may edit the SHARED galleries / create zones (global
+   *  admin, or open dev mode with no accounts). */
+  private get assetsAdmin(): boolean {
+    return !this.myUserId || this.isAdmin;
+  }
+  /** Whether this viewer may layout the CURRENT zone (global admin or its zone
+   *  admin). */
+  private get zoneEditAdmin(): boolean {
+    return this.assetsAdmin || this.myZoneAdmin;
+  }
+
+  /** Show editing entry points by role: the shared galleries (chars/furniture)
+   *  and save-as-template need global admin; the layout editor opens for the
+   *  current zone's admin too. Server enforcement is authoritative — this is
+   *  just UX. */
   private applyAdminVisibility(): void {
-    const canEdit = !this.myUserId || this.isAdmin; // open dev (no account) → allow
-    this.charEditor?.setButtonVisible(canEdit);
-    this.furnEditor?.setButtonVisible(canEdit);
-    if (this.layoutsBtn) this.layoutsBtn.style.display = canEdit ? '' : 'none';
+    this.charEditor?.setButtonVisible(this.assetsAdmin);
+    this.furnEditor?.setButtonVisible(this.assetsAdmin);
+    if (this.layoutsBtn) this.layoutsBtn.style.display = this.zoneEditAdmin ? '' : 'none';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
-    if (save) save.style.display = canEdit ? '' : 'none';
-    // The zones panel stays available for travel, but its admin controls hide.
+    if (save) save.style.display = this.assetsAdmin ? '' : 'none';
+    // The zones panel stays available for travel; admin controls reflect the role.
     this.renderZonesPanel?.();
   }
 

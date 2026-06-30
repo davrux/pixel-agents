@@ -193,7 +193,14 @@ export class LayoutEditor {
 
   private handleKey(e: KeyboardEvent): void {
     if (!this.editing) return;
-    const typing = document.activeElement instanceof HTMLInputElement;
+    // Don't steal keystrokes while the user is typing in a field (e.g. a name
+    // input or prompt) — otherwise shortcuts like R (rotate) eat letters.
+    const el = document.activeElement;
+    const typing =
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLTextAreaElement ||
+      el instanceof HTMLSelectElement ||
+      (el instanceof HTMLElement && el.isContentEditable);
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === 'z' || e.key === 'Z')) {
       e.preventDefault();
@@ -205,9 +212,10 @@ export class LayoutEditor {
       this.redo();
       return;
     }
+    // Shortcuts that must never fire mid-typing are all gated behind !typing.
     if (e.key === 'Escape') {
       this.exit();
-    } else if (e.key === 'r' || e.key === 'R') {
+    } else if (!typing && (e.key === 'r' || e.key === 'R')) {
       this.rotate(e.shiftKey ? 'ccw' : 'cw');
       e.preventDefault();
     } else if (!typing) {
