@@ -144,6 +144,24 @@ class AppStore {
       this.setSetting('playerPrefs', prefs);
     }
   }
+  // ── Per-user owned avatar (private, editable sprite data) ────────
+  // Stored in the assets table under a reserved type so each avatar is its own
+  // indexed row (not a giant settings blob), and is NOT merged into the shared
+  // template gallery (that type lives outside ASSET_TYPES). Deleting a template
+  // therefore can never affect a player's avatar.
+  getPlayerAvatar<T>(username: string): T | undefined {
+    return this.getAsset<T>('playerAvatar', username);
+  }
+  hasPlayerAvatar(username: string): boolean {
+    return this.getPlayerAvatar(username) !== undefined;
+  }
+  setPlayerAvatar(username: string, data: unknown): void {
+    this.saveAsset('playerAvatar', username, data);
+  }
+  deletePlayerAvatar(username: string): boolean {
+    return this.deleteAsset('playerAvatar', username);
+  }
+
   /** Users who opted out of a visible player avatar (spectator mode). */
   getSpectatorPrefs(): Record<string, boolean> {
     return this.getSetting<Record<string, boolean>>('spectatorPrefs', {});

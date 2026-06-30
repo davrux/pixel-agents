@@ -42,7 +42,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
-import { DEFAULT_ZONE, ZONES, conferenceLabel, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -193,8 +193,9 @@ export class OfficeScene extends Phaser.Scene {
   private portalPickerTile: { col: number; row: number } | null = null;
   /** Armed "click a tile to set this zone's arrival point" mode. */
   private arrivePickActive = false;
-  /** This viewer's chosen player-avatar skin id (null = default/random). */
-  private myPlayerSkin: string | null = null;
+  /** This viewer's owned-avatar skin id (pa:<user>), from the server. The avatar
+   *  is the player's own editable copy — not a gallery template. */
+  private myAvatarId: string | null = null;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -237,7 +238,6 @@ export class OfficeScene extends Phaser.Scene {
     // A name/character chosen in Settings (remembered per browser).
     try {
       this.mySkin = migrateSkin(localStorage.getItem('pa-viewer-char'));
-      this.myPlayerSkin = migrateSkin(localStorage.getItem('pa-player-char'));
       const saved = localStorage.getItem('pa-viewer-name');
       if (saved) {
         this.viewerUsername = saved;
@@ -290,6 +290,25 @@ export class OfficeScene extends Phaser.Scene {
           canCreate: false,
           spawnConfig: true,
           derivedName: true,
+        },
+        {
+          // The viewer's own avatar (a single, private, editable skin).
+          key: 'me',
+          label: 'My Avatar',
+          getTemplates: () => {
+            const id = this.myAvatarId;
+            const t = id ? (getCharacterTemplates() ?? []).find((c) => c.id === id) : undefined;
+            return t ? [t] : [];
+          },
+          newId: () => this.myAvatarId ?? 'pa:me', // unused (canCreate=false)
+          save: (_name, data) => this.room?.send('saveAvatar', { data }),
+          reset: () => {
+            /* an owned avatar has no bundled default to reset to */
+          },
+          isBundled: () => false,
+          tracks: AGENT_TRACKS,
+          blankFrames: 7,
+          canCreate: false,
         },
       ],
       topbar: this.topbar,
@@ -382,11 +401,11 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
-          // a reload, then re-assert our chosen skin/name onto the fresh avatar.
+          // a reload, then re-assert our name onto the fresh avatar (the owned
+          // avatar's skin is assigned server-side).
           this.myPlayerId = typeof m.playerId === 'number' ? m.playerId : null;
-          if (this.myPlayerId !== null) {
-            if (this.myPlayerSkin !== null) this.room?.send('setPlayerCharacter', { skin: this.myPlayerSkin });
-            if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
+          if (this.myPlayerId !== null && this.viewerUsername) {
+            this.room?.send('setPlayerName', { name: this.viewerUsername });
           }
         }
         else if (m.type === 'viewerIdentity') {
@@ -401,14 +420,9 @@ export class OfficeScene extends Phaser.Scene {
             this.zoneVoiceStarted = true;
             this.zoneVoice?.start();
           }
-          // Adopt the account's saved player skin only when this browser has no
-          // local choice (covers anonymous viewers + cross-device).
-          if (this.myPlayerSkin === null && typeof m.playerSkin === 'string') {
-            this.myPlayerSkin = m.playerSkin;
-          }
-          if (this.myPlayerSkin !== null) {
-            this.room?.send('setPlayerCharacter', { skin: this.myPlayerSkin });
-          }
+          // The server assigns this viewer's owned avatar (pa:<user>) — remember
+          // its id so "My avatar" edits/preview target the right skin.
+          if (typeof m.playerSkin === 'string') this.myAvatarId = m.playerSkin;
           if (this.viewerUsername) this.room?.send('setPlayerName', { name: this.viewerUsername });
 
           // Adopt the server-pinned skin only if the viewer hasn't picked one here.
@@ -433,6 +447,8 @@ export class OfficeScene extends Phaser.Scene {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
           assetBridge(m);
+          // Keep the Settings avatar preview honest after a live avatar change.
+          if (m.type === 'playerAvatar' && m.id === this.myAvatarId) this.renderAvatarPreview();
         }
       });
       this.bindState(this.room);
@@ -1621,6 +1637,13 @@ export class OfficeScene extends Phaser.Scene {
       #pa-char .rnd,#pa-pchar .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
         background:#14161c;border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;font-size:1.1rem;}
       #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#3a6df0;}
+      #pa-avatar{display:flex;gap:0.6rem;align-items:center;margin:0.3rem 0 0.2rem;}
+      #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
+        border:2px solid #3a4150;border-radius:0.3rem;}
+      #pa-avatar .pa-av-btns{display:flex;flex-direction:column;gap:0.35rem;flex:1;}
+      #pa-avatar button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;
+        font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;}
+      #pa-avatar button:disabled{opacity:0.5;cursor:default;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
         color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
@@ -1636,6 +1659,15 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><label for="pa-name">Your name</label><input id="pa-name" type="text" maxlength="16" placeholder="(all agents)"></div>
       <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
       <div class="row"><label>Your avatar</label></div>
+      <div id="pa-avatar">
+        <canvas id="pa-avatar-pic"></canvas>
+        <div class="pa-av-btns">
+          <button id="pa-av-edit">✏ Edit</button>
+          <button id="pa-av-save">Save as template</button>
+        </div>
+      </div>
+      <div class="hint">Your avatar is your own copy — editing or deleting a template never changes it.</div>
+      <div class="row"><label>Start from a template</label></div>
       <div id="pa-pchar"></div>
       <div class="row"><label>Agents' avatar</label></div>
       <div id="pa-char"></div>
@@ -1684,6 +1716,22 @@ export class OfficeScene extends Phaser.Scene {
       this.setMenu(null);
     });
 
+    // "Your avatar" controls: edit the owned avatar, or snapshot it as a new
+    // shared template.
+    panel.querySelector<HTMLButtonElement>('#pa-av-edit')!.onclick = () => {
+      if (!this.myAvatarId) return;
+      void this.setMenu(null);
+      this.charEditor.editEntity('me', this.myAvatarId);
+    };
+    panel.querySelector<HTMLButtonElement>('#pa-av-save')!.onclick = async () => {
+      const nm = await promptDialog('Name for the new template:', this.viewerUsername || 'My Avatar', {
+        maxLength: 16,
+        confirmLabel: 'Save',
+      });
+      if (nm === null) return;
+      this.room?.send('avatarToTemplate', { name: nm });
+    };
+
     const name = panel.querySelector<HTMLInputElement>('#pa-name')!;
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
@@ -1727,16 +1775,55 @@ export class OfficeScene extends Phaser.Scene {
   /** Render both avatar swatch rows: the viewer's own player avatar + the skin
    *  pinned for their agents. */
   private renderCharSwatches(): void {
-    this.renderSwatchRow('#pa-pchar', this.myPlayerSkin, (skin) => {
-      this.myPlayerSkin = skin;
-      this.persistPref('pa-player-char', skin);
-      this.room?.send('setPlayerCharacter', { skin: skin ?? '' });
-    });
+    this.renderAvatarPreview();
+    // "Start from a template": copy a gallery skin into the owned avatar (a
+    // fresh, independent copy — the template stays untouched). No random option.
+    this.renderSwatchRow(
+      '#pa-pchar',
+      null,
+      (skin) => {
+        if (skin) this.room?.send('avatarFromTemplate', { templateId: skin });
+      },
+      { random: false },
+    );
     this.renderSwatchRow('#pa-char', this.mySkin, (skin) => {
       this.mySkin = skin;
       this.persistPref('pa-viewer-char', skin);
       this.room?.send('setCharacter', { skin: skin ?? '', name: this.viewerUsername });
     });
+  }
+
+  /** Draw the viewer's owned avatar into the Settings preview + toggle its
+   *  Edit/Save-as-template buttons by whether the avatar is loaded yet. */
+  private renderAvatarPreview(): void {
+    const cv = this.settingsPanel?.querySelector<HTMLCanvasElement>('#pa-avatar-pic');
+    const mine = this.myAvatarId
+      ? (getCharacterTemplates() ?? []).find((c) => c.id === this.myAvatarId)
+      : undefined;
+    if (cv) {
+      const frame = mine?.data.down?.[1] ?? mine?.data.down?.[0];
+      const w = frame?.[0]?.length ?? 16;
+      const h = frame?.length ?? 32;
+      cv.width = w;
+      cv.height = h;
+      const ctx = cv.getContext('2d')!;
+      ctx.clearRect(0, 0, w, h);
+      if (frame) {
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const px = frame[y]?.[x];
+            if (px) {
+              ctx.fillStyle = px;
+              ctx.fillRect(x, y, 1, 1);
+            }
+          }
+        }
+      }
+    }
+    const editBtn = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-edit');
+    const saveBtn = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
+    if (editBtn) editBtn.disabled = !mine;
+    if (saveBtn) saveBtn.disabled = !mine;
   }
 
   private persistPref(key: string, i: string | null): void {
@@ -1840,21 +1927,29 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Render one avatar swatch row (random + each palette's front standing frame),
    *  highlighting `selected`; clicking a swatch calls `onPick`. */
-  private renderSwatchRow(hostSel: string, selected: string | null, onPick: (skin: string | null) => void): void {
+  private renderSwatchRow(
+    hostSel: string,
+    selected: string | null,
+    onPick: (skin: string | null) => void,
+    opts: { random?: boolean } = {},
+  ): void {
     const host = this.settingsPanel?.querySelector<HTMLDivElement>(hostSel);
     if (!host) return;
-    const tpl = getCharacterTemplates() ?? [];
+    // Only gallery templates here — owned avatars (pa:<user>) aren't pickable.
+    const tpl = (getCharacterTemplates() ?? []).filter((c) => !isPlayerAvatarSkin(c.id));
     host.innerHTML = '';
     // "Default (Random)" = no pin; the server diversifies the skin.
-    const rnd = document.createElement('div');
-    rnd.className = 'rnd' + (selected === null ? ' sel' : '');
-    rnd.textContent = '🎲';
-    rnd.title = 'Default (random skin)';
-    rnd.onclick = () => {
-      onPick(null);
-      this.renderCharSwatches();
-    };
-    host.appendChild(rnd);
+    if (opts.random !== false) {
+      const rnd = document.createElement('div');
+      rnd.className = 'rnd' + (selected === null ? ' sel' : '');
+      rnd.textContent = '🎲';
+      rnd.title = 'Default (random skin)';
+      rnd.onclick = () => {
+        onPick(null);
+        this.renderCharSwatches();
+      };
+      host.appendChild(rnd);
+    }
     tpl.forEach((c) => {
       const frame = c.data.down?.[1] ?? c.data.down?.[0];
       const w = frame?.[0]?.length ?? 16;

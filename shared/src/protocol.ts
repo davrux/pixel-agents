@@ -6,6 +6,24 @@
 
 export const WORLD_ROOM = 'world';
 
+// ── Player avatar skins ───────────────────────────────────────────
+// Each player owns a private, editable avatar (its own sprite data), distinct
+// from the shared, deletable template gallery (`char_*`). Owned avatars use a
+// `pa:` skin id so they're trivially separable: the gallery is every skin
+// without this prefix; a player's renderable skin is `pa:<username>`.
+
+export const PLAYER_AVATAR_SKIN_PREFIX = 'pa:';
+
+/** Stable skin id for a user's owned avatar. */
+export function playerAvatarSkinId(username: string): string {
+  return PLAYER_AVATAR_SKIN_PREFIX + username;
+}
+
+/** Whether a skin id refers to a player-owned avatar (not a gallery template). */
+export function isPlayerAvatarSkin(id: string): boolean {
+  return id.startsWith(PLAYER_AVATAR_SKIN_PREFIX);
+}
+
 // ── Zones ─────────────────────────────────────────────────────────
 // A zone is one explorable space (the office, later a plaza, a dungeon, …),
 // hosted as its own Colyseus room instance of WORLD_ROOM (matchmade by `zone`).

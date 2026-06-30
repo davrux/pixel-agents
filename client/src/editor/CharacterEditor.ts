@@ -255,6 +255,23 @@ export class CharacterEditor {
     this.panel.style.display = 'block';
     this.showGallery();
   }
+  /** Open straight into editing one entity (e.g. the player's own avatar),
+   *  selecting its category first. Falls back to the gallery if not found. */
+  editEntity(catKey: string, id: string): void {
+    const ci = this.opts.categories.findIndex((c) => c.key === catKey);
+    if (ci < 0) return;
+    this.open = true;
+    this.panel.style.display = 'block';
+    this.catIndex = ci;
+    const tpl = this.cat().getTemplates() ?? [];
+    const i = tpl.findIndex((t) => t.id === id);
+    if (i < 0) {
+      this.showGallery();
+      return;
+    }
+    this.loadChar(i);
+    this.showEdit();
+  }
   /** Close, prompting first if there are unsaved edits in the edit view. */
   private async requestClose(): Promise<void> {
     if (!(await this.confirmDiscard())) return;

@@ -1,8 +1,9 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone, conferenceKey, cleanName } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
+import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
@@ -48,6 +49,12 @@ function writeEntityTransform(
   sync.state = e.state;
 }
 
+/** Deep copy of a skin's sprite data (plain arrays/strings), so an avatar and
+ *  the template it was seeded from stay fully independent. */
+function cloneCharacterData(data: LoadedCharacterData): LoadedCharacterData {
+  return JSON.parse(JSON.stringify(data)) as LoadedCharacterData;
+}
+
 export class SimRoom extends Room<RoomState> {
   /** Read-only file defaults; `bundle` is these merged with DB asset overrides. */
   private defaults!: AssetBundle;
@@ -58,6 +65,11 @@ export class SimRoom extends Room<RoomState> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
+  /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
+   *  distributed only to clients here so a client loads just the avatars of
+   *  players standing in its zone. Refcounted by concurrent sessions. */
+  private readonly avatarData = new Map<string, LoadedCharacterData>();
+  private readonly avatarRefs = new Map<string, number>();
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
   private readonly chatLog: Array<{ from: string; text: string }> = [];
   private readonly lastChatAt = new Map<string, number>();
@@ -242,7 +254,24 @@ export class SimRoom extends Room<RoomState> {
     // reroute hands them over from whatever zone they were in (no-op if same).
     director.setOwnerZone(username, this.zone.id);
     const characterSkin = username ? (appStore.getCharPrefs()[username] ?? null) : null;
-    const playerSkin = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
+
+    // Zone-local avatar loading: give the joiner every owned avatar already
+    // present in this zone, so it can render the players standing here without
+    // pulling in avatars from other zones.
+    for (const [sid, data] of this.avatarData) client.send('m', { type: 'playerAvatar', id: sid, data });
+
+    // Logged-in viewers own a private, editable avatar (pa:<user>); anonymous
+    // viewers (no stable identity) fall back to a random gallery skin.
+    let playerSkin: string | null = null;
+    if (username) {
+      const data = this.ensurePlayerAvatar(username);
+      const sid = playerAvatarSkinId(username);
+      playerSkin = sid;
+      this.avatarData.set(sid, data);
+      this.avatarRefs.set(sid, (this.avatarRefs.get(sid) ?? 0) + 1);
+      // Announce (or refresh) this avatar to everyone in the zone, incl. the joiner.
+      this.broadcast('m', { type: 'playerAvatar', id: sid, data });
+    }
     // Everyone who joins gets a player avatar (no spectator mode). Active entry
     // (menu switch or portal) → land at the zone's arrival tile; a plain refresh
     // resumes where this user last stood (engine picks a free tile, else random).
@@ -260,15 +289,28 @@ export class SimRoom extends Room<RoomState> {
   }
 
   onLeave(client: Client): void {
+    const username = (client.auth as { username?: string } | undefined)?.username ?? '';
     const playerId = this.players.get(client.sessionId);
     if (playerId !== undefined) {
       // Persist the avatar's last tile (logged-in users respawn there next time).
-      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
       const ch = this.os.getCharacter(playerId);
       if (username && ch) appStore.setPlayerPos(username, this.zone.id, ch.tileCol, ch.tileRow);
       this.leaveAllConferences(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
+    }
+    // Release this user's owned avatar from the zone once their last session
+    // here is gone, so other clients can drop the no-longer-needed sprite data.
+    if (username) {
+      const sid = playerAvatarSkinId(username);
+      const n = (this.avatarRefs.get(sid) ?? 1) - 1;
+      if (n > 0) {
+        this.avatarRefs.set(sid, n);
+      } else {
+        this.avatarRefs.delete(sid);
+        this.avatarData.delete(sid);
+        this.broadcast('m', { type: 'playerAvatarGone', id: sid });
+      }
     }
     this.lastChatAt.delete(client.sessionId);
   }
@@ -589,18 +631,38 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    // Pick the viewer's own player-avatar skin (recolors their live avatar +
-    // persists per user; '' = default/random on next spawn).
-    this.onMessage('setPlayerCharacter', (client, msg: { skin?: string }) => {
-      const skin = typeof msg?.skin === 'string' ? msg.skin : '';
-      if (skin && !this.isKnownSkin(skin)) return;
-      const name = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (name) {
-        if (!skin) appStore.clearPlayerPref(name);
-        else appStore.setPlayerPref(name, skin);
-      }
-      const id = this.players.get(client.sessionId);
-      if (id !== undefined && skin) this.os.setCharacterSkin(id, skin);
+    // Reset the viewer's owned avatar from a gallery template (a fresh copy —
+    // the template stays independent; later edits/deletes never affect it).
+    this.onMessage('avatarFromTemplate', (client, msg: { templateId?: string }) => {
+      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (!username) return;
+      const id = typeof msg?.templateId === 'string' ? msg.templateId : '';
+      if (!this.isKnownSkin(id)) return;
+      const src = (this.bundle.raw.characters as Array<{ id: string; data: LoadedCharacterData }>).find(
+        (c) => c.id === id,
+      );
+      if (src) this.setAvatar(username, cloneCharacterData(src.data));
+    });
+
+    // Save edits to the viewer's own avatar (its private sprite data).
+    this.onMessage('saveAvatar', (client, msg: { data?: unknown }) => {
+      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (!username || msg?.data === undefined || !this.validCharacterData(msg.data)) return;
+      this.setAvatar(username, msg.data as LoadedCharacterData);
+    });
+
+    // Copy the viewer's own avatar into the shared gallery as a new template
+    // (a snapshot — the avatar stays the player's own, independent copy).
+    this.onMessage('avatarToTemplate', (client, msg: { name?: string }) => {
+      const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+      if (!username) return;
+      const data = appStore.getPlayerAvatar<LoadedCharacterData>(username);
+      if (!data) return;
+      const name = ((typeof msg?.name === 'string' ? msg.name : '').trim() || username).slice(0, 16);
+      const toSave = { ...cloneCharacterData(data), name };
+      if (!this.validCharacterData(toSave)) return;
+      appStore.saveAsset('character', this.nextCharTemplateId(), toSave);
+      this.reapplyAsset('character');
     });
 
     // Click-to-move: walk the viewer's own avatar to a tile (server validates).
@@ -693,6 +755,40 @@ export class SimRoom extends Room<RoomState> {
   private isKnownSkin(id: string): boolean {
     if (!/^char_\d+$/.test(id)) return false;
     return (this.bundle.raw.characters as Array<{ id: string }>).some((c) => c.id === id);
+  }
+
+  // ── Player-owned avatars ─────────────────────────────────────────
+
+  /** This user's private avatar sprite data, creating it on first use by
+   *  copying their old gallery pin (migration) or the first template. */
+  private ensurePlayerAvatar(username: string): LoadedCharacterData {
+    const existing = appStore.getPlayerAvatar<LoadedCharacterData>(username);
+    if (existing) return existing;
+    const chars = this.bundle.raw.characters as Array<{ id: string; data: LoadedCharacterData }>;
+    const oldPin = appStore.getPlayerPrefs()[username];
+    const src = (oldPin ? chars.find((c) => c.id === oldPin) : undefined) ?? chars[0];
+    const data = cloneCharacterData(src.data);
+    appStore.setPlayerAvatar(username, data);
+    return data;
+  }
+
+  /** Persist a user's avatar data and push it to everyone in this zone (live
+   *  re-render). The skin id stays pa:<user>; only the sprite data changes. */
+  private setAvatar(username: string, data: LoadedCharacterData): void {
+    appStore.setPlayerAvatar(username, data);
+    const sid = playerAvatarSkinId(username);
+    if (this.avatarData.has(sid)) this.avatarData.set(sid, data);
+    this.broadcast('m', { type: 'playerAvatar', id: sid, data });
+  }
+
+  /** Next free gallery template id (char_<n>) across bundled + DB skins. */
+  private nextCharTemplateId(): string {
+    let max = -1;
+    for (const c of this.bundle.raw.characters as Array<{ id: string }>) {
+      const m = /^char_(\d+)$/.exec(c.id);
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    return `char_${max + 1}`;
   }
 
   /**

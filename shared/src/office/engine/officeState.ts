@@ -21,6 +21,7 @@ import {
   WAITING_BUBBLE_DURATION_SEC,
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
+import { isPlayerAvatarSkin } from '../../protocol.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
@@ -452,13 +453,16 @@ export class OfficeState {
   dropInvalidSkins(validIds: Set<string>): string[] {
     const dropped: string[] = [];
     for (const [name, skin] of this.skinPrefs) {
+      // Player-owned avatars (pa:…) live outside the gallery and are never
+      // dropped by a template change.
+      if (isPlayerAvatarSkin(skin)) continue;
       if (!validIds.has(skin)) {
         this.skinPrefs.delete(name);
         dropped.push(name);
       }
     }
     for (const ch of this.characters.values()) {
-      if (ch.isSubagent || validIds.has(ch.skin)) continue;
+      if (ch.isSubagent || isPlayerAvatarSkin(ch.skin) || validIds.has(ch.skin)) continue;
       const pick = this.pickDiverseSkin();
       ch.skin = pick.skin;
       ch.hueShift = pick.hueShift;

@@ -80,6 +80,32 @@ export function getCharacterTemplates(): CharacterTemplate[] | null {
   return loadedCharacters;
 }
 
+/** Drop cached sprites for one skin id (all hue variants), so the next
+ *  getCharacterSprites rebuilds from fresh data. */
+function clearSkinCache(id: string): void {
+  for (const key of [...spriteCache.keys()]) {
+    if (key.startsWith(`${id}:`)) spriteCache.delete(key);
+  }
+}
+
+/** Add or replace a single skin (e.g. a per-player avatar) without resetting
+ *  the whole gallery. Used for zone-local avatar distribution. */
+export function upsertCharacterTemplate(id: string, data: LoadedCharacterData): void {
+  charById.set(id, data);
+  const list = loadedCharacters ?? (loadedCharacters = []);
+  const i = list.findIndex((c) => c.id === id);
+  if (i >= 0) list[i] = { id, data };
+  else list.push({ id, data });
+  clearSkinCache(id);
+}
+
+/** Remove a single skin (e.g. when its owner leaves the zone). */
+export function removeCharacterTemplate(id: string): void {
+  charById.delete(id);
+  if (loadedCharacters) loadedCharacters = loadedCharacters.filter((c) => c.id !== id);
+  clearSkinCache(id);
+}
+
 /** The first/default skin id (fallback for an unknown skin or before load). */
 export function firstSkinId(): string {
   return loadedCharacters?.[0]?.id ?? 'char_0';
