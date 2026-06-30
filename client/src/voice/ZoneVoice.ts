@@ -42,8 +42,17 @@ export interface Peer {
   identity: string;
   name: string;
   playerId: number | null;
-  volume: number; // per-user gain 0..1
+  volume: number; // per-user gain 0..2 (1 = unity, up to 2 = +100% boost)
   muted: boolean;
+}
+
+/** Web Audio playback graph for one remote participant's voice. */
+interface PeerAudio {
+  track: RemoteAudioTrack;
+  pump: HTMLAudioElement; // muted; keeps the remote track flowing (Chrome quirk)
+  source: MediaStreamAudioSourceNode;
+  gain: GainNode;
+  out: HTMLAudioElement; // plays the gain-processed stream; setSinkId picks the device
 }
 
 export interface ZoneVoiceState {
@@ -69,7 +78,12 @@ export interface ZoneVoiceDevices {
 export class ZoneVoice {
   private room: Room | null = null;
   private readonly audioBin: HTMLElement;
-  private readonly tracks = new Map<string, RemoteAudioTrack>(); // identity → track
+  // Each remote track plays through Web Audio so we can boost beyond 100%:
+  // track → source → gain → MediaStreamDestination → <audio> (setSinkId for the
+  // speaker device works on the element, in Chrome AND Firefox). A muted "pump"
+  // element keeps the remote track flowing into Web Audio (Chrome quirk).
+  private outCtx: AudioContext | null = null;
+  private readonly peerAudio = new Map<string, PeerAudio>(); // identity → audio graph
   private readonly peers = new Map<string, Peer>(); // identity → peer
 
   private enabled = false; // user intent (Join/Leave)
@@ -103,7 +117,7 @@ export class ZoneVoice {
     private readonly onDevices: (d: ZoneVoiceDevices) => void,
   ) {
     this.proximity = localStorage.getItem('pa-zv-proximity') === '1';
-    this.master = clamp01(Number(localStorage.getItem('pa-zv-master') ?? '1'));
+    this.master = clampVol(Number(localStorage.getItem('pa-zv-master') ?? '1'));
     this.micGain = clampGain(Number(localStorage.getItem('pa-zv-micgain') ?? '1'));
     // Persist mic/deafen across zone switches (a zone change reloads the page),
     // so you stay live/muted/deafened exactly as in the previous zone.
@@ -227,7 +241,10 @@ export class ZoneVoice {
   private cleanup(): void {
     this.stopProximity();
     this.stopMicGraph();
-    this.tracks.clear();
+    for (const pa of this.peerAudio.values()) this.teardownPeerAudio(pa);
+    this.peerAudio.clear();
+    void this.outCtx?.close().catch(() => undefined);
+    this.outCtx = null;
     this.peers.clear();
     this.audioBin.replaceChildren();
     this.room = null;
@@ -266,26 +283,71 @@ export class ZoneVoice {
 
   private removePeer(identity: string): void {
     this.peers.delete(identity);
-    this.tracks.delete(identity);
+    const pa = this.peerAudio.get(identity);
+    if (pa) {
+      this.teardownPeerAudio(pa);
+      this.peerAudio.delete(identity);
+    }
     this.emitPeers();
     this.emitVoiceStatus();
+  }
+
+  private ensureOutCtx(): AudioContext {
+    if (!this.outCtx) {
+      this.outCtx = new AudioContext();
+      void this.outCtx.resume().catch(() => undefined);
+    }
+    return this.outCtx;
   }
 
   private onTrack(track: RemoteTrack, p: RemoteParticipant): void {
     if (track.kind !== Track.Kind.Audio) return;
     this.addPeer(p);
-    const audio = track.attach();
-    audio.style.display = 'none';
-    this.audioBin.appendChild(audio);
-    if (this.speakerId) void setSinkId(audio, this.speakerId);
-    this.tracks.set(p.identity, track as RemoteAudioTrack);
+    const ctx = this.ensureOutCtx();
+    const stream = new MediaStream([track.mediaStreamTrack]);
+    // Chrome won't pull a remote track into Web Audio unless it's also attached
+    // to a playing element; a muted pump element satisfies that (harmless in FF).
+    const pump = new Audio();
+    pump.srcObject = stream;
+    pump.muted = true;
+    void pump.play().catch(() => undefined);
+    const source = ctx.createMediaStreamSource(stream);
+    const gain = ctx.createGain();
+    const dest = ctx.createMediaStreamDestination();
+    source.connect(gain);
+    gain.connect(dest);
+    // Audible output is this element (the boost lives in the gain node);
+    // setSinkId on it selects the speaker device in both Chrome and Firefox.
+    const out = new Audio();
+    out.srcObject = dest.stream;
+    out.style.display = 'none';
+    this.audioBin.appendChild(out);
+    if (this.speakerId) void setSinkId(out, this.speakerId);
+    void out.play().catch(() => undefined);
+    this.peerAudio.set(p.identity, { track: track as RemoteAudioTrack, pump, source, gain, out });
     this.applyVolume(p.identity);
   }
 
   private onTrackGone(track: RemoteTrack): void {
-    track.detach().forEach((el) => el.remove());
-    for (const [identity, t] of this.tracks) {
-      if (t === track) this.tracks.delete(identity);
+    for (const [identity, pa] of this.peerAudio) {
+      if (pa.track === track) {
+        this.teardownPeerAudio(pa);
+        this.peerAudio.delete(identity);
+      }
+    }
+  }
+
+  private teardownPeerAudio(pa: PeerAudio): void {
+    try {
+      pa.pump.pause();
+      pa.pump.srcObject = null;
+      pa.out.pause();
+      pa.out.srcObject = null;
+      pa.out.remove();
+      pa.source.disconnect();
+      pa.gain.disconnect();
+    } catch {
+      /* best-effort teardown */
     }
   }
 
@@ -293,16 +355,17 @@ export class ZoneVoice {
 
   /** Recompute and apply the effective volume for one peer. */
   private applyVolume(identity: string): void {
-    const track = this.tracks.get(identity);
+    const pa = this.peerAudio.get(identity);
     const peer = this.peers.get(identity);
-    if (!track || !peer) return;
+    if (!pa || !peer) return;
     let v = this.deafened ? 0 : this.master * (peer.muted ? 0 : peer.volume);
     if (!this.deafened && this.proximity) v *= this.distanceFactor(peer.playerId);
-    track.setVolume(clamp01(v));
+    // Web Audio gain can exceed 1 → boost beyond 100% (cap to avoid clipping).
+    pa.gain.gain.value = clampOut(v);
   }
 
   private applyAllVolumes(): void {
-    for (const id of this.tracks.keys()) this.applyVolume(id);
+    for (const id of this.peerAudio.keys()) this.applyVolume(id);
   }
 
   /** 1 near, fading to 0 by FAR_PX; 0 if either position is unknown. */
@@ -421,7 +484,7 @@ export class ZoneVoice {
   }
 
   setMaster(v: number): void {
-    this.master = clamp01(v);
+    this.master = clampVol(v);
     localStorage.setItem('pa-zv-master', String(this.master));
     this.applyAllVolumes();
     this.emitState();
@@ -461,11 +524,8 @@ export class ZoneVoice {
     if (!this.room) return;
     this.speakerId = deviceId;
     localStorage.setItem('pa-zv-speaker', deviceId);
-    // LiveKit routes its managed elements; also set the sink on ours directly.
-    await this.room.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
-    for (const el of Array.from(this.audioBin.children)) {
-      void setSinkId(el as HTMLMediaElement, deviceId);
-    }
+    // Route each peer's output element to the chosen device (works in Chrome+FF).
+    for (const pa of this.peerAudio.values()) void setSinkId(pa.out, deviceId);
     await this.emitDevices();
   }
 
@@ -489,7 +549,7 @@ export class ZoneVoice {
   setPeerVolume(identity: string, v: number): void {
     const peer = this.peers.get(identity);
     if (!peer) return;
-    peer.volume = clamp01(v);
+    peer.volume = clampVol(v);
     this.applyVolume(identity);
     this.emitPeers();
   }
@@ -550,9 +610,17 @@ async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> 
   }
 }
 
-function clamp01(v: number): number {
+/** Clamp a volume slider value to 0..2 (1 = unity, 2 = +100% boost). */
+function clampVol(v: number): number {
   if (!Number.isFinite(v)) return 1;
-  return Math.max(0, Math.min(1, v));
+  return Math.max(0, Math.min(2, v));
+}
+
+/** Clamp the effective per-peer output gain (master·perUser·proximity) to a
+ *  sane ceiling so a double-boost can't clip too hard. */
+function clampOut(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.max(0, Math.min(3, v));
 }
 
 /** Clamp mic gain to 0..2 (1 = unity); default 1 for non-finite input. */

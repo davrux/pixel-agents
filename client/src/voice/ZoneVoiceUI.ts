@@ -147,7 +147,7 @@ export class ZoneVoiceUI {
         <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
         <div class="row"><label>Mic sens.</label><input id="pa-zv-micgain" type="range" min="0" max="200"></div>
       </div>
-      <div class="row"><label>Volume</label><input id="pa-zv-master" type="range" min="0" max="100"></div>
+      <div class="row"><label>Volume</label><input id="pa-zv-master" type="range" min="0" max="200"></div>
       <div class="row"><label><input id="pa-zv-prox" type="checkbox"> Proximity</label></div>
       <div class="hint">Nearby players sound louder; distant ones fade out.</div>
       <div id="pa-zv-peers"></div>
@@ -254,7 +254,7 @@ export class ZoneVoiceUI {
       const vol = document.createElement('input');
       vol.type = 'range';
       vol.min = '0';
-      vol.max = '100';
+      vol.max = '200';
       vol.value = String(Math.round(p.volume * 100));
       vol.addEventListener('input', () => this.voice.setPeerVolume(p.identity, Number(vol.value) / 100));
       const mute = document.createElement('button');
