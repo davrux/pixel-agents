@@ -18,7 +18,7 @@ import {
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
-import { director } from '../sim/director.js';
+import { director, type AgentInfo } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
 import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
@@ -72,7 +72,73 @@ export class SimRoom extends Room<RoomState> {
   /** Server-only NPC behaviour tree (decides pet activity; not in client bundle). */
   private readonly npcBrain = new NpcBrain();
 
-  private readonly onEvent = (ev: AgentEvent) => applyEvent(this.os, ev, this.activity);
+  /** Agents currently materialised in this room → their owner (label). An agent
+   *  lives only in the zone its owner is viewing, so it follows them on a switch. */
+  private readonly hostedAgents = new Map<number, string>();
+
+  /** True if this room is the zone that currently hosts `owner`'s agents. */
+  private hostsOwner(owner: string): boolean {
+    return director.zoneForOwner(owner) === this.zone.id;
+  }
+
+  /** Relay an ingest event, but only for agents this zone hosts: 'created' is
+   *  taken on iff we host its owner; everything else passes only for already-
+   *  hosted agents. Keeps each agent in exactly one zone (its owner's). */
+  private readonly onEvent = (ev: AgentEvent): void => {
+    if (ev.t === 'created') {
+      const owner = ev.label ?? '';
+      if (!this.hostsOwner(owner)) return;
+      this.hostedAgents.set(ev.id, owner);
+      applyEvent(this.os, ev, this.activity);
+      return;
+    }
+    if (!this.hostedAgents.has(ev.id)) return;
+    applyEvent(this.os, ev, this.activity);
+    if (ev.t === 'removed') this.hostedAgents.delete(ev.id);
+  };
+
+  /** Hand an owner's agents over when they switch zones: the room they left
+   *  drops them, the room they entered seeds them from the registry. */
+  private readonly onReroute = (owner: string): void => {
+    const mine = this.hostsOwner(owner);
+    if (!mine) {
+      for (const [id, o] of [...this.hostedAgents]) {
+        if (o === owner) {
+          this.hostedAgents.delete(id);
+          applyEvent(this.os, { t: 'removed', id }, this.activity);
+        }
+      }
+      return;
+    }
+    for (const a of director.snapshot()) {
+      if (a.label === owner && !this.hostedAgents.has(a.id)) {
+        this.hostedAgents.set(a.id, a.label);
+        this.seedAgent(a);
+      }
+    }
+  };
+
+  /** Replay the full current state of one registry agent into this room (used
+   *  both when seeding a freshly-created room and when an owner switches in).
+   *  Status 'waiting' is left implicit so seeding never fires a "done" chime. */
+  private seedAgent(a: AgentInfo): void {
+    applyEvent(this.os, { t: 'created', id: a.id, label: a.label }, this.activity);
+    if (a.teamName || a.agentName || a.isTeamLead || a.leadId !== null) {
+      applyEvent(
+        this.os,
+        { t: 'team', id: a.id, teamName: a.teamName, agentName: a.agentName, isTeamLead: a.isTeamLead, leadAgentId: a.leadId ?? undefined },
+        this.activity,
+      );
+    }
+    for (const [toolId, t] of a.activeTools) {
+      applyEvent(this.os, { t: 'toolStart', id: a.id, toolId, status: t.status, toolName: t.toolName }, this.activity);
+    }
+    if (a.status === 'active') applyEvent(this.os, { t: 'status', id: a.id, status: 'active' }, this.activity);
+    if (a.permission) applyEvent(this.os, { t: 'permission', id: a.id }, this.activity);
+    if (a.inputTokens || a.outputTokens) {
+      applyEvent(this.os, { t: 'tokens', id: a.id, inputTokens: a.inputTokens, outputTokens: a.outputTokens }, this.activity);
+    }
+  }
 
   /** Gate joins on the cookie session when a token is configured; expose the
    *  viewer's username so the client can play sounds only for its own agents. */
@@ -132,11 +198,15 @@ export class SimRoom extends Room<RoomState> {
       this.os.setSkinPref(name, skin);
     }
 
-    // Seed any agents that already exist (mock/feed started before this room).
+    // Seed any agents that already exist (mock/feed started before this room),
+    // but only those whose owner is currently viewing this zone.
     for (const a of director.snapshot()) {
-      applyEvent(this.os, { t: 'created', id: a.id, label: a.label }, this.activity);
+      if (!this.hostsOwner(a.label)) continue;
+      this.hostedAgents.set(a.id, a.label);
+      this.seedAgent(a);
     }
     director.on('event', this.onEvent);
+    director.on('reroute', this.onReroute);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -144,6 +214,7 @@ export class SimRoom extends Room<RoomState> {
 
   onDispose(): void {
     director.off('event', this.onEvent);
+    director.off('reroute', this.onReroute);
     this.store?.close();
     this.zones?.close();
   }
@@ -163,6 +234,9 @@ export class SimRoom extends Room<RoomState> {
 
     // Who this viewer logged in as (for per-user sounds) + their pinned skins.
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
+    // This user is now viewing this zone, so their agents should live here. The
+    // reroute hands them over from whatever zone they were in (no-op if same).
+    director.setOwnerZone(username, this.zone.id);
     const characterSkin = username ? (appStore.getCharPrefs()[username] ?? null) : null;
     const playerSkin = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
     // Everyone who joins gets a player avatar (no spectator mode). Active entry
