@@ -162,21 +162,14 @@ export class SimRoom extends Room<RoomState> {
     const username = (client.auth as { username?: string } | undefined)?.username ?? '';
     const characterSkin = username ? (appStore.getCharPrefs()[username] ?? null) : null;
     const playerSkin = username ? (appStore.getPlayerPrefs()[username] ?? null) : null;
-    const spectator = username ? !!appStore.getSpectatorPrefs()[username] : false;
-    // Spawn this viewer's player avatar (their own controllable body) unless they
-    // opted into spectator mode. Anonymous viewers re-assert their choice via
-    // setPlayer* after join (localStorage-backed).
-    let playerId: number | null = null;
-    if (!spectator) {
-      // Active entry (menu switch or portal) → land at the zone's arrival tile;
-      // a plain refresh resumes where this user last stood. The engine picks a
-      // free tile (not on furniture/another entity), falling back to random.
-      const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
-      const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
-      playerId = this.os.addPlayer(playerSkin ?? undefined, username || undefined, spawnAt ?? undefined);
-      this.players.set(client.sessionId, playerId);
-    }
-    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId, spectator });
+    // Everyone who joins gets a player avatar (no spectator mode). Active entry
+    // (menu switch or portal) → land at the zone's arrival tile; a plain refresh
+    // resumes where this user last stood (engine picks a free tile, else random).
+    const saved = username ? appStore.getPlayerPos(username, this.zone.id) : null;
+    const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
+    const playerId = this.os.addPlayer(playerSkin ?? undefined, username || undefined, spawnAt ?? undefined);
+    this.players.set(client.sessionId, playerId);
+    client.send('m', { type: 'viewerIdentity', username, characterSkin, playerSkin, playerId });
     client.send('m', {
       type: 'settingsLoaded',
       soundEnabled: appStore.getSetting('soundEnabled', true),
@@ -520,27 +513,6 @@ export class SimRoom extends Room<RoomState> {
       }
       const id = this.players.get(client.sessionId);
       if (id !== undefined && skin) this.os.setCharacterSkin(id, skin);
-    });
-
-    // Toggle the viewer's visibility as a player (spectator mode): spawn/despawn
-    // their avatar + persist the choice per user.
-    this.onMessage('setPlayerVisible', (client, msg: { visible?: boolean }) => {
-      const visible = !!msg?.visible;
-      const name = (client.auth as { username?: string } | undefined)?.username ?? '';
-      if (name) appStore.setSpectatorPref(name, !visible);
-      const existing = this.players.get(client.sessionId);
-      if (visible && existing === undefined) {
-        const skin = name ? (appStore.getPlayerPrefs()[name] ?? null) : null;
-        const id = this.os.addPlayer(skin ?? undefined, name || undefined);
-        this.players.set(client.sessionId, id);
-        // Tell the client its new avatar id so it can control it without a reload.
-        client.send('m', { type: 'playerSpawned', playerId: id });
-      } else if (!visible && existing !== undefined) {
-        this.leaveAllConferences(existing);
-        this.os.removePlayer(existing);
-        this.players.delete(client.sessionId);
-        client.send('m', { type: 'playerSpawned', playerId: null });
-      }
     });
 
     // Click-to-move: walk the viewer's own avatar to a tile (server validates).

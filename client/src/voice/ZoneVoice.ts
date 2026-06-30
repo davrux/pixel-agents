@@ -1,4 +1,5 @@
 import {
+  type LocalTrackPublication,
   RemoteAudioTrack,
   Room,
   RoomEvent,
@@ -32,6 +33,9 @@ export interface ZoneVoiceHooks {
   positionOf(playerId: number): { x: number; y: number } | null;
   /** Players currently talking (by id), for a talking indicator over avatars. */
   onSpeakers(playerIds: Set<number>): void;
+  /** Per-player zone-voice presence + mic state, for small status icons over
+   *  avatars (key present = in voice; muted = mic off / just listening). */
+  onVoiceStatus(status: Map<number, { muted: boolean }>): void;
 }
 
 export interface Peer {
@@ -90,6 +94,7 @@ export class ZoneVoice {
   private micSource: MediaStreamAudioSourceNode | null = null;
   private micRawStream: MediaStream | null = null;
   private micTrack: MediaStreamTrack | null = null;
+  private micPub: LocalTrackPublication | null = null;
 
   constructor(
     private readonly hooks: ZoneVoiceHooks,
@@ -178,6 +183,11 @@ export class ZoneVoice {
       .on(RoomEvent.ParticipantDisconnected, (p) => this.removePeer(p.identity))
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.onActiveSpeakers(speakers))
       .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
+      // Mic mute/publish changes (ours or others') → refresh the status icons.
+      .on(RoomEvent.TrackMuted, () => this.emitVoiceStatus())
+      .on(RoomEvent.TrackUnmuted, () => this.emitVoiceStatus())
+      .on(RoomEvent.TrackPublished, () => this.emitVoiceStatus())
+      .on(RoomEvent.TrackUnpublished, () => this.emitVoiceStatus())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(msg.url, msg.token);
@@ -191,6 +201,7 @@ export class ZoneVoice {
       room.remoteParticipants.forEach((p) => this.addPeer(p));
       this.startProximity();
       this.emitState();
+      this.emitVoiceStatus();
       await this.emitDevices(); // labels are available now that mic permission is granted
     } catch (e) {
       this.connecting = false;
@@ -218,6 +229,7 @@ export class ZoneVoice {
     this.onPeers([]);
     this.onDevices({ mics: [], speakers: [] });
     this.hooks.onSpeakers(new Set()); // clear talking indicators
+    this.hooks.onVoiceStatus(new Map()); // clear status icons
     this.emitState();
   }
 
@@ -243,12 +255,14 @@ export class ZoneVoice {
       muted: false,
     });
     this.emitPeers();
+    this.emitVoiceStatus();
   }
 
   private removePeer(identity: string): void {
     this.peers.delete(identity);
     this.tracks.delete(identity);
     this.emitPeers();
+    this.emitVoiceStatus();
   }
 
   private onTrack(track: RemoteTrack, p: RemoteParticipant): void {
@@ -315,9 +329,12 @@ export class ZoneVoice {
 
   toggleMic(): void {
     this.micOn = !this.micOn;
-    if (this.micOn && !this.micTrack) void this.publishMic();
-    else if (this.micTrack) this.micTrack.enabled = this.micOn;
+    // Use the LiveKit publication's mute/unmute (signals to other clients, so
+    // they can show our mute state) — not just track.enabled.
+    if (this.micOn && !this.micPub) void this.publishMic();
+    else if (this.micPub) void (this.micOn ? this.micPub.unmute() : this.micPub.mute());
     this.emitState();
+    this.emitVoiceStatus();
   }
 
   /** Set mic input gain / sensitivity (0..2, 1 = unity). */
@@ -349,14 +366,15 @@ export class ZoneVoice {
       source.connect(gain);
       gain.connect(dest);
       const track = dest.stream.getAudioTracks()[0];
-      track.enabled = this.micOn;
       this.micCtx = ctx;
       this.micSource = source;
       this.micGainNode = gain;
       this.micDest = dest;
       this.micRawStream = raw;
       this.micTrack = track;
-      await this.room.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+      this.micPub = await this.room.localParticipant.publishTrack(track, { source: Track.Source.Microphone });
+      if (!this.micOn) await this.micPub.mute();
+      this.emitVoiceStatus();
     } catch (e) {
       this.stopMicGraph();
       this.emitState(`mic unavailable: ${(e as Error)?.message ?? e}`);
@@ -375,6 +393,7 @@ export class ZoneVoice {
     this.micDest = null;
     this.micRawStream = null;
     this.micTrack = null;
+    this.micPub = null;
   }
 
   /** Silence / un-silence all incoming zone voice at once (deafen). */
@@ -484,6 +503,20 @@ export class ZoneVoice {
 
   private emitPeers(): void {
     this.onPeers([...this.peers.values()].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
+  /** Per-player presence + mic-mute state (self + remotes), for status icons. */
+  private emitVoiceStatus(): void {
+    const status = new Map<number, { muted: boolean }>();
+    if (this.room) {
+      const me = parsePlayerId(this.room.localParticipant.identity);
+      if (me !== null) status.set(me, { muted: !this.micOn });
+      this.room.remoteParticipants.forEach((p) => {
+        const id = parsePlayerId(p.identity);
+        if (id !== null) status.set(id, { muted: !p.isMicrophoneEnabled });
+      });
+    }
+    this.hooks.onVoiceStatus(status);
   }
 }
 

@@ -150,9 +150,11 @@ export class OfficeScene extends Phaser.Scene {
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
   /** Player ids currently talking via zone voice (client-side, from LiveKit). */
   private voiceSpeakers = new Set<number>();
-  /** Live "talking" indicators over speaking avatars, keyed by player id. */
+  /** Per-player zone-voice presence + mic-mute (from LiveKit), for status icons. */
+  private voiceStatus = new Map<number, { muted: boolean }>();
+  /** Small voice status icons over avatars (in-voice players), keyed by player id. */
   private readonly voiceBubbles = new Map<number, HTMLDivElement>();
-  /** Per-speaker grace deadline (ms) so the icon stays on through speech gaps. */
+  /** Per-speaker grace deadline (ms) so the talking icon stays on through gaps. */
   private readonly voiceSpeakUntil = new Map<number, number>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
@@ -188,8 +190,6 @@ export class OfficeScene extends Phaser.Scene {
   private arrivePickActive = false;
   /** This viewer's chosen player-avatar skin id (null = default/random). */
   private myPlayerSkin: string | null = null;
-  /** Whether the viewer wants a visible player avatar (false = spectator). */
-  private playerVisible = true;
   private alwaysShowLabels = false;
   private soundOn = true;
   private volume = 1;
@@ -233,8 +233,6 @@ export class OfficeScene extends Phaser.Scene {
     try {
       this.mySkin = migrateSkin(localStorage.getItem('pa-viewer-char'));
       this.myPlayerSkin = migrateSkin(localStorage.getItem('pa-player-char'));
-      const savedVis = localStorage.getItem('pa-player-visible');
-      if (savedVis !== null) this.playerVisible = savedVis === '1';
       const saved = localStorage.getItem('pa-viewer-name');
       if (saved) {
         this.viewerUsername = saved;
@@ -316,6 +314,9 @@ export class OfficeScene extends Phaser.Scene {
         onSpeakers: (ids) => {
           this.voiceSpeakers = ids;
         },
+        onVoiceStatus: (status) => {
+          this.voiceStatus = status;
+        },
       });
     }
 
@@ -386,20 +387,11 @@ export class OfficeScene extends Phaser.Scene {
             this.zoneVoiceStarted = true;
             this.zoneVoice?.start();
           }
-          // Adopt the account's saved player skin / spectator pref only when this
-          // browser has no local choice; otherwise assert the local choice so the
-          // session reflects it (covers anonymous viewers + cross-device).
-          let hasLocalVis = false;
-          try {
-            if (this.myPlayerSkin === null && typeof m.playerSkin === 'string') {
-              this.myPlayerSkin = m.playerSkin;
-            }
-            hasLocalVis = localStorage.getItem('pa-player-visible') !== null;
-          } catch {
-            /* localStorage unavailable */
+          // Adopt the account's saved player skin only when this browser has no
+          // local choice (covers anonymous viewers + cross-device).
+          if (this.myPlayerSkin === null && typeof m.playerSkin === 'string') {
+            this.myPlayerSkin = m.playerSkin;
           }
-          if (!hasLocalVis && typeof m.spectator === 'boolean') this.playerVisible = !m.spectator;
-          else this.room?.send('setPlayerVisible', { visible: this.playerVisible });
           if (this.myPlayerSkin !== null) {
             this.room?.send('setPlayerCharacter', { skin: this.myPlayerSkin });
           }
@@ -1631,8 +1623,6 @@ export class OfficeScene extends Phaser.Scene {
       <div class="hint">Matches your agent's <code>--user</code>; sounds play for your agents. Empty = all.</div>
       <div class="row"><label>Your avatar</label></div>
       <div id="pa-pchar"></div>
-      <div class="row"><input id="pa-spectate" type="checkbox"><label for="pa-spectate">Show me in the world</label></div>
-      <div class="hint">Off = spectator (you watch without an avatar).</div>
       <div class="row"><label>Agents' avatar</label></div>
       <div id="pa-char"></div>
       <div class="hint">Pick a skin to keep your agents' look consistent.</div>
@@ -1713,16 +1703,6 @@ export class OfficeScene extends Phaser.Scene {
       this.alwaysShowLabels = lbl.checked;
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
-    };
-    const spectate = panel.querySelector<HTMLInputElement>('#pa-spectate')!;
-    spectate.onchange = () => {
-      this.playerVisible = spectate.checked;
-      try {
-        localStorage.setItem('pa-player-visible', this.playerVisible ? '1' : '0');
-      } catch {
-        /* localStorage unavailable */
-      }
-      this.room?.send('setPlayerVisible', { visible: this.playerVisible });
     };
     const logoutBtn = panel.querySelector<HTMLButtonElement>('#pa-logout')!;
     logoutBtn.style.display = 'none'; // shown only when a login session is active
@@ -1872,8 +1852,6 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
-    const spectate = this.settingsPanel.querySelector<HTMLInputElement>('#pa-spectate');
-    if (spectate) spectate.checked = this.playerVisible;
   }
 
   // ── Always-on name labels ────────────────────────────────────────
@@ -1955,11 +1933,11 @@ export class OfficeScene extends Phaser.Scene {
           max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
-        .pa-voicebubble{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
-          background:#f2f4f8;border-radius:0.6rem;padding:0.14rem 0.38rem;box-shadow:0 2px 0 rgba(0,0,0,.35);
-          font-size:1.05rem;line-height:1;}
-        .pa-voicebubble span{display:inline-block;animation:pa-voice 0.9s infinite ease-in-out;}
-        @keyframes pa-voice{0%,100%{transform:scale(0.9);opacity:.7;}50%{transform:scale(1.12);opacity:1;}}
+        /* Tiny zone-voice status icon over an avatar (very small, no bubble). */
+        .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
+          font-size:0.6rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
+        .pa-vstat.spk{animation:pa-voice 0.9s infinite ease-in-out;}
+        @keyframes pa-voice{0%,100%{transform:translate(-50%,-100%) scale(0.92);opacity:.75;}50%{transform:translate(-50%,-100%) scale(1.1);opacity:1;}}
       `;
       document.head.appendChild(style);
     }
@@ -2085,48 +2063,50 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Show an animated "talking" bubble over avatars speaking via zone voice. */
+  /** Tiny zone-voice status icon over each in-voice avatar: 🔊 speaking,
+   *  🔇 muted, 🎤 listening (in voice, mic live but quiet). */
   private updateVoiceBubbles(): void {
     const now = performance.now();
-    // Refresh a short grace window while a player is in the active-speaker set,
-    // so the icon stays steady through the gaps between words/sentences (the
-    // LiveKit speaking flag toggles off in those pauses).
+    // Grace window so the speaking icon stays steady through gaps between words
+    // (LiveKit's active-speaker flag toggles off in those pauses).
     const GRACE_MS = 800;
     for (const id of this.voiceSpeakers) this.voiceSpeakUntil.set(id, now + GRACE_MS);
     for (const [id, until] of this.voiceSpeakUntil) {
       if (now >= until) this.voiceSpeakUntil.delete(id);
     }
 
-    if (this.voiceBubbles.size === 0 && this.voiceSpeakUntil.size === 0) return;
+    if (this.voiceBubbles.size === 0 && this.voiceStatus.size === 0) return;
     const cam = this.cameras.main;
     const wv = cam.worldView;
     const editing = this.editor.isEditing();
 
-    // Drop indicators that stopped (grace expired), left, or while editing.
+    // Drop icons for players no longer in voice (or gone / editing).
     for (const [id, el] of this.voiceBubbles) {
-      if (editing || !this.voiceSpeakUntil.has(id) || !this.characters.get(id)) {
+      if (editing || !this.voiceStatus.has(id) || !this.characters.get(id)) {
         el.remove();
         this.voiceBubbles.delete(id);
       }
     }
     if (editing) return;
 
-    for (const id of this.voiceSpeakUntil.keys()) {
+    for (const [id, st] of this.voiceStatus) {
       const ch = this.characters.get(id);
       if (!ch) continue;
       let el = this.voiceBubbles.get(id);
       if (!el) {
         el = document.createElement('div');
-        el.className = 'pa-voicebubble';
-        el.innerHTML = '<span>🔊</span>';
+        el.className = 'pa-vstat';
         (document.getElementById('game') ?? document.body).appendChild(el);
         this.voiceBubbles.set(id, el);
       }
+      // Priority: speaking > muted > listening.
+      const speaking = this.voiceSpeakUntil.has(id);
+      el.textContent = speaking ? '🔊' : st.muted ? '🔇' : '🎤';
+      el.classList.toggle('spk', speaking);
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
-      // Sit a little above where a chat bubble would, so both can coexist.
+      const headOff = (32 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - 12 - wv.y) * cam.zoom)}px`;
+      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - 10 - wv.y) * cam.zoom)}px`;
     }
   }
 
