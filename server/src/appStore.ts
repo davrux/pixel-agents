@@ -155,6 +155,18 @@ class AppStore {
     this.setSetting('spectatorPrefs', prefs);
   }
 
+  /** Stable per-deployment voice namespace (random, created once + persisted).
+   *  Prefixes LiveKit room names so two servers sharing one LiveKit project
+   *  (e.g. dev + prod, with their own DBs) never collide on the same room. */
+  getVoiceNs(): string {
+    let ns = this.getSetting<string>('voiceNs', '');
+    if (!ns) {
+      ns = 'v' + crypto.randomBytes(4).toString('hex');
+      this.setSetting('voiceNs', ns);
+    }
+    return ns;
+  }
+
   // ── Per-user player position (per zone), to respawn where they left ──
   /** Last player tile for a user in a zone, or null. */
   getPlayerPos(name: string, zone: string): { col: number; row: number } | null {

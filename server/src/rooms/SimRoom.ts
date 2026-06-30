@@ -63,6 +63,9 @@ export class SimRoom extends Room<RoomState> {
   private readonly lastChatAt = new Map<string, number>();
   /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
   private readonly conferences = new Map<string, Set<number>>();
+  /** Per-deployment prefix for LiveKit room names (env override, else a stable
+   *  random id from the DB) so dev + prod never share a voice room. */
+  private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private token = '';
   private readonly activity = new Map<number, string>();
   private lastFurnitureRef: unknown = null;
@@ -206,6 +209,11 @@ export class SimRoom extends Room<RoomState> {
     const ids = this.conferences.get(key) ?? new Set<number>();
     const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
     return { type: 'conferenceMembers', col, row, members };
+  }
+
+  /** Namespaced + sanitised LiveKit room name (prevents cross-deployment clashes). */
+  private voiceRoom(suffix: string): string {
+    return `${this.voiceNs}-${suffix}`.replace(/[^A-Za-z0-9_-]/g, '-');
   }
 
   /** Mint a LiveKit access token for player `id` in `room` (identity p<id>, so
@@ -397,7 +405,7 @@ export class SimRoom extends Room<RoomState> {
       const monitor = this.os
         .getLayout()
         .furniture.find((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.conference);
-      const room = `${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`.replace(/[^A-Za-z0-9_-]/g, '-');
+      const room = this.voiceRoom(`${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`);
       const token = await this.mintVoiceToken(id, room);
       if (!token) return;
       client.send('m', { type: 'conferenceToken', col, row, url, token, room });
@@ -417,7 +425,7 @@ export class SimRoom extends Room<RoomState> {
         client.send('m', { type: 'zoneVoiceToken', error: 'not-configured' });
         return;
       }
-      const room = `zv-${this.zone.id}`.replace(/[^A-Za-z0-9_-]/g, '-');
+      const room = this.voiceRoom(`zv-${this.zone.id}`);
       const token = await this.mintVoiceToken(id, room);
       if (!token) return;
       client.send('m', { type: 'zoneVoiceToken', url, token, room });
