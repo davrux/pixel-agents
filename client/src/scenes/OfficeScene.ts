@@ -1995,9 +1995,9 @@ export class OfficeScene extends Phaser.Scene {
     el.id = 'pa-znpc';
     el.className = 'pa-ui';
     el.style.cssText =
-      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#1b1f2a;' +
-      'border:2px solid #3a4150;border-radius:0.6rem;padding:1rem;color:#eef1f6;min-width:14rem;max-height:70vh;' +
-      "overflow:auto;font:1rem 'FS Pixel Sans',monospace;box-shadow:0 6px 0 rgba(0,0,0,.4);";
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#0f1220;' +
+      'border:2px solid #05060b;border-radius:0.6rem;padding:1rem;color:#e9ecf7;min-width:14rem;max-height:70vh;' +
+      "overflow:auto;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);";
 
     const send = (): void => {
       const keys = roster.map((r) => r.key).filter((k) => enabled.has(k));
@@ -2007,13 +2007,13 @@ export class OfficeScene extends Phaser.Scene {
 
     const head = document.createElement('div');
     head.textContent = `🐾 NPCs — ${zone.label}`;
-    head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#cdd3dd;';
+    head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#eef1fb;';
     el.appendChild(head);
 
     if (!roster.length) {
       const none = document.createElement('div');
       none.textContent = 'No NPC variants loaded.';
-      none.style.cssText = 'color:#9aa3b2;margin-bottom:0.6rem;';
+      none.style.cssText = 'color:#9aa0b8;margin-bottom:0.6rem;';
       el.appendChild(none);
     }
     for (const r of roster) {
@@ -2038,8 +2038,8 @@ export class OfficeScene extends Phaser.Scene {
       const b = document.createElement('button');
       b.textContent = txt;
       b.style.cssText =
-        'flex:1;padding:0.4rem;cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;border-radius:0.4rem;' +
-        "color:#eef1f6;font:0.95rem 'FS Pixel Sans',monospace;";
+        'flex:1;padding:0.4rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;border-radius:0.35rem;' +
+        "color:#e9ecf7;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
       b.onclick = fn;
       return b;
     };
@@ -2095,31 +2095,34 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings .row{display:flex;align-items:center;gap:0.5rem;margin:0.65rem 0;font-size:1rem;}
       #pa-settings .row input[type=range]{flex:1;}
       #pa-settings .row label{flex:1;}
-      #pa-settings .row input[type=text]{flex:1;min-width:0;background:#14161c;color:#eef1f6;
-        border:2px solid #3a4150;border-radius:0.3rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;}
-      #pa-settings .hint{font-size:0.8rem;color:#8b93a3;margin:-0.25rem 0 0.65rem;}
+      #pa-settings .row input[type=text],#pa-settings .row input[type=password]{flex:1;min-width:0;background:#171b2b;color:#e9ecf7;
+        border:2px solid #05060b;border-radius:0.35rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-settings .hint{font-size:0.8rem;color:#6f7590;margin:-0.25rem 0 0.65rem;}
       #pa-char,#pa-pchar{display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0 0.65rem;}
-      #pa-char canvas,#pa-pchar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
-        border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;}
-      #pa-char canvas.sel,#pa-pchar canvas.sel{border-color:#3a6df0;}
+      #pa-char canvas,#pa-pchar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#0a0d16;
+        border:2px solid #05060b;border-radius:0.35rem;cursor:pointer;}
+      #pa-char canvas.sel,#pa-pchar canvas.sel{border-color:#5a92d6;}
       #pa-char .rnd,#pa-pchar .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
-        background:#14161c;border:2px solid #3a4150;border-radius:0.3rem;cursor:pointer;font-size:1.1rem;}
-      #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#3a6df0;}
+        background:#0a0d16;border:2px solid #05060b;border-radius:0.35rem;cursor:pointer;font-size:1.1rem;}
+      #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#5a92d6;}
       #pa-avatar{display:flex;gap:0.6rem;align-items:center;margin:0.3rem 0 0.2rem;}
-      #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#14161c;
-        border:2px solid #3a4150;border-radius:0.3rem;}
+      #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#0a0d16;
+        border:2px solid #05060b;border-radius:0.35rem;}
       #pa-avatar .pa-av-btns{display:flex;flex-direction:column;gap:0.35rem;flex:1;}
-      #pa-avatar button,#pa-account button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.3rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;}
+      #pa-avatar button,#pa-account button{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       #pa-avatar button:disabled,#pa-account button:disabled{opacity:0.5;cursor:default;}
       /* Account buttons fill their row (single → full width; pair → split evenly). */
       #pa-account button{flex:1;}
-      #pa-userinfo{font-size:0.85rem;color:#9aa3b2;margin:-0.35rem 0 0.7rem;display:flex;
+      #pa-userinfo{font-size:0.85rem;color:#9aa0b8;margin:-0.35rem 0 0.7rem;display:flex;
         align-items:center;gap:0.4rem;flex-wrap:wrap;}
-      #pa-userinfo code{color:#cdd3dd;background:#14161c;border:1px solid #3a4150;border-radius:0.25rem;padding:0.05rem 0.3rem;}
-      #pa-userinfo .admin{background:#2d4a2f;border:1px solid #3f6d43;color:#cdeccf;border-radius:0.25rem;padding:0.05rem 0.35rem;}
-      #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
-        color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
+      #pa-userinfo code{color:#c7ccdf;background:#0a0d16;border:2px solid #05060b;border-radius:0.25rem;padding:0.05rem 0.3rem;}
+      #pa-userinfo .admin{background:#2f7d3f;border:2px solid #05060b;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
+        box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+      #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#7c2634;border:2px solid #05060b;
+        color:#f1d0d6;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
+        box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
     `;
     document.head.appendChild(style);
 
@@ -2344,12 +2347,12 @@ export class OfficeScene extends Phaser.Scene {
     el.id = 'pa-portal';
     el.className = 'pa-ui';
     el.style.cssText =
-      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:80;background:#1b1f2a;' +
-      'border:2px solid #3a4150;border-radius:0.6rem;padding:1rem;color:#eef1f6;min-width:12rem;text-align:center;' +
-      "font:1rem 'FS Pixel Sans',monospace;box-shadow:0 6px 0 rgba(0,0,0,.4);";
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:80;background:#0f1220;' +
+      'border:2px solid #05060b;border-radius:0.6rem;padding:1rem;color:#e9ecf7;min-width:12rem;text-align:center;' +
+      "font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);";
     const head = document.createElement('div');
     head.textContent = '🚪 Travel to…';
-    head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#cdd3dd;';
+    head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#eef1fb;';
     el.appendChild(head);
     const close = (): void => {
       el.remove();
@@ -2359,8 +2362,8 @@ export class OfficeScene extends Phaser.Scene {
       const b = document.createElement('button');
       b.textContent = z.label;
       b.style.cssText =
-        'display:block;width:100%;margin:0.3rem 0;padding:0.55rem;cursor:pointer;background:#2a2f3a;' +
-        "border:1px solid #3a4150;border-radius:0.4rem;color:#eef1f6;font:1rem 'FS Pixel Sans',monospace;";
+        'display:block;width:100%;margin:0.3rem 0;padding:0.55rem;cursor:pointer;background:#1b2033;' +
+        "border:2px solid #05060b;border-radius:0.45rem;color:#e9ecf7;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
       b.onclick = () => {
         this.room?.send('portalGo', { zone: z.id });
         close();
@@ -2370,8 +2373,8 @@ export class OfficeScene extends Phaser.Scene {
     const cancel = document.createElement('button');
     cancel.textContent = 'Cancel';
     cancel.style.cssText =
-      'margin-top:0.5rem;padding:0.4rem 0.8rem;cursor:pointer;background:#222734;border:1px solid #3a4150;' +
-      "border-radius:0.4rem;color:#9aa3b2;font:0.9rem 'FS Pixel Sans',monospace;";
+      'margin-top:0.5rem;padding:0.4rem 0.8rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;' +
+      "border-radius:0.35rem;color:#9aa0b8;font:0.9rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
     cancel.onclick = close;
     el.appendChild(cancel);
     (document.getElementById('game') ?? document.body).appendChild(el);
@@ -2607,29 +2610,29 @@ export class OfficeScene extends Phaser.Scene {
         /* Stay fully visible while hovered or while typing, even when idle. */
         #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
         #pa-chatlog{height:13rem;min-height:4rem;overflow-y:auto;
-          background:rgba(20,24,33,.72);border:1px solid #2c323e;
-          border-radius:0.4rem;padding:0.45rem 0.6rem;color:#dfe4ee;font-size:1rem;line-height:1.35;
-          display:flex;flex-direction:column;gap:0.1rem;}
+          background:rgba(15,18,32,.72);border:2px solid #05060b;
+          border-radius:0.45rem;padding:0.45rem 0.6rem;color:#e9ecf7;font-size:1rem;line-height:1.35;
+          display:flex;flex-direction:column;gap:0.1rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14;}
         /* Resize grip at the top-right: drag up to grow taller, right to grow wider
            (the chat is anchored bottom-left, so it grows up and to the right). */
         #pa-chatresize{position:absolute;top:0;right:0;width:1.1rem;height:1.1rem;cursor:nesw-resize;z-index:57;
-          border-top:2px solid #6b7280;border-right:2px solid #6b7280;border-top-right-radius:0.4rem;opacity:0.6;}
-        #pa-chatresize:hover{opacity:1;border-color:#9ad0ff;}
+          border-top:2px solid #6f7590;border-right:2px solid #6f7590;border-top-right-radius:0.4rem;opacity:0.6;}
+        #pa-chatresize:hover{opacity:1;border-color:#7fa7e0;}
         #pa-chatrow{display:flex;gap:0.35rem;align-items:stretch;}
         #pa-chatrow #pa-chatinput{flex:1;min-width:0;}
-        #pa-chathide{flex:0 0 auto;background:rgba(20,24,33,.85);border:2px solid #3a4150;border-radius:0.4rem;
-          color:#9aa3b2;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;}
-        #pa-chathide:hover{color:#eef1f6;}
-        #pa-chatopen{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;display:none;background:rgba(20,24,33,.85);
-          border:2px solid #3a4150;border-radius:0.4rem;color:#eef1f6;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;}
+        #pa-chathide{flex:0 0 auto;background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;
+          color:#9aa0b8;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+        #pa-chathide:hover{color:#e9ecf7;}
+        #pa-chatopen{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;display:none;background:rgba(23,27,43,.9);
+          border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
         #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
-        #pa-chatlog .ln b{color:#9ad0ff;}
-        #pa-chatlog .ln .ts{color:#6b7280;font-size:0.82em;}
+        #pa-chatlog .ln b{color:#7fa7e0;}
+        #pa-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
         /* System / command-feedback lines (help, /afk, errors). */
-        #pa-chatlog .ln.sys{color:#9aa3b2;font-style:italic;}
-        #pa-chatinput{background:rgba(20,24,33,.85);border:2px solid #3a4150;border-radius:0.4rem;color:#eef1f6;
-          font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;}
-        #pa-chatinput::placeholder{color:#7d8597;}
+        #pa-chatlog .ln.sys{color:#9aa0b8;font-style:italic;}
+        #pa-chatinput{background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;
+          font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+        #pa-chatinput::placeholder{color:#6f7590;}
         .pa-chatbubble{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
@@ -3058,12 +3061,12 @@ export class OfficeScene extends Phaser.Scene {
           pointer-events:none;display:none;flex-direction:column;align-items:center;
           font-family:'FS Pixel Sans',ui-monospace,monospace;}
         .pa-tip .row{display:flex;align-items:center;gap:0.45rem;
-          background:#1b1f2a;border:2px solid #3a4150;border-radius:0.3rem;
-          padding:0.4rem 0.7rem;white-space:nowrap;box-shadow:0 2px 0 rgba(0,0,0,.4);}
+          background:#0f1220;border:2px solid #05060b;border-radius:0.35rem;
+          padding:0.4rem 0.7rem;white-space:nowrap;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16,0 2px 0 rgba(0,0,0,.4);}
         .pa-tip .dot{width:0.65rem;height:0.65rem;border-radius:50%;flex:0 0 auto;}
-        .pa-tip .act{color:#eef1f6;font-size:1.2rem;line-height:1.15;}
-        .pa-tip .name{color:#9aa4b2;font-size:0.9rem;line-height:1.15;}
-        .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#222;margin-top:0.2rem;}
+        .pa-tip .act{color:#e9ecf7;font-size:1.2rem;line-height:1.15;}
+        .pa-tip .name{color:#9aa0b8;font-size:0.9rem;line-height:1.15;}
+        .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#0a0d16;margin-top:0.2rem;}
         .pa-tip .fuel > div{height:100%;}
       `;
       document.head.appendChild(style);

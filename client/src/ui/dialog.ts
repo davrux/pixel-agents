@@ -11,17 +11,19 @@ function ensureStyles(): void {
   const style = document.createElement('style');
   style.textContent = `
     #pa-modal{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
-      background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',monospace;}
-    #pa-modal .box{background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;padding:1.1rem 1.2rem;
-      max-width:24rem;color:#eef1f6;box-shadow:0 4px 0 rgba(0,0,0,.4);}
+      background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;}
+    #pa-modal .box{background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;padding:1.1rem 1.2rem;
+      max-width:24rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
     #pa-modal .msg{font-size:1.05rem;line-height:1.4;margin:0 0 1rem;white-space:pre-wrap;word-break:break-word;}
-    #pa-modal input[type=text]{width:100%;box-sizing:border-box;background:#2a2f3a;border:1px solid #3a4150;
-      color:#eef1f6;border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.6rem;margin-bottom:1rem;}
+    #pa-modal input[type=text]{width:100%;box-sizing:border-box;background:#171b2b;border:2px solid #05060b;
+      color:#e9ecf7;border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.6rem;margin-bottom:1rem;
+      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
     #pa-modal .foot{display:flex;gap:0.6rem;justify-content:flex-end;}
-    #pa-modal button{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;
-      font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;cursor:pointer;}
-    #pa-modal button.ok{background:#3a6df0;border-color:#3a6df0;}
-    #pa-modal button.danger{background:#6d3a4a;border-color:#6d3a4a;color:#ffd2dc;}
+    #pa-modal button{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;
+      font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;cursor:pointer;
+      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+    #pa-modal button.ok{background:#2f66b0;color:#fff;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+    #pa-modal button.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
   `;
   document.head.appendChild(style);
 }

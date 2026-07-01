@@ -214,35 +214,35 @@ export class FurnitureEditor {
         box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);max-height:92vh;overflow:auto;}
       #pa-furn h4{margin:0 0 0.6rem;font-size:1.25rem;color:#eef1fb;}
       #pa-furn .row{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;font-size:1rem;flex-wrap:wrap;}
-      #pa-furn label.f{flex:0 0 7rem;color:#aab2c0;}
+      #pa-furn label.f{flex:0 0 7rem;color:#9aa0b8;}
       #pa-furn select,#pa-furn button,#pa-furn input[type=text],#pa-furn input[type=number]{background:#171b2b;
         border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       #pa-furn input[type=text],#pa-furn input[type=number]{cursor:text;flex:1;min-width:0;}
       #pa-furn input[type=number]{flex:0 0 4rem;}
-      #pa-furn button.on{background:#3a6df0;border-color:#3a6df0;}
+      #pa-furn button.on{background:#2f66b0;color:#fff;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
       #pa-furn button:disabled{opacity:0.4;cursor:not-allowed;}
       #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
-      #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0d0f14;
-        border:2px solid #3a4150;border-radius:0.25rem;cursor:pointer;}
-      #pa-furn #pa-f-frames canvas.on{border-color:#3a6df0;}
+      #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0a0d16;
+        border:2px solid #05060b;border-radius:0.25rem;cursor:pointer;}
+      #pa-furn #pa-f-frames canvas.on{border-color:#5a92d6;}
       #pa-furn #pa-f-paintarea{display:flex;justify-content:center;margin:0.5rem 0;}
       #pa-furn #pa-f-canvas{image-rendering:pixelated;background:
-        repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/1rem 1rem;border:1px solid #3a4150;cursor:crosshair;touch-action:none;}
-      #pa-furn input[type=color]{width:2.6rem;height:2rem;padding:0;border:1px solid #3a4150;background:none;cursor:pointer;}
+        repeating-conic-gradient(#23262e 0% 25%, #1b1e25 0% 50%) 0/1rem 1rem;border:2px solid #05060b;cursor:crosshair;touch-action:none;}
+      #pa-furn input[type=color]{width:2.6rem;height:2rem;padding:0;border:2px solid #05060b;background:none;cursor:pointer;}
       #pa-furn .foot{display:flex;gap:0.5rem;margin-top:0.6rem;}
       #pa-furn .foot button{flex:1;padding:0.6rem;}
-      #pa-furn #pa-f-status{color:#7cfc9a;font-size:0.9rem;opacity:0;transition:opacity .4s;}
+      #pa-furn #pa-f-status{color:#7fd08a;font-size:0.9rem;opacity:0;transition:opacity .4s;}
       #pa-furn .chk{flex:0 0 auto;}
-      #pa-furn .cathead{margin:0.7rem 0 0.2rem;font-size:0.95rem;color:#8b94a6;text-transform:uppercase;letter-spacing:0.04em;}
+      #pa-furn .cathead{margin:0.7rem 0 0.2rem;font-size:0.95rem;color:#6f7590;text-transform:uppercase;letter-spacing:0.04em;}
       /* Scroll the card list within a bounded area so the New button (above) and
          Close (below) stay on screen even with many items. */
       #pa-furn #pa-f-cards{max-height:68vh;overflow-y:auto;}
-      #pa-furn #pa-f-cards .card{display:flex;align-items:center;gap:0.6rem;background:#222734;border:1px solid #3a4150;
-        border-radius:0.4rem;padding:0.35rem 0.5rem;margin:0.3rem 0;}
-      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0d0f14;border:1px solid #3a4150;flex:0 0 auto;}
+      #pa-furn #pa-f-cards .card{display:flex;align-items:center;gap:0.6rem;background:#1b2033;border:2px solid #05060b;
+        border-radius:0.45rem;padding:0.35rem 0.5rem;margin:0.3rem 0;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#0a0d16;border:2px solid #05060b;flex:0 0 auto;}
       #pa-furn #pa-f-cards .card .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #pa-furn #pa-f-cards .card button{padding:0.3rem 0.55rem;font-size:0.9rem;flex:0 0 auto;}
-      #pa-furn #pa-f-cards .card button.del{background:#3a2230;border-color:#6d3a4a;color:#ffd2dc;}
+      #pa-furn #pa-f-cards .card button.del{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
     `;
     document.head.appendChild(style);
 

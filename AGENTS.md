@@ -203,6 +203,34 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   (walk/typing/reading/coffee) — the saved override carries its `spec`, and the
   server validates that track frames sum to the frame count. Adding a *new* pose
   still means a new `CharacterPose` + a `spriteForPose` branch + a track name.
+- **UI design system (the pixel-menu look) — one look for all chrome.** Every
+  in-app UI surface (menus, panels, dialogs, editors, buttons, inputs, chips)
+  uses a single style, defined canonically in the CSS block in
+  `client/src/scenes/OfficeScene.ts`. **Reuse those classes** instead of
+  hand-rolling styles: `.pa-btn` (top-bar buttons), `.pa-panel` +
+  `.pa-head`/`.pa-body`/`.pa-x` (popovers/dialogs), `.pa-b` (+ `.primary`/
+  `.green`/`.danger`/`.wide`), `.pa-seg`/`.seg` (tabs), `.pa-chip`, `.pa-menurow`,
+  `.pa-list-row`, `.pa-thumb`. A self-contained widget that can't share the
+  stylesheet (e.g. `conference/ConferenceUI.ts`) must **mirror the same tokens**.
+  - **Tokens.** Font `'FS Pixel Sans', ui-monospace, monospace`. Surfaces:
+    window/panel `#0f1220`, raised control `#141826`, inset control/input
+    `#171b2b`, deep-inset (segments/thumbs) `#0a0d16`, menurow `#1b2033`,
+    segment-on `#242c46`. Border **always `2px solid #05060b`**. Signature bevel
+    = `box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16` (panels use
+    `#232a44`/`#080a14` + a `0 12px 28px rgba(0,0,0,.55)` drop). Text
+    `#e9ecf7`/`#eef1fb`, muted `#9aa0b8`, dim/label `#6f7590`, link/name
+    `#7fa7e0`. Accents: blue `#2f66b0` (inset `#5a92d6`/`#163862`), green/confirm
+    `#2f7d3f` (`#56b566`/`#164a1f`), danger `#7c2634` (`#b34a5a`/`#45111a`), warn
+    `#a86a2e`, active/live `#7fd08a`/`#5fbf6f`, highlight `#f2c14e`. Radius:
+    buttons `0.35–0.45rem`, panels `0.6rem`.
+  - **Deprecated — do NOT use** (the pre-restyle palette): panel bg
+    `#14161c`/`#1b1f2a`, control `#2a2f3a`, borders `#3a4150`/`#2c323e` (or any
+    `1px solid` on chrome), accent `#3a6df0`, flat `0 8px 0`/`0 6px 0` shadows.
+    (`#14161c` is fine only as the Phaser *canvas* background, not UI chrome.)
+  - **Still on the old look — restyle when you touch them:** `ui/dialog.ts`
+    (shared modal), `editor/CharacterEditor.ts` + `editor/FurnitureEditor.ts`
+    (inputs/cards/sub-dialogs), and OfficeScene's settings + character-picker
+    panels. New UI must ship the new look.
 - **Config via env:** `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`,
   `PIXEL_ADMIN_TOKEN` (admin login token; also `--token`), `PIXEL_STREAM_DATA_DIR`
   (holds the single `pixel.db`).
