@@ -204,12 +204,15 @@ function genCoffee(idle: SpriteData, dir: 'down' | 'right' | 'up'): SpriteData[]
   return [a, b];
 }
 
-/** The spec every generated avatar uses: 32×32, walk(6) + typing/reading/coffee(2). */
+/** The spec every generated avatar uses: 32×32. Frame 0 of each MetroCity row is
+ *  the standing pose → its own 1-frame `idle` track; frames 1–5 are the walk
+ *  cycle; typing/reading/coffee are synthesised. Track order = flat-list order. */
 export function generatedSpec(): CharacterSpec {
   return {
     frame: { w: FRAME, h: FRAME },
     tracks: [
-      { name: 'walk', frames: 6, play: 'loop' },
+      { name: 'walk', frames: 5, play: 'loop' },
+      { name: 'idle', frames: 1, play: 'loop' },
       { name: 'typing', frames: 2, play: 'loop' },
       { name: 'reading', frames: 2, play: 'loop' },
       { name: 'coffee', frames: 2, play: 'loop' },
@@ -217,12 +220,15 @@ export function generatedSpec(): CharacterSpec {
   };
 }
 
-/** Compose a full avatar (all directions, all tracks) from a part selection. */
+/** Compose a full avatar (all directions, all tracks) from a part selection.
+ *  Per direction the flat frame list matches generatedSpec()'s track order:
+ *  [walk×5 (cols 1–5), idle×1 (col 0, standing), typing×2, reading×2, coffee×2]. */
 export function composeAvatar(sheets: PartSheets, sel: PartSelection, name: string): LoadedCharacterData {
   const build = (dir: 'down' | 'right' | 'up'): SpriteData[] => {
-    const walk = DIR_COLS[dir].map((col) => composeFrame(sheets, sel, col));
-    const idle = walk[0];
-    return [...walk, ...genTyping(idle), ...genReading(idle, dir), ...genCoffee(idle, dir)];
+    const cols = DIR_COLS[dir];
+    const idle = composeFrame(sheets, sel, cols[0]); // frame 0 = standing
+    const walk = cols.slice(1).map((col) => composeFrame(sheets, sel, col)); // frames 1–5
+    return [...walk, idle, ...genTyping(idle), ...genReading(idle, dir), ...genCoffee(idle, dir)];
   };
   return {
     down: build('down'),

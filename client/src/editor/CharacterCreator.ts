@@ -31,11 +31,18 @@ export interface CharacterCreatorOpts {
 const AVATAR_NAME = 'Avatar';
 
 type Facing = 'down' | 'right' | 'up' | 'left';
-type Track = 'walk' | 'typing' | 'reading' | 'coffee';
+type Track = 'walk' | 'idle' | 'typing' | 'reading' | 'coffee';
 // Track slots in the flat per-direction frame list (see generatedSpec()).
-const SLOT: Record<Track, [number, number]> = { walk: [0, 6], typing: [6, 8], reading: [8, 10], coffee: [10, 12] };
+const SLOT: Record<Track, [number, number]> = {
+  walk: [0, 5],
+  idle: [5, 6],
+  typing: [6, 8],
+  reading: [8, 10],
+  coffee: [10, 12],
+};
 const TRACKS: { key: Track; label: string }[] = [
   { key: 'walk', label: '🚶 Walk' },
+  { key: 'idle', label: '🧍 Idle' },
   { key: 'typing', label: '⌨ Typing' },
   { key: 'reading', label: '📖 Reading' },
   { key: 'coffee', label: '☕ Coffee' },
