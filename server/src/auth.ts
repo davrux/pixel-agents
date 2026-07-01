@@ -45,6 +45,24 @@ export function hasValidSession(cookieHeader: string | undefined): boolean {
   return appStore.getSession(sid) !== undefined;
 }
 
+/** Extract the opaque session sid from an `Authorization: Bearer <sid>` header.
+ *  Mirrors Colyseus `getBearerToken` (which populates `AuthContext.token`), so a
+ *  token validated here resolves the same session the room sees at onAuth. */
+function bearerToken(authHeader: string | undefined): string | undefined {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return undefined;
+  return authHeader.slice('Bearer '.length) || undefined;
+}
+
+/** Resolve the logged-in user id for a bearer `Authorization` header (or undefined).
+ *  The desktop counterpart to `userIdFromCookie` — same session store/TTL. */
+export function userIdFromBearer(authHeader: string | undefined): string | undefined {
+  return appStore.getSession(bearerToken(authHeader))?.userId || undefined;
+}
+
+export function hasValidBearerSession(authHeader: string | undefined): boolean {
+  return appStore.getSession(bearerToken(authHeader)) !== undefined;
+}
+
 function loginHtml(err = ''): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — Login</title>
@@ -69,6 +87,44 @@ font:bold 14px ui-monospace,monospace;cursor:pointer}</style></head><body>
 <div><button type="submit">Sign in</button></div></form></body></html>`;
 }
 
+/** Verify credentials with the shared login logic (used by both `/login` and
+ *  `POST /desktop/token`). Returns the authenticated `userId` on success, or an
+ *  `{ error }` message string on failure — never logs the password/token. The
+ *  admin token path creates/marks-admin the account; the normal path requires an
+ *  existing user (no self-registration). */
+function verifyCredentials(
+  body: Record<string, unknown>,
+  adminToken: string,
+): { userId: string } | { error: string } {
+  const loginId = normalizeLoginId(body.username);
+  const password = String(body.password ?? '');
+  const token = String(body.token ?? '');
+
+  if (!loginId) return { error: 'Enter a login id.' };
+
+  if (token) {
+    // Admin path: the token must be exact; it grants admin and creates the
+    // account if new (a password — min length — is required to create one).
+    if (!tokenEquals(token, adminToken)) return { error: 'Invalid admin token.' };
+    const existing = userStore.get(loginId);
+    if (existing) {
+      userStore.markAdmin(existing.userId);
+      return { userId: existing.userId };
+    }
+    if (!isValidPassword(password)) {
+      return { error: `A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.` };
+    }
+    const user = userStore.createUser(loginId, password, { isAdmin: true });
+    return { userId: user.userId };
+  }
+
+  // Normal path: an existing user with the right password. No self-registration.
+  if (!userStore.exists(loginId) || !userStore.verifyPassword(loginId, password)) {
+    return { error: 'Invalid login id or password.' };
+  }
+  return { userId: loginId };
+}
+
 /** Register login + the HTML auth gate. `adminToken` is required (caller only
  *  mounts this when one is configured). */
 export function registerAuth(app: Express, adminToken: string): void {
@@ -84,33 +140,27 @@ export function registerAuth(app: Express, adminToken: string): void {
   };
 
   app.post('/login', (req: Request, res: Response) => {
-    const body = (req.body ?? {}) as Record<string, unknown>;
-    const loginId = normalizeLoginId(body.username);
-    const password = String(body.password ?? '');
-    const token = String(body.token ?? '');
-    const fail = (msg: string): void => void res.status(401).type('html').send(loginHtml(msg));
+    const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
+    if ('error' in result) return void res.status(401).type('html').send(loginHtml(result.error));
+    return setSession(res, result.userId);
+  });
 
-    if (!loginId) return fail('Enter a login id.');
+  // Desktop token issuance: same credentials as /login, but returns the opaque
+  // session sid as a bearer token instead of setting a cookie (no Set-Cookie, no
+  // cookie required). The token IS a live session row (createSession, 7-day TTL).
+  app.post('/desktop/token', express.json(), (req: Request, res: Response) => {
+    const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
+    if ('error' in result) return void res.status(401).json({ error: result.error });
+    const sid = appStore.createSession(result.userId);
+    return void res.status(200).json({ token: sid });
+  });
 
-    if (token) {
-      // Admin path: the token must be exact; it grants admin and creates the
-      // account if new (a password — min length — is required to create one).
-      if (!tokenEquals(token, adminToken)) return fail('Invalid admin token.');
-      const existing = userStore.get(loginId);
-      if (existing) {
-        userStore.markAdmin(existing.userId);
-        return setSession(res, existing.userId);
-      }
-      if (!isValidPassword(password)) return fail(`A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.`);
-      const user = userStore.createUser(loginId, password, { isAdmin: true });
-      return setSession(res, user.userId);
-    }
-
-    // Normal path: an existing user with the right password. No self-registration.
-    if (!userStore.exists(loginId) || !userStore.verifyPassword(loginId, password)) {
-      return fail('Invalid login id or password.');
-    }
-    return setSession(res, loginId);
+  // Desktop sign-out: revoke the bearer session by sid. Idempotent — always 204,
+  // never revealing whether the sid existed.
+  app.post('/desktop/signout', (req: Request, res: Response) => {
+    const sid = bearerToken(req.headers.authorization);
+    if (sid) appStore.deleteSession(sid);
+    res.status(204).end();
   });
 
   // Logout: drop the session + expire the cookie, then back to the login screen.

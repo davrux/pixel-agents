@@ -221,3 +221,226 @@
 //   desktop/renderer concern (safeStorage read after relaunch) -> manual.
 // - AC-001..004 connection screen / origin derivation: renderer + preload;
 //   pushed down to manual (no browser/Electron test harness in this repo).
+//
+// ============================================================================
+// EXECUTABLE TESTS
+// ----------------------------------------------------------------------------
+// Scope of THIS file's executable tests (T1.4): TEST 2 issuance VPs
+// (VP1/VP3/VP4/VP5) + TEST 3A signout VPs. TEST 2 VP2 (onAuth AuthInfo
+// equivalence) and TEST 3A onAuth-rejection assertions depend on the onAuth
+// bearer branch (SimRoom.ts) added in T1.5, and TEST 3B CORS depends on
+// index.ts headers added in T1.6 — added by those tasks.
+//
+// The server DB is a process-wide singleton keyed off PIXEL_STREAM_DATA_DIR at
+// module load (server/src/db.ts). We point it at a fresh temp dir BEFORE the
+// dynamic imports so tests exercise the real sessions/users schema without
+// touching a developer's ~/.pixel-agents2. Each test seeds a uniquely-named
+// user + cleans up so there is no order dependency (per skeleton isolation
+// contract).
+// ============================================================================
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+
+const ADMIN_TOKEN = 'test-admin-token-xyz';
+
+let dataDir: string;
+let server: Server;
+let baseUrl: string;
+// Bound after the dynamic imports (kept loose so static imports do not evaluate
+// db.ts before PIXEL_STREAM_DATA_DIR is set).
+let appStore: typeof import('./appStore.js').appStore;
+let userStore: typeof import('./userStore.js').userStore;
+
+before(async () => {
+  dataDir = mkdtempSync(join(tmpdir(), 'pixel-auth-desktop-test-'));
+  process.env.PIXEL_STREAM_DATA_DIR = dataDir;
+
+  const express = (await import('express')).default;
+  ({ appStore } = await import('./appStore.js'));
+  ({ userStore } = await import('./userStore.js'));
+  const { registerAuth } = await import('./auth.js');
+
+  const app = express();
+  registerAuth(app, ADMIN_TOKEN);
+
+  await new Promise<void>((resolve) => {
+    server = app.listen(0, '127.0.0.1', resolve);
+  });
+  const { port } = server.address() as AddressInfo;
+  baseUrl = `http://127.0.0.1:${port}`;
+});
+
+after(() => {
+  server?.close();
+  rmSync(dataDir, { recursive: true, force: true });
+});
+
+function sessionCount(): number {
+  const store = appStore as unknown as { db: { prepare(sql: string): { get(): unknown } } };
+  const row = store.db.prepare('SELECT COUNT(*) AS n FROM sessions').get() as { n: number };
+  return row.n;
+}
+
+async function postToken(body: Record<string, unknown>): Promise<Response> {
+  return fetch(`${baseUrl}/desktop/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+// --- TEST 2: issuance (VP1/VP3/VP4/VP5) ---
+
+test('TEST 2 VP1: valid creds -> 200 with a token that is a live session row', async () => {
+  const loginId = 'vp1user';
+  const password = 'secret123';
+  userStore.createUser(loginId, password);
+
+  const res = await postToken({ username: loginId, password });
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { token?: string };
+  assert.equal(typeof body.token, 'string');
+  assert.ok(body.token && body.token.length > 0);
+  // The token IS a live session row resolving to the seeded user (real DB read).
+  assert.equal(appStore.getSession(body.token)?.userId, loginId);
+  // The desktop endpoint sets no cookie.
+  assert.equal(res.headers.get('set-cookie'), null);
+
+  appStore.deleteSession(body.token!);
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 2 VP3: correct admin token -> isAdmin true; normal path does not self-register', async () => {
+  const adminLogin = 'vp3admin';
+  const password = 'secret123';
+
+  // Admin path creates + marks admin the account (mirrors /login).
+  const adminRes = await postToken({ username: adminLogin, password, token: ADMIN_TOKEN });
+  assert.equal(adminRes.status, 200);
+  const adminBody = (await adminRes.json()) as { token: string };
+  const adminUser = userStore.get(adminLogin);
+  assert.ok(adminUser);
+  assert.equal(adminUser!.isAdmin, true);
+
+  // Normal path for an unknown user must NOT create it (no self-registration).
+  const unknownLogin = 'vp3ghost';
+  const ghostRes = await postToken({ username: unknownLogin, password });
+  assert.equal(ghostRes.status, 401);
+  assert.equal(userStore.get(unknownLogin), undefined);
+
+  appStore.deleteSession(adminBody.token);
+  userStore.deleteUser(adminLogin);
+});
+
+test('TEST 2 VP4: bad creds -> 401 generic message, no new session row', async () => {
+  const loginId = 'vp4user';
+  userStore.createUser(loginId, 'secret123');
+  const before = sessionCount();
+
+  // Wrong password for an existing user.
+  const badPw = await postToken({ username: loginId, password: 'wrongpass' });
+  assert.equal(badPw.status, 401);
+  assert.deepEqual(await badPw.json(), { error: 'Invalid login id or password.' });
+
+  // Unknown user.
+  const unknown = await postToken({ username: 'vp4nobody', password: 'whatever' });
+  assert.equal(unknown.status, 401);
+  assert.deepEqual(await unknown.json(), { error: 'Invalid login id or password.' });
+
+  // Wrong admin token.
+  const badAdmin = await postToken({ username: 'vp4new', password: 'secret123', token: 'not-the-admin-token' });
+  assert.equal(badAdmin.status, 401);
+  assert.deepEqual(await badAdmin.json(), { error: 'Invalid admin token.' });
+  assert.equal(userStore.get('vp4new'), undefined);
+
+  // No session row was minted by any failed attempt.
+  assert.equal(sessionCount(), before);
+
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 2 VP5: token/password/admin-token never appear in the response body or logs', async () => {
+  const loginId = 'vp5user';
+  const password = 'super-secret-pw-9';
+  userStore.createUser(loginId, password);
+
+  const logged: string[] = [];
+  const capture = (...args: unknown[]): void => void logged.push(args.map(String).join(' '));
+  const orig = { log: console.log, warn: console.warn, error: console.error, info: console.info };
+  console.log = capture;
+  console.warn = capture;
+  console.error = capture;
+  console.info = capture;
+
+  let token: string;
+  let rawBody: string;
+  try {
+    const okRes = await postToken({ username: loginId, password });
+    rawBody = await okRes.text();
+    token = (JSON.parse(rawBody) as { token: string }).token;
+    // A failing admin attempt too (exercises the admin-token log path).
+    await postToken({ username: 'vp5x', password, token: ADMIN_TOKEN + 'wrong' });
+  } finally {
+    console.log = orig.log;
+    console.warn = orig.warn;
+    console.error = orig.error;
+    console.info = orig.info;
+  }
+
+  const logs = logged.join('\n');
+  assert.equal(logs.includes(password), false, 'password must not be logged');
+  assert.equal(logs.includes(ADMIN_TOKEN), false, 'admin token must not be logged');
+  assert.equal(logs.includes(token), false, 'issued token must not be logged');
+  // The success body carries only the token, not the password/admin token.
+  assert.equal(rawBody.includes(password), false);
+  assert.equal(rawBody.includes(ADMIN_TOKEN), false);
+
+  appStore.deleteSession(token);
+  userStore.deleteUser(loginId);
+});
+
+// --- TEST 3 Part A: signout revoke lifecycle ---
+
+test('TEST 3A: signout deletes the session row (getSession undefined afterward)', async () => {
+  const loginId = 'so1user';
+  userStore.createUser(loginId, 'secret123');
+  const sid = appStore.createSession(loginId);
+  assert.ok(appStore.getSession(sid), 'precondition: live session');
+
+  const res = await fetch(`${baseUrl}/desktop/signout`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${sid}` },
+  });
+  assert.equal(res.status, 204);
+  assert.equal(await res.text(), '');
+  assert.equal(appStore.getSession(sid), undefined, 'session revoked');
+
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 3A: signout is idempotent -> 204 on repeat and on an absent/missing sid', async () => {
+  const sid = 'never-issued-but-syntactically-valid-sid';
+
+  // Absent session.
+  const first = await fetch(`${baseUrl}/desktop/signout`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${sid}` },
+  });
+  assert.equal(first.status, 204);
+
+  // Repeat — still 204, no leak of whether the sid existed.
+  const second = await fetch(`${baseUrl}/desktop/signout`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${sid}` },
+  });
+  assert.equal(second.status, 204);
+
+  // No Authorization header at all — still 204 (idempotent).
+  const noHeader = await fetch(`${baseUrl}/desktop/signout`, { method: 'POST' });
+  assert.equal(noHeader.status, 204);
+});
