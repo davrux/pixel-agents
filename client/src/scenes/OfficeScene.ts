@@ -40,6 +40,7 @@ import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
+import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
@@ -167,6 +168,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly voiceSpeakUntil = new Map<number, number>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
+  private charCreator!: CharacterCreator;
   private furnEditor!: FurnitureEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
@@ -354,6 +356,9 @@ export class OfficeScene extends Phaser.Scene {
       // demand (editEntity/newEntity); no top-bar button, and Back returns to Assets.
       entryButton: false,
       onBack: () => void this.setMenu('assets'),
+    });
+    this.charCreator = new CharacterCreator({
+      save: (data) => this.room?.send('saveAvatar', { data }),
     });
     this.furnEditor = new FurnitureEditor({
       getRawCatalog: () => this.furnitureCatalogRaw,
@@ -2143,6 +2148,7 @@ export class OfficeScene extends Phaser.Scene {
       <div id="pa-avatar">
         <canvas id="pa-avatar-pic"></canvas>
         <div class="pa-av-btns">
+          <button id="pa-av-create">✨ Create</button>
           <button id="pa-av-edit">✏ Edit</button>
           <button id="pa-av-save">Save as template</button>
         </div>
@@ -2176,7 +2182,7 @@ export class OfficeScene extends Phaser.Scene {
         this.settingsPanel,
         this.helpPanel,
       ];
-      const byId = ['pa-chars', 'pa-furn', 'pa-c-import', 'pa-modal', 'pa-znpc'];
+      const byId = ['pa-chars', 'pa-furn', 'pa-c-import', 'pa-modal', 'pa-znpc', 'pa-cc'];
       if (
         this.menubar?.contains(t) ||
         panels.some((p) => p?.contains(t)) ||
@@ -2188,6 +2194,10 @@ export class OfficeScene extends Phaser.Scene {
 
     // "Your avatar" controls: edit the owned avatar, or snapshot it as a new
     // shared template.
+    panel.querySelector<HTMLButtonElement>('#pa-av-create')!.onclick = () => {
+      void this.setMenu(null);
+      void this.charCreator.open();
+    };
     panel.querySelector<HTMLButtonElement>('#pa-av-edit')!.onclick = () => {
       if (!this.myAvatarId) return;
       void this.setMenu(null);
