@@ -25,38 +25,44 @@ export interface ConferenceUIHandlers {
   leave: () => void;
 }
 
+// Shared pixel-menu look (matches #pa-menubar / .pa-btn / .pa-panel in OfficeScene):
+// dark #0f1220 surfaces, #05060b borders, the inset 2px-light / 3px-dark bevel,
+// blue #2f66b0 + green #2f7d3f accents. Keep these in sync with OfficeScene's CSS.
 const CSS = `
   #pa-conf{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:120;display:none;
-    width:min(92vw,72rem);height:min(86vh,44rem);flex-direction:column;background:#14161c;border:2px solid #3a4150;
-    border-radius:0.6rem;color:#eef1f6;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
-    box-shadow:0 8px 0 rgba(0,0,0,.45);}
+    width:min(92vw,72rem);height:min(86vh,44rem);flex-direction:column;background:#0f1220;border:2px solid #05060b;
+    border-radius:0.6rem;color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
+    box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
   #pa-conf:fullscreen{width:100%;height:100%;left:0;top:0;transform:none;border:0;border-radius:0;max-width:none;}
-  #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.55rem 0.8rem;background:#1b1f2a;
-    border-bottom:1px solid #2c323e;}
-  #pa-conf .pa-conf-head .title{font-size:1.1rem;color:#cdd3dd;font-weight:bold;}
-  #pa-conf .pa-conf-head .sub{color:#9aa3b2;font-size:0.9rem;}
-  #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.9rem;color:#8bd18b;}
-  #pa-conf .pa-conf-head .status.err{color:#ff9a9a;}
+  #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#0f1220;
+    border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
+  #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#eef1fb;font-weight:600;letter-spacing:.3px;}
+  #pa-conf .pa-conf-head .sub{color:#6f7590;font-size:0.85rem;}
+  #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.85rem;color:#7fd08a;}
+  #pa-conf .pa-conf-head .status.err{color:#f2a1a1;}
   #pa-conf .pa-conf-body{flex:1;display:flex;min-height:0;}
   #pa-conf .pa-conf-main{flex:1;display:flex;min-width:0;min-height:0;}
   /* Default: grid of participant tiles fills the main area. */
   #pa-conf-stage{flex:1;display:grid;gap:0.5rem;padding:0.6rem;overflow:auto;align-content:center;
-    grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));background:#0e1015;min-width:0;}
-  #pa-conf .pa-conf-tile{position:relative;aspect-ratio:16/9;background:#1b1f2a;border:2px solid #2c323e;
-    border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;}
-  #pa-conf .pa-conf-tile.speaking{border-color:#3a6df0;box-shadow:0 0 0 2px #3a6df0 inset;}
+    grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));background:#0a0d16;min-width:0;}
+  #pa-conf .pa-conf-tile{position:relative;aspect-ratio:16/9;background:#171b2b;border:2px solid #05060b;
+    border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #pa-conf .pa-conf-tile.speaking{border-color:#2f66b0;box-shadow:0 0 0 2px #5a92d6 inset;}
   /* Screen-share spotlight (hidden until a screen is shared). */
-  #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#0e1015;
+  #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#0a0d16;
     align-items:center;justify-content:center;}
   #pa-conf.sharing #pa-conf-spotlight{display:flex;}
   #pa-conf-spotlight .pa-conf-screen{position:relative;width:100%;height:100%;background:#000;
-    border:2px solid #3a6df0;border-radius:0.4rem;box-shadow:0 0 0 1px #3a6df0;
+    border:2px solid #2f66b0;border-radius:0.4rem;box-shadow:0 0 0 1px #5a92d6;
     display:flex;align-items:center;justify-content:center;overflow:hidden;}
   #pa-conf-spotlight .pa-conf-video.contain{width:100%;height:100%;object-fit:contain;}
   .pa-conf-spot-ctl{position:absolute;top:0.55rem;right:0.55rem;z-index:3;display:none;gap:0.35rem;}
   #pa-conf.sharing .pa-conf-spot-ctl{display:flex;}
-  .pa-conf-spot-ctl button{cursor:pointer;background:rgba(20,24,33,.85);border:1px solid #3a4150;color:#eef1f6;
-    border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.3rem 0.5rem;}
+  .pa-conf-spot-ctl button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+    border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.32rem 0.55rem;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  .pa-conf-spot-ctl button:hover{background:#1a2032;}
   /* While sharing, participant tiles become a scrollable column on the right. */
   #pa-conf.sharing #pa-conf-stage{flex:0 0 14rem;display:flex;flex-direction:column;gap:0.4rem;overflow-y:auto;
     overflow-x:hidden;align-content:stretch;}
@@ -65,44 +71,51 @@ const CSS = `
   #pa-conf .pa-conf-video{width:100%;height:100%;object-fit:cover;background:#000;}
   #pa-conf .pa-conf-video.mirror{transform:scaleX(-1);}
   #pa-conf .pa-conf-video.contain{object-fit:contain;}
-  #pa-conf .pa-conf-ph{width:3.4rem;height:3.4rem;border-radius:50%;background:#2a2f3a;border:1px solid #3a4150;
-    display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#cdd3dd;}
+  #pa-conf .pa-conf-ph{width:3.4rem;height:3.4rem;border-radius:50%;background:#0a0d16;border:2px solid #05060b;
+    display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#c7ccdf;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #pa-conf .pa-conf-name{position:absolute;left:0.35rem;bottom:0.3rem;font-size:0.8rem;color:#fff;
     text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;}
-  #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#1b1f2a;
-    border-left:1px solid #2c323e;min-height:0;}
+  #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#0f1220;
+    border-left:2px solid #05060b;min-height:0;}
   #pa-conf.side-open .pa-conf-side{display:flex;}
-  #pa-conf .pa-conf-tabs{display:flex;border-bottom:1px solid #2c323e;}
-  #pa-conf .pa-conf-tabs button{flex:1;background:transparent;border:0;color:#9aa3b2;cursor:pointer;
-    font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem;}
-  #pa-conf .pa-conf-tabs button.on{color:#eef1f6;box-shadow:inset 0 -2px 0 #3a6df0;}
+  #pa-conf .pa-conf-tabs{display:flex;gap:0.35rem;padding:0.35rem;background:#0a0d16;border-bottom:2px solid #05060b;}
+  #pa-conf .pa-conf-tabs button{flex:1;background:transparent;border:0;color:#9aa0b8;cursor:pointer;border-radius:0.35rem;
+    font:0.95rem 'FS Pixel Sans',monospace;padding:0.45rem 0.3rem;}
+  #pa-conf .pa-conf-tabs button.on{color:#fff;background:#242c46;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
   #pa-conf .pa-conf-chat,#pa-conf .pa-conf-parts{flex:1;min-height:0;display:none;flex-direction:column;}
   #pa-conf.tab-chat .pa-conf-chat{display:flex;}
   #pa-conf.tab-parts .pa-conf-parts{display:flex;}
   #pa-conf .pa-conf-chatlog{flex:1;overflow-y:auto;padding:0.5rem 0.6rem;display:flex;flex-direction:column;
     gap:0.25rem;font-size:0.92rem;line-height:1.35;}
-  #pa-conf .pa-conf-chatlog .ln .ts{color:#6b7280;font-size:0.82em;}
-  #pa-conf .pa-conf-chatlog .ln b{color:#9ad0ff;}
-  #pa-conf .pa-conf-chatin{border:0;border-top:1px solid #2c323e;background:#14161c;color:#eef1f6;
-    font:1rem 'FS Pixel Sans',monospace;padding:0.55rem 0.6rem;}
+  #pa-conf .pa-conf-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
+  #pa-conf .pa-conf-chatlog .ln b{color:#7fa7e0;}
+  #pa-conf .pa-conf-chatin{border:0;border-top:2px solid #05060b;background:#171b2b;color:#e9ecf7;
+    font:1rem 'FS Pixel Sans',monospace;padding:0.55rem 0.6rem;box-shadow:inset 0 2px 0 #2b3252;}
   #pa-conf .pa-conf-parts{padding:0.4rem 0.2rem;overflow-y:auto;}
-  #pa-conf .pa-conf-parts .p{display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.5rem;font-size:0.95rem;}
+  #pa-conf .pa-conf-parts .p{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;font-size:0.95rem;
+    border-bottom:1px solid #1b2138;}
   #pa-conf .pa-conf-parts .p .n{flex:1;}
   #pa-conf .pa-conf-parts .p .i{opacity:0.85;}
   #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
-    padding:0.55rem;background:#1b1f2a;border-top:1px solid #2c323e;position:relative;}
-  #pa-conf .pa-conf-bar button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-    border-radius:0.4rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.45rem 0.7rem;min-width:3.2rem;}
+    padding:0.6rem;background:#0f1220;border-top:2px solid #05060b;box-shadow:inset 0 1px 0 #1b2138;position:relative;}
+  #pa-conf .pa-conf-bar button{cursor:pointer;background:#141826;border:2px solid #05060b;color:#e9ecf7;
+    border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.75rem;min-width:3.2rem;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #pa-conf .pa-conf-bar button:hover{background:#1a2032;}
   #pa-conf .pa-conf-bar button.off{opacity:0.5;}
-  #pa-conf .pa-conf-bar button.on{background:#2f6f3a;border-color:#3f8f4a;color:#fff;}
-  #pa-conf .pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
-  #pa-conf .pa-conf-dev{position:absolute;bottom:3.2rem;left:50%;transform:translateX(-50%);background:#1b1f2a;
-    border:2px solid #3a4150;border-radius:0.5rem;padding:0.6rem;display:none;flex-direction:column;gap:0.4rem;
-    min-width:16rem;box-shadow:0 6px 0 rgba(0,0,0,.4);}
+  #pa-conf .pa-conf-bar button.on{background:#2f7d3f;border-color:#05060b;color:#fff;
+    box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+  #pa-conf .pa-conf-bar button.leave{background:#7c2634;border-color:#05060b;color:#f1d0d6;
+    box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+  #pa-conf .pa-conf-dev{position:absolute;bottom:3.6rem;left:50%;transform:translateX(-50%);background:#0f1220;
+    border:2px solid #05060b;border-radius:0.6rem;padding:0.7rem;display:none;flex-direction:column;gap:0.45rem;
+    min-width:16rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
   #pa-conf .pa-conf-dev.open{display:flex;}
-  #pa-conf .pa-conf-dev label{font-size:0.85rem;color:#9aa3b2;}
-  #pa-conf .pa-conf-dev select{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;border-radius:0.35rem;
-    font:0.9rem 'FS Pixel Sans',monospace;padding:0.35rem;}
+  #pa-conf .pa-conf-dev label{font-size:0.72rem;letter-spacing:1px;color:#6f7590;text-transform:uppercase;}
+  #pa-conf .pa-conf-dev select{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;
+    font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
 `;
 
 export class ConferenceUI {
