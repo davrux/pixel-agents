@@ -869,12 +869,20 @@ export class OfficeState {
       }
     }
 
+    // Strict proximity: you only join a monitor's call by actually standing at
+    // one of its approach tiles (now, or on arrival after walking there). No
+    // join-in-place fallback — an unreachable / neighbour-less monitor can't be
+    // joined from afar.
     const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
-    if (here || approaches.length === 0) {
-      if (here) ch.dir = here.facing;
+    if (here) {
+      ch.dir = here.facing;
       ch.pendingConference = null;
-      this.pendingConferenceJoins.push({ id, key }); // already in place → join now
+      this.pendingConferenceJoins.push({ id, key }); // already at the monitor → join now
       return true;
+    }
+    if (approaches.length === 0) {
+      ch.pendingConference = null;
+      return false; // no walkable spot at the monitor → can't join
     }
     let best: { path: Array<{ col: number; row: number }>; facing: Direction } | null = null;
     for (const a of approaches) {
@@ -884,8 +892,7 @@ export class OfficeState {
     }
     if (!best) {
       ch.pendingConference = null;
-      this.pendingConferenceJoins.push({ id, key }); // unreachable approach → join in place
-      return true;
+      return false; // unreachable from here → can't join
     }
     ch.path = best.path;
     ch.moveProgress = 0;

@@ -410,7 +410,9 @@ export class SimRoom extends Room<RoomState> {
     const apiSecret = process.env.LIVEKIT_API_SECRET;
     if (!apiKey || !apiSecret) return null;
     const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
-    const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name });
+    // Short TTL: the client requests a fresh token per join, so a scoped token
+    // that leaks is only usable briefly (defense in depth).
+    const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name, ttl: '1h' });
     // canUpdateOwnMetadata lets a participant publish its own attributes (we use
     // a `deaf` attribute so others can see when someone has their sound off).
     at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canUpdateOwnMetadata: true });
@@ -573,7 +575,9 @@ export class SimRoom extends Room<RoomState> {
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
       if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
-      this.os.walkPlayerToConference(id, col, row);
+      if (!this.os.walkPlayerToConference(id, col, row)) {
+        client.send('m', { type: 'system', text: "Can't reach that monitor — walk up to it to join." });
+      }
     });
 
     this.onMessage('conferenceLeave', (client, msg: { col?: number; row?: number }) => {
