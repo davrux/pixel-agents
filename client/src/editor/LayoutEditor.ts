@@ -1014,27 +1014,35 @@ export class LayoutEditor {
   private buildDom(): void {
     const style = document.createElement('style');
     style.textContent = `
+      /* Matches the grouped-menu pixel style (#0f1220 panels, chunky #05060b
+         borders + inset bevels, green primary, blue sliders, green selection). */
       #pa-editor{position:fixed;top:0;left:0;bottom:0;z-index:55;display:none;flex-direction:column;
-        width:20rem;background:#161a22;border-right:2px solid #3a4150;color:#eef1f6;
+        width:20rem;background:#0f1220;border-right:2px solid #05060b;color:#e9ecf7;
+        box-shadow:inset -3px 0 0 #080a14,4px 0 18px rgba(0,0,0,.45);
         font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.9rem;}
-      #pa-editor .bar{display:flex;gap:0.5rem;padding:0.65rem;border-bottom:2px solid #3a4150;}
-      #pa-editor .bar button{flex:1;cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;
-        color:#eef1f6;border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem;}
-      #pa-editor .bar button.save{background:#2f6d3a;border-color:#3c8a4c;}
-      #pa-editor .tools{display:flex;gap:0.4rem;padding:0.5rem 0.65rem;}
-      #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#1b1f2a;border:2px solid #2a2f3a;
-        color:#eef1f6;border-radius:0.3rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.45rem 0.25rem;}
-      #pa-editor .tools .pa-tool.sel{border-color:#ffd24a;}
-      #pa-editor .hint{padding:0.25rem 0.65rem 0.5rem;font-size:0.8rem;color:#9aa4b2;}
-      #pa-editor .color{display:flex;flex-direction:column;gap:0.3rem;padding:0.5rem 0.65rem;border-top:1px solid #2a2f3a;border-bottom:1px solid #2a2f3a;}
+      #pa-editor .bar{display:flex;gap:0.5rem;padding:0.7rem;border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
+      #pa-editor .bar button{flex:1;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+        border-radius:0.4rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-editor .bar button:hover{background:#1a2032;}
+      #pa-editor .bar button.save{background:#2f7d3f;color:#fff;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+      #pa-editor .tools{display:flex;gap:0.4rem;padding:0.6rem 0.7rem 0.4rem;}
+      #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#aeb4cc;
+        border-radius:0.4rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.5rem 0.25rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-editor .tools .pa-tool.sel{color:#fff;background:#242c46;
+        box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 2px #7fd08a;}
+      #pa-editor .hint{padding:0.15rem 0.75rem 0.55rem;font-size:0.8rem;color:#6f7590;line-height:1.5;}
+      #pa-editor .color{display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0.75rem;border-top:1px solid #1b2138;border-bottom:1px solid #1b2138;}
       #pa-editor .color .rowc{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;}
-      #pa-editor .color .rowc span{width:2.1rem;color:#9aa4b2;}
-      #pa-editor .color input[type=range]{flex:1;}
-      #pa-editor .sw{width:1.6rem;height:1.1rem;border:1px solid #3a4150;border-radius:0.2rem;}
-      .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.65rem;align-content:start;}
+      #pa-editor .color .rowc span{width:2.1rem;color:#9aa0b8;}
+      #pa-editor .color input[type=range]{flex:1;accent-color:#3f78c4;}
+      #pa-editor .sw{width:1.6rem;height:1.1rem;border:2px solid #05060b;border-radius:0.2rem;}
+      .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.7rem;align-content:start;}
       .pa-pal-item{display:flex;align-items:center;justify-content:center;height:3.4rem;cursor:pointer;
-        background:#1b1f2a;border:2px solid #2a2f3a;border-radius:0.4rem;padding:0.25rem;}
-      .pa-pal-item.sel{border-color:#ffd24a;}
+        background:#0a0d16;border:2px solid #05060b;border-radius:0.4rem;padding:0.25rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-pal-item.sel{border-color:#7fd08a;box-shadow:0 0 0 2px #7fd08a;}
       .pa-pal-item img{max-width:2.75rem;max-height:2.75rem;image-rendering:pixelated;}
     `;
     document.head.appendChild(style);
@@ -1069,7 +1077,10 @@ export class LayoutEditor {
     this.rotateBtn = document.createElement('button');
     this.rotateBtn.className = 'pa-tool';
     this.rotateBtn.textContent = '⟳ Rotate (R)';
-    this.rotateBtn.style.cssText = 'margin:0 0.65rem 0.5rem;cursor:pointer;background:#1b1f2a;border:2px solid #2a2f3a;color:#eef1f6;border-radius:0.3rem;font:0.9rem "FS Pixel Sans",monospace;padding:0.45rem;';
+    this.rotateBtn.style.cssText =
+      'margin:0 0.7rem 0.5rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;' +
+      'border-radius:0.4rem;font:0.9rem "FS Pixel Sans",monospace;padding:0.5rem;' +
+      'box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;';
     this.rotateBtn.onclick = () => this.rotate('cw');
 
     // Color controls
@@ -1130,15 +1141,18 @@ export class LayoutEditor {
       b.textContent = txt;
       b.title = title;
       b.style.cssText =
-        "cursor:pointer;width:2.2rem;height:2.2rem;background:#1b1f2a;border:2px solid #3a4150;" +
-        "border-radius:0.4rem;color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;box-shadow:0 2px 0 rgba(0,0,0,.4);";
+        "cursor:pointer;width:2.2rem;height:2.2rem;background:#141826;border:2px solid #05060b;" +
+        "border-radius:0.4rem;color:#e9ecf7;font:1.15rem 'FS Pixel Sans',monospace;" +
+        "box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
       b.onclick = onClick;
       return b;
     };
     this.rotateBtnInBar = mkAct('⟳', 'Rotate (R)', () => this.rotateSelected());
     this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
     const delBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelected());
-    delBtn.style.borderColor = '#7a3a3a';
+    delBtn.style.background = '#7c2634';
+    delBtn.style.color = '#f6cdd4';
+    delBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
     this.actionBar.append(this.rotateBtnInBar, this.nameBtnInBar, delBtn);
     host.appendChild(this.actionBar);
 
