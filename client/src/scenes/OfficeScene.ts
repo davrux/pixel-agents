@@ -353,6 +353,7 @@ export class OfficeScene extends Phaser.Scene {
     if (this.menubar) {
       this.zoneVoice = new ZoneVoiceUI(this.menubar, {
         requestToken: () => this.room?.send('zoneVoiceToken'),
+        announceVoice: (event) => this.room?.send('voiceEvent', { event }),
         myPosition: () => this.playerPosition(this.myPlayerId),
         positionOf: (id) => this.playerPosition(id),
         onSpeakers: (ids) => {

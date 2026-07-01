@@ -27,6 +27,8 @@ const PROXIMITY_TICK_MS = 150;
 export interface ZoneVoiceHooks {
   /** Ask the server for a token (OfficeScene sends 'zoneVoiceToken'). */
   requestToken(): void;
+  /** Tell the server a voice state change worth announcing in chat happened. */
+  announceVoice(event: 'join' | 'leave' | 'mic-on' | 'mic-off' | 'deaf-on' | 'deaf-off'): void;
   /** This viewer's avatar pixel position, or null (spectator / not spawned). */
   myPosition(): { x: number; y: number } | null;
   /** Pixel position of a given player id, or null if not present in this zone. */
@@ -153,6 +155,7 @@ export class ZoneVoice {
     if (this.enabled) return;
     this.enabled = true;
     localStorage.setItem('pa-zv-enabled', '1');
+    this.hooks.announceVoice('join');
     this.connect();
   }
 
@@ -160,6 +163,7 @@ export class ZoneVoice {
   leave(): void {
     this.enabled = false;
     localStorage.setItem('pa-zv-enabled', '0');
+    this.hooks.announceVoice('leave');
     void this.disconnect();
   }
 
@@ -414,6 +418,8 @@ export class ZoneVoice {
     // they can show our mute state) — not just track.enabled.
     if (this.micOn && !this.micPub) void this.publishMic();
     else if (this.micPub) void (this.micOn ? this.micPub.unmute() : this.micPub.mute());
+    // Announce only while actually in a call (a pre-join toggle just sets intent).
+    if (this.room) this.hooks.announceVoice(this.micOn ? 'mic-on' : 'mic-off');
     this.emitState();
     this.emitVoiceStatus();
   }
@@ -538,6 +544,8 @@ export class ZoneVoice {
     localStorage.setItem('pa-zv-deaf', this.deafened ? '1' : '0');
     this.applyAllVolumes();
     this.broadcastDeaf(); // let others see our sound-off state
+    // Announce only while actually in a call (a pre-join toggle just sets intent).
+    if (this.room) this.hooks.announceVoice(this.deafened ? 'deaf-on' : 'deaf-off');
     this.emitState();
     this.emitVoiceStatus();
   }

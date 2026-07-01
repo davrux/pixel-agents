@@ -305,6 +305,12 @@ export class SimRoom extends Room<RoomState> {
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
+    // Announce a real user's arrival to everyone in the zone. Agents/NPCs are
+    // engine entities, never Colyseus clients, so they never reach here. Deduped
+    // so a second tab of the same user in this zone doesn't re-announce.
+    if (userId && !this.hasOtherSession(client)) {
+      this.broadcast('m', { type: 'system', text: `${this.chatNameFor(client)} entered the zone.` });
+    }
     const agentToken = userId ? (userStore.get(userId)?.agentToken ?? '') : '';
     // Whether this viewer may layout the CURRENT zone (designated zone admin).
     const zoneAdmin = !!userId && this.zones.isZoneAdmin(this.zone.id, userId);
@@ -336,6 +342,12 @@ export class SimRoom extends Room<RoomState> {
       // Persist the avatar's last tile (logged-in users respawn there next time).
       const ch = this.os.getCharacter(playerId);
       if (userId && ch) appStore.setPlayerPos(userId, this.zone.id, ch.tileCol, ch.tileRow);
+      // Announce departure (before removePlayer so chatNameFor still resolves the
+      // avatar name). Only for real users, and only when their last session in
+      // this zone is leaving.
+      if (userId && !this.hasOtherSession(client)) {
+        this.broadcast('m', { type: 'system', text: `${this.chatNameFor(client)} left the zone.` });
+      }
       this.leaveAllConferences(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
@@ -411,6 +423,15 @@ export class SimRoom extends Room<RoomState> {
     const id = this.players.get(client.sessionId);
     const ch = id !== undefined ? this.os.getCharacter(id) : null;
     return ch?.folderName || username || userId || 'Guest';
+  }
+
+  /** Whether another current client in this zone shares `client`'s userId (i.e.
+   *  the same user has this zone open in another tab). Used to dedup the
+   *  enter/leave announcements. Anonymous viewers (no userId) never dedup. */
+  private hasOtherSession(client: Client): boolean {
+    const { userId } = authOf(client);
+    if (!userId) return false;
+    return this.clients.some((c) => c.sessionId !== client.sessionId && authOf(c).userId === userId);
   }
 
   // ── Layout management (server-authoritative) ─────────────────────
@@ -594,6 +615,25 @@ export class SimRoom extends Room<RoomState> {
       const token = await this.mintVoiceToken(id, room);
       if (!token) return;
       client.send('m', { type: 'zoneVoiceToken', url, token, room });
+    });
+
+    // Voice state changes (join/leave/mute/deafen) happen peer-to-peer in
+    // LiveKit, so the client tells us when one is worth announcing in the zone
+    // chat. The allowlist doubles as validation; unknown events are ignored.
+    this.onMessage('voiceEvent', (client, msg: { event?: string }) => {
+      if (this.players.get(client.sessionId) === undefined) return; // must have an avatar
+      const name = this.chatNameFor(client);
+      const texts: Record<string, string> = {
+        join: `${name} joined the voice chat.`,
+        leave: `${name} left the voice chat.`,
+        'mic-off': `${name} muted their mic.`,
+        'mic-on': `${name} unmuted their mic.`,
+        'deaf-on': `${name} muted sound.`,
+        'deaf-off': `${name} unmuted sound.`,
+      };
+      const text = texts[msg?.event ?? ''];
+      if (!text) return;
+      this.broadcast('m', { type: 'system', text });
     });
 
     // ── Zone registry (create / edit / delete; admins only, office protected) ──
