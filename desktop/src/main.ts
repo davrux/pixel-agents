@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, safeStorage, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { PIXEL_DESKTOP_CHANNELS } from './ipc.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
@@ -77,12 +77,77 @@ function isAppOrigin(targetUrl: string): boolean {
   }
 }
 
-// In-memory persistence for the typed IPC contract. safeStorage-backed
-// encryption at rest for the token and durable storage of the server URL are
-// T4.3; the screen-source picker is T4.4. This task wires the plumbing so the
-// renderer bridge's accessors resolve against real handlers.
-let serverUrl: string | null = null;
-let bearerToken: string | null = null;
+// Durable persistence for the typed IPC contract, rooted at userData:
+// - the bearer token is written as safeStorage ciphertext (OS keychain-backed;
+//   AC-020) so it is never plaintext on disk and survives relaunch (AC-007);
+// - the server URL is a plaintext JSON config (not a secret; Field Propagation Map).
+// Files are resolved lazily (after app is ready) since app.getPath('userData')
+// is only valid then. Unreadable/corrupt/undecryptable values are treated as
+// absent so the boot flow falls through to Connection/SignIn, never a blank state.
+const TOKEN_FILE = 'pixel-token.bin';
+const CONFIG_FILE = 'pixel-config.json';
+
+function tokenPath(): string {
+  return join(app.getPath('userData'), TOKEN_FILE);
+}
+
+function configPath(): string {
+  return join(app.getPath('userData'), CONFIG_FILE);
+}
+
+async function readServerUrl(): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(configPath(), 'utf8');
+  } catch {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && typeof (parsed as { serverUrl?: unknown }).serverUrl === 'string') {
+      return (parsed as { serverUrl: string }).serverUrl;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeServerUrl(url: string): Promise<void> {
+  await writeFile(configPath(), JSON.stringify({ serverUrl: url }), 'utf8');
+}
+
+// Reads and decrypts the stored bearer token. Returns null (treated as absent)
+// when encryption is unavailable, the file is missing, or the ciphertext cannot
+// be decrypted (e.g. corrupt or written under a different OS key).
+async function readToken(): Promise<string | null> {
+  if (!safeStorage.isEncryptionAvailable()) return null;
+  let ciphertext: Buffer;
+  try {
+    ciphertext = await readFile(tokenPath());
+  } catch {
+    return null;
+  }
+  try {
+    return safeStorage.decryptString(ciphertext);
+  } catch {
+    return null;
+  }
+}
+
+// Encrypts the token to ciphertext at rest. The plaintext token is never
+// written to disk and never logged.
+async function writeToken(token: string): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error('safeStorage encryption unavailable; refusing to persist token in plaintext');
+  }
+  const ciphertext = safeStorage.encryptString(token);
+  await writeFile(tokenPath(), ciphertext);
+}
+
+async function clearStoredToken(): Promise<void> {
+  await rm(tokenPath(), { force: true });
+}
 
 // Reachability probe: main performs the /health fetch so the renderer avoids
 // CORS/mixed-content quirks. Returns false on any non-2xx or network error.
@@ -105,18 +170,12 @@ async function probeServer(rawUrl: string): Promise<boolean> {
 
 function registerIpcHandlers(): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
-  ipcMain.handle(channels.getServerUrl, (): string | null => serverUrl);
-  ipcMain.handle(channels.setServerUrl, (_event, url: string): void => {
-    serverUrl = url;
-  });
+  ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
+  ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
   ipcMain.handle(channels.probeServer, (_event, url: string): Promise<boolean> => probeServer(url));
-  ipcMain.handle(channels.getToken, (): string | null => bearerToken);
-  ipcMain.handle(channels.setToken, (_event, token: string): void => {
-    bearerToken = token;
-  });
-  ipcMain.handle(channels.clearToken, (): void => {
-    bearerToken = null;
-  });
+  ipcMain.handle(channels.getToken, (): Promise<string | null> => readToken());
+  ipcMain.handle(channels.setToken, (_event, token: string): Promise<void> => writeToken(token));
+  ipcMain.handle(channels.clearToken, (): Promise<void> => clearStoredToken());
   // Explicit screen-source picker is implemented in T4.4.
   ipcMain.handle(channels.pickScreenSource, (): { id: string } | null => null);
 }
