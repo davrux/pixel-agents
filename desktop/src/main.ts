@@ -1,7 +1,8 @@
-import { app, BrowserWindow, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { PIXEL_DESKTOP_CHANNELS } from './ipc.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -13,8 +14,13 @@ const APP_HOST = 'bundle';
 const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 const APP_INDEX = `${APP_ORIGIN}/index.html`;
 
+const HERE = dirname(fileURLToPath(import.meta.url));
+
 // desktop/src/main.ts -> client/dist (the existing client vite build output).
-const DIST_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'client', 'dist');
+const DIST_ROOT = join(HERE, '..', '..', 'client', 'dist');
+
+// Preload injected into the renderer; exposes the typed window.pixelDesktop API.
+const PRELOAD_PATH = join(HERE, 'preload.js');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -71,12 +77,57 @@ function isAppOrigin(targetUrl: string): boolean {
   }
 }
 
+// In-memory persistence for the typed IPC contract. safeStorage-backed
+// encryption at rest for the token and durable storage of the server URL are
+// T4.3; the screen-source picker is T4.4. This task wires the plumbing so the
+// renderer bridge's accessors resolve against real handlers.
+let serverUrl: string | null = null;
+let bearerToken: string | null = null;
+
+// Reachability probe: main performs the /health fetch so the renderer avoids
+// CORS/mixed-content quirks. Returns false on any non-2xx or network error.
+async function probeServer(rawUrl: string): Promise<boolean> {
+  let healthUrl: string;
+  try {
+    const base = new URL(rawUrl);
+    if (base.protocol !== 'http:' && base.protocol !== 'https:') return false;
+    healthUrl = new URL('/health', base).toString();
+  } catch {
+    return false;
+  }
+  try {
+    const response = await fetch(healthUrl, { method: 'GET' });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+function registerIpcHandlers(): void {
+  const channels = PIXEL_DESKTOP_CHANNELS;
+  ipcMain.handle(channels.getServerUrl, (): string | null => serverUrl);
+  ipcMain.handle(channels.setServerUrl, (_event, url: string): void => {
+    serverUrl = url;
+  });
+  ipcMain.handle(channels.probeServer, (_event, url: string): Promise<boolean> => probeServer(url));
+  ipcMain.handle(channels.getToken, (): string | null => bearerToken);
+  ipcMain.handle(channels.setToken, (_event, token: string): void => {
+    bearerToken = token;
+  });
+  ipcMain.handle(channels.clearToken, (): void => {
+    bearerToken = null;
+  });
+  // Explicit screen-source picker is implemented in T4.4.
+  ipcMain.handle(channels.pickScreenSource, (): { id: string } | null => null);
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1280,
     height: 800,
     backgroundColor: '#14161c',
     webPreferences: {
+      preload: PRELOAD_PATH,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -133,6 +184,7 @@ if (!gotLock) {
 
   void app.whenReady().then(() => {
     protocol.handle(APP_SCHEME, serveBundle);
+    registerIpcHandlers();
     mainWindow = createWindow();
 
     app.on('activate', () => {
