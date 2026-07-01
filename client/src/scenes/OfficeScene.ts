@@ -169,6 +169,9 @@ export class OfficeScene extends Phaser.Scene {
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
   private charCreator!: CharacterCreator;
+  /** Where the character editor's "← Back" returns — set by whoever opens it
+   *  (the Assets panel, or Settings for the viewer's own avatar). */
+  private charEditorReturn: MenuId = 'assets';
   private furnEditor!: FurnitureEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
@@ -203,7 +206,7 @@ export class OfficeScene extends Phaser.Scene {
   private collapsed = false;
   private spaceTab: 'layouts' | 'zones' = 'layouts';
   private assetsTab: 'chars' | 'furniture' = 'chars';
-  private charTab: 'agent' | 'npc' | 'me' = 'agent';
+  private charTab: 'agent' | 'npc' = 'agent';
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -352,10 +355,11 @@ export class OfficeScene extends Phaser.Scene {
           canCreate: false,
         },
       ],
-      // Entry is via the Assets panel now — the editor opens as an overlay on
-      // demand (editEntity/newEntity); no top-bar button, and Back returns to Assets.
+      // Entry is via the Assets panel (shared gallery) or Settings (the viewer's
+      // own avatar); the editor opens as an overlay on demand (editEntity/newEntity),
+      // no top-bar button, and Back returns to whichever opened it.
       entryButton: false,
-      onBack: () => void this.setMenu('assets'),
+      onBack: () => void this.setMenu(this.charEditorReturn),
     });
     this.charCreator = new CharacterCreator({
       save: (data) => this.room?.send('saveAvatar', { data }),
@@ -365,6 +369,7 @@ export class OfficeScene extends Phaser.Scene {
         this.room?.send('saveAvatar', { data });
         if (this.myAvatarId) {
           upsertCharacterTemplate(this.myAvatarId, data);
+          this.charEditorReturn = 'settings';
           this.charEditor.editEntity('me', this.myAvatarId);
         }
       },
@@ -1519,7 +1524,7 @@ export class OfficeScene extends Phaser.Scene {
   private renderCharAssets(body: HTMLElement): void {
     const chips = document.createElement('div');
     chips.className = 'pa-chips';
-    const mkChip = (label: string, tab: 'agent' | 'npc' | 'me'): HTMLElement => {
+    const mkChip = (label: string, tab: 'agent' | 'npc'): HTMLElement => {
       const c = document.createElement('div');
       c.className = 'pa-chip' + (this.charTab === tab ? ' on' : '');
       c.textContent = label;
@@ -1529,26 +1534,24 @@ export class OfficeScene extends Phaser.Scene {
       };
       return c;
     };
-    chips.append(mkChip('Avatars', 'agent'), mkChip('NPCs', 'npc'), mkChip('My Avatar', 'me'));
+    // Assets manages only the shared (not-yet-user-specific) avatars + NPCs.
+    // A player's own avatar is created/edited from Settings, not here.
+    chips.append(mkChip('Avatars', 'agent'), mkChip('NPCs', 'npc'));
     body.appendChild(chips);
 
-    type Item = { id: string; name: string; frame?: SpriteData; kind: 'agent' | 'npc' | 'me' };
+    type Item = { id: string; name: string; frame?: SpriteData; kind: 'agent' | 'npc' };
     let items: Item[] = [];
     if (this.charTab === 'agent') {
       items = (getCharacterTemplates() ?? [])
         .filter((c) => !isPlayerAvatarSkin(c.id))
         .map((c) => ({ id: c.id, name: c.id, frame: c.data.down?.[1] ?? c.data.down?.[0], kind: 'agent' as const }));
-    } else if (this.charTab === 'npc') {
+    } else {
       items = getNpcRoster().map((r) => ({
         id: `${r.kind}_${r.variant}`,
         name: `${r.kind} ${r.variant}`,
         frame: r.data.down?.[1] ?? r.data.down?.[0],
         kind: 'npc' as const,
       }));
-    } else {
-      const id = this.myAvatarId;
-      const t = id ? (getCharacterTemplates() ?? []).find((c) => c.id === id) : undefined;
-      if (t) items = [{ id: t.id, name: 'My Avatar', frame: t.data.down?.[1] ?? t.data.down?.[0], kind: 'me' }];
     }
 
     if (this.charTab === 'agent') {
@@ -1557,6 +1560,7 @@ export class OfficeScene extends Phaser.Scene {
       add.textContent = '＋ New avatar';
       add.onclick = () => {
         void this.setMenu(null);
+        this.charEditorReturn = 'assets';
         this.charEditor.newEntity('agent');
       };
       body.appendChild(add);
@@ -1565,7 +1569,7 @@ export class OfficeScene extends Phaser.Scene {
     if (!items.length) {
       const empty = document.createElement('div');
       empty.className = 'grouplbl';
-      empty.textContent = this.charTab === 'me' ? 'No avatar yet — pick one in Settings.' : 'None yet.';
+      empty.textContent = 'None yet.';
       body.appendChild(empty);
     }
     for (const it of items) {
@@ -1581,6 +1585,7 @@ export class OfficeScene extends Phaser.Scene {
       edit.textContent = 'Edit';
       edit.onclick = () => {
         void this.setMenu(null);
+        this.charEditorReturn = 'assets';
         this.charEditor.editEntity(it.kind, it.id);
       };
       row.appendChild(edit);
@@ -1597,7 +1602,7 @@ export class OfficeScene extends Phaser.Scene {
         };
         row.appendChild(copy);
       }
-      if (it.kind !== 'me') {
+      {
         const isUser = it.kind === 'agent' && !this.bundledSkinIds.has(it.id);
         const del = document.createElement('button');
         del.className = 'pa-b' + (isUser ? ' danger' : '');
@@ -2210,6 +2215,7 @@ export class OfficeScene extends Phaser.Scene {
     panel.querySelector<HTMLButtonElement>('#pa-av-edit')!.onclick = () => {
       if (!this.myAvatarId) return;
       void this.setMenu(null);
+      this.charEditorReturn = 'settings';
       this.charEditor.editEntity('me', this.myAvatarId);
     };
     panel.querySelector<HTMLButtonElement>('#pa-av-save')!.onclick = async () => {
@@ -2323,6 +2329,10 @@ export class OfficeScene extends Phaser.Scene {
       const h = frame?.length ?? 32;
       cv.width = w;
       cv.height = h;
+      // Display at the avatar's own aspect ratio (fixed height) so a square
+      // 32×32 avatar isn't squished into the old 16×32 (1:2) box.
+      cv.style.height = '4rem';
+      cv.style.width = `${((4 * w) / h).toFixed(2)}rem`;
       const ctx = cv.getContext('2d')!;
       ctx.clearRect(0, 0, w, h);
       if (frame) {
