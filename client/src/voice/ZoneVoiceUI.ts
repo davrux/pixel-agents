@@ -105,12 +105,27 @@ export class ZoneVoiceUI {
       #pa-zv-prox input{accent-color:#3f9d54;width:1rem;height:1rem;}
       #pa-zv-sub .subhint{font-size:0.78rem;color:#6f7590;margin-top:0.35rem;line-height:1.5;}
       #pa-zv-peers{margin-top:0.7rem;border-top:1px solid #1b2138;padding-top:0.6rem;}
-      #pa-zv-peers .pr{display:flex;align-items:center;gap:0.45rem;margin:0.3rem 0;}
-      #pa-zv-peers .pr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.9rem;}
-      #pa-zv-peers .pr input[type=range]{flex:0 0 5rem;accent-color:#3f78c4;}
+      #pa-zv-peers .pr{display:flex;flex-direction:column;gap:0.4rem;margin:0.45rem 0;padding:0.5rem 0.55rem;
+        background:#0a0d16;border:2px solid #05060b;border-radius:0.45rem;}
+      #pa-zv-peers .pr .top{display:flex;align-items:center;gap:0.5rem;}
+      #pa-zv-peers .pr .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.9rem;color:#e5e9f6;}
+      #pa-zv-peers .pr .pct{min-width:2.6rem;text-align:right;font-size:0.78rem;color:#9aa0b8;}
       #pa-zv-peers .pr button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#cdd3dd;
-        border-radius:0.3rem;font:0.8rem 'FS Pixel Sans',monospace;padding:0.2rem 0.45rem;box-shadow:inset 0 2px 0 #2b3252;}
-      #pa-zv-peers .pr button.muted{background:#7c2634;border-color:#05060b;color:#f6cdd4;}
+        border-radius:0.3rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.2rem 0.45rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-zv-peers .pr button.muted{background:#7c2634;border-color:#05060b;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+      #pa-zv-peers .pr button .ico{position:relative;display:inline-block;line-height:1;}
+      #pa-zv-peers .pr button.muted .ico::after{content:'';position:absolute;left:-12%;top:44%;width:124%;height:0.16em;
+        background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
+      /* Pixel-styled per-peer volume slider (Chrome + Firefox). */
+      #pa-zv-peers input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:0.6rem;background:transparent;cursor:pointer;}
+      #pa-zv-peers input[type=range]::-webkit-slider-runnable-track{height:0.6rem;background:#171b2b;border:2px solid #05060b;
+        border-radius:0.3rem;box-shadow:inset 0 2px 0 #2b3252;}
+      #pa-zv-peers input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;margin-top:-0.32rem;
+        width:0.95rem;height:1.15rem;background:#3f78c4;border:2px solid #05060b;border-radius:0.25rem;
+        box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+      #pa-zv-peers input[type=range]::-moz-range-track{height:0.6rem;background:#171b2b;border:2px solid #05060b;border-radius:0.3rem;}
+      #pa-zv-peers input[type=range]::-moz-range-thumb{width:0.95rem;height:1.15rem;background:#3f78c4;border:2px solid #05060b;
+        border-radius:0.25rem;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
       #pa-zv-peers .empty{color:#6f7590;font-size:0.85rem;}
     `;
     document.head.appendChild(style);
@@ -252,21 +267,35 @@ export class ZoneVoiceUI {
     for (const p of peers) {
       const row = document.createElement('div');
       row.className = 'pr';
+
+      const top = document.createElement('div');
+      top.className = 'top';
+      // Mute keeps the speaker glyph and gains a red slash (CSS) when muted.
+      const mute = document.createElement('button');
+      mute.className = p.muted ? 'muted' : '';
+      mute.innerHTML = '<span class="ico">🔊</span>';
+      mute.title = p.muted ? 'Unmute this user' : 'Mute this user';
+      mute.addEventListener('click', () => this.voice.setPeerMuted(p.identity, !p.muted));
       const nm = document.createElement('span');
       nm.className = 'nm';
       nm.textContent = p.name;
+      const pct = document.createElement('span');
+      pct.className = 'pct';
+      pct.textContent = `${Math.round(p.volume * 100)}%`;
+      top.append(mute, nm, pct);
+
       const vol = document.createElement('input');
       vol.type = 'range';
       vol.min = '0';
       vol.max = '200';
       vol.value = String(Math.round(p.volume * 100));
-      vol.addEventListener('input', () => this.voice.setPeerVolume(p.identity, Number(vol.value) / 100));
-      const mute = document.createElement('button');
-      mute.textContent = p.muted ? '🔇' : '🔊';
-      mute.classList.toggle('muted', p.muted);
-      mute.title = p.muted ? 'Unmute this user' : 'Mute this user';
-      mute.addEventListener('click', () => this.voice.setPeerMuted(p.identity, !p.muted));
-      row.append(nm, vol, mute);
+      vol.title = 'Volume';
+      vol.addEventListener('input', () => {
+        this.voice.setPeerVolume(p.identity, Number(vol.value) / 100);
+        pct.textContent = `${vol.value}%`;
+      });
+
+      row.append(top, vol);
       this.peersEl.appendChild(row);
     }
   }

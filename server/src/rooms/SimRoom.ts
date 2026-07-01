@@ -90,6 +90,8 @@ export class SimRoom extends Room<RoomState> {
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
   private readonly chatLog: Array<{ from: string; text: string; at: number }> = [];
   private readonly lastChatAt = new Map<string, number>();
+  /** Per-session rate limit for voice-chat announcements (join/mute/deafen). */
+  private readonly lastVoiceEventAt = new Map<string, number>();
   /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
   private readonly conferences = new Map<string, Set<number>>();
   /** Per-deployment prefix for LiveKit room names (env override, else a stable
@@ -377,6 +379,7 @@ export class SimRoom extends Room<RoomState> {
       }
     }
     this.lastChatAt.delete(client.sessionId);
+    this.lastVoiceEventAt.delete(client.sessionId);
   }
 
   /** Whether a conference monitor is placed with its anchor at this tile. */
@@ -633,6 +636,10 @@ export class SimRoom extends Room<RoomState> {
     // chat. The allowlist doubles as validation; unknown events are ignored.
     this.onMessage('voiceEvent', (client, msg: { event?: string }) => {
       if (this.players.get(client.sessionId) === undefined) return; // must have an avatar
+      const now = Date.now();
+      // Rate-limit announcements per session so rapid join/mute toggling can't
+      // spam the zone chat (mirrors the 'chat' handler's ~1.4/s throttle).
+      if (now - (this.lastVoiceEventAt.get(client.sessionId) ?? 0) < 700) return;
       const name = this.chatNameFor(client);
       const texts: Record<string, string> = {
         join: `${name} joined the voice chat.`,
@@ -644,6 +651,7 @@ export class SimRoom extends Room<RoomState> {
       };
       const text = texts[msg?.event ?? ''];
       if (!text) return;
+      this.lastVoiceEventAt.set(client.sessionId, now);
       this.broadcast('m', { type: 'system', text });
     });
 

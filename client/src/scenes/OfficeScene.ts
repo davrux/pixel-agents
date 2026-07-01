@@ -1102,15 +1102,15 @@ export class OfficeScene extends Phaser.Scene {
   private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean; deafened: boolean }): void {
     this.audioDot?.classList.toggle('live', s.connected);
     if (this.micBarBtn) {
+      // Keep the mic glyph; a red slash (CSS) marks the muted state.
       this.micBarBtn.style.display = s.connected ? '' : 'none';
       this.micBarBtn.classList.toggle('warn', !s.micOn);
-      this.micBarBtn.firstChild!.textContent = s.micOn ? '🎤' : '🔇';
       this.micBarBtn.title = s.micOn ? 'Mute your mic' : 'Unmute your mic';
     }
     if (this.deafBarBtn) {
+      // Keep the speaker glyph; a red slash (CSS) marks the silenced state.
       this.deafBarBtn.style.display = s.connected ? '' : 'none';
       this.deafBarBtn.classList.toggle('danger', s.deafened);
-      this.deafBarBtn.firstChild!.textContent = s.deafened ? '🔕' : '🔊';
       this.deafBarBtn.title = s.deafened ? 'Un-silence everyone' : 'Silence everyone';
     }
   }
@@ -1132,6 +1132,11 @@ export class OfficeScene extends Phaser.Scene {
       .pa-btn.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-3px;height:3px;background:#7fd08a;border-radius:2px;}
       .pa-btn.warn{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
       .pa-btn.danger{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+      /* Muted/silenced: keep the normal mic/speaker glyph, strike a slash through it. */
+      .pa-btn .ico{position:relative;display:inline-block;line-height:1;}
+      .pa-btn.warn .ico::after,.pa-btn.danger .ico::after{content:'';position:absolute;left:-12%;top:44%;
+        width:124%;height:0.16em;background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);
+        box-shadow:0 0 0 1px rgba(0,0,0,.55);}
       .pa-btn .caret{color:#7f859c;font-size:0.8rem;}
       #pa-menubar .pa-dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#5a6076;}
       #pa-menubar .pa-dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}
@@ -1330,6 +1335,7 @@ export class OfficeScene extends Phaser.Scene {
     const b = document.createElement('button');
     b.className = 'pa-btn';
     const ic = document.createElement('span');
+    ic.className = 'ico';
     ic.textContent = icon;
     b.appendChild(ic);
     if (label) {
