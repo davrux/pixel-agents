@@ -1,0 +1,46 @@
+# electron-builder packaging config for the Pixel Agents desktop app.
+# Produces an unsigned Linux AppImage (no code-signing certs; T5.3 confirms
+# install-and-launch on real Linux). The authoritative build gate is T5.1.
+#
+# Packaged layout must satisfy the path math in desktop/src/main.ts, which
+# resolves from import.meta.url: main.js + preload.js sit together, and
+# client/dist is two directories above them. Compiling desktop/src -> desktop/dist
+# means main.js lives at <app>/desktop/dist/main.js, so ../../client/dist ->
+# <app>/client/dist. The files mapping below reproduces that structure in the asar.
+appId: org.pixelagents.desktop
+productName: Pixel Agents
+
+directories:
+  # icon.png (+ any future variants) resolved here; also the AppImage icon source.
+  buildResources: build
+  output: release
+
+# The compiled Electron main/preload (desktop/dist, emitted by the T4.6
+# build:desktop step) plus the client Vite output that the app:// protocol serves.
+# from/to preserves desktop/src/main.ts's expected relative layout inside the asar.
+files:
+  - from: dist
+    to: desktop/dist
+    filter:
+      - '**/*'
+  - from: ../client/dist
+    to: client/dist
+    filter:
+      - '**/*'
+  - package.json
+
+# Electron main entry inside the packaged app (the compiled desktop/dist/main.js).
+extraMetadata:
+  main: desktop/dist/main.js
+
+linux:
+  target:
+    - AppImage
+  # Created placeholder pixel-art icon (no icon asset exists in the repo;
+  # explicit design deviation). Replace with a final icon later.
+  icon: build/icon.png
+  category: Network
+
+# No signing: unsigned build (no certs available in this environment / CI).
+# artifact: e.g. "Pixel Agents-0.1.0-x86_64.AppImage"
+artifactName: ${productName}-${version}-${arch}.AppImage
