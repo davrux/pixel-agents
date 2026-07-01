@@ -339,12 +339,11 @@ export class SimRoom extends Room<RoomState> {
       playerId,
       version: this.version,
     });
-    client.send('m', {
-      type: 'settingsLoaded',
-      soundEnabled: appStore.getSetting('soundEnabled', true),
-      alwaysShowLabels: appStore.getSetting('alwaysShowLabels', false),
-      alertVolume: appStore.getSetting('alertVolume', 1),
-    });
+    // Personal viewer prefs (per user; anonymous viewers get the defaults).
+    const vs = userId
+      ? appStore.getViewerSettings(userId)
+      : { soundEnabled: true, alwaysShowLabels: false, alertVolume: 1 };
+    client.send('m', { type: 'settingsLoaded', ...vs });
   }
 
   onLeave(client: Client): void {
@@ -719,14 +718,22 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    // Settings (global, persisted in SQLite).
-    this.onMessage('setSoundEnabled', (_c, msg: { enabled?: boolean }) =>
-      appStore.setSetting('soundEnabled', !!msg?.enabled));
-    this.onMessage('setAlwaysShowLabels', (_c, msg: { enabled?: boolean }) =>
-      appStore.setSetting('alwaysShowLabels', !!msg?.enabled));
-    this.onMessage('setAlertVolume', (_c, msg: { volume?: number }) => {
+    // Personal viewer prefs — keyed per user (never global). Anonymous viewers
+    // (open dev) keep them client-side only. The client applies them locally on
+    // toggle regardless; the server write is just cross-device persistence.
+    this.onMessage('setSoundEnabled', (client, msg: { enabled?: boolean }) => {
+      const { userId } = authOf(client);
+      if (userId) appStore.setViewerSetting(userId, 'soundEnabled', !!msg?.enabled);
+    });
+    this.onMessage('setAlwaysShowLabels', (client, msg: { enabled?: boolean }) => {
+      const { userId } = authOf(client);
+      if (userId) appStore.setViewerSetting(userId, 'alwaysShowLabels', !!msg?.enabled);
+    });
+    this.onMessage('setAlertVolume', (client, msg: { volume?: number }) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
       const v = Number(msg?.volume);
-      appStore.setSetting('alertVolume', Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1);
+      appStore.setViewerSetting(userId, 'alertVolume', Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1);
     });
 
     // Pin the viewer's character skin (keyed by their identity). Applies to

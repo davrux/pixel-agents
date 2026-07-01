@@ -11,6 +11,8 @@ import * as crypto from 'node:crypto';
 import { db } from './db.js';
 
 export const MIN_PASSWORD_LEN = 6;
+/** Upper bound so a huge password can't turn scrypt into a CPU DoS. */
+export const MAX_PASSWORD_LEN = 128;
 
 export interface User {
   userId: string;
@@ -70,9 +72,9 @@ export function normalizeLoginId(raw: unknown): string {
     .slice(0, 32);
 }
 
-/** Whether a password meets the minimum policy (length only, for now). */
+/** Whether a password meets the policy: a string of MIN..MAX length. */
 export function isValidPassword(password: unknown): password is string {
-  return typeof password === 'string' && password.length >= MIN_PASSWORD_LEN;
+  return typeof password === 'string' && password.length >= MIN_PASSWORD_LEN && password.length <= MAX_PASSWORD_LEN;
 }
 
 class UserStore {

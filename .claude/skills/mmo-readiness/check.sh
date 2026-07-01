@@ -85,6 +85,21 @@ man "new travel = placed 'portal' furniture + a ZONES entry, not a hard-coded ju
 man "no module-global mutable game state outside a room (keep rooms shared-nothing)"
 man "client works in BOTH Chrome and Firefox (esp. media: setSinkId on elements, not AudioContext; no single-browser-only API without graceful fallback)"
 
+# 5b — Security / authorization (AGENTS.md rule #9) --------------------------
+head "5b. Security & authorization"
+if [[ -f server/src/permissions.ts ]] && grep -rq "\.may(" server/src/rooms 2>/dev/null; then
+  pass "central permission policy present (permissions.ts + may() in rooms)"
+else
+  warn "permissions.ts / may() not found — admin & world actions must be gated centrally"
+fi
+# Heuristic: settings/prefs writes should be per-user, not a global setSetting from a handler.
+if grep -rnE "onMessage\([^)]*set(Sound|AlwaysShowLabels|AlertVolume)" server/src 2>/dev/null | grep -q "_c"; then
+  bad "viewer-settings handlers ignore the client — personal prefs must be keyed by the authed userId, not global"
+fi
+man "every state-mutating onMessage authorizes: personal data keyed by authOf(client).userId (never a client-supplied id/name); shared/admin actions via may(client, capability)"
+man "secrets stay server-side: LiveKit key/secret, admin token, password hashes never sent to the client; a user only ever gets its OWN agent token"
+man "a new message/command decides its capability/ownership in the same change and defaults to deny; client-side hiding is UX only"
+
 # 6 — Build & typecheck ------------------------------------------------------
 if [[ $STATIC_ONLY -eq 0 ]]; then
   head "6. Typecheck + build"

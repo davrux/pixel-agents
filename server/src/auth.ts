@@ -86,8 +86,10 @@ export function registerAuth(app: Express, adminToken: string): void {
   app.post('/login', (req: Request, res: Response) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const loginId = normalizeLoginId(body.username);
-    const password = String(body.password ?? '');
-    const token = String(body.token ?? '');
+    // Cap lengths on this unauthenticated endpoint so a huge password can't turn
+    // scrypt verification into a CPU DoS, and the token compare stays bounded.
+    const password = String(body.password ?? '').slice(0, 256);
+    const token = String(body.token ?? '').slice(0, 512);
     const fail = (msg: string): void => void res.status(401).type('html').send(loginHtml(msg));
 
     if (!loginId) return fail('Enter a login id.');

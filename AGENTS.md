@@ -161,6 +161,27 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
    element for Chrome's remote-track-into-WebAudio quirk. Don't ship a feature
    that only works in one browser; if unavoidable, gate it and keep the other
    browser functional.
+9. **Authorization & data isolation are a first-class requirement.** Security is
+   not an afterthought — every change must preserve these boundaries:
+   - **Personal data is keyed by the authenticated `userId`** (from `onAuth`),
+     **never** a client-supplied id/name. A user can only read/mutate *their own*
+     avatar, prefs, viewer settings, password and agent token. Handlers like
+     `saveAvatar`/`avatarFromTemplate`/`setPassword`/`setUsername`/viewer-settings
+     resolve the target from `authOf(client)`, not from the payload.
+   - **Shared/world + admin actions go through `permissions.ts`** — call
+     `may(client, capability, zoneId?)`. Gallery/asset edits, zone create/delete,
+     user management and granting zone-admins need global admin; a zone's layout/
+     arrival/NPCs need that zone's admin (or global). Slash commands are gated by
+     their registry `group` (`mayRunCommand`). **Default to deny**; a normal user
+     must never reach an admin-only or another-user's area.
+   - **Secrets stay on the server.** LiveKit API key/secret, the admin token and
+     scrypt password hashes never reach the client; a viewer only ever receives
+     **its own** agent token (and short-lived, room-scoped LiveKit JWTs whose
+     identity is the requester's own avatar). Tokens/passwords have bounded
+     length so verification can't become a CPU DoS.
+   - Client-side hiding of controls is **UX only**; the server is the gate. When
+     you add a message or command, decide its capability/ownership in the *same*
+     change and enforce it server-side.
 
 ## Conventions
 
