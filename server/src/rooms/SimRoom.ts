@@ -916,7 +916,23 @@ export class SimRoom extends Room<RoomState> {
         return;
       }
       case 'users': {
-        if (args[0]?.toLowerCase() === 'all') {
+        const mode = args[0]?.toLowerCase();
+        if (mode === 'all') {
+          // Every registered account, with its current zone or "offline".
+          const users = userStore.list();
+          sys(
+            users.length
+              ? `All users (${users.length}):\n` +
+                  users
+                    .map((u) => {
+                      const zone = presence.zoneOf(u.userId) ?? 'offline';
+                      return `• ${UserStore.displayName(u)} (${u.userId})${u.isAdmin ? ' ★' : ''} — ${zone}`;
+                    })
+                    .join('\n')
+              : 'No users registered.',
+          );
+        } else if (mode === 'online') {
+          // Everyone online across all zones.
           const all = presence
             .list()
             .sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
@@ -926,6 +942,7 @@ export class SimRoom extends Room<RoomState> {
               : 'No users online.',
           );
         } else {
+          // Users in this zone.
           const here = presence.list().filter((u) => u.zone === this.zone.id);
           sys(
             here.length

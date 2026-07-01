@@ -37,8 +37,8 @@ export const COMMANDS: CommandSpec[] = [
   {
     name: 'users',
     group: 'user',
-    usage: '/users [all]',
-    summary: 'List users in your zone; /users all lists everyone online with their zone.',
+    usage: '/users [all|online]',
+    summary: 'List users in your zone; /users all = every account (with zone/offline); /users online = everyone online.',
   },
   {
     name: 'add',

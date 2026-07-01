@@ -121,6 +121,12 @@ class UserStore {
     return this.row(normalizeLoginId(loginId)) !== undefined;
   }
 
+  /** All accounts, ordered by login id (for /users all). */
+  list(): User[] {
+    const rows = this.db.prepare('SELECT * FROM users ORDER BY user_id').all() as unknown as UserRow[];
+    return rows.map((r) => this.toUser(r));
+  }
+
   getByAgentToken(token: string): User | undefined {
     if (!token) return undefined;
     const r = this.db.prepare('SELECT * FROM users WHERE agent_token = ?').get(token) as UserRow | undefined;
