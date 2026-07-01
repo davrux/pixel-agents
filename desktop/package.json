@@ -5,7 +5,10 @@
   "type": "module",
   "main": "./src/main.ts",
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "build": "tsc",
+    "dev": "electron dist/main.js",
+    "dist": "electron-builder"
   },
   "dependencies": {
     "electron": "^43.0.0"
