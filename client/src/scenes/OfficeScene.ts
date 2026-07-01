@@ -2217,6 +2217,8 @@ export class OfficeScene extends Phaser.Scene {
         align-items:center;gap:0.4rem;flex-wrap:wrap;}
       #pa-userinfo code{color:#cdd3dd;background:#14161c;border:1px solid #3a4150;border-radius:0.25rem;padding:0.05rem 0.3rem;}
       #pa-userinfo .admin{background:#2d4a2f;border:1px solid #3f6d43;color:#cdeccf;border-radius:0.25rem;padding:0.05rem 0.35rem;}
+      #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#232a44;border:1px solid #3a4470;
+        color:#dfe6ff;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#3a2230;border:1px solid #6d3a4a;
         color:#ffd2dc;border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;}
     `;
@@ -2252,6 +2254,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <button id="pa-change-server">Change server</button>
       <button id="pa-logout">Log out</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
@@ -2369,7 +2372,43 @@ export class OfficeScene extends Phaser.Scene {
       }
       gotoLogout();
     };
+
+    // "Change server" is a desktop-only concern (the browser build's server is
+    // its own origin, not user-configurable), so it is hidden in the browser.
+    const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
+    changeServerBtn.style.display = isDesktop() ? '' : 'none';
+    changeServerBtn.onclick = () => void this.desktopChangeServer();
+
     this.syncSettingsInputs();
+  }
+
+  /** Desktop "Change server": forget the saved server URL (and the token, which
+   *  is scoped to that server) then reload. With no saved URL the boot flow
+   *  falls through to the Connection screen, then Sign-in — the same path a
+   *  first launch takes. Best-effort revokes the current session first. */
+  private async desktopChangeServer(): Promise<void> {
+    if (
+      !(await confirmDialog('Disconnect and connect to a different server? You will need to sign in again.', {
+        confirmLabel: 'Change server',
+      }))
+    )
+      return;
+    try {
+      const token = await desktop().getToken();
+      if (token) {
+        await fetch(`${serverHttpOrigin()}/desktop/signout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+      }
+    } catch {
+      // Best-effort revocation on the current server; proceed regardless so the
+      // user is never stuck on an unreachable server. The token is never logged.
+    }
+    await desktop().clearToken();
+    await desktop().clearServerUrl();
+    window.location.reload();
   }
 
   /** Desktop sign-out (AC-008): revoke the server session via `POST /desktop/signout`

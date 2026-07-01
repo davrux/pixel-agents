@@ -2,12 +2,15 @@ import {
   app,
   BrowserWindow,
   desktopCapturer,
+  dialog,
   ipcMain,
+  Menu,
   protocol,
   safeStorage,
   session,
   shell,
 } from 'electron';
+import type { Certificate } from 'electron';
 import type { DesktopCapturerSource } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
@@ -30,7 +33,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST_ROOT = join(HERE, '..', '..', 'client', 'dist');
 
 // Preload injected into the renderer; exposes the typed window.pixelDesktop API.
-const PRELOAD_PATH = join(HERE, 'preload.js');
+// Bundled to CommonJS (preload.cjs) because a sandboxed preload cannot be an
+// ES module — with sandbox:true Electron only loads a CommonJS preload.
+const PRELOAD_PATH = join(HERE, 'preload.cjs');
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -125,6 +130,127 @@ async function readServerUrl(): Promise<string | null> {
 
 async function writeServerUrl(url: string): Promise<void> {
   await writeFile(configPath(), JSON.stringify({ serverUrl: url }), 'utf8');
+}
+
+// Forgets the saved server URL. The next boot then finds no URL and falls
+// through to the Connection screen (mirrors clearStoredToken; "Change server").
+async function clearStoredServerUrl(): Promise<void> {
+  await rm(configPath(), { force: true });
+}
+
+// --- TLS certificate trust (trust-on-first-use) --------------------------------
+// The desktop app connects to a user-configured, self-hosted server that may
+// present a self-signed / private-CA certificate Chromium won't trust by default
+// (ERR_CERT_AUTHORITY_INVALID). Rather than disabling TLS verification globally,
+// we intercept verification and, for a cert Chromium rejects, ask the user to
+// explicitly trust THIS host's THIS certificate (shown by fingerprint). Accepted
+// fingerprints are remembered per host so later launches connect silently. Certs
+// Chromium already trusts are deferred to Chromium unchanged.
+const TRUSTED_CERTS_FILE = 'trusted-certs.json';
+
+function trustedCertsPath(): string {
+  return join(app.getPath('userData'), TRUSTED_CERTS_FILE);
+}
+
+// host -> set of accepted certificate fingerprints (e.g. "sha256/AbC...").
+const trustedCerts = new Map<string, Set<string>>();
+// host|fingerprint -> in-flight decision, so concurrent requests for the same
+// untrusted cert share one dialog instead of stacking prompts.
+const pendingTrust = new Map<string, Promise<boolean>>();
+
+async function loadTrustedCerts(): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(trustedCertsPath(), 'utf8');
+  } catch {
+    return; // none stored yet
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      for (const [host, fps] of Object.entries(parsed as Record<string, unknown>)) {
+        if (Array.isArray(fps)) trustedCerts.set(host, new Set(fps.filter((f): f is string => typeof f === 'string')));
+      }
+    }
+  } catch {
+    // corrupt store — start fresh (a rejected cert will simply re-prompt)
+  }
+}
+
+async function saveTrustedCerts(): Promise<void> {
+  const obj: Record<string, string[]> = {};
+  for (const [host, fps] of trustedCerts) obj[host] = [...fps];
+  try {
+    await writeFile(trustedCertsPath(), JSON.stringify(obj), 'utf8');
+  } catch {
+    // best-effort persistence; trust still holds for this session
+  }
+}
+
+// Ask the user whether to trust an untrusted certificate for a specific host.
+// Default button is Cancel, so an accidental Enter/close does NOT trust.
+async function promptTrustCertificate(
+  window: BrowserWindow | null,
+  hostname: string,
+  certificate: Certificate,
+  verificationResult: string,
+): Promise<boolean> {
+  const detail =
+    `${hostname} presented a certificate that is not trusted by the system ` +
+    `(${verificationResult}).\n\n` +
+    `Subject: ${certificate.subjectName}\n` +
+    `Issuer:  ${certificate.issuerName}\n` +
+    `Fingerprint: ${certificate.fingerprint}\n\n` +
+    `Only trust this if you recognize the server. The certificate will be ` +
+    `remembered for this host.`;
+  const opts = {
+    type: 'warning' as const,
+    buttons: ['Cancel', 'Trust and Connect'],
+    defaultId: 0,
+    cancelId: 0,
+    title: 'Untrusted server certificate',
+    message: `Trust the certificate for ${hostname}?`,
+    detail,
+  };
+  const { response } = window
+    ? await dialog.showMessageBox(window, opts)
+    : await dialog.showMessageBox(opts);
+  return response === 1;
+}
+
+// Intercept TLS verification for the default session (covers fetch, XHR and the
+// Colyseus WebSocket — certificate-error does not fire reliably for those).
+function registerCertificateTrust(getWindow: () => BrowserWindow | null): void {
+  session.defaultSession.setCertificateVerifyProc((request, callback) => {
+    const { hostname, certificate, verificationResult } = request;
+    if (verificationResult === 'net::OK') {
+      callback(-3); // already valid — defer to Chromium's own result
+      return;
+    }
+    const fingerprint = certificate.fingerprint;
+    if (trustedCerts.get(hostname)?.has(fingerprint)) {
+      callback(0); // user previously trusted this exact cert for this host
+      return;
+    }
+    const key = `${hostname}|${fingerprint}`;
+    let decision = pendingTrust.get(key);
+    if (!decision) {
+      decision = promptTrustCertificate(getWindow(), hostname, certificate, verificationResult);
+      pendingTrust.set(key, decision);
+      void decision.finally(() => pendingTrust.delete(key));
+    }
+    void decision.then(async (accepted) => {
+      if (accepted) {
+        const set = trustedCerts.get(hostname) ?? new Set<string>();
+        set.add(fingerprint);
+        trustedCerts.set(hostname, set);
+        await saveTrustedCerts();
+        callback(0); // trust — the in-flight request proceeds, no reload needed
+      } else {
+        callback(-2); // reject
+      }
+    });
+  });
 }
 
 // Reads and decrypts the stored bearer token. Returns null (treated as absent)
@@ -258,6 +384,7 @@ function registerIpcHandlers(): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
   ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
+  ipcMain.handle(channels.clearServerUrl, (): Promise<void> => clearStoredServerUrl());
   ipcMain.handle(channels.probeServer, (_event, url: string): Promise<boolean> => probeServer(url));
   ipcMain.handle(channels.getToken, (): Promise<string | null> => readToken());
   ipcMain.handle(channels.setToken, (_event, token: string): Promise<void> => writeToken(token));
@@ -304,6 +431,20 @@ function openExternalIfWeb(targetUrl: string): void {
   }
 }
 
+// safeStorage backend selection (Linux). Electron/Chromium auto-detects the OS
+// keyring from the desktop-environment NAME, not from what is actually on D-Bus.
+// On compositors it does not recognize (Hyprland, sway and other tiling WMs) it
+// falls back to the "basic" plaintext store, for which
+// safeStorage.isEncryptionAvailable() is false — so writeToken() refuses to
+// persist the bearer token and desktop sign-in fails ("Sign-in failed…"). Force
+// the libsecret backend so any running Secret Service provider (gnome-keyring,
+// or KWallet's org.freedesktop.secrets shim) is used regardless of the DE name.
+// Where no keyring exists at all this simply reports unavailable, exactly as
+// before — no regression. macOS/Windows keep their native Keychain/DPAPI backends.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('password-store', 'gnome-libsecret');
+}
+
 // Registered before app ready so the scheme is treated as a standard, secure
 // origin (stable secure context) rather than a plain custom protocol.
 protocol.registerSchemesAsPrivileged([
@@ -326,10 +467,20 @@ if (!gotLock) {
     mainWindow.focus();
   });
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    // Drop the default application menu bar (File/Edit/View/Window/Help). The
+    // app's own in-canvas HUD (`#pa-menubar`) is the only chrome we want; this
+    // removes the strip entirely on Linux/Windows (macOS keeps a minimal system
+    // menu, which the OS requires). Also kills the Alt-to-reveal menu behaviour.
+    Menu.setApplicationMenu(null);
+
     protocol.handle(APP_SCHEME, serveBundle);
     registerIpcHandlers();
     registerDisplayMediaHandler();
+    // Load remembered cert trust and install the verify proc BEFORE the window
+    // loads, so the first connection attempt is already intercepted.
+    await loadTrustedCerts();
+    registerCertificateTrust(() => mainWindow);
     mainWindow = createWindow();
 
     app.on('activate', () => {

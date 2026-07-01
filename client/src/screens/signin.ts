@@ -22,6 +22,7 @@
 
 import { desktop } from '../desktop/bridge';
 import { getServerHttpOrigin } from '../net/room';
+import { showConnectionScreen } from './connection';
 
 /** Max login id length — mirrors the server's `normalizeLoginId` slice and the
  *  `loginHtml` input `maxlength` (`server/src/userStore.ts`, `server/src/auth.ts`). */
@@ -74,6 +75,15 @@ function ensureStyles(): void {
     #pa-signin button:hover:not(:disabled){background:#3a72c0;}
     #pa-signin button:focus-visible{outline:3px solid #5a92d6;outline-offset:2px;}
     #pa-signin button:disabled{opacity:0.6;cursor:progress;}
+    #pa-signin .server{margin:0.9rem 0.1rem 0;font-size:0.8rem;color:#8a90a8;text-align:center;
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    #pa-signin .server code{color:#c7ccdf;}
+    #pa-signin .alt{margin:0.35rem 0 0;text-align:center;}
+    /* Reset the primary-button rules for the secondary "change server" link. */
+    #pa-signin .alt button{width:auto;margin:0;padding:0.3rem 0.4rem;background:none;border:none;box-shadow:none;
+      color:#7fa7e0;font-size:0.85rem;text-decoration:underline;cursor:pointer;}
+    #pa-signin .alt button:hover:not(:disabled){background:none;color:#a9c6f0;}
+    #pa-signin .alt button:disabled{opacity:0.5;cursor:not-allowed;}
   `;
   document.head.appendChild(style);
 }
@@ -85,6 +95,16 @@ interface SignInElements {
   tokenInput: HTMLInputElement;
   errorEl: HTMLParagraphElement;
   submit: HTMLButtonElement;
+  serverEl: HTMLParagraphElement;
+  changeServer: HTMLButtonElement;
+}
+
+/** Set the "signing in to <origin>" line from the currently configured server. */
+function renderServerLine(el: HTMLParagraphElement): void {
+  el.replaceChildren(document.createTextNode('Signing in to '));
+  const code = document.createElement('code');
+  code.textContent = getServerHttpOrigin();
+  el.appendChild(code);
 }
 
 function buildOverlay(): SignInElements {
@@ -154,6 +174,19 @@ function buildOverlay(): SignInElements {
   submit.type = 'submit';
   submit.textContent = 'Sign in';
 
+  // Which server these credentials go to, + a way back to the connection screen
+  // to point at a different one (the sign-in screen is desktop-only).
+  const serverEl = document.createElement('p');
+  serverEl.className = 'server';
+  renderServerLine(serverEl);
+
+  const alt = document.createElement('p');
+  alt.className = 'alt';
+  const changeServer = document.createElement('button');
+  changeServer.type = 'button';
+  changeServer.textContent = 'Change server';
+  alt.appendChild(changeServer);
+
   form.append(
     loginLabel,
     loginInput,
@@ -163,11 +196,13 @@ function buildOverlay(): SignInElements {
     tokenInput,
     errorEl,
     submit,
+    serverEl,
+    alt,
   );
   box.append(title, hint, form);
   overlay.appendChild(box);
 
-  return { overlay, loginInput, passwordInput, tokenInput, errorEl, submit };
+  return { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer };
 }
 
 /** Outcome of the token exchange: a token to store, or an inline error message. */
@@ -225,7 +260,8 @@ async function requestToken(
  */
 export function showSignInScreen(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit } = buildOverlay();
+    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer } =
+      buildOverlay();
 
     const setError = (message: string): void => {
       errorEl.textContent = message;
@@ -238,6 +274,7 @@ export function showSignInScreen(): Promise<void> {
       passwordInput.disabled = loading;
       tokenInput.disabled = loading;
       submit.disabled = loading;
+      changeServer.disabled = loading;
       submit.textContent = loading ? 'Signing in…' : 'Sign in';
     };
 
@@ -270,6 +307,21 @@ export function showSignInScreen(): Promise<void> {
       overlay.remove();
       resolve();
     };
+
+    // "Change server": detour back to the connection screen (prefilled with the
+    // current URL), then return here pointed at the chosen server. The connection
+    // screen persists the new URL and updates the configured origin before it
+    // resolves, so the credentials entered next go to the right server.
+    const changeServerFlow = async (): Promise<void> => {
+      clearError();
+      overlay.remove();
+      await showConnectionScreen();
+      renderServerLine(serverEl);
+      setLoading(false);
+      document.body.appendChild(overlay);
+      loginInput.focus();
+    };
+    changeServer.onclick = () => void changeServerFlow();
 
     const form = submit.form;
     if (form) {

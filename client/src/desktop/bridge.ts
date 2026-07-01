@@ -20,6 +20,8 @@ export interface PixelDesktopApi {
   isDesktop: true;
   getServerUrl(): Promise<string | null>;
   setServerUrl(url: string): Promise<void>;
+  /** Forgets the saved server URL so the next boot returns to the Connection screen. */
+  clearServerUrl(): Promise<void>;
   /** Main performs the `/health` fetch (avoids renderer CORS/mixed-content quirks). */
   probeServer(url: string): Promise<boolean>;
   /** Decrypts the bearer token from safeStorage. */

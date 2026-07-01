@@ -11,6 +11,7 @@ const api: PixelDesktopApi = {
   isDesktop: true,
   getServerUrl: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.getServerUrl),
   setServerUrl: (url: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setServerUrl, url),
+  clearServerUrl: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.clearServerUrl),
   probeServer: (url: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.probeServer, url),
   getToken: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.getToken),
   setToken: (token: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setToken, token),

@@ -235,7 +235,7 @@ Foundation. Browser cookie path must stay byte-for-byte unchanged (release gate)
   - **Proof Obligations**: a trivial passing test runs via the new script; tests can create their own fresh/temp SQLite and clean up (no shared session rows, no order dependency — shared-state failure mode).
   - **Completion**: Implementation — runner executes; Quality — sample test green under the script; Integration — script discoverable from repo root. (BLOCKING PREREQUISITE for all other Phase 1 tasks.)
 
-- [ ] **T1.2 — Colyseus token-carrier runtime spike (Early Verification Point)**
+- [x] **T1.2 — Colyseus token-carrier runtime spike (Early Verification Point)**
   - Minimal SimRoom logs `context.token`; a colyseus.js client with `client.auth.token = "spike"` must show `context.token === "spike"` in `onAuth`.
   - **Proof Obligations**: runtime confirms the code-inspection conclusion (`Server.mjs:206` → `context.token`). Success criterion met before building the endpoint.
   - **Failure response**: if not surfaced via `context.token`, fall back to `context.headers` (raw `authorization`/`_authToken`); if neither observable, escalate (ADR reversal trigger, Decision B).
@@ -247,19 +247,19 @@ Foundation. Browser cookie path must stay byte-for-byte unchanged (release gate)
   - **Proof Obligations**: all VPs in TEST 1 (AC-010/011), TEST 2 (AC-005/006), TEST 3A (AC-008/009), TEST 3B (AC-012) hold; literal expected values computed independently of code under test.
   - **Completion**: L2 — all three tests green; no order dependency; no token/password/admin-token in output.
 
-- [ ] **T1.4 — `POST /desktop/token` + `POST /desktop/signout` + `userIdFromBearer`/`hasValidBearerSession`**
+- [x] **T1.4 — `POST /desktop/token` + `POST /desktop/signout` + `userIdFromBearer`/`hasValidBearerSession`**
   - `/desktop/token`: same creds logic as `/login` (`normalizeLoginId`, `verifyPassword`, `tokenEquals(token, ADMIN_TOKEN)` for admin path, no self-registration) → `createSession` → `{ token: sid }`; sets NO `Set-Cookie`. Bad creds → 401 generic message, no session row. `/desktop/signout`: extract sid → `deleteSession` (idempotent) → 204. Helpers reuse `getSession`. Mounted only when `ADMIN_TOKEN` set. Token/password/admin token never logged.
   - **Reference Contract Values**: #3, #4, #8 (token never logged).
   - **Proof Obligations**: TEST 2 VP1/VP3/VP4/VP5; missing-config (routes absent without `ADMIN_TOKEN`); no-op idempotent signout (with T1.6).
   - **Completion**: L2 — TEST 2 issuance + revoke VPs green; L3 — `tsc --noEmit` passes.
 
-- [ ] **T1.5 — Additive `onAuth` bearer branch (cookie branch verbatim)**
+- [x] **T1.5 — Additive `onAuth` bearer branch (cookie branch verbatim)**
   - Append bearer branch after the cookie branch in `SimRoom.onAuth`: `authRequired=false` short-circuit unchanged (line 191); cookie branch (192-197) byte-for-byte unchanged and evaluated FIRST; else `context.token && hasValidBearerSession` → resolve SAME `AuthInfo` via `getSession → userStore.get → displayName`; else `throw 'unauthorized'`. `_options` stays unused.
   - **Reference Contract Values**: #1, #2, #7.
   - **Proof Obligations**: TEST 1 VP1-VP4 (cookie non-regression + anonymous short-circuit + unknown-cookie throw); TEST 2 VP2 (bearer AuthInfo field-identical to cookie AuthInfo); TEST 3A VP1-VP3 (never-issued/expired/signed-out token throws). Same-value + rollback-only-visibility failure modes.
   - **Completion**: L2 — TEST 1 + TEST 3A green; cookie-path AuthInfo matches pre-change baseline; L3 — `tsc` passes.
 
-- [ ] **T1.6 — Narrow CORS + mount token routes in `server/src/index.ts`**
+- [x] **T1.6 — Narrow CORS + mount token routes in `server/src/index.ts`**
   - Keep open `cors()` for existing routes; add route-level CORS headers on `/desktop/token`, `/desktop/signout`, and cross-origin `/health`: `Access-Control-Allow-Headers` includes `Authorization`; `Access-Control-Allow-Credentials` NOT set. Mount token routes via `registerAuth` (same `ADMIN_TOKEN` gate). Same-origin static serving + TLS-when-cert unchanged.
   - **Reference Contract Values**: #5 (signout 204/idempotent), #6 (CORS headers).
   - **Proof Obligations**: TEST 3B VP5/VP6 (preflight allows `Authorization`; no `Allow-Credentials`); TEST 3A VP4 (idempotent signout no leak). AC-012 release gate.
@@ -269,13 +269,13 @@ Foundation. Browser cookie path must stay byte-for-byte unchanged (release gate)
 
 Browser behavior unchanged when the discriminator is absent.
 
-- [ ] **T2.1 — Parameterized origin source + `isDesktop()` bridge (`client/src/net/room.ts`, `client/src/desktop/bridge.ts`)**
+- [x] **T2.1 — Parameterized origin source + `isDesktop()` bridge (`client/src/net/room.ts`, `client/src/desktop/bridge.ts`)**
   - New `client/src/desktop/bridge.ts`: `isDesktop()` = presence of `window.pixelDesktop` with `isDesktop === true`; typed `desktop()` accessor. Introduce `getServerHttpOrigin()` returning configured URL on desktop (via preload IPC) or `window.location`-derived on browser; feed it to `endpoint`/`serverHttpOrigin`/`isServerUp`/`redirectToLogin`/`gotoLogout`. Browser branch returns identical values to today.
   - **Reference Contract Value**: #10 relates via stable origin (persistence downstream).
   - **Proof Obligations**: browser code paths byte-for-byte unchanged (AC-010/012); desktop derives targets from configured URL, makes no request to packaged origin (AC-004). Empty server URL → handled by screens (T3.1).
   - **Completion**: L3 — `tsc --noEmit` + `vite build` pass; L1 — browser build behaves identically (manual, deferred to T5.3).
 
-- [ ] **T2.2 — Bearer token on `connect()` (desktop-only)**
+- [x] **T2.2 — Bearer token on `connect()` (desktop-only)**
   - In `connect()`, on desktop set `client.auth.token = <sid>` (fetched via preload IPC) before `new Client(endpoint())` / `joinOrCreate`; browser sets no token (path identical to today).
   - **Connection Map**: #3 (Authorization: Bearer → context.token).
   - **Proof Obligations**: desktop room join carries `Authorization: Bearer`; browser has no token set (AC-004/010).
@@ -285,7 +285,7 @@ Browser behavior unchanged when the discriminator is absent.
 
 DOM overlays reusing `.pa-ui`/`.pa-panel` pixel aesthetic; mount only when `isDesktop()`. This slice is the Design Doc integration point (first L1 — whole system operational).
 
-- [ ] **T3.1 — Connection screen (`client/src/screens/connection.ts`, `#pa-connect`)**
+- [x] **T3.1 — Connection screen (`client/src/screens/connection.ts`, `#pa-connect`)**
   - URL input + "Connect"; validate scheme/host before probe; `probeServer(url)` → `/health`; on ok persist URL + go SignIn; on fail inline "Server unreachable" and stay (AC-002). States: default/loading("Checking…")/empty(first launch)/error/partial(prefilled from settings). WCAG 2.1 AA: labels, tab order, Enter submits, focus ring, `aria-describedby` error.
   - **Reference Contract Values**: covers empty-input + unavailable-boundary failure modes.
   - **Proof Obligations**: AC-001 (shown before world when no saved URL), AC-002 (probe error stays on screen). Manual (T5.3).
@@ -297,13 +297,13 @@ DOM overlays reusing `.pa-ui`/`.pa-panel` pixel aesthetic; mount only when `isDe
   - **Proof Obligations**: AC-005 (valid creds → world), AC-006 (invalid → error, no connect). Manual (T5.3); server portion via T1.4.
   - **Completion**: L3 — `tsc` + `vite build`; L1 — deferred to T5.3.
 
-- [ ] **T3.3 — Screen mount hook + in-renderer state machine (`main.ts`/`index.html`)**
+- [x] **T3.3 — Screen mount hook + in-renderer state machine (`main.ts`/`index.html`)**
   - Mount Connection/SignIn when `isDesktop()` before the world connect flow; implement the Connection→ProbingHealth→SignIn→Authenticating→Connected/Reconnecting/AuthError state machine; saved URL + token → skip to Authenticating (AC-003, AC-007).
   - **DD ref**: State Transitions and Invariants.
   - **Proof Obligations**: AC-001/003 (skip when saved); browser build never enters these states (`isDesktop()` false).
   - **Completion**: L3 — `tsc` + `vite build`; L1 — deferred to T5.3.
 
-- [ ] **T3.4 — Auth-error / reconnect re-mapping (`client/src/scenes/OfficeScene.ts` desktop branch)**
+- [x] **T3.4 — Auth-error / reconnect re-mapping (`client/src/scenes/OfficeScene.ts` desktop branch)**
   - On desktop: `isAuthError` branch → clear stored token → show SignIn (AC-009, never blank/loop); `handleDisconnect` (code!=1000, not kick) → in-app reconnect overlay + `/health` poll + reload (token re-read from safeStorage survives reload, AC-019); sign-out → `POST /desktop/signout` + `clearToken()` → SignIn (AC-008). Browser keeps `redirectToLogin`/reload verbatim. Voice-token `'m'` handling + `zoneVoice.start()` unchanged.
   - **Reference Contract Value**: #9 (token null after clear, next launch SignIn — state-lifecycle negative).
   - **Connection Map**: #4 (signout).
@@ -314,7 +314,7 @@ DOM overlays reusing `.pa-ui`/`.pa-panel` pixel aesthetic; mount only when `isDe
 
 `contextIsolation:true`, `nodeIntegration:false`; single UI source (consumes `client/dist`).
 
-- [ ] **T4.1 — Electron main: window, `app://` protocol, security baseline (`desktop/src/main.ts`, `desktop/package.json`)**
+- [x] **T4.1 — Electron main: window, `app://` protocol, security baseline (`desktop/src/main.ts`, `desktop/package.json`)**
   - New `desktop/` pnpm workspace member. `BrowserWindow` with `contextIsolation:true`, `nodeIntegration:false`, sandbox per baseline. Register custom `app://` protocol serving `client/dist` (stable secure-context origin). Origin allowlisting: `will-navigate`/`setWindowOpenHandler` deny arbitrary origins; external links → system browser. Single-instance lock (P3).
   - **ADR Bindings**: #1, #7.
   - **Proof Obligations**: renderer loads world from bundled assets with stable origin (AC-016/017 basis); only `app://` loadable.
@@ -327,23 +327,23 @@ DOM overlays reusing `.pa-ui`/`.pa-panel` pixel aesthetic; mount only when `isDe
   - **Proof Obligations**: browser (API absent) → `isDesktop()` false → browser paths; AC-013..016/018 secure-context/single-source basis.
   - **Completion**: L3 — `tsc` desktop + client + `vite build`; L1 — deferred to T5.3.
 
-- [ ] **T4.3 — safeStorage token + server-URL persistence (IPC handlers in main)**
+- [x] **T4.3 — safeStorage token + server-URL persistence (IPC handlers in main)**
   - Main IPC handlers: token via `safeStorage.encryptString`/`decryptString` (ciphertext at rest, AC-020); server URL plaintext (not a secret). `clearToken()` on sign-out/auth-error. Token never in localStorage, never logged.
   - **Connection Map**: #2, #5. **Reference Contract Values**: #8, #9.
   - **Proof Obligations**: AC-007 (restart → decrypt → auto-connect), AC-020 (on-disk ciphertext — manual inspection T5.3), token unused after clear.
   - **Completion**: L3 — `tsc`; L1/manual — deferred to T5.3.
 
-- [ ] **T4.4 — Screen-share: `setDisplayMediaRequestHandler` + `desktopCapturer` (Electron main)**
+- [x] **T4.4 — Screen-share: `setDisplayMediaRequestHandler` + `desktopCapturer` (Electron main)**
   - Wire `session.setDisplayMediaRequestHandler` using `desktopCapturer.getSources`; optional explicit `pickScreenSource()` picker. Handle Linux Wayland/X11 portal/PipeWire. Picker cancelled/denied → existing `setScreenShareEnabled` catch reverts `screenOn=false` (no crash). No client code change to `LiveKitConference`.
   - **Proof Obligations**: AC-021 (camera/mic/screen-share publish + remote tiles on Linux); unavailable-boundary (cancel → no crash). Manual on real Linux (T5.3).
   - **Completion**: L3 — `tsc`; L1/manual — deferred to T5.3.
 
-- [ ] **T4.5 — electron-builder AppImage config + placeholder icon (`desktop/electron-builder.yml`, `desktop/build/icon.png`)**
+- [x] **T4.5 — electron-builder AppImage config + placeholder icon (`desktop/electron-builder.yml`, `desktop/build/icon.png`)**
   - AppImage (Linux, unsigned). Create placeholder pixel-art icon (`icon.png` + platform variants) from the aesthetic (canvas `#14161c`, primary `#2f66b0`) — explicit deviation from "reuse existing assets" (no icon asset exists in repo).
   - **Proof Obligations**: AC-017 (packaged artifact builds). L3 build.
   - **Completion**: L3 — electron build produces an AppImage (T5.1).
 
-- [ ] **T4.6 — Root scripts + workspace wiring (`package.json`)**
+- [x] **T4.6 — Root scripts + workspace wiring (`package.json`)**
   - Add `dev:desktop`, `build:desktop`, `dist:desktop`; register `desktop/` in the pnpm workspace with `@pixel/*` naming.
   - **DD ref**: Fact 8.
   - **Proof Obligations**: scripts run end-to-end; workspace resolves.
@@ -377,10 +377,10 @@ Acceptance criteria achievement, all tests passing, quality gates. Manual matrix
 
 ## Progress Tracking
 
-- Phase 1: T1.1 ☑ T1.2 ☐ T1.3 ☐ T1.4 ☐ T1.5 ☐ T1.6 ☐
-- Phase 2: T2.1 ☐ T2.2 ☐
-- Phase 3: T3.1 ☐ T3.2 ☐ T3.3 ☐ T3.4 ☐
-- Phase 4: T4.1 ☐ T4.2 ☐ T4.3 ☐ T4.4 ☐ T4.5 ☐ T4.6 ☐
+- Phase 1: T1.1 ☑ T1.2 ☑ T1.3 ☐ T1.4 ☐ T1.5 ☑ T1.6 ☑
+- Phase 2: T2.1 ☑ T2.2 ☑
+- Phase 3: T3.1 ☑ T3.2 ☐ T3.3 ☑ T3.4 ☐
+- Phase 4: T4.1 ☑ T4.2 ☐ T4.3 ☑ T4.4 ☑ T4.5 ☑ T4.6 ☑
 - Phase 5: T5.1 ☐ T5.2 ☐ T5.3 ☐ T5.4 ☐ T5.5 ☐
 
 Test-case resolution target (final phase): integration TEST 1/2/3 all green (0 unresolved); manual matrix 21/21 ACs verified on Linux.
