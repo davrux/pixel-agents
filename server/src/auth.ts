@@ -87,15 +87,44 @@ font:bold 14px ui-monospace,monospace;cursor:pointer}</style></head><body>
 <div><button type="submit">Sign in</button></div></form></body></html>`;
 }
 
+// Per-account online-guess throttle — defense-in-depth on top of the length caps
+// + scrypt cost. Keyed by login id (NOT IP) so a shared reverse-proxy address
+// can't lock everyone out; a burst of failed attempts for one account cools down
+// for a short, auto-expiring window (so it self-heals and can't be a lasting
+// account-lockout DoS). Single-process, in-memory — see AGENTS.md "Single process".
+const MAX_LOGIN_FAILS = 10;
+const LOGIN_FAIL_WINDOW_MS = 60_000;
+const loginFails = new Map<string, { count: number; until: number }>();
+function loginThrottled(loginId: string): boolean {
+  const e = loginFails.get(loginId);
+  if (!e) return false;
+  if (Date.now() > e.until) {
+    loginFails.delete(loginId);
+    return false;
+  }
+  return e.count >= MAX_LOGIN_FAILS;
+}
+function noteLoginFail(loginId: string): void {
+  const now = Date.now();
+  if (loginFails.size > 10_000) loginFails.clear(); // bound memory
+  const e = loginFails.get(loginId);
+  if (!e || now > e.until) loginFails.set(loginId, { count: 1, until: now + LOGIN_FAIL_WINDOW_MS });
+  else {
+    e.count += 1;
+    e.until = now + LOGIN_FAIL_WINDOW_MS; // sliding: sustained attempts stay cooled down
+  }
+}
+
 /** Verify credentials with the shared login logic (used by both `/login` and
  *  `POST /desktop/token`). Returns the authenticated `userId` on success, or an
- *  `{ error }` message string on failure — never logs the password/token. The
- *  admin token path creates/marks-admin the account; the normal path requires an
- *  existing user (no self-registration). */
+ *  `{ error, status? }` on failure — never logs the password/token. The admin
+ *  token path creates/marks-admin the account; the normal path requires an
+ *  existing user (no self-registration). A per-account throttle returns 429
+ *  before any scrypt/token work once an account sees too many recent failures. */
 function verifyCredentials(
   body: Record<string, unknown>,
   adminToken: string,
-): { userId: string } | { error: string } {
+): { userId: string } | { error: string; status?: number } {
   const loginId = normalizeLoginId(body.username);
   // Cap lengths on this unauthenticated path (shared by /login and
   // /desktop/token) so a huge password can't turn scrypt verification into a CPU
@@ -104,27 +133,36 @@ function verifyCredentials(
   const token = String(body.token ?? '').slice(0, 512);
 
   if (!loginId) return { error: 'Enter a login id.' };
+  if (loginThrottled(loginId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
 
   if (token) {
     // Admin path: the token must be exact; it grants admin and creates the
     // account if new (a password — min length — is required to create one).
-    if (!tokenEquals(token, adminToken)) return { error: 'Invalid admin token.' };
+    if (!tokenEquals(token, adminToken)) {
+      noteLoginFail(loginId);
+      return { error: 'Invalid admin token.' };
+    }
     const existing = userStore.get(loginId);
     if (existing) {
       userStore.markAdmin(existing.userId);
+      loginFails.delete(loginId);
       return { userId: existing.userId };
     }
+    // Admin token was correct — a missing password isn't a guess, so no penalty.
     if (!isValidPassword(password)) {
       return { error: `A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.` };
     }
     const user = userStore.createUser(loginId, password, { isAdmin: true });
+    loginFails.delete(loginId);
     return { userId: user.userId };
   }
 
   // Normal path: an existing user with the right password. No self-registration.
   if (!userStore.exists(loginId) || !userStore.verifyPassword(loginId, password)) {
+    noteLoginFail(loginId);
     return { error: 'Invalid login id or password.' };
   }
+  loginFails.delete(loginId);
   return { userId: loginId };
 }
 
@@ -144,7 +182,7 @@ export function registerAuth(app: Express, adminToken: string): void {
 
   app.post('/login', (req: Request, res: Response) => {
     const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
-    if ('error' in result) return void res.status(401).type('html').send(loginHtml(result.error));
+    if ('error' in result) return void res.status(result.status ?? 401).type('html').send(loginHtml(result.error));
     return setSession(res, result.userId);
   });
 
@@ -153,7 +191,7 @@ export function registerAuth(app: Express, adminToken: string): void {
   // cookie required). The token IS a live session row (createSession, 7-day TTL).
   app.post('/desktop/token', express.json(), (req: Request, res: Response) => {
     const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
-    if ('error' in result) return void res.status(401).json({ error: result.error });
+    if ('error' in result) return void res.status(result.status ?? 401).json({ error: result.error });
     const sid = appStore.createSession(result.userId);
     return void res.status(200).json({ token: sid });
   });

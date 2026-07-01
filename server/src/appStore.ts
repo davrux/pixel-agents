@@ -40,7 +40,7 @@ class AppStore {
 
   // ── Sessions ─────────────────────────────────────────────────────
   createSession(userId: string): string {
-    const sid = crypto.randomBytes(32).toString('base64url'); // opaque, never the token
+    const sid = crypto.randomBytes(32).toString('base64url'); // 256-bit opaque id: the cookie sid AND the desktop bearer token
     this.db
       .prepare('INSERT INTO sessions(sid, user_id, expires) VALUES(?, ?, ?)')
       .run(sid, userId, Date.now() + SESSION_TTL_MS);
