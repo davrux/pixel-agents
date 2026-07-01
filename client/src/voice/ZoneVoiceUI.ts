@@ -39,6 +39,12 @@ export class ZoneVoiceUI {
   private meterLvl!: HTMLElement;
   private meterThr!: HTMLElement;
   private lastState: ZoneVoiceState;
+  /** Live per-peer row elements, keyed by identity, so re-renders update in
+   *  place (rebuilding would drop the slider a user is mid-drag on). */
+  private readonly peerRows = new Map<
+    string,
+    { row: HTMLElement; nm: HTMLElement; pct: HTMLElement; vol: HTMLInputElement; mute: HTMLButtonElement }
+  >();
   private readonly onStateChange?: (s: VoiceBarState) => void;
 
   constructor(mount: HTMLElement, hooks: ZoneVoiceUIHooks) {
@@ -256,47 +262,78 @@ export class ZoneVoiceUI {
   }
 
   private renderPeers(peers: Peer[]): void {
-    this.peersEl.replaceChildren();
     if (peers.length === 0) {
+      this.peerRows.clear();
+      this.peersEl.replaceChildren();
       const empty = document.createElement('div');
       empty.className = 'empty';
       empty.textContent = this.lastState.connected ? 'No one else here yet.' : 'Not connected.';
       this.peersEl.appendChild(empty);
       return;
     }
+    this.peersEl.querySelector('.empty')?.remove();
+    const seen = new Set<string>();
     for (const p of peers) {
-      const row = document.createElement('div');
-      row.className = 'pr';
-
-      const top = document.createElement('div');
-      top.className = 'top';
-      // Mute keeps the speaker glyph and gains a red slash (CSS) when muted.
-      const mute = document.createElement('button');
-      mute.className = p.muted ? 'muted' : '';
-      mute.innerHTML = '<span class="ico">🔊</span>';
-      mute.title = p.muted ? 'Unmute this user' : 'Mute this user';
-      mute.addEventListener('click', () => this.voice.setPeerMuted(p.identity, !p.muted));
-      const nm = document.createElement('span');
-      nm.className = 'nm';
-      nm.textContent = p.name;
-      const pct = document.createElement('span');
-      pct.className = 'pct';
-      pct.textContent = `${Math.round(p.volume * 100)}%`;
-      top.append(mute, nm, pct);
-
-      const vol = document.createElement('input');
-      vol.type = 'range';
-      vol.min = '0';
-      vol.max = '200';
-      vol.value = String(Math.round(p.volume * 100));
-      vol.title = 'Volume';
-      vol.addEventListener('input', () => {
-        this.voice.setPeerVolume(p.identity, Number(vol.value) / 100);
-        pct.textContent = `${vol.value}%`;
-      });
-
-      row.append(top, vol);
-      this.peersEl.appendChild(row);
+      seen.add(p.identity);
+      let e = this.peerRows.get(p.identity);
+      if (!e) {
+        e = this.createPeerRow(p.identity);
+        this.peerRows.set(p.identity, e);
+        this.peersEl.appendChild(e.row);
+      }
+      e.nm.textContent = p.name;
+      e.mute.classList.toggle('muted', p.muted);
+      e.mute.title = p.muted ? 'Unmute this user' : 'Mute this user';
+      // Don't stomp the slider a user is actively dragging (its input handler
+      // keeps the value + % readout current). Refresh others from state.
+      if (document.activeElement !== e.vol) {
+        const pct = Math.round(p.volume * 100);
+        e.vol.value = String(pct);
+        e.pct.textContent = `${pct}%`;
+      }
     }
+    for (const [id, e] of this.peerRows) {
+      if (!seen.has(id)) {
+        e.row.remove();
+        this.peerRows.delete(id);
+      }
+    }
+  }
+
+  /** One peer row (mute + name + % on top, a volume slider below). Handlers read
+   *  live DOM/input state so the row survives in-place re-renders. */
+  private createPeerRow(identity: string): {
+    row: HTMLElement;
+    nm: HTMLElement;
+    pct: HTMLElement;
+    vol: HTMLInputElement;
+    mute: HTMLButtonElement;
+  } {
+    const row = document.createElement('div');
+    row.className = 'pr';
+    const top = document.createElement('div');
+    top.className = 'top';
+    // Mute keeps the speaker glyph and gains a red slash (CSS) when muted.
+    const mute = document.createElement('button');
+    mute.innerHTML = '<span class="ico">🔊</span>';
+    mute.addEventListener('click', () => this.voice.setPeerMuted(identity, !mute.classList.contains('muted')));
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    const pct = document.createElement('span');
+    pct.className = 'pct';
+    top.append(mute, nm, pct);
+
+    const vol = document.createElement('input');
+    vol.type = 'range';
+    vol.min = '0';
+    vol.max = '200';
+    vol.title = 'Volume';
+    vol.addEventListener('input', () => {
+      this.voice.setPeerVolume(identity, Number(vol.value) / 100);
+      pct.textContent = `${vol.value}%`;
+    });
+
+    row.append(top, vol);
+    return { row, nm, pct, vol, mute };
   }
 }
