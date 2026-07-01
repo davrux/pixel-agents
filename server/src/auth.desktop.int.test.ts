@@ -3,27 +3,18 @@
 // Generated: 2026-07-01 | Budget Used: integration 3/3, fixture-e2e 0/3, service-integration-e2e 0/2
 //
 // ============================================================================
-// SKELETON STATUS: comment-only by design.
+// STATUS: implemented executable integration tests.
 // ----------------------------------------------------------------------------
-// This file intentionally contains NO import statements and NO test-runner
-// syntax (describe/it/test). Reasons:
-//   1. The implementation under test does not exist yet (server/src/auth.ts
-//      bearer helpers, /desktop/token, /desktop/signout, SimRoom.onAuth bearer
-//      branch, index.ts CORS). A committed skeleton must stay green under the
-//      project's static gates (`tsc --noEmit`, `vite build`) — importing a
-//      not-yet-existing module would break `tsc`.
-//   2. NO SERVER TEST RUNNER EXISTS IN THIS REPO YET. There is no test
-//      framework anywhere (no *.test.* project files, no ESLint, no CI). Before
-//      these skeletons can be implemented, a minimal Node test runner must be
-//      introduced under server/ (the Design Doc's Quality Assurance Mechanisms
-//      table records this as `adopted`: "add a minimal Node test runner").
-//      Recommended: Node's built-in `node:test` + `node:assert/strict` (zero new
-//      deps, aligns with the repo already using `node:sqlite`/`node:crypto`),
-//      wired to a `server` package.json script (e.g. `"test": "node --test"`).
-//      The Work Plan MUST include this runner-setup task before Phase "server
-//      auth path" implementation.
-//   The implementing task adds the executable imports, runner blocks, and
-//   assertions alongside the implementation (Red -> Green within one commit).
+// This file contains real `node:test` + `node:assert/strict` imports and
+// executable tests exercising the desktop cross-origin auth path against a real
+// SQLite session/user store. Coverage:
+//   - cookie onAuth non-regression (the same-origin browser path is preserved)
+//   - bearer token issuance via POST /desktop/token and its equivalence to a
+//     cookie session (same store / TTL)
+//   - onAuth rejection of invalid/expired bearer tokens
+//   - POST /desktop/signout revocation (idempotent)
+//   - CORS: Authorization allowed without Access-Control-Allow-Credentials
+// Run via the `server` package.json `test` script (`node --test`).
 // ----------------------------------------------------------------------------
 //
 // TEST BOUNDARIES (from Design Doc "Test Boundaries" -> Mock Boundary Decisions):

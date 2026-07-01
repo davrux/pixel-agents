@@ -254,7 +254,7 @@ No Ripple Effect:
 
 | Existing | New | Conversion Required | Adapter Required | Compatibility Method |
 |----------|-----|--------------------|------------------|--------------------|
-| `SimRoom.onAuth(_client,_options,context)` reads `context.headers.cookie` | `onAuth(_client,_options,context)` reads cookie **or** `context.token` | No (same signature) | No | Additive branch; cookie branch first and unchanged, bearer branch appended |
+| `SimRoom.onAuth(_client,_options,context)` reads `context.headers.cookie` | `onAuth(_client,_options,context)` reads cookie **or** derives the bearer value from `context.token` and rebuilds it as `Bearer ${context.token}` for `hasValidBearerSession`/`userIdFromBearer` (which parse an Authorization-header string) | No (same signature) | No | Additive branch; cookie branch first and unchanged, bearer branch appended |
 | `endpoint()` from `window.location` | `endpoint()` from `getServerHttpOrigin()` (configured URL on desktop, `window.location` on browser) | Yes | Yes — `getServerHttpOrigin()` origin-source shim | Browser branch returns identical value to today; desktop branch reads preload IPC |
 | `serverHttpOrigin()` from `window.location` | via `getServerHttpOrigin()` | Yes | Yes (same shim) | Same as above |
 | `connect(zone,arrive)` → `new Client(endpoint()); joinOrCreate(...)` | `connect(zone,arrive)` sets `client.auth.token` (desktop) then `joinOrCreate(...)` | Yes | No | Browser: no token set (path identical to today); desktop: token from preload IPC |
@@ -303,7 +303,7 @@ First launch (no saved server):
   main persists URL (safeStorage, plaintext URL is fine; not a secret)
   renderer shows Sign-in screen
   user enters loginId + password (+ optional admin token)
-     -> renderer POST `${url}/desktop/token` {loginId,password,token}
+     -> renderer POST `${url}/desktop/token` {username,password,token} (the login-id value is carried in the `username` field)
      -> server verifies (same logic as /login), createSession(sid), returns { token: sid }
   main stores token via safeStorage.encryptString -> disk (ciphertext)
   renderer sets client.auth.token = token; connect() -> joinOrCreate
@@ -490,7 +490,7 @@ Input:
   Validation:
     1. if (!authRequired) return anonymous AuthInfo   # unchanged, line 191
     2. if valid cookie session (hasValidSession) -> resolve AuthInfo   # unchanged branch
-    3. else if context.token and hasValidBearerSession(context.token) -> resolve SAME AuthInfo via getSession -> userStore.get -> displayName
+    3. else if context.token and hasValidBearerSession(`Bearer ${context.token}`) -> resolve SAME AuthInfo via getSession -> userStore.get -> displayName  # helpers parse an Authorization-header string, so onAuth derives the bearer value from context.token and passes it in the header form the helpers expect (userIdFromBearer likewise)
     4. else throw new Error('unauthorized')
 Output:
   Type: AuthInfo { userId: string; username: string; isAdmin: boolean }
@@ -757,6 +757,7 @@ No data migration (the token reuses the existing sessions table with no schema c
 |------|---------|---------|--------|
 | 2026-07-01 | 1.0 | Initial Design Doc for the Electron desktop application (fullstack; connection + sign-in UI included). | eric.stampa@uponu.com |
 | 2026-07-01 | 1.1 | Text-only reviewer fixes (no design rework): D001 corrected the pixel-aesthetic citation to the CSS definitions `OfficeScene.ts:1124-1339` (:1124 `#pa-menubar`, :1146 `.pa-panel`) in Applicable Standards and Fact 6 evidence; D002 corrected the `pa-zv-*` count in Fact 6 to exactly 10 with the keys enumerated; D003 recorded the full path `server/src/ingest/feedServer.ts` in Fact 9 evidence; D004 added a clarifying note in the Data Representation Decision explaining that `appStore.ts:43`'s "opaque, never the token" refers to `ADMIN_TOKEN` and that reusing the session `sid` as a bearer token does not violate it. | eric.stampa@uponu.com |
+| 2026-07-01 | 1.2 | Post-implementation accuracy clarifications (prose-only, no design change): corrected the Data Flow narrative POST `/desktop/token` body from `{loginId,password,token}` to `{username,password,token}` to match the Data Contracts block and the wire field (login-id value carried in `username`); clarified in the Interface Change Matrix and onAuth Data Contract Validation step that onAuth derives the bearer value from `context.token` and passes it in the `Bearer ${context.token}` Authorization-header form that `hasValidBearerSession`/`userIdFromBearer` parse (net behavior equivalent). | eric.stampa@uponu.com |
 
 ---
 
