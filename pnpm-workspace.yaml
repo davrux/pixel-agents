@@ -2,11 +2,21 @@ packages:
   - shared
   - server
   - client
+  - desktop
 
 # Dependency build/lifecycle scripts are NOT executed by default. Each decision
 # is explicit: esbuild works without its postinstall (binary ships via
 # optionalDependencies) but we allow it so Vite's optimizer is happy;
-# msgpackr-extract is an optional native accelerator with a pure-JS fallback.
+# msgpackr-extract is an optional native accelerator with a pure-JS fallback;
+# electron downloads its prebuilt Chromium binary via a postinstall script, so
+# it must be allowed to build or the runtime binary is never fetched;
+# electron-winstaller is a Windows-only transitive dep of electron-builder — the
+# desktop target is a Linux AppImage, so its build script is never needed.
 allowBuilds:
   esbuild: true
   msgpackr-extract: false
+  electron: true
+  electron-winstaller: false
+
+minimumReleaseAgeExclude:
+  - electron@43.0.0

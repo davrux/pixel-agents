@@ -89,6 +89,10 @@ export class ZoneVoice {
   private outCtx: AudioContext | null = null;
   private readonly peerAudio = new Map<string, PeerAudio>(); // identity → audio graph
   private readonly peers = new Map<string, Peer>(); // identity → peer
+  /** Volumes the viewer set for other participants, keyed by a stable-ish key
+   *  (display name, else identity) and persisted, so they survive leaving/
+   *  rejoining voice, zone switches, and reloads. */
+  private readonly savedPeerVolumes = new Map<string, number>();
 
   private enabled = false; // user intent (Join/Leave)
   private suspended = false; // temporarily off (e.g. while in a conference) — keeps intent
@@ -138,6 +142,7 @@ export class ZoneVoice {
     this.deafened = localStorage.getItem('pa-zv-deaf') === '1';
     this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
     this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
+    this.loadPeerVolumes();
     this.audioBin = document.createElement('div');
     this.audioBin.style.display = 'none';
     document.body.appendChild(this.audioBin);
@@ -285,15 +290,43 @@ export class ZoneVoice {
 
   private addPeer(p: Participant): void {
     if (this.peers.has(p.identity)) return;
+    // Restore any volume the viewer previously set for this participant.
+    const savedVol = this.savedPeerVolumes.get(this.peerVolumeKey(p.name, p.identity));
     this.peers.set(p.identity, {
       identity: p.identity,
       name: p.name || p.identity,
       playerId: parsePlayerId(p.identity),
-      volume: 1,
+      volume: savedVol ?? 1,
       muted: false,
     });
+    if (savedVol !== undefined) this.applyVolume(p.identity); // reassert on any live track
     this.emitPeers();
     this.emitVoiceStatus();
+  }
+
+  /** Stable-ish persistence key for a peer: prefer the display name (survives
+   *  reconnects/reloads that rotate the ephemeral `p<id>` identity). */
+  private peerVolumeKey(name: string | undefined, identity: string): string {
+    return name && name.trim() ? name : identity;
+  }
+
+  private loadPeerVolumes(): void {
+    try {
+      const raw = localStorage.getItem('pa-zv-peervol');
+      if (!raw) return;
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(obj)) if (typeof v === 'number') this.savedPeerVolumes.set(k, clampVol(v));
+    } catch {
+      /* corrupt/unavailable — start fresh */
+    }
+  }
+
+  private persistPeerVolumes(): void {
+    try {
+      localStorage.setItem('pa-zv-peervol', JSON.stringify(Object.fromEntries(this.savedPeerVolumes)));
+    } catch {
+      /* localStorage unavailable */
+    }
   }
 
   private removePeer(identity: string): void {
@@ -626,6 +659,9 @@ export class ZoneVoice {
     peer.volume = clampVol(v);
     this.applyVolume(identity);
     this.emitPeers();
+    // Remember it so it survives leaving/rejoining voice (and reloads).
+    this.savedPeerVolumes.set(this.peerVolumeKey(peer.name, identity), peer.volume);
+    this.persistPeerVolumes();
   }
 
   setPeerMuted(identity: string, muted: boolean): void {
