@@ -32,7 +32,8 @@ import {
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getActiveCategories, getCatalogByCategory, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { LiveKitConference, type ConferenceState, type ConferenceDevices } from '../conference/LiveKitConference.js';
+import { LiveKitConference } from '../conference/LiveKitConference.js';
+import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
@@ -146,16 +147,13 @@ export class OfficeScene extends Phaser.Scene {
   private pendingConference: { col: number; row: number; name?: string } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
-  private confPanel?: HTMLDivElement;
-  private confGrid?: HTMLDivElement;
-  private confBar?: HTMLDivElement;
+  /** The WebEx-style conference window (stage + sidebar + control bar). */
+  private confUI!: ConferenceUI;
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
-  private confState: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
   private zoneVoiceStarted = false;
-  private confDevices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
@@ -297,7 +295,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createHud();
     this.createSettingsPanel();
     this.createChat();
-    this.createConferencePanel();
+    this.confUI = new ConferenceUI();
     this.charEditor = new CharacterEditor({
       categories: [
         {
@@ -1900,9 +1898,7 @@ export class OfficeScene extends Phaser.Scene {
     this.pendingConference = null;
     void this.conf?.disconnect();
     this.conf = undefined;
-    this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
-    this.confDevices = { cameras: [], mics: [], speakers: [] };
-    this.renderConferencePanel();
+    this.confUI.close();
     // Back out of the meeting → rejoin zone voice if the user had it on.
     this.zoneVoice?.voice.resume();
   }
@@ -1922,15 +1918,12 @@ export class OfficeScene extends Phaser.Scene {
     ) {
       this.myConference = this.pendingConference;
       this.pendingConference = null;
-      this.confState = { connected: false, camOn: true, micOn: true, screenOn: false };
       this.room?.send('conferenceToken', this.myConference); // → media
     }
     // If the server dropped us from our call (despawn, zone change, …), tear down.
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key && !iAmIn) {
       this.leaveConferenceLocal();
-      return;
     }
-    this.renderConferencePanel();
   }
 
   /** Server minted a LiveKit token (or reported it's unconfigured). Connect the
@@ -1946,24 +1939,24 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private onConferenceToken(m: Record<string, unknown>): void {
-    if (!this.myConference || `${this.myConference.col},${this.myConference.row}` !== `${m.col},${m.row}`) return;
+    const c = this.myConference;
+    if (!c || `${c.col},${c.row}` !== `${m.col},${m.row}`) return;
+    const title = conferenceLabel(c.name, c.col, c.row);
     if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
-      this.confState = { ...this.confState, error: 'Video not configured on the server.' };
-      this.renderConferencePanel();
+      this.confUI.open(title, this.conferenceHandlers());
+      this.confUI.setState({ connected: false, camOn: true, micOn: true, screenOn: false, error: 'Video not configured on the server.' });
       return;
     }
-    if (!this.confGrid) return;
-    this.conf = new LiveKitConference(
-      this.confGrid,
-      (s) => {
-        this.confState = s;
-        this.renderConferencePanel();
-      },
-      (d) => {
-        this.confDevices = d;
-        this.renderConferencePanel();
-      },
-    );
+    // Open the window first (it owns the stage element the tiles render into),
+    // then connect the media into it.
+    this.confUI.open(title, this.conferenceHandlers());
+    this.conf = new LiveKitConference(this.confUI.stage, this.confUI.screens, {
+      onState: (s) => this.confUI.setState(s),
+      onDevices: (d) => this.confUI.setDevices(d),
+      onChat: (msg) => this.confUI.addChat(msg),
+      onParticipants: (list) => this.confUI.setParticipants(list),
+      onScreens: (n) => this.confUI.setSharing(n > 0),
+    });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
     this.zoneVoice?.voice.suspend();
@@ -1972,92 +1965,20 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  private createConferencePanel(): void {
-    const style = document.createElement('style');
-    style.textContent = `
-      #pa-conf{position:fixed;left:50%;bottom:0.5rem;transform:translateX(-50%);z-index:56;display:none;
-        flex-direction:column;gap:0.4rem;max-width:92vw;background:rgba(20,24,33,.92);border:2px solid #3a4150;
-        border-radius:0.5rem;color:#eef1f6;padding:0.5rem 0.6rem;font:1rem 'FS Pixel Sans',monospace;}
-      #pa-conf-grid{display:flex;flex-wrap:wrap;gap:0.4rem;justify-content:center;max-height:42vh;overflow:auto;}
-      #pa-conf-bar{display:flex;align-items:center;gap:0.6rem;justify-content:center;}
-      #pa-conf-bar b{color:#9ad0ff;}
-      #pa-conf-bar .err{color:#ff9a9a;}
-      #pa-conf-bar button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.35rem 0.7rem;}
-      #pa-conf-bar button.leave{background:#7a2f2f;border-color:#a14a4a;color:#fff;}
-      #pa-conf-bar button.off{opacity:0.55;}
-      #pa-conf-bar button.active{background:#2f6f3a;border-color:#3f8f4a;color:#fff;}
-      #pa-conf-bar select{max-width:11rem;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
-    `;
-    document.head.appendChild(style);
-    const panel = document.createElement('div');
-    panel.id = 'pa-conf';
-    panel.className = 'pa-ui';
-    const grid = document.createElement('div');
-    grid.id = 'pa-conf-grid'; // LiveKitConference attaches video tiles here
-    const bar = document.createElement('div');
-    bar.id = 'pa-conf-bar';
-    panel.append(grid, bar);
-    (document.getElementById('game') ?? document.body).appendChild(panel);
-    this.confPanel = panel;
-    this.confGrid = grid;
-    this.confBar = bar;
-  }
-
-  /** Update the conference bar (roster + cam/mic/leave) + panel visibility. The
-   *  video grid is managed live by LiveKitConference and never rebuilt here. */
-  private renderConferencePanel(): void {
-    const panel = this.confPanel;
-    const bar = this.confBar;
-    if (!panel || !bar) return;
-    if (!this.myConference) {
-      panel.style.display = 'none';
-      bar.innerHTML = '';
-      return;
-    }
-    const key = `${this.myConference.col},${this.myConference.row}`;
-    const members = this.conferenceMembers.get(key) ?? [];
-    const names = members.map((p) => (p.id === this.myPlayerId ? 'You' : p.name)).join(', ') || 'just you';
-    const clabel = conferenceLabel(this.myConference.name, this.myConference.col, this.myConference.row);
-    const st = this.confState;
-    const status = st.error ? `<span class="err">${esc(st.error)}</span>` : st.connected ? '🟢 live' : '… connecting';
-    // Device pickers — only when there's a choice (more than one of that kind).
-    const d = this.confDevices;
-    const picker = (icon: string, attr: string, list: MediaDeviceInfo[], active?: string): string => {
-      if (list.length < 2) return '';
-      const opts = list
-        .map((dev, i) => {
-          const sel = dev.deviceId === active ? ' selected' : '';
-          return `<option value="${esc(dev.deviceId)}"${sel}>${esc(dev.label || `${icon} ${i + 1}`)}</option>`;
-        })
-        .join('');
-      return `<select ${attr} title="${icon}">${opts}</select>`;
+  /** Control-bar handlers for the conference window (delegate to the live conf). */
+  private conferenceHandlers(): import('../conference/ConferenceUI.js').ConferenceUIHandlers {
+    return {
+      toggleMic: () => void this.conf?.toggleMic(),
+      toggleCam: () => void this.conf?.toggleCam(),
+      toggleScreen: () => void this.conf?.toggleScreen(),
+      switchCamera: (id) => void this.conf?.switchCamera(id),
+      switchMic: (id) => void this.conf?.switchMic(id),
+      switchSpeaker: (id) => void this.conf?.switchSpeaker(id),
+      sendChat: (text) => this.conf?.sendChat(text),
+      leave: () => {
+        if (this.myConference) void this.toggleConference(this.myConference);
+      },
     };
-    bar.innerHTML =
-      `<span>📹 <b>${esc(clabel)}</b> — ${esc(names)} · ${status}</span>` +
-      (st.connected
-        ? `<button data-cam class="${st.camOn ? '' : 'off'}">${st.camOn ? '📷 Cam' : '🚫 Cam'}</button>` +
-          `<button data-mic class="${st.micOn ? '' : 'off'}">${st.micOn ? '🎙 Mic' : '🔇 Mic'}</button>` +
-          `<button data-screen class="${st.screenOn ? 'active' : ''}">${st.screenOn ? '🖥 Stop' : '🖥 Share'}</button>` +
-          picker('📷', 'data-camsel', d.cameras, d.camId) +
-          picker('🎙', 'data-micsel', d.mics, d.micId) +
-          picker('🔊', 'data-spksel', d.speakers, d.speakerId)
-        : '') +
-      `<button data-leave class="leave">Leave</button>`;
-    bar.querySelector<HTMLButtonElement>('[data-leave]')!.onclick = () => {
-      if (this.myConference) void this.toggleConference(this.myConference);
-    };
-    bar.querySelector<HTMLButtonElement>('[data-cam]')?.addEventListener('click', () => void this.conf?.toggleCam());
-    bar.querySelector<HTMLButtonElement>('[data-mic]')?.addEventListener('click', () => void this.conf?.toggleMic());
-    bar.querySelector<HTMLButtonElement>('[data-screen]')?.addEventListener('click', () => void this.conf?.toggleScreen());
-    bar.querySelector<HTMLSelectElement>('[data-camsel]')?.addEventListener('change', (e) =>
-      void this.conf?.switchCamera((e.target as HTMLSelectElement).value));
-    bar.querySelector<HTMLSelectElement>('[data-micsel]')?.addEventListener('change', (e) =>
-      void this.conf?.switchMic((e.target as HTMLSelectElement).value));
-    bar.querySelector<HTMLSelectElement>('[data-spksel]')?.addEventListener('change', (e) =>
-      void this.conf?.switchSpeaker((e.target as HTMLSelectElement).value));
-    panel.style.display = 'flex';
   }
 
   /** Per-zone NPC editor: which pet variants spawn in this zone. Checkboxes come

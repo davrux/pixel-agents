@@ -1,10 +1,23 @@
 /**
- * Thin wrapper around a LiveKit Room for the in-world conference monitors
- * (C-RTC-2). Owns the room lifecycle and renders video tiles into a grid element;
- * the scene drives connect/disconnect and cam/mic toggles. Media is entirely
+ * LiveKit media layer for the in-world conference monitors. Owns the room
+ * lifecycle and renders **one tile per participant** into a stage grid (video,
+ * or an initials placeholder when the camera is off), plus separate "spotlight"
+ * tiles for screen shares. Also carries an ephemeral in-meeting chat over the
+ * LiveKit data channel and surfaces participant / active-speaker changes.
+ *
+ * The surrounding shell (control bar, chat/participants sidebars, fullscreen)
+ * lives in ConferenceUI; this class only manages media + data. All of it is
  * outside the game's authoritative state — only call membership is server-synced.
  */
-import { Room, RoomEvent, Track, type Participant, type Track as LkTrack } from 'livekit-client';
+import {
+  Room,
+  RoomEvent,
+  Track,
+  DataPacket_Kind,
+  type Participant,
+  type RemoteParticipant,
+  type Track as LkTrack,
+} from 'livekit-client';
 
 export interface ConferenceState {
   connected: boolean;
@@ -23,21 +36,57 @@ export interface ConferenceDevices {
   speakerId?: string;
 }
 
+export interface ConferenceParticipant {
+  identity: string;
+  name: string;
+  local: boolean;
+  micOn: boolean;
+  camOn: boolean;
+}
+
+export interface ConferenceChatMsg {
+  from: string;
+  text: string;
+  at: number;
+  local: boolean;
+}
+
+export interface ConferenceCallbacks {
+  onState: (s: ConferenceState) => void;
+  onDevices?: (d: ConferenceDevices) => void;
+  onChat?: (m: ConferenceChatMsg) => void;
+  onParticipants?: (list: ConferenceParticipant[]) => void;
+  /** Number of active screen shares changed (drives the spotlight layout). */
+  onScreens?: (count: number) => void;
+}
+
+interface PTile {
+  root: HTMLElement;
+  media: HTMLElement; // holds the <video> or the placeholder
+  placeholder: HTMLElement;
+  hasVideo: boolean;
+}
+
+const enc = new TextEncoder();
+const dec = new TextDecoder();
+
 export class LiveKitConference {
   private room: Room | null = null;
-  /** Attached media elements/tiles, keyed by track sid (for clean teardown). */
-  private readonly tiles = new Map<string, HTMLElement>();
-  /** Open "tab size" screen-share overlays, keyed by track sid. */
-  private readonly overlays = new Map<string, HTMLElement>();
+  /** One tile per participant identity (camera / placeholder). */
+  private readonly tiles = new Map<string, PTile>();
+  /** Screen-share spotlight tiles, keyed by track sid. */
+  private readonly screens = new Map<string, HTMLElement>();
+  /** Hidden remote audio elements, keyed by track sid. */
+  private readonly audios = new Map<string, HTMLMediaElement>();
   private camOn = true;
   private micOn = true;
   private screenOn = false;
   private speakerId?: string;
 
   constructor(
-    private readonly grid: HTMLElement,
-    private readonly onState: (s: ConferenceState) => void,
-    private readonly onDevices?: (d: ConferenceDevices) => void,
+    private readonly stage: HTMLElement,
+    private readonly screensEl: HTMLElement,
+    private readonly cb: ConferenceCallbacks,
   ) {}
 
   async connect(url: string, token: string): Promise<void> {
@@ -45,22 +94,35 @@ export class LiveKitConference {
     this.room = room;
     room
       .on(RoomEvent.TrackSubscribed, (track, _pub, p) => this.addTrack(track, p, false))
-      .on(RoomEvent.TrackUnsubscribed, (track) => this.removeTrack(track.sid))
+      .on(RoomEvent.TrackUnsubscribed, (track) => this.removeTrack(track))
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
       })
-      .on(RoomEvent.LocalTrackUnpublished, (pub) => this.removeTrack(pub.trackSid))
-      // Cam/mic off may mute (not unpublish) depending on version — hide/show the
-      // tile either way, so your own preview disappears the instant you toggle it.
-      .on(RoomEvent.TrackMuted, (pub) => this.setTileHidden(pub.trackSid, true))
-      .on(RoomEvent.TrackUnmuted, (pub) => this.setTileHidden(pub.trackSid, false))
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        if (pub.track) this.removeTrack(pub.track);
+      })
+      .on(RoomEvent.TrackMuted, () => this.emitParticipants())
+      .on(RoomEvent.TrackUnmuted, () => this.emitParticipants())
+      .on(RoomEvent.ParticipantConnected, (p) => {
+        this.ensureTile(p, false);
+        this.emitParticipants();
+      })
+      .on(RoomEvent.ParticipantDisconnected, (p) => {
+        this.dropParticipant(p.identity);
+        this.emitParticipants();
+      })
+      .on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.markSpeakers(speakers))
+      .on(RoomEvent.DataReceived, (payload, p) => this.onData(payload, p))
       .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
       await room.localParticipant.setCameraEnabled(true);
       await room.localParticipant.setMicrophoneEnabled(true);
+      this.ensureTile(room.localParticipant, true);
+      for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
       this.notify();
+      this.emitParticipants();
       await this.emitDevices(); // labels are available now that permission is granted
     } catch (e) {
       this.notify((e as Error)?.message || 'connection failed');
@@ -68,113 +130,172 @@ export class LiveKitConference {
     }
   }
 
+  // ── Tiles ──────────────────────────────────────────────────────────
+
+  private ensureTile(p: Participant, local: boolean): PTile {
+    let t = this.tiles.get(p.identity);
+    if (t) return t;
+    const root = document.createElement('div');
+    root.className = 'pa-conf-tile';
+    root.dataset.identity = p.identity;
+    const media = document.createElement('div');
+    media.className = 'pa-conf-media';
+    const placeholder = document.createElement('div');
+    placeholder.className = 'pa-conf-ph';
+    placeholder.textContent = initials(local ? 'You' : p.name || p.identity);
+    media.appendChild(placeholder);
+    const tag = document.createElement('span');
+    tag.className = 'pa-conf-name';
+    tag.textContent = local ? 'You' : p.name || p.identity;
+    root.append(media, tag);
+    t = { root, media, placeholder, hasVideo: false };
+    this.tiles.set(p.identity, t);
+    this.stage.appendChild(root);
+    return t;
+  }
+
   private addTrack(track: LkTrack, p: Participant, local: boolean): void {
-    const sid = track.sid || `${p.identity}-${track.kind}`;
     if (track.kind === Track.Kind.Video) {
       const isScreen = track.source === Track.Source.ScreenShare;
       const video = track.attach() as HTMLVideoElement;
-      video.style.cssText = `width:100%;height:100%;object-fit:${isScreen ? 'contain' : 'cover'};border-radius:0.35rem;background:#000;`;
-      if (local && !isScreen) video.style.transform = 'scaleX(-1)'; // mirror your own camera (not your screen)
-      const tile = document.createElement('div');
-      const tag = document.createElement('span');
-      const who = local ? 'You' : p.name || p.identity;
-      tag.textContent = isScreen ? `🖥 ${who}` : who;
-      tag.style.cssText =
-        'position:absolute;left:0.25rem;bottom:0.2rem;font:0.8rem ui-monospace,monospace;color:#fff;text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;';
-      tile.append(video, tag);
+      video.classList.add('pa-conf-video');
+      if (local && !isScreen) video.classList.add('mirror'); // mirror your own camera (not your screen)
       if (isScreen) {
-        // A shared screen is small in the grid; "Tab size" opens it in a full
-        // modal overlay (dim backdrop) — click the backdrop or Shrink to close.
-        tile.style.cssText = 'position:relative;width:18rem;height:10.5rem;flex:0 0 auto;';
-        const zoom = document.createElement('button');
-        zoom.textContent = '⤢ Tab size';
-        zoom.style.cssText =
-          'position:absolute;right:0.25rem;top:0.25rem;z-index:2;cursor:pointer;background:rgba(20,24,33,.85);' +
-          'border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;font:0.8rem ui-monospace,monospace;padding:0.2rem 0.45rem;';
-        zoom.onclick = () => this.openScreenOverlay(sid, video, who);
-        tile.appendChild(zoom);
+        const sid = track.sid || `${p.identity}-screen`;
+        const tile = document.createElement('div');
+        tile.className = 'pa-conf-tile pa-conf-screen';
+        const tag = document.createElement('span');
+        tag.className = 'pa-conf-name';
+        tag.textContent = `🖥 ${local ? 'You' : p.name || p.identity}`;
+        video.classList.add('contain');
+        tile.append(video, tag);
+        this.screens.set(sid, tile);
+        this.screensEl.appendChild(tile);
+        this.cb.onScreens?.(this.screens.size);
       } else {
-        tile.style.cssText = 'position:relative;width:9rem;height:6.5rem;flex:0 0 auto;';
+        const t = this.ensureTile(p, local);
+        t.placeholder.style.display = 'none';
+        t.media.appendChild(video);
+        t.hasVideo = true;
       }
-      this.tiles.set(sid, tile);
-      this.grid.appendChild(tile);
     } else if (track.kind === Track.Kind.Audio && !local) {
-      // Play remote audio (hidden); never attach our own mic (would echo).
       const audio = track.attach();
       audio.style.display = 'none';
       if (this.speakerId) void setSinkId(audio, this.speakerId);
-      this.tiles.set(sid, audio);
-      this.grid.appendChild(audio);
+      this.audios.set(track.sid || `${p.identity}-audio`, audio);
+      this.stage.appendChild(audio);
+    }
+    this.emitParticipants();
+  }
+
+  private removeTrack(track: LkTrack): void {
+    const sid = track.sid;
+    if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
+      const el = sid ? this.screens.get(sid) : undefined;
+      if (el && sid) {
+        el.remove();
+        this.screens.delete(sid);
+        this.cb.onScreens?.(this.screens.size);
+      }
+      return;
+    }
+    if (track.kind === Track.Kind.Video) {
+      // Camera gone → show the placeholder again (tile stays for the participant).
+      for (const t of this.tiles.values()) {
+        const v = t.media.querySelector('video');
+        if (v) {
+          v.remove();
+          t.hasVideo = false;
+          t.placeholder.style.display = '';
+        }
+      }
+    } else if (sid) {
+      const a = this.audios.get(sid);
+      if (a) {
+        a.remove();
+        this.audios.delete(sid);
+      }
+    }
+    this.emitParticipants();
+  }
+
+  private dropParticipant(identity: string): void {
+    const t = this.tiles.get(identity);
+    if (t) {
+      t.root.remove();
+      this.tiles.delete(identity);
     }
   }
 
-  /** Blow a shared screen up into a full modal overlay (dim backdrop). Clicking
-   *  the backdrop or the Shrink button restores the video to its grid tile, so
-   *  it's impossible to get stuck behind it. */
-  private openScreenOverlay(sid: string, video: HTMLVideoElement, label: string): void {
-    if (this.overlays.has(sid)) return;
-    const home = video.parentElement; // its grid tile, to restore into
-    const prevStyle = video.style.cssText;
+  private markSpeakers(speakers: Participant[]): void {
+    const active = new Set(speakers.map((s) => s.identity));
+    for (const [identity, t] of this.tiles) t.root.classList.toggle('speaking', active.has(identity));
+  }
 
-    const overlay = document.createElement('div');
-    overlay.style.cssText =
-      'position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.88);display:flex;align-items:center;justify-content:center;';
-    video.style.cssText = 'max-width:94vw;max-height:90vh;width:auto;height:auto;object-fit:contain;background:#000;';
-    const tag = document.createElement('span');
-    tag.textContent = `🖥 ${label}`;
-    tag.style.cssText = 'position:absolute;left:1rem;top:1rem;color:#fff;font:1rem ui-monospace,monospace;';
-    const close = document.createElement('button');
-    close.textContent = '⤡ Shrink';
-    close.style.cssText =
-      'position:absolute;right:1rem;top:1rem;cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#fff;' +
-      'border-radius:0.4rem;font:1rem ui-monospace,monospace;padding:0.5rem 0.9rem;';
+  // ── Chat (LiveKit data channel — ephemeral, per meeting) ───────────
 
-    const restore = (): void => {
-      video.style.cssText = prevStyle;
-      home?.appendChild(video); // move the live video back into its tile
-      overlay.remove();
-      this.overlays.delete(sid);
-    };
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) restore(); // click the dim backdrop to close
+  sendChat(text: string): void {
+    const room = this.room;
+    if (!room || !text) return;
+    const at = Date.now();
+    room.localParticipant.publishData(enc.encode(JSON.stringify({ t: 'chat', text, at })), {
+      reliable: true,
     });
-    close.onclick = restore;
-    overlay.append(video, tag, close);
-    document.body.appendChild(overlay);
-    this.overlays.set(sid, overlay);
+    this.cb.onChat?.({ from: 'You', text, at, local: true });
   }
 
-  /** Hide/show a track's tile (camera/video mute) without tearing it down. */
-  private setTileHidden(sid: string | undefined, hidden: boolean): void {
-    if (!sid) return;
-    const el = this.tiles.get(sid);
-    if (el) el.style.display = hidden ? 'none' : '';
-  }
-
-  private removeTrack(sid: string | undefined): void {
-    if (!sid) return;
-    this.overlays.get(sid)?.remove(); // drop any open maximize overlay for this track
-    this.overlays.delete(sid);
-    const el = this.tiles.get(sid);
-    if (el) {
-      el.remove();
-      this.tiles.delete(sid);
+  private onData(payload: Uint8Array, p?: RemoteParticipant): void {
+    try {
+      const msg = JSON.parse(dec.decode(payload)) as { t?: string; text?: string; at?: number };
+      if (msg.t === 'chat' && typeof msg.text === 'string') {
+        this.cb.onChat?.({
+          from: p?.name || p?.identity || '?',
+          text: msg.text,
+          at: typeof msg.at === 'number' ? msg.at : Date.now(),
+          local: false,
+        });
+      }
+    } catch {
+      /* ignore malformed data */
     }
   }
+
+  // ── Participants ───────────────────────────────────────────────────
+
+  private emitParticipants(): void {
+    const room = this.room;
+    if (!room || !this.cb.onParticipants) return;
+    const list: ConferenceParticipant[] = [];
+    const add = (p: Participant, local: boolean): void => {
+      list.push({
+        identity: p.identity,
+        name: local ? 'You' : p.name || p.identity,
+        local,
+        micOn: p.isMicrophoneEnabled,
+        camOn: p.isCameraEnabled,
+      });
+    };
+    add(room.localParticipant, true);
+    for (const p of room.remoteParticipants.values()) add(p, false);
+    this.cb.onParticipants(list);
+  }
+
+  // ── Controls ───────────────────────────────────────────────────────
 
   async toggleCam(): Promise<void> {
     this.camOn = !this.camOn;
     await this.room?.localParticipant.setCameraEnabled(this.camOn);
     this.notify();
+    this.emitParticipants();
   }
 
   async toggleMic(): Promise<void> {
     this.micOn = !this.micOn;
     await this.room?.localParticipant.setMicrophoneEnabled(this.micOn);
     this.notify();
+    this.emitParticipants();
   }
 
-  /** Start/stop screen sharing (browser shows the picker; cancelling reverts). */
   async toggleScreen(): Promise<void> {
     const next = !this.screenOn;
     try {
@@ -186,16 +307,14 @@ export class LiveKitConference {
     this.notify();
   }
 
-  /** Enumerate cameras + mics (labels need the permission granted on connect)
-   *  and report the active device ids, so the UI can offer a picker. */
   private async emitDevices(): Promise<void> {
     const room = this.room;
-    if (!room || !this.onDevices) return;
+    if (!room || !this.cb.onDevices) return;
     try {
       const cameras = await Room.getLocalDevices('videoinput');
       const mics = await Room.getLocalDevices('audioinput');
       const speakers = await Room.getLocalDevices('audiooutput');
-      this.onDevices({
+      this.cb.onDevices({
         cameras,
         mics,
         speakers,
@@ -212,19 +331,14 @@ export class LiveKitConference {
     await this.room?.switchActiveDevice('videoinput', deviceId);
     await this.emitDevices();
   }
-
   async switchMic(deviceId: string): Promise<void> {
     await this.room?.switchActiveDevice('audioinput', deviceId);
     await this.emitDevices();
   }
-
   async switchSpeaker(deviceId: string): Promise<void> {
     this.speakerId = deviceId;
-    // LiveKit routes its managed elements; also set the sink on ours directly.
     await this.room?.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
-    for (const el of this.tiles.values()) {
-      if (el instanceof HTMLMediaElement) void setSinkId(el, deviceId);
-    }
+    for (const a of this.audios.values()) void setSinkId(a, deviceId);
     await this.emitDevices();
   }
 
@@ -249,21 +363,32 @@ export class LiveKitConference {
   }
 
   private cleanup(): void {
-    for (const el of this.overlays.values()) el.remove();
-    this.overlays.clear();
-    for (const el of this.tiles.values()) el.remove();
+    for (const t of this.tiles.values()) t.root.remove();
     this.tiles.clear();
+    for (const el of this.screens.values()) el.remove();
+    this.screens.clear();
+    for (const a of this.audios.values()) a.remove();
+    this.audios.clear();
   }
 
   private notify(error?: string): void {
-    this.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
+    this.cb.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
   }
 }
 
 /** Route a media element to a specific output device (where supported). */
 async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
   const sinkable = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-  if (typeof sinkable.setSinkId === 'function') {
-    await sinkable.setSinkId(deviceId).catch(() => undefined);
-  }
+  if (typeof sinkable.setSinkId === 'function') await sinkable.setSinkId(deviceId).catch(() => undefined);
 }
+
+/** Up-to-two-letter initials for a name (camera-off placeholder). */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// Keep the data-kind import referenced for older livekit typings.
+void DataPacket_Kind;
