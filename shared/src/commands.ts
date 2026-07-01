@@ -9,6 +9,10 @@
  * re-checks the group before executing.
  */
 
+/** WebSocket close code used when an admin kicks a user, so the client can show
+ *  a "kicked" notice and skip its auto-reconnect. (Custom codes must be ≥4000.) */
+export const KICK_CLOSE_CODE = 4002;
+
 export type CommandGroup = 'user' | 'admin';
 
 export interface CommandSpec {
@@ -63,6 +67,12 @@ export const COMMANDS: CommandSpec[] = [
     group: 'admin',
     usage: '/remove-admin <loginid>',
     summary: 'Revoke a user\'s global admin rights.',
+  },
+  {
+    name: 'kick',
+    group: 'admin',
+    usage: '/kick <loginid>',
+    summary: 'Disconnect an online user (they can log back in).',
   },
 ];
 

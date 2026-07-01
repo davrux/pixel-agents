@@ -43,7 +43,7 @@ import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
-import { findCommand, mayRunCommand, commandsForGroup } from '@pixel/shared/commands';
+import { findCommand, mayRunCommand, commandsForGroup, KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -409,6 +409,11 @@ export class OfficeScene extends Phaser.Scene {
       // the server to come back and reload — so the player is back in the game
       // without a manual refresh. A consented leave / our own navigation is skipped.
       this.room.onLeave((code) => {
+        if (code === KICK_CLOSE_CODE) {
+          this.leavingIntentionally = true; // an admin kicked us — don't auto-reconnect
+          this.showKicked();
+          return;
+        }
         if (!this.leavingIntentionally && code !== 1000) this.handleDisconnect();
       });
       this.room.onMessage('m', (m: Record<string, unknown>) => {
@@ -2025,6 +2030,21 @@ export class OfficeScene extends Phaser.Scene {
     window.setTimeout(() => void poll(), 1500);
   }
 
+  /** An admin kicked us: show a notice and do NOT auto-reconnect (a manual
+   *  reload / re-login is required). */
+  private showKicked(): void {
+    let overlay = document.getElementById('pa-reconnect'); // reuse the disconnect overlay if present
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'pa-reconnect';
+      overlay.style.cssText =
+        'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
+        "background:rgba(10,12,18,.9);color:#ffd2dc;font:1.15rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;padding:1rem;";
+      (document.getElementById('game') ?? document.body).appendChild(overlay);
+    }
+    overlay.textContent = 'You were kicked by an admin. Reload the page to rejoin.';
+  }
+
   private goToZone(zone: string): void {
     if (!isZoneId(zone)) return;
     this.leavingIntentionally = true; // our own navigation — not a dropped connection
@@ -2228,6 +2248,7 @@ export class OfficeScene extends Phaser.Scene {
           border:2px solid #3a4150;border-radius:0.4rem;color:#eef1f6;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;}
         #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
         #pa-chatlog .ln b{color:#9ad0ff;}
+        #pa-chatlog .ln .ts{color:#6b7280;font-size:0.82em;}
         /* System / command-feedback lines (help, /afk, errors). */
         #pa-chatlog .ln.sys{color:#9aa3b2;font-style:italic;}
         #pa-chatinput{background:rgba(20,24,33,.85);border:2px solid #3a4150;border-radius:0.4rem;color:#eef1f6;
@@ -2473,7 +2494,11 @@ export class OfficeScene extends Phaser.Scene {
     if (!log) return;
     const ln = document.createElement('div');
     ln.className = 'ln sys';
-    ln.textContent = text;
+    // Timestamp span + the message text (text kept as textContent to avoid HTML).
+    const ts = document.createElement('span');
+    ts.className = 'ts';
+    ts.textContent = this.fmtTime();
+    ln.append(ts, document.createTextNode(' ' + text));
     log.appendChild(ln);
     while (log.childElementCount > 120) log.firstElementChild?.remove();
     log.scrollTop = log.scrollHeight;
@@ -2481,24 +2506,30 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private onChatHistory(m: Record<string, unknown>): void {
-    const msgs = (m.messages as Array<{ from?: string; text?: string }>) ?? [];
-    for (const c of msgs) this.appendChatLine(c.from ?? '?', c.text ?? '');
+    const msgs = (m.messages as Array<{ from?: string; text?: string; at?: number }>) ?? [];
+    for (const c of msgs) this.appendChatLine(c.from ?? '?', c.text ?? '', c.at);
   }
 
   private onChat(m: Record<string, unknown>): void {
     const from = (m.from as string) ?? '?';
     const text = (m.text as string) ?? '';
-    this.appendChatLine(from, text);
+    this.appendChatLine(from, text, m.at as number | undefined);
     if (typeof m.id === 'number') this.showChatBubble(m.id, text);
   }
 
-  private appendChatLine(from: string, text: string): void {
+  /** Local HH:MM (24h) for a chat timestamp (server ms, or now for local lines). */
+  private fmtTime(at?: number): string {
+    const d = at ? new Date(at) : new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  private appendChatLine(from: string, text: string, at?: number): void {
     const log = this.chatLogEl;
     if (!log) return;
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
     const ln = document.createElement('div');
     ln.className = 'ln';
-    ln.innerHTML = `<b>${esc(from)}:</b> ${esc(text)}`;
+    ln.innerHTML = `<span class="ts">${this.fmtTime(at)}</span> <b>${esc(from)}:</b> ${esc(text)}`;
     log.appendChild(ln);
     while (log.childElementCount > 120) log.firstElementChild?.remove();
     if (atBottom) log.scrollTop = log.scrollHeight; // follow only if already at bottom

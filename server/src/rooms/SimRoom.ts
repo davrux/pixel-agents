@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { AccessToken } from 'livekit-server-sdk';
 
-import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, type CommandSpec } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -29,6 +29,7 @@ import { hasValidSession, userIdFromCookie } from '../auth.js';
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
+import { controlBus, KICK_EVENT } from '../controlBus.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -87,7 +88,7 @@ export class SimRoom extends Room<RoomState> {
   private readonly avatarData = new Map<string, LoadedCharacterData>();
   private readonly avatarRefs = new Map<string, number>();
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
-  private readonly chatLog: Array<{ from: string; text: string }> = [];
+  private readonly chatLog: Array<{ from: string; text: string; at: number }> = [];
   private readonly lastChatAt = new Map<string, number>();
   /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
   private readonly conferences = new Map<string, Set<number>>();
@@ -148,6 +149,14 @@ export class SimRoom extends Room<RoomState> {
         this.hostedAgents.set(a.id, a.label);
         this.seedAgent(a);
       }
+    }
+  };
+
+  /** Disconnect the target user's client(s) in this room (admin /kick). The
+   *  custom close code tells the client not to auto-reconnect. */
+  private readonly onKick = (userId: string): void => {
+    for (const c of this.clients) {
+      if (authOf(c).userId === userId) c.leave(KICK_CLOSE_CODE, 'kicked');
     }
   };
 
@@ -245,6 +254,7 @@ export class SimRoom extends Room<RoomState> {
     }
     director.on('event', this.onEvent);
     director.on('reroute', this.onReroute);
+    controlBus.on(KICK_EVENT, this.onKick);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -253,6 +263,7 @@ export class SimRoom extends Room<RoomState> {
   onDispose(): void {
     director.off('event', this.onEvent);
     director.off('reroute', this.onReroute);
+    controlBus.off(KICK_EVENT, this.onKick);
     this.store?.close();
     this.zones?.close();
   }
@@ -546,9 +557,9 @@ export class SimRoom extends Room<RoomState> {
       this.lastChatAt.set(client.sessionId, now);
       const from = this.chatNameFor(client);
       const id = this.players.get(client.sessionId) ?? null;
-      this.chatLog.push({ from, text });
+      this.chatLog.push({ from, text, at: now });
       if (this.chatLog.length > 50) this.chatLog.shift();
-      this.broadcast('m', { type: 'chat', from, text, id });
+      this.broadcast('m', { type: 'chat', from, text, id, at: now });
     });
 
     // ── Conference monitors: click a monitor → join/leave its video call. The
@@ -983,6 +994,15 @@ export class SimRoom extends Room<RoomState> {
         if (!userStore.exists(loginId)) return sys(`No such user: "${loginId}".`);
         userStore.setAdmin(loginId, on);
         sys(`${loginId} is ${on ? 'now a global admin' : 'no longer an admin'} (takes effect on their next login).`);
+        return;
+      }
+      case 'kick': {
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        if (loginId === me.userId) return sys(`You can't kick yourself.`);
+        if (!presence.zoneOf(loginId)) return sys(`"${loginId}" is not online.`);
+        controlBus.emit(KICK_EVENT, loginId); // reaches the user in whatever zone
+        sys(`Kicked "${loginId}".`);
         return;
       }
     }
