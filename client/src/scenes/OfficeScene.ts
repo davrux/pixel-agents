@@ -43,7 +43,9 @@ import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
+import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
+import { isDesktop, desktop } from '../desktop/bridge.js';
+import { showSignInScreen } from '../screens/signin.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { findCommand, mayRunCommand, commandsForGroup, KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
@@ -522,6 +524,14 @@ export class OfficeScene extends Phaser.Scene {
       // No / expired session → bounce to the server's login page (the auth gate
       // serves the form there). Other failures just surface as a status message.
       if (isAuthError(err)) {
+        if (isDesktop()) {
+          // Desktop has no server login page to redirect to. Clear the rejected
+          // token so it can never be reused (AC-009 / DD Error Handling), show the
+          // in-app sign-in screen, then reload so the boot flow rehydrates the
+          // freshly-stored token straight into the world — never a loop or blank.
+          void this.desktopReauth();
+          return;
+        }
         setStatus('session expired — redirecting to login…');
         redirectToLogin();
         return;
@@ -529,6 +539,16 @@ export class OfficeScene extends Phaser.Scene {
       setStatus(`connection failed: ${(err as Error).message}`);
       console.error(err);
     }
+  }
+
+  /** Desktop auth recovery (AC-009): drop the rejected token, sign in again in-app,
+   *  then reload so `runDesktopBootFlow` reads the new token from safeStorage and
+   *  lands in the world — a rejected token deterministically returns to SignIn. */
+  private async desktopReauth(): Promise<void> {
+    setStatus('session expired — signing in…');
+    await desktop().clearToken();
+    await showSignInScreen();
+    window.location.reload();
   }
 
   // ── Colyseus schema → local render maps ──────────────────────────
@@ -2120,6 +2140,9 @@ export class OfficeScene extends Phaser.Scene {
       #pa-userinfo code{color:#c7ccdf;background:#0a0d16;border:2px solid #05060b;border-radius:0.25rem;padding:0.05rem 0.3rem;}
       #pa-userinfo .admin{background:#2f7d3f;border:2px solid #05060b;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
         box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+      #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#232a44;border:2px solid #05060b;
+        color:#dfe6ff;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
+        box-shadow:inset 0 2px 0 #3a4470,inset 0 -3px 0 #0c1022;}
       #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#7c2634;border:2px solid #05060b;
         color:#f1d0d6;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
         box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
@@ -2156,6 +2179,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <button id="pa-change-server">Change server</button>
       <button id="pa-logout">Log out</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
@@ -2266,8 +2290,74 @@ export class OfficeScene extends Phaser.Scene {
     };
     const logoutBtn = panel.querySelector<HTMLButtonElement>('#pa-logout')!;
     logoutBtn.style.display = 'none'; // shown only when a login session is active
-    logoutBtn.onclick = () => gotoLogout();
+    logoutBtn.onclick = () => {
+      if (isDesktop()) {
+        void this.desktopSignOut();
+        return;
+      }
+      gotoLogout();
+    };
+
+    // "Change server" is a desktop-only concern (the browser build's server is
+    // its own origin, not user-configurable), so it is hidden in the browser.
+    const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
+    changeServerBtn.style.display = isDesktop() ? '' : 'none';
+    changeServerBtn.onclick = () => void this.desktopChangeServer();
+
     this.syncSettingsInputs();
+  }
+
+  /** Desktop "Change server": forget the saved server URL (and the token, which
+   *  is scoped to that server) then reload. With no saved URL the boot flow
+   *  falls through to the Connection screen, then Sign-in — the same path a
+   *  first launch takes. Best-effort revokes the current session first. */
+  private async desktopChangeServer(): Promise<void> {
+    if (
+      !(await confirmDialog('Disconnect and connect to a different server? You will need to sign in again.', {
+        confirmLabel: 'Change server',
+      }))
+    )
+      return;
+    try {
+      const token = await desktop().getToken();
+      if (token) {
+        await fetch(`${serverHttpOrigin()}/desktop/signout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+      }
+    } catch {
+      // Best-effort revocation on the current server; proceed regardless so the
+      // user is never stuck on an unreachable server. The token is never logged.
+    }
+    await desktop().clearToken();
+    await desktop().clearServerUrl();
+    window.location.reload();
+  }
+
+  /** Desktop sign-out (AC-008): revoke the server session via `POST /desktop/signout`
+   *  (idempotent, best-effort), clear the stored bearer token so `getToken()` returns
+   *  null (never a stale reuse), then re-run the in-app sign-in flow. There is no
+   *  server logout page to navigate to on desktop, so this replaces `gotoLogout()`. */
+  private async desktopSignOut(): Promise<void> {
+    try {
+      const token = await desktop().getToken();
+      if (token) {
+        await fetch(`${serverHttpOrigin()}/desktop/signout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          cache: 'no-store',
+        });
+      }
+    } catch {
+      // Best-effort server revocation: even if the request fails, still clear the
+      // local token below so the client cannot reuse it (the session also expires
+      // server-side). The token is never logged.
+    }
+    await desktop().clearToken();
+    await showSignInScreen();
+    window.location.reload();
   }
 
   /** Render both avatar swatch rows: the viewer's own player avatar + the skin

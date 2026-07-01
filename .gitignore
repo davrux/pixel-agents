@@ -1,6 +1,9 @@
 node_modules/
 dist/
 client/dist/
+# Electron packaging output (electron-builder writes the AppImage here).
+release/
+desktop/release/
 *.tsbuildinfo
 tmp/
 

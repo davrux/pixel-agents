@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { execSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 
@@ -32,7 +32,7 @@ function serverVersion(): string {
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
-import express from 'express';
+import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 
 import { WORLD_ROOM } from '@pixel/shared';
 
@@ -73,6 +73,36 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Built client (vite). Override with PIXEL_STREAM_CLIENT_DIR for non-standard layouts.
 const clientDist = process.env.PIXEL_STREAM_CLIENT_DIR?.trim() || resolve(__dirname, '../../client/dist');
 
+// Narrow cross-origin support for the desktop bearer path (AC-012). The desktop
+// app runs from a packaged origin and must be able to send `Authorization` to
+// the token/signout endpoints and to probe `/health` cross-origin. This echoes
+// the request Origin and allows the `Authorization` header, but deliberately
+// does NOT set `Access-Control-Allow-Credentials` — no cross-origin cookie
+// surface is opened, so the same-origin cookie flow is unaffected. Same-origin
+// requests (no Origin header) pass through untouched. Kept separate from the
+// open `cors()` so a future tightening of the base policy leaves this contract
+// intact.
+const DESKTOP_CORS_PATHS = new Set(['/desktop/token', '/desktop/signout', '/health']);
+
+export function desktopCors(): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const origin = req.headers.origin;
+    // Only cross-origin requests to the desktop-reachable endpoints get headers.
+    if (origin && DESKTOP_CORS_PATHS.has(req.path)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      // Intentionally NO Access-Control-Allow-Credentials (AC-012).
+      if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+      }
+    }
+    next();
+  };
+}
+
 async function main(): Promise<void> {
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
@@ -80,6 +110,10 @@ async function main(): Promise<void> {
 
   const app = express();
   app.use(cors());
+  // Narrow cross-origin headers for the desktop bearer path (Authorization
+  // allowed, no credentialed cookies) — see desktopCors. Applied before the
+  // routes so preflight and actual responses carry the contract.
+  app.use(desktopCors());
   app.get('/health', (_req, res) => res.json({ ok: true }));
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
@@ -130,4 +164,8 @@ async function main(): Promise<void> {
   if (MOCK > 0) startMockDriver(MOCK);
 }
 
-void main();
+// Only boot the server when run as the entrypoint. Importing this module (e.g.
+// to reuse `desktopCors` in tests) must not start Colyseus or load assets.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void main();
+}
