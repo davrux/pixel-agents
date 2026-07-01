@@ -22,6 +22,9 @@ import {
 export interface CharacterCreatorOpts {
   /** Persist the composed avatar (OfficeScene → room.send('saveAvatar', {data})). */
   save: (data: LoadedCharacterData) => void;
+  /** Hand the composed avatar to the classic pixel editor for fine-tuning
+   *  (paint + copy/paste). OfficeScene saves it, then opens it as "me". */
+  editPixels?: (data: LoadedCharacterData) => void;
 }
 
 /** Placeholder metadata name — the in-world name is always the display name. */
@@ -171,11 +174,21 @@ export class CharacterCreator {
     cancel.className = 'cc-b';
     cancel.textContent = 'Cancel';
     cancel.onclick = () => this.close();
+    const btns: HTMLButtonElement[] = [cancel];
+    if (this.opts.editPixels) {
+      const edit = document.createElement('button');
+      edit.className = 'cc-b';
+      edit.textContent = '✎ Edit pixels';
+      edit.title = 'Save, then fine-tune the frames (paint + copy/paste) in the editor';
+      edit.onclick = () => this.editPixels();
+      btns.push(edit);
+    }
     const save = document.createElement('button');
     save.className = 'cc-b primary';
     save.textContent = '✔ Save as my avatar';
     save.onclick = () => this.save();
-    foot.append(hint, cancel, save);
+    btns.push(save);
+    foot.append(hint, ...btns);
     this.root.appendChild(foot);
 
     const view = this.root.querySelector<HTMLCanvasElement>('.cc-view')!;
@@ -308,8 +321,13 @@ export class CharacterCreator {
 
   private save(): void {
     if (!this.sheets) return;
-    const data = composeAvatar(this.sheets, this.sel, AVATAR_NAME);
-    this.opts.save(data);
+    this.opts.save(composeAvatar(this.sheets, this.sel, AVATAR_NAME));
+    this.close();
+  }
+
+  private editPixels(): void {
+    if (!this.sheets || !this.opts.editPixels) return;
+    this.opts.editPixels(composeAvatar(this.sheets, this.sel, AVATAR_NAME));
     this.close();
   }
 }

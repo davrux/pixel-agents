@@ -35,7 +35,7 @@ import { getActiveCategories, getCatalogByCategory, getCatalogEntry } from '@pix
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
-import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { LayoutEditor } from '../editor/LayoutEditor.js';
@@ -359,6 +359,15 @@ export class OfficeScene extends Phaser.Scene {
     });
     this.charCreator = new CharacterCreator({
       save: (data) => this.room?.send('saveAvatar', { data }),
+      // Fine-tune the generated look: persist it, then open it in the classic
+      // pixel editor (which has paint + copy/paste) as the viewer's own avatar.
+      editPixels: (data) => {
+        this.room?.send('saveAvatar', { data });
+        if (this.myAvatarId) {
+          upsertCharacterTemplate(this.myAvatarId, data);
+          this.charEditor.editEntity('me', this.myAvatarId);
+        }
+      },
     });
     this.furnEditor = new FurnitureEditor({
       getRawCatalog: () => this.furnitureCatalogRaw,

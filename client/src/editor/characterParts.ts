@@ -135,33 +135,35 @@ function fillRect(s: SpriteData, x0: number, y0: number, x1: number, y1: number,
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) px(s, x, y, color);
 }
 
-const PAGE = '#efe6cf';
-const PAGE_EDGE = '#96845c';
-const SPINE = '#9a8a63';
-const PAGE_FLIP = '#d2c6a8';
+const BOOK_FRAME = '#2a2320';
+const PAGE = '#f2efe6';
+const SPINE = '#c9c2b2';
+const TEXT = '#8f887c';
+const PAGE_FLIP = '#d8d2c4';
 const CUP = '#e8e8ee';
 const CUP_EDGE = '#787882';
 const COFFEE = '#4a2e1e';
 
-/** A small open book held in front of the chest. */
+/** A small held book on the chest — sized like the bundled chars' reading pose,
+ *  narrow enough that the idle's side hands still show (so it reads as "held"). */
 function drawBook(s: SpriteData, facingRight: boolean): void {
-  const cxp = facingRight ? 18 : 16;
-  const y = 19;
-  fillRect(s, cxp - 6, y, cxp + 5, y + 4, PAGE);
-  // edges
-  for (let x = cxp - 6; x <= cxp + 5; x++) {
-    px(s, x, y, PAGE_EDGE);
-    px(s, x, y + 4, PAGE_EDGE);
-  }
-  for (let yy = y; yy <= y + 4; yy++) {
-    px(s, cxp - 6, yy, PAGE_EDGE);
-    px(s, cxp + 5, yy, PAGE_EDGE);
-    px(s, cxp, yy, SPINE); // spine down the middle
-  }
+  const cxp = facingRight ? 17 : 16;
+  const y = 21;
+  const L = cxp - 4;
+  const R = cxp + 4; // 9 px wide, 5 px tall
+  fillRect(s, L, y, R, y + 4, BOOK_FRAME); // dark cover/frame
+  fillRect(s, L + 1, y + 1, R - 1, y + 3, PAGE); // white pages
+  for (let yy = y + 1; yy <= y + 3; yy++) px(s, cxp, yy, SPINE); // centre spine
+  // a couple of short text lines on each page
+  px(s, cxp - 3, y + 2, TEXT);
+  px(s, cxp - 2, y + 2, TEXT);
+  px(s, cxp + 2, y + 2, TEXT);
+  px(s, cxp + 3, y + 2, TEXT);
 }
 function pageFlip(s: SpriteData, facingRight: boolean): void {
-  const cxp = facingRight ? 18 : 16;
-  for (let yy = 20; yy <= 22; yy++) px(s, cxp - 3, yy, PAGE_FLIP);
+  const cxp = facingRight ? 17 : 16;
+  px(s, cxp - 2, 22, PAGE_FLIP);
+  px(s, cxp - 3, 23, PAGE_FLIP);
 }
 
 /** A small coffee cup held near the leading hand; `raise` lifts it for a sip. */
