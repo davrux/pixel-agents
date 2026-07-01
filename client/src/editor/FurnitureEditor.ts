@@ -28,6 +28,9 @@ export interface FurnitureEditorOpts {
   /** Inject the top-bar entry button? Default true. The scene sets this false
    *  when entry lives elsewhere (the Assets panel) and it opens via edit(id). */
   entryButton?: boolean;
+  /** Where "← Back" (and post-save) goes (Assets panel). When set, the built-in
+   *  gallery view is bypassed — Back closes the editor and hands control back. */
+  onBack?: () => void;
 }
 
 const TILE = 16;
@@ -136,6 +139,13 @@ export class FurnitureEditor {
     this.open = true;
     this.panel.style.display = 'block';
     this.loadItem(id);
+    this.showEdit();
+  }
+  /** Open straight into a new blank item (Assets "＋ New furniture"). */
+  newItem(): void {
+    this.open = true;
+    this.panel.style.display = 'block';
+    this.loadNew();
     this.showEdit();
   }
   async close(): Promise<void> {
@@ -314,6 +324,10 @@ export class FurnitureEditor {
     };
     this.field('#pa-f-galclose').onclick = () => this.close();
     this.field('#pa-f-back').onclick = async () => {
+      if (this.opts.onBack) {
+        this.opts.onBack();
+        return;
+      }
       if (await this.confirmDiscard()) this.showGallery();
     };
     this.field('#pa-f-id').oninput = (e) => {
@@ -646,7 +660,7 @@ export class FurnitureEditor {
     this.opts.reset(this.work.id);
     this.dirty = false;
     this.showStatus(`Reset ${this.work.id} ✓`);
-    window.setTimeout(() => this.showGallery(), 250);
+    window.setTimeout(() => (this.opts.onBack ? this.opts.onBack() : this.showGallery()), 250);
   }
 
   // ── Rendering ────────────────────────────────────────────────────

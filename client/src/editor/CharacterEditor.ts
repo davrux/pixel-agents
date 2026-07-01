@@ -27,6 +27,9 @@ export interface CharacterEditorOpts {
   /** Inject the top-bar entry button? Default true. The scene sets this false
    *  when entry lives elsewhere (the Assets panel) and it opens via editEntity. */
   entryButton?: boolean;
+  /** Where "← Back" goes (Assets panel). When set, the built-in gallery view is
+   *  bypassed entirely — Back closes the editor and hands control back here. */
+  onBack?: () => void;
 }
 
 /** Keep only printable ASCII, max 16 chars (for character display names). */
@@ -275,10 +278,22 @@ export class CharacterEditor {
     const tpl = this.cat().getTemplates() ?? [];
     const i = tpl.findIndex((t) => t.id === id);
     if (i < 0) {
-      this.showGallery();
+      if (this.opts.onBack) this.opts.onBack();
+      else this.showGallery();
       return;
     }
     this.loadChar(i);
+    this.showEdit();
+  }
+
+  /** Open straight into a new blank entity of a category (Assets "＋ New"). */
+  newEntity(catKey: string): void {
+    const ci = this.opts.categories.findIndex((c) => c.key === catKey);
+    if (ci < 0) return;
+    this.open = true;
+    this.panel.style.display = 'block';
+    this.catIndex = ci;
+    this.createNew(null);
     this.showEdit();
   }
   /** Close, prompting first if there are unsaved edits in the edit view. */
@@ -530,8 +545,13 @@ export class CharacterEditor {
     panel.querySelector<HTMLButtonElement>('#pa-c-galclose')!.onclick = () => this.close();
     panel.querySelector<HTMLButtonElement>('#pa-c-newcancel')!.onclick = () => this.closeNewDialog();
 
-    // Edit wiring
+    // Edit wiring. Back returns to the Assets panel (onBack, which prompts on
+    // unsaved edits via setMenu); without a host it falls back to the gallery.
     panel.querySelector<HTMLButtonElement>('#pa-c-back')!.onclick = async () => {
+      if (this.opts.onBack) {
+        this.opts.onBack();
+        return;
+      }
       if (await this.confirmDiscard()) this.showGallery();
     };
     this.nameEl = panel.querySelector<HTMLInputElement>('#pa-c-name')!;

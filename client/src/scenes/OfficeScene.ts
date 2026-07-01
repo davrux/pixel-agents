@@ -353,14 +353,16 @@ export class OfficeScene extends Phaser.Scene {
         },
       ],
       // Entry is via the Assets panel now — the editor opens as an overlay on
-      // demand (editEntity), so it no longer injects its own top-bar button.
+      // demand (editEntity/newEntity); no top-bar button, and Back returns to Assets.
       entryButton: false,
+      onBack: () => void this.setMenu('assets'),
     });
     this.furnEditor = new FurnitureEditor({
       getRawCatalog: () => this.furnitureCatalogRaw,
       save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
       entryButton: false,
+      onBack: () => void this.setMenu('assets'),
     });
 
     // Zone voice: its controls render into the Audio panel body; the scene owns
@@ -1068,14 +1070,11 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Edit mode owns the screen: close + disable the space/assets menus. */
+  /** Edit mode owns the screen: close the menu + hide the whole top bar (it would
+   *  otherwise cover the layout editor's Done/tool controls at the top). */
   private setEditMode(editing: boolean): void {
     void this.setMenu(null);
-    for (const b of [this.spaceBtn, this.assetsBtn]) {
-      if (!b) continue;
-      b.style.opacity = editing ? '0.4' : '';
-      b.style.pointerEvents = editing ? 'none' : '';
-    }
+    if (this.menubar) this.menubar.style.display = editing ? 'none' : 'flex';
     // On exit, make sure the last edit reaches the server.
     if (!editing) {
       this.flushAutosave();
@@ -1278,6 +1277,18 @@ export class OfficeScene extends Phaser.Scene {
     bar.append(audio, mic, deaf, divider, zone, space, assets, spacer, more);
     host.appendChild(bar);
     this.menubar = bar;
+
+    // Pull the connection/status line into the bar (just left of ☰) so the
+    // full-width bar no longer covers it — and it reads as part of the HUD.
+    const statusEl = document.getElementById('status');
+    if (statusEl) {
+      statusEl.style.cssText =
+        'position:static;margin:0;padding:0.4rem 0.7rem;font-size:0.85rem;color:#9aa0b8;' +
+        'background:#141826;border:2px solid #05060b;border-radius:0.45rem;' +
+        'box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;max-width:16rem;' +
+        'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+      bar.insertBefore(statusEl, more);
+    }
 
     // Audio panel — ZoneVoiceUI renders its controls into this body (in create()).
     this.audioPanel = this.mkPanel('Audio', 'left').panel;
@@ -1534,7 +1545,7 @@ export class OfficeScene extends Phaser.Scene {
       add.textContent = '＋ New avatar';
       add.onclick = () => {
         void this.setMenu(null);
-        this.charEditor.show();
+        this.charEditor.newEntity('agent');
       };
       body.appendChild(add);
     }
@@ -1598,7 +1609,7 @@ export class OfficeScene extends Phaser.Scene {
     add.textContent = '＋ New furniture';
     add.onclick = () => {
       void this.setMenu(null);
-      this.furnEditor.show();
+      this.furnEditor.newItem();
     };
     body.appendChild(add);
 
