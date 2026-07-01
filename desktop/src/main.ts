@@ -1,4 +1,14 @@
-import { app, BrowserWindow, ipcMain, protocol, safeStorage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  desktopCapturer,
+  ipcMain,
+  protocol,
+  safeStorage,
+  session,
+  shell,
+} from 'electron';
+import type { DesktopCapturerSource } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
@@ -168,6 +178,82 @@ async function probeServer(rawUrl: string): Promise<boolean> {
   }
 }
 
+// Screen-share (AC-021). The renderer's LiveKitConference calls
+// navigator.mediaDevices.getDisplayMedia(); in Electron that call is only
+// satisfied when the main process answers via setDisplayMediaRequestHandler.
+// The handler enumerates real screen/window sources with desktopCapturer and
+// grants one back to the renderer.
+//
+// Linux note (DD Fact 7 / risk row): on X11 getSources enumerates sources
+// directly; on Wayland capture is routed through xdg-desktop-portal / PipeWire,
+// but the handler must still be registered so getDisplayMedia resolves rather
+// than rejecting for lack of a handler. Some Wayland portals present their own
+// selection UI. If a distro's portal blocks capture, that is validated/escalated
+// during manual FR-4/AC-021 testing (T5.3).
+
+// One-shot id chosen by an explicit pickScreenSource() call. When set, the next
+// display-media request honors it; otherwise the handler defaults to the first
+// screen source (whole-screen share, matching the browser default). Consumed
+// on use so a stale choice never leaks into a later, unrelated request.
+let pendingScreenSourceId: string | null = null;
+
+async function listScreenSources(): Promise<DesktopCapturerSource[]> {
+  // thumbnailSize 0x0 skips thumbnail capture — the current AC needs only ids.
+  return desktopCapturer.getSources({
+    types: ['screen', 'window'],
+    thumbnailSize: { width: 0, height: 0 },
+  });
+}
+
+// Explicit picker (PixelDesktopApi.pickScreenSource). Records the chosen id for
+// the next getDisplayMedia and returns it; null when no source is available or
+// enumeration fails (the renderer treats null as "no explicit choice").
+async function pickScreenSource(): Promise<{ id: string } | null> {
+  let sources: DesktopCapturerSource[];
+  try {
+    sources = await listScreenSources();
+  } catch {
+    return null;
+  }
+  const chosen = sources[0];
+  if (!chosen) return null;
+  pendingScreenSourceId = chosen.id;
+  return { id: chosen.id };
+}
+
+// Answers renderer getDisplayMedia calls. Grants the pending explicit choice
+// when present, else the first screen source. Denies with callback({}) when no
+// source is available or enumeration fails — this rejects the renderer promise
+// so LiveKitConference.setScreenShareEnabled throws and its existing catch
+// reverts screenOn=false (Error Handling — Media row). No client code change.
+function registerDisplayMediaHandler(): void {
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    void listScreenSources()
+      .then((sources) => {
+        const source = selectScreenSource(sources);
+        pendingScreenSourceId = null; // one-shot: consume any explicit choice
+        if (source) {
+          callback({ video: source });
+        } else {
+          callback({}); // no source -> reject getDisplayMedia (cancel/deny path)
+        }
+      })
+      .catch(() => {
+        pendingScreenSourceId = null;
+        callback({}); // enumeration failed -> reject; renderer reverts screenOn
+      });
+  });
+}
+
+function selectScreenSource(sources: DesktopCapturerSource[]): DesktopCapturerSource | undefined {
+  if (pendingScreenSourceId) {
+    const chosen = sources.find((source) => source.id === pendingScreenSourceId);
+    if (chosen) return chosen;
+  }
+  const screen = sources.find((source) => source.id.startsWith('screen:'));
+  return screen ?? sources[0];
+}
+
 function registerIpcHandlers(): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
@@ -176,8 +262,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(channels.getToken, (): Promise<string | null> => readToken());
   ipcMain.handle(channels.setToken, (_event, token: string): Promise<void> => writeToken(token));
   ipcMain.handle(channels.clearToken, (): Promise<void> => clearStoredToken());
-  // Explicit screen-source picker is implemented in T4.4.
-  ipcMain.handle(channels.pickScreenSource, (): { id: string } | null => null);
+  ipcMain.handle(channels.pickScreenSource, (): Promise<{ id: string } | null> => pickScreenSource());
 }
 
 function createWindow(): BrowserWindow {
@@ -244,6 +329,7 @@ if (!gotLock) {
   void app.whenReady().then(() => {
     protocol.handle(APP_SCHEME, serveBundle);
     registerIpcHandlers();
+    registerDisplayMediaHandler();
     mainWindow = createWindow();
 
     app.on('activate', () => {
