@@ -182,6 +182,12 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
    - Client-side hiding of controls is **UX only**; the server is the gate. When
      you add a message or command, decide its capability/ownership in the *same*
      change and enforce it server-side.
+   - **Serve over TLS in production.** The session cookie and the desktop
+     `Authorization: Bearer <sid>` token are confidential capabilities (a valid
+     one grants that user's access), so production must be `https`/`wss` — either
+     the built-in TLS (drop `cert.pem`/`key.pem` in the data dir, or set
+     `PIXEL_TLS_CERT`/`PIXEL_TLS_KEY`) or a TLS-terminating reverse proxy. Media
+     (getUserMedia/WebRTC) also requires a secure context. Plain `http` is dev-only.
 
 ## Conventions
 
