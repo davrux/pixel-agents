@@ -947,6 +947,8 @@ export class SimRoom extends Room<RoomState> {
       }
       case 'users': {
         const mode = args[0]?.toLowerCase();
+        // Admin marker (★), shown for accounts; blank for anonymous/dev users.
+        const star = (userId: string): string => (userStore.get(userId)?.isAdmin ? ' ★' : '');
         if (mode === 'all') {
           // Every registered account, with its current zone or "offline".
           const users = userStore.list();
@@ -956,7 +958,7 @@ export class SimRoom extends Room<RoomState> {
                   users
                     .map((u) => {
                       const zone = presence.zoneOf(u.userId) ?? 'offline';
-                      return `• ${UserStore.displayName(u)} (${u.userId})${u.isAdmin ? ' ★' : ''} — ${zone}`;
+                      return `• ${UserStore.displayName(u)} (${u.userId})${star(u.userId)} — ${zone}`;
                     })
                     .join('\n')
               : 'No users registered.',
@@ -968,7 +970,8 @@ export class SimRoom extends Room<RoomState> {
             .sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
           sys(
             all.length
-              ? `Online users (${all.length}):\n` + all.map((u) => `• ${u.name} (${u.userId}) — ${u.zone}`).join('\n')
+              ? `Online users (${all.length}):\n` +
+                  all.map((u) => `• ${u.name} (${u.userId})${star(u.userId)} — ${u.zone}`).join('\n')
               : 'No users online.',
           );
         } else {
@@ -976,7 +979,8 @@ export class SimRoom extends Room<RoomState> {
           const here = presence.list().filter((u) => u.zone === this.zone.id);
           sys(
             here.length
-              ? `Users in ${this.zone.label} (${here.length}):\n` + here.map((u) => `• ${u.name} (${u.userId})`).join('\n')
+              ? `Users in ${this.zone.label} (${here.length}):\n` +
+                  here.map((u) => `• ${u.name} (${u.userId})${star(u.userId)}`).join('\n')
               : 'No users in this zone.',
           );
         }
