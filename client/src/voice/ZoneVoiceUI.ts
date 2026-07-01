@@ -8,15 +8,17 @@ import {
 
 /** ZoneVoiceUI hooks = the ZoneVoice hooks plus a UI-only callback the scene
  *  uses to reflect live state on the Audio top-bar button. */
-type ZoneVoiceUIHooks = ZoneVoiceHooks & { onStateChange?: (live: boolean) => void };
+type VoiceBarState = { connected: boolean; micOn: boolean; deafened: boolean };
+type ZoneVoiceUIHooks = ZoneVoiceHooks & { onStateChange?: (s: VoiceBarState) => void };
 
 /**
  * Audio panel for zone voice (rendered into the shared menu popover the scene
- * supplies). A master "Voice communication" toggle (join/leave), independent
- * Mute-mic / Silence-others buttons, device pickers, mic-sensitivity + volume
- * sliders with a live level meter, a proximity switch, and a per-participant
- * list. Owns a {@link ZoneVoice} instance and renders its state/peers; the scene
- * feeds it tokens + avatar positions.
+ * supplies). A master "Voice communication" toggle (join/leave), device pickers,
+ * mic-sensitivity + volume sliders with a live level meter, a proximity switch,
+ * and a per-participant list. Mic-mute / silence-others are surfaced as
+ * quick-access buttons in the top bar by the scene (via onStateChange). Owns a
+ * {@link ZoneVoice} instance and renders its state/peers; the scene feeds it
+ * tokens + avatar positions.
  */
 export class ZoneVoiceUI {
   readonly voice: ZoneVoice;
@@ -26,8 +28,6 @@ export class ZoneVoiceUI {
   private masterDot!: HTMLElement;
   private liveHint!: HTMLElement;
   private subWrap!: HTMLElement;
-  private micBtn!: HTMLButtonElement;
-  private deafenBtn!: HTMLButtonElement;
   private devicesEl!: HTMLElement;
   private peersEl!: HTMLElement;
   private masterEl!: HTMLInputElement;
@@ -39,7 +39,7 @@ export class ZoneVoiceUI {
   private meterLvl!: HTMLElement;
   private meterThr!: HTMLElement;
   private lastState: ZoneVoiceState;
-  private readonly onStateChange?: (live: boolean) => void;
+  private readonly onStateChange?: (s: VoiceBarState) => void;
 
   constructor(mount: HTMLElement, hooks: ZoneVoiceUIHooks) {
     this.onStateChange = hooks.onStateChange;
@@ -89,13 +89,7 @@ export class ZoneVoiceUI {
       #pa-zv-track.on .knob{left:1.6rem;}
       #pa-zv-sub{margin-top:0.65rem;}
       #pa-zv-sub.off{opacity:.4;pointer-events:none;filter:grayscale(.4);}
-      #pa-zv-btns{display:flex;gap:0.5rem;}
-      #pa-zv-btns button{flex:1;display:flex;align-items:center;justify-content:center;gap:0.4rem;cursor:pointer;
-        padding:0.6rem;border-radius:0.45rem;border:2px solid #05060b;font:0.95rem 'FS Pixel Sans',monospace;
-        color:#aeb4cc;background:#171b2b;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-zv-btns button.mute-on{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
-      #pa-zv-btns button.deaf-on{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
-      #pa-zv-devices{margin-top:0.85rem;}
+      #pa-zv-devices{margin-top:0.2rem;}
       #pa-zv-devices .row,#pa-zv-sub .row{display:flex;align-items:center;gap:0.55rem;margin:0.45rem 0;font-size:0.9rem;}
       #pa-zv-devices .row label,#pa-zv-sub .row label{flex:0 0 auto;min-width:4rem;color:#9aa0b8;}
       #pa-zv-sub input[type=range]{flex:1;accent-color:#3f78c4;}
@@ -145,10 +139,6 @@ export class ZoneVoiceUI {
     const sub = document.createElement('div');
     sub.id = 'pa-zv-sub';
     sub.innerHTML = `
-      <div id="pa-zv-btns">
-        <button id="pa-zv-mute"><span>🎤</span><span class="lbl">Mute mic</span></button>
-        <button id="pa-zv-deaf"><span>🔊</span><span class="lbl">Silence others</span></button>
-      </div>
       <div id="pa-zv-devices">
         <div class="row"><label>Mic</label><select id="pa-zv-mic"></select></div>
         <div class="row"><label>Speaker</label><select id="pa-zv-spk"></select></div>
@@ -162,10 +152,6 @@ export class ZoneVoiceUI {
       <div id="pa-zv-peers"></div>`;
 
     this.subWrap = sub;
-    this.micBtn = sub.querySelector('#pa-zv-mute')!;
-    this.deafenBtn = sub.querySelector('#pa-zv-deaf')!;
-    this.micBtn.addEventListener('click', () => this.voice.toggleMic());
-    this.deafenBtn.addEventListener('click', () => this.voice.toggleDeafen());
     this.devicesEl = sub.querySelector('#pa-zv-devices')!;
     this.peersEl = sub.querySelector('#pa-zv-peers')!;
     this.masterEl = sub.querySelector('#pa-zv-master-vol')!;
@@ -213,18 +199,13 @@ export class ZoneVoiceUI {
     // The sub-controls need a live room; grey them out otherwise.
     this.subWrap.classList.toggle('off', !connected);
 
-    this.micBtn.querySelector('.lbl')!.textContent = s.micOn ? 'Mute mic' : 'Muted';
-    this.micBtn.classList.toggle('mute-on', !s.micOn);
-    this.deafenBtn.querySelector('.lbl')!.textContent = s.deafened ? 'Silenced' : 'Silence others';
-    this.deafenBtn.classList.toggle('deaf-on', s.deafened);
-
     this.micGainEl.value = String(Math.round(s.micGain * 100));
     this.threshEl.value = String(Math.round(s.micThreshold * 100));
     this.meterThr.style.left = `${Math.round(s.micThreshold * 100)}%`;
     this.masterEl.value = String(Math.round(s.master * 100));
     this.proxEl.checked = s.proximity;
 
-    this.onStateChange?.(connected);
+    this.onStateChange?.({ connected, micOn: s.micOn, deafened: s.deafened });
   }
 
   /** Live mic input level (0..1) → meter fill; green above threshold, dim below. */

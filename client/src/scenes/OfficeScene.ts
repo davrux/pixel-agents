@@ -178,6 +178,9 @@ export class OfficeScene extends Phaser.Scene {
   /** Grouped top-bar buttons (design: Audio · Zone · Space · Assets · ☰). */
   private audioBtn?: HTMLButtonElement;
   private audioDot?: HTMLElement;
+  /** Quick-access voice controls in the bar (shown only while connected). */
+  private micBarBtn?: HTMLButtonElement;
+  private deafBarBtn?: HTMLButtonElement;
   private zoneBtn?: HTMLButtonElement;
   private zoneLabelEl?: HTMLElement;
   private spaceBtn?: HTMLButtonElement;
@@ -375,8 +378,8 @@ export class OfficeScene extends Phaser.Scene {
         onVoiceStatus: (status) => {
           this.voiceStatus = status;
         },
-        // Reflect live voice state on the Audio top-bar button's status dot.
-        onStateChange: (live) => this.audioDot?.classList.toggle('live', live),
+        // Reflect live voice state on the Audio dot + quick-access bar buttons.
+        onStateChange: (s) => this.updateVoiceBarButtons(s),
       });
     }
 
@@ -1094,6 +1097,24 @@ export class OfficeScene extends Phaser.Scene {
     if (this.assetsBtn) this.assetsBtn.style.display = this.collapsed || !this.assetsAdmin ? 'none' : '';
   }
 
+  /** Reflect zone-voice state on the bar: the Audio live dot + the quick-access
+   *  mic/silence buttons (visible only while connected). */
+  private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean; deafened: boolean }): void {
+    this.audioDot?.classList.toggle('live', s.connected);
+    if (this.micBarBtn) {
+      this.micBarBtn.style.display = s.connected ? '' : 'none';
+      this.micBarBtn.classList.toggle('warn', !s.micOn);
+      this.micBarBtn.firstChild!.textContent = s.micOn ? '🎤' : '🔇';
+      this.micBarBtn.title = s.micOn ? 'Mute your mic' : 'Unmute your mic';
+    }
+    if (this.deafBarBtn) {
+      this.deafBarBtn.style.display = s.connected ? '' : 'none';
+      this.deafBarBtn.classList.toggle('danger', s.deafened);
+      this.deafBarBtn.firstChild!.textContent = s.deafened ? '🔕' : '🔊';
+      this.deafBarBtn.title = s.deafened ? 'Un-silence everyone' : 'Silence everyone';
+    }
+  }
+
   // ── Top bar + shared popover shells ──────────────────────────────
 
   private createHud(): void {
@@ -1109,6 +1130,8 @@ export class OfficeScene extends Phaser.Scene {
       .pa-btn:hover{background:#1a2032;}
       .pa-btn.active{color:#fff;}
       .pa-btn.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-3px;height:3px;background:#7fd08a;border-radius:2px;}
+      .pa-btn.warn{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
+      .pa-btn.danger{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-btn .caret{color:#7f859c;font-size:0.8rem;}
       #pa-menubar .pa-dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#5a6076;}
       #pa-menubar .pa-dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}
@@ -1198,6 +1221,18 @@ export class OfficeScene extends Phaser.Scene {
     this.audioBtn = audio;
     this.audioDot = dot;
 
+    // Quick-access mic mute + silence-others (only shown once voice is connected).
+    const mic = this.mkBarBtn('🎤', '');
+    mic.title = 'Mute / unmute your mic';
+    mic.style.display = 'none';
+    mic.onclick = () => this.zoneVoice?.voice.toggleMic();
+    this.micBarBtn = mic;
+    const deaf = this.mkBarBtn('🔊', '');
+    deaf.title = 'Silence / un-silence everyone';
+    deaf.style.display = 'none';
+    deaf.onclick = () => this.zoneVoice?.voice.toggleDeafen();
+    this.deafBarBtn = deaf;
+
     const divider = document.createElement('span');
     divider.className = 'pa-div';
 
@@ -1235,7 +1270,7 @@ export class OfficeScene extends Phaser.Scene {
       );
     this.moreBtn = more;
 
-    bar.append(audio, divider, zone, space, assets, spacer, more);
+    bar.append(audio, mic, deaf, divider, zone, space, assets, spacer, more);
     host.appendChild(bar);
     this.menubar = bar;
 
