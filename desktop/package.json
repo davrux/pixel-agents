@@ -2,6 +2,9 @@
   "name": "@pixel/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Desktop application for the pixel-agents web client",
+  "author": "Pixel Agents",
+  "desktopName": "pixel-agents.desktop",
   "type": "module",
   "main": "./src/main.ts",
   "scripts": {
@@ -10,11 +13,9 @@
     "dev": "electron dist/main.js",
     "dist": "electron-builder"
   },
-  "dependencies": {
-    "electron": "^43.0.0"
-  },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "electron": "^43.0.0",
     "electron-builder": "^26.0.0",
     "typescript": "^5.9.3"
   }

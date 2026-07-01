@@ -9,6 +9,10 @@
 # <app>/client/dist. The files mapping below reproduces that structure in the asar.
 appId: org.pixelagents.desktop
 productName: Pixel Agents
+# Filesystem-safe binary name. Without this, electron-builder derives the Linux
+# executableName from the scoped package name "@pixel/desktop" -> "@pixeldesktop",
+# whose "@" cannot be used safely in file paths and aborts the AppImage build.
+executableName: pixel-agents
 
 directories:
   # icon.png (+ any future variants) resolved here; also the AppImage icon source.
@@ -40,6 +44,10 @@ linux:
   # explicit design deviation). Replace with a final icon later.
   icon: build/icon.png
   category: Network
+  # electron-builder 26.x relocated the .desktop filename to package.json's
+  # "desktopName"; this flag syncs the installed .desktop entry to it so it
+  # matches Electron's app_id / StartupWMClass (clears the WM_CLASS advisory).
+  syncDesktopName: true
 
 # No signing: unsigned build (no certs available in this environment / CI).
 # artifact: e.g. "Pixel Agents-0.1.0-x86_64.AppImage"
