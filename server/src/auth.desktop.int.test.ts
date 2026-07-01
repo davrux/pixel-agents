@@ -266,8 +266,14 @@ before(async () => {
   ({ userStore } = await import('./userStore.js'));
   const { registerAuth } = await import('./auth.js');
   ({ SimRoom } = await import('./rooms/SimRoom.js'));
+  // Narrow CORS is applied by index.ts before registerAuth; mount it here the
+  // same way so the header contract (TEST 3B) is exercised against the real
+  // middleware without booting the full server.
+  const { desktopCors } = await import('./index.js');
 
   const app = express();
+  app.use(desktopCors());
+  app.get('/health', (_req, res) => void res.json({ ok: true }));
   registerAuth(app, ADMIN_TOKEN);
 
   await new Promise<void>((resolve) => {
@@ -554,4 +560,69 @@ test('TEST 3A: signout is idempotent -> 204 on repeat and on an absent/missing s
   // No Authorization header at all — still 204 (idempotent).
   const noHeader = await fetch(`${baseUrl}/desktop/signout`, { method: 'POST' });
   assert.equal(noHeader.status, 204);
+});
+
+// --- TEST 3 Part B: CORS contract (VP5/VP6) ---
+// AC-012: cross-origin requests may carry Authorization, but the response must
+// NOT set Access-Control-Allow-Credentials (no cross-origin cookie surface).
+
+const DESKTOP_ORIGIN = 'app://pixel-agents';
+
+test('TEST 3B VP5/VP6: /desktop/token cross-origin allows Authorization, no Allow-Credentials', async () => {
+  const loginId = 't3buser';
+  const password = 'secret123';
+  userStore.createUser(loginId, password);
+
+  // Preflight (OPTIONS) — the browser asks whether Authorization may be sent.
+  const preflight = await fetch(`${baseUrl}/desktop/token`, {
+    method: 'OPTIONS',
+    headers: {
+      origin: DESKTOP_ORIGIN,
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'authorization,content-type',
+    },
+  });
+  // VP5: Authorization is allowed cross-origin.
+  const allowHeaders = preflight.headers.get('access-control-allow-headers') ?? '';
+  assert.match(allowHeaders, /authorization/i, 'preflight must allow the Authorization header');
+  // VP6: no credentialed cross-origin cookie surface.
+  assert.equal(
+    preflight.headers.get('access-control-allow-credentials'),
+    null,
+    'preflight must NOT set Access-Control-Allow-Credentials',
+  );
+
+  // Actual cross-origin POST — same header contract on the real response.
+  const res = await fetch(`${baseUrl}/desktop/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: DESKTOP_ORIGIN },
+    body: JSON.stringify({ username: loginId, password }),
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('access-control-allow-headers') ?? '', /authorization/i);
+  assert.equal(res.headers.get('access-control-allow-credentials'), null);
+
+  const body = (await res.json()) as { token: string };
+  appStore.deleteSession(body.token);
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 3B VP5/VP6: cross-origin /health allows Authorization, no Allow-Credentials', async () => {
+  const res = await fetch(`${baseUrl}/health`, {
+    method: 'GET',
+    headers: { origin: DESKTOP_ORIGIN, authorization: 'Bearer whatever' },
+  });
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('access-control-allow-headers') ?? '', /authorization/i);
+  assert.equal(res.headers.get('access-control-allow-credentials'), null);
+});
+
+test('TEST 3B: same-origin request (no Origin header) gets no CORS headers, base flow intact', async () => {
+  // A same-origin browser request carries no Origin header; desktopCors must not
+  // inject cross-origin headers (base open cors() behavior for other routes is
+  // preserved and no route gains Allow-Credentials).
+  const res = await fetch(`${baseUrl}/health`, { method: 'GET' });
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true });
+  assert.equal(res.headers.get('access-control-allow-credentials'), null);
 });
