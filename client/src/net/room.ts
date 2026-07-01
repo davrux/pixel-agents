@@ -1,6 +1,6 @@
 import { Client, type Room } from 'colyseus.js';
 import { DEFAULT_ZONE, WORLD_ROOM } from '@pixel/shared/protocol';
-import { isDesktop, getConfiguredServerOrigin } from '../desktop/bridge';
+import { isDesktop, getConfiguredServerOrigin, desktop } from '../desktop/bridge';
 
 /** HTTP(S) origin the network targets derive from. On desktop this is the
  *  configured server URL (from the preload IPC, held by the desktop bridge); on
@@ -54,6 +54,15 @@ export function gotoLogout(): void {
 
 export async function connect(zone: string = DEFAULT_ZONE, arrive = false): Promise<Room> {
   const client = new Client(endpoint());
+  // Desktop only: attach the server-issued bearer token so colyseus.js adds
+  // `Authorization: Bearer <sid>` to the matchmake POST (and `_authToken` to the
+  // WS join query), reaching onAuth's bearer branch. Read once from the preload
+  // IPC (in-memory, safeStorage-backed) — never persisted in the renderer. The
+  // browser path sets no token and stays on the same-origin cookie flow.
+  if (isDesktop()) {
+    const token = await desktop().getToken();
+    if (token) client.auth.token = token;
+  }
   // `arrive` = the player actively entered this zone (menu switch or portal), so
   // the server should land them at the zone's arrival tile rather than where they
   // last stood. Resolved per-client in onJoin.
