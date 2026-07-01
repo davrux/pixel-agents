@@ -255,6 +255,7 @@ let baseUrl: string;
 // db.ts before PIXEL_STREAM_DATA_DIR is set).
 let appStore: typeof import('./appStore.js').appStore;
 let userStore: typeof import('./userStore.js').userStore;
+let SimRoom: typeof import('./rooms/SimRoom.js').SimRoom;
 
 before(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'pixel-auth-desktop-test-'));
@@ -264,6 +265,7 @@ before(async () => {
   ({ appStore } = await import('./appStore.js'));
   ({ userStore } = await import('./userStore.js'));
   const { registerAuth } = await import('./auth.js');
+  ({ SimRoom } = await import('./rooms/SimRoom.js'));
 
   const app = express();
   registerAuth(app, ADMIN_TOKEN);
@@ -293,6 +295,115 @@ async function postToken(body: Record<string, unknown>): Promise<Response> {
     body: JSON.stringify(body),
   });
 }
+
+// onAuth is a pure function of (client, options, context) that reads only
+// `this.authRequired` from the room. We invoke it directly with a crafted
+// AuthContext (Colyseus transport mocked) and a minimal `this` — no full
+// Colyseus room/transport is spun up (per the @mock-boundary decision).
+type AuthInfo = { userId: string; username: string; isAdmin: boolean };
+
+function callOnAuth(
+  authRequired: boolean,
+  context: { token?: string; cookie?: string },
+): AuthInfo {
+  const authContext = {
+    token: context.token,
+    headers: context.cookie === undefined ? {} : { cookie: context.cookie },
+    ip: '127.0.0.1',
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onAuth = SimRoom.prototype.onAuth as (...a: any[]) => AuthInfo;
+  return onAuth.call({ authRequired }, undefined, undefined, authContext);
+}
+
+// --- TEST 1: cookie-path non-regression (VP1-VP4) ---
+
+test('TEST 1 VP1/VP2: valid cookie, no token -> seeded user AuthInfo (cookie branch authorizes)', () => {
+  const loginId = 't1user';
+  userStore.createUser(loginId, 'secret123');
+  const sid = appStore.createSession(loginId);
+
+  // Baseline expected values computed independently of the code under test:
+  // no free display name was set, so displayName falls back to the login id.
+  const expected: AuthInfo = { userId: loginId, username: loginId, isAdmin: false };
+
+  const info = callOnAuth(true, { cookie: `pixel_stream_sid=${sid}` });
+  assert.deepEqual(info, expected);
+  // VP2: the display-name mapping (UserStore.displayName) is unchanged.
+  assert.equal(info.username, loginId);
+
+  appStore.deleteSession(sid);
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 1 VP3: authRequired=false -> anonymous AuthInfo, no throw (short-circuit unchanged)', () => {
+  // Even with a bogus cookie AND a bogus token, the anonymous short-circuit wins.
+  const info = callOnAuth(false, { cookie: 'pixel_stream_sid=bogus', token: 'bogus' });
+  assert.deepEqual(info, { userId: '', username: '', isAdmin: false });
+});
+
+test('TEST 1 VP4: unknown/absent cookie with authRequired=true -> throws unauthorized', () => {
+  assert.throws(() => callOnAuth(true, { cookie: 'pixel_stream_sid=never-issued' }), /unauthorized/);
+  assert.throws(() => callOnAuth(true, {}), /unauthorized/);
+});
+
+// --- TEST 2 VP2: onAuth AuthInfo equivalence (cookie vs bearer) ---
+
+test('TEST 2 VP2: onAuth(bearer token) AuthInfo is field-identical to onAuth(cookie) for the same user', () => {
+  // A normal (non-admin) user, and an admin user, exercised on both credential
+  // forms — the bearer branch must resolve the SAME AuthInfo as the cookie.
+  for (const [loginId, isAdmin] of [['t2normal', false], ['t2admin', true]] as const) {
+    const user = userStore.createUser(loginId, 'secret123', { isAdmin });
+    userStore.setUsername(user.userId, 'Display Name');
+    const sid = appStore.createSession(loginId);
+
+    const viaCookie = callOnAuth(true, { cookie: `pixel_stream_sid=${sid}` });
+    const viaBearer = callOnAuth(true, { token: sid });
+
+    assert.deepEqual(viaBearer, viaCookie, 'bearer AuthInfo must equal cookie AuthInfo');
+    assert.deepEqual(viaBearer, { userId: loginId, username: 'Display Name', isAdmin });
+
+    appStore.deleteSession(sid);
+    userStore.deleteUser(loginId);
+  }
+});
+
+// --- TEST 3 Part A: onAuth rejection (invalid/expired/signed-out token) ---
+
+test('TEST 3A onAuth: a never-issued token -> onAuth throws unauthorized', () => {
+  assert.throws(() => callOnAuth(true, { token: 'never-issued-but-valid-looking-sid' }), /unauthorized/);
+});
+
+test('TEST 3A onAuth: an expired session -> getSession lazy-deletes -> onAuth throws unauthorized', () => {
+  const loginId = 't3exp';
+  userStore.createUser(loginId, 'secret123');
+  // Seed a session row directly with expires in the past (deterministic, no sleep).
+  const store = appStore as unknown as {
+    db: { prepare(sql: string): { run(...a: unknown[]): void; get(...a: unknown[]): unknown } };
+  };
+  const sid = 'expired-sid-t3';
+  store.db.prepare('INSERT INTO sessions(sid, user_id, expires) VALUES(?, ?, ?)').run(sid, loginId, Date.now() - 1);
+
+  assert.throws(() => callOnAuth(true, { token: sid }), /unauthorized/);
+  // The expired row was lazy-deleted by getSession.
+  assert.equal(store.db.prepare('SELECT sid FROM sessions WHERE sid = ?').get(sid), undefined);
+
+  userStore.deleteUser(loginId);
+});
+
+test('TEST 3A onAuth: a signed-out (deleted) token -> onAuth throws unauthorized', () => {
+  const loginId = 't3so';
+  userStore.createUser(loginId, 'secret123');
+  const sid = appStore.createSession(loginId);
+  assert.ok(appStore.getSession(sid), 'precondition: live session');
+
+  appStore.deleteSession(sid);
+  assert.equal(appStore.getSession(sid), undefined, 'precondition: session revoked');
+
+  assert.throws(() => callOnAuth(true, { token: sid }), /unauthorized/);
+
+  userStore.deleteUser(loginId);
+});
 
 // --- TEST 2: issuance (VP1/VP3/VP4/VP5) ---
 

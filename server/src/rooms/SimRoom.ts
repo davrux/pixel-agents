@@ -25,7 +25,7 @@ import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
-import { hasValidSession, userIdFromCookie } from '../auth.js';
+import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
@@ -184,17 +184,32 @@ export class SimRoom extends Room<RoomState> {
     }
   }
 
-  /** Gate joins on the cookie session when login is enforced; resolve the viewer
-   *  to {userId (identity key), username (display name), isAdmin}. Open dev mode
-   *  (no admin token) yields an anonymous viewer. */
+  /** Gate joins when login is enforced; resolve the viewer to {userId (identity
+   *  key), username (display name), isAdmin}. Open dev mode (no admin token)
+   *  yields an anonymous viewer. The cookie session (browser) is evaluated first
+   *  and is unchanged; a valid `context.token` bearer session (desktop, carried
+   *  by Colyseus from `Authorization: Bearer`) is an additive, equivalent path
+   *  resolved through the SAME session store + identity resolution as the cookie. */
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
     const cookie = (context?.headers as Record<string, string | undefined> | undefined)?.cookie;
-    if (!hasValidSession(cookie)) throw new Error('unauthorized');
-    const userId = userIdFromCookie(cookie) ?? '';
-    const user = userId ? userStore.get(userId) : undefined;
-    if (!user) throw new Error('unauthorized');
-    return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
+    if (hasValidSession(cookie)) {
+      const userId = userIdFromCookie(cookie) ?? '';
+      const user = userId ? userStore.get(userId) : undefined;
+      if (!user) throw new Error('unauthorized');
+      return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
+    }
+    // Colyseus strips the `Bearer ` prefix into `context.token`; rebuild the
+    // header form so the bearer helpers (same session store/TTL as the cookie)
+    // resolve identically to the cookie path above.
+    const authHeader = context?.token ? `Bearer ${context.token}` : undefined;
+    if (hasValidBearerSession(authHeader)) {
+      const userId = userIdFromBearer(authHeader) ?? '';
+      const user = userId ? userStore.get(userId) : undefined;
+      if (!user) throw new Error('unauthorized');
+      return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
+    }
+    throw new Error('unauthorized');
   }
 
   onCreate(options: { bundle: AssetBundle; authRequired?: boolean; zone?: string; version?: string }): void {
