@@ -24,6 +24,9 @@ export interface CharacterEditorOpts {
   /** Toolbar button clicked — let the scene coordinate mutually-exclusive menus.
    *  Falls back to self-toggle when not provided. */
   requestToggle?: () => void;
+  /** Inject the top-bar entry button? Default true. The scene sets this false
+   *  when entry lives elsewhere (the Assets panel) and it opens via editEntity. */
+  entryButton?: boolean;
 }
 
 /** Keep only printable ASCII, max 16 chars (for character display names). */
@@ -324,13 +327,13 @@ export class CharacterEditor {
     const style = document.createElement('style');
     // Sizing mirrors the Settings/Edit panels (rem-based, larger fonts/buttons).
     style.textContent = `
-      #pa-chars{position:fixed;top:3.4rem;right:0.5rem;z-index:61;display:none;width:26rem;background:#1b1f2a;
-        border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
-        box-shadow:0 4px 0 rgba(0,0,0,.4);box-sizing:border-box;max-height:calc(100vh - 4rem);overflow:auto;}
-      #pa-chars h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-chars{position:fixed;top:3.7rem;right:0.75rem;z-index:61;display:none;width:26rem;background:#0f1220;
+        border:2px solid #05060b;border-radius:0.6rem;color:#e9ecf7;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
+        box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);box-sizing:border-box;max-height:calc(100vh - 4.7rem);overflow:auto;}
+      #pa-chars h4{margin:0 0 0.6rem;font-size:1.25rem;color:#eef1fb;}
       #pa-chars .row{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;font-size:1rem;flex-wrap:wrap;}
-      #pa-chars select,#pa-chars button,#pa-chars input[type=text]{background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;}
+      #pa-chars select,#pa-chars button,#pa-chars input[type=text]{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+        border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       #pa-chars input[type=text]{cursor:text;}
       #pa-chars input[type=number]{width:3.2rem;background:#14161c;border:1px solid #3a4150;color:#eef1f6;
         border-radius:0.3rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.3rem 0.4rem;}
@@ -485,8 +488,10 @@ export class CharacterEditor {
       <input id="pa-imp-file" type="file" accept="image/png,image/*" hidden>`;
 
     const host = document.getElementById('game') ?? document.body;
-    if (this.opts.topbar) this.opts.topbar.appendChild(btn);
-    else host.appendChild(btn);
+    if (this.opts.entryButton !== false) {
+      if (this.opts.topbar) this.opts.topbar.appendChild(btn);
+      else host.appendChild(btn);
+    }
     this.btn = btn;
     host.appendChild(panel);
     host.appendChild(importPanel);

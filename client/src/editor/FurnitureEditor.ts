@@ -25,6 +25,9 @@ export interface FurnitureEditorOpts {
   /** Toolbar button clicked — let the scene coordinate mutually-exclusive menus.
    *  Falls back to self-toggle when not provided. */
   requestToggle?: () => void;
+  /** Inject the top-bar entry button? Default true. The scene sets this false
+   *  when entry lives elsewhere (the Assets panel) and it opens via edit(id). */
+  entryButton?: boolean;
 }
 
 const TILE = 16;
@@ -128,8 +131,25 @@ export class FurnitureEditor {
     this.panel.style.display = 'block';
     this.showGallery();
   }
+  /** Open straight into editing one catalog item (used by the Assets browser). */
+  edit(id: string): void {
+    this.open = true;
+    this.panel.style.display = 'block';
+    this.loadItem(id);
+    this.showEdit();
+  }
   async close(): Promise<void> {
     if (!(await this.confirmDiscard())) return;
+    this.forceClose();
+  }
+
+  /** Scene hook: may this editor be closed now? (prompts on unsaved edits). */
+  confirmLeave(): Promise<boolean> {
+    return this.confirmDiscard();
+  }
+
+  /** Close without prompting — the caller already ran confirmLeave(). */
+  forceClose(): void {
     this.stopPlay();
     this.open = false;
     this.panel.style.display = 'none';
@@ -179,14 +199,14 @@ export class FurnitureEditor {
   private build(): void {
     const style = document.createElement('style');
     style.textContent = `
-      #pa-furn{position:fixed;top:3.4rem;right:0.5rem;z-index:61;display:none;width:23rem;background:#1b1f2a;
-        border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
-        box-shadow:0 4px 0 rgba(0,0,0,.4);max-height:92vh;overflow:auto;}
-      #pa-furn h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
+      #pa-furn{position:fixed;top:3.7rem;right:0.75rem;z-index:61;display:none;width:23rem;background:#0f1220;
+        border:2px solid #05060b;border-radius:0.6rem;color:#e9ecf7;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
+        box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);max-height:92vh;overflow:auto;}
+      #pa-furn h4{margin:0 0 0.6rem;font-size:1.25rem;color:#eef1fb;}
       #pa-furn .row{display:flex;align-items:center;gap:0.5rem;margin:0.5rem 0;font-size:1rem;flex-wrap:wrap;}
       #pa-furn label.f{flex:0 0 7rem;color:#aab2c0;}
-      #pa-furn select,#pa-furn button,#pa-furn input[type=text],#pa-furn input[type=number]{background:#2a2f3a;
-        border:1px solid #3a4150;color:#eef1f6;border-radius:0.3rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;}
+      #pa-furn select,#pa-furn button,#pa-furn input[type=text],#pa-furn input[type=number]{background:#171b2b;
+        border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.4rem 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       #pa-furn input[type=text],#pa-furn input[type=number]{cursor:text;flex:1;min-width:0;}
       #pa-furn input[type=number]{flex:0 0 4rem;}
       #pa-furn button.on{background:#3a6df0;border-color:#3a6df0;}
@@ -276,8 +296,10 @@ export class FurnitureEditor {
       </div>`;
 
     const host = document.getElementById('game') ?? document.body;
-    if (this.opts.topbar) this.opts.topbar.appendChild(btn);
-    else host.appendChild(btn);
+    if (this.opts.entryButton !== false) {
+      if (this.opts.topbar) this.opts.topbar.appendChild(btn);
+      else host.appendChild(btn);
+    }
     this.btn = btn;
     host.appendChild(panel);
     this.panel = panel;

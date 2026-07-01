@@ -28,9 +28,10 @@ import {
   type FurnitureInstance,
   type OfficeLayout,
   type Pet,
+  type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { getActiveCategories, getCatalogByCategory, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference, type ConferenceState, type ConferenceDevices } from '../conference/LiveKitConference.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength } from '@pixel/shared/office/sprites/spriteData.js';
@@ -58,6 +59,9 @@ type RenderChar = Partial<Character> & {
   animPose?: string;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+
+/** Which grouped top-bar popover is open (null = none). */
+type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
 
 /** Per-pose animation frame duration (ms), mirroring the engine's constants.
  *  Poses not listed (idle) are static. Drives the client-side animation clock. */
@@ -170,16 +174,33 @@ export class OfficeScene extends Phaser.Scene {
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
-  private topbar?: HTMLElement;
   private menubar?: HTMLElement;
-  private settingsBtn?: HTMLButtonElement;
-  private layoutsBtn?: HTMLButtonElement;
-  private layoutsPanel!: HTMLDivElement;
-  private zonesBtn?: HTMLButtonElement;
-  private zonesPanel!: HTMLDivElement;
-  private helpBtn?: HTMLButtonElement;
+  /** Grouped top-bar buttons (design: Audio · Zone · Space · Assets · ☰). */
+  private audioBtn?: HTMLButtonElement;
+  private audioDot?: HTMLElement;
+  private zoneBtn?: HTMLButtonElement;
+  private zoneLabelEl?: HTMLElement;
+  private spaceBtn?: HTMLButtonElement;
+  private assetsBtn?: HTMLButtonElement;
+  private moreBtn?: HTMLButtonElement;
+  /** Grouped popover panels — all share the .pa-panel style; mutually exclusive. */
+  private audioPanel?: HTMLDivElement;
+  private zonePanel?: HTMLDivElement;
+  private spacePanel?: HTMLDivElement;
+  private assetsPanel?: HTMLDivElement;
+  private morePanel?: HTMLDivElement;
+  private layoutsPanel!: HTMLDivElement; // Layouts tab body, nested in spacePanel
+  private zonesPanel!: HTMLDivElement; // Zones tab body, nested in spacePanel
+  private layoutsSeg?: HTMLElement; // Layouts segment (hidden for non-editors)
+  private assetsBody?: HTMLDivElement; // Characters/Furniture list host
   private helpPanel!: HTMLDivElement;
-  private zoneSel?: HTMLSelectElement;
+  /** Which top-bar popover is open (null = none). */
+  private currentMenu: MenuId = null;
+  /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
+  private collapsed = false;
+  private spaceTab: 'layouts' | 'zones' = 'layouts';
+  private assetsTab: 'chars' | 'furniture' = 'chars';
+  private charTab: 'agent' | 'npc' | 'me' = 'agent';
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -270,7 +291,7 @@ export class OfficeScene extends Phaser.Scene {
     window.addEventListener('keydown', unlock, { once: true });
 
     this.createTooltip();
-    this.createLayoutsPanel();
+    this.createHud();
     this.createSettingsPanel();
     this.createChat();
     this.createConferencePanel();
@@ -328,30 +349,22 @@ export class OfficeScene extends Phaser.Scene {
           canCreate: false,
         },
       ],
-      topbar: this.topbar,
-      // Mutually exclusive with the other top-bar popovers.
-      requestToggle: () => this.setMenu(this.charEditor.isOpen() ? null : 'chars'),
+      // Entry is via the Assets panel now — the editor opens as an overlay on
+      // demand (editEntity), so it no longer injects its own top-bar button.
+      entryButton: false,
     });
     this.furnEditor = new FurnitureEditor({
       getRawCatalog: () => this.furnitureCatalogRaw,
       save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
-      topbar: this.topbar,
-      // Mutually exclusive with the other top-bar popovers.
-      requestToggle: () => this.setMenu(this.furnEditor.isOpen() ? null : 'furniture'),
+      entryButton: false,
     });
-    // Keep Help as the rightmost menu button (after the editor buttons appended
-    // their own entries above), with Settings as its immediate left neighbour.
-    if (this.helpBtn && this.topbar) {
-      this.topbar.appendChild(this.helpBtn);
-      if (this.settingsBtn) this.topbar.insertBefore(this.settingsBtn, this.helpBtn);
-    }
 
-    // Zone voice control — mounted in the always-visible menubar (NOT the
-    // collapsible button row), so it's directly clickable. Positions for
-    // proximity come from the synced avatars we render.
-    if (this.menubar) {
-      this.zoneVoice = new ZoneVoiceUI(this.menubar, {
+    // Zone voice: its controls render into the Audio panel body; the scene owns
+    // the Audio top-bar button. Positions for proximity come from synced avatars.
+    if (this.audioPanel) {
+      const audioBody = this.audioPanel.querySelector<HTMLElement>('.pa-body')!;
+      this.zoneVoice = new ZoneVoiceUI(audioBody, {
         requestToken: () => this.room?.send('zoneVoiceToken'),
         announceVoice: (event) => this.room?.send('voiceEvent', { event }),
         myPosition: () => this.playerPosition(this.myPlayerId),
@@ -362,6 +375,8 @@ export class OfficeScene extends Phaser.Scene {
         onVoiceStatus: (status) => {
           this.voiceStatus = status;
         },
+        // Reflect live voice state on the Audio top-bar button's status dot.
+        onStateChange: (live) => this.audioDot?.classList.toggle('live', live),
       });
     }
 
@@ -1002,32 +1017,59 @@ export class OfficeScene extends Phaser.Scene {
     this.tickChatFade();
   }
 
-  // ── Menus (mutually-exclusive popovers) ──────────────────────────
+  // ── Menus (grouped top bar + one shared popover style) ───────────
 
   /**
-   * Show exactly one of the top-bar popovers (Settings / Layouts / Chars /
-   * Furniture), or none — opening one closes the others. The layout editor is
-   * intentionally not managed here — it's the exception that stays open.
+   * Show exactly one grouped popover (Audio / Zone / Space / Assets / Menu /
+   * Settings / Help), or none — opening one closes the others and any open
+   * asset editor. The layout editor is the exception (you edit via the canvas).
    */
-  private async setMenu(menu: 'settings' | 'layouts' | 'zones' | 'help' | 'chars' | 'furniture' | null): Promise<void> {
-    // Leaving an open character editor with unsaved edits → confirm/discard first.
-    if (this.charEditor?.isOpen() && menu !== 'chars' && !(await this.charEditor.confirmLeave())) return;
-    if (this.settingsPanel) this.settingsPanel.style.display = menu === 'settings' ? 'block' : 'none';
-    if (this.layoutsPanel) this.layoutsPanel.style.display = menu === 'layouts' ? 'block' : 'none';
-    if (this.zonesPanel) this.zonesPanel.style.display = menu === 'zones' ? 'block' : 'none';
-    if (this.helpPanel) this.helpPanel.style.display = menu === 'help' ? 'block' : 'none';
-    if (this.charEditor) menu === 'chars' ? this.charEditor.show() : this.charEditor.close();
-    if (this.furnEditor) menu === 'furniture' ? this.furnEditor.show() : this.furnEditor.close();
-    if (menu === 'layouts') this.room?.send('requestLayouts');
-    if (menu === 'zones') this.room?.send('requestZones');
+  private async setMenu(menu: MenuId): Promise<void> {
+    // The character/furniture editors open as overlays; leaving one with unsaved
+    // edits confirms/discards first, then closes it.
+    if (this.charEditor?.isOpen() && !(await this.charEditor.confirmLeave())) return;
+    if (this.furnEditor?.isOpen() && !(await this.furnEditor.confirmLeave())) return;
+    this.charEditor?.close();
+    this.furnEditor?.forceClose();
+
+    this.currentMenu = menu;
+    const show = (el: HTMLElement | undefined, id: MenuId): void => {
+      if (el) el.style.display = menu === id ? 'block' : 'none';
+    };
+    show(this.audioPanel, 'audio');
+    show(this.zonePanel, 'zone');
+    show(this.spacePanel, 'space');
+    show(this.assetsPanel, 'assets');
+    show(this.morePanel, 'more');
+    show(this.settingsPanel, 'settings');
+    show(this.helpPanel, 'help');
+
+    this.audioBtn?.classList.toggle('active', menu === 'audio');
+    this.zoneBtn?.classList.toggle('active', menu === 'zone');
+    this.spaceBtn?.classList.toggle('active', menu === 'space');
+    this.assetsBtn?.classList.toggle('active', menu === 'assets');
+    // The ☰ group owns Menu + its sub-panels (Settings / Help).
+    this.moreBtn?.classList.toggle('active', menu === 'more' || menu === 'settings' || menu === 'help');
+
+    if (menu === 'zone') this.renderZoneList();
+    if (menu === 'space') {
+      this.room?.send('requestLayouts');
+      this.room?.send('requestZones');
+      this.renderSpaceTabs();
+    }
+    if (menu === 'assets') this.renderAssetsPanel();
+    if (menu === 'more') this.renderMorePanel();
+    if (menu === 'settings') {
+      this.renderCharSwatches();
+      this.syncSettingsInputs();
+    }
   }
 
-  /** Edit mode owns the screen: close + disable the other menus while editing. */
+  /** Edit mode owns the screen: close + disable the space/assets menus. */
   private setEditMode(editing: boolean): void {
-    this.setMenu(null);
-    for (const b of [this.settingsBtn, this.layoutsBtn, this.zonesBtn, this.helpBtn]) {
+    void this.setMenu(null);
+    for (const b of [this.spaceBtn, this.assetsBtn]) {
       if (!b) continue;
-      b.disabled = editing;
       b.style.opacity = editing ? '0.4' : '';
       b.style.pointerEvents = editing ? 'none' : '';
     }
@@ -1038,139 +1080,321 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Reveal/collapse the menu-button row behind the single ☰ toggle. Collapsing
-   *  also closes any open popover. */
-  private toggleMenu(): void {
-    if (!this.topbar) return;
-    const open = this.topbar.style.display !== 'none';
-    this.topbar.style.display = open ? 'none' : 'flex';
-    if (open) void this.setMenu(null);
+  /** Collapse the toolbar: Space + Assets tuck into the ☰ menu (design). */
+  private toggleCollapse(): void {
+    this.collapsed = !this.collapsed;
+    this.refreshBarButtons();
+    if (this.currentMenu === 'more') this.renderMorePanel();
   }
 
-  // ── Layouts panel (DOM overlay) ──────────────────────────────────
+  /** Space + Assets bar buttons: hidden when collapsed; Assets also needs the
+   *  shared-gallery admin role (server enforcement is authoritative — UX only). */
+  private refreshBarButtons(): void {
+    if (this.spaceBtn) this.spaceBtn.style.display = this.collapsed ? 'none' : '';
+    if (this.assetsBtn) this.assetsBtn.style.display = this.collapsed || !this.assetsAdmin ? 'none' : '';
+  }
 
-  private createLayoutsPanel(): void {
+  // ── Top bar + shared popover shells ──────────────────────────────
+
+  private createHud(): void {
     const style = document.createElement('style');
     style.textContent = `
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
-      /* Top-right toolbar: a flex row so the buttons auto-space at any UI scale. */
-      /* One ☰ toggle (always visible) + a collapsible row of menu buttons. */
-      #pa-menubar{position:fixed;top:0.5rem;right:0.5rem;z-index:60;display:flex;gap:0.5rem;align-items:flex-start;}
-      #pa-topbar{display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:flex-end;max-width:78vw;}
-      #pa-menubar button,#pa-menubar select{cursor:pointer;background:#1b1f2a;border:2px solid #3a4150;border-radius:0.4rem;
-        color:#eef1f6;font:1.15rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;white-space:nowrap;}
-      #pa-menu-toggle{flex:0 0 auto;}
-      #pa-layouts{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
-        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-layouts h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
-      #pa-layouts .item{display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;font-size:1.1rem;}
-      #pa-layouts .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
-      #pa-layouts .item .active{color:#ffd24a;}
-      #pa-layouts button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.25rem;font:1rem 'FS Pixel Sans',monospace;padding:0.3rem 0.6rem;}
-      #pa-layouts .foot{margin-top:0.75rem;display:flex;flex-direction:column;gap:0.5rem;}
+      /* Grouped top bar: Audio · Zone · Space · Assets  … ☰ (design). */
+      #pa-menubar{position:fixed;top:0.6rem;left:0.75rem;right:0.75rem;z-index:60;display:flex;align-items:center;gap:0.55rem;}
+      .pa-btn{display:inline-flex;align-items:center;gap:0.45rem;cursor:pointer;position:relative;white-space:nowrap;
+        background:#141826;border:2px solid #05060b;border-radius:0.45rem;color:#e9ecf7;
+        font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.8rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-btn:hover{background:#1a2032;}
+      .pa-btn.active{color:#fff;}
+      .pa-btn.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-3px;height:3px;background:#7fd08a;border-radius:2px;}
+      .pa-btn .caret{color:#7f859c;font-size:0.8rem;}
+      #pa-menubar .pa-dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#5a6076;}
+      #pa-menubar .pa-dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}
+      #pa-menubar .pa-div{width:2px;height:1.9rem;background:#242c46;box-shadow:inset 1px 0 0 #05060b;border-radius:1px;margin:0 0.1rem;}
+      #pa-menubar .pa-spacer{flex:1;}
+      #pa-menu-more{justify-content:center;min-width:2.9rem;padding:0.5rem 0.7rem;font-size:1.2rem;}
+      /* One shared popover style — same width, style + position for every menu. */
+      .pa-panel{position:fixed;top:3.7rem;z-index:60;display:none;width:24rem;max-width:94vw;
+        max-height:calc(100vh - 4.7rem);overflow-y:auto;overscroll-behavior:contain;
+        background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;color:#e9ecf7;
+        box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
+      .pa-panel.left{left:0.75rem;}
+      .pa-panel.right{right:0.75rem;}
+      .pa-panel .pa-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
+        padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;
+        position:sticky;top:0;background:#0f1220;z-index:2;}
+      .pa-panel .pa-head h4{margin:0;font-size:1.3rem;font-weight:600;color:#eef1fb;letter-spacing:.3px;}
+      .pa-panel .pa-x{flex:none;width:1.7rem;height:1.7rem;display:flex;align-items:center;justify-content:center;
+        background:#171b2b;border:2px solid #05060b;border-radius:0.35rem;cursor:pointer;color:#c7ccdf;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-panel .pa-body{padding:0.85rem 0.9rem 1rem;}
+      /* Segmented tabs + chips. */
+      .pa-seg{display:flex;gap:0.35rem;padding:0.25rem;background:#0a0d16;border:2px solid #05060b;border-radius:0.5rem;margin-bottom:0.85rem;}
+      .pa-seg .seg{flex:1;text-align:center;padding:0.45rem 0.3rem;cursor:pointer;border-radius:0.35rem;color:#9aa0b8;font-size:0.95rem;}
+      .pa-seg .seg.on{color:#fff;background:#242c46;box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
+      .pa-chips{display:flex;gap:0.4rem;margin-bottom:0.8rem;flex-wrap:wrap;}
+      .pa-chip{padding:0.35rem 0.75rem;cursor:pointer;border-radius:0.4rem;border:2px solid #05060b;font-size:0.85rem;
+        color:#aeb4cc;background:#171b2b;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-chip.on{color:#fff;background:#2f66b0;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+      /* Generic rows + buttons shared by every panel. */
+      .pa-panel .grouplbl{font-size:0.72rem;letter-spacing:1px;color:#6f7590;margin:0.7rem 0.15rem 0.25rem;text-transform:uppercase;}
+      .pa-list-row{display:flex;align-items:center;gap:0.55rem;padding:0.5rem 0.15rem;border-bottom:1px solid #1b2138;}
+      .pa-list-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:1rem;color:#e5e9f6;}
+      .pa-list-row small{color:#6f7590;}
+      .pa-thumb{width:2.1rem;height:2.1rem;flex:none;background:#0a0d16;border:2px solid #05060b;border-radius:0.25rem;
+        display:flex;align-items:flex-end;justify-content:center;overflow:hidden;}
+      .pa-thumb canvas{image-rendering:pixelated;max-width:100%;max-height:100%;}
+      .pa-b{padding:0.4rem 0.7rem;font-size:0.85rem;color:#e9ecf7;background:#171b2b;border:2px solid #05060b;
+        border-radius:0.35rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-b.primary{background:#2f66b0;color:#fff;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+      .pa-b.green{background:#2f7d3f;color:#fff;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+      .pa-b.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+      .pa-b.wide{width:100%;padding:0.6rem;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;}
+      .pa-menurow{display:flex;align-items:center;gap:0.6rem;padding:0.65rem 0.75rem;font-size:1.05rem;color:#e9ecf7;
+        background:#1b2033;border:2px solid #05060b;border-radius:0.45rem;cursor:pointer;margin-bottom:0.5rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      .pa-menurow.here{color:#f2c14e;}
+      .pa-menurow .sub{margin-left:auto;color:#6f7590;font-size:0.8rem;}
+      /* Space (Layouts / Zones) — kept close to the originals, restyled. */
+      #pa-layouts h4,#pa-zones h4{margin:0 0 0.5rem;font-size:0.95rem;color:#8a90a8;font-weight:400;}
+      #pa-layouts .item,#pa-zones .item{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.1rem;
+        font-size:1rem;border-bottom:1px solid #1b2138;}
+      #pa-layouts .item .nm,#pa-zones .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
+      #pa-layouts .item .active,#pa-zones .item .here{color:#f2c14e;}
+      #pa-zones .item small{color:#6f7590;font-size:0.78rem;}
+      #pa-layouts button,#pa-zones button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+        border-radius:0.3rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.32rem 0.6rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-layouts .foot{margin-top:0.8rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-layouts .foot button{padding:0.55rem;}
-      #pa-layouts .foot button.edit{background:#2f6f3a;border-color:#3f8f4a;font-size:1.15rem;}
-      /* Zones manager — mirrors the layouts panel. */
-      #pa-zones{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:22rem;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
-        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-zones h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
-      #pa-zones .item{display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;font-size:1.1rem;}
-      #pa-zones .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}
-      #pa-zones .item .here{color:#ffd24a;}
-      #pa-zones .item small{color:#7d8597;}
-      #pa-zones button{cursor:pointer;background:#2a2f3a;border:1px solid #3a4150;color:#eef1f6;
-        border-radius:0.25rem;font:1rem 'FS Pixel Sans',monospace;padding:0.3rem 0.6rem;}
-      #pa-zones .foot{margin-top:0.75rem;border-top:1px solid #2c323e;padding-top:0.6rem;display:flex;
-        flex-direction:column;gap:0.45rem;}
-      #pa-zones .foot input{background:#11151d;border:1px solid #3a4150;color:#eef1f6;border-radius:0.25rem;
-        padding:0.4rem 0.5rem;font:1rem 'FS Pixel Sans',monospace;}
+      #pa-layouts .foot button.edit{background:#2f7d3f;border-color:#05060b;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;font-size:1rem;}
+      #pa-zones .foot{margin-top:0.8rem;border-top:1px solid #1b2138;padding-top:0.7rem;display:flex;flex-direction:column;gap:0.5rem;}
+      #pa-zones .foot input{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.3rem;
+        padding:0.45rem 0.5rem;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252;}
       #pa-zones .foot .sz{display:flex;gap:0.4rem;}
       #pa-zones .foot .sz input{width:50%;}
-      #pa-zones .foot button.new{background:#2f5f8f;border-color:#3f7fbf;padding:0.55rem;font-size:1.1rem;}
+      #pa-zones .foot button.new{background:#2f66b0;border-color:#05060b;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;padding:0.55rem;font-size:1rem;}
       /* Help / controls reference. */
-      #pa-help{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:26rem;max-width:92vw;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;
-        padding:0.75rem;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-help h4{margin:0 0 0.6rem;font-size:1.25rem;color:#cdd3dd;}
-      #pa-help .row{display:flex;align-items:baseline;gap:0.6rem;padding:0.28rem 0;font-size:1.05rem;}
-      #pa-help kbd{flex:0 0 11rem;color:#9ad0ff;font-family:inherit;}
-      #pa-help .row span{color:#dfe4ee;}
+      #pa-help-body .row{display:grid;grid-template-columns:9.5rem 1fr;gap:0.6rem;padding:0.32rem 0.1rem;
+        font-size:0.95rem;border-bottom:1px solid #1b2138;}
+      #pa-help-body kbd{color:#7fa7e0;font-family:inherit;}
+      #pa-help-body .row span{color:#c7ccdf;}
     `;
     document.head.appendChild(style);
 
     const host = document.getElementById('game') ?? document.body;
-    // A single ☰ toggle (always visible) reveals the menu-button row.
-    const menubar = document.createElement('div');
-    menubar.id = 'pa-menubar';
-    menubar.className = 'pa-ui';
-    const topbar = document.createElement('div');
-    topbar.id = 'pa-topbar';
-    topbar.className = 'pa-ui';
-    topbar.style.display = 'none'; // collapsed by default
-    const toggle = document.createElement('button');
-    toggle.id = 'pa-menu-toggle';
-    toggle.textContent = '☰';
-    toggle.title = 'Menu';
-    toggle.onclick = () => this.toggleMenu();
-    menubar.append(topbar, toggle); // buttons to the left, ☰ on the right
-    host.appendChild(menubar);
-    this.topbar = topbar;
-    this.menubar = menubar;
+    const bar = document.createElement('div');
+    bar.id = 'pa-menubar';
+    bar.className = 'pa-ui';
 
-    // Zone switcher: pick a zone → reconnect to its room (reload-based; a walk-in
-    // portal lands with the player). Options come from the live registry.
-    const zoneSel = document.createElement('select');
-    zoneSel.id = 'pa-zone';
-    zoneSel.title = 'Zone';
-    zoneSel.onchange = () => this.goToZone(zoneSel.value);
-    this.zoneSel = zoneSel;
-    topbar.appendChild(zoneSel);
-    this.renderZoneSwitcher();
+    // Audio (far left) — one control for Voice/Live/Sound, with a live dot.
+    const audio = this.mkBarBtn('🔊', 'Audio');
+    const dot = document.createElement('span');
+    dot.className = 'pa-dot';
+    audio.appendChild(dot);
+    audio.onclick = () => void this.setMenu(this.currentMenu === 'audio' ? null : 'audio');
+    this.audioBtn = audio;
+    this.audioDot = dot;
 
-    const btn = document.createElement('button');
-    btn.id = 'pa-layouts-btn';
-    btn.textContent = '⚙ Layouts';
-    this.layoutsBtn = btn;
-    const panel = document.createElement('div');
-    panel.id = 'pa-layouts';
-    panel.className = 'pa-ui';
-    btn.onclick = () => this.setMenu(panel.style.display === 'block' ? null : 'layouts');
+    const divider = document.createElement('span');
+    divider.className = 'pa-div';
 
-    // Zones manager (create / edit / delete).
-    const zbtn = document.createElement('button');
-    zbtn.id = 'pa-zones-btn';
-    zbtn.textContent = '🌍 Zones';
-    this.zonesBtn = zbtn;
-    const zpanel = document.createElement('div');
-    zpanel.id = 'pa-zones';
-    zpanel.className = 'pa-ui';
-    zbtn.onclick = () => this.setMenu(zpanel.style.display === 'block' ? null : 'zones');
+    // Zone switcher (quick travel) — always visible, even when collapsed.
+    const zone = this.mkBarBtn('🚪', '');
+    const zlabel = document.createElement('span');
+    zlabel.textContent = 'Zone';
+    const caret = document.createElement('span');
+    caret.className = 'caret';
+    caret.textContent = '▾';
+    zone.append(zlabel, caret);
+    zone.onclick = () => void this.setMenu(this.currentMenu === 'zone' ? null : 'zone');
+    this.zoneBtn = zone;
+    this.zoneLabelEl = zlabel;
 
-    // Help (keyboard + mouse reference).
-    const hbtn = document.createElement('button');
-    hbtn.id = 'pa-help-btn';
-    hbtn.textContent = '❓ Help';
-    this.helpBtn = hbtn;
-    const hpanel = document.createElement('div');
-    hpanel.id = 'pa-help';
-    hpanel.className = 'pa-ui';
-    hbtn.onclick = () => this.setMenu(hpanel.style.display === 'block' ? null : 'help');
+    const space = this.mkBarBtn('🌐', 'Space');
+    space.onclick = () => void this.setMenu(this.currentMenu === 'space' ? null : 'space');
+    this.spaceBtn = space;
 
-    topbar.append(btn, zbtn, hbtn);
-    host.append(panel, zpanel, hpanel);
-    this.layoutsPanel = panel;
-    this.zonesPanel = zpanel;
-    this.helpPanel = hpanel;
-    this.renderLayoutsPanel();
-    this.renderZonesPanel();
+    const assets = this.mkBarBtn('🎨', 'Assets');
+    assets.onclick = () => void this.setMenu(this.currentMenu === 'assets' ? null : 'assets');
+    this.assetsBtn = assets;
+
+    const spacer = document.createElement('span');
+    spacer.className = 'pa-spacer';
+
+    const more = document.createElement('button');
+    more.id = 'pa-menu-more';
+    more.className = 'pa-btn';
+    more.textContent = '☰';
+    more.title = 'Menu';
+    more.onclick = () =>
+      void this.setMenu(
+        this.currentMenu === 'more' || this.currentMenu === 'settings' || this.currentMenu === 'help' ? null : 'more',
+      );
+    this.moreBtn = more;
+
+    bar.append(audio, divider, zone, space, assets, spacer, more);
+    host.appendChild(bar);
+    this.menubar = bar;
+
+    // Audio panel — ZoneVoiceUI renders its controls into this body (in create()).
+    this.audioPanel = this.mkPanel('Audio', 'left').panel;
+
+    // Zone travel panel.
+    this.zonePanel = this.mkPanel('Travel', 'left').panel;
+
+    // Space panel — Layouts / Zones behind a segmented control.
+    const sp = this.mkPanel('Space', 'left');
+    this.spacePanel = sp.panel;
+    const seg = document.createElement('div');
+    seg.className = 'pa-seg';
+    const segLayouts = document.createElement('div');
+    segLayouts.className = 'seg';
+    segLayouts.textContent = 'Layouts';
+    segLayouts.onclick = () => {
+      this.spaceTab = 'layouts';
+      this.renderSpaceTabs();
+    };
+    const segZones = document.createElement('div');
+    segZones.className = 'seg';
+    segZones.textContent = 'Zones';
+    segZones.onclick = () => {
+      this.spaceTab = 'zones';
+      this.renderSpaceTabs();
+    };
+    seg.append(segLayouts, segZones);
+    this.layoutsSeg = segLayouts;
+    const lp = document.createElement('div');
+    lp.id = 'pa-layouts';
+    const zp = document.createElement('div');
+    zp.id = 'pa-zones';
+    sp.body.append(seg, lp, zp);
+    this.layoutsPanel = lp;
+    this.zonesPanel = zp;
+
+    // Assets panel — Characters / Furniture browser (rendered on open).
+    const ap = this.mkPanel('Assets', 'left');
+    this.assetsPanel = ap.panel;
+    this.assetsBody = ap.body;
+
+    // ☰ menu panel (Settings / Help + collapse toggle, + Space/Assets when collapsed).
+    this.morePanel = this.mkPanel('Menu', 'right').panel;
+
+    // Help panel.
+    const hp = this.mkPanel('Controls', 'right');
+    hp.body.id = 'pa-help-body';
+    this.helpPanel = hp.panel;
     this.renderHelpPanel();
+    this.renderZoneSwitcher();
+  }
+
+  /** A grouped top-bar button: an icon glyph + optional text label. */
+  private mkBarBtn(icon: string, label: string): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.className = 'pa-btn';
+    const ic = document.createElement('span');
+    ic.textContent = icon;
+    b.appendChild(ic);
+    if (label) {
+      const t = document.createElement('span');
+      t.textContent = label;
+      b.appendChild(t);
+    }
+    return b;
+  }
+
+  /** Build one shared popover shell (header title + ✕ + scrollable body). */
+  private mkPanel(title: string, side: 'left' | 'right'): { panel: HTMLDivElement; body: HTMLDivElement } {
+    const panel = document.createElement('div');
+    panel.className = `pa-panel pa-ui ${side}`;
+    const head = document.createElement('div');
+    head.className = 'pa-head';
+    const h = document.createElement('h4');
+    h.textContent = title;
+    const x = document.createElement('div');
+    x.className = 'pa-x';
+    x.textContent = '✕';
+    x.onclick = () => void this.setMenu(null);
+    head.append(h, x);
+    const body = document.createElement('div');
+    body.className = 'pa-body';
+    panel.append(head, body);
+    (document.getElementById('game') ?? document.body).appendChild(panel);
+    return { panel, body };
+  }
+
+  /** Toggle the Space panel's Layouts/Zones tab + render the active one. */
+  private renderSpaceTabs(): void {
+    const showLayouts = this.spaceTab === 'layouts';
+    this.layoutsSeg?.classList.toggle('on', showLayouts);
+    (this.layoutsSeg?.nextElementSibling as HTMLElement | null)?.classList.toggle('on', !showLayouts);
+    if (this.layoutsPanel) this.layoutsPanel.style.display = showLayouts ? 'block' : 'none';
+    if (this.zonesPanel) this.zonesPanel.style.display = showLayouts ? 'none' : 'block';
+    if (showLayouts) this.renderLayoutsPanel();
+    else this.renderZonesPanel();
+  }
+
+  /** ☰ menu: Settings / Help, the collapse toggle, and (when collapsed) the
+   *  Space + Assets entries that were tucked away from the bar. */
+  private renderMorePanel(): void {
+    const body = this.morePanel?.querySelector<HTMLElement>('.pa-body');
+    if (!body) return;
+    body.replaceChildren();
+    const row = (icon: string, label: string, sub: string | null, onClick: () => void): void => {
+      const r = document.createElement('div');
+      r.className = 'pa-menurow';
+      r.append(document.createTextNode(`${icon} ${label}`));
+      if (sub) {
+        const s = document.createElement('span');
+        s.className = 'sub';
+        s.textContent = sub;
+        r.appendChild(s);
+      }
+      r.onclick = onClick;
+      body.appendChild(r);
+    };
+    if (this.collapsed) {
+      row('🌐', 'Space', 'Zones · Layouts', () => void this.setMenu('space'));
+      if (this.assetsAdmin) row('🎨', 'Assets', 'Chars · Furniture', () => void this.setMenu('assets'));
+    }
+    row('⚙', 'Settings', null, () => void this.setMenu('settings'));
+    row('❓', 'Help', null, () => void this.setMenu('help'));
+    const hr = document.createElement('div');
+    hr.style.cssText = 'height:1px;background:#1b2138;margin:0.3rem 0 0.6rem;';
+    body.appendChild(hr);
+    row(
+      '▤',
+      this.collapsed ? 'Expand toolbar' : 'Collapse toolbar',
+      this.collapsed ? 'show all buttons' : 'tools into ☰',
+      () => this.toggleCollapse(),
+    );
+  }
+
+  /** Zone travel list (choose a zone → reconnect at its arrival tile). */
+  private renderZoneList(): void {
+    const body = this.zonePanel?.querySelector<HTMLElement>('.pa-body');
+    if (!body) return;
+    const cur = currentZone();
+    body.replaceChildren();
+    for (const z of this.zoneList) {
+      const here = z.id === cur;
+      const r = document.createElement('div');
+      r.className = 'pa-menurow' + (here ? ' here' : '');
+      r.append(document.createTextNode(`🚪 ${z.label}`));
+      const s = document.createElement('span');
+      s.className = 'sub';
+      s.textContent = here ? '● here' : 'Go';
+      r.appendChild(s);
+      if (!here) r.onclick = () => this.goToZone(z.id);
+      body.appendChild(r);
+    }
   }
 
   private renderHelpPanel(): void {
-    if (!this.helpPanel) return;
+    const body = this.helpPanel?.querySelector<HTMLElement>('.pa-body');
+    if (!body) return;
     const rows: Array<[string, string]> = [
       ['W A S D / Arrows', 'Move'],
       ['Left-click floor', 'Walk there'],
@@ -1182,34 +1406,230 @@ export class OfficeScene extends Phaser.Scene {
       ['Click an avatar', 'Select (show tooltip)'],
       ['Mouse wheel', 'Zoom'],
       ['Drag (empty space)', 'Pan the camera'],
-      ['🌍 Zones', 'Create / edit / delete zones, set arrival, NPCs'],
-      ['⚙ Layouts → ✏ Edit', 'Edit this zone’s layout'],
+      ['🌐 Space → Zones', 'Create / edit / delete zones, set arrival, NPCs'],
+      ['🌐 Space → Layouts', 'Edit this zone’s layout'],
     ];
-    this.helpPanel.innerHTML =
-      `<h4>Controls</h4>` +
-      rows.map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join('');
+    body.innerHTML = rows
+      .map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`)
+      .join('');
   }
 
-  /** (Re)populate the top-bar zone switcher from the live registry. */
+  // ── Assets browser (Characters / Furniture) ──────────────────────
+
+  private renderAssetsPanel(): void {
+    const body = this.assetsBody;
+    if (!body) return;
+    body.replaceChildren();
+    const seg = document.createElement('div');
+    seg.className = 'pa-seg';
+    const mkSeg = (label: string, on: boolean, onClick: () => void): HTMLElement => {
+      const s = document.createElement('div');
+      s.className = 'seg' + (on ? ' on' : '');
+      s.textContent = label;
+      s.onclick = onClick;
+      return s;
+    };
+    seg.append(
+      mkSeg('Characters', this.assetsTab === 'chars', () => {
+        this.assetsTab = 'chars';
+        this.renderAssetsPanel();
+      }),
+      mkSeg('Furniture', this.assetsTab === 'furniture', () => {
+        this.assetsTab = 'furniture';
+        this.renderAssetsPanel();
+      }),
+    );
+    body.appendChild(seg);
+    if (this.assetsTab === 'chars') this.renderCharAssets(body);
+    else this.renderFurnAssets(body);
+  }
+
+  /** Next free char_<n> id (ids are stable, never reused) — mirrors the editor. */
+  private nextCharId(existing: string[]): string {
+    const taken = new Set(existing);
+    let n = 0;
+    while (taken.has(`char_${n}`)) n++;
+    return `char_${n}`;
+  }
+
+  private renderCharAssets(body: HTMLElement): void {
+    const chips = document.createElement('div');
+    chips.className = 'pa-chips';
+    const mkChip = (label: string, tab: 'agent' | 'npc' | 'me'): HTMLElement => {
+      const c = document.createElement('div');
+      c.className = 'pa-chip' + (this.charTab === tab ? ' on' : '');
+      c.textContent = label;
+      c.onclick = () => {
+        this.charTab = tab;
+        this.renderAssetsPanel();
+      };
+      return c;
+    };
+    chips.append(mkChip('Avatars', 'agent'), mkChip('NPCs', 'npc'), mkChip('My Avatar', 'me'));
+    body.appendChild(chips);
+
+    type Item = { id: string; name: string; frame?: SpriteData; kind: 'agent' | 'npc' | 'me' };
+    let items: Item[] = [];
+    if (this.charTab === 'agent') {
+      items = (getCharacterTemplates() ?? [])
+        .filter((c) => !isPlayerAvatarSkin(c.id))
+        .map((c) => ({ id: c.id, name: c.id, frame: c.data.down?.[1] ?? c.data.down?.[0], kind: 'agent' as const }));
+    } else if (this.charTab === 'npc') {
+      items = getNpcRoster().map((r) => ({
+        id: `${r.kind}_${r.variant}`,
+        name: `${r.kind} ${r.variant}`,
+        frame: r.data.down?.[1] ?? r.data.down?.[0],
+        kind: 'npc' as const,
+      }));
+    } else {
+      const id = this.myAvatarId;
+      const t = id ? (getCharacterTemplates() ?? []).find((c) => c.id === id) : undefined;
+      if (t) items = [{ id: t.id, name: 'My Avatar', frame: t.data.down?.[1] ?? t.data.down?.[0], kind: 'me' }];
+    }
+
+    if (this.charTab === 'agent') {
+      const add = document.createElement('button');
+      add.className = 'pa-b primary wide';
+      add.textContent = '＋ New avatar';
+      add.onclick = () => {
+        void this.setMenu(null);
+        this.charEditor.show();
+      };
+      body.appendChild(add);
+    }
+
+    if (!items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'grouplbl';
+      empty.textContent = this.charTab === 'me' ? 'No avatar yet — pick one in Settings.' : 'None yet.';
+      body.appendChild(empty);
+    }
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'pa-list-row';
+      row.appendChild(this.mkThumb(it.frame));
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = it.name;
+      row.appendChild(nm);
+      const edit = document.createElement('button');
+      edit.className = 'pa-b';
+      edit.textContent = 'Edit';
+      edit.onclick = () => {
+        void this.setMenu(null);
+        this.charEditor.editEntity(it.kind, it.id);
+      };
+      row.appendChild(edit);
+      if (it.kind === 'agent') {
+        const copy = document.createElement('button');
+        copy.className = 'pa-b';
+        copy.textContent = 'Copy';
+        copy.onclick = () => {
+          const tpl = (getCharacterTemplates() ?? []).find((c) => c.id === it.id);
+          if (!tpl) return;
+          const id = this.nextCharId((getCharacterTemplates() ?? []).map((c) => c.id));
+          this.room?.send('saveAsset', { assetType: 'character', name: id, data: tpl.data });
+          window.setTimeout(() => this.renderAssetsPanel(), 250);
+        };
+        row.appendChild(copy);
+      }
+      if (it.kind !== 'me') {
+        const isUser = it.kind === 'agent' && !this.bundledSkinIds.has(it.id);
+        const del = document.createElement('button');
+        del.className = 'pa-b' + (isUser ? ' danger' : '');
+        del.textContent = isUser ? 'Delete' : 'Reset';
+        del.title = isUser ? 'Delete this custom skin' : 'Revert to the bundled default';
+        del.onclick = async () => {
+          if (!(await confirmDialog(`${isUser ? 'Delete' : 'Reset'} “${it.name}”?`, { danger: isUser, confirmLabel: isUser ? 'Delete' : 'Reset' })))
+            return;
+          this.room?.send('deleteAsset', { assetType: it.kind === 'npc' ? 'pet' : 'character', name: it.id });
+          window.setTimeout(() => this.renderAssetsPanel(), 250);
+        };
+        row.appendChild(del);
+      }
+      body.appendChild(row);
+    }
+  }
+
+  private renderFurnAssets(body: HTMLElement): void {
+    const add = document.createElement('button');
+    add.className = 'pa-b primary wide';
+    add.textContent = '＋ New furniture';
+    add.onclick = () => {
+      void this.setMenu(null);
+      this.furnEditor.show();
+    };
+    body.appendChild(add);
+
+    for (const cat of getActiveCategories()) {
+      const entries = getCatalogByCategory(cat.id);
+      if (!entries.length) continue;
+      const head = document.createElement('div');
+      head.className = 'grouplbl';
+      head.textContent = cat.label;
+      body.appendChild(head);
+      for (const e of entries) {
+        const row = document.createElement('div');
+        row.className = 'pa-list-row';
+        row.appendChild(this.mkThumb(e.sprite));
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = e.label;
+        row.appendChild(nm);
+        const edit = document.createElement('button');
+        edit.className = 'pa-b';
+        edit.textContent = 'Edit';
+        edit.onclick = () => {
+          void this.setMenu(null);
+          this.furnEditor.edit(e.type);
+        };
+        const reset = document.createElement('button');
+        reset.className = 'pa-b';
+        reset.textContent = 'Reset';
+        reset.title = 'Revert to the bundled default (or delete a custom item)';
+        reset.onclick = async () => {
+          if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+          this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
+          window.setTimeout(() => this.renderAssetsPanel(), 250);
+        };
+        row.append(edit, reset);
+        body.appendChild(row);
+      }
+    }
+  }
+
+  /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */
+  private mkThumb(sprite?: SpriteData): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'pa-thumb';
+    const cv = document.createElement('canvas');
+    const h = sprite?.length ?? 0;
+    const w = h > 0 ? (sprite![0]?.length ?? 0) : 0;
+    cv.width = Math.max(1, w);
+    cv.height = Math.max(1, h);
+    const ctx = cv.getContext('2d');
+    if (ctx && sprite) {
+      for (let y = 0; y < h; y++) {
+        const rowPx = sprite[y];
+        for (let x = 0; x < rowPx.length; x++) {
+          const c = rowPx[x];
+          if (!c) continue;
+          ctx.fillStyle = c;
+          ctx.fillRect(x, y, 1, 1);
+        }
+      }
+    }
+    wrap.appendChild(cv);
+    return wrap;
+  }
+
+  /** Refresh the top-bar Zone button label (and its open travel list) from the
+   *  live registry. */
   private renderZoneSwitcher(): void {
-    const sel = this.zoneSel;
-    if (!sel) return;
     const cur = currentZone();
-    sel.innerHTML = '';
-    for (const z of this.zoneList) {
-      const o = document.createElement('option');
-      o.value = z.id;
-      o.textContent = `🚪 ${z.label}`;
-      sel.appendChild(o);
-    }
-    // Keep the current zone selected even if it isn't in the list yet.
-    if (!this.zoneList.some((z) => z.id === cur)) {
-      const o = document.createElement('option');
-      o.value = cur;
-      o.textContent = `🚪 ${cur}`;
-      sel.appendChild(o);
-    }
-    sel.value = cur;
+    const label = this.zoneList.find((z) => z.id === cur)?.label ?? cur;
+    if (this.zoneLabelEl) this.zoneLabelEl.textContent = label;
+    if (this.currentMenu === 'zone') this.renderZoneList();
   }
 
   private updateZoneList(msg: Record<string, unknown>): void {
@@ -1327,7 +1747,8 @@ export class OfficeScene extends Phaser.Scene {
          <button data-new class="new">＋ Create zone</button>`,
       );
     const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
-    this.zonesPanel.innerHTML = `<h4>Zones</h4>${rows}${foot}`;
+    // No heading here — the Space panel header + the Layouts/Zones tab label it.
+    this.zonesPanel.innerHTML = `${rows}${foot}`;
 
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
       b.onclick = () => this.goToZone(b.dataset.go!);
@@ -1697,11 +2118,7 @@ export class OfficeScene extends Phaser.Scene {
   private createSettingsPanel(): void {
     const style = document.createElement('style');
     style.textContent = `
-      #pa-settings{position:fixed;top:3.4rem;right:0.5rem;z-index:60;display:none;width:19rem;
-        max-height:calc(100vh - 4.4rem);overflow-y:auto;overscroll-behavior:contain;
-        background:#1b1f2a;border:2px solid #3a4150;border-radius:0.5rem;color:#eef1f6;padding:0.9rem;
-        font-family:'FS Pixel Sans',monospace;box-shadow:0 4px 0 rgba(0,0,0,.4);}
-      #pa-settings h4{margin:0 0 0.75rem;font-size:1.25rem;color:#cdd3dd;}
+      /* Settings reuses the shared .pa-panel shell; only its inner fields need styling. */
       #pa-settings .row{display:flex;align-items:center;gap:0.5rem;margin:0.65rem 0;font-size:1rem;}
       #pa-settings .row input[type=range]{flex:1;}
       #pa-settings .row label{flex:1;}
@@ -1733,13 +2150,9 @@ export class OfficeScene extends Phaser.Scene {
     `;
     document.head.appendChild(style);
 
-    const btn = document.createElement('button');
-    btn.id = 'pa-settings-btn';
-    btn.textContent = '🔊 Settings';
-    this.settingsBtn = btn;
-    const panel = document.createElement('div');
+    const { panel, body } = this.mkPanel('Settings', 'right');
     panel.id = 'pa-settings';
-    panel.innerHTML = `<h4>Settings</h4>
+    body.innerHTML = `
       <div id="pa-userinfo"></div>
       <div class="row"><label for="pa-name">Display name</label><input id="pa-name" type="text" maxlength="32" placeholder="(your login id)"></div>
       <div class="hint">Shown on your avatar. Empty = your login id.</div>
@@ -1768,17 +2181,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
       <button id="pa-logout">Log out</button>`;
-    btn.onclick = () => {
-      const opening = panel.style.display !== 'block';
-      this.setMenu(opening ? 'settings' : null);
-      if (opening) this.renderCharSwatches();
-    };
-    const host = document.getElementById('game') ?? document.body;
-    // Add to the shared top-bar (created by the layouts panel); final position is
-    // set in create() — Settings ends up as Help's immediate left neighbour.
-    if (this.topbar) this.topbar.appendChild(btn);
-    else host.appendChild(btn);
-    host.appendChild(panel);
+    // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
 
     // Only one popover open at a time: a click outside the toolbar/panels closes
@@ -1786,24 +2189,22 @@ export class OfficeScene extends Phaser.Scene {
     window.addEventListener('pointerdown', (e) => {
       const t = e.target as Node | null;
       if (!t) return;
-      const charPanel = document.getElementById('pa-chars');
-      const furnPanel = document.getElementById('pa-furn');
-      // The char editor's PNG-import panel and the in-game confirm/prompt dialog
-      // are separate top-level elements — clicks there must not close the menu.
-      const importPanel = document.getElementById('pa-c-import');
-      const modal = document.getElementById('pa-modal');
-      const znpc = document.getElementById('pa-znpc');
+      // Clicks inside the bar, any grouped popover, an open asset editor, its
+      // PNG-import panel, the zone-NPC editor, or an in-game dialog keep the menu.
+      const panels = [
+        this.audioPanel,
+        this.zonePanel,
+        this.spacePanel,
+        this.assetsPanel,
+        this.morePanel,
+        this.settingsPanel,
+        this.helpPanel,
+      ];
+      const byId = ['pa-chars', 'pa-furn', 'pa-c-import', 'pa-modal', 'pa-znpc'];
       if (
         this.menubar?.contains(t) ||
-        this.settingsPanel?.contains(t) ||
-        this.layoutsPanel?.contains(t) ||
-        this.zonesPanel?.contains(t) ||
-        this.helpPanel?.contains(t) ||
-        znpc?.contains(t) ||
-        charPanel?.contains(t) ||
-        furnPanel?.contains(t) ||
-        importPanel?.contains(t) ||
-        modal?.contains(t)
+        panels.some((p) => p?.contains(t)) ||
+        byId.some((id) => document.getElementById(id)?.contains(t))
       )
         return;
       this.setMenu(null);
@@ -2154,9 +2555,11 @@ export class OfficeScene extends Phaser.Scene {
    *  current zone's admin too. Server enforcement is authoritative — this is
    *  just UX. */
   private applyAdminVisibility(): void {
-    this.charEditor?.setButtonVisible(this.assetsAdmin);
-    this.furnEditor?.setButtonVisible(this.assetsAdmin);
-    if (this.layoutsBtn) this.layoutsBtn.style.display = this.zoneEditAdmin ? '' : 'none';
+    // Assets (shared galleries) is admin-only; Space stays for travel. Reflect
+    // both on the bar, and gate the Layouts tab for non-editors of this zone.
+    this.refreshBarButtons();
+    if (this.layoutsSeg) this.layoutsSeg.style.display = this.zoneEditAdmin ? '' : 'none';
+    if (!this.zoneEditAdmin && this.spaceTab === 'layouts') this.spaceTab = 'zones';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
     if (save) save.style.display = this.assetsAdmin ? '' : 'none';
     // The zones panel stays available for travel; admin controls reflect the role.
