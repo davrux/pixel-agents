@@ -17,7 +17,21 @@ export class VoxelPlayerSync extends EntitySync {
   @type('string') item = 'items/default_tool_steelpick'; // held item texUrl
 }
 
+/**
+ * Synced voxel NPC — server-authoritative creature driven by the server's A* +
+ * behaviour FSM (idle/wander/chase). Clients render + interpolate from these; all
+ * decisions (pathing, targets) are server-side, never recomputed on the client.
+ */
+export class VoxelNpcSync extends EntitySync {
+  @type('number') z = 0;
+  @type('number') yaw = 0;
+  @type('string') skin = 'character_1';
+  @type('string') kind = 'wanderer'; // creature type (future variety)
+  @type('number') hp = 20; // current health (combat lands in a later step)
+}
+
 export class VoxelRoomState extends Schema {
   @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
+  @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
   @type('string') worldId = '';
 }

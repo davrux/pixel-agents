@@ -248,10 +248,20 @@ interface RemotePlayer {
   skin: string;
   state: string;
 }
+interface RemoteNpc {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  skin: string;
+  state: string;
+}
 interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
+  npcs: { forEach(cb: (p: RemoteNpc, k: string) => void): void; get(k: string): RemoteNpc | undefined };
 }
 const remote = new Map<string, { avatar: Avatar; px: number; pz: number }>();
+const npcAvatars = new Map<string, { avatar: Avatar; px: number; pz: number }>();
 
 function onWelcome(m: unknown): void {
   const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number };
@@ -314,6 +324,34 @@ function syncRemotePlayers(dt: number): void {
     if (!state.players.get(sid)) {
       scene.remove(r.avatar.group);
       remote.delete(sid);
+    }
+  }
+  syncNpcs(dt, state);
+}
+
+/** Reconcile server-driven NPC avatars (same model as players; walk anim from
+ *  position delta; day/night tint). NPC decisions are server-side — we only render. */
+function syncNpcs(dt: number, state: RemoteState): void {
+  state.npcs.forEach((n, id) => {
+    let r = npcAvatars.get(id);
+    if (!r) {
+      const a = new Avatar(n.skin || 'character_2');
+      scene.add(a.group);
+      r = { avatar: a, px: n.x, pz: n.z };
+      npcAvatars.set(id, r);
+    }
+    const speed = Math.hypot(n.x - r.px, n.z - r.pz) / Math.max(dt, 0.001);
+    r.px = n.x;
+    r.pz = n.z;
+    r.avatar.group.position.set(n.x, n.y, n.z);
+    r.avatar.group.rotation.y = n.yaw;
+    r.avatar.setTint(dayColors.light);
+    r.avatar.animate(dt, speed);
+  });
+  for (const [id, r] of npcAvatars) {
+    if (!state.npcs.get(id)) {
+      scene.remove(r.avatar.group);
+      npcAvatars.delete(id);
     }
   }
 }
@@ -1065,6 +1103,8 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   // reset the client-side world
   for (const [, r] of remote) scene.remove(r.avatar.group);
   remote.clear();
+  for (const [, r] of npcAvatars) scene.remove(r.avatar.group);
+  npcAvatars.clear();
   for (const m of chunkMeshes.values()) {
     terrainGroup.remove(m);
     m.geometry.dispose();

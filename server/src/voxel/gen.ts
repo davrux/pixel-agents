@@ -14,7 +14,7 @@ const STONE = 3;
 const SAND = 7;
 const WOOD = 17;
 const LEAVES = 21;
-const WATER = 27;
+export const WATER = 27;
 
 const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in

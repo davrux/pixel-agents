@@ -19,7 +19,8 @@ import {
   chunkKey,
   packChunk,
 } from '@pixel/shared';
-import { VoxelPlayerSync, VoxelRoomState } from '@pixel/shared/schema';
+import { VoxelPlayerSync, VoxelNpcSync, VoxelRoomState } from '@pixel/shared/schema';
+import { findPath } from '../voxel/pathfind.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore } from '../userStore.js';
@@ -50,10 +51,30 @@ const REACH = 8; // max edit distance from the player's eye (blocks)
 const MOVE_MIN_MS = 40; // ~25 moves/s cap
 const DAY_LENGTH_MS = 20 * 60 * 1000; // full day/night cycle (Minecraft-like 20 min)
 
+// NPCs: server-authoritative creatures with an A*-driven idle/wander/chase FSM.
+const NPC_COUNT = 3;
+const NPC_SPEED = 3.0; // blocks/s
+const NPC_WANDER_R = 10; // random-target radius around home
+const NPC_CHASE_R = 14; // start chasing a player within this
+const NPC_KEEP_R = 2.0; // stop this close to the chased player
+const NPC_SKINS = ['character_2', 'character_5', 'character_8'];
+
+interface NpcBrain {
+  sync: VoxelNpcSync;
+  home: { x: number; z: number };
+  path: { x: number; y: number; z: number }[];
+  pi: number; // index of the next path node
+  think: number; // seconds until the next idle decision
+  mode: 'idle' | 'wander' | 'chase';
+  repath: number; // seconds until a chase re-path is allowed
+}
+
 export class VoxelRoom extends Room<VoxelRoomState> {
   private authRequired = false;
   private world!: VoxelServerWorld;
   private readonly views = new Map<string, ClientView>();
+  private readonly npcs = new Map<string, NpcBrain>(); // npc id → brain (AI state is server-only)
+  private npcSeq = 0;
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -107,6 +128,137 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         z = Math.floor(m.z);
       if ([x, y, z].every(Number.isFinite)) portals.set(this.state.worldId, x, y, z, dest);
     });
+
+    this.spawnNpcs();
+    this.setSimulationInterval((dt) => this.tickNpcs(dt / 1000), 100); // 10 Hz AI
+  }
+
+  // ── NPCs (server-authoritative A* + idle/wander/chase FSM) ───────────────────
+  private spawnNpcs(): void {
+    for (let i = 0; i < NPC_COUNT; i++) {
+      // Spawn on dry land near (but not in) the spawn area; the default world's
+      // lake is at +x, so fan out on the -x side and snap to a standable cell.
+      const cand = { x: -8 - i * 3, z: (i - 1) * 7 };
+      const home = this.findNpcSpawn(cand.x, cand.z);
+      const n = new VoxelNpcSync();
+      n.id = ++this.npcSeq;
+      n.x = home.x + 0.5;
+      n.z = home.z + 0.5;
+      n.y = this.world.columnTop(home.x, home.z) + 1;
+      n.skin = NPC_SKINS[i % NPC_SKINS.length];
+      n.state = 'idle';
+      const key = `n${n.id}`;
+      this.state.npcs.set(key, n);
+      this.npcs.set(key, { sync: n, home, path: [], pi: 0, think: 0.4 + i * 0.5, mode: 'idle', repath: 0 });
+    }
+  }
+
+  /** Nearest dry-land column to (cx,cz) whose surface is standable (not water). */
+  private findNpcSpawn(cx: number, cz: number): { x: number; z: number } {
+    for (let r = 0; r <= 8; r++) {
+      for (let dz = -r; dz <= r; dz++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue; // ring only
+          const x = cx + dx,
+            z = cz + dz;
+          const top = this.world.columnTop(x, z);
+          if (this.world.getBlock(x, top, z) !== 27 && this.world.getBlock(x, top + 1, z) === 0) return { x, z };
+        }
+      }
+    }
+    return { x: cx, z: cz };
+  }
+
+  private nearestPlayer(x: number, z: number, within: number): VoxelPlayerSync | null {
+    let best: VoxelPlayerSync | null = null;
+    let bestD = within * within;
+    this.state.players.forEach((p) => {
+      const d = (p.x - x) ** 2 + (p.z - z) ** 2;
+      if (d < bestD) ((bestD = d), (best = p));
+    });
+    return best;
+  }
+
+  private tickNpcs(dt: number): void {
+    for (const b of this.npcs.values()) {
+      const n = b.sync;
+      b.think -= dt;
+      b.repath -= dt;
+      const prey = this.nearestPlayer(n.x, n.z, NPC_CHASE_R);
+      if (prey) {
+        // Chase: re-path toward the player periodically; stop when close.
+        b.mode = 'chase';
+        const target = prey as VoxelPlayerSync;
+        const dist = Math.hypot(target.x - n.x, target.z - n.z);
+        if (dist <= NPC_KEEP_R) {
+          b.path = [];
+          n.state = 'idle';
+          n.yaw = Math.atan2(-(target.x - n.x), -(target.z - n.z)); // face the player
+          continue;
+        }
+        if (b.repath <= 0 || b.pi >= b.path.length) {
+          const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: target.x, y: target.y, z: target.z }, 900);
+          b.path = p ?? [];
+          b.pi = 0;
+          b.repath = 0.5;
+        }
+      } else if (b.mode === 'chase') {
+        b.mode = 'idle';
+        b.path = [];
+        b.think = 1;
+      } else if (b.mode === 'idle' && b.think <= 0) {
+        // Pick a random reachable spot around home and wander to it.
+        const tx = b.home.x + Math.round((this.rand() * 2 - 1) * NPC_WANDER_R);
+        const tz = b.home.z + Math.round((this.rand() * 2 - 1) * NPC_WANDER_R);
+        const ty = this.world.columnTop(tx, tz) + 1;
+        const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: tx, y: ty, z: tz }, 1000);
+        if (p && p.length) {
+          b.path = p;
+          b.pi = 0;
+          b.mode = 'wander';
+        } else {
+          b.think = 1 + this.rand() * 2;
+        }
+      }
+      this.advanceNpc(b, dt);
+    }
+  }
+
+  /** Move an NPC along its path; update transform + walk/idle state. */
+  private advanceNpc(b: NpcBrain, dt: number): void {
+    const n = b.sync;
+    if (b.pi >= b.path.length) {
+      if (b.mode === 'wander') {
+        b.mode = 'idle';
+        b.think = 1 + this.rand() * 2;
+      }
+      if (n.state !== 'idle') n.state = 'idle';
+      return;
+    }
+    const node = b.path[b.pi];
+    const tx = node.x + 0.5,
+      tz = node.z + 0.5,
+      ty = node.y;
+    const dx = tx - n.x,
+      dz = tz - n.z;
+    const d = Math.hypot(dx, dz);
+    const step = NPC_SPEED * dt;
+    if (d <= step) {
+      n.x = tx;
+      n.z = tz;
+      n.y = ty;
+      b.pi++;
+    } else {
+      n.x += (dx / d) * step;
+      n.z += (dz / d) * step;
+      n.y += (ty - n.y) * Math.min(1, dt * 8); // ease vertical toward the node
+      n.yaw = Math.atan2(-dx, -dz); // 0 faces -Z
+    }
+    n.state = 'walk';
+  }
+
+  private rand(): number {
+    return Math.random();
   }
 
   onJoin(client: Client, options?: { name?: string; skin?: string }): void {
