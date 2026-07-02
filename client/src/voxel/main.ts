@@ -72,25 +72,27 @@ scene.add(avatar.group);
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
 const persp = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
 let mode: CamMode = 'iso';
-const ISO_VIEW = 22; // world-units tall the ortho frustum shows
+let isoView = 22; // world-units tall the ortho frustum (mouse-wheel zooms it)
+let thirdDist = 4.6; // 3rd-person camera distance (mouse-wheel zooms it)
 let isoYaw = -Math.PI / 4; // iso camera orbit (LMB-drag rotates the map)
 let camYaw = 0; // third-person camera orbit (LMB-drag)
 let camPitch = 0.35;
 let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-function resize(): void {
-  const w = window.innerWidth,
-    h = window.innerHeight;
-  renderer.setSize(w, h);
-  const aspect = w / h;
-  ortho.left = (-ISO_VIEW * aspect) / 2;
-  ortho.right = (ISO_VIEW * aspect) / 2;
-  ortho.top = ISO_VIEW / 2;
-  ortho.bottom = -ISO_VIEW / 2;
+function applyIso(): void {
+  const aspect = window.innerWidth / window.innerHeight;
+  ortho.left = (-isoView * aspect) / 2;
+  ortho.right = (isoView * aspect) / 2;
+  ortho.top = isoView / 2;
+  ortho.bottom = -isoView / 2;
   ortho.updateProjectionMatrix();
-  persp.aspect = aspect;
+}
+function resize(): void {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  persp.aspect = window.innerWidth / window.innerHeight;
   persp.updateProjectionMatrix();
+  applyIso();
 }
 window.addEventListener('resize', resize);
 resize();
@@ -111,7 +113,7 @@ function placeCamera(): void {
     persp.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
   } else {
     // third: orbit behind/above the head by camYaw/camPitch (drag to rotate)
-    const back = 4.6;
+    const back = thirdDist;
     const cp = Math.cos(camPitch),
       sp = Math.sin(camPitch);
     persp.position.set(eye.x + Math.sin(camYaw) * cp * back, eye.y + sp * back, eye.z + Math.cos(camYaw) * cp * back);
@@ -182,7 +184,17 @@ window.addEventListener('mouseup', (e) => {
   if (mode === 'iso' && !dragMoved) clickToMove(ndc(e));
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-canvas.addEventListener('wheel', (e) => selectSlot(selectedSlot + (e.deltaY > 0 ? 1 : -1)));
+canvas.addEventListener('wheel', (e) => {
+  // Zoom the world in/out (iso = ortho frustum, third = camera distance).
+  const f = e.deltaY > 0 ? 1.12 : 0.9;
+  if (mode === 'iso') {
+    isoView = clamp(isoView * f, 8, 60);
+    applyIso();
+  } else if (mode === 'third') {
+    thirdDist = clamp(thirdDist * f, 2.2, 14);
+  }
+  e.preventDefault();
+});
 
 /** Raycast the ground under the cursor → an auto-walk destination (iso click). */
 function clickToMove(p: THREE.Vector2): void {
