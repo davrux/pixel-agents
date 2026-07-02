@@ -28,7 +28,7 @@ export class VoxelServerWorld {
     let cells = this.cache.get(key);
     if (cells) return cells;
     const saved = this.store.get(cx, cy, cz);
-    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed);
+    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed, this.worldId === 'default');
     this.cache.set(key, cells);
     return cells;
   }
@@ -55,9 +55,13 @@ export class VoxelServerWorld {
     return this.getBlock(x, y, z) !== 0;
   }
 
-  /** Highest solid y at (x,z) within a sane scan range — a spawn helper. */
+  /** Highest solid y at (x,z) within a sane scan range — a spawn helper. Skips
+   *  water (id 27) so players spawn on the lakebed/shore, not on the surface. */
   columnTop(x: number, z: number): number {
-    for (let y = CHUNK * 4; y >= -CHUNK; y--) if (this.solid(x, y, z)) return y;
+    for (let y = CHUNK * 4; y >= -CHUNK; y--) {
+      const id = this.getBlock(x, y, z);
+      if (id !== 0 && id !== 27) return y;
+    }
     return 0;
   }
 

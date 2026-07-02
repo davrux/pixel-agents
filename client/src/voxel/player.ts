@@ -12,6 +12,12 @@ const PH = 1.8; // height (eye ≈ 1.6)
 const SPEED = 5.2; // blocks/s
 const GRAVITY = -26;
 const JUMP = 8.4;
+// Swimming: water is non-solid, so in it we swap gravity for gentle buoyancy —
+// you sink slowly, hold jump to rise, and move at a reduced speed (no fall damage).
+const SWIM_SPEED = 0.62; // horizontal speed factor in water
+const SWIM_GRAVITY = -6.5; // gentle sink
+const SWIM_UP = 4.6; // hold jump → rise / stay afloat
+const SWIM_MAX_DOWN = -2.4;
 
 export interface MoveInput {
   forward: boolean;
@@ -28,6 +34,7 @@ export class Player {
   yaw = 0; // radians; 0 looks toward -Z
   pitch = 0;
   onGround = false;
+  inWater = false; // body submerged → swim physics + swim animation
 
   constructor(private readonly world: VoxelWorld) {}
 
@@ -100,14 +107,28 @@ export class Player {
       mx -= rx;
       mz -= rz;
     }
-    const len = Math.hypot(mx, mz) || 1;
-    this.vel.x = (mx / len) * SPEED * (mx || mz ? 1 : 0);
-    this.vel.z = (mz / len) * SPEED * (mx || mz ? 1 : 0);
+    // Submerged? Check feet + mid-body cells (water is non-solid, so we detect it
+    // separately from collision). Drives swim physics + the swim animation.
+    const wx = Math.floor(this.pos.x),
+      wz = Math.floor(this.pos.z);
+    this.inWater = this.world.water(wx, Math.floor(this.pos.y), wz) || this.world.water(wx, Math.floor(this.pos.y + 1.0), wz);
 
-    this.vel.y += GRAVITY * dt;
-    if (input.jump && this.onGround) {
-      this.vel.y = JUMP;
+    const speed = this.inWater ? SPEED * SWIM_SPEED : SPEED;
+    const len = Math.hypot(mx, mz) || 1;
+    this.vel.x = (mx / len) * speed * (mx || mz ? 1 : 0);
+    this.vel.z = (mz / len) * speed * (mx || mz ? 1 : 0);
+
+    if (this.inWater) {
+      this.vel.y += SWIM_GRAVITY * dt; // gentle sink
+      if (input.jump) this.vel.y = SWIM_UP; // hold jump to rise / tread water
+      this.vel.y = Math.max(SWIM_MAX_DOWN, Math.min(SWIM_UP, this.vel.y));
       this.onGround = false;
+    } else {
+      this.vel.y += GRAVITY * dt;
+      if (input.jump && this.onGround) {
+        this.vel.y = JUMP;
+        this.onGround = false;
+      }
     }
 
     // Recovery: if we're embedded in solid (a block appeared against our AABB),

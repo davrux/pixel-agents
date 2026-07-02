@@ -73,15 +73,36 @@ const smoothstep = (a: number, b: number, t: number): number => {
   return u * u * (3 - 2 * u);
 };
 
+// Guaranteed lake right beside the spawn (only the default/first world). Centred a
+// few blocks off origin with a curved bowl (floor below SEA → fills with water) and
+// a flat shore, so you spawn on land next to open water. See surfaceHeight().
+const LAKE_CX = 9;
+const LAKE_CZ = 0;
+const LAKE_R = 7; // water radius
+const LAKE_SHORE = SEA + 2; // flat land height around the lake + spawn pad
+
 /** Surface land height at world (x,z): continents dip into basins (lakes/seas)
- *  and rise into mountains, plus rolling hills. cell 80 → variety within a view. */
-export function surfaceHeight(x: number, z: number, seed: number): number {
+ *  and rise into mountains, plus rolling hills. cell 80 → variety within a view.
+ *  With spawnLake, a lake + shore is carved near origin and the spawn is a flat pad. */
+export function surfaceHeight(x: number, z: number, seed: number, spawnLake = false): number {
   const cont = noise2(x, z, 80, seed); // 0..1 continents
   const land = 8 + cont * 30; // 8 (below SEA → water basins) .. 38
   const hills = (noise2(x, z, 24, seed + 11) * 2 - 1) * 4; // ±4 rolling hills
   const mtnMask = smoothstep(0.72, 0.96, cont); // only high continents grow mountains
   const mtn = Math.pow(ridged(x, z, 48, seed + 7), 1.6) * 36; // sharp ridges
-  return Math.floor(land + hills + mtnMask * mtn);
+  let h = land + hills + mtnMask * mtn;
+  if (spawnLake) {
+    const d = Math.hypot(x - LAKE_CX, z - LAKE_CZ);
+    if (d < LAKE_R) {
+      const t = d / LAKE_R; // 0 centre .. 1 rim
+      h = LAKE_SHORE + (SEA - 6 - LAKE_SHORE) * (1 - t * t); // curved bowl, floor < SEA
+    } else if (d < LAKE_R + 4) {
+      const t = (d - LAKE_R) / 4; // blend shore → natural terrain
+      h = LAKE_SHORE + (h - LAKE_SHORE) * (t * t * (3 - 2 * t));
+    }
+    if (Math.hypot(x, z) < 3) h = LAKE_SHORE; // flat spawn pad at origin
+  }
+  return Math.floor(h);
 }
 
 /** True where a cave should be carved (air) at underground (x,y,z). */
@@ -115,8 +136,9 @@ function writeTree(cells: Uint8Array, wx: number, wz: number, h: number, seed: n
   put(wx, top + 1, wz, LEAVES);
 }
 
-/** Generate a chunk's cells from the seed alone. */
-export function generateChunk(cx: number, cy: number, cz: number, seed: number): Uint8Array {
+/** Generate a chunk's cells from the seed alone. `spawnLake` adds the guaranteed
+ *  spawn-side lake (default world only). */
+export function generateChunk(cx: number, cy: number, cz: number, seed: number, spawnLake = false): Uint8Array {
   const cells = new Uint8Array(CHUNK_VOL);
   const baseX = cx * CHUNK,
     baseY = cy * CHUNK,
@@ -126,7 +148,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number):
     for (let lx = 0; lx < CHUNK; lx++) {
       const wx = baseX + lx,
         wz = baseZ + lz;
-      const h = surfaceHeight(wx, wz, seed);
+      const h = surfaceHeight(wx, wz, seed, spawnLake);
       const beach = h <= SEA + 1 && h >= SEA - 1;
       for (let ly = 0; ly < CHUNK; ly++) {
         const wy = baseY + ly;
@@ -147,7 +169,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number):
   for (let wz = baseZ - TREE_MARGIN; wz < baseZ + CHUNK + TREE_MARGIN; wz++) {
     for (let wx = baseX - TREE_MARGIN; wx < baseX + CHUNK + TREE_MARGIN; wx++) {
       if (hash2(wx, wz, seed + 991) >= 0.02) continue; // ~2% of columns
-      const h = surfaceHeight(wx, wz, seed);
+      const h = surfaceHeight(wx, wz, seed, spawnLake);
       if (h <= SEA) continue; // no trees in water/shore
       writeTree(cells, wx, wz, h, seed, baseX, baseY, baseZ);
     }

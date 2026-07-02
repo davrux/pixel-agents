@@ -4,7 +4,7 @@
  * blocks up by chunk. Unloaded space reads as air. A small local fallback lets the
  * page still show terrain when run offline (no server) during dev.
  */
-import { AIR } from './blocks.js';
+import { AIR, WATER_ID } from './blocks.js';
 import { CHUNK, CHUNK_VOL, cellIndex, chunkKey, toChunk, toLocal } from '@pixel/shared';
 
 export class VoxelWorld {
@@ -37,11 +37,18 @@ export class VoxelWorld {
     const c = this.chunks.get(chunkKey(toChunk(x), toChunk(y), toChunk(z)));
     if (c) c[cellIndex(toLocal(x), toLocal(y), toLocal(z))] = id;
   }
+  /** Solid = blocks the player. Water is NOT solid (you swim through it). */
   solid(x: number, y: number, z: number): boolean {
-    return this.get(x, y, z) !== AIR;
+    const id = this.get(x, y, z);
+    return id !== AIR && id !== WATER_ID;
+  }
+  /** True where the cell is water (drives swim physics + the swim animation). */
+  water(x: number, y: number, z: number): boolean {
+    return this.get(x, y, z) === WATER_ID;
   }
 
-  /** Highest solid y at (x,z) among loaded chunks — spawn / ground probe. */
+  /** Highest solid y at (x,z) among loaded chunks — spawn / ground probe. Skips
+   *  water so spawn lands on the lakebed/shore, not floating on the surface. */
   columnTop(x: number, z: number): number {
     for (let y = CHUNK * 4; y >= -CHUNK * 2; y--) if (this.solid(x, y, z)) return y;
     return 0;

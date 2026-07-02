@@ -61,6 +61,7 @@ export class Avatar {
   private pivot: [number, number] = [0.1, 0.85]; // sprite grip point
   private current = 'stand';
   private mining = false; // held: keep swinging while breaking a block
+  private swimming = false; // in water → horizontal swim pose (luanti 'lay' clip)
   private digT = 0; // one-shot swing timer (place feedback)
   private pendingSkin = 'character_1';
 
@@ -205,6 +206,11 @@ export class Avatar {
     this.mining = on;
   }
 
+  /** In water → play the horizontal swim/lay pose. */
+  setSwimming(on: boolean): void {
+    this.swimming = on;
+  }
+
   /** Crossfade to a clip. All clips loop, so both sides are always playing —
    *  the mine loop doubles as the one-shot swing (we just leave it briefly). */
   private cross(name: string): void {
@@ -220,7 +226,7 @@ export class Avatar {
   animate(dt: number, speed: number, pitch = 0): void {
     if (!this.mixer) return;
     if (this.digT > 0) this.digT -= dt;
-    const want = this.mining || this.digT > 0 ? 'mine' : speed > 0.4 ? 'walk' : 'stand';
+    const want = this.swimming ? 'lay' : this.mining || this.digT > 0 ? 'mine' : speed > 0.4 ? 'walk' : 'stand';
     this.cross(want);
     this.mixer.update(dt);
     // Head look is layered on after the clip poses the skeleton.

@@ -7,9 +7,15 @@
  */
 import * as THREE from 'three';
 import { CHUNK } from '@pixel/shared';
-import { BLOCKS, SHADE } from './blocks.js';
+import { BLOCKS, SHADE, AIR, WATER_ID } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
+
+/** Opaque + water geometry for one chunk (water goes to a separate transparent mesh). */
+export interface ChunkGeom {
+  opaque: THREE.BufferGeometry | null;
+  water: THREE.BufferGeometry | null;
+}
 
 type Corner = [number, number, number];
 type UV = [number, number];
@@ -29,13 +35,17 @@ const FACES: Face[] = [
 ];
 const AO = [0.5, 0.7, 0.85, 1.0]; // occlusion level 0 (deep) → 3 (open)
 
-/** Build the geometry for one chunk (world coords), neighbour-culled across
- *  chunk boundaries via world.get. Returns null if the chunk has no faces. */
-export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: number, cz: number): THREE.BufferGeometry | null {
-  const pos: number[] = [];
-  const col: number[] = [];
-  const uvs: number[] = [];
+/** Build the geometry for one chunk (world coords), neighbour-culled across chunk
+ *  boundaries via world.get. Opaque blocks and water go to separate buffers: an
+ *  opaque block hides a face only behind another opaque block (so submerged terrain
+ *  still shows through the water); a water cell only emits faces exposed to AIR
+ *  (its surface + shore edges), never internal water-water or water-in-terrain faces. */
+export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: number, cz: number): ChunkGeom {
+  const opq = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
+  const wat = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
+  // AO samples opaque occluders only (water casts none).
   const s = (x: number, y: number, z: number): number => (world.solid(x, y, z) ? 1 : 0);
+  const occludes = (x: number, y: number, z: number): boolean => world.solid(x, y, z); // opaque solid (water excluded)
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
@@ -44,11 +54,15 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
     for (let y = y0; y < y0 + CHUNK; y++) {
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = world.get(x, y, z);
-        if (id === 0) continue;
+        if (id === AIR) continue;
+        const isWater = id === WATER_ID;
         const def = BLOCKS[id] ?? BLOCKS[3];
+        const buf = isWater ? wat : opq;
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
-          if (world.solid(x + nx, y + ny, z + nz)) continue; // hidden face
+          const nid = world.get(x + nx, y + ny, z + nz);
+          // Water: show only air-exposed faces. Opaque: hide only behind opaque.
+          if (isWater ? nid !== AIR : occludes(x + nx, y + ny, z + nz)) continue;
           const shade = SHADE[f.fam];
           const r = atlas.rect(def.tiles[f.fam]);
           const inPlane = [0, 1, 2].filter((a) => f.n[a] === 0);
@@ -69,20 +83,23 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
           const q = f.quad;
           const u = f.uv;
           for (const i of [0, 1, 2, 0, 2, 3]) {
-            pos.push(x + q[i][0], y + q[i][1], z + q[i][2]);
+            buf.pos.push(x + q[i][0], y + q[i][1], z + q[i][2]);
             const k = cAo[i];
-            col.push(k, k, k);
-            uvs.push(r.u0 + u[i][0] * (r.u1 - r.u0), r.vBot + u[i][1] * (r.vTop - r.vBot));
+            buf.col.push(k, k, k);
+            buf.uvs.push(r.u0 + u[i][0] * (r.u1 - r.u0), r.vBot + u[i][1] * (r.vTop - r.vBot));
           }
         }
       }
     }
   }
-  if (pos.length === 0) return null; // empty chunk (all air / fully hidden)
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-  g.computeBoundingSphere();
-  return g;
+  const make = (b: { pos: number[]; col: number[]; uvs: number[] }): THREE.BufferGeometry | null => {
+    if (b.pos.length === 0) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uvs, 2));
+    g.computeBoundingSphere();
+    return g;
+  };
+  return { opaque: make(opq), water: make(wat) };
 }

@@ -50,10 +50,22 @@ const perspFog = new THREE.Fog(0x8fc7ff, 24, 120);
 // neighbours. A dirty-set is flushed (capped) each frame to smooth the join burst.
 const world = new VoxelWorld();
 const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
+// Water: separate translucent pass (see-through, no depth write so submerged
+// terrain shows through; double-sided so it looks right from under the surface).
+const waterMaterial = new THREE.MeshBasicMaterial({
+  vertexColors: true,
+  side: THREE.DoubleSide,
+  transparent: true,
+  opacity: 0.62,
+  depthWrite: false,
+});
 let atlas: Atlas | null = null;
-const terrainGroup = new THREE.Group();
+const terrainGroup = new THREE.Group(); // opaque blocks — the aim/raycast target
+const waterGroup = new THREE.Group(); // translucent water — NOT raycast (can't build on water)
 scene.add(terrainGroup);
+scene.add(waterGroup);
 const chunkMeshes = new Map<string, THREE.Mesh>();
+const chunkWater = new Map<string, THREE.Mesh>();
 const dirty = new Set<string>();
 const NEIGHBORS = [
   [1, 0, 0],
@@ -69,24 +81,29 @@ function markDirty(cx: number, cy: number, cz: number): void {
 }
 function remeshChunk(cx: number, cy: number, cz: number): void {
   const key = chunkKey(cx, cy, cz);
-  const existing = chunkMeshes.get(key);
-  const geo = atlas ? buildChunkMesh(world, atlas, cx, cy, cz) : null;
-  if (!geo) {
-    if (existing) {
-      terrainGroup.remove(existing);
-      existing.geometry.dispose();
-      chunkMeshes.delete(key);
+  const geom = atlas ? buildChunkMesh(world, atlas, cx, cy, cz) : null;
+  // Update one layer (opaque or water) in place: swap geometry, or add/remove the mesh.
+  const layer = (map: Map<string, THREE.Mesh>, group: THREE.Group, mat: THREE.Material, geo: THREE.BufferGeometry | null): void => {
+    const existing = map.get(key);
+    if (!geo) {
+      if (existing) {
+        group.remove(existing);
+        existing.geometry.dispose();
+        map.delete(key);
+      }
+      return;
     }
-    return;
-  }
-  if (existing) {
-    existing.geometry.dispose();
-    existing.geometry = geo;
-  } else {
-    const m = new THREE.Mesh(geo, material);
-    chunkMeshes.set(key, m);
-    terrainGroup.add(m);
-  }
+    if (existing) {
+      existing.geometry.dispose();
+      existing.geometry = geo;
+    } else {
+      const m = new THREE.Mesh(geo, mat);
+      map.set(key, m);
+      group.add(m);
+    }
+  };
+  layer(chunkMeshes, terrainGroup, material, geom?.opaque ?? null);
+  layer(chunkWater, waterGroup, waterMaterial, geom?.water ?? null);
 }
 /** Remesh up to `cap` dirty chunks per frame (rest wait for the next frame). */
 function flushDirty(cap = 12): void {
@@ -103,6 +120,8 @@ void loadBlockAtlas(BLOCK_TEXTURES, SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
+  waterMaterial.map = a.texture;
+  waterMaterial.needsUpdate = true;
   for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
 });
 
@@ -162,6 +181,7 @@ interface RemotePlayer {
   yaw: number;
   pitch: number;
   skin: string;
+  state: string;
 }
 interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
@@ -219,6 +239,7 @@ function syncRemotePlayers(dt: number): void {
     r.pz = p.z;
     r.avatar.group.position.set(p.x, p.y, p.z);
     r.avatar.group.rotation.y = p.yaw;
+    r.avatar.setSwimming(p.state === 'swim');
     r.avatar.animate(dt, speed, p.pitch);
   });
   for (const [sid, r] of remote) {
@@ -943,6 +964,11 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
     m.geometry.dispose();
   }
   chunkMeshes.clear();
+  for (const m of chunkWater.values()) {
+    waterGroup.remove(m);
+    m.geometry.dispose();
+  }
+  chunkWater.clear();
   dirty.clear();
   world.clear();
   ready = false;
@@ -1059,11 +1085,13 @@ function frame(now: number): void {
   const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   updateWield();
+  avatar.setSwimming(player.inWater);
   avatar.animate(dt, player.speed2d, player.pitch);
   // Report our transform to the server (throttled) so AOI + other players update.
   if (net && ready && now - lastMoveSent > 100) {
     lastMoveSent = now;
-    net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, player.speed2d > 0.4 ? 'walk' : 'idle');
+    const moveState = player.inWater ? 'swim' : player.speed2d > 0.4 ? 'walk' : 'idle';
+    net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, moveState);
   }
   syncRemotePlayers(dt);
   placeCamera();
