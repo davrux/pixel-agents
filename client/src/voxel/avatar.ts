@@ -52,6 +52,7 @@ export class Avatar {
   private readonly head: THREE.Object3D;
   private phase = 0;
   private amp = 0;
+  private digT = 0; // remaining time of a mine/place arm swing
 
   constructor(skin = 'character_1') {
     this.mat = new THREE.MeshBasicMaterial();
@@ -92,6 +93,11 @@ export class Avatar {
     });
   }
 
+  /** Trigger a short right-arm chop (block break/place). */
+  playDig(): void {
+    this.digT = 0.32;
+  }
+
   animate(dt: number, speed: number, pitch = 0): void {
     const moving = speed > 0.4;
     this.phase += dt * (moving ? 9 : 0);
@@ -100,7 +106,12 @@ export class Avatar {
     this.legL.rotation.x = s;
     this.legR.rotation.x = -s;
     this.armL.rotation.x = -s;
-    this.armR.rotation.x = s;
+    let armR = s;
+    if (this.digT > 0) {
+      this.digT = Math.max(0, this.digT - dt);
+      armR = -1.5 * Math.sin((1 - this.digT / 0.32) * Math.PI); // overlay a downward chop
+    }
+    this.armR.rotation.x = armR;
     this.head.rotation.x = Math.max(-0.5, Math.min(0.5, -pitch * 0.4));
   }
 }

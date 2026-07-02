@@ -73,6 +73,11 @@ const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
 const persp = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
 let mode: CamMode = 'iso';
 const ISO_VIEW = 22; // world-units tall the ortho frustum shows
+let isoYaw = -Math.PI / 4; // iso camera orbit (LMB-drag rotates the map)
+let camYaw = 0; // third-person camera orbit (LMB-drag)
+let camPitch = 0.35;
+let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
 function resize(): void {
   const w = window.innerWidth,
@@ -97,20 +102,20 @@ function placeCamera(): void {
   scene.fog = mode === 'iso' ? null : perspFog;
   const eye = player.eye;
   if (mode === 'iso') {
+    // orthographic, orbited around the player by isoYaw (drag to rotate the map)
     const d = 80;
-    ortho.position.set(eye.x + d, eye.y + d * 0.82, eye.z + d);
+    ortho.position.set(eye.x + Math.sin(isoYaw) * d, eye.y + d * 0.82, eye.z + Math.cos(isoYaw) * d);
     ortho.lookAt(eye);
   } else if (mode === 'first') {
     persp.position.copy(eye);
     persp.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
   } else {
-    // third: behind + above, looking at the head
-    const back = 4.2,
-      up = 1.6;
-    const fx = -Math.sin(player.yaw),
-      fz = -Math.cos(player.yaw);
-    persp.position.set(eye.x - fx * back, eye.y + up, eye.z - fz * back);
-    persp.rotation.set(player.pitch - 0.15, player.yaw, 0, 'YXZ');
+    // third: orbit behind/above the head by camYaw/camPitch (drag to rotate)
+    const back = 4.6;
+    const cp = Math.cos(camPitch),
+      sp = Math.sin(camPitch);
+    persp.position.set(eye.x + Math.sin(camYaw) * cp * back, eye.y + sp * back, eye.z + Math.cos(camYaw) * cp * back);
+    persp.lookAt(eye);
   }
   avatar.group.visible = mode !== 'first';
   avatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
@@ -124,39 +129,76 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openBlockPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
+  if (e.code === 'KeyE' && !pickerOpen()) return editBlock(false); // place a block
+  if (e.code === 'KeyQ' && !pickerOpen()) return editBlock(true); // remove a block
   const n = Number(e.key);
   if (n >= 1 && n <= hotbarIds.length) selectSlot(n - 1);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
 
-let pointerNDC = new THREE.Vector2(0, 0); // crosshair centre by default
+const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
+let dragging = false;
+let dragMoved = false;
+let dragX = 0;
+let dragY = 0;
+const ndc = (e: MouseEvent): THREE.Vector2 =>
+  new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+
 canvas.addEventListener('mousemove', (e) => {
-  if (locked()) {
-    const s = 0.0022;
-    player.setLook(-e.movementX * s, -e.movementY * s);
-  } else if (mode === 'iso') {
-    pointerNDC.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-  }
-});
-canvas.addEventListener('mousedown', (e) => {
-  // In first/third, the first click grabs the pointer; then clicks build.
-  if (mode !== 'iso' && !locked()) {
-    void canvas.requestPointerLock();
+  if (mode === 'first') {
+    if (locked()) player.setLook(-e.movementX * 0.0022, -e.movementY * 0.0022);
     return;
   }
-  if (e.button === 0) editBlock(true); // break
-  else if (e.button === 2) editBlock(false); // place
+  if (dragging) {
+    if (Math.hypot(e.clientX - dragX, e.clientY - dragY) > 5) dragMoved = true;
+    if (mode === 'iso') isoYaw -= e.movementX * 0.006; // rotate the map
+    else {
+      camYaw -= e.movementX * 0.006; // orbit third-person camera
+      camPitch = clamp(camPitch + e.movementY * 0.005, -0.15, 1.25);
+    }
+  }
+  if (mode === 'iso') pointerNDC.copy(ndc(e));
+});
+canvas.addEventListener('mousedown', (e) => {
+  if (mode === 'first') {
+    if (!locked()) return void canvas.requestPointerLock();
+    if (e.button === 0) editBlock(true);
+    else if (e.button === 2) editBlock(false);
+    return;
+  }
+  // iso / third: hold LMB to drag-rotate; a click without a drag walks there (iso).
+  if (e.button === 0) {
+    dragging = true;
+    dragMoved = false;
+    dragX = e.clientX;
+    dragY = e.clientY;
+  }
+});
+window.addEventListener('mouseup', (e) => {
+  if (e.button !== 0 || !dragging) return;
+  dragging = false;
+  if (mode === 'iso' && !dragMoved) clickToMove(ndc(e));
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-canvas.addEventListener('wheel', (e) => {
-  selectSlot(selectedSlot + (e.deltaY > 0 ? 1 : -1));
-});
+canvas.addEventListener('wheel', (e) => selectSlot(selectedSlot + (e.deltaY > 0 ? 1 : -1)));
+
+/** Raycast the ground under the cursor → an auto-walk destination (iso click). */
+function clickToMove(p: THREE.Vector2): void {
+  if (!terrain) return;
+  raycaster.setFromCamera(p, activeCam());
+  const hits = raycaster.intersectObject(terrain, false);
+  if (!hits.length) return;
+  const hit = hits[0].point.clone().addScaledVector(hits[0].face?.normal ?? new THREE.Vector3(0, 1, 0), -0.5);
+  moveTarget = new THREE.Vector3(Math.floor(hit.x) + 0.5, 0, Math.floor(hit.z) + 0.5);
+}
 
 function cycleMode(): void {
   mode = mode === 'iso' ? 'third' : mode === 'third' ? 'first' : 'iso';
-  if (mode === 'iso' && locked()) document.exitPointerLock();
+  moveTarget = null;
+  dragging = false;
+  if (mode !== 'first' && locked()) document.exitPointerLock();
   updateHud();
 }
 
@@ -178,11 +220,13 @@ function editBlock(breaking: boolean): void {
     if (world.solid(bx, by, bz)) {
       world.set(bx, by, bz, 0);
       rebuild();
+      avatar.playDig();
     }
   } else {
     if (!world.solid(bx, by, bz)) {
       world.set(bx, by, bz, hotbarIds[selectedSlot]);
       rebuild();
+      avatar.playDig();
     }
   }
 }
@@ -251,15 +295,34 @@ let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (mode === 'iso') player.yaw = -Math.PI / 4; // fixed facing for the iso view
-  const busy = pickerOpen(); // don't walk while the picker window is open
-  const input: MoveInput = {
-    forward: !busy && (keys.has('KeyW') || keys.has('ArrowUp')),
-    back: !busy && (keys.has('KeyS') || keys.has('ArrowDown')),
-    left: !busy && (keys.has('KeyA') || keys.has('ArrowLeft')),
-    right: !busy && (keys.has('KeyD') || keys.has('ArrowRight')),
-    jump: !busy && keys.has('Space'),
-  };
+  const busy = pickerOpen(); // don't move while a picker window is open
+  const w = !busy && (keys.has('KeyW') || keys.has('ArrowUp'));
+  const s = !busy && (keys.has('KeyS') || keys.has('ArrowDown'));
+  const a = !busy && (keys.has('KeyA') || keys.has('ArrowLeft'));
+  const d = !busy && (keys.has('KeyD') || keys.has('ArrowRight'));
+  const jump = !busy && keys.has('Space');
+  const still: MoveInput = { forward: false, back: false, left: false, right: false, jump: false };
+  let input: MoveInput;
+  if (mode === 'iso') {
+    if (w || s || a || d) {
+      moveTarget = null; // manual movement cancels click-to-walk
+      player.yaw = isoYaw; // WASD moves relative to the current map rotation
+      input = { forward: w, back: s, left: a, right: d, jump };
+    } else if (moveTarget) {
+      const dx = moveTarget.x - player.pos.x;
+      const dz = moveTarget.z - player.pos.z;
+      if (Math.hypot(dx, dz) < 0.4) {
+        moveTarget = null;
+        input = still;
+      } else {
+        player.yaw = Math.atan2(-dx, -dz); // face + walk toward the destination
+        input = { forward: true, back: false, left: false, right: false, jump: false };
+      }
+    } else input = still;
+  } else {
+    if (mode === 'third') player.yaw = camYaw; // face away from the orbiting camera
+    input = { forward: w, back: s, left: a, right: d, jump };
+  }
   player.update(dt, input);
   avatar.animate(dt, player.speed2d, player.pitch);
   placeCamera();
