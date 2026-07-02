@@ -1,0 +1,127 @@
+/**
+ * Client-side player physics for the spike: an AABB with gravity + jump and
+ * per-axis voxel collision (free Minecraft-style movement). In phase 2 the server
+ * becomes authoritative — the client keeps this for prediction and the server
+ * validates/reconciles; for now it runs standalone so we can walk and build.
+ */
+import * as THREE from 'three';
+import type { VoxelWorld } from './world.js';
+
+const HW = 0.3; // half width/depth
+const PH = 1.8; // height (eye ≈ 1.6)
+const SPEED = 5.2; // blocks/s
+const GRAVITY = -26;
+const JUMP = 8.4;
+
+export interface MoveInput {
+  forward: boolean;
+  back: boolean;
+  left: boolean;
+  right: boolean;
+  jump: boolean;
+}
+
+export class Player {
+  /** Feet position (centre-x, feet-y, centre-z). */
+  readonly pos = new THREE.Vector3();
+  readonly vel = new THREE.Vector3();
+  yaw = 0; // radians; 0 looks toward -Z
+  pitch = 0;
+  onGround = false;
+
+  constructor(private readonly world: VoxelWorld) {}
+
+  get eye(): THREE.Vector3 {
+    return new THREE.Vector3(this.pos.x, this.pos.y + 1.6, this.pos.z);
+  }
+
+  private collides(x: number, y: number, z: number): boolean {
+    const x0 = Math.floor(x - HW),
+      x1 = Math.floor(x + HW);
+    const y0 = Math.floor(y),
+      y1 = Math.floor(y + PH - 0.001);
+    const z0 = Math.floor(z - HW),
+      z1 = Math.floor(z + HW);
+    for (let xi = x0; xi <= x1; xi++)
+      for (let yi = y0; yi <= y1; yi++)
+        for (let zi = z0; zi <= z1; zi++) {
+          // World edges are invisible walls and y<0 is bedrock — you can never
+          // fall off the world (interior holes still work; the sky stays open).
+          if (xi < 0 || xi >= this.world.sx || zi < 0 || zi >= this.world.sz || yi < 0) return true;
+          if (this.world.solid(xi, yi, zi)) return true;
+        }
+    return false;
+  }
+
+  /** Horizontal speed (blocks/s) — drives the avatar's walk animation. */
+  get speed2d(): number {
+    return Math.hypot(this.vel.x, this.vel.z);
+  }
+
+  setLook(dYaw: number, dPitch: number): void {
+    this.yaw += dYaw;
+    this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch + dPitch));
+  }
+
+  update(dt: number, input: MoveInput): void {
+    // Desired horizontal velocity from input, rotated into world by yaw.
+    const fx = -Math.sin(this.yaw),
+      fz = -Math.cos(this.yaw);
+    const rx = Math.cos(this.yaw),
+      rz = -Math.sin(this.yaw);
+    let mx = 0,
+      mz = 0;
+    if (input.forward) {
+      mx += fx;
+      mz += fz;
+    }
+    if (input.back) {
+      mx -= fx;
+      mz -= fz;
+    }
+    if (input.right) {
+      mx += rx;
+      mz += rz;
+    }
+    if (input.left) {
+      mx -= rx;
+      mz -= rz;
+    }
+    const len = Math.hypot(mx, mz) || 1;
+    this.vel.x = (mx / len) * SPEED * (mx || mz ? 1 : 0);
+    this.vel.z = (mz / len) * SPEED * (mx || mz ? 1 : 0);
+
+    this.vel.y += GRAVITY * dt;
+    if (input.jump && this.onGround) {
+      this.vel.y = JUMP;
+      this.onGround = false;
+    }
+
+    // Move + resolve per axis (x, z, then y).
+    const nx = this.pos.x + this.vel.x * dt;
+    if (!this.collides(nx, this.pos.y, this.pos.z)) this.pos.x = nx;
+    else this.vel.x = 0;
+
+    const nz = this.pos.z + this.vel.z * dt;
+    if (!this.collides(this.pos.x, this.pos.y, nz)) this.pos.z = nz;
+    else this.vel.z = 0;
+
+    const ny = this.pos.y + this.vel.y * dt;
+    if (!this.collides(this.pos.x, ny, this.pos.z)) {
+      this.pos.y = ny;
+      this.onGround = false;
+    } else {
+      if (this.vel.y < 0) this.onGround = true;
+      this.vel.y = 0;
+    }
+
+    // Fell out of the world → respawn on the surface.
+    if (this.pos.y < -8) this.spawnOnColumn(Math.floor(this.pos.x), Math.floor(this.pos.z));
+  }
+
+  spawnOnColumn(x: number, z: number): void {
+    const top = this.world.columnTop(x, z);
+    this.pos.set(x + 0.5, top + 1, z + 0.5);
+    this.vel.set(0, 0, 0);
+  }
+}

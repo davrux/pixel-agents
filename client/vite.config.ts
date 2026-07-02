@@ -33,4 +33,13 @@ export default defineConfig({
     port: 5173,
     https: devHttps(),
   },
+  build: {
+    rollupOptions: {
+      // Multi-page: the 2D game (index.html) + the isolated 3D voxel spike.
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        voxel: resolve(__dirname, 'voxel.html'),
+      },
+    },
+  },
 });

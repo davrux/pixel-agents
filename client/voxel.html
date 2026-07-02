@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+    <title>pixel-agents — voxel spike</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #8fc7ff;
+        font-family: 'FS Pixel Sans', ui-monospace, monospace;
+        color: #fff;
+        user-select: none;
+      }
+      #gl {
+        display: block;
+        width: 100vw;
+        height: 100vh;
+      }
+      /* crosshair (first/third person) */
+      #cross {
+        position: fixed;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 18px;
+        height: 18px;
+        pointer-events: none;
+        opacity: 0.85;
+      }
+      #cross::before,
+      #cross::after {
+        content: '';
+        position: absolute;
+        background: #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+      }
+      #cross::before {
+        left: 8px;
+        top: 0;
+        width: 2px;
+        height: 18px;
+      }
+      #cross::after {
+        top: 8px;
+        left: 0;
+        height: 2px;
+        width: 18px;
+      }
+      /* hotbar — Minecraft-ish slot row */
+      #hotbar {
+        position: fixed;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 4px;
+        padding: 4px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 3px solid #1c1c1c;
+        border-radius: 4px;
+      }
+      #hotbar .slot {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #4a4a4a;
+        image-rendering: pixelated;
+        cursor: pointer;
+      }
+      #hotbar .slot.on {
+        border-color: #fff;
+        box-shadow: 0 0 0 2px #000 inset;
+      }
+      #mode {
+        position: fixed;
+        left: 10px;
+        top: 8px;
+        font-size: 14px;
+        text-shadow: 1px 1px 0 #000;
+      }
+      #help {
+        position: fixed;
+        right: 10px;
+        top: 8px;
+        font-size: 12px;
+        line-height: 1.5;
+        text-align: right;
+        text-shadow: 1px 1px 0 #000;
+        opacity: 0.9;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gl"></canvas>
+    <div id="cross"></div>
+    <div id="hotbar"></div>
+    <div id="mode"></div>
+    <div id="help">
+      WASD move · Space jump<br />
+      V switch view (iso / third / first)<br />
+      Left-click break · Right-click place<br />
+      1–7 / scroll pick block<br />
+      (first/third: click to capture mouse-look, Esc to release)
+    </div>
+    <script type="module" src="/src/voxel/main.ts"></script>
+  </body>
+</html>
