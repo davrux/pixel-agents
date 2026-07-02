@@ -50,9 +50,17 @@ import { spriteTexture } from './sprites.js';
 const FLOOR_DEPTH = -100000;
 const BUBBLE_DEPTH = 1_000_000;
 
+// Voice "speaking" ring drawn under a character's feet while they talk. A single
+// shared soft-ellipse texture (white, so it can be tinted) pulsed in alpha/scale.
+const VOICE_RING_TEXTURE = '__voicering';
+const VOICE_RING_COLOR = 0x7fd08a; // app green accent (matches the active-tab underline)
+const VOICE_RING_PULSE_HZ = 3; // pulses per second
+
 interface CharGObjects {
   body: Phaser.GameObjects.Image;
   bubble: Phaser.GameObjects.Image;
+  /** Pulsing halo shown while this character is speaking in voice chat. */
+  ring: Phaser.GameObjects.Image;
 }
 
 /**
@@ -72,6 +80,15 @@ export class PhaserRenderer {
   private readonly pets = new Map<number, Phaser.GameObjects.Image>();
   /** Per-character canvas texture key for the Matrix spawn/despawn effect. */
   private readonly matrixKeys = new Map<number, string>();
+  /** Player ids currently speaking in voice chat — drives the per-character ring.
+   *  Fed each frame by the scene from the voice active-speaker state. */
+  private readonly speakingIds = new Set<number>();
+
+  /** Replace the set of players shown with a speaking ring (called per frame). */
+  setSpeakingIds(ids: Set<number>): void {
+    this.speakingIds.clear();
+    for (const id of ids) this.speakingIds.add(id);
+  }
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -155,6 +172,32 @@ export class PhaserRenderer {
     return img;
   }
 
+  /** Lazily build the shared soft-ellipse "speaking ring" texture (white, tinted
+   *  at draw time). A flattened radial gradient reads as a ground-plane halo. */
+  private ensureRingTexture(): string {
+    if (this.scene.textures.exists(VOICE_RING_TEXTURE)) return VOICE_RING_TEXTURE;
+    const W = 48;
+    const H = 24;
+    this.scene.textures.createCanvas(VOICE_RING_TEXTURE, W, H);
+    const canvasTex = this.scene.textures.get(VOICE_RING_TEXTURE) as Phaser.Textures.CanvasTexture;
+    const ctx = canvasTex.getContext();
+    ctx.clearRect(0, 0, W, H);
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(1, H / W); // flatten the circle into a ground-plane ellipse
+    const r = W / 2;
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    grad.addColorStop(0, 'rgba(255,255,255,0.08)'); // faint fill inside the ring
+    grad.addColorStop(0.6, 'rgba(255,255,255,0.12)');
+    grad.addColorStop(0.82, 'rgba(255,255,255,0.9)'); // bright ring band
+    grad.addColorStop(1, 'rgba(255,255,255,0)'); // fade to transparent at the edge
+    ctx.fillStyle = grad;
+    ctx.fillRect(-r, -r, W, W);
+    ctx.restore();
+    canvasTex.refresh();
+    return VOICE_RING_TEXTURE;
+  }
+
   /** When true, characters/pets are hidden (set during layout editing — they are
    *  server-positioned on the un-edited layout, so they can't track local edits
    *  like grid expansion; the server repositions them after the layout is saved). */
@@ -167,6 +210,7 @@ export class PhaserRenderer {
       for (const g of this.chars.values()) {
         g.body.setVisible(false);
         g.bubble.setVisible(false);
+        g.ring.setVisible(false);
       }
       for (const img of this.pets.values()) img.setVisible(false);
       return;
@@ -184,6 +228,7 @@ export class PhaserRenderer {
         g = {
           body: this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1),
           bubble: this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1).setDepth(BUBBLE_DEPTH).setVisible(false),
+          ring: this.scene.add.image(0, 0, this.ensureRingTexture()).setOrigin(0.5, 0.5).setVisible(false),
         };
         this.chars.set(ch.id, g);
       }
@@ -193,6 +238,7 @@ export class PhaserRenderer {
       if (!seen.has(id)) {
         g.body.destroy();
         g.bubble.destroy();
+        g.ring.destroy();
         this.chars.delete(id);
         this.removeMatrixTexture(id);
       }
@@ -212,6 +258,24 @@ export class PhaserRenderer {
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
     g.body.setAlpha(1);
     g.body.setVisible(true); // restore after edit-mode hiding (hideEntities)
+
+    // Voice speaking ring: a pulsing green halo under the feet, sorted just
+    // behind this character's body so they stand "inside" it. Hidden otherwise
+    // and during the Matrix materialise/dissolve effect.
+    if (this.speakingIds.has(ch.id) && !ch.matrixEffect) {
+      const p = 0.5 + 0.5 * Math.sin((this.scene.time.now / 1000) * 2 * Math.PI * VOICE_RING_PULSE_HZ);
+      // Scale the 48px-wide texture to sit a little wider than the avatar's feet.
+      const spriteW = sd[0]?.length ?? TILE_SIZE;
+      const baseScale = ((spriteW * 1.9) / 48) * (1 + 0.12 * p);
+      g.ring.setPosition(Math.round(ch.x), Math.round(ch.y + sit));
+      g.ring.setDepth(g.body.depth - 1);
+      g.ring.setTint(VOICE_RING_COLOR);
+      g.ring.setAlpha(0.4 + 0.35 * p);
+      g.ring.setScale(baseScale);
+      g.ring.setVisible(true);
+    } else {
+      g.ring.setVisible(false);
+    }
 
     // Hide bubbles while the character is materialising/dissolving.
     if (ch.matrixEffect) {

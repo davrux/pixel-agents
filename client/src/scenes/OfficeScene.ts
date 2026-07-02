@@ -3124,6 +3124,9 @@ export class OfficeScene extends Phaser.Scene {
     for (const [id, until] of this.voiceSpeakUntil) {
       if (now >= until) this.voiceSpeakUntil.delete(id);
     }
+    // Drive the in-world speaking rings (Phaser). Set before the early return
+    // below so rings still clear when nobody has a DOM voice-status icon.
+    this.view.setSpeakingIds(new Set(this.voiceSpeakUntil.keys()));
 
     if (this.voiceBubbles.size === 0 && this.voiceStatus.size === 0) return;
     const cam = this.cameras.main;
