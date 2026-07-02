@@ -48,6 +48,7 @@ interface ClientView {
 
 const REACH = 8; // max edit distance from the player's eye (blocks)
 const MOVE_MIN_MS = 40; // ~25 moves/s cap
+const DAY_LENGTH_MS = 20 * 60 * 1000; // full day/night cycle (Minecraft-like 20 min)
 
 export class VoxelRoom extends Room<VoxelRoomState> {
   private authRequired = false;
@@ -131,7 +132,16 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       lastEdit: 0,
       lastPortalKey: null,
     });
-    client.send('welcome', { id: p.id, seed: this.world.seed, spawn: { x: p.x, y: p.y, z: p.z }, worldId: this.state.worldId });
+    // `now` + `dayLengthMs` give the client the server-aligned day clock so every
+    // player sees the same time of day (the client advances it locally from here).
+    client.send('welcome', {
+      id: p.id,
+      seed: this.world.seed,
+      spawn: { x: p.x, y: p.y, z: p.z },
+      worldId: this.state.worldId,
+      now: Date.now(),
+      dayLengthMs: DAY_LENGTH_MS,
+    });
     client.send('worlds', listWorlds()); // for the client's world dropdown
     // Server-side per-user settings (camera/auto-switch/wield transforms). Only
     // for logged-in users; anonymous clients keep their local settings.

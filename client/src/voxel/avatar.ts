@@ -211,6 +211,12 @@ export class Avatar {
     this.swimming = on;
   }
 
+  /** Day/night tint — multiplies the (unlit) skin material so avatars darken at
+   *  night with the rest of the world. */
+  setTint(c: THREE.Color): void {
+    this.mat.color.copy(c);
+  }
+
   /** Crossfade to a clip. All clips loop, so both sides are always playing —
    *  the mine loop doubles as the one-shot swing (we just leave it briefly). */
   private cross(name: string): void {

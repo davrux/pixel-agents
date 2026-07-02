@@ -12,6 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
+import { daySample, isNight } from './daylight.js';
 import { type Item, TOOL_ITEMS, BLOCK_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
@@ -43,6 +44,13 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fc7ff);
 // Fog gives depth; all modes are perspective now (iso is a perspective 3/4 view).
 const perspFog = new THREE.Fog(0x8fc7ff, 24, 120);
+
+// Day/night: the server hands us a shared clock in the welcome; tod (0..1) is
+// advanced locally each frame and tints the sky/fog + the (unlit) world material.
+let clockOffset = 0; // serverNow - clientNow, so all players share the time of day
+let dayLengthMs = 20 * 60 * 1000;
+let todNow = 0.35; // current time of day (default: morning) until welcome arrives
+const dayColors = { sky: new THREE.Color(0x8fc7ff), light: new THREE.Color(0xffffff) };
 
 // World + per-chunk meshes. Chunks are streamed from the server (or the offline
 // fallback); each loaded chunk is its own mesh under terrainGroup so an edit only
@@ -245,7 +253,9 @@ interface RemoteState {
 const remote = new Map<string, { avatar: Avatar; px: number; pz: number }>();
 
 function onWelcome(m: unknown): void {
-  const w = m as { spawn?: { x: number; y: number; z: number } };
+  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number };
+  if (Number.isFinite(w.now)) clockOffset = w.now! - Date.now(); // align to the server day clock
+  if (Number.isFinite(w.dayLengthMs) && w.dayLengthMs! > 0) dayLengthMs = w.dayLengthMs!;
   if (w.spawn) {
     spawn = w.spawn;
     // Move the player/camera to the new spawn immediately so the view is centred
@@ -296,6 +306,7 @@ function syncRemotePlayers(dt: number): void {
     r.avatar.group.position.set(p.x, p.y, p.z);
     r.avatar.group.rotation.y = p.yaw;
     r.avatar.setSwimming(p.state === 'swim');
+    r.avatar.setTint(dayColors.light);
     r.avatar.animate(dt, speed, p.pitch);
   });
   for (const [sid, r] of remote) {
@@ -1137,14 +1148,24 @@ function frame(now: number): void {
     player.pos.set(spawn.x, spawn.y, spawn.z);
     player.vel.set(0, 0, 0);
   }
+  // Day/night: advance the shared clock and tint sky/fog + the unlit world.
+  todNow = (((Date.now() + clockOffset) / dayLengthMs) % 1 + 1) % 1;
+  daySample(todNow, dayColors);
+  (scene.background as THREE.Color).copy(dayColors.sky);
+  perspFog.color.copy(dayColors.sky);
+  material.color.copy(dayColors.light);
+  waterMaterial.color.copy(dayColors.light);
+  (clouds.material as THREE.MeshBasicMaterial).color.copy(dayColors.light);
+  avatar.setTint(dayColors.light);
   // Clouds follow the player + drift.
   clouds.position.set(player.pos.x, 70, player.pos.z);
   cloudTex.offset.x += dt * 0.004;
-  // Portal glow pulse (shared materials → all portals shimmer together).
+  // Portal glow pulse (shared materials → all portals shimmer together; brighter at night).
   if (portalGlows.size) {
     const pulse = 0.5 + 0.5 * Math.sin(now * 0.004);
-    portalHaloMat.opacity = 0.25 + 0.35 * pulse;
-    portalBeamMat.opacity = 0.06 + 0.12 * pulse;
+    const boost = isNight(todNow) ? 1.7 : 1;
+    portalHaloMat.opacity = (0.25 + 0.35 * pulse) * boost;
+    portalBeamMat.opacity = (0.06 + 0.12 * pulse) * boost;
   }
   const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
