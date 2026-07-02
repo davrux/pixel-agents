@@ -33,7 +33,7 @@ export interface Wield {
 }
 // Tuned in-game for the steel pickaxe; other items start from this and get tuned.
 export const DEFAULT_WIELD: Wield = { px: 0.2, py: 5.2, pz: 1, rx: -0.86, ry: Math.PI / 2, rz: 0, s: 6 };
-const DEFAULT_ITEM = 'default_tool_steelpick';
+const DEFAULT_ITEM = 'items/default_tool_steelpick'; // texUrl (relative under textures/)
 
 // Luanti player_api frame ranges within the single baked timeline (fps = 60).
 const FPS = 60;
@@ -57,7 +57,8 @@ export class Avatar {
   private tool: THREE.Mesh | null = null;
   private toolMat: THREE.Material | null = null;
   private wieldT: Wield = { ...DEFAULT_WIELD };
-  private item = DEFAULT_ITEM; // currently wielded item texture name
+  private item = DEFAULT_ITEM; // currently wielded item texUrl (relative under textures/)
+  private pivot: [number, number] = [0.1, 0.85]; // sprite grip point
   private current = 'stand';
   private mining = false; // held: keep swinging while breaking a block
   private digT = 0; // one-shot swing timer (place feedback)
@@ -145,10 +146,12 @@ export class Avatar {
     this.applyWield();
   }
 
-  /** Switch the wielded item (texture name under textures/items/) + its hold
+  /** Switch the wielded item (texUrl relative under textures/, e.g.
+   *  'items/default_tool_steelpick' or 'blocks/stone') + its pivot + hold
    *  transform. Rebuilds the extruded mesh; defers if the model isn't loaded. */
-  wield(item: string, w: Wield): void {
-    this.item = item;
+  wield(texUrl: string, pivot: [number, number], w: Wield): void {
+    this.item = texUrl;
+    this.pivot = pivot;
     this.wieldT = { ...w };
     this.buildTool();
   }
@@ -156,8 +159,8 @@ export class Avatar {
   private buildTool(): void {
     if (!this.armR) return; // model not loaded yet — onLoad will build it
     const arm = this.armR;
-    const url = new URL(`textures/items/${this.item}.png`, document.baseURI).href;
-    void buildItemMesh(url, [0.1, 0.85]).then((tool) => {
+    const url = new URL(`textures/${this.item}.png`, document.baseURI).href;
+    void buildItemMesh(url, this.pivot).then((tool) => {
       if (this.tool) {
         arm.remove(this.tool);
         this.tool.geometry.dispose();

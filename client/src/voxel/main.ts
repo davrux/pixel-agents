@@ -10,7 +10,8 @@ import * as THREE from 'three';
 import { VoxelWorld } from './world.js';
 import { buildMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCKS, BLOCK_TEXTURES, ALL_BLOCK_IDS, DEFAULT_HOTBAR } from './blocks.js';
+import { BLOCK_TEXTURES } from './blocks.js';
+import { type Item, ALL_ITEMS, TOOL_ITEMS, itemById, DEFAULT_HOTBAR } from './items.js';
 import { loadBlockAtlas, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
@@ -19,8 +20,15 @@ import { openPicker, closePicker, pickerOpen } from './picker.js';
 
 // The CC0 "Simple Skins" set staged under textures/player/skins/.
 const SKINS = [...Array(31)].map((_, i) => `character_${i + 1}`).concat(['character_900']);
-const texUrl = (tex: string): string => new URL(`textures/blocks/${tex}.png`, document.baseURI).href;
+const itemTexUrl = (rel: string): string => new URL(`textures/${rel}.png`, document.baseURI).href;
 const skinUrl = (name: string): string => new URL(`textures/player/skins/${name}.png`, document.baseURI).href;
+const loadWield = (id: string): Wield => {
+  try {
+    return { ...DEFAULT_WIELD, ...(JSON.parse(localStorage.getItem('voxWield:' + id) ?? '{}') as Partial<Wield>) };
+  } catch {
+    return { ...DEFAULT_WIELD };
+  }
+};
 
 type CamMode = 'iso' | 'third' | 'first';
 
@@ -78,8 +86,9 @@ let isoPitch = 0.687; // iso camera tilt above the horizon (RMB-drag, free up/do
 let camYaw = 0; // third-person camera orbit (RMB-drag)
 let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
-// User settings (persisted). invertY default on; camera collision default on.
-const settings = { invertY: true, camCollide: true };
+// User settings (persisted). invertY + camera collision default on; auto-switch
+// tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
+const settings = { invertY: true, camCollide: true, autoTool: false };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -153,11 +162,11 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
-  if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openBlockPicker();
+  if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   const n = Number(e.key);
-  if (n >= 1 && n <= hotbarIds.length) selectSlot(n - 1);
+  if (n >= 1 && n <= hotbar.length) selectSlot(n - 1);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -251,7 +260,33 @@ const raycaster = new THREE.Raycaster();
 const REACH = 7; // max build distance from the player (blocks)
 const CENTER = new THREE.Vector2(0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
-const WIELDED_TOOL = 'pick_steel'; // the tool the avatar holds (drives dig times)
+
+/** The best tool the player is carrying (a hotbar tool) for a block, or undefined
+ *  if none helps. Used by auto-switch and the dig-time calc. */
+function bestToolFor(blockId: number): string | undefined {
+  let best: string | undefined;
+  let bestT = Infinity;
+  for (const id of hotbar) {
+    const tool = itemById(id).tool;
+    if (!tool) continue;
+    const t = digTime(blockId, [tool]);
+    if (t !== null && t < bestT) {
+      bestT = t;
+      best = tool;
+    }
+  }
+  return best;
+}
+/** Tool(s) used to dig a block right now: auto-switch picks the best carried
+ *  tool; otherwise it's whatever is held (a block = bare hand). */
+function digToolsFor(blockId: number): string[] {
+  if (settings.autoTool) {
+    const best = bestToolFor(blockId);
+    if (best) return [best];
+  }
+  const held = itemById(hotbar[selectedSlot]).tool;
+  return held ? [held] : [];
+}
 
 const crackStages = makeCrackStages(6);
 const breakOverlay = new THREE.Mesh(
@@ -271,8 +306,10 @@ function aimHit(): THREE.Intersection | null {
   return hits[0];
 }
 
-/** Place the selected block against the aimed face (instant). */
+/** Place the held block against the aimed face (instant). Tools don't place. */
 function placeBlock(): void {
+  const block = itemById(hotbar[selectedSlot]).block;
+  if (block === undefined) return; // holding a tool → nothing to place
   const h = aimHit();
   if (!h) return;
   const nrm = h.face ? h.face.normal : UP;
@@ -282,7 +319,7 @@ function placeBlock(): void {
     bz = Math.floor(p.z);
   // Don't place inside yourself — that would embed the AABB and lock movement.
   if (!world.solid(bx, by, bz) && !player.intersectsBlock(bx, by, bz)) {
-    world.set(bx, by, bz, hotbarIds[selectedSlot]);
+    world.set(bx, by, bz, block);
     rebuild();
     avatar.playDig();
   }
@@ -300,9 +337,9 @@ function updateBreaking(dt: number, want: boolean): void {
       z = Math.floor(p.z);
     if (world.solid(x, y, z)) tgt = { x, y, z };
   }
-  // Dig time from the wielded tool + block group (Luanti data). null = the tool
+  // Dig time from the held/auto tool + block group (Luanti data). null = the tool
   // is too weak (e.g. steel pick on a diamond block) → can't break it.
-  const dur = tgt ? digTime(world.get(tgt.x, tgt.y, tgt.z), [WIELDED_TOOL]) : null;
+  const dur = tgt ? digTime(world.get(tgt.x, tgt.y, tgt.z), digToolsFor(world.get(tgt.x, tgt.y, tgt.z))) : null;
   if (!tgt || dur === null) {
     breaking = null;
     breakOverlay.visible = false;
@@ -330,49 +367,70 @@ function updateBreaking(dt: number, want: boolean): void {
 }
 
 // ── HUD (crosshair + hotbar + pickers) ────────────────────────────────────────
-// Hotbar holds 9 block ids (quick slots); the "b" picker can swap any slot to any
-// of the 26 blocks. Number keys / scroll pick a slot; the selected slot's block
-// is what break/place uses.
-const hotbarIds = [...DEFAULT_HOTBAR];
+// Hotbar holds 9 item ids (tools + blocks). The selected slot is what the avatar
+// holds and what drives digging (tool → its speed, block → bare hand) + placing
+// (blocks only). Number keys pick a slot; the "b" picker swaps a slot to any item.
+const hotbar = [...DEFAULT_HOTBAR];
 let selectedSlot = 0;
+const held = (): Item => itemById(hotbar[selectedSlot]);
 function selectSlot(i: number): void {
-  selectedSlot = (i + hotbarIds.length) % hotbarIds.length;
+  selectedSlot = (i + hotbar.length) % hotbar.length;
   updateHud();
+  refreshEditor();
 }
 function updateHud(): void {
   const label = document.getElementById('mode');
-  if (label) label.textContent = `View: ${mode} (V) · Block: ${BLOCKS[hotbarIds[selectedSlot]].name} · B blocks · K skin`;
+  if (label) label.textContent = `View: ${mode} (V) · Item: ${held().name} · B items · K skin`;
   const bar = document.getElementById('hotbar')!;
   bar.innerHTML = '';
-  hotbarIds.forEach((id, i) => {
+  hotbar.forEach((id, i) => {
+    const it = itemById(id);
     const s = document.createElement('div');
     s.className = 'slot' + (i === selectedSlot ? ' on' : '');
-    s.style.backgroundImage = `url(${texUrl(BLOCKS[id].tex)})`;
+    s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
     s.style.backgroundSize = 'cover';
-    s.title = BLOCKS[id].name;
+    s.title = it.name;
     s.onclick = () => selectSlot(i);
     bar.appendChild(s);
   });
   document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
-updateHud();
 
-function openBlockPicker(): void {
+function openItemPicker(): void {
   if (locked()) document.exitPointerLock();
   openPicker(
-    'Blocks — click to put in slot ' + (selectedSlot + 1),
-    ALL_BLOCK_IDS.map((id) => ({
-      thumb: texUrl(BLOCKS[id].tex),
-      label: BLOCKS[id].name,
-      selected: id === hotbarIds[selectedSlot],
+    'Items — click to put in slot ' + (selectedSlot + 1),
+    ALL_ITEMS.map((it) => ({
+      thumb: itemTexUrl(it.texUrl),
+      label: it.name,
+      selected: it.id === hotbar[selectedSlot],
       onPick: () => {
-        hotbarIds[selectedSlot] = id;
+        hotbar[selectedSlot] = it.id;
         updateHud();
+        refreshEditor();
         closePicker();
       },
     })),
   );
 }
+
+// Wield sync: the avatar holds the selected item (rebuilt only when it changes);
+// during an auto-switch break it shows the tool actually being used.
+let wieldedId = '';
+function setWielded(it: Item): void {
+  if (it.id === wieldedId) return;
+  wieldedId = it.id;
+  avatar.wield(it.texUrl, it.pivot, loadWield(it.id));
+}
+function updateWield(): void {
+  if (settings.autoTool && breaking && !settingsOpen()) {
+    const tool = bestToolFor(world.get(breaking.x, breaking.y, breaking.z));
+    const ti = tool ? TOOL_ITEMS.find((i) => i.tool === tool) : undefined;
+    if (ti) return setWielded(ti);
+  }
+  setWielded(held());
+}
+updateHud();
 function openSkinPicker(): void {
   if (locked()) document.exitPointerLock();
   openPicker(
@@ -447,15 +505,16 @@ camCollideCb.onchange = () => {
   saveSettings();
 };
 
-// Items page: cycle items and live-tune how each attaches to the hand (Arm_Right
-// bone). Persisted per item id so every tool keeps its own placement.
-const ITEMS = [
-  { id: 'default_tool_steelpick', name: 'Steel Pickaxe' },
-  { id: 'default_tool_steelaxe', name: 'Steel Axe' },
-  { id: 'default_tool_steelshovel', name: 'Steel Shovel' },
-  { id: 'default_tool_steelsword', name: 'Steel Sword' },
-  { id: 'default_tool_woodpick', name: 'Wood Pickaxe' },
-];
+// Items page. Auto-switch tool toggle (default off = Minecraft-manual).
+const autoToolCb = document.getElementById('opt-autotool') as HTMLInputElement;
+autoToolCb.checked = settings.autoTool;
+autoToolCb.onchange = () => {
+  settings.autoTool = autoToolCb.checked;
+  saveSettings();
+};
+
+// Wield editor: tunes how the CURRENTLY HELD item attaches to the hand; the ‹ ›
+// buttons step the held hotbar slot through all items. Persisted per item id.
 const WIELD_FIELDS: { k: keyof Wield; label: string; min: number; max: number; step: number }[] = [
   { k: 'px', label: 'Pos X', min: -8, max: 8, step: 0.1 },
   { k: 'py', label: 'Pos Y', min: -8, max: 8, step: 0.1 },
@@ -465,23 +524,15 @@ const WIELD_FIELDS: { k: keyof Wield; label: string; min: number; max: number; s
   { k: 'rz', label: 'Rot Z', min: -3.2, max: 3.2, step: 0.02 },
   { k: 's', label: 'Scale', min: 1, max: 12, step: 0.1 },
 ];
-const loadWield = (id: string): Wield => {
-  try {
-    return { ...DEFAULT_WIELD, ...(JSON.parse(localStorage.getItem('voxWield:' + id) ?? '{}') as Partial<Wield>) };
-  } catch {
-    return { ...DEFAULT_WIELD };
-  }
-};
-let itemIdx = 0;
-let wield: Wield = loadWield(ITEMS[itemIdx].id);
 const wInputs: Record<string, HTMLInputElement> = {};
 const wVals: Record<string, HTMLSpanElement> = {};
+let wield: Wield = loadWield(held().id);
 const showValues = (): void => void (document.getElementById('hand-values')!.textContent = JSON.stringify(wield));
 function applyWield(): void {
   avatar.setWieldTransform(wield);
   showValues();
   try {
-    localStorage.setItem('voxWield:' + ITEMS[itemIdx].id, JSON.stringify(wield));
+    localStorage.setItem('voxWield:' + held().id, JSON.stringify(wield));
   } catch {
     /* ignore */
   }
@@ -492,13 +543,12 @@ function syncSliders(): void {
     wVals[f.k].textContent = wield[f.k].toFixed(2);
   }
 }
-function selectItem(idx: number): void {
-  itemIdx = (idx + ITEMS.length) % ITEMS.length;
-  wield = loadWield(ITEMS[itemIdx].id);
-  document.getElementById('item-name')!.textContent = ITEMS[itemIdx].name;
+// Reload the editor for whatever item is currently held (slot change / picker / ‹ ›).
+function refreshEditor(): void {
+  wield = loadWield(held().id);
+  document.getElementById('item-name')!.textContent = held().name;
   syncSliders();
   showValues();
-  avatar.wield(ITEMS[itemIdx].id, wield); // rebuild the held mesh + apply its transform
 }
 const slidersBox = document.getElementById('hand-sliders')!;
 for (const f of WIELD_FIELDS) {
@@ -521,8 +571,14 @@ for (const f of WIELD_FIELDS) {
   row.append(name, input, val);
   slidersBox.appendChild(row);
 }
-document.getElementById('item-prev')!.onclick = () => selectItem(itemIdx - 1);
-document.getElementById('item-next')!.onclick = () => selectItem(itemIdx + 1);
+function stepItem(dir: number): void {
+  const i = ALL_ITEMS.findIndex((it) => it.id === hotbar[selectedSlot]);
+  hotbar[selectedSlot] = ALL_ITEMS[(i + dir + ALL_ITEMS.length) % ALL_ITEMS.length].id;
+  updateHud();
+  refreshEditor();
+}
+document.getElementById('item-prev')!.onclick = () => stepItem(-1);
+document.getElementById('item-next')!.onclick = () => stepItem(1);
 const copyBtn = document.getElementById('hand-copy') as HTMLButtonElement;
 copyBtn.onclick = () => {
   void navigator.clipboard?.writeText(JSON.stringify(wield));
@@ -534,7 +590,7 @@ document.getElementById('hand-reset')!.onclick = () => {
   syncSliders();
   applyWield();
 };
-selectItem(0); // wield the first item with its stored/default placement
+refreshEditor(); // initialise for the held item
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
@@ -572,6 +628,7 @@ function frame(now: number): void {
   player.update(dt, input);
   const wantBreak = !busy && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
+  updateWield();
   avatar.animate(dt, player.speed2d, player.pitch);
   placeCamera();
   renderer.render(scene, activeCam());
