@@ -247,6 +247,8 @@ interface RemotePlayer {
   pitch: number;
   skin: string;
   state: string;
+  hp: number;
+  hpMax: number;
 }
 interface RemoteNpc {
   x: number;
@@ -450,6 +452,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
+  if (e.code === 'KeyF' && !menuOpen()) return attackNearestNpc(); // melee the nearest NPC
   const n = Number(e.key);
   if (n >= 1 && n <= tools.length + blocks.length) selectSlot(n - 1);
   keys.add(e.code);
@@ -494,6 +497,59 @@ function onTeleport(m: { x: number; y: number; z: number }): void {
   player.pos.set(m.x, m.y, m.z);
   player.vel.set(0, 0, 0);
   ready = false; // re-drop onto the ground once the destination chunks stream in
+}
+
+// ── Combat HUD (HP bar + damage flash) + melee ───────────────────────────────
+const hpStyle = document.createElement('style');
+hpStyle.textContent = `
+  #vx-hp{position:fixed;left:14px;bottom:64px;width:180px;height:18px;background:rgba(0,0,0,.5);
+    border:3px solid #1c1c1c;border-radius:4px;overflow:hidden;font-family:'FS Pixel Sans',ui-monospace,monospace;z-index:60;}
+  #vx-hp .fill{position:absolute;inset:0;background:linear-gradient(#e05a5a,#b83232);width:100%;transition:width .15s;}
+  #vx-hp span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
+    font-size:.72rem;text-shadow:1px 1px 0 #000;}
+  #vx-dmg{position:fixed;inset:0;pointer-events:none;z-index:55;opacity:0;transition:opacity .25s;
+    box-shadow:inset 0 0 120px 40px rgba(200,0,0,.75);}`;
+document.head.appendChild(hpStyle);
+const hpBar = document.createElement('div');
+hpBar.id = 'vx-hp';
+hpBar.innerHTML = '<div class="fill"></div><span></span>';
+(document.getElementById('game') ?? document.body).appendChild(hpBar);
+const dmgFlash = document.createElement('div');
+dmgFlash.id = 'vx-dmg';
+(document.getElementById('game') ?? document.body).appendChild(dmgFlash);
+const hpFill = hpBar.querySelector('.fill') as HTMLDivElement;
+const hpText = hpBar.querySelector('span') as HTMLSpanElement;
+let lastHp = 20;
+function updateHpBar(hp: number, max: number): void {
+  hpFill.style.width = Math.max(0, Math.min(100, (hp / Math.max(1, max)) * 100)) + '%';
+  hpText.textContent = `${hp} / ${max}`;
+  if (hp < lastHp) {
+    dmgFlash.style.opacity = '1';
+    window.setTimeout(() => (dmgFlash.style.opacity = '0'), 90);
+  }
+  lastHp = hp;
+}
+/** Melee: hit the nearest NPC within reach that's in front of the player (F). */
+function attackNearestNpc(): void {
+  if (!net) return;
+  const fx = -Math.sin(player.yaw),
+    fz = -Math.cos(player.yaw);
+  let bestId: string | null = null;
+  let bestD = 3.4 * 3.4;
+  for (const [id, r] of npcAvatars) {
+    const dx = r.avatar.group.position.x - player.pos.x;
+    const dz = r.avatar.group.position.z - player.pos.z;
+    const d = dx * dx + dz * dz;
+    if (d > bestD) continue;
+    const dist = Math.sqrt(d) || 1;
+    if ((dx / dist) * fx + (dz / dist) * fz < -0.1) continue; // roughly in front
+    bestD = d;
+    bestId = id;
+  }
+  if (bestId) {
+    net.sendAttack(bestId);
+    avatar.playDig(); // swing feedback
+  }
 }
 let rotating = false; // RMB held → free-orbit the camera (iso + third)
 const ndc = (e: MouseEvent): THREE.Vector2 =>
@@ -1264,6 +1320,11 @@ function frame(now: number): void {
     net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, moveState);
   }
   syncRemotePlayers(dt);
+  // Own HP → bar (+ damage flash on decrease).
+  if (net) {
+    const me = (net.room.state as unknown as RemoteState).players.get(net.sessionId);
+    if (me) updateHpBar(me.hp, me.hpMax);
+  }
   placeCamera();
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);

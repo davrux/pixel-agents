@@ -58,6 +58,13 @@ const NPC_WANDER_R = 10; // random-target radius around home
 const NPC_CHASE_R = 14; // start chasing a player within this
 const NPC_KEEP_R = 2.0; // stop this close to the chased player
 const NPC_SKINS = ['character_2', 'character_5', 'character_8'];
+// Combat.
+const MELEE_REACH = 3.4; // player↔npc melee distance
+const PLAYER_HP = 20;
+const NPC_HP = 20;
+const PLAYER_DMG = 5; // damage a player melee hit deals to an NPC
+const NPC_DMG = 2; // damage an NPC hit deals to a player (before armour)
+const NPC_ATTACK_CD = 1.0; // seconds between an NPC's hits
 
 interface NpcBrain {
   sync: VoxelNpcSync;
@@ -67,6 +74,7 @@ interface NpcBrain {
   think: number; // seconds until the next idle decision
   mode: 'idle' | 'wander' | 'chase';
   repath: number; // seconds until a chase re-path is allowed
+  attackCd: number; // seconds until this NPC can hit again
 }
 
 export class VoxelRoom extends Room<VoxelRoomState> {
@@ -108,6 +116,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     );
     this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number }) => this.onEdit(client, m));
     this.onMessage('teleport', (client, m: { x: number; z: number }) => this.onTeleport(client, m));
+    this.onMessage('attack', (client, m: { npc?: string }) => this.onAttack(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -149,7 +158,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       n.state = 'idle';
       const key = `n${n.id}`;
       this.state.npcs.set(key, n);
-      this.npcs.set(key, { sync: n, home, path: [], pi: 0, think: 0.4 + i * 0.5, mode: 'idle', repath: 0 });
+      n.hp = NPC_HP;
+      this.npcs.set(key, { sync: n, home, path: [], pi: 0, think: 0.4 + i * 0.5, mode: 'idle', repath: 0, attackCd: 0 });
     }
   }
 
@@ -169,14 +179,65 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     return { x: cx, z: cz };
   }
 
-  private nearestPlayer(x: number, z: number, within: number): VoxelPlayerSync | null {
-    let best: VoxelPlayerSync | null = null;
+  private nearestPlayer(x: number, z: number, within: number): { sid: string; p: VoxelPlayerSync } | null {
+    let best: { sid: string; p: VoxelPlayerSync } | null = null;
     let bestD = within * within;
-    this.state.players.forEach((p) => {
+    this.state.players.forEach((p, sid) => {
+      if (p.hp <= 0) return;
       const d = (p.x - x) ** 2 + (p.z - z) ** 2;
-      if (d < bestD) ((bestD = d), (best = p));
+      if (d < bestD) ((bestD = d), (best = { sid, p }));
     });
     return best;
+  }
+
+  /** Player melee hit on an NPC (client sends the npc key + must be in reach). */
+  private onAttack(client: Client, m: { npc?: string }): void {
+    const p = this.state.players.get(client.sessionId);
+    const b = m?.npc ? this.npcs.get(m.npc) : undefined;
+    if (!p || !b) return;
+    const n = b.sync;
+    if (Math.hypot(n.x - p.x, n.z - p.z) > MELEE_REACH + 1) return; // reach (+slack)
+    n.hp = Math.max(0, n.hp - PLAYER_DMG);
+    if (n.hp <= 0) this.respawnNpc(b); // "dies" and a fresh one returns home
+  }
+
+  private respawnNpc(b: NpcBrain): void {
+    const n = b.sync;
+    n.x = b.home.x + 0.5;
+    n.z = b.home.z + 0.5;
+    n.y = this.world.columnTop(b.home.x, b.home.z) + 1;
+    n.hp = NPC_HP;
+    n.state = 'idle';
+    b.path = [];
+    b.pi = 0;
+    b.mode = 'idle';
+    b.think = 1.5;
+  }
+
+  /** Apply damage to a player (armour mitigation lands with the armour step). */
+  private damagePlayer(sid: string, p: VoxelPlayerSync, dmg: number): void {
+    if (p.hp <= 0) return;
+    p.hp = Math.max(0, p.hp - dmg);
+    if (p.hp <= 0) this.respawnPlayer(sid, p);
+  }
+
+  private respawnPlayer(sid: string, p: VoxelPlayerSync): void {
+    const top = this.world.columnTop(0, 0);
+    p.x = 0.5;
+    p.y = top + 1;
+    p.z = 0.5;
+    p.hp = p.hpMax || PLAYER_HP;
+    const client = this.clients.find((c) => c.sessionId === sid);
+    const v = this.views.get(sid);
+    if (v) {
+      v.px = p.x;
+      v.py = p.y;
+      v.pz = p.z;
+    }
+    if (client) {
+      this.streamAround(client, p.x, p.y, p.z);
+      client.send('tp', { x: p.x, y: p.y, z: p.z });
+    }
   }
 
   private tickNpcs(dt: number): void {
@@ -184,16 +245,23 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const n = b.sync;
       b.think -= dt;
       b.repath -= dt;
+      b.attackCd -= dt;
       const prey = this.nearestPlayer(n.x, n.z, NPC_CHASE_R);
       if (prey) {
-        // Chase: re-path toward the player periodically; stop when close.
+        // Chase: re-path toward the player; when in reach, hit on a cooldown.
         b.mode = 'chase';
-        const target = prey as VoxelPlayerSync;
+        const target = prey.p;
         const dist = Math.hypot(target.x - n.x, target.z - n.z);
+        n.yaw = Math.atan2(-(target.x - n.x), -(target.z - n.z)); // face the player
+        if (dist <= MELEE_REACH) {
+          if (b.attackCd <= 0) {
+            b.attackCd = NPC_ATTACK_CD;
+            this.damagePlayer(prey.sid, target, NPC_DMG);
+          }
+        }
         if (dist <= NPC_KEEP_R) {
           b.path = [];
           n.state = 'idle';
-          n.yaw = Math.atan2(-(target.x - n.x), -(target.z - n.z)); // face the player
           continue;
         }
         if (b.repath <= 0 || b.pi >= b.path.length) {
@@ -271,6 +339,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     p.y = top + 1;
     p.z = 0.5;
     p.name = auth?.username || options?.name || 'player';
+    p.hp = PLAYER_HP;
+    p.hpMax = PLAYER_HP;
     if (typeof options?.skin === 'string') p.skin = options.skin.slice(0, 40);
     this.state.players.set(client.sessionId, p);
     this.views.set(client.sessionId, {
