@@ -91,6 +91,124 @@
         text-shadow: 1px 1px 0 #000;
         opacity: 0.9;
       }
+      /* settings */
+      #settings-btn {
+        position: fixed;
+        left: 10px;
+        top: 30px;
+        width: 30px;
+        height: 30px;
+        font-size: 16px;
+        line-height: 24px;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.45);
+        border: 3px solid #1c1c1c;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      #settings {
+        position: fixed;
+        left: 12px;
+        top: 56px;
+        width: 320px;
+        padding: 12px 16px 16px;
+        background: rgba(20, 20, 24, 0.94);
+        border: 3px solid #1c1c1c;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 14px;
+      }
+      #settings[hidden] {
+        display: none;
+      }
+      #settings h3 {
+        margin: -12px -16px 12px;
+        padding: 8px 16px;
+        font-size: 16px;
+        cursor: move;
+        user-select: none;
+        background: rgba(255, 255, 255, 0.06);
+        border-bottom: 2px solid #1c1c1c;
+        border-radius: 3px 3px 0 0;
+      }
+      #settings h3::before {
+        content: '⠿ ';
+        opacity: 0.5;
+      }
+      #settings label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+      }
+      #settings .hint {
+        margin: 12px 0 14px;
+        opacity: 0.7;
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      #settings button {
+        color: #fff;
+        background: #2a2a30;
+        border: 2px solid #4a4a4a;
+        border-radius: 4px;
+        padding: 6px 14px;
+        cursor: pointer;
+      }
+      #tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+      }
+      #tabs .tab {
+        flex: 1;
+        padding: 5px 12px;
+      }
+      #tabs .tab.on {
+        background: #3a6ea5;
+        border-color: #5b9bd5;
+      }
+      .page[hidden] {
+        display: none;
+      }
+      #item-select {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0 10px;
+      }
+      #item-select button {
+        min-width: 34px;
+      }
+      #item-name {
+        flex: 1;
+        text-align: center;
+        font-weight: bold;
+      }
+      #hand-sliders label {
+        display: grid;
+        grid-template-columns: 46px 1fr 48px;
+        align-items: center;
+        gap: 8px;
+        margin: 3px 0;
+        font-size: 12px;
+      }
+      #hand-sliders input {
+        width: 100%;
+      }
+      #hand-values {
+        margin: 8px 0;
+        font-size: 11px;
+        opacity: 0.75;
+        font-family: ui-monospace, monospace;
+        white-space: nowrap;
+        overflow-x: auto;
+        user-select: text;
+        cursor: text;
+      }
+      #settings button + button {
+        margin-left: 6px;
+      }
     </style>
   </head>
   <body>
@@ -98,11 +216,40 @@
     <div id="cross"></div>
     <div id="hotbar"></div>
     <div id="mode"></div>
+    <button id="settings-btn" title="Settings (O)">⚙</button>
+    <div id="settings" hidden>
+      <h3>Settings</h3>
+      <div id="tabs">
+        <button class="tab on" data-tab="camera" type="button">Camera</button>
+        <button class="tab" data-tab="items" type="button">Items</button>
+      </div>
+      <div class="page" data-page="camera">
+        <label><input type="checkbox" id="opt-inverty" /> Invert Y-axis</label>
+        <label><input type="checkbox" id="opt-camcollide" /> Camera collision (don't clip through blocks)</label>
+        <p class="hint">
+          Rotate camera: hold <b>right mouse button</b> (free — up/down/around).<br />
+          Scroll = zoom &middot; Iso: <b>left-click</b> = walk there.
+        </p>
+      </div>
+      <div class="page" data-page="items" hidden>
+        <p class="hint">How the held item attaches to the figure (live):</p>
+        <div id="item-select">
+          <button id="item-prev" type="button">&lsaquo;</button>
+          <span id="item-name">Steel Pickaxe</span>
+          <button id="item-next" type="button">&rsaquo;</button>
+        </div>
+        <div id="hand-sliders"></div>
+        <div id="hand-values"></div>
+        <button id="hand-copy">Copy values</button>
+        <button id="hand-reset">Reset</button>
+      </div>
+      <button id="settings-close">Close</button>
+    </div>
     <div id="help">
       WASD move · Space jump · <b>E</b> place · hold <b>Q</b> to break (at cursor)<br />
-      Iso: drag = rotate map · click = walk there<br />
-      Third: drag = orbit camera · First: click = mouse-look (Esc)<br />
-      <b>V</b> view · scroll = zoom · 1–9 = slot · <b>B</b> blocks · <b>K</b> skin
+      Iso: <b>left-click</b> = walk · <b>right-drag</b> = rotate<br />
+      Third: <b>right-drag</b> = orbit · First: click = mouse-look (Esc)<br />
+      <b>V</b> view · scroll = zoom · 1–9 = slot · <b>B</b> blocks · <b>K</b> skin · <b>O</b> settings
     </div>
     <script type="module" src="/src/voxel/main.ts"></script>
   </body>

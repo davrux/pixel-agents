@@ -12,8 +12,7 @@ import { buildMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCKS, BLOCK_TEXTURES, ALL_BLOCK_IDS, DEFAULT_HOTBAR } from './blocks.js';
 import { loadBlockAtlas, type Atlas } from './textures.js';
-import { Avatar } from './avatar.js';
-import { ViewModel } from './viewmodel.js';
+import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
@@ -31,9 +30,7 @@ renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fc7ff);
-// Fog gives depth in the perspective modes; the ortho iso camera sits far back
-// (constant distance), so distance fog would just paint everything sky — it's
-// disabled for iso in placeCamera().
+// Fog gives depth; all modes are perspective now (iso is a perspective 3/4 view).
 const perspFog = new THREE.Fog(0x8fc7ff, 24, 120);
 
 // World + mesh
@@ -72,71 +69,89 @@ const avatar = new Avatar();
 scene.add(avatar.group);
 
 // Cameras
-const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
 const persp = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
-// First-person arm + wielded tool, parented to the perspective camera (added to
-// the scene so the camera's children render). Shown only in first person.
-const viewmodel = new ViewModel(new URL('textures/items/default_tool_steelpick.png', document.baseURI).href);
-scene.add(persp);
-persp.add(viewmodel.group);
 let mode: CamMode = 'iso';
-let isoView = 22; // world-units tall the ortho frustum (mouse-wheel zooms it)
+let isoDist = 16; // iso camera distance (perspective 3/4 view, like third; wheel zooms)
 let thirdDist = 4.6; // 3rd-person camera distance (mouse-wheel zooms it)
-let isoYaw = -Math.PI / 4; // iso camera orbit (LMB-drag rotates the map)
-let camYaw = 0; // third-person camera orbit (LMB-drag)
+let isoYaw = -Math.PI / 4; // iso camera orbit yaw (RMB-drag rotates the map)
+let isoPitch = 0.687; // iso camera tilt above the horizon (RMB-drag, free up/down)
+let camYaw = 0; // third-person camera orbit (RMB-drag)
 let camPitch = 0.35;
+const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
+// User settings (persisted). invertY default on; camera collision default on.
+const settings = { invertY: true, camCollide: true };
+try {
+  Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
+} catch {
+  /* ignore bad storage */
+}
+function saveSettings(): void {
+  try {
+    localStorage.setItem('voxSettings', JSON.stringify(settings));
+  } catch {
+    /* ignore */
+  }
+}
 let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
-function applyIso(): void {
-  const aspect = window.innerWidth / window.innerHeight;
-  ortho.left = (-isoView * aspect) / 2;
-  ortho.right = (isoView * aspect) / 2;
-  ortho.top = isoView / 2;
-  ortho.bottom = -isoView / 2;
-  ortho.updateProjectionMatrix();
-}
 function resize(): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
   persp.aspect = window.innerWidth / window.innerHeight;
   persp.updateProjectionMatrix();
-  applyIso();
 }
 window.addEventListener('resize', resize);
 resize();
 
 function activeCam(): THREE.Camera {
-  return mode === 'iso' ? ortho : persp;
+  return persp; // perspective in every mode now (iso is a perspective 3/4 view)
 }
 function placeCamera(): void {
-  scene.fog = mode === 'iso' ? null : perspFog;
+  scene.fog = perspFog; // perspective in every mode now
   const eye = player.eye;
-  if (mode === 'iso') {
-    // orthographic, orbited around the player by isoYaw (drag to rotate the map)
-    const d = 80;
-    ortho.position.set(eye.x + Math.sin(isoYaw) * d, eye.y + d * 0.82, eye.z + Math.cos(isoYaw) * d);
-    ortho.lookAt(eye);
-  } else if (mode === 'first') {
+  if (mode === 'first') {
     persp.position.copy(eye);
     persp.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
   } else {
-    // third: orbit behind/above the head by camYaw/camPitch (drag to rotate)
-    const back = thirdDist;
-    const cp = Math.cos(camPitch),
-      sp = Math.sin(camPitch);
-    persp.position.set(eye.x + Math.sin(camYaw) * cp * back, eye.y + sp * back, eye.z + Math.cos(camYaw) * cp * back);
+    // iso + third are both perspective orbits around the player. iso uses
+    // isoYaw/isoPitch + isoDist (map-rotate via RMB, click-to-walk, character
+    // faces its move direction); third uses camYaw/camPitch + thirdDist (faces
+    // away from the camera). Both cast eye→camera and pull in past blocks, so the
+    // camera never clips through terrain (handles zoom AND rotation).
+    const yaw = mode === 'iso' ? isoYaw : camYaw;
+    const pitch = mode === 'iso' ? isoPitch : camPitch;
+    const cp = Math.cos(pitch),
+      sp = Math.sin(pitch);
+    const dir = new THREE.Vector3(Math.sin(yaw) * cp, sp, Math.cos(yaw) * cp); // eye → camera
+    let dist = mode === 'iso' ? isoDist : thirdDist;
+    if (settings.camCollide && terrain) {
+      camRay.set(eye, dir);
+      camRay.far = dist;
+      const hit = camRay.intersectObject(terrain, false)[0];
+      if (hit) dist = Math.max(0.5, hit.distance - 0.25);
+    }
+    persp.position.copy(eye).addScaledVector(dir, dist);
     persp.lookAt(eye);
   }
-  avatar.group.visible = mode !== 'first';
+  // Real 3D body in every view. First person sits the camera at the eye: hide the
+  // head, and fade the body to see-through when looking down so it doesn't block
+  // the view (positive pitch = up, negative = down).
+  avatar.group.visible = true;
+  avatar.setFirstPerson(mode === 'first');
+  if (mode === 'first') {
+    const down = Math.max(0, -player.pitch - 0.3); // grows once you look below ~-0.3
+    avatar.setOpacity(clamp(1 - down * 1.2, 0.15, 1));
+  } else avatar.setOpacity(1);
   avatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
   avatar.group.rotation.y = player.yaw;
-  viewmodel.group.visible = mode === 'first';
 }
 
 // ── Input ───────────────────────────────────────────────────────────────────
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
+  if (e.code === 'Escape' && settingsOpen()) return closeSettings();
+  if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openBlockPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
@@ -149,10 +164,8 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-let dragging = false;
-let dragMoved = false;
-let dragX = 0;
-let dragY = 0;
+const menuOpen = (): boolean => pickerOpen() || settingsOpen();
+let rotating = false; // RMB held → free-orbit the camera (iso + third)
 const ndc = (e: MouseEvent): THREE.Vector2 =>
   new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
 
@@ -161,50 +174,52 @@ canvas.addEventListener('mousemove', (e) => {
     if (locked()) player.setLook(-e.movementX * 0.0022, -e.movementY * 0.0022);
     return;
   }
-  if (dragging) {
-    if (Math.hypot(e.clientX - dragX, e.clientY - dragY) > 5) dragMoved = true;
-    if (mode === 'iso') isoYaw -= e.movementX * 0.006; // rotate the map
-    else {
-      camYaw -= e.movementX * 0.006; // orbit third-person camera
-      camPitch = clamp(camPitch + e.movementY * 0.005, -0.15, 1.25);
+  // RMB free-orbit: yaw (left/right) + pitch (up/down) in both iso and third.
+  if (rotating) {
+    const invY = settings.invertY ? 1 : -1;
+    if (mode === 'iso') {
+      isoYaw -= e.movementX * 0.006;
+      isoPitch = clamp(isoPitch - e.movementY * 0.005 * invY, 0.2, 1.45);
+    } else {
+      camYaw -= e.movementX * 0.006;
+      camPitch = clamp(camPitch + e.movementY * 0.005 * invY, -0.15, 1.25);
     }
   }
-  // Track the cursor in iso + third person (first person is pointer-locked and
-  // aims from screen centre); E/Q place/break at whatever the cursor is over.
+  // Track the cursor (iso + third); E/Q place/break at whatever it's over.
   pointerNDC.copy(ndc(e));
 });
 let firstBreakHeld = false; // first-person LMB held → break (progress in the loop)
 canvas.addEventListener('mousedown', (e) => {
   if (mode === 'first') {
+    if (settingsOpen()) return; // don't grab pointer-lock / dig while tuning
     if (!locked()) return void canvas.requestPointerLock();
     if (e.button === 0) firstBreakHeld = true;
     else if (e.button === 2) placeBlock();
     return;
   }
-  // iso / third: hold LMB to drag-rotate; a click without a drag walks there (iso).
-  if (e.button === 0) {
-    dragging = true;
-    dragMoved = false;
-    dragX = e.clientX;
-    dragY = e.clientY;
-  }
+  // iso / third: RIGHT button orbits the camera (allowed even with a menu open,
+  // so you can view the wield while adjusting it). LEFT button (iso) walks.
+  if (e.button === 2) rotating = true;
 });
 window.addEventListener('mouseup', (e) => {
-  if (e.button !== 0) return;
-  if (mode === 'first') return void (firstBreakHeld = false);
-  if (!dragging) return;
-  dragging = false;
-  if (mode === 'iso' && !dragMoved) clickToMove(ndc(e));
+  if (e.button === 2) rotating = false; // end camera orbit
+  if (mode === 'first') {
+    if (e.button === 0) firstBreakHeld = false;
+    return;
+  }
+  // Left-click walks — but only when it lands on the WORLD (canvas), not on UI
+  // (clicking the gear / dragging the settings window must not move the player),
+  // and not while a menu is open.
+  if (e.button === 0 && mode === 'iso' && e.target === canvas && !menuOpen()) clickToMove(ndc(e));
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
-  // Zoom the world in/out (iso = ortho frustum, third = camera distance).
+  // Zoom = camera distance in both perspective orbit modes.
   const f = e.deltaY > 0 ? 1.12 : 0.9;
   if (mode === 'iso') {
-    isoView = clamp(isoView * f, 8, 60);
-    applyIso();
+    isoDist = clamp(isoDist * f, 3, 45);
   } else if (mode === 'third') {
-    thirdDist = clamp(thirdDist * f, 2.2, 14);
+    thirdDist = clamp(thirdDist * f, 1.0, 14); // closer over-the-shoulder
   }
   e.preventDefault();
 });
@@ -222,7 +237,7 @@ function clickToMove(p: THREE.Vector2): void {
 function cycleMode(): void {
   mode = mode === 'iso' ? 'third' : mode === 'third' ? 'first' : 'iso';
   moveTarget = null;
-  dragging = false;
+  rotating = false;
   if (mode !== 'first' && locked()) document.exitPointerLock();
   updateHud();
 }
@@ -270,7 +285,6 @@ function placeBlock(): void {
     world.set(bx, by, bz, hotbarIds[selectedSlot]);
     rebuild();
     avatar.playDig();
-    viewmodel.playDig();
   }
 }
 
@@ -374,12 +388,160 @@ function openSkinPicker(): void {
   );
 }
 
+// ── Settings menu ─────────────────────────────────────────────────────────────
+const settingsPanel = document.getElementById('settings') as HTMLElement;
+const settingsOpen = (): boolean => !settingsPanel.hidden;
+function openSettings(): void {
+  settingsPanel.hidden = false;
+  rotating = false; // cancel any in-progress camera drag / break so the world stays put
+  firstBreakHeld = false;
+  if (locked()) document.exitPointerLock();
+}
+function closeSettings(): void {
+  settingsPanel.hidden = true;
+}
+document.getElementById('settings-btn')!.onclick = () => (settingsOpen() ? closeSettings() : openSettings());
+document.getElementById('settings-close')!.onclick = closeSettings;
+
+// Make the settings window draggable by its title bar (free placement so it need
+// not cover the centred character). Uses its own listeners; the world handlers
+// ignore input while the menu is open, so dragging never moves the player.
+const dragHandle = settingsPanel.querySelector('h3') as HTMLElement;
+let dragOff: { x: number; y: number } | null = null;
+dragHandle.addEventListener('mousedown', (e) => {
+  const r = settingsPanel.getBoundingClientRect();
+  settingsPanel.style.left = `${r.left}px`;
+  settingsPanel.style.top = `${r.top}px`;
+  settingsPanel.style.transform = 'none';
+  dragOff = { x: e.clientX - r.left, y: e.clientY - r.top };
+  e.preventDefault();
+});
+window.addEventListener('mousemove', (e) => {
+  if (!dragOff) return;
+  settingsPanel.style.left = `${e.clientX - dragOff.x}px`;
+  settingsPanel.style.top = `${e.clientY - dragOff.y}px`;
+});
+window.addEventListener('mouseup', () => (dragOff = null));
+
+// Tabs: switch the settings pages (Camera / Items).
+const tabBtns = [...settingsPanel.querySelectorAll('#tabs .tab')] as HTMLButtonElement[];
+const pages = [...settingsPanel.querySelectorAll('.page')] as HTMLElement[];
+for (const t of tabBtns) {
+  t.onclick = () => {
+    for (const b of tabBtns) b.classList.toggle('on', b === t);
+    for (const p of pages) p.hidden = p.dataset.page !== t.dataset.tab;
+  };
+}
+
+// Camera page: invert Y-axis + camera collision (both persisted).
+const invertYCb = document.getElementById('opt-inverty') as HTMLInputElement;
+const camCollideCb = document.getElementById('opt-camcollide') as HTMLInputElement;
+invertYCb.checked = settings.invertY;
+camCollideCb.checked = settings.camCollide;
+invertYCb.onchange = () => {
+  settings.invertY = invertYCb.checked;
+  saveSettings();
+};
+camCollideCb.onchange = () => {
+  settings.camCollide = camCollideCb.checked;
+  saveSettings();
+};
+
+// Items page: cycle items and live-tune how each attaches to the hand (Arm_Right
+// bone). Persisted per item id so every tool keeps its own placement.
+const ITEMS = [
+  { id: 'default_tool_steelpick', name: 'Steel Pickaxe' },
+  { id: 'default_tool_steelaxe', name: 'Steel Axe' },
+  { id: 'default_tool_steelshovel', name: 'Steel Shovel' },
+  { id: 'default_tool_steelsword', name: 'Steel Sword' },
+  { id: 'default_tool_woodpick', name: 'Wood Pickaxe' },
+];
+const WIELD_FIELDS: { k: keyof Wield; label: string; min: number; max: number; step: number }[] = [
+  { k: 'px', label: 'Pos X', min: -8, max: 8, step: 0.1 },
+  { k: 'py', label: 'Pos Y', min: -8, max: 8, step: 0.1 },
+  { k: 'pz', label: 'Pos Z', min: -8, max: 8, step: 0.1 },
+  { k: 'rx', label: 'Rot X', min: -3.2, max: 3.2, step: 0.02 },
+  { k: 'ry', label: 'Rot Y', min: -3.2, max: 3.2, step: 0.02 },
+  { k: 'rz', label: 'Rot Z', min: -3.2, max: 3.2, step: 0.02 },
+  { k: 's', label: 'Scale', min: 1, max: 12, step: 0.1 },
+];
+const loadWield = (id: string): Wield => {
+  try {
+    return { ...DEFAULT_WIELD, ...(JSON.parse(localStorage.getItem('voxWield:' + id) ?? '{}') as Partial<Wield>) };
+  } catch {
+    return { ...DEFAULT_WIELD };
+  }
+};
+let itemIdx = 0;
+let wield: Wield = loadWield(ITEMS[itemIdx].id);
+const wInputs: Record<string, HTMLInputElement> = {};
+const wVals: Record<string, HTMLSpanElement> = {};
+const showValues = (): void => void (document.getElementById('hand-values')!.textContent = JSON.stringify(wield));
+function applyWield(): void {
+  avatar.setWieldTransform(wield);
+  showValues();
+  try {
+    localStorage.setItem('voxWield:' + ITEMS[itemIdx].id, JSON.stringify(wield));
+  } catch {
+    /* ignore */
+  }
+}
+function syncSliders(): void {
+  for (const f of WIELD_FIELDS) {
+    wInputs[f.k].value = String(wield[f.k]);
+    wVals[f.k].textContent = wield[f.k].toFixed(2);
+  }
+}
+function selectItem(idx: number): void {
+  itemIdx = (idx + ITEMS.length) % ITEMS.length;
+  wield = loadWield(ITEMS[itemIdx].id);
+  document.getElementById('item-name')!.textContent = ITEMS[itemIdx].name;
+  syncSliders();
+  showValues();
+  avatar.wield(ITEMS[itemIdx].id, wield); // rebuild the held mesh + apply its transform
+}
+const slidersBox = document.getElementById('hand-sliders')!;
+for (const f of WIELD_FIELDS) {
+  const row = document.createElement('label');
+  const name = document.createElement('span');
+  name.textContent = f.label;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = String(f.min);
+  input.max = String(f.max);
+  input.step = String(f.step);
+  const val = document.createElement('span');
+  input.oninput = () => {
+    wield[f.k] = Number(input.value);
+    val.textContent = wield[f.k].toFixed(2);
+    applyWield();
+  };
+  wInputs[f.k] = input;
+  wVals[f.k] = val;
+  row.append(name, input, val);
+  slidersBox.appendChild(row);
+}
+document.getElementById('item-prev')!.onclick = () => selectItem(itemIdx - 1);
+document.getElementById('item-next')!.onclick = () => selectItem(itemIdx + 1);
+const copyBtn = document.getElementById('hand-copy') as HTMLButtonElement;
+copyBtn.onclick = () => {
+  void navigator.clipboard?.writeText(JSON.stringify(wield));
+  copyBtn.textContent = 'Copied!';
+  window.setTimeout(() => (copyBtn.textContent = 'Copy values'), 1200);
+};
+document.getElementById('hand-reset')!.onclick = () => {
+  wield = { ...DEFAULT_WIELD };
+  syncSliders();
+  applyWield();
+};
+selectItem(0); // wield the first item with its stored/default placement
+
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  const busy = pickerOpen(); // don't move while a picker window is open
+  const busy = menuOpen(); // don't move while a menu is open
   const w = !busy && (keys.has('KeyW') || keys.has('ArrowUp'));
   const s = !busy && (keys.has('KeyS') || keys.has('ArrowDown'));
   const a = !busy && (keys.has('KeyA') || keys.has('ArrowLeft'));
@@ -392,7 +554,7 @@ function frame(now: number): void {
       moveTarget = null; // manual movement cancels click-to-walk
       player.yaw = isoYaw; // WASD moves relative to the current map rotation
       input = { forward: w, back: s, left: a, right: d, jump };
-    } else if (moveTarget) {
+    } else if (moveTarget && !busy) {
       const dx = moveTarget.x - player.pos.x;
       const dz = moveTarget.z - player.pos.z;
       if (Math.hypot(dx, dz) < 0.4) {
@@ -411,8 +573,6 @@ function frame(now: number): void {
   const wantBreak = !busy && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   avatar.animate(dt, player.speed2d, player.pitch);
-  viewmodel.setMining(breaking !== null);
-  viewmodel.animate(dt);
   placeCamera();
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);

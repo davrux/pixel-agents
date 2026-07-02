@@ -17,19 +17,23 @@ import { buildItemMesh } from './tool.js';
 const TARGET_H = 1.8; // world-units tall (matches the player AABB height)
 const FACING = 0; // model already faces its local -Z, which is the player's forward at yaw 0
 
-// Held tool transform, in the Arm_Right bone's local space. The bone has a 180°
-// rotation baked in (quaternion [1,0,0,0]) so +Y runs DOWN the arm toward the
-// hand and 1 unit = 2 skin px (arm ≈ 6.3 units long). Reference: Luanti's wield3d
-// attaches the item to "Arm_Right" at pos (0,5.5,3), rot (-90,225,90)°; our model
-// went through Blender (different axes) so the equivalent three.js euler is tuned
-// so the pickaxe points forward out of the fist (head with a prong up + a prong
-// down), matching how it's held in the walk/mine swing. See CREDITS for the model.
-const TOOL_URL = 'textures/items/default_tool_steelpick.png';
-const TOOL_SCALE = 6.0;
-const TOOL_POS = new THREE.Vector3(0, 5.0, 1.0);
-const TOOL_ROT = new THREE.Euler(-1.2, Math.PI / 2, 0);
-// The mesh is built with its pivot at the handle end (see buildItemMesh([.1,.85]))
-// so the fist grips the handle and the head points forward out of the hand.
+// Wield transform in the Arm_Right bone's local space (editable live per item via
+// the settings editor, persisted per item). The bone has a 180° rotation baked in
+// so +Y runs DOWN the arm and 1 unit = 2 skin px (arm ≈ 6.3 units). The mesh pivot
+// is the handle end (buildItemMesh([.1,.85])) so the fist grips the handle.
+// Reference for the intent: Luanti's wield3d attaches items to "Arm_Right".
+export interface Wield {
+  px: number;
+  py: number;
+  pz: number;
+  rx: number;
+  ry: number;
+  rz: number;
+  s: number;
+}
+// Tuned in-game for the steel pickaxe; other items start from this and get tuned.
+export const DEFAULT_WIELD: Wield = { px: 0.2, py: 5.2, pz: 1, rx: -0.86, ry: Math.PI / 2, rz: 0, s: 6 };
+const DEFAULT_ITEM = 'default_tool_steelpick';
 
 // Luanti player_api frame ranges within the single baked timeline (fps = 60).
 const FPS = 60;
@@ -50,6 +54,10 @@ export class Avatar {
   private actions: Record<string, THREE.AnimationAction> = {};
   private head: THREE.Object3D | null = null;
   private armR: THREE.Object3D | null = null;
+  private tool: THREE.Mesh | null = null;
+  private toolMat: THREE.Material | null = null;
+  private wieldT: Wield = { ...DEFAULT_WIELD };
+  private item = DEFAULT_ITEM; // currently wielded item texture name
   private current = 'stand';
   private mining = false; // held: keep swinging while breaking a block
   private digT = 0; // one-shot swing timer (place feedback)
@@ -74,18 +82,9 @@ export class Avatar {
       if (o.name === 'Arm_Right') this.armR = o;
     });
 
-    // Pickaxe in the right hand: extrude the item sprite, hang it off the arm
-    // bone so it follows the mine swing. Sized/placed in bone-local space.
-    if (this.armR) {
-      const arm = this.armR;
-      void buildItemMesh(new URL(TOOL_URL, document.baseURI).href, [0.1, 0.85]).then((tool) => {
-        tool.scale.setScalar(TOOL_SCALE);
-        tool.position.copy(TOOL_POS);
-        tool.rotation.copy(TOOL_ROT);
-        tool.frustumCulled = false;
-        arm.add(tool);
-      });
-    }
+    // Wielded item in the right hand: extrude the item sprite, hang it off the
+    // arm bone so it follows the mine swing. Sized/placed in bone-local space.
+    this.buildTool();
 
     // Scale so the model is TARGET_H tall and its feet sit at group origin y=0.
     const box = new THREE.Box3().setFromObject(model);
@@ -117,6 +116,68 @@ export class Avatar {
       this.mat.map = tex;
       this.mat.needsUpdate = true;
     });
+  }
+
+  /** First person (real-body mode) puts the camera at the eye → hide just the
+   *  head so it can't block the view (scaling the Head joint hides its verts). */
+  setFirstPerson(on: boolean): void {
+    if (this.head) this.head.scale.setScalar(on ? 0.0001 : 1);
+  }
+
+  /** Fade the whole avatar (body + held tool). Used in first person when looking
+   *  down so the body doesn't obscure the view — see-through instead of a
+   *  separate hand model. o=1 is fully solid. */
+  setOpacity(o: number): void {
+    const set = (m: THREE.Material | null): void => {
+      if (!m) return;
+      m.transparent = o < 0.999;
+      m.depthWrite = o >= 0.999;
+      (m as THREE.MeshBasicMaterial).opacity = o;
+    };
+    set(this.mat);
+    set(this.toolMat);
+  }
+
+  /** How the wielded item attaches to the hand (Arm_Right bone), set live from
+   *  the per-item editor. Stored so it applies once the tool mesh has loaded. */
+  setWieldTransform(w: Wield): void {
+    this.wieldT = { ...w };
+    this.applyWield();
+  }
+
+  /** Switch the wielded item (texture name under textures/items/) + its hold
+   *  transform. Rebuilds the extruded mesh; defers if the model isn't loaded. */
+  wield(item: string, w: Wield): void {
+    this.item = item;
+    this.wieldT = { ...w };
+    this.buildTool();
+  }
+
+  private buildTool(): void {
+    if (!this.armR) return; // model not loaded yet — onLoad will build it
+    const arm = this.armR;
+    const url = new URL(`textures/items/${this.item}.png`, document.baseURI).href;
+    void buildItemMesh(url, [0.1, 0.85]).then((tool) => {
+      if (this.tool) {
+        arm.remove(this.tool);
+        this.tool.geometry.dispose();
+        (this.tool.material as THREE.Material).dispose();
+      }
+      tool.frustumCulled = false;
+      this.tool = tool;
+      this.toolMat = tool.material as THREE.Material;
+      arm.add(tool);
+      this.applyWield();
+    });
+  }
+
+  private applyWield(): void {
+    const t = this.tool;
+    const w = this.wieldT;
+    if (!t) return;
+    t.position.set(w.px, w.py, w.pz);
+    t.rotation.set(w.rx, w.ry, w.rz);
+    t.scale.setScalar(w.s);
   }
 
   /** One-shot swing (block place feedback). */
