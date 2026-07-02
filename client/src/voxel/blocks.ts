@@ -50,10 +50,20 @@ export const BLOCKS: BlockDef[] = [
   u('copper block', 'copper_block'),
   u('bronze block', 'bronze_block'),
   u('diamond block', 'diamond_block'),
+  u('water', 'water'), // id 27 — generated lakes/seas (synthetic tile)
+  b('portal', 'glass', 'portal', 'glass', 'portal'), // id 28 — glass cube with a P on the sides
 ];
 
-/** Every unique tile the atlas must load (derived from the block defs). */
-export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))];
+export const WATER_ID = 27;
+export const PORTAL_ID = 28;
+
+/** Tiles drawn at runtime (not PNG files): water + the portal P overlay. */
+export const SYNTHETIC_TILES = ['water', 'portal'];
+
+/** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
+export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(
+  (t) => !SYNTHETIC_TILES.includes(t),
+);
 
 /** All placeable block ids (everything except air). */
 export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0);

@@ -24,7 +24,9 @@ import { VoxelPlayerSync, VoxelRoomState } from '@pixel/shared/schema';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
+import { listWorlds } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
+import { portals, cleanDest } from '../voxel/portalStore.js';
 
 interface AuthInfo {
   userId: string;
@@ -41,6 +43,7 @@ interface ClientView {
   pz: number; // last known feet position (for edit reach checks)
   lastMove: number;
   lastEdit: number;
+  lastPortalKey: string | null; // portal cell we last fired on (fire only on enter)
 }
 
 const REACH = 8; // max edit distance from the player's eye (blocks)
@@ -93,6 +96,15 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const p = this.state.players.get(client.sessionId);
       if (p && typeof skin === 'string' && skin.length <= 40) p.skin = skin;
     });
+    // Mark a block as a portal to another world / 2D zone (dest cleaned server-side).
+    this.onMessage('setPortal', (_client, m: { x: number; y: number; z: number; dest: unknown }) => {
+      const dest = cleanDest(m?.dest);
+      if (!dest) return;
+      const x = Math.floor(m.x),
+        y = Math.floor(m.y),
+        z = Math.floor(m.z);
+      if ([x, y, z].every(Number.isFinite)) portals.set(this.state.worldId, x, y, z, dest);
+    });
   }
 
   onJoin(client: Client, options?: { name?: string; skin?: string }): void {
@@ -117,8 +129,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       pz: p.z,
       lastMove: 0,
       lastEdit: 0,
+      lastPortalKey: null,
     });
     client.send('welcome', { id: p.id, seed: this.world.seed, spawn: { x: p.x, y: p.y, z: p.z }, worldId: this.state.worldId });
+    client.send('worlds', listWorlds()); // for the client's world dropdown
     // Server-side per-user settings (camera/auto-switch/wield transforms). Only
     // for logged-in users; anonymous clients keep their local settings.
     if (auth?.userId) {
@@ -157,6 +171,19 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Re-stream only when the player crosses into a new chunk.
     if (toChunk(m.x) !== v.cx || toChunk(m.y) !== v.cy || toChunk(m.z) !== v.cz) {
       this.streamAround(client, m.x, m.y, m.z);
+    }
+    // Portal: the block directly under the feet. Fire only when stepping ON (the
+    // cell changed to a portal), so standing still doesn't repeat the jump.
+    const ux = Math.floor(m.x),
+      uy = Math.floor(m.y) - 1,
+      uz = Math.floor(m.z);
+    const pkey = `${ux},${uy},${uz}`;
+    const dest = portals.get(this.state.worldId, ux, uy, uz);
+    if (dest && v.lastPortalKey !== pkey) {
+      v.lastPortalKey = pkey;
+      client.send('portal', dest);
+    } else if (!dest) {
+      v.lastPortalKey = null;
     }
   }
 

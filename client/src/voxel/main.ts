@@ -7,16 +7,17 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES } from './blocks.js';
+import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { type Item, ALL_ITEMS, TOOL_ITEMS, itemById, DEFAULT_HOTBAR } from './items.js';
-import { loadBlockAtlas, type Atlas } from './textures.js';
+import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
+import { gotoLogout } from '../net/room';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 
@@ -98,12 +99,45 @@ function flushDirty(cap = 12): void {
     if (++n >= cap) break;
   }
 }
-void loadBlockAtlas(BLOCK_TEXTURES).then((a) => {
+void loadBlockAtlas(BLOCK_TEXTURES, SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
   for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
 });
+
+// Clouds: a big semi-transparent plane high above that follows the player and
+// drifts slowly (cheap, always in view — no cloud blocks / extra streaming).
+function makeCloudTexture(): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 256;
+  const c = cv.getContext('2d')!;
+  let seed = 20240607;
+  const rnd = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  for (let i = 0; i < 34; i++) {
+    const x = rnd() * 256,
+      y = rnd() * 256,
+      r = 16 + rnd() * 40;
+    const g = c.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    c.fillStyle = g;
+    c.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 6);
+  return t;
+}
+const cloudTex = makeCloudTexture();
+const clouds = new THREE.Mesh(
+  new THREE.PlaneGeometry(600, 600),
+  new THREE.MeshBasicMaterial({ map: cloudTex, transparent: true, opacity: 0.65, depthWrite: false }),
+);
+clouds.rotation.x = -Math.PI / 2;
+clouds.position.y = 70;
+clouds.renderOrder = -1;
+scene.add(clouds);
 
 // Player + avatar. Spawn comes from the server 'welcome' (or the offline
 // fallback); physics is gated until the ground chunk under the feet has loaded.
@@ -280,6 +314,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
+  if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   const n = Number(e.key);
   if (n >= 1 && n <= hotbar.length) selectSlot(n - 1);
   keys.add(e.code);
@@ -439,6 +474,8 @@ function placeBlock(): void {
     world.set(bx, by, bz, block);
     markDirty(toChunk(bx), toChunk(by), toChunk(bz));
   }
+  // Placing a portal cube → ask for its destination and register it (you stand on it to jump).
+  if (block === PORTAL_ID) promptPortal(bx, by, bz);
 }
 
 /** Continue breaking the aimed block while the break control is held. */
@@ -777,8 +814,39 @@ function applyServerSettings(s: unknown): void {
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds };
 let currentWorld = 'default';
+let lastJump = 0;
+/** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
+function jumpTo(dest: unknown): void {
+  const now = performance.now();
+  if (now - lastJump < 1500) return; // debounce so arriving doesn't re-trigger
+  lastJump = now;
+  const d = dest as { kind?: string; world?: string; seed?: number; id?: string };
+  if (d?.kind === 'voxel' && d.world) void connectWorld(d.world, Number.isFinite(d.seed) ? d.seed : undefined);
+  else if (d?.kind === 'zone') window.location.href = './'; // 2D client (session carries; zone-targeting is TODO)
+}
+function onPortal(dest: unknown): void {
+  jumpTo(dest);
+}
+/** Mark the aimed block as a portal (server stores it; stepping on it jumps). */
+function promptPortal(x: number, y: number, z: number): void {
+  if (!net) return;
+  const ans = window.prompt('Portal target — "world:<id>" or "zone:<id>":', 'world:dungeon1');
+  if (!ans) return;
+  const i = ans.indexOf(':');
+  const kind = ans.slice(0, i).trim();
+  const val = ans.slice(i + 1).trim();
+  const dest = kind === 'world' && val ? { kind: 'voxel', world: val } : kind === 'zone' && val ? { kind: 'zone', id: val } : null;
+  if (dest) net.setPortal(x, y, z, dest);
+}
+/** Re-target the aimed block as a portal (P key) — handy for existing blocks. */
+function makePortal(): void {
+  const h = aimHit();
+  if (!h) return;
+  const p = h.point.clone().addScaledVector(h.face ? h.face.normal : UP, -0.5);
+  promptPortal(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+}
 const worldLabel = document.getElementById('world-current');
 function goOffline(): void {
   world.generateLocalFallback();
@@ -813,6 +881,7 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   moveTarget = null;
   currentWorld = worldId;
   if (worldLabel) worldLabel.textContent = worldId;
+  rebuildWorldSelect();
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed });
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
@@ -830,6 +899,40 @@ document.getElementById('world-go')!.onclick = goWorld;
 worldInput.onkeydown = (e) => {
   if (e.key === 'Enter') goWorld();
 };
+
+// Dropdown of known voxel worlds (from the server) + the 2D zones.
+const worldSelect = document.getElementById('world-select') as HTMLSelectElement;
+let knownWorlds: string[] = ['default'];
+function rebuildWorldSelect(): void {
+  const worlds = [...new Set([...knownWorlds, currentWorld])].sort();
+  const opt = (v: string, label: string, sel: boolean): string => `<option value="${v}"${sel ? ' selected' : ''}>${label}</option>`;
+  worldSelect.innerHTML =
+    '<optgroup label="Voxel worlds">' +
+    worlds.map((w) => opt('voxel:' + w, w, w === currentWorld)).join('') +
+    '</optgroup><optgroup label="2D zones">' +
+    Object.values(ZONES)
+      .map((z) => opt('zone:' + z.id, z.label, false))
+      .join('') +
+    '</optgroup>';
+}
+function onWorlds(list: unknown): void {
+  if (Array.isArray(list)) knownWorlds = list.filter((x): x is string => typeof x === 'string');
+  rebuildWorldSelect();
+}
+worldSelect.onchange = () => {
+  const v = worldSelect.value;
+  const i = v.indexOf(':');
+  const kind = v.slice(0, i),
+    id = v.slice(i + 1);
+  if (kind === 'voxel') {
+    if (id !== currentWorld) void connectWorld(id);
+  } else if (kind === 'zone') jumpTo({ kind: 'zone', id });
+};
+
+// Log out (clears the session on the server, redirects to login).
+document.getElementById('settings-logout')!.onclick = gotoLogout;
+
+rebuildWorldSelect();
 void connectWorld('default');
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
@@ -874,6 +977,15 @@ function frame(now: number): void {
     input = { forward: w, back: s, left: a, right: d, jump };
   }
   if (ready) player.update(dt, input);
+  // Safety net: never fall out of the world — snap back to spawn if you somehow
+  // drop below the bedrock floor (e.g. through not-yet-streamed chunks).
+  if (ready && player.pos.y < -30) {
+    player.pos.set(spawn.x, spawn.y, spawn.z);
+    player.vel.set(0, 0, 0);
+  }
+  // Clouds follow the player + drift.
+  clouds.position.set(player.pos.x, 70, player.pos.z);
+  cloudTex.offset.x += dt * 0.004;
   const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   updateWield();

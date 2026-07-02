@@ -199,6 +199,19 @@
         padding: 6px 8px;
         font: 13px ui-monospace, monospace;
       }
+      #world-select {
+        background: #14161c;
+        color: #fff;
+        border: 2px solid #3a4150;
+        border-radius: 4px;
+        padding: 5px;
+        font: 13px ui-monospace, monospace;
+      }
+      #settings-foot {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 12px;
+      }
       #hand-sliders label {
         display: grid;
         grid-template-columns: 46px 1fr 48px;
@@ -261,14 +274,19 @@
       </div>
       <div class="page" data-page="world" hidden>
         <p class="hint">Current world: <b id="world-current">default</b></p>
+        <label>Go to: <select id="world-select"></select></label>
+        <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
         <div id="world-jump">
           <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
           <input id="world-seed" type="text" placeholder="seed (optional)" />
           <button id="world-go">Go</button>
         </div>
-        <p class="hint">Jumps load that world (created on first visit). Voxel↔voxel is seamless — no reload. Seed only applies when a world is first created.</p>
+        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed only applies to a new world.</p>
       </div>
-      <button id="settings-close">Close</button>
+      <div id="settings-foot">
+        <button id="settings-logout">Log out</button>
+        <button id="settings-close">Close</button>
+      </div>
     </div>
     <div id="help">
       WASD move · Space jump · <b>E</b> place · hold <b>Q</b> to break (at cursor)<br />

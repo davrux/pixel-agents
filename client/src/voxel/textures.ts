@@ -28,21 +28,69 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-export async function loadBlockAtlas(names: string[]): Promise<Atlas> {
+/** A tile drawn at runtime (no PNG): water, the portal P overlay, … */
+export interface SyntheticTile {
+  name: string;
+  render: (ctx: CanvasRenderingContext2D, size: number, img: Map<string, HTMLImageElement>) => void;
+}
+
+function drawWater(ctx: CanvasRenderingContext2D, s: number): void {
+  ctx.fillStyle = '#2f6bd8';
+  ctx.fillRect(0, 0, s, s);
+  const p = s / 16;
+  ctx.fillStyle = 'rgba(120,180,255,0.35)';
+  ctx.fillRect(2 * p, 4 * p, 5 * p, p);
+  ctx.fillRect(9 * p, 9 * p, 5 * p, p);
+  ctx.fillStyle = 'rgba(20,50,120,0.35)';
+  ctx.fillRect(4 * p, 11 * p, 4 * p, p);
+}
+function drawPortal(ctx: CanvasRenderingContext2D, s: number, img: Map<string, HTMLImageElement>): void {
+  const glass = img.get('glass');
+  if (glass) ctx.drawImage(glass, 0, 0, s, s);
+  else {
+    ctx.fillStyle = 'rgba(180,220,255,0.55)';
+    ctx.fillRect(0, 0, s, s);
+  }
+  const p = s / 16;
+  const bar = (x: number, y: number, w: number, h: number): void => ctx.fillRect(x * p, y * p, w * p, h * p);
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'; // halo for contrast
+  bar(2, 1, 10, 14);
+  ctx.fillStyle = '#14161c'; // thick blocky "P"
+  bar(4, 2, 3, 12);
+  bar(4, 2, 7, 3);
+  bar(8, 2, 3, 6);
+  bar(4, 6, 7, 3);
+}
+
+/** Built-in synthetic tiles (passed to loadBlockAtlas as `extra`). */
+export const SYNTHETIC: SyntheticTile[] = [
+  { name: 'water', render: (ctx, s) => drawWater(ctx, s) },
+  { name: 'portal', render: drawPortal },
+];
+
+export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {
   const base = new URL('textures/blocks/', document.baseURI).href;
   const imgs = await Promise.all(names.map((n) => loadImage(`${base}${n}.png`)));
+  const imgByName = new Map<string, HTMLImageElement>();
+  names.forEach((n, i) => imgByName.set(n, imgs[i]));
   const ts = imgs[0]?.width || 16; // native tile size (assumed square + uniform)
-  const cols = Math.ceil(Math.sqrt(names.length));
-  const rows = Math.ceil(names.length / cols);
+  const allNames = [...names, ...extra.map((e) => e.name)];
+  const cols = Math.ceil(Math.sqrt(allNames.length));
+  const rows = Math.ceil(allNames.length / cols);
   const cv = document.createElement('canvas');
   cv.width = cols * ts;
   cv.height = rows * ts;
   const ctx = cv.getContext('2d')!;
   ctx.imageSmoothingEnabled = false;
   const index = new Map<string, number>();
-  names.forEach((n, i) => {
-    index.set(n, i);
-    ctx.drawImage(imgs[i], (i % cols) * ts, ((i / cols) | 0) * ts, ts, ts);
+  allNames.forEach((n, i) => index.set(n, i));
+  names.forEach((n, i) => ctx.drawImage(imgs[i], (i % cols) * ts, ((i / cols) | 0) * ts, ts, ts));
+  extra.forEach((e, k) => {
+    const i = names.length + k;
+    ctx.save();
+    ctx.translate((i % cols) * ts, ((i / cols) | 0) * ts);
+    e.render(ctx, ts, imgByName);
+    ctx.restore();
   });
   const texture = new THREE.CanvasTexture(cv);
   texture.magFilter = THREE.NearestFilter;

@@ -25,6 +25,7 @@ export interface VoxelNet {
   saveSettings(obj: unknown): void;
   sendEdit(x: number, y: number, z: number, id: number): void;
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
+  setPortal(x: number, y: number, z: number, dest: unknown): void;
   leave(): Promise<void>;
 }
 
@@ -34,6 +35,8 @@ export interface VoxelHandlers {
   onChunk?: (c: UnpackedChunk) => void;
   onUnload?: (cx: number, cy: number, cz: number) => void;
   onEdit?: (e: EditMsg) => void;
+  onPortal?: (dest: unknown) => void;
+  onWorlds?: (list: unknown) => void;
 }
 
 export interface JoinOpts {
@@ -65,12 +68,15 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('c', (bytes: ArrayBuffer | Uint8Array) => handlers.onChunk?.(unpackChunk(bytes)));
   room.onMessage('u', (m: { cx: number; cy: number; cz: number }) => handlers.onUnload?.(m.cx, m.cy, m.cz));
   room.onMessage('edit', (m: EditMsg) => handlers.onEdit?.(m));
+  room.onMessage('portal', (dest: unknown) => handlers.onPortal?.(dest));
+  room.onMessage('worlds', (list: unknown) => handlers.onWorlds?.(list));
   return {
     room,
     sessionId: room.sessionId,
     saveSettings: (obj: unknown) => room.send('saveSettings', obj),
     sendEdit: (x, y, z, id) => room.send('edit', { x, y, z, id }),
     sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
+    setPortal: (x, y, z, dest) => room.send('setPortal', { x, y, z, dest }),
     leave: async () => {
       await room.leave();
     },

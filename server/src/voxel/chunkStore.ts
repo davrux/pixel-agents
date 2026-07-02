@@ -6,8 +6,21 @@
  * Each row is the RLE-encoded cells blob (see shared encodeCells).
  */
 import { DatabaseSync } from 'node:sqlite';
+import { readdirSync } from 'node:fs';
 
-import { dataPath } from '../paths.js';
+import { dataPath, dataDir } from '../paths.js';
+
+/** Ids of all persisted worlds (scans the data dir for world_<id>.sqlite). */
+export function listWorlds(): string[] {
+  try {
+    return readdirSync(dataDir())
+      .filter((f) => f.startsWith('world_') && f.endsWith('.sqlite'))
+      .map((f) => f.slice('world_'.length, -'.sqlite'.length))
+      .sort();
+  } catch {
+    return [];
+  }
+}
 
 export interface WorldMeta {
   seed: number;
