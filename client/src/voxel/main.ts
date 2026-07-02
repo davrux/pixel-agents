@@ -13,6 +13,7 @@ import { Player, type MoveInput } from './player.js';
 import { BLOCKS, BLOCK_TEXTURES, ALL_BLOCK_IDS, DEFAULT_HOTBAR } from './blocks.js';
 import { loadBlockAtlas, type Atlas } from './textures.js';
 import { Avatar } from './avatar.js';
+import { makeCrackStages } from './crack.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 
 // The CC0 "Simple Skins" set staged under textures/player/skins/.
@@ -131,8 +132,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openBlockPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
-  if (e.code === 'KeyE' && !pickerOpen()) return editBlock(false); // place a block
-  if (e.code === 'KeyQ' && !pickerOpen()) return editBlock(true); // remove a block
+  if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   const n = Number(e.key);
   if (n >= 1 && n <= hotbarIds.length) selectSlot(n - 1);
   keys.add(e.code);
@@ -165,11 +165,12 @@ canvas.addEventListener('mousemove', (e) => {
   // aims from screen centre); E/Q place/break at whatever the cursor is over.
   pointerNDC.copy(ndc(e));
 });
+let firstBreakHeld = false; // first-person LMB held → break (progress in the loop)
 canvas.addEventListener('mousedown', (e) => {
   if (mode === 'first') {
     if (!locked()) return void canvas.requestPointerLock();
-    if (e.button === 0) editBlock(true);
-    else if (e.button === 2) editBlock(false);
+    if (e.button === 0) firstBreakHeld = true;
+    else if (e.button === 2) placeBlock();
     return;
   }
   // iso / third: hold LMB to drag-rotate; a click without a drag walks there (iso).
@@ -181,7 +182,9 @@ canvas.addEventListener('mousedown', (e) => {
   }
 });
 window.addEventListener('mouseup', (e) => {
-  if (e.button !== 0 || !dragging) return;
+  if (e.button !== 0) return;
+  if (mode === 'first') return void (firstBreakHeld = false);
+  if (!dragging) return;
   dragging = false;
   if (mode === 'iso' && !dragMoved) clickToMove(ndc(e));
 });
@@ -217,36 +220,86 @@ function cycleMode(): void {
 }
 
 // ── Break / place via raycast ────────────────────────────────────────────────
+// Reach is measured from the player, not the camera (the iso/third cams sit far
+// back, so a camera-distance check would reject every edit). iso + third aim at
+// the cursor; first person aims from screen centre. Placing (E / RMB) is instant;
+// breaking (held Q / LMB) fills a progress bar with a crack overlay on the block.
 const raycaster = new THREE.Raycaster();
 const REACH = 7; // max build distance from the player (blocks)
-function editBlock(breaking: boolean): void {
-  if (!terrain) return;
-  // iso + third person aim at the cursor; first person aims from screen centre.
-  const origin = mode === 'first' ? new THREE.Vector2(0, 0) : pointerNDC;
-  raycaster.setFromCamera(origin, activeCam());
+const CENTER = new THREE.Vector2(0, 0);
+const UP = new THREE.Vector3(0, 1, 0);
+const BREAK_TIME = 0.7; // seconds of holding to break a block
+
+const crackStages = makeCrackStages(6);
+const breakOverlay = new THREE.Mesh(
+  new THREE.BoxGeometry(1.03, 1.03, 1.03),
+  new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }),
+);
+breakOverlay.visible = false;
+scene.add(breakOverlay);
+let breaking: { x: number; y: number; z: number; t: number } | null = null;
+
+/** First hit of the aim ray, if within reach — or null. */
+function aimHit(): THREE.Intersection | null {
+  if (!terrain) return null;
+  raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
   const hits = raycaster.intersectObject(terrain, false);
-  // Reach is measured from the player, not the camera (the iso/third cams sit far
-  // back, so a camera-distance check would reject every edit).
-  if (!hits.length || hits[0].point.distanceTo(player.eye) > REACH) return;
-  const h = hits[0];
-  const nrm = h.face ? h.face.normal : new THREE.Vector3(0, 1, 0);
-  const p = h.point.clone().addScaledVector(nrm, breaking ? -0.5 : 0.5);
+  if (!hits.length || hits[0].point.distanceTo(player.eye) > REACH) return null;
+  return hits[0];
+}
+
+/** Place the selected block against the aimed face (instant). */
+function placeBlock(): void {
+  const h = aimHit();
+  if (!h) return;
+  const nrm = h.face ? h.face.normal : UP;
+  const p = h.point.clone().addScaledVector(nrm, 0.5);
   const bx = Math.floor(p.x),
     by = Math.floor(p.y),
     bz = Math.floor(p.z);
-  if (breaking) {
-    if (world.solid(bx, by, bz)) {
-      world.set(bx, by, bz, 0);
-      rebuild();
-      avatar.playDig();
-    }
-  } else {
-    // Don't place inside yourself — that would embed the AABB and lock movement.
-    if (!world.solid(bx, by, bz) && !player.intersectsBlock(bx, by, bz)) {
-      world.set(bx, by, bz, hotbarIds[selectedSlot]);
-      rebuild();
-      avatar.playDig();
-    }
+  // Don't place inside yourself — that would embed the AABB and lock movement.
+  if (!world.solid(bx, by, bz) && !player.intersectsBlock(bx, by, bz)) {
+    world.set(bx, by, bz, hotbarIds[selectedSlot]);
+    rebuild();
+    avatar.playDig();
+  }
+}
+
+/** Continue breaking the aimed block while the break control is held. */
+function updateBreaking(dt: number, want: boolean): void {
+  const h = want ? aimHit() : null;
+  let tgt: { x: number; y: number; z: number } | null = null;
+  if (h) {
+    const nrm = h.face ? h.face.normal : UP;
+    const p = h.point.clone().addScaledVector(nrm, -0.5);
+    const x = Math.floor(p.x),
+      y = Math.floor(p.y),
+      z = Math.floor(p.z);
+    if (world.solid(x, y, z)) tgt = { x, y, z };
+  }
+  if (!tgt) {
+    breaking = null;
+    breakOverlay.visible = false;
+    avatar.setMining(false);
+    return;
+  }
+  if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) breaking = { ...tgt, t: 0 };
+  breaking.t += dt;
+  avatar.setMining(true);
+  breakOverlay.position.set(tgt.x + 0.5, tgt.y + 0.5, tgt.z + 0.5);
+  breakOverlay.visible = true;
+  const stage = Math.min(crackStages.length - 1, Math.floor((breaking.t / BREAK_TIME) * crackStages.length));
+  const mat = breakOverlay.material as THREE.MeshBasicMaterial;
+  if (mat.map !== crackStages[stage]) {
+    mat.map = crackStages[stage];
+    mat.needsUpdate = true;
+  }
+  if (breaking.t >= BREAK_TIME) {
+    world.set(tgt.x, tgt.y, tgt.z, 0);
+    rebuild();
+    breaking = null;
+    breakOverlay.visible = false;
+    avatar.setMining(false);
   }
 }
 
@@ -343,6 +396,8 @@ function frame(now: number): void {
     input = { forward: w, back: s, left: a, right: d, jump };
   }
   player.update(dt, input);
+  const wantBreak = !busy && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
+  updateBreaking(dt, wantBreak);
   avatar.animate(dt, player.speed2d, player.pitch);
   placeCamera();
   renderer.render(scene, activeCam());

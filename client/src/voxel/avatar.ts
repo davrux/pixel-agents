@@ -12,9 +12,24 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { buildItemMesh } from './tool.js';
 
 const TARGET_H = 1.8; // world-units tall (matches the player AABB height)
 const FACING = 0; // model already faces its local -Z, which is the player's forward at yaw 0
+
+// Held tool transform, in the Arm_Right bone's local space. The bone has a 180°
+// rotation baked in (quaternion [1,0,0,0]) so +Y runs DOWN the arm toward the
+// hand and 1 unit = 2 skin px (arm ≈ 6.3 units long). Reference: Luanti's wield3d
+// attaches the item to "Arm_Right" at pos (0,5.5,3), rot (-90,225,90)°; our model
+// went through Blender (different axes) so the equivalent three.js euler is tuned
+// so the pickaxe points forward out of the fist (head with a prong up + a prong
+// down), matching how it's held in the walk/mine swing. See CREDITS for the model.
+const TOOL_URL = 'textures/items/default_tool_steelpick.png';
+const TOOL_SCALE = 6.0;
+const TOOL_POS = new THREE.Vector3(0, 5.0, 1.0);
+const TOOL_ROT = new THREE.Euler(-1.2, Math.PI / 2, 0);
+// The mesh is built with its pivot at the handle end (see buildItemMesh([.1,.85]))
+// so the fist grips the handle and the head points forward out of the hand.
 
 // Luanti player_api frame ranges within the single baked timeline (fps = 60).
 const FPS = 60;
@@ -34,8 +49,10 @@ export class Avatar {
   private mixer: THREE.AnimationMixer | null = null;
   private actions: Record<string, THREE.AnimationAction> = {};
   private head: THREE.Object3D | null = null;
+  private armR: THREE.Object3D | null = null;
   private current = 'stand';
-  private digging = false;
+  private mining = false; // held: keep swinging while breaking a block
+  private digT = 0; // one-shot swing timer (place feedback)
   private pendingSkin = 'character_1';
 
   constructor(skin = 'character_1') {
@@ -54,7 +71,21 @@ export class Avatar {
         m.frustumCulled = false; // small model, avoid pop-out on the box bounds
       }
       if (o.name === 'Head') this.head = o;
+      if (o.name === 'Arm_Right') this.armR = o;
     });
+
+    // Pickaxe in the right hand: extrude the item sprite, hang it off the arm
+    // bone so it follows the mine swing. Sized/placed in bone-local space.
+    if (this.armR) {
+      const arm = this.armR;
+      void buildItemMesh(new URL(TOOL_URL, document.baseURI).href, [0.1, 0.85]).then((tool) => {
+        tool.scale.setScalar(TOOL_SCALE);
+        tool.position.copy(TOOL_POS);
+        tool.rotation.copy(TOOL_ROT);
+        tool.frustumCulled = false;
+        arm.add(tool);
+      });
+    }
 
     // Scale so the model is TARGET_H tall and its feet sit at group origin y=0.
     const box = new THREE.Box3().setFromObject(model);
@@ -71,11 +102,6 @@ export class Avatar {
       const clip = THREE.AnimationUtils.subclip(source, name, a, b, FPS);
       this.actions[name] = this.mixer.clipAction(clip);
     }
-    this.actions.mine.setLoop(THREE.LoopOnce, 1);
-    this.actions.mine.clampWhenFinished = false;
-    this.mixer.addEventListener('finished', () => {
-      this.digging = false;
-    });
     this.actions[this.current].play();
   }
 
@@ -93,29 +119,33 @@ export class Avatar {
     });
   }
 
-  /** Trigger a one-shot mine/place arm swing. */
+  /** One-shot swing (block place feedback). */
   playDig(): void {
-    const mine = this.actions.mine;
-    if (!mine) return;
-    this.digging = true;
-    mine.reset();
-    mine.play();
+    this.digT = 0.35;
   }
 
-  /** Crossfade to a looping locomotion clip (stand ↔ walk). */
-  private setBase(name: 'stand' | 'walk'): void {
+  /** Held state: keep the mine swing looping while breaking a block. */
+  setMining(on: boolean): void {
+    this.mining = on;
+  }
+
+  /** Crossfade to a clip. All clips loop, so both sides are always playing —
+   *  the mine loop doubles as the one-shot swing (we just leave it briefly). */
+  private cross(name: string): void {
     if (this.current === name || !this.actions[name]) return;
     const from = this.actions[this.current];
     const to = this.actions[name].reset();
     to.play();
-    if (from) from.crossFadeTo(to, 0.2, false);
-    else to.fadeIn(0.2);
+    if (from && from.isRunning()) from.crossFadeTo(to, 0.18, false);
+    else to.fadeIn(0.18);
     this.current = name;
   }
 
   animate(dt: number, speed: number, pitch = 0): void {
     if (!this.mixer) return;
-    if (!this.digging) this.setBase(speed > 0.4 ? 'walk' : 'stand');
+    if (this.digT > 0) this.digT -= dt;
+    const want = this.mining || this.digT > 0 ? 'mine' : speed > 0.4 ? 'walk' : 'stand';
+    this.cross(want);
     this.mixer.update(dt);
     // Head look is layered on after the clip poses the skeleton.
     if (this.head) this.head.rotation.x = Math.max(-0.5, Math.min(0.5, -pitch * 0.4));
