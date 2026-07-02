@@ -111,7 +111,13 @@ const player = new Player(world);
 player.yaw = -Math.PI / 4; // face into the iso view by default
 let spawn = { x: 0.5, y: 24, z: 0.5 };
 let ready = false; // don't simulate/fall until the spawn column is loaded
-const avatar = new Avatar();
+let playerSkin = 'character_1';
+try {
+  playerSkin = localStorage.getItem('voxSkin') || 'character_1';
+} catch {
+  /* ignore */
+}
+const avatar = new Avatar(playerSkin);
 scene.add(avatar.group);
 
 // ── Networking: server chunks + authoritative edits + remote players ──────────
@@ -553,7 +559,15 @@ function openSkinPicker(): void {
       thumb: skinUrl(name),
       label: name.replace('character_', '#'),
       onPick: () => {
+        playerSkin = name;
         avatar.setSkin(name);
+        try {
+          localStorage.setItem('voxSkin', name);
+        } catch {
+          /* ignore */
+        }
+        net?.room.send('setSkin', name); // let other players see the new skin
+        pushSettings(); // persist per-user server-side
         closePicker();
       },
     })),
@@ -722,7 +736,7 @@ function currentSettingsBlob(): unknown {
       }
     }
   }
-  return { invertY: settings.invertY, camCollide: settings.camCollide, autoTool: settings.autoTool, wield };
+  return { invertY: settings.invertY, camCollide: settings.camCollide, autoTool: settings.autoTool, skin: playerSkin, wield };
 }
 let pushTimer = 0;
 function pushSettings(): void {
@@ -732,7 +746,13 @@ function pushSettings(): void {
 }
 // Apply settings that arrive from the server (on login) over the local defaults.
 function applyServerSettings(s: unknown): void {
-  const o = s as Partial<{ invertY: boolean; camCollide: boolean; autoTool: boolean; wield: Record<string, Wield> }> | null;
+  const o = s as Partial<{
+    invertY: boolean;
+    camCollide: boolean;
+    autoTool: boolean;
+    skin: string;
+    wield: Record<string, Wield>;
+  }> | null;
   if (!o || typeof o !== 'object') return;
   if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
   if (typeof o.camCollide === 'boolean') settings.camCollide = o.camCollide;
@@ -740,6 +760,11 @@ function applyServerSettings(s: unknown): void {
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;
   autoToolCb.checked = settings.autoTool;
+  if (typeof o.skin === 'string') {
+    playerSkin = o.skin;
+    avatar.setSkin(o.skin);
+    net?.room.send('setSkin', o.skin);
+  }
   if (o.wield && typeof o.wield === 'object') {
     for (const [id, w] of Object.entries(o.wield)) {
       try {
@@ -763,7 +788,7 @@ function goOffline(): void {
 }
 /** Connect to (or jump to) a voxel world: tears down the current world's client
  *  state and reconnects. Voxel↔voxel is seamless (no page reload). */
-async function connectWorld(worldId: string): Promise<void> {
+async function connectWorld(worldId: string, seed?: number): Promise<void> {
   if (net) {
     try {
       await net.leave();
@@ -788,14 +813,17 @@ async function connectWorld(worldId: string): Promise<void> {
   moveTarget = null;
   currentWorld = worldId;
   if (worldLabel) worldLabel.textContent = worldId;
-  net = await connectVoxel(worldId, worldHandlers);
+  net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed });
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
 // World tab: jump to another world by id (created on first visit).
 const worldInput = document.getElementById('world-input') as HTMLInputElement;
+const seedInput = document.getElementById('world-seed') as HTMLInputElement;
 function goWorld(): void {
   const id = (worldInput.value.trim() || 'default').slice(0, 40);
-  if (id !== currentWorld) void connectWorld(id);
+  const seedRaw = seedInput.value.trim();
+  const seed = seedRaw ? Number(seedRaw) >>> 0 : undefined; // custom seed (new worlds only)
+  if (id !== currentWorld) void connectWorld(id, Number.isFinite(seed) ? seed : undefined);
   worldInput.value = '';
 }
 document.getElementById('world-go')!.onclick = goWorld;

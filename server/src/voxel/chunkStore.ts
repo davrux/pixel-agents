@@ -33,11 +33,13 @@ export class ChunkStore {
     );
   }
 
-  /** World seed + creation time, created on first open (random seed if absent). */
-  meta(): WorldMeta {
+  /** World seed + creation time, created on first open. Uses `seed` if this call
+   *  creates the world (else a random one); existing worlds keep their seed. */
+  meta(seed?: number): WorldMeta {
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'meta'").get() as { value: string } | undefined;
     if (row) return JSON.parse(row.value) as WorldMeta;
-    const meta: WorldMeta = { seed: (Math.random() * 0x7fffffff) | 0, createdAt: Date.now() };
+    const chosen = Number.isFinite(seed) ? (seed as number) >>> 0 : (Math.random() * 0x7fffffff) | 0;
+    const meta: WorldMeta = { seed: chosen, createdAt: Date.now() };
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('meta', ?)").run(JSON.stringify(meta));
     return meta;
   }

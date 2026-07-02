@@ -70,10 +70,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     throw new Error('unauthorized');
   }
 
-  onCreate(options: { world?: string; authRequired?: boolean; version?: string }): void {
+  onCreate(options: { world?: string; authRequired?: boolean; version?: string; seed?: number }): void {
     this.authRequired = options.authRequired ?? false;
     const worldId = (options.world || 'default').slice(0, 40);
-    this.world = new VoxelServerWorld(worldId);
+    // The creating client may request a seed (used only for a brand-new world).
+    this.world = new VoxelServerWorld(worldId, Number.isFinite(options.seed) ? options.seed : undefined);
     this.setState(new VoxelRoomState());
     this.state.worldId = worldId;
 
@@ -88,6 +89,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const uid = (client.auth as AuthInfo | undefined)?.userId;
       if (uid) voxelSettings.set(uid, obj);
     });
+    this.onMessage('setSkin', (client, skin: unknown) => {
+      const p = this.state.players.get(client.sessionId);
+      if (p && typeof skin === 'string' && skin.length <= 40) p.skin = skin;
+    });
   }
 
   onJoin(client: Client, options?: { name?: string; skin?: string }): void {
@@ -100,7 +105,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     p.y = top + 1;
     p.z = 0.5;
     p.name = auth?.username || options?.name || 'player';
-    if (options?.skin) p.skin = options.skin;
+    if (typeof options?.skin === 'string') p.skin = options.skin.slice(0, 40);
     this.state.players.set(client.sessionId, p);
     this.views.set(client.sessionId, {
       sent: new Set(),

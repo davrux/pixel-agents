@@ -36,7 +36,12 @@ export interface VoxelHandlers {
   onEdit?: (e: EditMsg) => void;
 }
 
-export async function connectVoxel(world: string, handlers: VoxelHandlers): Promise<VoxelNet | null> {
+export interface JoinOpts {
+  skin?: string;
+  seed?: number; // only used when this join CREATES the world
+}
+
+export async function connectVoxel(world: string, handlers: VoxelHandlers, opts: JoinOpts = {}): Promise<VoxelNet | null> {
   const client = new Client(getServerHttpOrigin().replace(/^http/, 'ws'));
   // Desktop attaches the bearer session; browser uses the same-origin cookie.
   if (isDesktop()) {
@@ -45,7 +50,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers): Prom
   }
   let room: Room;
   try {
-    room = await client.joinOrCreate(VOXEL_ROOM, { world });
+    room = await client.joinOrCreate(VOXEL_ROOM, { world, skin: opts.skin, seed: opts.seed });
   } catch (err) {
     if (isAuthError(err)) {
       redirectToLogin(); // login required — the server gate serves the form

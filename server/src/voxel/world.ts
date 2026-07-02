@@ -16,10 +16,10 @@ export class VoxelServerWorld {
   private readonly store: ChunkStore;
   private readonly cache = new Map<string, Uint8Array>(); // key → cells
 
-  constructor(worldId: string) {
+  constructor(worldId: string, seed?: number) {
     this.worldId = worldId;
     this.store = new ChunkStore(worldId);
-    this.seed = this.store.meta().seed;
+    this.seed = this.store.meta(seed).seed; // `seed` only applies if the world is new
   }
 
   /** A chunk's cells: from cache, else the persisted (edited) blob, else generated. */
