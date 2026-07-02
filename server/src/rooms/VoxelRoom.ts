@@ -24,6 +24,7 @@ import { VoxelPlayerSync, VoxelRoomState } from '@pixel/shared/schema';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
+import { voxelSettings } from '../voxel/settingsStore.js';
 
 interface AuthInfo {
   userId: string;
@@ -81,6 +82,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     );
     this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number }) => this.onEdit(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
+    // Per-user client settings persisted server-side (requires login; anonymous
+    // is a no-op). The client owns the shape; we just store/return the blob.
+    this.onMessage('saveSettings', (client, obj: unknown) => {
+      const uid = (client.auth as AuthInfo | undefined)?.userId;
+      if (uid) voxelSettings.set(uid, obj);
+    });
   }
 
   onJoin(client: Client, options?: { name?: string; skin?: string }): void {
@@ -107,6 +114,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       lastEdit: 0,
     });
     client.send('welcome', { id: p.id, seed: this.world.seed, spawn: { x: p.x, y: p.y, z: p.z }, worldId: this.state.worldId });
+    // Server-side per-user settings (camera/auto-switch/wield transforms). Only
+    // for logged-in users; anonymous clients keep their local settings.
+    if (auth?.userId) {
+      const saved = voxelSettings.get(auth.userId);
+      if (saved) client.send('settings', saved);
+    }
     this.streamAround(client, p.x, p.y, p.z);
   }
 

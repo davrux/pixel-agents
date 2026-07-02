@@ -15,6 +15,7 @@ import { type Item, ALL_ITEMS, TOOL_ITEMS, itemById, DEFAULT_HOTBAR } from './it
 import { loadBlockAtlas, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
+import { connectVoxel, type VoxelNet } from './net.js';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 
@@ -94,12 +95,14 @@ try {
 } catch {
   /* ignore bad storage */
 }
+let net: VoxelNet | null = null; // set once connected; null = offline (local only)
 function saveSettings(): void {
   try {
     localStorage.setItem('voxSettings', JSON.stringify(settings));
   } catch {
     /* ignore */
   }
+  pushSettings();
 }
 let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
@@ -536,6 +539,7 @@ function applyWield(): void {
   } catch {
     /* ignore */
   }
+  pushSettings();
 }
 function syncSliders(): void {
   for (const f of WIELD_FIELDS) {
@@ -591,6 +595,54 @@ document.getElementById('hand-reset')!.onclick = () => {
   applyWield();
 };
 refreshEditor(); // initialise for the held item
+
+// ── Server sync of settings (per-user, requires login) ───────────────────────
+// Build the full settings blob (toggles + every per-item wield transform) from
+// local state; the server stores it per account and returns it on next login.
+function currentSettingsBlob(): unknown {
+  const wield: Record<string, unknown> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith('voxWield:')) {
+      try {
+        wield[k.slice('voxWield:'.length)] = JSON.parse(localStorage.getItem(k) ?? 'null');
+      } catch {
+        /* skip bad entry */
+      }
+    }
+  }
+  return { invertY: settings.invertY, camCollide: settings.camCollide, autoTool: settings.autoTool, wield };
+}
+let pushTimer = 0;
+function pushSettings(): void {
+  if (!net) return; // offline / anonymous → local only
+  window.clearTimeout(pushTimer);
+  pushTimer = window.setTimeout(() => net?.saveSettings(currentSettingsBlob()), 400);
+}
+// Apply settings that arrive from the server (on login) over the local defaults.
+function applyServerSettings(s: unknown): void {
+  const o = s as Partial<{ invertY: boolean; camCollide: boolean; autoTool: boolean; wield: Record<string, Wield> }> | null;
+  if (!o || typeof o !== 'object') return;
+  if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
+  if (typeof o.camCollide === 'boolean') settings.camCollide = o.camCollide;
+  if (typeof o.autoTool === 'boolean') settings.autoTool = o.autoTool;
+  invertYCb.checked = settings.invertY;
+  camCollideCb.checked = settings.camCollide;
+  autoToolCb.checked = settings.autoTool;
+  if (o.wield && typeof o.wield === 'object') {
+    for (const [id, w] of Object.entries(o.wield)) {
+      try {
+        localStorage.setItem('voxWield:' + id, JSON.stringify(w));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  refreshEditor(); // reload the held item's (possibly server-provided) transform
+}
+void connectVoxel('default', { onSettings: applyServerSettings }).then((n) => {
+  net = n;
+});
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
