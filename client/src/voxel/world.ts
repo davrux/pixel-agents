@@ -23,6 +23,10 @@ export class VoxelWorld {
   dropChunk(cx: number, cy: number, cz: number): void {
     this.chunks.delete(chunkKey(cx, cy, cz));
   }
+  /** Forget all chunks (used when switching worlds). */
+  clear(): void {
+    this.chunks.clear();
+  }
 
   get(x: number, y: number, z: number): number {
     const c = this.chunks.get(chunkKey(toChunk(x), toChunk(y), toChunk(z)));

@@ -185,6 +185,20 @@
         text-align: center;
         font-weight: bold;
       }
+      #world-jump {
+        display: flex;
+        gap: 8px;
+        margin: 6px 0 10px;
+      }
+      #world-input {
+        flex: 1;
+        background: #14161c;
+        color: #fff;
+        border: 2px solid #3a4150;
+        border-radius: 4px;
+        padding: 6px 8px;
+        font: 13px ui-monospace, monospace;
+      }
       #hand-sliders label {
         display: grid;
         grid-template-columns: 46px 1fr 48px;
@@ -222,6 +236,7 @@
       <div id="tabs">
         <button class="tab on" data-tab="camera" type="button">Camera</button>
         <button class="tab" data-tab="items" type="button">Items</button>
+        <button class="tab" data-tab="world" type="button">World</button>
       </div>
       <div class="page" data-page="camera">
         <label><input type="checkbox" id="opt-inverty" /> Invert Y-axis</label>
@@ -243,6 +258,14 @@
         <div id="hand-values"></div>
         <button id="hand-copy">Copy values</button>
         <button id="hand-reset">Reset</button>
+      </div>
+      <div class="page" data-page="world" hidden>
+        <p class="hint">Current world: <b id="world-current">default</b></p>
+        <div id="world-jump">
+          <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
+          <button id="world-go">Go</button>
+        </div>
+        <p class="hint">Jumps load that world (created on first visit). Voxel↔voxel is seamless — no reload.</p>
       </div>
       <button id="settings-close">Close</button>
     </div>

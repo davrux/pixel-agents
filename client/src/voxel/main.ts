@@ -751,23 +751,58 @@ function applyServerSettings(s: unknown): void {
   }
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
-void connectVoxel('default', {
-  onSettings: applyServerSettings,
-  onWelcome,
-  onChunk,
-  onUnload,
-  onEdit: onServerEdit,
-}).then((n) => {
-  net = n;
-  if (!net) {
-    // Offline dev (no server): generate a small local region so the page isn't
-    // empty; edits apply locally. Online, chunks + spawn come from the server.
-    world.generateLocalFallback();
-    for (const key of world.keys()) dirty.add(key);
-    spawn = { x: 0.5, y: world.columnTop(0, 0) + 1, z: 0.5 };
-    ready = false;
+// ── World connect + multiworld switching ──────────────────────────────────────
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit };
+let currentWorld = 'default';
+const worldLabel = document.getElementById('world-current');
+function goOffline(): void {
+  world.generateLocalFallback();
+  for (const key of world.keys()) dirty.add(key);
+  spawn = { x: 0.5, y: world.columnTop(0, 0) + 1, z: 0.5 };
+  ready = false;
+}
+/** Connect to (or jump to) a voxel world: tears down the current world's client
+ *  state and reconnects. Voxel↔voxel is seamless (no page reload). */
+async function connectWorld(worldId: string): Promise<void> {
+  if (net) {
+    try {
+      await net.leave();
+    } catch {
+      /* ignore */
+    }
+    net = null;
   }
-});
+  // reset the client-side world
+  for (const [, r] of remote) scene.remove(r.avatar.group);
+  remote.clear();
+  for (const m of chunkMeshes.values()) {
+    terrainGroup.remove(m);
+    m.geometry.dispose();
+  }
+  chunkMeshes.clear();
+  dirty.clear();
+  world.clear();
+  ready = false;
+  breaking = null;
+  breakOverlay.visible = false;
+  moveTarget = null;
+  currentWorld = worldId;
+  if (worldLabel) worldLabel.textContent = worldId;
+  net = await connectVoxel(worldId, worldHandlers);
+  if (!net) goOffline(); // offline dev / unreachable → local terrain
+}
+// World tab: jump to another world by id (created on first visit).
+const worldInput = document.getElementById('world-input') as HTMLInputElement;
+function goWorld(): void {
+  const id = (worldInput.value.trim() || 'default').slice(0, 40);
+  if (id !== currentWorld) void connectWorld(id);
+  worldInput.value = '';
+}
+document.getElementById('world-go')!.onclick = goWorld;
+worldInput.onkeydown = (e) => {
+  if (e.key === 'Enter') goWorld();
+};
+void connectWorld('default');
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();

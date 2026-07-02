@@ -25,6 +25,7 @@ export interface VoxelNet {
   saveSettings(obj: unknown): void;
   sendEdit(x: number, y: number, z: number, id: number): void;
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
+  leave(): Promise<void>;
 }
 
 export interface VoxelHandlers {
@@ -65,5 +66,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers): Prom
     saveSettings: (obj: unknown) => room.send('saveSettings', obj),
     sendEdit: (x, y, z, id) => room.send('edit', { x, y, z, id }),
     sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
+    leave: async () => {
+      await room.leave();
+    },
   };
 }
