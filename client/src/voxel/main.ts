@@ -341,7 +341,7 @@ canvas.addEventListener('mousemove', (e) => {
   }
   // RMB free-orbit: yaw (left/right) + pitch (up/down) in both iso and third.
   if (rotating) {
-    const invY = settings.invertY ? 1 : -1;
+    const invY = settings.invertY ? -1 : 1;
     if (mode === 'iso') {
       isoYaw -= e.movementX * 0.006;
       isoPitch = clamp(isoPitch - e.movementY * 0.005 * invY, 0.2, 1.45);
