@@ -26,6 +26,7 @@ export interface VoxelNet {
   sendEdit(x: number, y: number, z: number, id: number): void;
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
   setPortal(x: number, y: number, z: number, dest: unknown): void;
+  sendTeleport(x: number, z: number): void;
   leave(): Promise<void>;
 }
 
@@ -37,6 +38,7 @@ export interface VoxelHandlers {
   onEdit?: (e: EditMsg) => void;
   onPortal?: (dest: unknown) => void;
   onWorlds?: (list: unknown) => void;
+  onTeleport?: (m: { x: number; y: number; z: number }) => void;
 }
 
 export interface JoinOpts {
@@ -70,6 +72,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('edit', (m: EditMsg) => handlers.onEdit?.(m));
   room.onMessage('portal', (dest: unknown) => handlers.onPortal?.(dest));
   room.onMessage('worlds', (list: unknown) => handlers.onWorlds?.(list));
+  room.onMessage('tp', (m: { x: number; y: number; z: number }) => handlers.onTeleport?.(m));
   return {
     room,
     sessionId: room.sessionId,
@@ -77,6 +80,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendEdit: (x, y, z, id) => room.send('edit', { x, y, z, id }),
     sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
     setPortal: (x, y, z, dest) => room.send('setPortal', { x, y, z, dest }),
+    sendTeleport: (x, z) => room.send('teleport', { x, z }),
     leave: async () => {
       await room.leave();
     },

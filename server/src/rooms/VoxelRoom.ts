@@ -86,6 +86,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.onMove(client, m),
     );
     this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number }) => this.onEdit(client, m));
+    this.onMessage('teleport', (client, m: { x: number; z: number }) => this.onTeleport(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -195,6 +196,27 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     } else if (!dest) {
       v.lastPortalKey = null;
     }
+  }
+
+  /** Travel (map click): teleport within this world to a column top. Authoritative
+   *  — the server picks the safe Y, moves the player, re-streams, and echoes 'tp'. */
+  private onTeleport(client: Client, m: { x: number; z: number }): void {
+    const v = this.views.get(client.sessionId);
+    const p = this.state.players.get(client.sessionId);
+    if (!v || !p) return;
+    if (![m?.x, m?.z].every((n) => Number.isFinite(n))) return;
+    const x = Math.max(-4000, Math.min(4000, Math.floor(m.x))) + 0.5;
+    const z = Math.max(-4000, Math.min(4000, Math.floor(m.z))) + 0.5;
+    const y = this.world.columnTop(Math.floor(x), Math.floor(z)) + 1;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    v.px = x;
+    v.py = y;
+    v.pz = z;
+    v.lastPortalKey = null;
+    this.streamAround(client, x, y, z);
+    client.send('tp', { x, y, z });
   }
 
   private onEdit(client: Client, m: { x: number; y: number; z: number; id: number }): void {

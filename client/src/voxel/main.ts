@@ -13,6 +13,7 @@ import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
+import { TravelMap } from './map.js';
 import { type Item, TOOL_ITEMS, BLOCK_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
@@ -403,6 +404,8 @@ const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
+  if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
+  if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
@@ -417,7 +420,43 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen();
+
+// Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
+const MAP_COLORS: Record<number, number> = {
+  1: 0x5aa33a, // grass
+  2: 0x8a5a3a, // dirt
+  3: 0x8a8a8a, // stone
+  7: 0xd8c98a, // sand
+  17: 0x6a4a2a, // wood
+  21: 0x3f8a3f, // leaves
+  27: 0x3a6ea5, // water
+  28: 0x8fe9ff, // portal
+};
+function columnColor(x: number, z: number): number | null {
+  for (let y = 100; y >= -4; y--) {
+    const id = world.get(x, y, z);
+    if (id !== 0) return MAP_COLORS[id] ?? 0x777777;
+  }
+  return null;
+}
+const travelMap = new TravelMap({
+  columnColor,
+  player: () => ({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }),
+  onTravel: (x, z) => {
+    if (net) net.sendTeleport(x, z);
+    else {
+      player.pos.set(x + 0.5, world.columnTop(x, z) + 1, z + 0.5);
+      player.vel.set(0, 0, 0);
+    }
+  },
+});
+function onTeleport(m: { x: number; y: number; z: number }): void {
+  spawn = { x: m.x, y: m.y, z: m.z };
+  player.pos.set(m.x, m.y, m.z);
+  player.vel.set(0, 0, 0);
+  ready = false; // re-drop onto the ground once the destination chunks stream in
+}
 let rotating = false; // RMB held → free-orbit the camera (iso + third)
 const ndc = (e: MouseEvent): THREE.Vector2 =>
   new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -972,7 +1011,7 @@ function applyServerSettings(s: unknown): void {
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
@@ -1103,6 +1142,7 @@ void connectWorld('default');
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
 let lastMoveSent = 0;
+let lastMapRender = 0;
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -1160,6 +1200,11 @@ function frame(now: number): void {
   // Clouds follow the player + drift.
   clouds.position.set(player.pos.x, 70, player.pos.z);
   cloudTex.offset.x += dt * 0.004;
+  // Travel map: repaint from loaded terrain while open (throttled).
+  if (travelMap.isOpen() && now - lastMapRender > 500) {
+    lastMapRender = now;
+    travelMap.render();
+  }
   // Portal glow pulse (shared materials → all portals shimmer together; brighter at night).
   if (portalGlows.size) {
     const pulse = 0.5 + 0.5 * Math.sin(now * 0.004);
