@@ -10,9 +10,15 @@ import * as THREE from 'three';
 import { VoxelWorld } from './world.js';
 import { buildMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCKS, HOTBAR, BLOCK_TEXTURES } from './blocks.js';
+import { BLOCKS, BLOCK_TEXTURES, ALL_BLOCK_IDS, DEFAULT_HOTBAR } from './blocks.js';
 import { loadBlockAtlas, type Atlas } from './textures.js';
 import { Avatar } from './avatar.js';
+import { openPicker, closePicker, pickerOpen } from './picker.js';
+
+// The CC0 "Simple Skins" set staged under textures/player/skins/.
+const SKINS = [...Array(31)].map((_, i) => `character_${i + 1}`).concat(['character_900']);
+const texUrl = (tex: string): string => new URL(`textures/blocks/${tex}.png`, document.baseURI).href;
+const skinUrl = (name: string): string => new URL(`textures/player/skins/${name}.png`, document.baseURI).href;
 
 type CamMode = 'iso' | 'third' | 'first';
 
@@ -114,9 +120,12 @@ function placeCamera(): void {
 // ── Input ───────────────────────────────────────────────────────────────────
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'KeyV') cycleMode();
+  if (e.code === 'Escape' && pickerOpen()) return closePicker();
+  if (e.code === 'KeyV') return cycleMode();
+  if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openBlockPicker();
+  if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   const n = Number(e.key);
-  if (n >= 1 && n <= HOTBAR.length) selectSlot(n - 1);
+  if (n >= 1 && n <= hotbarIds.length) selectSlot(n - 1);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -142,7 +151,7 @@ canvas.addEventListener('mousedown', (e) => {
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
-  selectSlot((selected + (e.deltaY > 0 ? 1 : HOTBAR.length - 1)) % HOTBAR.length);
+  selectSlot(selectedSlot + (e.deltaY > 0 ? 1 : -1));
 });
 
 function cycleMode(): void {
@@ -172,38 +181,70 @@ function editBlock(breaking: boolean): void {
     }
   } else {
     if (!world.solid(bx, by, bz)) {
-      world.set(bx, by, bz, HOTBAR[selected]);
+      world.set(bx, by, bz, hotbarIds[selectedSlot]);
       rebuild();
     }
   }
 }
 
-// ── HUD (crosshair + hotbar + mode label) ─────────────────────────────────────
-let selected = 0;
+// ── HUD (crosshair + hotbar + pickers) ────────────────────────────────────────
+// Hotbar holds 9 block ids (quick slots); the "b" picker can swap any slot to any
+// of the 26 blocks. Number keys / scroll pick a slot; the selected slot's block
+// is what break/place uses.
+const hotbarIds = [...DEFAULT_HOTBAR];
+let selectedSlot = 0;
 function selectSlot(i: number): void {
-  selected = i;
+  selectedSlot = (i + hotbarIds.length) % hotbarIds.length;
   updateHud();
 }
 function updateHud(): void {
   const label = document.getElementById('mode');
-  if (label) label.textContent = `View: ${mode} (V) · Block: ${BLOCKS[HOTBAR[selected]].name}`;
-  document.querySelectorAll<HTMLElement>('#hotbar .slot').forEach((el, i) => el.classList.toggle('on', i === selected));
-  document.getElementById('cross')!.style.display = mode === 'iso' ? 'none' : 'block';
-}
-function buildHotbar(): void {
+  if (label) label.textContent = `View: ${mode} (V) · Block: ${BLOCKS[hotbarIds[selectedSlot]].name} · B blocks · K skin`;
   const bar = document.getElementById('hotbar')!;
-  HOTBAR.forEach((id, i) => {
+  bar.innerHTML = '';
+  hotbarIds.forEach((id, i) => {
     const s = document.createElement('div');
-    s.className = 'slot' + (i === 0 ? ' on' : '');
-    s.style.backgroundImage = `url(${new URL('textures/blocks/' + BLOCKS[id].tex + '.png', document.baseURI).href})`;
+    s.className = 'slot' + (i === selectedSlot ? ' on' : '');
+    s.style.backgroundImage = `url(${texUrl(BLOCKS[id].tex)})`;
     s.style.backgroundSize = 'cover';
     s.title = BLOCKS[id].name;
     s.onclick = () => selectSlot(i);
     bar.appendChild(s);
   });
+  document.getElementById('cross')!.style.display = mode === 'iso' ? 'none' : 'block';
 }
-buildHotbar();
 updateHud();
+
+function openBlockPicker(): void {
+  if (locked()) document.exitPointerLock();
+  openPicker(
+    'Blocks — click to put in slot ' + (selectedSlot + 1),
+    ALL_BLOCK_IDS.map((id) => ({
+      thumb: texUrl(BLOCKS[id].tex),
+      label: BLOCKS[id].name,
+      selected: id === hotbarIds[selectedSlot],
+      onPick: () => {
+        hotbarIds[selectedSlot] = id;
+        updateHud();
+        closePicker();
+      },
+    })),
+  );
+}
+function openSkinPicker(): void {
+  if (locked()) document.exitPointerLock();
+  openPicker(
+    'Player skin',
+    SKINS.map((name) => ({
+      thumb: skinUrl(name),
+      label: name.replace('character_', '#'),
+      onPick: () => {
+        avatar.setSkin(name);
+        closePicker();
+      },
+    })),
+  );
+}
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
@@ -211,12 +252,13 @@ function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   if (mode === 'iso') player.yaw = -Math.PI / 4; // fixed facing for the iso view
+  const busy = pickerOpen(); // don't walk while the picker window is open
   const input: MoveInput = {
-    forward: keys.has('KeyW') || keys.has('ArrowUp'),
-    back: keys.has('KeyS') || keys.has('ArrowDown'),
-    left: keys.has('KeyA') || keys.has('ArrowLeft'),
-    right: keys.has('KeyD') || keys.has('ArrowRight'),
-    jump: keys.has('Space'),
+    forward: !busy && (keys.has('KeyW') || keys.has('ArrowUp')),
+    back: !busy && (keys.has('KeyS') || keys.has('ArrowDown')),
+    left: !busy && (keys.has('KeyA') || keys.has('ArrowLeft')),
+    right: !busy && (keys.has('KeyD') || keys.has('ArrowRight')),
+    jump: !busy && keys.has('Space'),
   };
   player.update(dt, input);
   avatar.animate(dt, player.speed2d, player.pitch);

@@ -1,68 +1,101 @@
 /**
- * A blocky Minecraft-ish avatar: head, body, two arms, two legs. Limbs hang from
- * pivot groups (shoulder/hip) so they swing on the X axis; `animate()` advances a
- * walk phase from the horizontal speed and eases the swing back to rest when idle.
- * Root origin is at the feet; the caller sets group.position (feet) + rotation.y.
+ * Skinned blocky avatar using the classic 64×32 humanoid layout (what Luanti /
+ * the CC0 "Simple Skins" use). Head/torso/arms/legs are boxes with per-face UVs
+ * into the skin texture; limbs hang from pivot groups so they swing while
+ * walking. `setSkin(name)` swaps the texture (skins in textures/player/skins/).
+ * The model faces its local -Z, which is the player's forward at yaw 0.
  */
 import * as THREE from 'three';
 
-const SKIN = 0xe0ac7a;
-const HAIR = 0x5a4030;
-const SHIRT = 0x2f8f8f;
-const PANTS = 0x34407a;
+const SW = 64;
+const SH = 32;
+const U = 1.8 / 32; // world units per skin pixel (avatar ≈ 1.8 tall)
 
-function box(w: number, h: number, d: number, color: number, y: number): THREE.Mesh {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color }));
-  m.position.y = y;
-  return m;
-}
-/** A limb that hangs below a pivot group (so rotation swings from the top). */
-function limb(w: number, h: number, d: number, color: number, x: number, pivotY: number): THREE.Group {
-  const g = new THREE.Group();
-  g.position.set(x, pivotY, 0);
-  g.add(box(w, h, d, color, -h / 2));
+type Rects = { front: number[]; back: number[]; right: number[]; left: number[]; top: number[]; bottom: number[] };
+const R = (x0: number, y0: number, x1: number, y1: number): number[] => [x0, y0, x1, y1];
+// classic single-layer skin regions (px, top-left origin)
+const HEAD: Rects = { front: R(8, 8, 16, 16), back: R(24, 8, 32, 16), right: R(0, 8, 8, 16), left: R(16, 8, 24, 16), top: R(8, 0, 16, 8), bottom: R(16, 0, 24, 8) };
+const TORSO: Rects = { front: R(20, 20, 28, 32), back: R(32, 20, 40, 32), right: R(16, 20, 20, 32), left: R(28, 20, 32, 32), top: R(20, 16, 28, 20), bottom: R(28, 16, 36, 20) };
+const ARM: Rects = { front: R(44, 20, 48, 32), back: R(52, 20, 56, 32), right: R(48, 20, 52, 32), left: R(40, 20, 44, 32), top: R(44, 16, 48, 20), bottom: R(48, 16, 52, 20) };
+const LEG: Rects = { front: R(4, 20, 8, 32), back: R(12, 20, 16, 32), right: R(8, 20, 12, 32), left: R(0, 20, 4, 32), top: R(4, 16, 8, 20), bottom: R(8, 16, 12, 20) };
+
+/** BoxGeometry with per-face UVs from a skin layout. Three's face order is
+ *  +X,-X,+Y,-Y,+Z,-Z; we route front→-Z, back→+Z so the face points forward. */
+function skinnedBox(w: number, h: number, d: number, r: Rects): THREE.BoxGeometry {
+  const g = new THREE.BoxGeometry(w, h, d);
+  const uv = g.attributes.uv;
+  const order = [r.right, r.left, r.top, r.bottom, r.back, r.front];
+  for (let f = 0; f < 6; f++) {
+    const [x0, y0, x1, y1] = order[f];
+    const u0 = x0 / SW,
+      u1 = x1 / SW,
+      vTop = 1 - y0 / SH,
+      vBot = 1 - y1 / SH;
+    const b = f * 4;
+    uv.setXY(b + 0, u0, vTop);
+    uv.setXY(b + 1, u1, vTop);
+    uv.setXY(b + 2, u0, vBot);
+    uv.setXY(b + 3, u1, vBot);
+  }
+  uv.needsUpdate = true;
   return g;
 }
 
 export class Avatar {
   readonly group = new THREE.Group();
+  private readonly mat: THREE.MeshBasicMaterial;
+  private readonly loader = new THREE.TextureLoader();
   private readonly legL: THREE.Group;
   private readonly legR: THREE.Group;
   private readonly armL: THREE.Group;
   private readonly armR: THREE.Group;
-  private readonly head: THREE.Group;
+  private readonly head: THREE.Object3D;
   private phase = 0;
   private amp = 0;
 
-  constructor() {
-    const legH = 0.75;
-    const bodyH = 0.7;
-    const shoulderY = legH + bodyH; // 1.45
-    // legs (pivot at hip)
-    this.legL = limb(0.22, legH, 0.24, PANTS, -0.13, legH);
-    this.legR = limb(0.22, legH, 0.24, PANTS, 0.13, legH);
-    // body
-    const body = box(0.5, bodyH, 0.28, SHIRT, legH + bodyH / 2);
-    // arms (pivot at shoulder)
-    this.armL = limb(0.18, 0.7, 0.2, SHIRT, -0.34, shoulderY);
-    this.armR = limb(0.18, 0.7, 0.2, SHIRT, 0.34, shoulderY);
-    this.armL.add(box(0.18, 0.18, 0.2, SKIN, -0.7)); // hand
-    this.armR.add(box(0.18, 0.18, 0.2, SKIN, -0.7));
-    // head (+ a thin hair cap)
-    this.head = new THREE.Group();
-    this.head.position.y = shoulderY + 0.05;
-    this.head.add(box(0.5, 0.5, 0.5, SKIN, 0.25));
-    this.head.add(box(0.52, 0.14, 0.52, HAIR, 0.47));
-    this.group.add(this.legL, this.legR, body, this.armL, this.armR, this.head);
+  constructor(skin = 'character_1') {
+    this.mat = new THREE.MeshBasicMaterial();
+    const mk = (w: number, h: number, d: number, r: Rects): THREE.Mesh => new THREE.Mesh(skinnedBox(w, h, d, r), this.mat);
+    const legH = 12 * U,
+      torsoH = 12 * U,
+      shoulderY = legH + torsoH; // 1.35
+    // limbs hang below a pivot group so rotation swings from the top
+    const limb = (w: number, h: number, d: number, r: Rects, x: number, py: number): THREE.Group => {
+      const g = new THREE.Group();
+      g.position.set(x, py, 0);
+      const m = mk(w, h, d, r);
+      m.position.y = -h / 2;
+      g.add(m);
+      return g;
+    };
+    this.legL = limb(4 * U, legH, 4 * U, LEG, -2 * U, legH);
+    this.legR = limb(4 * U, legH, 4 * U, LEG, 2 * U, legH);
+    this.armL = limb(4 * U, 12 * U, 4 * U, ARM, -6 * U, shoulderY);
+    this.armR = limb(4 * U, 12 * U, 4 * U, ARM, 6 * U, shoulderY);
+    const torso = mk(8 * U, torsoH, 4 * U, TORSO);
+    torso.position.y = legH + torsoH / 2;
+    this.head = mk(8 * U, 8 * U, 8 * U, HEAD);
+    this.head.position.y = shoulderY + 4 * U;
+    this.group.add(this.legL, this.legR, this.armL, this.armR, torso, this.head);
+    this.setSkin(skin);
   }
 
-  /** speed = horizontal blocks/s; pitch tilts the head a little in 3rd person. */
+  setSkin(name: string): void {
+    const url = new URL(`textures/player/skins/${name}.png`, document.baseURI).href;
+    this.loader.load(url, (tex) => {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.mat.map = tex;
+      this.mat.needsUpdate = true;
+    });
+  }
+
   animate(dt: number, speed: number, pitch = 0): void {
     const moving = speed > 0.4;
     this.phase += dt * (moving ? 9 : 0);
-    // ease the swing amplitude toward walking (0.9 rad) or rest (0)
-    const target = moving ? 0.9 : 0;
-    this.amp += (target - this.amp) * Math.min(1, dt * 10);
+    this.amp += ((moving ? 0.9 : 0) - this.amp) * Math.min(1, dt * 10);
     const s = Math.sin(this.phase) * this.amp;
     this.legL.rotation.x = s;
     this.legR.rotation.x = -s;
