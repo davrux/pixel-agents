@@ -104,6 +104,62 @@ function remeshChunk(cx: number, cy: number, cz: number): void {
   };
   layer(chunkMeshes, terrainGroup, material, geom?.opaque ?? null);
   layer(chunkWater, waterGroup, waterMaterial, geom?.water ?? null);
+  refreshPortalGlow(cx, cy, cz);
+}
+
+// Portal glow: every portal cube (block id 28) in a loaded chunk gets a pulsing
+// additive halo + a tall light column so it's easy to spot from afar. Shared
+// materials pulse in the loop; per-cell meshes are (re)built when a chunk remeshes.
+const portalGlowGroup = new THREE.Group();
+scene.add(portalGlowGroup);
+const portalGlows = new Map<string, THREE.Object3D>(); // cellKey → glow node
+const portalHaloMat = new THREE.MeshBasicMaterial({
+  color: 0x8fe9ff,
+  transparent: true,
+  opacity: 0.4,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const portalBeamMat = new THREE.MeshBasicMaterial({
+  color: 0x7fd0ff,
+  transparent: true,
+  opacity: 0.12,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const portalHaloGeo = new THREE.BoxGeometry(1.28, 1.28, 1.28);
+const portalBeamGeo = new THREE.CylinderGeometry(0.32, 0.32, 48, 10, 1, true);
+function makePortalGlow(x: number, y: number, z: number): THREE.Object3D {
+  const g = new THREE.Group();
+  const halo = new THREE.Mesh(portalHaloGeo, portalHaloMat);
+  halo.position.set(x + 0.5, y + 0.5, z + 0.5);
+  const beam = new THREE.Mesh(portalBeamGeo, portalBeamMat);
+  beam.position.set(x + 0.5, y + 24, z + 0.5); // column rising from the portal
+  g.add(halo, beam);
+  return g;
+}
+/** Reconcile portal glows for one chunk: drop this chunk's glows, re-add for id-28. */
+function refreshPortalGlow(cx: number, cy: number, cz: number): void {
+  const x0 = cx * CHUNK,
+    y0 = cy * CHUNK,
+    z0 = cz * CHUNK;
+  for (const [key, node] of portalGlows) {
+    const [px, py, pz] = key.split(',').map(Number);
+    if (toChunk(px) === cx && toChunk(py) === cy && toChunk(pz) === cz) {
+      portalGlowGroup.remove(node);
+      portalGlows.delete(key);
+    }
+  }
+  for (let x = x0; x < x0 + CHUNK; x++)
+    for (let y = y0; y < y0 + CHUNK; y++)
+      for (let z = z0; z < z0 + CHUNK; z++)
+        if (world.get(x, y, z) === PORTAL_ID) {
+          const key = `${x},${y},${z}`;
+          const node = makePortalGlow(x, y, z);
+          portalGlows.set(key, node);
+          portalGlowGroup.add(node);
+        }
 }
 /** Remesh up to `cap` dirty chunks per frame (rest wait for the next frame). */
 function flushDirty(cap = 12): void {
@@ -969,6 +1025,8 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
     m.geometry.dispose();
   }
   chunkWater.clear();
+  for (const node of portalGlows.values()) portalGlowGroup.remove(node);
+  portalGlows.clear();
   dirty.clear();
   world.clear();
   ready = false;
@@ -1082,6 +1140,12 @@ function frame(now: number): void {
   // Clouds follow the player + drift.
   clouds.position.set(player.pos.x, 70, player.pos.z);
   cloudTex.offset.x += dt * 0.004;
+  // Portal glow pulse (shared materials → all portals shimmer together).
+  if (portalGlows.size) {
+    const pulse = 0.5 + 0.5 * Math.sin(now * 0.004);
+    portalHaloMat.opacity = 0.25 + 0.35 * pulse;
+    portalBeamMat.opacity = 0.06 + 0.12 * pulse;
+  }
   const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   updateWield();
