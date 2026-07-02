@@ -34,7 +34,7 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 
-import { WORLD_ROOM } from '@pixel/shared';
+import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
@@ -48,6 +48,7 @@ try {
   /* no .env present */
 }
 import { SimRoom } from './rooms/SimRoom.js';
+import { VoxelRoom } from './rooms/VoxelRoom.js';
 import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';
 
@@ -149,6 +150,9 @@ async function main(): Promise<void> {
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
   gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: !!ADMIN_TOKEN, version }).filterBy(['zone']);
+  // Voxel MMO world: one authoritative instance per world id (multiworld),
+  // matchmade by `world`. Persistent chunks + server-authoritative edits.
+  gameServer.define(VOXEL_ROOM, VoxelRoom, { authRequired: !!ADMIN_TOKEN, version }).filterBy(['world']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
