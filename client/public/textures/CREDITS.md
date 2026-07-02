@@ -12,5 +12,9 @@ These bundled textures are **not** ours; they are used under their licenses.
   modifications of them) remain licensed under CC BY-SA 4.0. This does **not**
   affect the licensing of the project's own source code.
 
-## Player skins (planned, character phase)
-- "Simple Skins" (TenPlus1) and "SkinsDB" (bell07) on ContentDB — media **CC0 1.0**.
+## Player skins — `player/skins/character_*.png` (32 skins)
+- Source pack: "Simple Skins" (TenPlus1) on ContentDB, media = "Minetest Skins
+  Pack 1" by **isaiah658** — <https://opengameart.org/content/minetest-skins-pack-1>
+- License: **CC0 1.0** (public domain — no attribution required; credited here
+  for provenance). 64×32, Luanti player-model UV layout.
+- These map onto the avatar in the character phase (Luanti 64×32 → box-model UVs).
