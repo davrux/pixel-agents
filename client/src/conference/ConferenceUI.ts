@@ -101,7 +101,8 @@ const CSS = `
   #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
     padding:0.6rem;background:#0f1220;border-top:2px solid #05060b;box-shadow:inset 0 1px 0 #1b2138;position:relative;}
   #pa-conf .pa-conf-bar button{cursor:pointer;background:#141826;border:2px solid #05060b;color:#e9ecf7;
-    border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.75rem;min-width:3.2rem;
+    border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.3rem;
+    width:5.5rem;box-sizing:border-box;text-align:center;white-space:nowrap;
     box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #pa-conf .pa-conf-bar button:hover{background:#1a2032;}
   #pa-conf .pa-conf-bar button.off{opacity:0.5;}

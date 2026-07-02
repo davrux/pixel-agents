@@ -905,6 +905,14 @@ export class OfficeScene extends Phaser.Scene {
       const sitting = me?.state === CharacterState.SIT;
       this.room?.send('playerSit', { sit: !sitting });
     });
+    // Mic mute toggle (M) for zone voice — only while voice is on (mirrors the
+    // bar mic button), and never while typing (blocked() covers chat/inputs).
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'KeyM' || e.repeat || blocked()) return;
+      if (!this.zoneVoice?.voice.isEnabled) return;
+      e.preventDefault();
+      this.zoneVoice.voice.toggleMic();
+    });
   }
 
   /** A name the server's LayoutStore.isValidUserName will accept. */
@@ -1506,6 +1514,7 @@ export class OfficeScene extends Phaser.Scene {
       ['Left-click floor', 'Walk there'],
       ['Left-click chair / bench', 'Sit down'],
       ['C', 'Sit / stand (in place)'],
+      ['M', 'Mute / unmute your mic (while in voice)'],
       ['Walk onto a door / beam pad', 'Choose a destination zone'],
       ['Enter', 'Chat — focus, then send (cursor stays)'],
       ['Esc', 'Leave the chat field'],
@@ -2772,6 +2781,7 @@ export class OfficeScene extends Phaser.Scene {
           border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
         #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
         #pa-chatlog .ln b{color:#7fa7e0;}
+        #pa-chatlog .ln a{color:#9ecbff;text-decoration:underline;overflow-wrap:anywhere;}
         #pa-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
         /* System / command-feedback lines (help, /afk, errors). */
         #pa-chatlog .ln.sys{color:#9aa0b8;font-style:italic;}
@@ -3053,7 +3063,7 @@ export class OfficeScene extends Phaser.Scene {
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
     const ln = document.createElement('div');
     ln.className = 'ln';
-    ln.innerHTML = `<span class="ts">${this.fmtTime(at)}</span> <b>${esc(from)}:</b> ${esc(text)}`;
+    ln.innerHTML = `<span class="ts">${this.fmtTime(at)}</span> <b>${esc(from)}:</b> ${linkify(text)}`;
     log.appendChild(ln);
     while (log.childElementCount > 120) log.firstElementChild?.remove();
     if (atBottom) log.scrollTop = log.scrollHeight; // follow only if already at bottom
@@ -3276,6 +3286,29 @@ function fuelColor(ratio: number): string {
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
+}
+
+/** Escape chat text to HTML and turn http(s) URLs into clickable links. Escaping
+ *  is done per segment (so both the visible text and the href are HTML-safe), and
+ *  only `http`/`https` schemes match — `javascript:`/`data:` can never slip in. */
+function linkify(text: string): string {
+  const re = /(https?:\/\/[^\s<]+)/g;
+  let out = '';
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    out += esc(text.slice(last, m.index));
+    let url = m[0];
+    // Keep trailing sentence punctuation out of the link.
+    const trail = url.match(/[.,!?;:]+$/);
+    const tail = trail ? trail[0] : '';
+    if (tail) url = url.slice(0, -tail.length);
+    const safe = esc(url);
+    out += `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${safe}</a>${esc(tail)}`;
+    last = m.index + m[0].length;
+  }
+  out += esc(text.slice(last));
+  return out;
 }
 
 function setStatus(text: string): void {
