@@ -161,7 +161,9 @@ canvas.addEventListener('mousemove', (e) => {
       camPitch = clamp(camPitch + e.movementY * 0.005, -0.15, 1.25);
     }
   }
-  if (mode === 'iso') pointerNDC.copy(ndc(e));
+  // Track the cursor in iso + third person (first person is pointer-locked and
+  // aims from screen centre); E/Q place/break at whatever the cursor is over.
+  pointerNDC.copy(ndc(e));
 });
 canvas.addEventListener('mousedown', (e) => {
   if (mode === 'first') {
@@ -216,12 +218,16 @@ function cycleMode(): void {
 
 // ── Break / place via raycast ────────────────────────────────────────────────
 const raycaster = new THREE.Raycaster();
+const REACH = 7; // max build distance from the player (blocks)
 function editBlock(breaking: boolean): void {
   if (!terrain) return;
-  const origin = mode === 'iso' ? pointerNDC : new THREE.Vector2(0, 0); // crosshair centre in 1st/3rd
+  // iso + third person aim at the cursor; first person aims from screen centre.
+  const origin = mode === 'first' ? new THREE.Vector2(0, 0) : pointerNDC;
   raycaster.setFromCamera(origin, activeCam());
   const hits = raycaster.intersectObject(terrain, false);
-  if (!hits.length || hits[0].distance > 8) return;
+  // Reach is measured from the player, not the camera (the iso/third cams sit far
+  // back, so a camera-distance check would reject every edit).
+  if (!hits.length || hits[0].point.distanceTo(player.eye) > REACH) return;
   const h = hits[0];
   const nrm = h.face ? h.face.normal : new THREE.Vector3(0, 1, 0);
   const p = h.point.clone().addScaledVector(nrm, breaking ? -0.5 : 0.5);
@@ -235,7 +241,8 @@ function editBlock(breaking: boolean): void {
       avatar.playDig();
     }
   } else {
-    if (!world.solid(bx, by, bz)) {
+    // Don't place inside yourself — that would embed the AABB and lock movement.
+    if (!world.solid(bx, by, bz) && !player.intersectsBlock(bx, by, bz)) {
       world.set(bx, by, bz, hotbarIds[selectedSlot]);
       rebuild();
       avatar.playDig();
@@ -267,7 +274,7 @@ function updateHud(): void {
     s.onclick = () => selectSlot(i);
     bar.appendChild(s);
   });
-  document.getElementById('cross')!.style.display = mode === 'iso' ? 'none' : 'block';
+  document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
 updateHud();
 

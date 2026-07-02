@@ -58,6 +58,20 @@ export class Player {
     return Math.hypot(this.vel.x, this.vel.z);
   }
 
+  /** Does the unit cell (bx,by,bz) overlap the player's AABB? Used to forbid
+   *  placing a block inside yourself (Minecraft rule) — otherwise you'd embed in
+   *  a solid cell and collision would lock you in place. */
+  intersectsBlock(bx: number, by: number, bz: number): boolean {
+    return (
+      bx + 1 > this.pos.x - HW &&
+      bx < this.pos.x + HW &&
+      bz + 1 > this.pos.z - HW &&
+      bz < this.pos.z + HW &&
+      by + 1 > this.pos.y &&
+      by < this.pos.y + PH
+    );
+  }
+
   setLook(dYaw: number, dPitch: number): void {
     this.yaw += dYaw;
     this.pitch = Math.max(-1.4, Math.min(1.4, this.pitch + dPitch));
@@ -95,6 +109,14 @@ export class Player {
     if (input.jump && this.onGround) {
       this.vel.y = JUMP;
       this.onGround = false;
+    }
+
+    // Recovery: if we're embedded in solid (a block appeared against our AABB),
+    // rise until free so we stand on top instead of being locked in place.
+    for (let i = 0; i < PH + 2 && this.collides(this.pos.x, this.pos.y, this.pos.z); i++) {
+      this.pos.y = Math.floor(this.pos.y) + 1;
+      this.vel.y = 0;
+      this.onGround = true;
     }
 
     // Move + resolve per axis (x, z, then y).
