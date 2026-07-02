@@ -13,7 +13,9 @@ import { Player, type MoveInput } from './player.js';
 import { BLOCKS, BLOCK_TEXTURES, ALL_BLOCK_IDS, DEFAULT_HOTBAR } from './blocks.js';
 import { loadBlockAtlas, type Atlas } from './textures.js';
 import { Avatar } from './avatar.js';
+import { ViewModel } from './viewmodel.js';
 import { makeCrackStages } from './crack.js';
+import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 
 // The CC0 "Simple Skins" set staged under textures/player/skins/.
@@ -72,6 +74,11 @@ scene.add(avatar.group);
 // Cameras
 const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
 const persp = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
+// First-person arm + wielded tool, parented to the perspective camera (added to
+// the scene so the camera's children render). Shown only in first person.
+const viewmodel = new ViewModel(new URL('textures/items/default_tool_steelpick.png', document.baseURI).href);
+scene.add(persp);
+persp.add(viewmodel.group);
 let mode: CamMode = 'iso';
 let isoView = 22; // world-units tall the ortho frustum (mouse-wheel zooms it)
 let thirdDist = 4.6; // 3rd-person camera distance (mouse-wheel zooms it)
@@ -123,6 +130,7 @@ function placeCamera(): void {
   avatar.group.visible = mode !== 'first';
   avatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
   avatar.group.rotation.y = player.yaw;
+  viewmodel.group.visible = mode === 'first';
 }
 
 // ── Input ───────────────────────────────────────────────────────────────────
@@ -228,7 +236,7 @@ const raycaster = new THREE.Raycaster();
 const REACH = 7; // max build distance from the player (blocks)
 const CENTER = new THREE.Vector2(0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
-const BREAK_TIME = 0.7; // seconds of holding to break a block
+const WIELDED_TOOL = 'pick_steel'; // the tool the avatar holds (drives dig times)
 
 const crackStages = makeCrackStages(6);
 const breakOverlay = new THREE.Mesh(
@@ -237,7 +245,7 @@ const breakOverlay = new THREE.Mesh(
 );
 breakOverlay.visible = false;
 scene.add(breakOverlay);
-let breaking: { x: number; y: number; z: number; t: number } | null = null;
+let breaking: { x: number; y: number; z: number; t: number; dur: number } | null = null;
 
 /** First hit of the aim ray, if within reach — or null. */
 function aimHit(): THREE.Intersection | null {
@@ -262,6 +270,7 @@ function placeBlock(): void {
     world.set(bx, by, bz, hotbarIds[selectedSlot]);
     rebuild();
     avatar.playDig();
+    viewmodel.playDig();
   }
 }
 
@@ -277,24 +286,27 @@ function updateBreaking(dt: number, want: boolean): void {
       z = Math.floor(p.z);
     if (world.solid(x, y, z)) tgt = { x, y, z };
   }
-  if (!tgt) {
+  // Dig time from the wielded tool + block group (Luanti data). null = the tool
+  // is too weak (e.g. steel pick on a diamond block) → can't break it.
+  const dur = tgt ? digTime(world.get(tgt.x, tgt.y, tgt.z), [WIELDED_TOOL]) : null;
+  if (!tgt || dur === null) {
     breaking = null;
     breakOverlay.visible = false;
     avatar.setMining(false);
     return;
   }
-  if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) breaking = { ...tgt, t: 0 };
+  if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) breaking = { ...tgt, t: 0, dur };
   breaking.t += dt;
   avatar.setMining(true);
   breakOverlay.position.set(tgt.x + 0.5, tgt.y + 0.5, tgt.z + 0.5);
   breakOverlay.visible = true;
-  const stage = Math.min(crackStages.length - 1, Math.floor((breaking.t / BREAK_TIME) * crackStages.length));
+  const stage = Math.min(crackStages.length - 1, Math.floor((breaking.t / breaking.dur) * crackStages.length));
   const mat = breakOverlay.material as THREE.MeshBasicMaterial;
   if (mat.map !== crackStages[stage]) {
     mat.map = crackStages[stage];
     mat.needsUpdate = true;
   }
-  if (breaking.t >= BREAK_TIME) {
+  if (breaking.t >= breaking.dur) {
     world.set(tgt.x, tgt.y, tgt.z, 0);
     rebuild();
     breaking = null;
@@ -399,6 +411,8 @@ function frame(now: number): void {
   const wantBreak = !busy && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   avatar.animate(dt, player.speed2d, player.pitch);
+  viewmodel.setMining(breaking !== null);
+  viewmodel.animate(dt);
   placeCamera();
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);
