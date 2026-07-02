@@ -84,7 +84,17 @@ export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = [
   ctx.imageSmoothingEnabled = false;
   const index = new Map<string, number>();
   allNames.forEach((n, i) => index.set(n, i));
-  names.forEach((n, i) => ctx.drawImage(imgs[i], (i % cols) * ts, ((i / cols) | 0) * ts, ts, ts));
+  // Some tiles are transparent overlays (e.g. grass_side is a grass fringe with a
+  // see-through lower half); draw their opaque base underneath first so the block
+  // isn't transparent below the grass. Bases must be block textures we also load.
+  const OVERLAY_BASE: Record<string, string> = { grass_side: 'dirt' };
+  names.forEach((n, i) => {
+    const x = (i % cols) * ts,
+      y = ((i / cols) | 0) * ts;
+    const base = OVERLAY_BASE[n] ? imgByName.get(OVERLAY_BASE[n]) : undefined;
+    if (base) ctx.drawImage(base, x, y, ts, ts);
+    ctx.drawImage(imgs[i], x, y, ts, ts);
+  });
   extra.forEach((e, k) => {
     const i = names.length + k;
     ctx.save();

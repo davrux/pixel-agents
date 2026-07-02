@@ -12,7 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
-import { type Item, ALL_ITEMS, TOOL_ITEMS, itemById, DEFAULT_HOTBAR } from './items.js';
+import { type Item, TOOL_ITEMS, BLOCK_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
@@ -172,7 +172,13 @@ function onWelcome(m: unknown): void {
   const w = m as { spawn?: { x: number; y: number; z: number } };
   if (w.spawn) {
     spawn = w.spawn;
-    ready = false; // re-gate until the new spawn column is loaded
+    // Move the player/camera to the new spawn immediately so the view is centred
+    // where the server streams chunks (otherwise, if you'd walked away in the old
+    // world, the camera would stare into empty space = blue). Physics still waits
+    // for the ground chunk via `ready`.
+    player.pos.set(spawn.x, spawn.y, spawn.z);
+    player.vel.set(0, 0, 0);
+    ready = false;
   }
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
@@ -316,7 +322,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   const n = Number(e.key);
-  if (n >= 1 && n <= hotbar.length) selectSlot(n - 1);
+  if (n >= 1 && n <= tools.length + blocks.length) selectSlot(n - 1);
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -415,7 +421,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 function bestToolFor(blockId: number): string | undefined {
   let best: string | undefined;
   let bestT = Infinity;
-  for (const id of hotbar) {
+  for (const id of tools) {
     const tool = itemById(id).tool;
     if (!tool) continue;
     const t = digTime(blockId, [tool]);
@@ -433,8 +439,8 @@ function digToolsFor(blockId: number): string[] {
     const best = bestToolFor(blockId);
     if (best) return [best];
   }
-  const held = itemById(hotbar[selectedSlot]).tool;
-  return held ? [held] : [];
+  const digTool = itemById(tools[selTool]).tool; // the selected breaking tool
+  return digTool ? [digTool] : [];
 }
 
 const crackStages = makeCrackStages(6);
@@ -454,17 +460,35 @@ function aimHit(): THREE.Intersection | null {
   return hits[0];
 }
 
+/** Where a placed block would land: against the aimed face, or — when aiming into
+ *  empty space over a void while standing on solid ground — one block out from
+ *  under the feet in the aim's horizontal direction (Minecraft "bridging"). */
+function placeTarget(): { x: number; y: number; z: number } | null {
+  const h = aimHit();
+  if (h) {
+    const nrm = h.face ? h.face.normal : UP;
+    const p = h.point.clone().addScaledVector(nrm, 0.5);
+    return { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+  }
+  // Bridging fallback: the aim missed (pointing over the abyss). Extend from the
+  // block under our feet in the direction we're aiming, so you can walk out onto it.
+  const fx = Math.floor(player.pos.x),
+    fy = Math.floor(player.pos.y) - 1,
+    fz = Math.floor(player.pos.z);
+  if (!world.solid(fx, fy, fz)) return null; // nothing solid to extend from
+  const dir = raycaster.ray.direction; // set by aimHit() above
+  const [dx, dz] = Math.abs(dir.x) >= Math.abs(dir.z) ? [Math.sign(dir.x), 0] : [0, Math.sign(dir.z)];
+  if (!dx && !dz) return null;
+  return { x: fx + dx, y: fy, z: fz + dz };
+}
+
 /** Place the held block against the aimed face (instant). Tools don't place. */
 function placeBlock(): void {
-  const block = itemById(hotbar[selectedSlot]).block;
-  if (block === undefined) return; // holding a tool → nothing to place
-  const h = aimHit();
-  if (!h) return;
-  const nrm = h.face ? h.face.normal : UP;
-  const p = h.point.clone().addScaledVector(nrm, 0.5);
-  const bx = Math.floor(p.x),
-    by = Math.floor(p.y),
-    bz = Math.floor(p.z);
+  const block = itemById(blocks[selBlock]).block; // the selected build block
+  if (block === undefined) return; // block track is somehow empty → nothing to place
+  const t = placeTarget();
+  if (!t) return;
+  const { x: bx, y: by, z: bz } = t;
   // Don't place inside yourself — that would embed the AABB and lock movement.
   if (world.solid(bx, by, bz) || player.intersectsBlock(bx, by, bz)) return;
   avatar.playDig();
@@ -524,45 +548,76 @@ function updateBreaking(dt: number, want: boolean): void {
 }
 
 // ── HUD (crosshair + hotbar + pickers) ────────────────────────────────────────
-// Hotbar holds 9 item ids (tools + blocks). The selected slot is what the avatar
-// holds and what drives digging (tool → its speed, block → bare hand) + placing
-// (blocks only). Number keys pick a slot; the "b" picker swaps a slot to any item.
-const hotbar = [...DEFAULT_HOTBAR];
-let selectedSlot = 0;
-const held = (): Item => itemById(hotbar[selectedSlot]);
-function selectSlot(i: number): void {
-  selectedSlot = (i + hotbar.length) % hotbar.length;
+// The hotbar is split into two independent tracks: a TOOL track (used when
+// breaking) and a BLOCK track (used when placing). Each keeps its own selection,
+// so you never have to swap a single slot between "dig" and "build" — pick a pick
+// once, a block once, and Q/E just work. Number keys run across both tracks
+// (tools first, then blocks); clicking a slot selects it; the wield editor + "b"
+// picker follow whichever track you last touched.
+const tools = [...DEFAULT_TOOLS]; // breaking side
+const blocks = [...DEFAULT_BLOCKS]; // placing side
+let selTool = 0;
+let selBlock = 0;
+let lastTrack: 'tool' | 'block' = 'block'; // side the label / editor / picker follow
+const held = (): Item => itemById(lastTrack === 'tool' ? tools[selTool] : blocks[selBlock]);
+function selectTool(i: number): void {
+  selTool = (i + tools.length) % tools.length;
+  lastTrack = 'tool';
   updateHud();
   refreshEditor();
 }
+function selectBlock(i: number): void {
+  selBlock = (i + blocks.length) % blocks.length;
+  lastTrack = 'block';
+  updateHud();
+  refreshEditor();
+}
+/** Number keys 1..N run across both tracks: 1..tools then blocks. */
+function selectSlot(i: number): void {
+  if (i < tools.length) selectTool(i);
+  else selectBlock(i - tools.length);
+}
 function updateHud(): void {
   const label = document.getElementById('mode');
-  if (label) label.textContent = `View: ${mode} (V) · Item: ${held().name} · B items · K skin`;
+  if (label)
+    label.textContent = `View: ${mode} (V) · Break: ${itemById(tools[selTool]).name} · Place: ${itemById(blocks[selBlock]).name} · B items · K skin`;
   const bar = document.getElementById('hotbar')!;
   bar.innerHTML = '';
-  hotbar.forEach((id, i) => {
-    const it = itemById(id);
-    const s = document.createElement('div');
-    s.className = 'slot' + (i === selectedSlot ? ' on' : '');
-    s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
-    s.style.backgroundSize = 'cover';
-    s.title = it.name;
-    s.onclick = () => selectSlot(i);
-    bar.appendChild(s);
-  });
+  const addSlots = (ids: string[], sel: number, pick: (i: number) => void): void => {
+    ids.forEach((id, i) => {
+      const it = itemById(id);
+      const s = document.createElement('div');
+      s.className = 'slot' + (i === sel ? ' on' : '');
+      s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
+      s.style.backgroundSize = 'cover';
+      s.title = it.name;
+      s.onclick = () => pick(i);
+      bar.appendChild(s);
+    });
+  };
+  addSlots(tools, selTool, selectTool);
+  const divider = document.createElement('div');
+  divider.className = 'hdivider';
+  divider.title = 'left: dig tools · right: build blocks';
+  bar.appendChild(divider);
+  addSlots(blocks, selBlock, selectBlock);
   document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
 
 function openItemPicker(): void {
   if (locked()) document.exitPointerLock();
+  const isTool = lastTrack === 'tool';
+  const pool = isTool ? TOOL_ITEMS : BLOCK_ITEMS;
+  const curId = isTool ? tools[selTool] : blocks[selBlock];
   openPicker(
-    'Items — click to put in slot ' + (selectedSlot + 1),
-    ALL_ITEMS.map((it) => ({
+    isTool ? 'Dig tools — click to equip' : 'Build blocks — click to equip',
+    pool.map((it) => ({
       thumb: itemTexUrl(it.texUrl),
       label: it.name,
-      selected: it.id === hotbar[selectedSlot],
+      selected: it.id === curId,
       onPick: () => {
-        hotbar[selectedSlot] = it.id;
+        if (isTool) tools[selTool] = it.id;
+        else blocks[selBlock] = it.id;
         updateHud();
         refreshEditor();
         closePicker();
@@ -571,21 +626,31 @@ function openItemPicker(): void {
   );
 }
 
-// Wield sync: the avatar holds the selected item (rebuilt only when it changes);
-// during an auto-switch break it shows the tool actually being used.
+// Wield sync: the avatar holds the block being built by default, and swaps to the
+// dig tool while actively breaking (auto-switch shows the best carried tool).
 let wieldedId = '';
 function setWielded(it: Item): void {
   if (it.id === wieldedId) return;
   wieldedId = it.id;
   avatar.wield(it.texUrl, it.pivot, loadWield(it.id));
 }
+function clearWielded(): void {
+  if (wieldedId === '') return;
+  wieldedId = '';
+  avatar.hideWield();
+}
 function updateWield(): void {
-  if (settings.autoTool && breaking && !settingsOpen()) {
-    const tool = bestToolFor(world.get(breaking.x, breaking.y, breaking.z));
-    const ti = tool ? TOOL_ITEMS.find((i) => i.tool === tool) : undefined;
-    if (ti) return setWielded(ti);
+  if (breaking && !settingsOpen()) {
+    if (settings.autoTool) {
+      const tool = bestToolFor(world.get(breaking.x, breaking.y, breaking.z));
+      const ti = tool ? TOOL_ITEMS.find((i) => i.tool === tool) : undefined;
+      if (ti) return setWielded(ti);
+    }
+    return setWielded(itemById(tools[selTool])); // manual: the selected dig tool
   }
-  setWielded(held());
+  const active = held();
+  if (active.block !== undefined) return clearWielded(); // only tools are held in hand, not blocks
+  setWielded(active);
 }
 updateHud();
 function openSkinPicker(): void {
@@ -738,8 +803,13 @@ for (const f of WIELD_FIELDS) {
   slidersBox.appendChild(row);
 }
 function stepItem(dir: number): void {
-  const i = ALL_ITEMS.findIndex((it) => it.id === hotbar[selectedSlot]);
-  hotbar[selectedSlot] = ALL_ITEMS[(i + dir + ALL_ITEMS.length) % ALL_ITEMS.length].id;
+  const isTool = lastTrack === 'tool';
+  const pool = isTool ? TOOL_ITEMS : BLOCK_ITEMS;
+  const cur = isTool ? tools[selTool] : blocks[selBlock];
+  const i = pool.findIndex((it) => it.id === cur);
+  const next = pool[(i + dir + pool.length) % pool.length].id;
+  if (isTool) tools[selTool] = next;
+  else blocks[selBlock] = next;
   updateHud();
   refreshEditor();
 }

@@ -156,6 +156,18 @@ export class Avatar {
     this.buildTool();
   }
 
+  /** Show an empty hand (no wielded item) — used when only tools are held in hand. */
+  hideWield(): void {
+    this.item = '';
+    if (this.tool && this.armR) {
+      this.armR.remove(this.tool);
+      this.tool.geometry.dispose();
+      (this.tool.material as THREE.Material).dispose();
+    }
+    this.tool = null;
+    this.toolMat = null;
+  }
+
   private buildTool(): void {
     if (!this.armR) return; // model not loaded yet — onLoad will build it
     const arm = this.armR;

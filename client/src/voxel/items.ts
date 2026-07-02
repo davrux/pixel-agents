@@ -35,20 +35,17 @@ export const blockItem = (id: number): Item => ({
   block: id,
 });
 
+/** Every block as a placeable item (the "placing" side of the split hotbar). */
+export const BLOCK_ITEMS: Item[] = ALL_BLOCK_IDS.map(blockItem);
+
 /** Everything selectable in the item picker: tools first, then every block. */
-export const ALL_ITEMS: Item[] = [...TOOL_ITEMS, ...ALL_BLOCK_IDS.map(blockItem)];
+export const ALL_ITEMS: Item[] = [...TOOL_ITEMS, ...BLOCK_ITEMS];
 
 export const itemById = (id: string): Item => ALL_ITEMS.find((i) => i.id === id) ?? ALL_ITEMS[0];
 
-/** Default hotbar: the tools, then a few common blocks. */
-export const DEFAULT_HOTBAR: string[] = [
-  'pick_steel',
-  'axe_steel',
-  'shovel_steel',
-  'sword_steel',
-  'block:1',
-  'block:3',
-  'block:4',
-  'block:17',
-  'block:15',
-];
+// The hotbar is split into two independent tracks: tools (used when breaking) and
+// blocks (used when placing). Each has its own default set + its own selection.
+export const DEFAULT_TOOLS: string[] = ['pick_steel', 'axe_steel', 'shovel_steel', 'sword_steel'];
+export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
+/** Kept for anything that still wants the flat list (tools then blocks). */
+export const DEFAULT_HOTBAR: string[] = [...DEFAULT_TOOLS, ...DEFAULT_BLOCKS];
