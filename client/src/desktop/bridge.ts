@@ -31,6 +31,12 @@ export interface PixelDesktopApi {
   clearToken(): Promise<void>;
   /** Optional explicit screen-source picker (see AC-021). */
   pickScreenSource(): Promise<{ id: string } | null>;
+  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  closeWindow(): Promise<void>;
+  /** Opens/closes DevTools for the calling window's web contents. */
+  toggleDevTools(): Promise<void>;
+  /** Reloads the calling window from the main process (reliable under app://). */
+  reload(): Promise<void>;
 }
 
 declare global {

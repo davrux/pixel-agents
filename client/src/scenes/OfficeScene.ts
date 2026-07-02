@@ -1312,6 +1312,23 @@ export class OfficeScene extends Phaser.Scene {
     this.moreBtn = more;
 
     bar.append(audio, mic, deaf, divider, zone, space, assets, spacer, more);
+
+    // Desktop-only window controls. The Electron shell hides the native menu bar
+    // and title-bar menus, so the HUD carries its own chrome: a DevTools toggle
+    // and a close-app button, pinned to the far right after the ☰ menu.
+    if (isDesktop()) {
+      const devtools = this.mkBarBtn('🛠', '');
+      devtools.title = 'Toggle developer tools';
+      devtools.onclick = () => void desktop().toggleDevTools();
+
+      const closeApp = this.mkBarBtn('✕', '');
+      closeApp.title = 'Close app';
+      closeApp.classList.add('danger');
+      closeApp.onclick = () => void desktop().closeWindow();
+
+      bar.append(devtools, closeApp);
+    }
+
     host.appendChild(bar);
     this.menubar = bar;
 
@@ -2552,9 +2569,18 @@ export class OfficeScene extends Phaser.Scene {
     } catch {
       /* storage unavailable */
     }
-    const params = new URLSearchParams(window.location.search);
-    params.set('zone', zone);
-    window.location.search = params.toString();
+    // Write the target zone into the URL, then reload to reconnect. Both
+    // assigning `window.location.search` and calling `location.reload()` are
+    // unreliable in the Electron (app://) shell — the renderer-initiated
+    // navigation is silently dropped, so the zone switch never happens. We set
+    // the URL via the history API (which does stick), then reload: on the
+    // desktop through a main-process IPC (renderer reloads are ignored there),
+    // and in the browser through the normal location.reload().
+    const url = new URL(window.location.href);
+    url.searchParams.set('zone', zone);
+    history.replaceState(null, '', url.href);
+    if (isDesktop()) void desktop().reload();
+    else window.location.reload();
   }
 
   /** Render one avatar swatch row (random + each palette's front standing frame),

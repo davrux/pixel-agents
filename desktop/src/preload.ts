@@ -17,6 +17,9 @@ const api: PixelDesktopApi = {
   setToken: (token: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setToken, token),
   clearToken: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.clearToken),
   pickScreenSource: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.pickScreenSource),
+  closeWindow: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.closeWindow),
+  toggleDevTools: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.toggleDevTools),
+  reload: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.reload),
 };
 
 contextBridge.exposeInMainWorld('pixelDesktop', api);

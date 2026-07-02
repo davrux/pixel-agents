@@ -390,6 +390,18 @@ function registerIpcHandlers(): void {
   ipcMain.handle(channels.setToken, (_event, token: string): Promise<void> => writeToken(token));
   ipcMain.handle(channels.clearToken, (): Promise<void> => clearStoredToken());
   ipcMain.handle(channels.pickScreenSource, (): Promise<{ id: string } | null> => pickScreenSource());
+  ipcMain.handle(channels.closeWindow, (event): void => {
+    BrowserWindow.fromWebContents(event.sender)?.close();
+  });
+  ipcMain.handle(channels.toggleDevTools, (event): void => {
+    event.sender.toggleDevTools();
+  });
+  ipcMain.handle(channels.reload, (event): void => {
+    // Reload the current document (respects a query set via history.replaceState),
+    // driven from the main process because renderer-side location.reload() is
+    // unreliable under the app:// scheme.
+    event.sender.reload();
+  });
 }
 
 function createWindow(): BrowserWindow {
@@ -402,6 +414,9 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Allow DevTools to be opened via the Developer menu (Electron's default,
+      // stated explicitly so the menu's Toggle DevTools item always works).
+      devTools: true,
     },
   });
 
@@ -472,6 +487,8 @@ if (!gotLock) {
     // app's own in-canvas HUD (`#pa-menubar`) is the only chrome we want; this
     // removes the strip entirely on Linux/Windows (macOS keeps a minimal system
     // menu, which the OS requires). Also kills the Alt-to-reveal menu behaviour.
+    // Window controls (close app, toggle DevTools) are exposed to the renderer
+    // via the window-control IPC channels instead.
     Menu.setApplicationMenu(null);
 
     protocol.handle(APP_SCHEME, serveBundle);

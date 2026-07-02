@@ -23,6 +23,9 @@ export const PIXEL_DESKTOP_CHANNELS = {
   setToken: 'pixelDesktop:setToken',
   clearToken: 'pixelDesktop:clearToken',
   pickScreenSource: 'pixelDesktop:pickScreenSource',
+  closeWindow: 'pixelDesktop:closeWindow',
+  toggleDevTools: 'pixelDesktop:toggleDevTools',
+  reload: 'pixelDesktop:reload',
 } as const;
 
 export type PixelDesktopChannel =
@@ -48,4 +51,11 @@ export interface PixelDesktopApi {
   clearToken(): Promise<void>;
   /** Optional explicit screen-source picker (see AC-021; implemented in T4.4). */
   pickScreenSource(): Promise<{ id: string } | null>;
+  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  closeWindow(): Promise<void>;
+  /** Opens/closes DevTools for the calling window's web contents. */
+  toggleDevTools(): Promise<void>;
+  /** Reloads the calling window from the main process. Renderer-initiated
+   *  `location.reload()` is unreliable in the app:// shell; this always works. */
+  reload(): Promise<void>;
 }
