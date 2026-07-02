@@ -60,6 +60,18 @@ export function desktop(): PixelDesktopApi {
 }
 
 /**
+ * Reload the app reliably on both platforms. Renderer-initiated
+ * `window.location.reload()` is silently dropped in the Electron `app://` shell,
+ * so on desktop we reload via the main-process IPC; the browser uses the normal
+ * `location.reload()`. Use this instead of `window.location.reload()` anywhere a
+ * reload must also work in the desktop build (reconnect, sign-out, change-server).
+ */
+export function reloadApp(): void {
+  if (isDesktop()) void desktop().reload();
+  else window.location.reload();
+}
+
+/**
  * The configured server origin for the desktop build, held synchronously so the
  * `window.location`-shaped origin functions in `room.ts` can stay synchronous.
  * The desktop screens flow (T3.x/T4.2) reads the async `getServerUrl()` IPC and

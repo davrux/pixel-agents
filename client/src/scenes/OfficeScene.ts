@@ -45,7 +45,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
-import { isDesktop, desktop } from '../desktop/bridge.js';
+import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { showSignInScreen } from '../screens/signin.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { findCommand, mayRunCommand, commandsForGroup, KICK_CLOSE_CODE } from '@pixel/shared/commands';
@@ -567,7 +567,7 @@ export class OfficeScene extends Phaser.Scene {
     setStatus('session expired — signing in…');
     await desktop().clearToken();
     await showSignInScreen();
-    window.location.reload();
+    reloadApp();
   }
 
   // ── Colyseus schema → local render maps ──────────────────────────
@@ -2384,7 +2384,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     await desktop().clearToken();
     await desktop().clearServerUrl();
-    window.location.reload();
+    reloadApp();
   }
 
   /** Desktop sign-out (AC-008): revoke the server session via `POST /desktop/signout`
@@ -2408,7 +2408,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     await desktop().clearToken();
     await showSignInScreen();
-    window.location.reload();
+    reloadApp();
   }
 
   /** Render both avatar swatch rows: the viewer's own player avatar + the skin
@@ -2544,7 +2544,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     const poll = async (): Promise<void> => {
       if (await isServerUp()) {
-        window.location.reload();
+        reloadApp();
         return;
       }
       window.setTimeout(() => void poll(), 2000);
@@ -2578,18 +2578,16 @@ export class OfficeScene extends Phaser.Scene {
     } catch {
       /* storage unavailable */
     }
-    // Write the target zone into the URL, then reload to reconnect. Both
-    // assigning `window.location.search` and calling `location.reload()` are
-    // unreliable in the Electron (app://) shell — the renderer-initiated
-    // navigation is silently dropped, so the zone switch never happens. We set
-    // the URL via the history API (which does stick), then reload: on the
-    // desktop through a main-process IPC (renderer reloads are ignored there),
-    // and in the browser through the normal location.reload().
+    // Write the target zone into the URL, then reload to reconnect. Assigning
+    // `window.location.search` directly is unreliable in the Electron (app://)
+    // shell — the renderer-initiated navigation is silently dropped, so the zone
+    // switch never happens. We set the URL via the history API (which does
+    // stick), then reload via reloadApp() (main-process IPC on desktop, plain
+    // location.reload() in the browser).
     const url = new URL(window.location.href);
     url.searchParams.set('zone', zone);
     history.replaceState(null, '', url.href);
-    if (isDesktop()) void desktop().reload();
-    else window.location.reload();
+    reloadApp();
   }
 
   /** Render one avatar swatch row (random + each palette's front standing frame),
