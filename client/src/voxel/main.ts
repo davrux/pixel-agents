@@ -7,8 +7,9 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
+import { CHUNK, chunkKey, toChunk } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
-import { buildMesh } from './mesher.js';
+import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES } from './blocks.js';
 import { type Item, ALL_ITEMS, TOOL_ITEMS, itemById, DEFAULT_HOTBAR } from './items.js';
@@ -42,40 +43,145 @@ scene.background = new THREE.Color(0x8fc7ff);
 // Fog gives depth; all modes are perspective now (iso is a perspective 3/4 view).
 const perspFog = new THREE.Fog(0x8fc7ff, 24, 120);
 
-// World + mesh
+// World + per-chunk meshes. Chunks are streamed from the server (or the offline
+// fallback); each loaded chunk is its own mesh under terrainGroup so an edit only
+// rebuilds the affected chunk. Boundary faces are re-culled by remeshing loaded
+// neighbours. A dirty-set is flushed (capped) each frame to smooth the join burst.
 const world = new VoxelWorld();
-world.generate();
-// Textured cubes: the atlas gives the hue (baunilha 16px tiles), vertex colours
-// carry face shade × ambient occlusion, alphaTest cuts out transparent leaves.
 const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
-let terrain: THREE.Mesh | null = null;
 let atlas: Atlas | null = null;
-function rebuild(): void {
-  if (!atlas) return;
-  const geo = buildMesh(world, atlas);
-  if (terrain) {
-    terrain.geometry.dispose();
-    terrain.geometry = geo;
+const terrainGroup = new THREE.Group();
+scene.add(terrainGroup);
+const chunkMeshes = new Map<string, THREE.Mesh>();
+const dirty = new Set<string>();
+const NEIGHBORS = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
+function markDirty(cx: number, cy: number, cz: number): void {
+  dirty.add(chunkKey(cx, cy, cz));
+  for (const [dx, dy, dz] of NEIGHBORS) if (world.hasChunk(cx + dx, cy + dy, cz + dz)) dirty.add(chunkKey(cx + dx, cy + dy, cz + dz));
+}
+function remeshChunk(cx: number, cy: number, cz: number): void {
+  const key = chunkKey(cx, cy, cz);
+  const existing = chunkMeshes.get(key);
+  const geo = atlas ? buildChunkMesh(world, atlas, cx, cy, cz) : null;
+  if (!geo) {
+    if (existing) {
+      terrainGroup.remove(existing);
+      existing.geometry.dispose();
+      chunkMeshes.delete(key);
+    }
+    return;
+  }
+  if (existing) {
+    existing.geometry.dispose();
+    existing.geometry = geo;
   } else {
-    terrain = new THREE.Mesh(geo, material);
-    scene.add(terrain);
+    const m = new THREE.Mesh(geo, material);
+    chunkMeshes.set(key, m);
+    terrainGroup.add(m);
   }
 }
-// Load the block atlas, then build the terrain (physics runs meanwhile — it uses
-// the voxel data, not the mesh, so the world is walkable before textures land).
+/** Remesh up to `cap` dirty chunks per frame (rest wait for the next frame). */
+function flushDirty(cap = 12): void {
+  if (!atlas || dirty.size === 0) return;
+  let n = 0;
+  for (const key of dirty) {
+    const [cx, cy, cz] = key.split(',').map(Number);
+    remeshChunk(cx, cy, cz);
+    dirty.delete(key);
+    if (++n >= cap) break;
+  }
+}
 void loadBlockAtlas(BLOCK_TEXTURES).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
-  rebuild();
+  for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
 });
 
-// Player + a simple blocky avatar (hidden in first person)
+// Player + avatar. Spawn comes from the server 'welcome' (or the offline
+// fallback); physics is gated until the ground chunk under the feet has loaded.
 const player = new Player(world);
-player.spawnOnColumn(Math.floor(world.sx / 2), Math.floor(world.sz / 2));
 player.yaw = -Math.PI / 4; // face into the iso view by default
+let spawn = { x: 0.5, y: 24, z: 0.5 };
+let ready = false; // don't simulate/fall until the spawn column is loaded
 const avatar = new Avatar();
 scene.add(avatar.group);
+
+// ── Networking: server chunks + authoritative edits + remote players ──────────
+interface RemotePlayer {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  skin: string;
+}
+interface RemoteState {
+  players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
+}
+const remote = new Map<string, { avatar: Avatar; px: number; pz: number }>();
+
+function onWelcome(m: unknown): void {
+  const w = m as { spawn?: { x: number; y: number; z: number } };
+  if (w.spawn) {
+    spawn = w.spawn;
+    ready = false; // re-gate until the new spawn column is loaded
+  }
+}
+function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
+  world.setChunk(c.cx, c.cy, c.cz, c.cells);
+  markDirty(c.cx, c.cy, c.cz);
+}
+function onUnload(cx: number, cy: number, cz: number): void {
+  world.dropChunk(cx, cy, cz);
+  const key = chunkKey(cx, cy, cz);
+  const mesh = chunkMeshes.get(key);
+  if (mesh) {
+    terrainGroup.remove(mesh);
+    mesh.geometry.dispose();
+    chunkMeshes.delete(key);
+  }
+  dirty.delete(key);
+}
+function onServerEdit(e: { x: number; y: number; z: number; id: number }): void {
+  world.set(e.x, e.y, e.z, e.id);
+  markDirty(toChunk(e.x), toChunk(e.y), toChunk(e.z));
+}
+/** Reconcile remote-player avatars from the room state each frame. */
+function syncRemotePlayers(dt: number): void {
+  if (!net) return;
+  const state = net.room.state as unknown as RemoteState;
+  const mySid = net.sessionId;
+  state.players.forEach((p, sid) => {
+    if (sid === mySid) return;
+    let r = remote.get(sid);
+    if (!r) {
+      const a = new Avatar(p.skin || 'character_1');
+      scene.add(a.group);
+      r = { avatar: a, px: p.x, pz: p.z };
+      remote.set(sid, r);
+    }
+    const speed = Math.hypot(p.x - r.px, p.z - r.pz) / Math.max(dt, 0.001);
+    r.px = p.x;
+    r.pz = p.z;
+    r.avatar.group.position.set(p.x, p.y, p.z);
+    r.avatar.group.rotation.y = p.yaw;
+    r.avatar.animate(dt, speed, p.pitch);
+  });
+  for (const [sid, r] of remote) {
+    if (!state.players.get(sid)) {
+      scene.remove(r.avatar.group);
+      remote.delete(sid);
+    }
+  }
+}
 
 // Cameras
 const persp = new THREE.PerspectiveCamera(75, 1, 0.1, 500);
@@ -136,10 +242,10 @@ function placeCamera(): void {
       sp = Math.sin(pitch);
     const dir = new THREE.Vector3(Math.sin(yaw) * cp, sp, Math.cos(yaw) * cp); // eye → camera
     let dist = mode === 'iso' ? isoDist : thirdDist;
-    if (settings.camCollide && terrain) {
+    if (settings.camCollide && terrainGroup.children.length) {
       camRay.set(eye, dir);
       camRay.far = dist;
-      const hit = camRay.intersectObject(terrain, false)[0];
+      const hit = camRay.intersectObjects(terrainGroup.children, false)[0];
       if (hit) dist = Math.max(0.5, hit.distance - 0.25);
     }
     persp.position.copy(eye).addScaledVector(dir, dist);
@@ -238,9 +344,8 @@ canvas.addEventListener('wheel', (e) => {
 
 /** Raycast the ground under the cursor → an auto-walk destination (iso click). */
 function clickToMove(p: THREE.Vector2): void {
-  if (!terrain) return;
   raycaster.setFromCamera(p, activeCam());
-  const hits = raycaster.intersectObject(terrain, false);
+  const hits = raycaster.intersectObjects(terrainGroup.children, false);
   if (!hits.length) return;
   const hit = hits[0].point.clone().addScaledVector(hits[0].face?.normal ?? new THREE.Vector3(0, 1, 0), -0.5);
   moveTarget = new THREE.Vector3(Math.floor(hit.x) + 0.5, 0, Math.floor(hit.z) + 0.5);
@@ -302,9 +407,8 @@ let breaking: { x: number; y: number; z: number; t: number; dur: number } | null
 
 /** First hit of the aim ray, if within reach — or null. */
 function aimHit(): THREE.Intersection | null {
-  if (!terrain) return null;
   raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
-  const hits = raycaster.intersectObject(terrain, false);
+  const hits = raycaster.intersectObjects(terrainGroup.children, false);
   if (!hits.length || hits[0].point.distanceTo(player.eye) > REACH) return null;
   return hits[0];
 }
@@ -321,10 +425,13 @@ function placeBlock(): void {
     by = Math.floor(p.y),
     bz = Math.floor(p.z);
   // Don't place inside yourself — that would embed the AABB and lock movement.
-  if (!world.solid(bx, by, bz) && !player.intersectsBlock(bx, by, bz)) {
+  if (world.solid(bx, by, bz) || player.intersectsBlock(bx, by, bz)) return;
+  avatar.playDig();
+  if (net) {
+    net.sendEdit(bx, by, bz, block); // authoritative — applied when the server echoes
+  } else {
     world.set(bx, by, bz, block);
-    rebuild();
-    avatar.playDig();
+    markDirty(toChunk(bx), toChunk(by), toChunk(bz));
   }
 }
 
@@ -361,8 +468,12 @@ function updateBreaking(dt: number, want: boolean): void {
     mat.needsUpdate = true;
   }
   if (breaking.t >= breaking.dur) {
-    world.set(tgt.x, tgt.y, tgt.z, 0);
-    rebuild();
+    if (net) {
+      net.sendEdit(tgt.x, tgt.y, tgt.z, 0); // authoritative break — server confirms
+    } else {
+      world.set(tgt.x, tgt.y, tgt.z, 0);
+      markDirty(toChunk(tgt.x), toChunk(tgt.y), toChunk(tgt.z));
+    }
     breaking = null;
     breakOverlay.visible = false;
     avatar.setMining(false);
@@ -640,15 +751,37 @@ function applyServerSettings(s: unknown): void {
   }
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
-void connectVoxel('default', { onSettings: applyServerSettings }).then((n) => {
+void connectVoxel('default', {
+  onSettings: applyServerSettings,
+  onWelcome,
+  onChunk,
+  onUnload,
+  onEdit: onServerEdit,
+}).then((n) => {
   net = n;
+  if (!net) {
+    // Offline dev (no server): generate a small local region so the page isn't
+    // empty; edits apply locally. Online, chunks + spawn come from the server.
+    world.generateLocalFallback();
+    for (const key of world.keys()) dirty.add(key);
+    spawn = { x: 0.5, y: world.columnTop(0, 0) + 1, z: 0.5 };
+    ready = false;
+  }
 });
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
+let lastMoveSent = 0;
 function frame(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  flushDirty(); // (re)mesh a few dirty chunks per frame
+  // Hold physics until the spawn column has streamed in, then drop the player on it.
+  if (!ready && world.hasChunk(toChunk(spawn.x), toChunk(spawn.y - 1), toChunk(spawn.z))) {
+    player.pos.set(spawn.x, spawn.y, spawn.z);
+    player.vel.set(0, 0, 0);
+    ready = true;
+  }
   const busy = menuOpen(); // don't move while a menu is open
   const w = !busy && (keys.has('KeyW') || keys.has('ArrowUp'));
   const s = !busy && (keys.has('KeyS') || keys.has('ArrowDown'));
@@ -677,11 +810,17 @@ function frame(now: number): void {
     if (mode === 'third') player.yaw = camYaw; // face away from the orbiting camera
     input = { forward: w, back: s, left: a, right: d, jump };
   }
-  player.update(dt, input);
-  const wantBreak = !busy && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
+  if (ready) player.update(dt, input);
+  const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   updateWield();
   avatar.animate(dt, player.speed2d, player.pitch);
+  // Report our transform to the server (throttled) so AOI + other players update.
+  if (net && ready && now - lastMoveSent > 100) {
+    lastMoveSent = now;
+    net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, player.speed2d > 0.4 ? 'walk' : 'idle');
+  }
+  syncRemotePlayers(dt);
   placeCamera();
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);

@@ -7,19 +7,32 @@
  * null and the caller keeps its local (localStorage) settings.
  */
 import { Client, type Room } from 'colyseus.js';
-import { VOXEL_ROOM } from '@pixel/shared';
+import { VOXEL_ROOM, unpackChunk, type UnpackedChunk } from '@pixel/shared';
 
 import { getServerHttpOrigin, isAuthError, redirectToLogin } from '../net/room';
 import { isDesktop, desktop } from '../desktop/bridge';
 
+export interface EditMsg {
+  x: number;
+  y: number;
+  z: number;
+  id: number;
+}
+
 export interface VoxelNet {
   room: Room;
+  sessionId: string;
   saveSettings(obj: unknown): void;
+  sendEdit(x: number, y: number, z: number, id: number): void;
+  sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
 }
 
 export interface VoxelHandlers {
   onWelcome?: (m: unknown) => void;
   onSettings?: (s: unknown) => void;
+  onChunk?: (c: UnpackedChunk) => void;
+  onUnload?: (cx: number, cy: number, cz: number) => void;
+  onEdit?: (e: EditMsg) => void;
 }
 
 export async function connectVoxel(world: string, handlers: VoxelHandlers): Promise<VoxelNet | null> {
@@ -43,13 +56,14 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers): Prom
   console.info('[voxel] connected to world', world, 'as', room.sessionId);
   if (handlers.onWelcome) room.onMessage('welcome', handlers.onWelcome);
   if (handlers.onSettings) room.onMessage('settings', handlers.onSettings);
-  // Chunk/edit/player streams arrive already; ignore them until the client world
-  // is chunk-based (keeps colyseus.js from warning about unhandled types).
-  room.onMessage('c', () => {});
-  room.onMessage('u', () => {});
-  room.onMessage('edit', () => {});
+  room.onMessage('c', (bytes: ArrayBuffer | Uint8Array) => handlers.onChunk?.(unpackChunk(bytes)));
+  room.onMessage('u', (m: { cx: number; cy: number; cz: number }) => handlers.onUnload?.(m.cx, m.cy, m.cz));
+  room.onMessage('edit', (m: EditMsg) => handlers.onEdit?.(m));
   return {
     room,
+    sessionId: room.sessionId,
     saveSettings: (obj: unknown) => room.send('saveSettings', obj),
+    sendEdit: (x, y, z, id) => room.send('edit', { x, y, z, id }),
+    sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
   };
 }

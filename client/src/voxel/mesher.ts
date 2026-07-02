@@ -6,6 +6,7 @@
  * Minecraft look. Rebuilt whole on edit; fine for the single spike region.
  */
 import * as THREE from 'three';
+import { CHUNK } from '@pixel/shared';
 import { BLOCKS, SHADE } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
@@ -28,15 +29,20 @@ const FACES: Face[] = [
 ];
 const AO = [0.5, 0.7, 0.85, 1.0]; // occlusion level 0 (deep) → 3 (open)
 
-export function buildMesh(world: VoxelWorld, atlas: Atlas): THREE.BufferGeometry {
+/** Build the geometry for one chunk (world coords), neighbour-culled across
+ *  chunk boundaries via world.get. Returns null if the chunk has no faces. */
+export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: number, cz: number): THREE.BufferGeometry | null {
   const pos: number[] = [];
   const col: number[] = [];
   const uvs: number[] = [];
   const s = (x: number, y: number, z: number): number => (world.solid(x, y, z) ? 1 : 0);
+  const x0 = cx * CHUNK,
+    y0 = cy * CHUNK,
+    z0 = cz * CHUNK;
 
-  for (let x = 0; x < world.sx; x++) {
-    for (let y = 0; y < world.sy; y++) {
-      for (let z = 0; z < world.sz; z++) {
+  for (let x = x0; x < x0 + CHUNK; x++) {
+    for (let y = y0; y < y0 + CHUNK; y++) {
+      for (let z = z0; z < z0 + CHUNK; z++) {
         const id = world.get(x, y, z);
         if (id === 0) continue;
         const def = BLOCKS[id] ?? BLOCKS[3];
@@ -72,6 +78,7 @@ export function buildMesh(world: VoxelWorld, atlas: Atlas): THREE.BufferGeometry
       }
     }
   }
+  if (pos.length === 0) return null; // empty chunk (all air / fully hidden)
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));

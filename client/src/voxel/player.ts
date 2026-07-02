@@ -45,9 +45,8 @@ export class Player {
     for (let xi = x0; xi <= x1; xi++)
       for (let yi = y0; yi <= y1; yi++)
         for (let zi = z0; zi <= z1; zi++) {
-          // World edges are invisible walls and y<0 is bedrock — you can never
-          // fall off the world (interior holes still work; the sky stays open).
-          if (xi < 0 || xi >= this.world.sx || zi < 0 || zi >= this.world.sz || yi < 0) return true;
+          // Infinite streamed world: collision is purely against loaded solid
+          // blocks (the server fills bedrock below, so there's ground to stand on).
           if (this.world.solid(xi, yi, zi)) return true;
         }
     return false;
