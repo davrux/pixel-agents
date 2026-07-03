@@ -769,6 +769,7 @@ const inventory = new Inventory({
       .filter(([, c]) => c > 0)
       .sort((a, b) => a[0] - b[0])
       .map(([block, count]) => ({ block, count })),
+  creative: () => settings.creative,
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
   // drag palette items straight onto the real bar (not just the mirrored rows). Also
   // free the mouse in first person (to drag), and re-capture it on close.
@@ -1292,6 +1293,7 @@ creativeCb.onchange = () => {
   settings.creative = creativeCb.checked;
   net?.setCreative(settings.creative); // server skips stack consumption while creative
   updateHud(); // ∞ vs counts
+  if (inventory.isOpen()) inventory.render(); // full palette vs owned-only
   saveSettings();
 };
 

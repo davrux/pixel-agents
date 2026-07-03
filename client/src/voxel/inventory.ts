@@ -21,6 +21,8 @@ export interface InventoryDeps {
   palette: { tools: Item[]; blocks: Item[]; armor: Item[] };
   /** Collected stacks (block id → count) from the survival inventory, count>0. */
   collected: () => { block: number; count: number }[];
+  /** Creative mode → show the whole block palette (unlimited); else only owned blocks. */
+  creative: () => boolean;
   onOpen?: () => void; // e.g. raise the live hotbar above the panel so you can drop onto it
   onClose?: () => void;
 }
@@ -196,26 +198,9 @@ export class Inventory {
       ar.appendChild(cell);
     }
 
-    // Collected stacks (survival backpack) — what you've dug/crafted, with counts.
-    // Drag a stack onto the block hotbar track to make it your active build block.
-    heading('Collected');
-    const collected = this.deps.collected();
-    if (!collected.length) {
-      const e = document.createElement('div');
-      e.className = 'empty';
-      e.textContent = 'Nothing yet — dig blocks to collect them.';
-      b.appendChild(e);
-    } else {
-      const cg = document.createElement('div');
-      cg.className = 'grid';
-      for (const { block, count } of collected) cg.appendChild(this.cell(this.deps.item('block:' + block), { count }));
-      b.appendChild(cg);
-    }
-
     // (The hotbar is no longer mirrored here — drag palette items straight onto the
     //  real bottom hotbar, which is a drop target while this panel is open.)
 
-    // Palette grids.
     const grid = (title: string, items: Item[]): void => {
       heading(title);
       const g = document.createElement('div');
@@ -223,8 +208,28 @@ export class Inventory {
       for (const it of items) g.appendChild(this.cell(it, {}));
       b.appendChild(g);
     };
+
+    // Blocks — like the original: the stack count sits ON each block cell. In survival
+    // you only see the blocks you actually hold (dug/crafted); in creative the whole
+    // palette is shown (unlimited, no counts). Drag one onto the block hotbar track.
+    const creative = this.deps.creative();
+    const owned = new Map(this.deps.collected().map((c) => [c.block, c.count]));
+    heading('Blocks');
+    const bg = document.createElement('div');
+    bg.className = 'grid';
+    const blockList = creative ? this.deps.palette.blocks : this.deps.palette.blocks.filter((it) => (owned.get(it.block ?? -1) ?? 0) > 0);
+    if (!blockList.length) {
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'No blocks yet — dig some to collect them.';
+      b.appendChild(e);
+    } else {
+      for (const it of blockList) bg.appendChild(this.cell(it, { count: owned.get(it.block ?? -1) || undefined }));
+      b.appendChild(bg);
+    }
+
+    // Tools + armour palettes (always available — tools aren't collected yet).
     grid('Tools', this.deps.palette.tools);
-    grid('Blocks', this.deps.palette.blocks);
     grid('Armour', this.deps.palette.armor);
   }
 }
