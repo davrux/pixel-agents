@@ -32,6 +32,11 @@ export class VoxelWorld {
     const c = this.chunks.get(chunkKey(toChunk(x), toChunk(y), toChunk(z)));
     return c ? c[cellIndex(toLocal(x), toLocal(y), toLocal(z))] : AIR;
   }
+  /** Raw cells of a chunk (or null) — for hot loops (mesher/portal scan) that would
+   *  otherwise do thousands of keyed get() calls with per-call string allocation. */
+  rawChunk(cx: number, cy: number, cz: number): Uint8Array | null {
+    return this.chunks.get(chunkKey(cx, cy, cz)) ?? null;
+  }
   /** Set a block — only within a loaded chunk (edits target loaded space). */
   set(x: number, y: number, z: number, id: number): void {
     const c = this.chunks.get(chunkKey(toChunk(x), toChunk(y), toChunk(z)));

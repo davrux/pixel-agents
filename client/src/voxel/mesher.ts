@@ -43,37 +43,51 @@ const AO = [0.5, 0.7, 0.85, 1.0]; // occlusion level 0 (deep) → 3 (open)
 export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: number, cz: number): ChunkGeom {
   const opq = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
   const wat = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
+  const x0 = cx * CHUNK,
+    y0 = cy * CHUNK,
+    z0 = cz * CHUNK;
+  // Fast cell read: the meshed chunk's own cells array for in-chunk coords (no per-call
+  // string key + Map lookup), world.get only for the 1-cell border. This is the hot
+  // path — thousands of reads per chunk — so it matters a lot for movement smoothness.
+  const own = world.rawChunk(cx, cy, cz);
+  const cellAt = (x: number, y: number, z: number): number => {
+    const lx = x - x0,
+      ly = y - y0,
+      lz = z - z0;
+    if (own && lx >= 0 && lx < CHUNK && ly >= 0 && ly < CHUNK && lz >= 0 && lz < CHUNK) return own[lx + CHUNK * (lz + CHUNK * ly)];
+    return world.get(x, y, z);
+  };
   // AO samples opaque occluders only (water casts none).
-  const s = (x: number, y: number, z: number): number => (world.solid(x, y, z) ? 1 : 0);
+  const s = (x: number, y: number, z: number): number => {
+    const id = cellAt(x, y, z);
+    return id !== AIR && !isWaterId(id) ? 1 : 0;
+  };
   // Opaque occluder = solid, not water, not a transparent block (glass/ice/leaves/portal).
   const occludes = (x: number, y: number, z: number): boolean => {
-    const nid = world.get(x, y, z);
+    const nid = cellAt(x, y, z);
     return nid !== AIR && !isWaterId(nid) && !TRANSPARENT.has(nid);
   };
   // Surface height of a water cell (1 if submerged/source), or -1 if not water.
   const waterTop = (x: number, y: number, z: number): number => {
-    const wid = world.get(x, y, z);
+    const wid = cellAt(x, y, z);
     if (!isWaterId(wid)) return -1;
-    return isWaterId(world.get(x, y + 1, z)) ? 1 : 1 - (waterLevel(wid) / 8) * 0.82;
+    return isWaterId(cellAt(x, y + 1, z)) ? 1 : 1 - (waterLevel(wid) / 8) * 0.82;
   };
-  const x0 = cx * CHUNK,
-    y0 = cy * CHUNK,
-    z0 = cz * CHUNK;
 
   for (let x = x0; x < x0 + CHUNK; x++) {
     for (let y = y0; y < y0 + CHUNK; y++) {
       for (let z = z0; z < z0 + CHUNK; z++) {
-        const id = world.get(x, y, z);
+        const id = cellAt(x, y, z);
         if (id === AIR) continue;
         const isWater = isWaterId(id);
         const transparent = TRANSPARENT.has(id);
         const def = isWater ? BLOCKS[WATER_ID] : BLOCKS[id] ?? BLOCKS[3];
         const buf = isWater ? wat : opq;
         // Flowing water sits lower by its level; a submerged cell (water above) is full.
-        const topY = isWater && !isWaterId(world.get(x, y + 1, z)) ? 1 - (waterLevel(id) / 8) * 0.82 : 1;
+        const topY = isWater && !isWaterId(cellAt(x, y + 1, z)) ? 1 - (waterLevel(id) / 8) * 0.82 : 1;
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
-          const nid = world.get(x + nx, y + ny, z + nz);
+          const nid = cellAt(x + nx, y + ny, z + nz);
           // Cull. Water: top hidden under water; bottom shown only vs air; a SIDE is
           // hidden only if the neighbour water's surface is at least as high (else the
           // step between differing levels shows — no cracks). Transparent: hidden vs

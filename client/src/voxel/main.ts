@@ -154,9 +154,7 @@ function makePortalGlow(x: number, y: number, z: number): THREE.Object3D {
 }
 /** Reconcile portal glows for one chunk: drop this chunk's glows, re-add for id-28. */
 function refreshPortalGlow(cx: number, cy: number, cz: number): void {
-  const x0 = cx * CHUNK,
-    y0 = cy * CHUNK,
-    z0 = cz * CHUNK;
+  // Drop this chunk's existing glows (usually none → trivial).
   for (const [key, node] of portalGlows) {
     const [px, py, pz] = key.split(',').map(Number);
     if (toChunk(px) === cx && toChunk(py) === cy && toChunk(pz) === cz) {
@@ -164,18 +162,30 @@ function refreshPortalGlow(cx: number, cy: number, cz: number): void {
       portalGlows.delete(key);
     }
   }
-  for (let x = x0; x < x0 + CHUNK; x++)
-    for (let y = y0; y < y0 + CHUNK; y++)
-      for (let z = z0; z < z0 + CHUNK; z++)
-        if (world.get(x, y, z) === PORTAL_ID) {
-          const key = `${x},${y},${z}`;
-          const node = makePortalGlow(x, y, z);
-          portalGlows.set(key, node);
-          portalGlowGroup.add(node);
-        }
+  // Scan the raw cells array (fast) with an early reject — portals are rare, so most
+  // remeshes bail after one linear pass instead of 4096 keyed world.get calls.
+  const cells = world.rawChunk(cx, cy, cz);
+  if (!cells || !cells.includes(PORTAL_ID)) return;
+  const x0 = cx * CHUNK,
+    y0 = cy * CHUNK,
+    z0 = cz * CHUNK;
+  const AREA = CHUNK * CHUNK;
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] !== PORTAL_ID) continue;
+    const ly = (i / AREA) | 0,
+      rem = i % AREA,
+      lz = (rem / CHUNK) | 0,
+      lx = rem % CHUNK;
+    const x = x0 + lx,
+      y = y0 + ly,
+      z = z0 + lz;
+    const node = makePortalGlow(x, y, z);
+    portalGlows.set(`${x},${y},${z}`, node);
+    portalGlowGroup.add(node);
+  }
 }
 /** Remesh up to `cap` dirty chunks per frame (rest wait for the next frame). */
-function flushDirty(cap = 12): void {
+function flushDirty(cap = 6): void {
   if (!atlas || dirty.size === 0) return;
   let n = 0;
   for (const key of dirty) {
@@ -490,11 +500,18 @@ const MAP_COLORS: Record<number, number> = {
   28: 0x8fe9ff, // portal
 };
 function columnColor(x: number, z: number): number | null {
-  for (let y = 100; y >= -4; y--) {
-    const id = world.get(x, y, z);
-    if (id === 0) continue;
-    if (isWaterId(id)) return 0x3a6ea5;
-    return MAP_COLORS[id] ?? 0x777777;
+  // Scan only LOADED chunks top-down via their raw cells (a null chunk skips a whole
+  // 16-cell band with one Map lookup) — far cheaper than 100+ keyed world.get/column.
+  const lx = ((x % CHUNK) + CHUNK) % CHUNK,
+    lz = ((z % CHUNK) + CHUNK) % CHUNK;
+  for (let cy = 6; cy >= -1; cy--) {
+    const cells = world.rawChunk(toChunk(x), cy, toChunk(z));
+    if (!cells) continue;
+    for (let ly = CHUNK - 1; ly >= 0; ly--) {
+      const id = cells[lx + CHUNK * (lz + CHUNK * ly)];
+      if (id === 0) continue;
+      return isWaterId(id) ? 0x3a6ea5 : MAP_COLORS[id] ?? 0x777777;
+    }
   }
   return null;
 }
@@ -1378,6 +1395,8 @@ document.getElementById('settings-logout')!.onclick = gotoLogout;
 
 rebuildWorldSelect();
 void connectWorld('default');
+
+
 
 
 
