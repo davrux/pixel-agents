@@ -28,7 +28,7 @@ export class VoxelServerWorld {
     let cells = this.cache.get(key);
     if (cells) return cells;
     const saved = this.store.get(cx, cy, cz);
-    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed, this.worldId === 'default');
+    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed, true); // every world spawns beside a lake
     this.cache.set(key, cells);
     return cells;
   }
