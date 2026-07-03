@@ -81,7 +81,7 @@ const MOB_ATTACK_CD = 1.0; // seconds between a monster's hits
 const RUNAWAY_TIME = 4; // seconds an animal flees after being hit
 const LAVA_TICK = 0.5; // seconds between lava burn ticks
 const LAVA_DMG = 4; // damage per lava tick to a player standing in lava
-const OBSIDIAN = 16; // lava SOURCE cooled by water (Luanti default cool_lava)
+const OBSIDIAN = 15; // lava SOURCE cooled by water (Luanti default cool_lava) — solid obsidian, not obsidian-glass (16)
 const STONE = 3; // flowing lava cooled by water
 
 interface NpcBrain {
