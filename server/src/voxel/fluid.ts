@@ -80,16 +80,37 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
     }
   }
 
-  // Diff the INNER box: air/flow cells become the computed level; unreached flow
-  // recedes to air. Sources and solids are never touched.
+  // Source flood ("the lake grows"): from every source, claim horizontally-connected
+  // water on a solid/water floor (not falling) at the SAME level as full source. So a
+  // dug basin/channel beside a lake fills with flat, full water — part of the lake —
+  // instead of stepped flowing water. Falling water (air below) stays flowing.
+  const srcQ: string[] = [];
+  for (const [k, lv] of level) if (lv === 0) srcQ.push(k);
+  const claimed = new Set(srcQ);
+  while (srcQ.length) {
+    const [x, y, z] = srcQ.pop()!.split(',').map(Number);
+    for (const [dx, dz] of HORIZ) {
+      const nk = key(x + dx, y, z + dz);
+      if (claimed.has(nk)) continue;
+      const nlv = level.get(nk);
+      if (nlv === undefined || nlv < 1) continue; // only flowing cells become source
+      if (w.getBlock(x + dx, y - 1, z + dz) === 0) continue; // falling → keep flowing
+      level.set(nk, 0);
+      claimed.add(nk);
+      srcQ.push(nk);
+    }
+  }
+
+  // Diff the INNER box: promoted cells → source (full), flow cells → their level,
+  // unreached flow → air. Existing sources and solids are never touched.
   const changes: Cell[] = [];
   for (let y = y0; y <= y1; y++)
     for (let z = z0; z <= z1; z++)
       for (let x = x0; x <= x1; x++) {
         const cur = w.getBlock(x, y, z);
         if (cur === WATER_SOURCE || isSolid(cur)) continue; // fixed
-        const lv = level.get(key(x, y, z));
-        const want = lv !== undefined && lv >= 1 && inInner(x, y, z) ? flowId(lv) : 0;
+        const lv = inInner(x, y, z) ? level.get(key(x, y, z)) : undefined;
+        const want = lv === undefined ? 0 : lv === 0 ? WATER_SOURCE : flowId(lv);
         if (want !== cur) changes.push({ x, y, z, id: want });
       }
   return changes;

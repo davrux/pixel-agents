@@ -171,6 +171,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
   for (let wz = baseZ - TREE_MARGIN; wz < baseZ + CHUNK + TREE_MARGIN; wz++) {
     for (let wx = baseX - TREE_MARGIN; wx < baseX + CHUNK + TREE_MARGIN; wx++) {
       if (hash2(wx, wz, seed + 991) >= 0.02) continue; // ~2% of columns
+      if (spawnLake && Math.hypot(wx, wz) < 6) continue; // keep the spawn clear (no tree to spawn on)
       const h = surfaceHeight(wx, wz, seed, spawnLake);
       if (h <= SEA) continue; // no trees in water/shore
       writeTree(cells, wx, wz, h, seed, baseX, baseY, baseZ);
