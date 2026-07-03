@@ -18,9 +18,11 @@ import {
   toChunk,
   chunkKey,
   packChunk,
+  isWaterId,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
+import { settleAround } from '../voxel/fluid.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore } from '../userStore.js';
@@ -463,7 +465,30 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
     if (!this.world.setBlock(x, y, z, id)) return; // no change
-    // Broadcast to everyone who has that chunk loaded.
+    this.broadcastEdit(x, y, z, id);
+    // Water flow: if this edit touches water, recompute the local pool to equilibrium
+    // (pours in / floods / recedes) and broadcast every resulting cell change.
+    const touchesWater =
+      isWaterId(this.world.getBlock(x, y, z)) ||
+      [
+        [1, 0, 0],
+        [-1, 0, 0],
+        [0, 1, 0],
+        [0, -1, 0],
+        [0, 0, 1],
+        [0, 0, -1],
+      ].some(([a, b, c]) => isWaterId(this.world.getBlock(x + a, y + b, z + c)));
+    if (touchesWater) {
+      const changes = settleAround(this.world, x, y, z);
+      if (changes.length) {
+        this.world.setBlocks(changes);
+        for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+      }
+    }
+  }
+
+  /** Send a block change to everyone who has that chunk loaded. */
+  private broadcastEdit(x: number, y: number, z: number, id: number): void {
     const key = chunkKey(toChunk(x), toChunk(y), toChunk(z));
     for (const c of this.clients) {
       if (this.views.get(c.sessionId)?.sent.has(key)) c.send('edit', { x, y, z, id });

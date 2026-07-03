@@ -5,7 +5,7 @@
  * down one block). Bounded by maxNodes so a blocked/foolish goal can't stall the
  * tick. Returns the list of cells from just-after-start to the goal, or null.
  */
-import { WATER } from './gen.js';
+import { isWaterId } from '@pixel/shared';
 
 interface Vec {
   x: number;
@@ -19,7 +19,7 @@ interface Grid {
 /** A cell you can stand in: ground (solid, not water) below + body space clear. */
 function standable(w: Grid, x: number, y: number, z: number): boolean {
   const below = w.getBlock(x, y - 1, z);
-  if (below === 0 || below === WATER) return false; // need solid, dry ground
+  if (below === 0 || isWaterId(below)) return false; // need solid, dry ground
   return w.getBlock(x, y, z) === 0 && w.getBlock(x, y + 1, z) === 0; // body clear
 }
 

@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -473,7 +473,9 @@ const MAP_COLORS: Record<number, number> = {
 function columnColor(x: number, z: number): number | null {
   for (let y = 100; y >= -4; y--) {
     const id = world.get(x, y, z);
-    if (id !== 0) return MAP_COLORS[id] ?? 0x777777;
+    if (id === 0) continue;
+    if (isWaterId(id)) return 0x3a6ea5;
+    return MAP_COLORS[id] ?? 0x777777;
   }
   return null;
 }

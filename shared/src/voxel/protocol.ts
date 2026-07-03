@@ -16,6 +16,22 @@
 
 export const VOXEL_ROOM = 'voxel';
 
+// ── Water / fluid ids (shared so server sim + client render agree) ───────────
+// A full "source" block (id 27, lakes/seas) plus 7 "flowing" levels (ids 40..46,
+// level 1 = highest/near source .. level 7 = thinnest/farthest). The server's
+// fluid sim spreads flowing water from sources; the client renders each level at a
+// lower surface height. Level 0 = source/falling (full height).
+export const WATER_SOURCE = 27;
+export const WATER_FLOW_MIN = 40; // level 1
+export const WATER_FLOW_MAX = 46; // level 7
+export const WATER_MAX_LEVEL = 7;
+
+export const isWaterId = (id: number): boolean => id === WATER_SOURCE || (id >= WATER_FLOW_MIN && id <= WATER_FLOW_MAX);
+/** 0 for a source/full block, 1..7 for flowing levels. */
+export const waterLevel = (id: number): number => (id === WATER_SOURCE ? 0 : id >= WATER_FLOW_MIN && id <= WATER_FLOW_MAX ? id - WATER_FLOW_MIN + 1 : 0);
+/** Block id for a flowing-water level (1..7); level ≤0 → source. */
+export const flowId = (level: number): number => (level <= 0 ? WATER_SOURCE : WATER_FLOW_MIN + Math.min(WATER_MAX_LEVEL, level) - 1);
+
 export const CHUNK = 16; // chunk edge; a chunk is CHUNK^3 block ids
 export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
 

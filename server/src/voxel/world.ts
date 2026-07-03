@@ -5,7 +5,7 @@
  * only renders streamed chunks and asks the server to place/break; the server
  * validates, mutates here, persists, and broadcasts.
  */
-import { CHUNK, cellIndex, chunkKey, encodeCells, decodeCells, toChunk, toLocal } from '@pixel/shared';
+import { CHUNK, cellIndex, chunkKey, encodeCells, decodeCells, toChunk, toLocal, isWaterId } from '@pixel/shared';
 
 import { ChunkStore } from './chunkStore.js';
 import { generateChunk } from './gen.js';
@@ -38,6 +38,24 @@ export class VoxelServerWorld {
     return cells[cellIndex(toLocal(x), toLocal(y), toLocal(z))];
   }
 
+  /** Apply many block changes at once, persisting each affected chunk exactly once
+   *  (used by the fluid sim, which touches lots of cells across a few chunks). */
+  setBlocks(changes: { x: number; y: number; z: number; id: number }[]): void {
+    const affected = new Set<string>();
+    for (const c of changes) {
+      const cx = toChunk(c.x),
+        cy = toChunk(c.y),
+        cz = toChunk(c.z);
+      const cells = this.chunk(cx, cy, cz);
+      cells[cellIndex(toLocal(c.x), toLocal(c.y), toLocal(c.z))] = c.id;
+      affected.add(chunkKey(cx, cy, cz));
+    }
+    for (const k of affected) {
+      const [cx, cy, cz] = k.split(',').map(Number);
+      this.store.set(cx, cy, cz, encodeCells(this.chunk(cx, cy, cz)));
+    }
+  }
+
   /** Set a block and persist the affected chunk. Returns false if unchanged. */
   setBlock(x: number, y: number, z: number, id: number): boolean {
     const cx = toChunk(x),
@@ -60,7 +78,7 @@ export class VoxelServerWorld {
   columnTop(x: number, z: number): number {
     for (let y = CHUNK * 4; y >= -CHUNK; y--) {
       const id = this.getBlock(x, y, z);
-      if (id !== 0 && id !== 27) return y;
+      if (id !== 0 && !isWaterId(id)) return y;
     }
     return 0;
   }

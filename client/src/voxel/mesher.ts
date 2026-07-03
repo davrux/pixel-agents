@@ -6,7 +6,7 @@
  * Minecraft look. Rebuilt whole on edit; fine for the single spike region.
  */
 import * as THREE from 'three';
-import { CHUNK } from '@pixel/shared';
+import { CHUNK, isWaterId, waterLevel } from '@pixel/shared';
 import { BLOCKS, SHADE, AIR, WATER_ID } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
@@ -55,9 +55,11 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = world.get(x, y, z);
         if (id === AIR) continue;
-        const isWater = id === WATER_ID;
-        const def = BLOCKS[id] ?? BLOCKS[3];
+        const isWater = isWaterId(id);
+        const def = isWater ? BLOCKS[WATER_ID] : BLOCKS[id] ?? BLOCKS[3];
         const buf = isWater ? wat : opq;
+        // Flowing water sits lower by its level; a submerged cell (water above) is full.
+        const topY = isWater && !isWaterId(world.get(x, y + 1, z)) ? 1 - (waterLevel(id) / 8) * 0.82 : 1;
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
           const nid = world.get(x + nx, y + ny, z + nz);
@@ -83,7 +85,7 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
           const q = f.quad;
           const u = f.uv;
           for (const i of [0, 1, 2, 0, 2, 3]) {
-            buf.pos.push(x + q[i][0], y + q[i][1], z + q[i][2]);
+            buf.pos.push(x + q[i][0], y + (q[i][1] === 1 ? topY : q[i][1]), z + q[i][2]);
             const k = cAo[i];
             buf.col.push(k, k, k);
             buf.uvs.push(r.u0 + u[i][0] * (r.u1 - r.u0), r.vBot + u[i][1] * (r.vTop - r.vBot));
