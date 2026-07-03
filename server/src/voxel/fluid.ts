@@ -58,7 +58,12 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
         else if (isWaterId(id) && !inInner(x, y, z)) relax(x, y, z, waterLevel(id));
       }
 
-  // Flood: fall into air below (→ level 1), else spread sideways (→ level+1 ≤ 7).
+  // Water spreads into cells it can occupy: air OR existing flowing water (which is
+  // fluid, not a wall — so re-settling re-levels it instead of treating it as blocked
+  // and receding it, which caused oscillation). Sources/solids are not fillable.
+  const fillable = (id: number): boolean => id === 0 || (isWaterId(id) && id !== WATER_SOURCE);
+
+  // Flood: fall into a fillable cell below (→ level 1), else spread sideways (level+1 ≤ 7).
   const HORIZ = [
     [1, 0],
     [-1, 0],
@@ -68,11 +73,10 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
   while (queue.length) {
     const [x, y, z] = queue.pop()!;
     const L = level.get(key(x, y, z))!;
-    const below = w.getBlock(x, y - 1, z);
-    if (below === 0) {
+    if (fillable(w.getBlock(x, y - 1, z))) {
       relax(x, y - 1, z, 1); // falls, lands near-full
     } else if (L < WATER_MAX_LEVEL) {
-      for (const [dx, dz] of HORIZ) if (w.getBlock(x + dx, y, z + dz) === 0) relax(x + dx, y, z + dz, L + 1);
+      for (const [dx, dz] of HORIZ) if (fillable(w.getBlock(x + dx, y, z + dz))) relax(x + dx, y, z + dz, L + 1);
     }
   }
 
