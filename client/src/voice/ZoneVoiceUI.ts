@@ -90,7 +90,7 @@ export class ZoneVoiceUI {
       #pa-zv-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #05060b;cursor:pointer;
         position:relative;background:#2a2f45;box-shadow:inset 0 2px 0 #3a4160,inset 0 -2px 0 #0a0d16;transition:background .15s;}
       #pa-zv-track.on{background:#2f7d3f;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
-      #pa-zv-track .knob{position:absolute;top:1px;left:1px;width:1.25rem;height:1.25rem;border-radius:50%;
+      #pa-zv-track .knob{position:absolute;top:50%;left:1px;transform:translateY(-50%);width:1.25rem;height:1.25rem;border-radius:50%;
         background:#eef1fb;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
       #pa-zv-track.on .knob{left:1.6rem;}
       #pa-zv-sub{margin-top:0.65rem;}
