@@ -1339,28 +1339,38 @@ function frame(now: number): void {
   const a = !busy && (keys.has('KeyA') || keys.has('ArrowLeft'));
   const d = !busy && (keys.has('KeyD') || keys.has('ArrowRight'));
   const jump = !busy && keys.has('Space');
-  const still: MoveInput = { forward: false, back: false, left: false, right: false, jump: false };
-  let input: MoveInput;
+  const down = !busy && (keys.has('ShiftLeft') || keys.has('ShiftRight')); // sneak / dive
+  // Horizontal intent (WASD, or iso click-to-walk); jump/down always pass through so
+  // you can surface/dive while standing still in water.
+  let fwd = false,
+    bk = false,
+    lt = false,
+    rt = false;
   if (mode === 'iso') {
     if (w || s || a || d) {
       moveTarget = null; // manual movement cancels click-to-walk
       player.yaw = isoYaw; // WASD moves relative to the current map rotation
-      input = { forward: w, back: s, left: a, right: d, jump };
+      fwd = w;
+      bk = s;
+      lt = a;
+      rt = d;
     } else if (moveTarget && !busy) {
       const dx = moveTarget.x - player.pos.x;
       const dz = moveTarget.z - player.pos.z;
-      if (Math.hypot(dx, dz) < 0.4) {
-        moveTarget = null;
-        input = still;
-      } else {
+      if (Math.hypot(dx, dz) < 0.4) moveTarget = null;
+      else {
         player.yaw = Math.atan2(-dx, -dz); // face + walk toward the destination
-        input = { forward: true, back: false, left: false, right: false, jump: false };
+        fwd = true;
       }
-    } else input = still;
+    }
   } else {
     if (mode === 'third') player.yaw = camYaw; // face away from the orbiting camera
-    input = { forward: w, back: s, left: a, right: d, jump };
+    fwd = w;
+    bk = s;
+    lt = a;
+    rt = d;
   }
+  const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down };
   if (ready) player.update(dt, input);
   // Safety net: never fall out of the world — snap back to spawn if you somehow
   // drop below the bedrock floor (e.g. through not-yet-streamed chunks).
