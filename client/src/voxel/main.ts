@@ -782,7 +782,10 @@ function cycleMode(): void {
   mode = mode === 'iso' ? 'third' : mode === 'third' ? 'first' : 'iso';
   moveTarget = null;
   rotating = false;
-  if (mode !== 'first' && locked()) document.exitPointerLock();
+  if (mode !== 'first') {
+    if (locked()) document.exitPointerLock();
+    player.pitch = 0; // reset the first-person look-down so the figure stands level in iso/third
+  }
   updateHud();
 }
 
