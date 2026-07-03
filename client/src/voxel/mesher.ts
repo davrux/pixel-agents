@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isWaterId, waterLevel } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, WATER_ID } from './blocks.js';
+import { BLOCKS, SHADE, AIR, WATER_ID, TRANSPARENT } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
 
@@ -45,7 +45,11 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
   const wat = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
   // AO samples opaque occluders only (water casts none).
   const s = (x: number, y: number, z: number): number => (world.solid(x, y, z) ? 1 : 0);
-  const occludes = (x: number, y: number, z: number): boolean => world.solid(x, y, z); // opaque solid (water excluded)
+  // Opaque occluder = solid, not water, not a transparent block (glass/ice/leaves/portal).
+  const occludes = (x: number, y: number, z: number): boolean => {
+    const nid = world.get(x, y, z);
+    return nid !== AIR && !isWaterId(nid) && !TRANSPARENT.has(nid);
+  };
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
@@ -56,6 +60,7 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
         const id = world.get(x, y, z);
         if (id === AIR) continue;
         const isWater = isWaterId(id);
+        const transparent = TRANSPARENT.has(id);
         const def = isWater ? BLOCKS[WATER_ID] : BLOCKS[id] ?? BLOCKS[3];
         const buf = isWater ? wat : opq;
         // Flowing water sits lower by its level; a submerged cell (water above) is full.
@@ -63,8 +68,11 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
           const nid = world.get(x + nx, y + ny, z + nz);
-          // Water: show only air-exposed faces. Opaque: hide only behind opaque.
-          if (isWater ? nid !== AIR : occludes(x + nx, y + ny, z + nz)) continue;
+          // Cull: water shows only air-exposed faces; a transparent block hides only
+          // against the same id or behind opaque (so a glass pane doesn't blank the
+          // block it sits on); opaque hides only behind another opaque block.
+          const hidden = isWater ? nid !== AIR : transparent ? nid === id || occludes(x + nx, y + ny, z + nz) : occludes(x + nx, y + ny, z + nz);
+          if (hidden) continue;
           const shade = SHADE[f.fam];
           const r = atlas.rect(def.tiles[f.fam]);
           const inPlane = [0, 1, 2].filter((a) => f.n[a] === 0);

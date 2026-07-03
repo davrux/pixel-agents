@@ -57,6 +57,11 @@ export const BLOCKS: BlockDef[] = [
 export const WATER_ID = 27;
 export const PORTAL_ID = 28;
 
+/** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
+ *  should see the block a glass pane sits on THROUGH it), and only cull against the
+ *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal. */
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28]);
+
 /** Tiles drawn at runtime (not PNG files): water + the portal P overlay. */
 export const SYNTHETIC_TILES = ['water', 'portal'];
 
