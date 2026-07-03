@@ -22,22 +22,9 @@ export interface MobDef {
   spawnByDay: boolean; // animals spawn in daylight, monsters at night
 }
 
-// A passive animal (flees when hit) and a hostile monster (chases + attacks).
+// Hostile monster only (zombie), spawning at night — like Minecraft, no wandering
+// humanoid NPCs. The animal/runaway path stays in the FSM for future creatures.
 export const MOB_DEFS: Record<string, MobDef> = {
-  sheep: {
-    kind: 'sheep',
-    type: 'animal',
-    skin: 'character_5',
-    hp: 8,
-    viewRange: 8,
-    walkVel: 1.6,
-    runVel: 3.4,
-    damage: 0,
-    reach: 2,
-    runaway: true,
-    fearHeight: 3,
-    spawnByDay: true,
-  },
   zombie: {
     kind: 'zombie',
     type: 'monster',

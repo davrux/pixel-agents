@@ -30,6 +30,7 @@ import { userStore, UserStore } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
+import { voxelPositions } from '../voxel/positionStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
 
 interface AuthInfo {
@@ -421,11 +422,18 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const auth = client.auth as AuthInfo | undefined;
     const p = new VoxelPlayerSync();
     p.id = Math.floor(Math.random() * 0x7fffffff);
-    // Spawn on the surface at the world origin.
-    const top = this.world.columnTop(0, 0);
-    p.x = 0.5;
-    p.y = top + 1;
-    p.z = 0.5;
+    // Spawn at the player's last saved position in this world (logged-in), else on the
+    // surface at the world origin.
+    const last = auth?.userId ? voxelPositions.get(auth.userId, this.state.worldId) : null;
+    if (last) {
+      p.x = last.x;
+      p.y = last.y;
+      p.z = last.z;
+    } else {
+      p.x = 0.5;
+      p.y = this.world.columnTop(0, 0) + 1;
+      p.z = 0.5;
+    }
     p.name = auth?.username || options?.name || 'player';
     p.hp = PLAYER_HP;
     p.hpMax = PLAYER_HP;
@@ -464,6 +472,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   onLeave(client: Client): void {
+    // Remember where the player left off (logged-in), so they respawn there.
+    const auth = client.auth as AuthInfo | undefined;
+    const p = this.state.players.get(client.sessionId);
+    if (auth?.userId && p) voxelPositions.set(auth.userId, this.state.worldId, p.x, p.y, p.z);
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
   }
