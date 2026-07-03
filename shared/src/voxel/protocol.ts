@@ -72,7 +72,10 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // billboards (not cubes), and feed crafting/smelting. The server's inv/drop maps are
 // keyed by number, so they already carry any id; only the "is this placeable?" and
 // "how is it drawn?" branches care about the split.
-// Item-id ranges: placeable blocks 1..31, MATERIALS 100..199, TOOLS 200..299.
+// Item-id ranges: placeable blocks 1..MAX_BLOCK_ID, MATERIALS 100..199, TOOLS 200..299.
+// MAX_BLOCK_ID is the highest valid placeable block id (bump it when blocks.ts grows);
+// the server's place guard uses it so materials/tools can't be placed as blocks.
+export const MAX_BLOCK_ID = 33;
 export const MATERIAL_BASE = 100;
 export const TOOL_BASE = 200;
 export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE && id < TOOL_BASE;
@@ -124,6 +127,9 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STEEL_INGOT, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_steel, count: 1 } },
   { in: [{ block: STEEL_INGOT, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_steel, count: 1 } },
   { in: [{ block: STEEL_INGOT, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_steel, count: 1 } },
+  // Functional nodes (Luanti): torch = coal + stick, ladder = sticks.
+  { in: [{ block: COAL_LUMP, count: 1 }, { block: STICK, count: 1 }], out: { block: 33, count: 4 } }, // → 4 torches
+  { in: [{ block: STICK, count: 3 }], out: { block: 32, count: 3 } }, // 3 sticks → 3 ladders
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────

@@ -32,6 +32,7 @@ import {
   dropFor,
   TOOL_BASE,
   STARTER_TOOL,
+  MAX_BLOCK_ID,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -793,8 +794,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       z = Math.floor(m.z);
     const id = m.id | 0;
     if (![x, y, z].every(Number.isFinite) || id < 0 || id > 255) return;
-    // Only placeable blocks (1..31) or air (0). Material items (≥100) aren't placeable.
-    if (id > 31) return;
+    // Only placeable blocks (1..MAX_BLOCK_ID) or air (0). Materials/tools aren't placeable.
+    if (id > MAX_BLOCK_ID) return;
     // Reach: within REACH of the player's eye (feet + ~1.6).
     const dx = x + 0.5 - v.px;
     const dy = y + 0.5 - (v.py + 1.6);

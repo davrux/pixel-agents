@@ -4,7 +4,7 @@
  * blocks up by chunk. Unloaded space reads as air. A small local fallback lets the
  * page still show terrain when run offline (no server) during dev.
  */
-import { AIR } from './blocks.js';
+import { AIR, NONSOLID, CLIMBABLE } from './blocks.js';
 import { CHUNK, CHUNK_VOL, cellIndex, chunkKey, toChunk, toLocal, isWaterId, isLavaId, isFluidId } from '@pixel/shared';
 
 export class VoxelWorld {
@@ -46,7 +46,11 @@ export class VoxelWorld {
    *  you fall through them (into lava you sink to the floor and burn). */
   solid(x: number, y: number, z: number): boolean {
     const id = this.get(x, y, z);
-    return id !== AIR && !isFluidId(id);
+    return id !== AIR && !isFluidId(id) && !NONSOLID.has(id);
+  }
+  /** True where the cell is climbable (a ladder) — the player climbs instead of falling. */
+  climb(x: number, y: number, z: number): boolean {
+    return CLIMBABLE.has(this.get(x, y, z));
   }
   /** True where the cell is water (source or flowing) — swim physics + animation. */
   water(x: number, y: number, z: number): boolean {

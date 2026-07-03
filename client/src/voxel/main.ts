@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -132,6 +132,50 @@ function remeshChunk(cx: number, cy: number, cz: number): void {
   layer(chunkWater, waterGroup, waterMaterial, geom?.water ?? null);
   layer(chunkLava, lavaGroup, lavaMaterial, geom?.lava ?? null);
   refreshPortalGlow(cx, cy, cz);
+  refreshTorchGlow(cx, cy, cz);
+}
+
+// Torch light: the renderer is unlit (no scene lights), so a torch (id 33) can't cast
+// real light. Instead each torch in a loaded chunk gets a warm additive halo so it
+// reads as a light source (a full voxel-light engine is a much bigger follow-up).
+const torchGlowGroup = new THREE.Group();
+scene.add(torchGlowGroup);
+const torchGlows = new Map<string, THREE.Object3D>();
+const torchHaloMat = new THREE.MeshBasicMaterial({
+  color: 0xffb24a,
+  transparent: true,
+  opacity: 0.5,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.DoubleSide,
+});
+const torchHaloGeo = new THREE.SphereGeometry(0.7, 8, 8);
+/** Reconcile torch halos for one chunk: drop this chunk's halos, re-add for id-33. */
+function refreshTorchGlow(cx: number, cy: number, cz: number): void {
+  for (const [key, node] of torchGlows) {
+    const [px, py, pz] = key.split(',').map(Number);
+    if (toChunk(px) === cx && toChunk(py) === cy && toChunk(pz) === cz) {
+      torchGlowGroup.remove(node);
+      torchGlows.delete(key);
+    }
+  }
+  const cells = world.rawChunk(cx, cy, cz);
+  if (!cells || !cells.includes(TORCH_ID)) return;
+  const x0 = cx * CHUNK,
+    y0 = cy * CHUNK,
+    z0 = cz * CHUNK;
+  const AREA = CHUNK * CHUNK;
+  for (let i = 0; i < cells.length; i++) {
+    if (cells[i] !== TORCH_ID) continue;
+    const ly = (i / AREA) | 0,
+      rem = i % AREA,
+      lz = (rem / CHUNK) | 0,
+      lx = rem % CHUNK;
+    const halo = new THREE.Mesh(torchHaloGeo, torchHaloMat);
+    halo.position.set(x0 + lx + 0.5, y0 + ly + 0.5, z0 + lz + 0.5);
+    torchGlows.set(`${x0 + lx},${y0 + ly},${z0 + lz}`, halo);
+    torchGlowGroup.add(halo);
+  }
 }
 
 // Portal glow: every portal cube (block id 28) in a loaded chunk gets a pulsing
@@ -1765,6 +1809,8 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   chunkLava.clear();
   for (const node of portalGlows.values()) portalGlowGroup.remove(node);
   portalGlows.clear();
+  for (const node of torchGlows.values()) torchGlowGroup.remove(node);
+  torchGlows.clear();
   dirty.clear();
   world.clear();
   ready = false;

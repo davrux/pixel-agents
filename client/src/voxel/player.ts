@@ -21,6 +21,8 @@ const SWIM_GRAVITY = -6.5; // gentle sink when giving no vertical input
 const SWIM_SINK_MAX = -1.6; // terminal gentle-sink speed
 const SWIM_UP = 4.6; // hold jump → rise/surface; hold sneak → dive (negated)
 const FLY_SPEED = 7; // vertical fly speed (Space up / Shift down)
+const CLIMB_SPEED = 3.2; // vertical speed on a ladder (jump = up, sneak = down)
+const CLIMB_SLIDE = 1.2; // gentle slide down a ladder when giving no vertical input
 
 export interface MoveInput {
   forward: boolean;
@@ -132,6 +134,9 @@ export class Player {
       const swimming = headWater || (feetWater && !this.onGround);
       this.inWater = swimming; // drives the swim animation (not while wading)
       const wading = feetWater && !swimming;
+      // On a ladder = a climbable cell at the feet or body (and not swimming).
+      const onLadder =
+        !swimming && (this.world.climb(wx, Math.floor(this.pos.y), wz) || this.world.climb(wx, Math.floor(this.pos.y + 1.2), wz));
 
       const factor = swimming ? SWIM_SPEED : wading ? WADE_SPEED : 1;
       this.vel.x = (mx / len) * SPEED * factor * (mx || mz ? 1 : 0);
@@ -142,6 +147,10 @@ export class Player {
         else if (input.down) this.vel.y = -SWIM_UP; // hold Shift → dive
         else this.vel.y = Math.max(SWIM_SINK_MAX, this.vel.y + SWIM_GRAVITY * dt); // gentle sink
         this.vel.y = Math.min(SWIM_UP, this.vel.y);
+        this.onGround = false;
+      } else if (onLadder) {
+        // Ladder: no gravity — jump climbs, sneak descends, otherwise a gentle slide down.
+        this.vel.y = input.jump ? CLIMB_SPEED : input.down ? -CLIMB_SPEED : -CLIMB_SLIDE;
         this.onGround = false;
       } else {
         this.vel.y += GRAVITY * dt;

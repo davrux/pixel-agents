@@ -55,16 +55,27 @@ export const BLOCKS: BlockDef[] = [
   u('lava', 'lava'), // id 29 — placeable liquid (synthetic tile); flows + burns
   u('coal ore', 'coal_ore'), // id 30 — stone + coal speckle (synthetic composite)
   u('iron ore', 'iron_ore'), // id 31 — stone + iron speckle (synthetic composite)
+  u('ladder', 'ladder'), // id 32 — non-solid, climbable (Luanti wood ladder)
+  u('torch', 'torch'), // id 33 — non-solid light source (emits a point light nearby)
 ];
 
 export const WATER_ID = 27;
 export const PORTAL_ID = 28;
 export const LAVA_ID = 29;
+export const LADDER_ID = 32;
+export const TORCH_ID = 33;
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block a glass pane sits on THROUGH it), and only cull against the
- *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28]);
+ *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal, ladder, torch. */
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33]);
+
+/** Non-solid blocks: the player passes through them (like fluids). Ladders + torches. */
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID]);
+/** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
+export const CLIMBABLE = new Set<number>([LADDER_ID]);
+/** Light-emitting blocks: the client places a point light at nearby instances. */
+export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore'];
