@@ -1569,6 +1569,14 @@ function onInv(m: { block: number; total: number }): void {
   craftRender();
   if (inventory.isOpen()) inventory.render();
 }
+/** Bulk inventory snapshot on join (persisted survival inventory restored server-side). */
+function onInvAll(items: Record<string, number>): void {
+  invCounts.clear();
+  for (const [k, v] of Object.entries(items)) if (v > 0) invCounts.set(Number(k), v);
+  updateHud();
+  craftRender();
+  if (inventory.isOpen()) inventory.render();
+}
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
   return settings.creative || id === WATER_ID || id === PORTAL_ID || id === LAVA_ID;
@@ -1661,7 +1669,7 @@ function craftRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

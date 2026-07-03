@@ -47,6 +47,7 @@ export interface VoxelHandlers {
   onTeleport?: (m: { x: number; y: number; z: number }) => void;
   onPickup?: (m: { block: number; count: number; total: number }) => void;
   onInv?: (m: { block: number; total: number }) => void;
+  onInvAll?: (items: Record<string, number>) => void;
 }
 
 export interface JoinOpts {
@@ -83,6 +84,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('tp', (m: { x: number; y: number; z: number }) => handlers.onTeleport?.(m));
   room.onMessage('pickup', (m: { block: number; count: number; total: number }) => handlers.onPickup?.(m));
   room.onMessage('inv', (m: { block: number; total: number }) => handlers.onInv?.(m));
+  room.onMessage('invAll', (items: Record<string, number>) => handlers.onInvAll?.(items));
   return {
     room,
     sessionId: room.sessionId,

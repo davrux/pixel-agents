@@ -42,6 +42,7 @@ import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
 import { voxelPositions } from '../voxel/positionStore.js';
+import { voxelInventory } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
 
 interface AuthInfo {
@@ -683,6 +684,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (auth?.userId) {
       const saved = voxelSettings.get(auth.userId);
       if (saved) client.send('settings', saved);
+      // Restore the player's persisted survival inventory (blocks/materials/tools).
+      const bag = voxelInventory.get(auth.userId);
+      if (bag && bag.size) {
+        this.inv.set(client.sessionId, bag);
+        const items: Record<number, number> = {};
+        bag.forEach((c, id) => (items[id] = c));
+        client.send('invAll', items);
+      }
     }
     this.streamAround(client, p.x, p.y, p.z);
   }
@@ -692,6 +701,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const auth = client.auth as AuthInfo | undefined;
     const p = this.state.players.get(client.sessionId);
     if (auth?.userId && p) voxelPositions.set(auth.userId, this.state.worldId, p.x, p.y, p.z);
+    // Persist the survival inventory so it survives reconnects (and carries across worlds).
+    const bag = this.inv.get(client.sessionId);
+    if (auth?.userId && bag) voxelInventory.set(auth.userId, bag);
     if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
