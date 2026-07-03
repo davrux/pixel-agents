@@ -87,6 +87,7 @@ const OBSIDIAN = 15; // lava SOURCE cooled by water (Luanti default cool_lava) �
 const STONE = 3; // flowing lava cooled by water
 const PICKUP_DIST = 1.6; // walk within this of a drop to collect it
 const DROP_LIFETIME = 180; // seconds a dropped item lingers before despawning
+const DROP_FALL = 9; // blocks/sec a dropped item falls under gravity
 const STACK_MAX = 99; // max of one block id in a stack
 
 interface NpcBrain {
@@ -212,10 +213,15 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.lavaAcc = 0;
       this.burnPlayersInLava();
     }
-    // Dropped items: age out, then let nearby players collect them.
+    // Dropped items: age out, fall to the ground (Minecraft-style — drops don't hang in
+    // the air; break a tree and they drop down), then let nearby players collect them.
     for (const [key, d] of this.drops) {
       d.life -= dt;
-      if (d.life <= 0) this.removeDrop(key);
+      if (d.life <= 0) {
+        this.removeDrop(key);
+        continue;
+      }
+      this.settleDrop(d.sync, dt);
     }
     this.collectDrops();
     for (const [key, b] of this.npcs) {
@@ -305,6 +311,22 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (d) this.dropFromViews(d.sync);
     this.state.items.delete(key);
     this.drops.delete(key);
+  }
+
+  /** Gravity for a dropped item: fall until it rests on solid ground (fluids don't
+   *  support it). Minecraft-style — drops never hang in the air (break a treetop → they
+   *  fall to the forest floor). Only writes y while actually falling (no idle churn). */
+  private settleDrop(s: VoxelItemSync, dt: number): void {
+    const fx = Math.floor(s.x),
+      fz = Math.floor(s.z);
+    const solid = (y: number): boolean => {
+      const id = this.world.getBlock(fx, y, fz);
+      return id !== 0 && fluidOf(id) === null;
+    };
+    let gy = Math.floor(s.y);
+    while (gy > -64 && !solid(gy - 1)) gy--; // descend to the cell sitting on solid ground
+    const restY = gy + 0.25;
+    if (s.y > restY + 0.001) s.y = Math.max(restY, s.y - DROP_FALL * dt);
   }
 
   /** Collect drops within PICKUP_DIST of a living player: add to that player's stack
