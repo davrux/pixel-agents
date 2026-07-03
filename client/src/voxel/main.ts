@@ -47,6 +47,14 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fc7ff);
 // Fog gives depth; all modes are perspective now (iso is a perspective 3/4 view).
 const perspFog = new THREE.Fog(0x8fc7ff, 24, 120);
+// Underwater: swap to a dense blue fog + a blue screen overlay so submerged blocks
+// look murky/blue (Minecraft-like), applied when the active camera is in water.
+const underwaterFog = new THREE.Fog(0x1f5a83, 0.1, 15);
+const underwaterOverlay = document.createElement('div');
+underwaterOverlay.id = 'vx-underwater';
+underwaterOverlay.style.cssText =
+  'position:fixed;inset:0;pointer-events:none;z-index:45;opacity:0;transition:opacity .18s;background:rgba(28,92,146,0.4);';
+(document.getElementById('game') ?? document.body).appendChild(underwaterOverlay);
 
 // Day/night: the server hands us a shared clock in the welcome; tod (0..1) is
 // advanced locally each frame and tints the sky/fog + the (unlit) world material.
@@ -1421,6 +1429,11 @@ function frame(now: number): void {
     if (me) updateHpBar(me.hp, me.hpMax);
   }
   placeCamera();
+  // Underwater murk: dense blue fog + screen overlay when the camera is submerged.
+  const cam = activeCam();
+  const camWet = world.water(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z));
+  scene.fog = camWet ? underwaterFog : perspFog;
+  underwaterOverlay.style.opacity = camWet ? '0.4' : '0';
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);
 }
