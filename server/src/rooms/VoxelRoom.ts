@@ -33,6 +33,7 @@ import {
   TOOL_BASE,
   STARTER_TOOL,
   MAX_BLOCK_ID,
+  CHEST_ID,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -47,6 +48,7 @@ import { voxelSettings } from '../voxel/settingsStore.js';
 import { voxelPositions } from '../voxel/positionStore.js';
 import { voxelInventory } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
+import { chests } from '../voxel/chestStore.js';
 
 interface AuthInfo {
   userId: string;
@@ -173,6 +175,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     });
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
+    this.onMessage('use', (client, m: { x: number; y: number; z: number }) => this.onUse(client, m));
+    this.onMessage('chestMove', (client, m: { x: number; y: number; z: number; id: number; dir: string }) => this.onChestMove(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -301,14 +305,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   /** Spawn a dropped item at a broken block's cell (rests at the cell centre). */
-  private spawnDrop(block: number, x: number, y: number, z: number): void {
+  private spawnDrop(block: number, x: number, y: number, z: number, count = 1): void {
     const it = new VoxelItemSync();
     it.id = ++this.itemSeq;
     it.x = x + 0.5;
     it.y = y + 0.25;
     it.z = z + 0.5;
     it.block = block;
-    it.count = 1;
+    it.count = Math.max(1, Math.min(STACK_MAX, count | 0));
     const key = `i${it.id}`;
     this.state.items.set(key, it);
     this.drops.set(key, { sync: it, life: DROP_LIFETIME });
@@ -492,6 +496,67 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const total = Math.min(STACK_MAX, (bag.get(r.out) ?? 0) + r.count);
     bag.set(r.out, total);
     client.send('inv', { block: r.out, total });
+  }
+
+  /** Generic "use node" action (right-clicking a node). Dispatch by block id — for now
+   *  a chest opens its inventory; doors/furnace-nodes hook in here later. Reach-checked. */
+  private onUse(client: Client, m: { x: number; y: number; z: number }): void {
+    const v = this.views.get(client.sessionId);
+    if (!v) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (![x, y, z].every(Number.isFinite)) return;
+    const dx = x + 0.5 - v.px,
+      dy = y + 0.5 - (v.py + 1.6),
+      dz = z + 0.5 - v.pz;
+    if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    if (this.world.getBlock(x, y, z) === CHEST_ID) this.sendChest(client, x, y, z);
+  }
+
+  /** Send a chest's current contents to the opening client (drives its chest UI). */
+  private sendChest(client: Client, x: number, y: number, z: number): void {
+    const c = chests.get(this.state.worldId, x, y, z);
+    const items: Record<number, number> = {};
+    c.forEach((count, id) => (items[id] = count));
+    client.send('chestOpen', { x, y, z, items });
+  }
+
+  /** Move one whole stack of `id` between a chest and the player's inventory (dir
+   *  'take' = chest→player, 'put' = player→chest). Reach- + type-checked, stack-capped,
+   *  persisted; echoes the player's new count + the refreshed chest. */
+  private onChestMove(client: Client, m: { x: number; y: number; z: number; id: number; dir: string }): void {
+    const v = this.views.get(client.sessionId);
+    const sid = client.sessionId;
+    if (!v) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    const id = m.id | 0;
+    if (![x, y, z].every(Number.isFinite) || id <= 0) return;
+    const dx = x + 0.5 - v.px,
+      dy = y + 0.5 - (v.py + 1.6),
+      dz = z + 0.5 - v.pz;
+    if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    if (this.world.getBlock(x, y, z) !== CHEST_ID) return;
+    const bag = this.inv.get(sid) ?? new Map<number, number>();
+    this.inv.set(sid, bag);
+    const chest = chests.get(this.state.worldId, x, y, z);
+    const move = (from: Map<number, number>, to: Map<number, number>): void => {
+      const have = from.get(id) ?? 0;
+      const room = STACK_MAX - (to.get(id) ?? 0);
+      const n = Math.min(have, room);
+      if (n <= 0) return;
+      const left = have - n;
+      left > 0 ? from.set(id, left) : from.delete(id);
+      to.set(id, (to.get(id) ?? 0) + n);
+    };
+    if (m.dir === 'take') move(chest, bag);
+    else if (m.dir === 'put') move(bag, chest);
+    else return;
+    chests.set(this.state.worldId, x, y, z, chest);
+    client.send('inv', { block: id, total: bag.get(id) ?? 0 });
+    this.sendChest(client, x, y, z);
   }
 
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
@@ -824,6 +889,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(dropFor(prev), x, y, z);
+    // Breaking a chest spills its contents as drops, then clears the stored inventory.
+    if (id === 0 && prev === CHEST_ID) {
+      const c = chests.get(this.state.worldId, x, y, z);
+      c.forEach((count, cid) => this.spawnDrop(cid, x, y, z, count));
+      chests.delete(this.state.worldId, x, y, z);
+    }
     // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
     // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
     // Water and lava settle independently (each treats the other as a wall).

@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -642,6 +642,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
   if (e.code === 'Escape' && inventory.isOpen()) return inventory.close();
   if (e.code === 'Escape' && craftOpen()) return craftClose();
+  if (e.code === 'Escape' && chestUiOpen()) return chestClose();
   if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
   if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) return inventory.toggle();
   if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
@@ -660,7 +661,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen();
 
 // Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
 const MAP_COLORS: Record<number, number> = {
@@ -1029,8 +1030,26 @@ function placeTarget(): { x: number; y: number; z: number } | null {
   return { x: fx + dx, y: fy, z: fz + dz };
 }
 
+/** Right-clicking/using an interactive node (chest → open) instead of placing.
+ *  Returns true if it handled the aimed cell (so placing is suppressed). */
+function useAimedNode(): boolean {
+  const h = aimHit();
+  if (!h) return false;
+  const nrm = h.face ? h.face.normal : UP;
+  const p = h.point.clone().addScaledVector(nrm, -0.5);
+  const x = Math.floor(p.x),
+    y = Math.floor(p.y),
+    z = Math.floor(p.z);
+  if (world.get(x, y, z) === CHEST_ID) {
+    net?.use(x, y, z); // server replies with 'chestOpen' → openChestUI
+    return true;
+  }
+  return false;
+}
+
 /** Place the held block against the aimed face (instant). Tools don't place. */
 function placeBlock(): void {
+  if (useAimedNode()) return; // aiming at a chest → open it, don't place
   const block = itemById(blocks[selBlock]).block; // the selected build block
   if (block === undefined) return; // block track is somehow empty → nothing to place
   const t = placeTarget();
@@ -1624,6 +1643,7 @@ function onPickup(m: { block: number; count: number; total: number }): void {
   updateHud(); // reflect the new count on the hotbar
   craftRender(); // affordability may have changed
   if (inventory.isOpen()) inventory.render(); // collected counts
+  if (chestUiOpen()) chestRender();
 }
 function onInv(m: { block: number; total: number }): void {
   if (m.total > 0) invCounts.set(m.block, m.total);
@@ -1631,6 +1651,7 @@ function onInv(m: { block: number; total: number }): void {
   updateHud();
   craftRender();
   if (inventory.isOpen()) inventory.render();
+  if (chestUiOpen()) chestRender();
 }
 /** Bulk inventory snapshot on join (persisted survival inventory restored server-side). */
 function onInvAll(items: Record<string, number>): void {
@@ -1639,6 +1660,7 @@ function onInvAll(items: Record<string, number>): void {
   updateHud();
   craftRender();
   if (inventory.isOpen()) inventory.render();
+  if (chestUiOpen()) chestRender();
 }
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
@@ -1731,8 +1753,83 @@ function craftRender(): void {
   });
 }
 
+// ── Chest UI (open a chest node → move stacks between it and your inventory) ─────
+// Server-authoritative: opening a chest asks the server ('use'); it replies 'chestOpen'
+// with the contents. Clicking a stack sends 'chestMove' (take/put); the server validates,
+// persists, and echoes the updated player count + chest. Click = move a whole stack.
+const chestStyle = document.createElement('style');
+chestStyle.textContent = `
+  #vx-chest{position:fixed;inset:0;z-index:150;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;color:#fff;}
+  #vx-chest.open{display:flex;}
+  #vx-chest .win{width:min(94vw,34rem);background:#2b2b2b;border:4px solid #1c1c1c;border-radius:6px;box-shadow:0 8px 0 rgba(0,0,0,.5);padding:.8rem;}
+  #vx-chest .hd{display:flex;align-items:center;gap:.6rem;margin-bottom:.5rem;}
+  #vx-chest .hd h3{margin:0;font-size:1.05rem;text-shadow:1px 1px 0 #000;}
+  #vx-chest .hd .x{margin-left:auto;cursor:pointer;width:1.6rem;height:1.6rem;display:flex;align-items:center;justify-content:center;background:#3a3a3a;border:3px solid #1c1c1c;border-radius:4px;}
+  #vx-chest h4{margin:.5rem 0 .3rem;font-size:.78rem;color:#cfcfcf;text-shadow:1px 1px 0 #000;}
+  #vx-chest .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(2.6rem,1fr));gap:5px;min-height:2.6rem;}
+  #vx-chest .cell{width:2.4rem;height:2.4rem;border:3px solid #4a4a4a;border-radius:4px;background:#3a3a3a center/80% no-repeat;image-rendering:pixelated;cursor:pointer;position:relative;}
+  #vx-chest .cell .num{position:absolute;right:0;bottom:0;font-size:.62rem;padding:0 2px;background:rgba(0,0,0,.62);text-shadow:1px 1px 0 #000;border-radius:2px 0 0 0;}
+  #vx-chest .empty{font-size:.72rem;color:#9a9a9a;}
+  #vx-chest .tip{margin-top:.6rem;font-size:.7rem;color:#bdbdbd;}`;
+document.head.appendChild(chestStyle);
+const chestEl = document.createElement('div');
+chestEl.id = 'vx-chest';
+chestEl.innerHTML = `<div class="win"><div class="hd"><h3>Chest</h3><div class="x" title="Close (Esc)">✕</div></div>
+  <h4>Chest</h4><div class="cgrid grid"></div><h4>Your inventory</h4><div class="pgrid grid"></div>
+  <div class="tip">Click a stack to move it · chest ↔ inventory</div></div>`;
+(document.getElementById('game') ?? document.body).appendChild(chestEl);
+chestEl.querySelector<HTMLElement>('.x')!.onclick = () => chestClose();
+chestEl.addEventListener('mousedown', (e) => {
+  if (e.target === chestEl) chestClose();
+});
+let openChest: { x: number; y: number; z: number } | null = null;
+const chestItems = new Map<number, number>();
+const chestUiOpen = (): boolean => chestEl.classList.contains('open');
+function onChestOpen(m: { x: number; y: number; z: number; items: Record<string, number> }): void {
+  openChest = { x: m.x, y: m.y, z: m.z };
+  chestItems.clear();
+  for (const [k, v] of Object.entries(m.items)) if (v > 0) chestItems.set(Number(k), v);
+  if (!chestUiOpen()) {
+    if (locked()) document.exitPointerLock();
+    chestEl.classList.add('open');
+  }
+  chestRender();
+}
+function chestClose(): void {
+  chestEl.classList.remove('open');
+  openChest = null;
+  if (mode === 'first') canvas.requestPointerLock();
+}
+function chestCell(id: number, count: number, onClick: () => void): HTMLDivElement {
+  const c = document.createElement('div');
+  c.className = 'cell';
+  c.style.backgroundImage = `url(${itemTexUrl(invItem(id).texUrl)})`;
+  c.title = invItem(id).name;
+  const n = document.createElement('div');
+  n.className = 'num';
+  n.textContent = String(count);
+  c.appendChild(n);
+  c.onclick = onClick;
+  return c;
+}
+function chestRender(): void {
+  if (!chestUiOpen() || !openChest) return;
+  const { x, y, z } = openChest;
+  const cg = chestEl.querySelector<HTMLElement>('.cgrid')!;
+  const pg = chestEl.querySelector<HTMLElement>('.pgrid')!;
+  cg.innerHTML = '';
+  pg.innerHTML = '';
+  const chestList = [...chestItems.entries()].filter(([, c]) => c > 0).sort((a, b) => a[0] - b[0]);
+  if (!chestList.length) cg.innerHTML = '<div class="empty">(empty)</div>';
+  for (const [id, count] of chestList) cg.appendChild(chestCell(id, count, () => net?.chestMove(x, y, z, id, 'take')));
+  const invList = [...invCounts.entries()].filter(([, c]) => c > 0).sort((a, b) => a[0] - b[0]);
+  if (!invList.length) pg.innerHTML = '<div class="empty">(empty)</div>';
+  for (const [id, count] of invList) pg.appendChild(chestCell(id, count, () => net?.chestMove(x, y, z, id, 'put')));
+}
+
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

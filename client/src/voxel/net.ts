@@ -33,6 +33,8 @@ export interface VoxelNet {
   setCreative(on: boolean): void;
   craft(i: number): void;
   smelt(i: number): void;
+  use(x: number, y: number, z: number): void;
+  chestMove(x: number, y: number, z: number, id: number, dir: 'take' | 'put'): void;
   leave(): Promise<void>;
 }
 
@@ -48,6 +50,7 @@ export interface VoxelHandlers {
   onPickup?: (m: { block: number; count: number; total: number }) => void;
   onInv?: (m: { block: number; total: number }) => void;
   onInvAll?: (items: Record<string, number>) => void;
+  onChestOpen?: (m: { x: number; y: number; z: number; items: Record<string, number> }) => void;
 }
 
 export interface JoinOpts {
@@ -85,6 +88,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('pickup', (m: { block: number; count: number; total: number }) => handlers.onPickup?.(m));
   room.onMessage('inv', (m: { block: number; total: number }) => handlers.onInv?.(m));
   room.onMessage('invAll', (items: Record<string, number>) => handlers.onInvAll?.(items));
+  room.onMessage('chestOpen', (m: { x: number; y: number; z: number; items: Record<string, number> }) => handlers.onChestOpen?.(m));
   return {
     room,
     sessionId: room.sessionId,
@@ -99,6 +103,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     setCreative: (on) => room.send('setCreative', { on }),
     craft: (i) => room.send('craft', { i }),
     smelt: (i) => room.send('smelt', { i }),
+    use: (x, y, z) => room.send('use', { x, y, z }),
+    chestMove: (x, y, z, id, dir) => room.send('chestMove', { x, y, z, id, dir }),
     leave: async () => {
       await room.leave();
     },

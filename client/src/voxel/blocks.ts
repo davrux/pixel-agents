@@ -57,6 +57,7 @@ export const BLOCKS: BlockDef[] = [
   u('iron ore', 'iron_ore'), // id 31 — stone + iron speckle (synthetic composite)
   u('ladder', 'ladder'), // id 32 — non-solid, climbable (Luanti wood ladder)
   u('torch', 'torch'), // id 33 — non-solid light source (emits a point light nearby)
+  b('chest', 'chest_top', 'chest_front', 'chest_top', 'chest_front'), // id 34 — openable storage node
 ];
 
 export const WATER_ID = 27;
@@ -64,6 +65,7 @@ export const PORTAL_ID = 28;
 export const LAVA_ID = 29;
 export const LADDER_ID = 32;
 export const TORCH_ID = 33;
+export const CHEST_ID = 34;
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block a glass pane sits on THROUGH it), and only cull against the
