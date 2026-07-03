@@ -32,6 +32,40 @@ export const waterLevel = (id: number): number => (id === WATER_SOURCE ? 0 : id 
 /** Block id for a flowing-water level (1..7); level ≤0 → source. */
 export const flowId = (level: number): number => (level <= 0 ? WATER_SOURCE : WATER_FLOW_MIN + Math.min(WATER_MAX_LEVEL, level) - 1);
 
+// ── Lava — a second finite liquid ────────────────────────────────────────────
+// Source id 29 + 4 flowing levels (ids 47..50). Spreads less far than water (4 vs
+// 7 levels), is rendered emissive/opaque, and burns players standing in it. The
+// server fluid sim + client mesher are generalised over any FluidDef so both
+// liquids share one implementation.
+export const LAVA_SOURCE = 29;
+export const LAVA_FLOW_MIN = 47; // level 1
+export const LAVA_FLOW_MAX = 50; // level 4
+export const LAVA_MAX_LEVEL = 4;
+
+export const isLavaId = (id: number): boolean => id === LAVA_SOURCE || (id >= LAVA_FLOW_MIN && id <= LAVA_FLOW_MAX);
+
+/** A finite liquid: an infinite source id + a contiguous run of flowing-level ids. */
+export interface FluidDef {
+  source: number;
+  flowMin: number;
+  flowMax: number;
+  maxLevel: number;
+}
+export const WATER_FLUID: FluidDef = { source: WATER_SOURCE, flowMin: WATER_FLOW_MIN, flowMax: WATER_FLOW_MAX, maxLevel: WATER_MAX_LEVEL };
+export const LAVA_FLUID: FluidDef = { source: LAVA_SOURCE, flowMin: LAVA_FLOW_MIN, flowMax: LAVA_FLOW_MAX, maxLevel: LAVA_MAX_LEVEL };
+export const FLUIDS: FluidDef[] = [WATER_FLUID, LAVA_FLUID];
+
+/** The fluid an id belongs to, or null if it is not a liquid. */
+export const fluidOf = (id: number): FluidDef | null => {
+  for (const f of FLUIDS) if (id === f.source || (id >= f.flowMin && id <= f.flowMax)) return f;
+  return null;
+};
+export const isFluidId = (id: number): boolean => fluidOf(id) !== null;
+/** 0 for a source/full block, 1..maxLevel for flowing levels of THIS fluid. */
+export const fluidLevel = (f: FluidDef, id: number): number => (id === f.source ? 0 : id - f.flowMin + 1);
+/** Block id for a flowing level of THIS fluid (level ≤0 → source). */
+export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ? f.source : f.flowMin + Math.min(f.maxLevel, level) - 1);
+
 export const CHUNK = 16; // chunk edge; a chunk is CHUNK^3 block ids
 export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
 

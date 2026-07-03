@@ -1,14 +1,15 @@
 /**
- * Server-side water flow — a Minecraft/Luanti-style finite liquid, recomputed to
- * equilibrium in a bounded box whenever an edit near water happens. Sources (id 27,
- * lakes/seas) are infinite + fixed; flowing water (levels 1..7) is derived by a
- * flood from the sources: it falls into air below (landing near-full = level 1) and,
- * where it can't fall, spreads sideways one level thinner each block up to level 7.
- * Flowing cells no longer reached by any source recede to air. So digging a hole in
- * a lakebed lets water pour in; breaking a dam floods outward then thins; walling
- * off + removing the source drains it.
+ * Server-side fluid flow — a Minecraft/Luanti-style finite liquid, recomputed to
+ * equilibrium in a bounded box whenever an edit near the fluid happens. Sources are
+ * infinite + fixed; flowing levels (1..maxLevel) are derived by a flood from the
+ * sources: the fluid falls into air below (landing near-full = level 1) and, where it
+ * can't fall, spreads sideways one level thinner each block up to maxLevel. Flowing
+ * cells no longer reached by any source recede to air. So digging a hole in a lakebed
+ * lets it pour in; breaking a dam floods outward then thins; walling off + removing the
+ * source drains it. Generalised over any FluidDef (water OR lava) — the OTHER fluid is
+ * treated as a solid wall, so water and lava never overwrite each other.
  */
-import { WATER_SOURCE, WATER_MAX_LEVEL, isWaterId, waterLevel, flowId } from '@pixel/shared';
+import { WATER_FLUID, fluidLevel, fluidFlowId, type FluidDef } from '@pixel/shared';
 
 export interface Cell {
   x: number;
@@ -20,13 +21,16 @@ interface Grid {
   getBlock(x: number, y: number, z: number): number;
 }
 
-const R = WATER_MAX_LEVEL; // horizontal reach from an edit
-const DOWN = 24; // how far water may fall within one settle
+const DOWN = 24; // how far the fluid may fall within one settle
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
-const isSolid = (id: number): boolean => id !== 0 && !isWaterId(id);
 
-/** Recompute flowing water in a box around (ex,ey,ez); returns the changed cells. */
-export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[] {
+/** Recompute flowing fluid (default water) in a box around (ex,ey,ez); returns the
+ *  changed cells. Pass LAVA_FLUID to settle lava instead. */
+export function settleAround(w: Grid, ex: number, ey: number, ez: number, fluid: FluidDef = WATER_FLUID): Cell[] {
+  const R = fluid.maxLevel; // horizontal reach from an edit
+  // This fluid's own ids (source + its flowing range); anything else — air aside — is a wall.
+  const sameFluid = (id: number): boolean => id === fluid.source || (id >= fluid.flowMin && id <= fluid.flowMax);
+  const isSolid = (id: number): boolean => id !== 0 && !sameFluid(id);
   const x0 = ex - R,
     x1 = ex + R,
     z0 = ez - R,
@@ -54,14 +58,14 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
     for (let z = z0 - 1; z <= z1 + 1; z++)
       for (let x = x0 - 1; x <= x1 + 1; x++) {
         const id = w.getBlock(x, y, z);
-        if (id === WATER_SOURCE) relax(x, y, z, 0);
-        else if (isWaterId(id) && !inInner(x, y, z)) relax(x, y, z, waterLevel(id));
+        if (id === fluid.source) relax(x, y, z, 0);
+        else if (sameFluid(id) && !inInner(x, y, z)) relax(x, y, z, fluidLevel(fluid, id));
       }
 
-  // Water spreads into cells it can occupy: air OR existing flowing water (which is
+  // The fluid spreads into cells it can occupy: air OR its own existing flow (which is
   // fluid, not a wall — so re-settling re-levels it instead of treating it as blocked
-  // and receding it, which caused oscillation). Sources/solids are not fillable.
-  const fillable = (id: number): boolean => id === 0 || (isWaterId(id) && id !== WATER_SOURCE);
+  // and receding it, which caused oscillation). Sources/solids/other fluids are not fillable.
+  const fillable = (id: number): boolean => id === 0 || (sameFluid(id) && id !== fluid.source);
 
   // Flood: fall into a fillable cell below (→ level 1), else spread sideways (level+1 ≤ 7).
   const HORIZ = [
@@ -75,7 +79,7 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
     const L = level.get(key(x, y, z))!;
     if (fillable(w.getBlock(x, y - 1, z))) {
       relax(x, y - 1, z, 1); // falls, lands near-full
-    } else if (L < WATER_MAX_LEVEL) {
+    } else if (L < fluid.maxLevel) {
       for (const [dx, dz] of HORIZ) if (fillable(w.getBlock(x + dx, y, z + dz))) relax(x + dx, y, z + dz, L + 1);
     }
   }
@@ -108,9 +112,9 @@ export function settleAround(w: Grid, ex: number, ey: number, ez: number): Cell[
     for (let z = z0; z <= z1; z++)
       for (let x = x0; x <= x1; x++) {
         const cur = w.getBlock(x, y, z);
-        if (cur === WATER_SOURCE || isSolid(cur)) continue; // fixed
+        if (cur === fluid.source || isSolid(cur)) continue; // fixed
         const lv = inInner(x, y, z) ? level.get(key(x, y, z)) : undefined;
-        const want = lv === undefined ? 0 : lv === 0 ? WATER_SOURCE : flowId(lv);
+        const want = lv === undefined ? 0 : lv === 0 ? fluid.source : fluidFlowId(fluid, lv);
         if (want !== cur) changes.push({ x, y, z, id: want });
       }
   return changes;

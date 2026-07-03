@@ -55,3 +55,52 @@ export function createWaterMaterial(): WaterMaterial {
   });
   return { material, uniforms };
 }
+
+/**
+ * Animated lava material — like the water shader but molten: a near-opaque hot
+ * surface with slow-crawling bright/dark bands. It ignores the day/night light
+ * (emissive: lava glows on its own, brightest at night) and barely waves. Shares
+ * the mesher's per-fluid level geometry, so lava pours + pools like water.
+ */
+export function createLavaMaterial(): WaterMaterial {
+  const uniforms = {
+    uTime: { value: 0 },
+    uLight: { value: new THREE.Color(1, 1, 1) }, // unused (lava is emissive) — kept for a common shape
+    uOpacity: { value: 0.96 },
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: true, // near-opaque, so it can write depth (unlike water)
+    side: THREE.DoubleSide,
+    vertexShader: `
+      attribute vec3 color;
+      varying vec3 vColor;
+      varying vec3 vWorld;
+      uniform float uTime;
+      void main() {
+        vColor = color;
+        vWorld = (modelMatrix * vec4(position, 1.0)).xyz;
+        vec3 p = position;
+        // Very slow, small swell — molten, viscous.
+        float w = sin(vWorld.x * 0.4 + uTime * 0.5) + sin(vWorld.z * 0.5 + uTime * 0.4);
+        p.y += w * 0.02;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec3 vColor;
+      varying vec3 vWorld;
+      uniform float uTime;
+      uniform float uOpacity;
+      void main() {
+        vec3 hot = vec3(1.0, 0.75, 0.18);
+        vec3 crust = vec3(0.55, 0.11, 0.03);
+        // Slow crawling bands blend crust ↔ molten glow.
+        float g = sin(vWorld.x * 0.9 + uTime * 0.8) * sin(vWorld.z * 0.8 - uTime * 0.6);
+        vec3 base = mix(crust, hot, clamp(g * 0.5 + 0.6, 0.0, 1.0));
+        // Emissive: multiply only by baked AO (vColor), NOT the day/night light.
+        gl_FragColor = vec4(base * (0.6 + 0.4 * vColor.r), uOpacity);
+      }`,
+  });
+  return { material, uniforms };
+}

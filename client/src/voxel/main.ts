@@ -7,14 +7,14 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
-import { createWaterMaterial } from './water.js';
+import { createWaterMaterial, createLavaMaterial } from './water.js';
 import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
@@ -55,6 +55,13 @@ underwaterOverlay.id = 'vx-underwater';
 underwaterOverlay.style.cssText =
   'position:fixed;inset:0;pointer-events:none;z-index:45;opacity:0;transition:opacity .18s;background:rgba(28,92,146,0.4);';
 (document.getElementById('game') ?? document.body).appendChild(underwaterOverlay);
+// In lava: a hot orange fog + screen glow (the server deals the actual burn damage).
+const lavaFog = new THREE.Fog(0x7a1e05, 0.1, 6);
+const lavaOverlay = document.createElement('div');
+lavaOverlay.id = 'vx-inlava';
+lavaOverlay.style.cssText =
+  'position:fixed;inset:0;pointer-events:none;z-index:46;opacity:0;transition:opacity .18s;background:rgba(200,60,10,0.62);';
+(document.getElementById('game') ?? document.body).appendChild(lavaOverlay);
 
 // Day/night: the server hands us a shared clock in the welcome; tod (0..1) is
 // advanced locally each frame and tints the sky/fog + the (unlit) world material.
@@ -72,13 +79,17 @@ const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.D
 // Water: separate translucent pass (see-through, no depth write so submerged
 // terrain shows through). Animated waving-liquid shader (see water.ts).
 const { material: waterMaterial, uniforms: waterUniforms } = createWaterMaterial();
+const { material: lavaMaterial, uniforms: lavaUniforms } = createLavaMaterial();
 let atlas: Atlas | null = null;
 const terrainGroup = new THREE.Group(); // opaque blocks — the aim/raycast target
 const waterGroup = new THREE.Group(); // translucent water — NOT raycast (can't build on water)
+const lavaGroup = new THREE.Group(); // emissive lava — NOT raycast
 scene.add(terrainGroup);
 scene.add(waterGroup);
+scene.add(lavaGroup);
 const chunkMeshes = new Map<string, THREE.Mesh>();
 const chunkWater = new Map<string, THREE.Mesh>();
+const chunkLava = new Map<string, THREE.Mesh>();
 const dirty = new Set<string>();
 const NEIGHBORS = [
   [1, 0, 0],
@@ -117,6 +128,7 @@ function remeshChunk(cx: number, cy: number, cz: number): void {
   };
   layer(chunkMeshes, terrainGroup, material, geom?.opaque ?? null);
   layer(chunkWater, waterGroup, waterMaterial, geom?.water ?? null);
+  layer(chunkLava, lavaGroup, lavaMaterial, geom?.lava ?? null);
   refreshPortalGlow(cx, cy, cz);
 }
 
@@ -528,7 +540,7 @@ function columnColor(x: number, z: number): number | null {
     for (let ly = CHUNK - 1; ly >= 0; ly--) {
       const id = cells[lx + CHUNK * (lz + CHUNK * ly)];
       if (id === 0) continue;
-      return isWaterId(id) ? 0x3a6ea5 : MAP_COLORS[id] ?? 0x777777;
+      return isWaterId(id) ? 0x3a6ea5 : isLavaId(id) ? 0xe2521a : MAP_COLORS[id] ?? 0x777777;
     }
   }
   return null;
@@ -1374,6 +1386,11 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
     m.geometry.dispose();
   }
   chunkWater.clear();
+  for (const m of chunkLava.values()) {
+    lavaGroup.remove(m);
+    m.geometry.dispose();
+  }
+  chunkLava.clear();
   for (const node of portalGlows.values()) portalGlowGroup.remove(node);
   portalGlows.clear();
   dirty.clear();
@@ -1510,6 +1527,7 @@ function frame(now: number): void {
   material.color.copy(dayColors.light);
   waterUniforms.uLight.value.copy(dayColors.light);
   waterUniforms.uTime.value = now * 0.001;
+  lavaUniforms.uTime.value = now * 0.001;
   (clouds.material as THREE.MeshBasicMaterial).color.copy(dayColors.light);
   avatar.setTint(dayColors.light);
   // Clouds follow the player + drift.
@@ -1545,11 +1563,16 @@ function frame(now: number): void {
     if (me) updateHpBar(me.hp, me.hpMax);
   }
   placeCamera();
-  // Underwater murk: dense blue fog + screen overlay when the camera is submerged.
+  // Fluid murk: dense fog + screen overlay when the camera is submerged (lava wins if both).
   const cam = activeCam();
-  const camWet = world.water(Math.floor(cam.position.x), Math.floor(cam.position.y), Math.floor(cam.position.z));
-  scene.fog = camWet ? underwaterFog : perspFog;
+  const cx = Math.floor(cam.position.x),
+    cy = Math.floor(cam.position.y),
+    cz = Math.floor(cam.position.z);
+  const camLava = world.lava(cx, cy, cz);
+  const camWet = !camLava && world.water(cx, cy, cz);
+  scene.fog = camLava ? lavaFog : camWet ? underwaterFog : perspFog;
   underwaterOverlay.style.opacity = camWet ? '0.4' : '0';
+  lavaOverlay.style.opacity = camLava ? '0.62' : '0';
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);
 }

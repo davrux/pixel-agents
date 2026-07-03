@@ -52,18 +52,20 @@ export const BLOCKS: BlockDef[] = [
   u('diamond block', 'diamond_block'),
   u('water', 'water'), // id 27 — generated lakes/seas (synthetic tile)
   b('portal', 'glass', 'portal', 'glass', 'portal'), // id 28 — glass cube with a P on the sides
+  u('lava', 'lava'), // id 29 — placeable liquid (synthetic tile); flows + burns
 ];
 
 export const WATER_ID = 27;
 export const PORTAL_ID = 28;
+export const LAVA_ID = 29;
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block a glass pane sits on THROUGH it), and only cull against the
  *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal. */
 export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28]);
 
-/** Tiles drawn at runtime (not PNG files): water + the portal P overlay. */
-export const SYNTHETIC_TILES = ['water', 'portal'];
+/** Tiles drawn at runtime (not PNG files): water, lava + the portal P overlay. */
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(

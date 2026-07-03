@@ -44,6 +44,18 @@ function drawWater(ctx: CanvasRenderingContext2D, s: number): void {
   ctx.fillStyle = 'rgba(20,50,120,0.35)';
   ctx.fillRect(4 * p, 11 * p, 4 * p, p);
 }
+function drawLava(ctx: CanvasRenderingContext2D, s: number): void {
+  ctx.fillStyle = '#e2521a';
+  ctx.fillRect(0, 0, s, s);
+  const p = s / 16;
+  ctx.fillStyle = '#ffcc33'; // bright molten highlights
+  ctx.fillRect(2 * p, 3 * p, 5 * p, p);
+  ctx.fillRect(9 * p, 10 * p, 4 * p, p);
+  ctx.fillRect(5 * p, 7 * p, 3 * p, p);
+  ctx.fillStyle = '#8a1f06'; // dark crust blotches
+  ctx.fillRect(3 * p, 12 * p, 4 * p, 2 * p);
+  ctx.fillRect(11 * p, 4 * p, 3 * p, 2 * p);
+}
 function drawPortal(ctx: CanvasRenderingContext2D, s: number, img: Map<string, HTMLImageElement>): void {
   const glass = img.get('glass');
   if (glass) ctx.drawImage(glass, 0, 0, s, s);
@@ -66,6 +78,7 @@ function drawPortal(ctx: CanvasRenderingContext2D, s: number, img: Map<string, H
 export const SYNTHETIC: SyntheticTile[] = [
   { name: 'water', render: (ctx, s) => drawWater(ctx, s) },
   { name: 'portal', render: drawPortal },
+  { name: 'lava', render: (ctx, s) => drawLava(ctx, s) },
 ];
 
 export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {

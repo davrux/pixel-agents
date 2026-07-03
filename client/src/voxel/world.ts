@@ -5,7 +5,7 @@
  * page still show terrain when run offline (no server) during dev.
  */
 import { AIR } from './blocks.js';
-import { CHUNK, CHUNK_VOL, cellIndex, chunkKey, toChunk, toLocal, isWaterId } from '@pixel/shared';
+import { CHUNK, CHUNK_VOL, cellIndex, chunkKey, toChunk, toLocal, isWaterId, isLavaId, isFluidId } from '@pixel/shared';
 
 export class VoxelWorld {
   private readonly chunks = new Map<string, Uint8Array>();
@@ -42,14 +42,19 @@ export class VoxelWorld {
     const c = this.chunks.get(chunkKey(toChunk(x), toChunk(y), toChunk(z)));
     if (c) c[cellIndex(toLocal(x), toLocal(y), toLocal(z))] = id;
   }
-  /** Solid = blocks the player. Water (source or flowing) is NOT solid. */
+  /** Solid = blocks the player. Fluids (water/lava, source or flowing) are NOT solid —
+   *  you fall through them (into lava you sink to the floor and burn). */
   solid(x: number, y: number, z: number): boolean {
     const id = this.get(x, y, z);
-    return id !== AIR && !isWaterId(id);
+    return id !== AIR && !isFluidId(id);
   }
   /** True where the cell is water (source or flowing) — swim physics + animation. */
   water(x: number, y: number, z: number): boolean {
     return isWaterId(this.get(x, y, z));
+  }
+  /** True where the cell is lava (source or flowing) — burn overlay feedback. */
+  lava(x: number, y: number, z: number): boolean {
+    return isLavaId(this.get(x, y, z));
   }
 
   /** Highest solid y at (x,z) among loaded chunks — spawn / ground probe. Skips

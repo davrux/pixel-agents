@@ -6,15 +6,17 @@
  * Minecraft look. Rebuilt whole on edit; fine for the single spike region.
  */
 import * as THREE from 'three';
-import { CHUNK, isWaterId, waterLevel } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, WATER_ID, TRANSPARENT } from './blocks.js';
+import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
+import { BLOCKS, SHADE, AIR, TRANSPARENT } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
 
-/** Opaque + water geometry for one chunk (water goes to a separate transparent mesh). */
+/** Opaque + fluid geometry for one chunk. Water and lava each get their own
+ *  transparent/emissive mesh (rendered with different materials). */
 export interface ChunkGeom {
   opaque: THREE.BufferGeometry | null;
   water: THREE.BufferGeometry | null;
+  lava: THREE.BufferGeometry | null;
 }
 
 type Corner = [number, number, number];
@@ -43,6 +45,7 @@ const AO = [0.5, 0.7, 0.85, 1.0]; // occlusion level 0 (deep) → 3 (open)
 export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: number, cz: number): ChunkGeom {
   const opq = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
   const wat = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
+  const lav = { pos: [] as number[], col: [] as number[], uvs: [] as number[] };
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
@@ -57,21 +60,21 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
     if (own && lx >= 0 && lx < CHUNK && ly >= 0 && ly < CHUNK && lz >= 0 && lz < CHUNK) return own[lx + CHUNK * (lz + CHUNK * ly)];
     return world.get(x, y, z);
   };
-  // AO samples opaque occluders only (water casts none).
+  // AO samples opaque occluders only (fluids cast none).
   const s = (x: number, y: number, z: number): number => {
     const id = cellAt(x, y, z);
-    return id !== AIR && !isWaterId(id) ? 1 : 0;
+    return id !== AIR && !isFluidId(id) ? 1 : 0;
   };
-  // Opaque occluder = solid, not water, not a transparent block (glass/ice/leaves/portal).
+  // Opaque occluder = solid, not a fluid, not a transparent block (glass/ice/leaves/portal).
   const occludes = (x: number, y: number, z: number): boolean => {
     const nid = cellAt(x, y, z);
-    return nid !== AIR && !isWaterId(nid) && !TRANSPARENT.has(nid);
+    return nid !== AIR && !isFluidId(nid) && !TRANSPARENT.has(nid);
   };
-  // Surface height of a water cell (1 if submerged/source), or -1 if not water.
-  const waterTop = (x: number, y: number, z: number): number => {
+  // Surface height of a cell of fluid `f` (1 if submerged/source), or -1 if not that fluid.
+  const fluidTop = (x: number, y: number, z: number, f: FluidDef): number => {
     const wid = cellAt(x, y, z);
-    if (!isWaterId(wid)) return -1;
-    return isWaterId(cellAt(x, y + 1, z)) ? 1 : 1 - (waterLevel(wid) / 8) * 0.82;
+    if (fluidOf(wid) !== f) return -1;
+    return fluidOf(cellAt(x, y + 1, z)) === f ? 1 : 1 - (fluidLevel(f, wid) / 8) * 0.82;
   };
 
   for (let x = x0; x < x0 + CHUNK; x++) {
@@ -79,24 +82,24 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = cellAt(x, y, z);
         if (id === AIR) continue;
-        const isWater = isWaterId(id);
+        const fluid = fluidOf(id); // water/lava def, or null
         const transparent = TRANSPARENT.has(id);
-        const def = isWater ? BLOCKS[WATER_ID] : BLOCKS[id] ?? BLOCKS[3];
-        const buf = isWater ? wat : opq;
-        // Flowing water sits lower by its level; a submerged cell (water above) is full.
-        const topY = isWater && !isWaterId(cellAt(x, y + 1, z)) ? 1 - (waterLevel(id) / 8) * 0.82 : 1;
+        const def = fluid ? BLOCKS[fluid.source] : BLOCKS[id] ?? BLOCKS[3];
+        const buf = fluid ? (fluid === LAVA_FLUID ? lav : wat) : opq;
+        // Flowing fluid sits lower by its level; a submerged cell (same fluid above) is full.
+        const topY = fluid && fluidOf(cellAt(x, y + 1, z)) !== fluid ? 1 - (fluidLevel(fluid, id) / 8) * 0.82 : 1;
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
           const nid = cellAt(x + nx, y + ny, z + nz);
-          // Cull. Water: top hidden under water; bottom shown only vs air; a SIDE is
-          // hidden only if the neighbour water's surface is at least as high (else the
-          // step between differing levels shows — no cracks). Transparent: hidden vs
-          // same id or behind opaque. Opaque: hidden behind opaque.
+          // Cull. Fluid: top hidden under same fluid; bottom shown only vs air; a SIDE is
+          // hidden only if the neighbour (same fluid) surface is at least as high (else the
+          // step between differing levels shows — no cracks). Transparent: hidden vs same id
+          // or behind opaque. Opaque: hidden behind opaque.
           let hidden: boolean;
-          if (isWater) {
-            if (ny === 1) hidden = isWaterId(nid);
+          if (fluid) {
+            if (ny === 1) hidden = fluidOf(nid) === fluid;
             else if (ny === -1) hidden = nid !== AIR;
-            else hidden = isWaterId(nid) ? waterTop(x + nx, y + ny, z + nz) >= topY - 0.01 : nid !== AIR;
+            else hidden = fluidOf(nid) === fluid ? fluidTop(x + nx, y + ny, z + nz, fluid) >= topY - 0.01 : nid !== AIR;
           } else if (transparent) {
             hidden = nid === id || occludes(x + nx, y + ny, z + nz);
           } else {
@@ -141,5 +144,5 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
     g.computeBoundingSphere();
     return g;
   };
-  return { opaque: make(opq), water: make(wat) };
+  return { opaque: make(opq), water: make(wat), lava: make(lav) };
 }

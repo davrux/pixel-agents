@@ -20,6 +20,9 @@ import {
   chunkKey,
   packChunk,
   isWaterId,
+  isLavaId,
+  FLUIDS,
+  fluidOf,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -74,6 +77,8 @@ const PLAYER_HP = 20;
 const PLAYER_DMG = 5; // damage a player melee hit deals to a mob
 const MOB_ATTACK_CD = 1.0; // seconds between a monster's hits
 const RUNAWAY_TIME = 4; // seconds an animal flees after being hit
+const LAVA_TICK = 0.5; // seconds between lava burn ticks
+const LAVA_DMG = 4; // damage per lava tick to a player standing in lava
 
 interface NpcBrain {
   sync: VoxelNpcSync;
@@ -98,6 +103,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private spawnAcc = 0; // seconds accumulated toward the next spawn attempt
   private peaceful = false; // no monsters spawn while true (shared-world toggle)
   private aoiAcc = 0; // seconds accumulated toward the next entity-AOI refresh
+  private lavaAcc = 0; // seconds accumulated toward the next lava burn tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -182,6 +188,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (this.aoiAcc >= 0.4) {
       this.aoiAcc = 0;
       this.updateAoi();
+    }
+    this.lavaAcc += dt;
+    if (this.lavaAcc >= LAVA_TICK) {
+      this.lavaAcc = 0;
+      this.burnPlayersInLava();
     }
     for (const [key, b] of this.npcs) {
       b.life -= dt;
@@ -325,6 +336,19 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       b.repath = 0;
     }
     b.life = MOB_LIFETIME; // interacting with a mob keeps it around
+  }
+
+  /** Burn any player whose feet or head cell is lava (server-authoritative hazard). */
+  private burnPlayersInLava(): void {
+    this.state.players.forEach((p, sid) => {
+      if (p.hp <= 0) return;
+      const fx = Math.floor(p.x),
+        fz = Math.floor(p.z),
+        fy = Math.floor(p.y);
+      if (isLavaId(this.world.getBlock(fx, fy, fz)) || isLavaId(this.world.getBlock(fx, fy + 1, fz))) {
+        this.damagePlayer(sid, p, LAVA_DMG);
+      }
+    });
   }
 
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
@@ -613,20 +637,22 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
     if (!this.world.setBlock(x, y, z, id)) return; // no change
     this.broadcastEdit(x, y, z, id);
-    // Water flow: if this edit touches water, recompute the local pool to equilibrium
-    // (pours in / floods / recedes) and broadcast every resulting cell change.
-    const touchesWater =
-      isWaterId(this.world.getBlock(x, y, z)) ||
-      [
-        [1, 0, 0],
-        [-1, 0, 0],
-        [0, 1, 0],
-        [0, -1, 0],
-        [0, 0, 1],
-        [0, 0, -1],
-      ].some(([a, b, c]) => isWaterId(this.world.getBlock(x + a, y + b, z + c)));
-    if (touchesWater) {
-      const changes = settleAround(this.world, x, y, z);
+    // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
+    // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
+    // Water and lava settle independently (each treats the other as a wall).
+    const NB = [
+      [0, 0, 0],
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    for (const fluid of FLUIDS) {
+      const touches = NB.some(([a, b, c]) => fluidOf(this.world.getBlock(x + a, y + b, z + c)) === fluid);
+      if (!touches) continue;
+      const changes = settleAround(this.world, x, y, z, fluid);
       if (changes.length) {
         this.world.setBlocks(changes);
         for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
