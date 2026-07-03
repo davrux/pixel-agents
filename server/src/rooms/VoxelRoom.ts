@@ -21,6 +21,8 @@ import {
   packChunk,
   isWaterId,
   isLavaId,
+  LAVA_SOURCE,
+  WATER_FLUID,
   FLUIDS,
   fluidOf,
 } from '@pixel/shared';
@@ -79,6 +81,8 @@ const MOB_ATTACK_CD = 1.0; // seconds between a monster's hits
 const RUNAWAY_TIME = 4; // seconds an animal flees after being hit
 const LAVA_TICK = 0.5; // seconds between lava burn ticks
 const LAVA_DMG = 4; // damage per lava tick to a player standing in lava
+const OBSIDIAN = 16; // lava SOURCE cooled by water (Luanti default cool_lava)
+const STONE = 3; // flowing lava cooled by water
 
 interface NpcBrain {
   sync: VoxelNpcSync;
@@ -657,6 +661,42 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         this.world.setBlocks(changes);
         for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
       }
+    }
+    // Luanti cool_lava: lava meeting water hardens — a source → obsidian, flow → stone.
+    this.coolLavaAround(x, y, z);
+  }
+
+  /** After a fluid settle, harden any lava now touching water (Luanti default rule):
+   *  lava SOURCE → obsidian, flowing lava → stone. Then re-settle water once, since the
+   *  fresh solids may open or block its path. Bounded to a box around the edit. */
+  private coolLavaAround(ex: number, ey: number, ez: number): void {
+    const R = 6,
+      DY = 8;
+    const NB6 = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    const conv: { x: number; y: number; z: number; id: number }[] = [];
+    for (let y = ey - DY; y <= ey + 2; y++)
+      for (let z = ez - R; z <= ez + R; z++)
+        for (let x = ex - R; x <= ex + R; x++) {
+          const id = this.world.getBlock(x, y, z);
+          if (!isLavaId(id)) continue;
+          if (NB6.some(([a, b, c]) => isWaterId(this.world.getBlock(x + a, y + b, z + c)))) {
+            conv.push({ x, y, z, id: id === LAVA_SOURCE ? OBSIDIAN : STONE });
+          }
+        }
+    if (!conv.length) return;
+    this.world.setBlocks(conv);
+    for (const ch of conv) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+    const wc = settleAround(this.world, ex, ey, ez, WATER_FLUID);
+    if (wc.length) {
+      this.world.setBlocks(wc);
+      for (const ch of wc) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
     }
   }
 
