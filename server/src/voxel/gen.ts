@@ -12,6 +12,10 @@ const GRASS = 1;
 const DIRT = 2;
 const STONE = 3;
 const SAND = 7;
+const DESERT_SAND = 8;
+const SANDSTONE = 9;
+const SNOW = 12;
+const ICE = 13;
 const WOOD = 17;
 const LEAVES = 21;
 export const WATER = 27;
@@ -20,6 +24,18 @@ const IRON_ORE = 31; // stone speckled with iron — deeper
 
 const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
+const ROCK_LINE = SEA + 22; // above here peaks are bare rock
+const SNOW_LINE = SEA + 30; // above here peaks are snow-capped (any biome)
+
+// Biomes from low-frequency temperature × humidity noise (Luanti-style climate map).
+export type Biome = 'desert' | 'snow' | 'plains';
+export function biomeAt(x: number, z: number, seed: number): Biome {
+  const temp = noise2(x, z, 160, seed + 900);
+  const hum = noise2(x, z, 160, seed + 901);
+  if (temp > 0.62 && hum < 0.42) return 'desert'; // hot + dry
+  if (temp < 0.32) return 'snow'; // cold
+  return 'plains'; // temperate (grass + forest)
+}
 
 // ── noise ─────────────────────────────────────────────────────────────────────
 function hash2(x: number, z: number, seed: number): number {
@@ -154,14 +170,29 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
         wz = baseZ + lz;
       const h = surfaceHeight(wx, wz, seed, spawnLake);
       const beach = h <= SEA + 1 && h >= SEA - 1;
+      const biome = biomeAt(wx, wz, seed);
+      // Per-biome surface + subsurface (deep stone stays STONE so caves/ores still work).
+      const topId =
+        h < SEA || beach
+          ? SAND // sandy lakebeds/seabeds + shores, all biomes
+          : h > SNOW_LINE
+            ? SNOW // snow-capped peaks (any biome)
+            : h > ROCK_LINE
+              ? STONE // bare rocky peaks
+              : biome === 'desert'
+                ? DESERT_SAND
+                : biome === 'snow'
+                  ? SNOW
+                  : GRASS;
+      const subId = biome === 'desert' ? SANDSTONE : DIRT;
       for (let ly = 0; ly < CHUNK; ly++) {
         const wy = baseY + ly;
         let id = AIR;
         if (wy < 0) id = STONE; // bedrock floor — never fall through
         else if (wy < h - 4) id = STONE;
-        else if (wy < h) id = DIRT;
-        else if (wy === h) id = h < SEA ? SAND : beach ? SAND : GRASS; // sandy shores + lakebeds
-        else if (wy <= SEA) id = WATER; // fill lakes/seas above low land
+        else if (wy < h) id = subId;
+        else if (wy === h) id = topId;
+        else if (wy <= SEA) id = biome === 'snow' && wy === SEA ? ICE : WATER; // frozen surface in the cold
         // carve caves out of the solid interior (not water)
         if ((id === STONE || id === DIRT) && wy >= 0 && isCave(wx, wy, wz, seed, h)) id = AIR;
         // Ores in solid stone (after caves): small clumps (2³ cells share a roll → veins).
@@ -178,10 +209,13 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
   // Forest: trees whose columns are in (or just outside) this chunk, on grass.
   for (let wz = baseZ - TREE_MARGIN; wz < baseZ + CHUNK + TREE_MARGIN; wz++) {
     for (let wx = baseX - TREE_MARGIN; wx < baseX + CHUNK + TREE_MARGIN; wx++) {
-      if (hash2(wx, wz, seed + 991) >= 0.02) continue; // ~2% of columns
+      const biome = biomeAt(wx, wz, seed);
+      if (biome === 'desert') continue; // deserts are treeless
+      const density = biome === 'snow' ? 0.008 : 0.02; // sparse taiga vs temperate forest
+      if (hash2(wx, wz, seed + 991) >= density) continue;
       if (spawnLake && Math.hypot(wx, wz) < 6) continue; // keep the spawn clear (no tree to spawn on)
       const h = surfaceHeight(wx, wz, seed, spawnLake);
-      if (h <= SEA) continue; // no trees in water/shore
+      if (h <= SEA || h > ROCK_LINE) continue; // no trees in water/shore or on bare peaks
       writeTree(cells, wx, wz, h, seed, baseX, baseY, baseZ);
     }
   }
