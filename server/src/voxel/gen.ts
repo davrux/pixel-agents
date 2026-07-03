@@ -80,7 +80,8 @@ const LAKE_CX = 10;
 const LAKE_CZ = 0;
 const LAKE_R = 10; // water radius
 const LAKE_FLOOR = SEA - 9; // deep centre (multi-layer water, like a real lake)
-const LAKE_SHORE = SEA + 2; // flat land height around the lake + spawn pad
+const LAKE_RIM = SEA; // rim height = water level → the lake looks brim-full (flush shore)
+const SPAWN_PAD = SEA + 1; // spawn on dry ground one block above the waterline
 
 /** Surface land height at world (x,z): continents dip into basins (lakes/seas)
  *  and rise into mountains, plus rolling hills. cell 80 → variety within a view.
@@ -96,12 +97,12 @@ export function surfaceHeight(x: number, z: number, seed: number, spawnLake = fa
     const d = Math.hypot(x - LAKE_CX, z - LAKE_CZ);
     if (d < LAKE_R) {
       const t = d / LAKE_R; // 0 centre .. 1 rim
-      h = LAKE_SHORE + (LAKE_FLOOR - LAKE_SHORE) * (1 - t * t); // curved bowl, deep centre
+      h = LAKE_RIM + (LAKE_FLOOR - LAKE_RIM) * (1 - t * t); // curved bowl, rim flush with waterline
     } else if (d < LAKE_R + 4) {
-      const t = (d - LAKE_R) / 4; // blend shore → natural terrain
-      h = LAKE_SHORE + (h - LAKE_SHORE) * (t * t * (3 - 2 * t));
+      const t = (d - LAKE_R) / 4; // blend rim → natural terrain
+      h = LAKE_RIM + (h - LAKE_RIM) * (t * t * (3 - 2 * t));
     }
-    if (Math.hypot(x, z) < 3) h = LAKE_SHORE; // flat spawn pad at origin
+    if (Math.hypot(x, z) < 3) h = SPAWN_PAD; // dry spawn pad just above the waterline
   }
   return Math.floor(h);
 }
