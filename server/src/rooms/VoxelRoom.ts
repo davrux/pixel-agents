@@ -27,6 +27,9 @@ import {
   FLUIDS,
   fluidOf,
   CRAFT_RECIPES,
+  SMELT_RECIPES,
+  FUEL_ITEMS,
+  dropFor,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -165,6 +168,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       else this.creative.delete(client.sessionId);
     });
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
+    this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -461,6 +465,31 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     client.send('inv', { block: r.out.block, total });
   }
 
+  /** Server-authoritative smelt (furnace): needs one input item + one unit of fuel in
+   *  the stack inventory. Consumes both, grants the output. Fuel is any FUEL_ITEMS id
+   *  (prefers a non-input fuel so smelting sand with coal doesn't eat the sand as fuel).
+   *  Broadcasts an 'inv' per changed item. */
+  private onSmelt(client: Client, i: number): void {
+    const r = SMELT_RECIPES[i];
+    const sid = client.sessionId;
+    const bag = this.inv.get(sid);
+    if (!r || !bag) return;
+    if ((bag.get(r.in) ?? 0) < 1) return; // no input to cook
+    // Pick a fuel we actually hold, avoiding the input item itself when possible.
+    const fuel = FUEL_ITEMS.find((f) => f !== r.in && (bag.get(f) ?? 0) >= 1) ?? FUEL_ITEMS.find((f) => (bag.get(f) ?? 0) >= 1);
+    if (fuel === undefined) return; // no fuel
+    const take = (item: number): void => {
+      const left = (bag.get(item) ?? 0) - 1;
+      left > 0 ? bag.set(item, left) : bag.delete(item);
+      client.send('inv', { block: item, total: Math.max(0, left) });
+    };
+    take(r.in);
+    take(fuel);
+    const total = Math.min(STACK_MAX, (bag.get(r.out) ?? 0) + r.count);
+    bag.set(r.out, total);
+    client.send('inv', { block: r.out, total });
+  }
+
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
   private damagePlayer(sid: string, p: VoxelPlayerSync, dmg: number): void {
     if (p.hp <= 0) return;
@@ -742,6 +771,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       z = Math.floor(m.z);
     const id = m.id | 0;
     if (![x, y, z].every(Number.isFinite) || id < 0 || id > 255) return;
+    // Only placeable blocks (1..31) or air (0). Material items (≥100) aren't placeable.
+    if (id > 31) return;
     // Reach: within REACH of the player's eye (feet + ~1.6).
     const dx = x + 0.5 - v.px;
     const dy = y + 0.5 - (v.py + 1.6);
@@ -768,7 +799,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       client.send('inv', { block: id, total });
     }
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
-    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(prev, x, y, z);
+    // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
+    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(dropFor(prev), x, y, z);
     // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
     // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
     // Water and lava settle independently (each treats the other as a wall).

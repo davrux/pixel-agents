@@ -5,6 +5,8 @@
  * drives digging (tool → its dig speed; block → hand speed) and placing (blocks
  * only). More kinds (food, buckets, …) can be added here as their behaviour lands.
  */
+import { MATERIAL_BASE, COAL_LUMP, IRON_LUMP, STEEL_INGOT } from '@pixel/shared';
+
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
 
 export type ArmorSlot = 'head' | 'torso' | 'legs' | 'feet';
@@ -16,6 +18,7 @@ export interface Item {
   pivot: [number, number]; // sprite pivot for the held mesh (grip point)
   block?: number; // placeable block id (undefined for tools)
   tool?: string; // luanti TOOLS key (drives dig time; undefined for blocks)
+  material?: number; // non-block material item id (lump/ingot; ≥MATERIAL_BASE) — not placeable
   armor?: { slot: ArmorSlot; defense: number }; // wearable armour piece
   icon?: string; // ready-made icon URL (data:) — overrides texUrl for the HUD thumb
 }
@@ -95,12 +98,31 @@ export const blockItem = (id: number): Item => ({
 /** Every block as a placeable item (the "placing" side of the split hotbar). */
 export const BLOCK_ITEMS: Item[] = ALL_BLOCK_IDS.map(blockItem);
 
+/** A non-block material (lump/ingot): lives in the inventory, feeds crafting/smelting,
+ *  but is never placed or wielded. Drawn as a flat billboard, not a cube. */
+const materialItem = (id: number, name: string, tex: string): Item => ({
+  id: 'mat:' + id,
+  name,
+  texUrl: 'items/' + tex,
+  pivot: [0.5, 0.5],
+  material: id,
+});
+export const MATERIAL_ITEMS: Item[] = [
+  materialItem(COAL_LUMP, 'Coal Lump', 'default_coal_lump'),
+  materialItem(IRON_LUMP, 'Iron Lump', 'default_iron_lump'),
+  materialItem(STEEL_INGOT, 'Steel Ingot', 'default_steel_ingot'),
+];
+
 /** Everything selectable for the hotbar (tools first, then every block). */
 export const ALL_ITEMS: Item[] = [...TOOL_ITEMS, ...BLOCK_ITEMS];
 
-// Full lookup registry (hotbar palette + armour). itemById resolves any of them.
-const REGISTRY: Item[] = [...ALL_ITEMS, ...ARMOR_ITEMS];
+// Full lookup registry (hotbar palette + armour + materials). itemById resolves any of them.
+const REGISTRY: Item[] = [...ALL_ITEMS, ...ARMOR_ITEMS, ...MATERIAL_ITEMS];
 export const itemById = (id: string): Item => REGISTRY.find((i) => i.id === id) ?? ALL_ITEMS[0];
+
+/** Resolve a numeric inventory id (as stored in invCounts / dropped items) to its Item:
+ *  ids ≥ MATERIAL_BASE are materials, everything else is a block. */
+export const invItem = (n: number): Item => (n >= MATERIAL_BASE ? MATERIAL_ITEMS.find((m) => m.material === n) ?? MATERIAL_ITEMS[0] : blockItem(n));
 /** An item's HUD thumbnail URL (ready-made icon, else the textures/ sprite). */
 export const iconUrl = (it: Item): string => it.icon ?? new URL(`textures/${it.texUrl}.png`, document.baseURI).href;
 

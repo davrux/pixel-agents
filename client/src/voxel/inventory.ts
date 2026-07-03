@@ -19,8 +19,10 @@ export interface InventoryDeps {
   setArmor: (slot: ArmorSlot, id: string | null) => void;
   item: (id: string) => Item;
   palette: { tools: Item[]; blocks: Item[]; armor: Item[] };
-  /** Collected stacks (block id → count) from the survival inventory, count>0. */
+  /** Collected block stacks (block id → count) from the survival inventory, count>0. */
   collected: () => { block: number; count: number }[];
+  /** Non-block materials owned (lumps/ingots, item id ≥ MATERIAL_BASE → count), count>0. */
+  materials: () => { id: number; count: number }[];
   /** Creative mode → show the whole block palette (unlimited); else only owned blocks. */
   creative: () => boolean;
   /** Always-available build tools (water/lava/portal): placeable + shown even in survival. */
@@ -231,6 +233,17 @@ export class Inventory {
       bg.appendChild(this.cell(it, { count }));
     }
     b.appendChild(bg);
+
+    // Materials — non-block items (lumps/ingots) you've mined/smelted. Display-only:
+    // they can't go on the dig/build hotbar, they feed crafting + smelting (C panel).
+    const mats = this.deps.materials();
+    if (mats.length) {
+      heading('Materials');
+      const mg = document.createElement('div');
+      mg.className = 'grid';
+      for (const m of mats) mg.appendChild(this.cell(this.deps.item('mat:' + m.id), { count: m.count, draggable: false }));
+      b.appendChild(mg);
+    }
 
     // Tools + armour palettes (always available — tools aren't collected yet).
     grid('Tools', this.deps.palette.tools);

@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -16,7 +16,7 @@ import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
 import { sound, footstepFor } from './sounds.js';
-import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
+import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, invItem, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
@@ -302,8 +302,8 @@ const npcAvatars = new Map<string, { avatar: Avatar }>();
 // Dropped items: small textured cubes that bob + spin, synced from state.items (AOI).
 const itemGroup = new THREE.Group();
 scene.add(itemGroup);
-const itemDrops = new Map<string, { mesh: THREE.Mesh; block: number }>();
-// Client mirror of the server stack inventory (block id → count) — drives the hotbar
+const itemDrops = new Map<string, { obj: THREE.Object3D; block: number }>();
+// Client mirror of the server stack inventory (item id → count) — drives the hotbar
 // counts + place-consumes-stack. Declared early: updateHud() reads it during init.
 const invCounts = new Map<number, number>();
 let dropMaterial: THREE.MeshBasicMaterial | null = null;
@@ -317,6 +317,40 @@ function buildDropGeo(block: number): THREE.BufferGeometry {
   }
   uv.needsUpdate = true;
   return g;
+}
+// Non-block material drops render as flat billboards (Minecraft-style item sprites),
+// not cubes. Sprite materials are cached per material id (shared texture, no per-drop
+// GPU cost) so they're never disposed on despawn.
+const texLoader = new THREE.TextureLoader();
+const matSpriteMats = new Map<number, THREE.SpriteMaterial>();
+function materialSpriteMat(id: number): THREE.SpriteMaterial {
+  let m = matSpriteMats.get(id);
+  if (!m) {
+    const tex = texLoader.load(itemTexUrl(invItem(id).texUrl));
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    m = new THREE.SpriteMaterial({ map: tex, transparent: true });
+    matSpriteMats.set(id, m);
+  }
+  return m;
+}
+/** Build the world object for a dropped item: a billboard sprite for materials, a
+ *  textured cube for blocks. */
+function buildDropObject(block: number): THREE.Object3D {
+  if (block >= MATERIAL_BASE) {
+    const s = new THREE.Sprite(materialSpriteMat(block));
+    s.scale.set(0.4, 0.4, 0.4);
+    return s;
+  }
+  return new THREE.Mesh(buildDropGeo(block), dropMaterial!);
+}
+/** Remove a dropped-item object from the scene, disposing its per-drop geometry (cube
+ *  only — sprites share cached materials/textures). */
+function disposeDrop(d: { obj: THREE.Object3D }): void {
+  itemGroup.remove(d.obj);
+  const mesh = d.obj as THREE.Mesh;
+  if (mesh.isMesh) mesh.geometry.dispose();
 }
 
 /** Smoothly move + turn an avatar toward its synced transform (server sends ~10 Hz;
@@ -455,21 +489,20 @@ function syncItemDrops(state: RemoteState): void {
   state.items.forEach((it, id) => {
     let d = itemDrops.get(id);
     if ((!d || d.block !== it.block) && atlas && dropMaterial) {
-      if (d) ((itemGroup.remove(d.mesh), d.mesh.geometry.dispose()));
-      const mesh = new THREE.Mesh(buildDropGeo(it.block), dropMaterial);
-      itemGroup.add(mesh);
-      d = { mesh, block: it.block };
+      if (d) disposeDrop(d);
+      const obj = buildDropObject(it.block);
+      itemGroup.add(obj);
+      d = { obj, block: it.block };
       itemDrops.set(id, d);
     }
     if (d) {
-      d.mesh.position.set(it.x, it.y + 0.15 + Math.sin(dropSpin + it.x) * 0.08, it.z);
-      d.mesh.rotation.y = dropSpin;
+      d.obj.position.set(it.x, it.y + 0.15 + Math.sin(dropSpin + it.x) * 0.08, it.z);
+      if (!(d.obj as THREE.Sprite).isSprite) d.obj.rotation.y = dropSpin; // sprites always face the camera
     }
   });
   for (const [id, d] of itemDrops) {
     if (!state.items.get(id)) {
-      itemGroup.remove(d.mesh);
-      d.mesh.geometry.dispose();
+      disposeDrop(d);
       itemDrops.delete(id);
     }
   }
@@ -766,9 +799,14 @@ const inventory = new Inventory({
   palette: { tools: TOOL_ITEMS, blocks: BLOCK_ITEMS, armor: ARMOR_ITEMS },
   collected: () =>
     [...invCounts.entries()]
-      .filter(([, c]) => c > 0)
+      .filter(([id, c]) => c > 0 && id < MATERIAL_BASE) // only placeable blocks in the Blocks grid
       .sort((a, b) => a[0] - b[0])
       .map(([block, count]) => ({ block, count })),
+  materials: () =>
+    [...invCounts.entries()]
+      .filter(([id, c]) => c > 0 && id >= MATERIAL_BASE) // non-block materials (lumps/ingots)
+      .sort((a, b) => a[0] - b[0])
+      .map(([id, count]) => ({ id, count })),
   creative: () => settings.creative,
   special: () => [WATER_ID, PORTAL_ID, LAVA_ID], // always placeable + always shown
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
@@ -1517,7 +1555,7 @@ function showToast(text: string): void {
 }
 function onPickup(m: { block: number; count: number; total: number }): void {
   invCounts.set(m.block, m.total);
-  const name = BLOCKS[m.block]?.name ?? `block ${m.block}`;
+  const name = invItem(m.block).name;
   showToast(`+${m.count} ${name}  ×${m.total}`);
   sound.play('place', 0.4);
   updateHud(); // reflect the new count on the hotbar
@@ -1552,6 +1590,7 @@ craftStyle.textContent = `
   #vx-craft .hd .x{margin-left:auto;cursor:pointer;width:1.6rem;height:1.6rem;display:flex;align-items:center;justify-content:center;background:#3a3a3a;border:3px solid #1c1c1c;border-radius:4px;}
   #vx-craft .row{display:flex;align-items:center;gap:.5rem;padding:.4rem;border:3px solid #1c1c1c;border-radius:5px;margin-bottom:.5rem;background:#333;}
   #vx-craft .row.off{opacity:.45;}
+  #vx-craft .sect{font-size:.82rem;color:#cfcfcf;text-shadow:1px 1px 0 #000;margin:.2rem 0 .5rem;border-top:2px solid #1c1c1c;padding-top:.5rem;}
   #vx-craft .ic{width:34px;height:34px;background-size:cover;image-rendering:pixelated;border:2px solid #1c1c1c;position:relative;}
   #vx-craft .ic .c{position:absolute;right:0;bottom:0;font-size:.62rem;padding:0 1px;background:rgba(0,0,0,.6);text-shadow:1px 1px 0 #000;}
   #vx-craft .arrow{opacity:.8;}
@@ -1580,30 +1619,44 @@ function craftClose(): void {
   craftEl.classList.remove('open');
   if (mode === 'first') canvas.requestPointerLock(); // re-capture the mouse in first person
 }
-function iconHtml(block: number, count: number): string {
-  const url = itemTexUrl(itemById('block:' + block).texUrl);
-  return `<div class="ic" title="${BLOCKS[block]?.name ?? block}" style="background-image:url(${url})"><span class="c">${count}</span></div>`;
+function iconHtml(id: number, count: number): string {
+  const it = invItem(id);
+  const url = itemTexUrl(it.texUrl);
+  return `<div class="ic" title="${it.name}" style="background-image:url(${url})"><span class="c">${count}</span></div>`;
+}
+function craftRow(afford: boolean, inner: string, verb: string, run: () => void): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'row' + (afford ? '' : ' off');
+  row.innerHTML = inner + `<button class="mk">${verb}</button>`;
+  const btn = row.querySelector<HTMLButtonElement>('.mk')!;
+  btn.onclick = () => {
+    if (!afford || !net) return;
+    run();
+    sound.play('place', 0.5);
+  };
+  return row;
 }
 function craftRender(): void {
   if (!craftOpen()) return;
   const list = craftEl.querySelector('.list')!;
   list.innerHTML = '';
+  // Crafting: block/material → item (creative affords everything).
   CRAFT_RECIPES.forEach((r, i) => {
     const afford = settings.creative || r.in.every((ing) => (invCounts.get(ing.block) ?? 0) >= ing.count);
-    const row = document.createElement('div');
-    row.className = 'row' + (afford ? '' : ' off');
-    row.innerHTML =
-      r.in.map((ing) => iconHtml(ing.block, ing.count)).join('') +
-      `<span class="arrow">→</span>` +
-      iconHtml(r.out.block, r.out.count) +
-      `<button class="mk">Craft</button>`;
-    const btn = row.querySelector<HTMLButtonElement>('.mk')!;
-    btn.onclick = () => {
-      if (!afford || !net) return;
-      net.craft(i);
-      sound.play('place', 0.5);
-    };
-    list.appendChild(row);
+    const inner = r.in.map((ing) => iconHtml(ing.block, ing.count)).join('') + `<span class="arrow">→</span>` + iconHtml(r.out.block, r.out.count);
+    list.appendChild(craftRow(afford, inner, 'Craft', () => net!.craft(i)));
+  });
+  // Smelting (furnace): one input + one unit of fuel → output. Fuel = any carried
+  // FUEL_ITEMS (coal lump / wood / planks / coal block). Creative does NOT bypass it.
+  const haveFuel = FUEL_ITEMS.some((f) => (invCounts.get(f) ?? 0) >= 1);
+  const sect = document.createElement('div');
+  sect.className = 'sect';
+  sect.textContent = haveFuel ? 'Smelting' : 'Smelting (needs fuel: coal, wood, planks)';
+  list.appendChild(sect);
+  SMELT_RECIPES.forEach((r, i) => {
+    const afford = (invCounts.get(r.in) ?? 0) >= 1 && haveFuel;
+    const inner = iconHtml(r.in, 1) + `<span class="arrow" title="+ fuel">🔥→</span>` + iconHtml(r.out, r.count);
+    list.appendChild(craftRow(afford, inner, 'Smelt', () => net!.smelt(i)));
   });
 }
 
@@ -1664,7 +1717,7 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   remote.clear();
   for (const [, r] of npcAvatars) scene.remove(r.avatar.group);
   npcAvatars.clear();
-  for (const [, d] of itemDrops) ((itemGroup.remove(d.mesh), d.mesh.geometry.dispose()));
+  for (const [, d] of itemDrops) disposeDrop(d);
   itemDrops.clear();
   invCounts.clear(); // reconnect = new session id → server inventory starts fresh
   exploredColors.clear(); // new world → fresh map

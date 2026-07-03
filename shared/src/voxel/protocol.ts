@@ -66,6 +66,23 @@ export const fluidLevel = (f: FluidDef, id: number): number => (id === f.source 
 /** Block id for a flowing level of THIS fluid (level ≤0 → source). */
 export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ? f.source : f.flowMin + Math.min(f.maxLevel, level) - 1);
 
+// ── Non-block material items (lumps, ingots) ─────────────────────────────────
+// Inventory ids: placeable blocks are 1..31; non-block MATERIAL items start at 100.
+// Materials aren't placeable — they live only in the inventory, drop as flat
+// billboards (not cubes), and feed crafting/smelting. The server's inv/drop maps are
+// keyed by number, so they already carry any id; only the "is this placeable?" and
+// "how is it drawn?" branches care about the split.
+export const MATERIAL_BASE = 100;
+export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE;
+export const COAL_LUMP = 100;
+export const IRON_LUMP = 101;
+export const STEEL_INGOT = 102;
+
+// Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore
+// block). Anything not listed drops itself. Used at the spawnDrop call site.
+export const ORE_DROPS: Record<number, number> = { 30: COAL_LUMP, 31: IRON_LUMP };
+export const dropFor = (blockId: number): number => ORE_DROPS[blockId] ?? blockId;
+
 // ── Crafting ─────────────────────────────────────────────────────────────────
 // Block→block recipes (Luanti-flavoured), shared so the server validates the exact
 // set the client shows. `in` is consumed from the stack inventory, `out` is granted.
@@ -76,8 +93,26 @@ export interface CraftRecipe {
 export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 17, count: 1 }], out: { block: 18, count: 4 } }, // 1 wood → 4 planks
   { in: [{ block: 7, count: 4 }], out: { block: 9, count: 1 } }, // 4 sand → 1 sandstone
-  { in: [{ block: 30, count: 9 }], out: { block: 23, count: 1 } }, // 9 coal ore → 1 coal block
+  { in: [{ block: COAL_LUMP, count: 9 }], out: { block: 23, count: 1 } }, // 9 coal lumps → 1 coal block
 ];
+
+// ── Smelting (furnace) ───────────────────────────────────────────────────────
+// Each smelt consumes one input item + one unit of fuel and yields the output
+// (Luanti-flavoured cook results). Fuel is any FUEL_ITEMS id (simplified from
+// Luanti's per-item burn times: one fuel = one smelt). Shared so the server
+// validates the exact set the client's smelting panel shows.
+export interface SmeltRecipe {
+  in: number;
+  out: number;
+  count: number;
+}
+export const SMELT_RECIPES: SmeltRecipe[] = [
+  { in: IRON_LUMP, out: STEEL_INGOT, count: 1 }, // iron lump → steel ingot
+  { in: 7, out: 14, count: 1 }, // sand → glass
+  { in: 4, out: 3, count: 1 }, // cobble → stone
+];
+/** Items usable as furnace fuel (coal lump, wood, planks, coal block). */
+export const FUEL_ITEMS: number[] = [COAL_LUMP, 17, 18, 23];
 
 export const CHUNK = 16; // chunk edge; a chunk is CHUNK^3 block ids
 export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
