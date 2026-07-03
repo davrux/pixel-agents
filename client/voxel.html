@@ -69,6 +69,22 @@
         border: 3px solid #4a4a4a;
         image-rendering: pixelated;
         cursor: pointer;
+        position: relative;
+      }
+      /* survival stack count on build-block slots */
+      #hotbar .slot .count {
+        position: absolute;
+        right: 0;
+        bottom: 0;
+        padding: 0 2px;
+        font: 700 11px/1.2 'FS Pixel Sans', ui-monospace, monospace;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.6);
+        text-shadow: 1px 1px 0 #000;
+        pointer-events: none;
+      }
+      #hotbar .slot .count.empty {
+        color: #ff8a8a;
       }
       #hotbar .slot.on {
         border-color: #fff;
@@ -279,6 +295,7 @@
       </div>
       <div class="page" data-page="items" hidden>
         <label><input type="checkbox" id="opt-autotool" /> Auto-switch to best tool (else manual, like Minecraft)</label>
+        <label><input type="checkbox" id="opt-creative" /> Creative (unlimited blocks — off = survival: dig to collect)</label>
         <p class="hint">How the held item attaches to the figure (live):</p>
         <div id="item-select">
           <button id="item-prev" type="button">&lsaquo;</button>

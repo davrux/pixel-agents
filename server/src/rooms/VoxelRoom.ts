@@ -21,6 +21,7 @@ import {
   packChunk,
   isWaterId,
   isLavaId,
+  WATER_SOURCE,
   LAVA_SOURCE,
   WATER_FLUID,
   FLUIDS,
@@ -114,6 +115,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private itemSeq = 0; // id counter for dropped items
   private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
+  private readonly creative = new Set<string>(); // sids with unlimited-block placing
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -155,6 +157,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('setPeaceful', (_client, m: { on?: boolean }) => {
       this.peaceful = !!m?.on; // shared-world flag; when on, no monsters spawn
       if (this.peaceful) for (const key of [...this.npcs.keys()]) this.removeMob(key);
+    });
+    this.onMessage('setCreative', (client, m: { on?: boolean }) => {
+      if (m?.on) this.creative.add(client.sessionId); // unlimited-block placing for this client
+      else this.creative.delete(client.sessionId);
     });
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
@@ -619,6 +625,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
     this.inv.delete(client.sessionId);
+    this.creative.delete(client.sessionId);
   }
 
   onDispose(): void {
@@ -699,8 +706,25 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
     const prev = this.world.getBlock(x, y, z);
+    const sid = client.sessionId;
+    // Survival: placing a normal node into air consumes one from the stack inventory.
+    // Fluids + the portal marker (27/28/29) are exempt build tools; creative skips it.
+    const consumes = id !== 0 && prev === 0 && id !== WATER_SOURCE && id !== LAVA_SOURCE && id !== 28;
+    if (consumes && !this.creative.has(sid)) {
+      const bag = this.inv.get(sid);
+      if ((bag?.get(id) ?? 0) <= 0) {
+        client.send('inv', { block: id, total: 0 }); // nothing to place — correct the client
+        return;
+      }
+    }
     if (!this.world.setBlock(x, y, z, id)) return; // no change
     this.broadcastEdit(x, y, z, id);
+    if (consumes && !this.creative.has(sid)) {
+      const bag = this.inv.get(sid)!;
+      const total = Math.max(0, (bag.get(id) ?? 0) - 1);
+      total > 0 ? bag.set(id, total) : bag.delete(id);
+      client.send('inv', { block: id, total });
+    }
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(prev, x, y, z);
     // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid

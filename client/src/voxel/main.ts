@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId } from '@pixel/sha
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, PORTAL_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, PORTAL_ID, WATER_ID, LAVA_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -303,6 +303,9 @@ const npcAvatars = new Map<string, { avatar: Avatar }>();
 const itemGroup = new THREE.Group();
 scene.add(itemGroup);
 const itemDrops = new Map<string, { mesh: THREE.Mesh; block: number }>();
+// Client mirror of the server stack inventory (block id → count) — drives the hotbar
+// counts + place-consumes-stack. Declared early: updateHud() reads it during init.
+const invCounts = new Map<number, number>();
 let dropMaterial: THREE.MeshBasicMaterial | null = null;
 /** A 0.32-cube geometry UV-mapped to a block's side tile on every face (drop icon). */
 function buildDropGeo(block: number): THREE.BufferGeometry {
@@ -347,6 +350,8 @@ function onWelcome(m: unknown): void {
     player.vel.set(0, 0, 0);
     ready = false;
   }
+  net?.setCreative(settings.creative); // sync build mode to this (possibly fresh) session
+  updateHud();
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
   world.setChunk(c.cx, c.cy, c.cz, c.cells);
@@ -482,7 +487,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false, sound: true };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false, sound: true, creative: false };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -927,8 +932,14 @@ function placeBlock(): void {
   const { x: bx, y: by, z: bz } = t;
   // Don't place inside yourself — that would embed the AABB and lock movement.
   if (world.solid(bx, by, bz) || player.intersectsBlock(bx, by, bz)) return;
+  // Survival: need one in the stack inventory (fluids/portal/creative are unlimited).
+  if (!blockUnlimited(block) && (invCounts.get(block) ?? 0) <= 0) {
+    showToast(`Kein Vorrat: ${itemById(blocks[selBlock]).name}`);
+    return;
+  }
   avatar.playDig();
   sound.play('place');
+  if (!blockUnlimited(block)) onInv({ block, total: (invCounts.get(block) ?? 0) - 1 }); // optimistic; server 'inv' corrects
   if (net) {
     net.sendEdit(bx, by, bz, block); // authoritative — applied when the server echoes
   } else {
@@ -1064,6 +1075,15 @@ function updateHud(): void {
       s.style.backgroundSize = 'cover';
       s.title = it.name;
       s.onclick = () => pick(i);
+      // Survival stack count on build blocks (∞ for fluids/portal/creative; dim at 0).
+      if (!isTool && it.block !== undefined) {
+        const bid = it.block;
+        const badge = document.createElement('span');
+        badge.className = 'count';
+        badge.textContent = blockUnlimited(bid) ? '∞' : String(invCounts.get(bid) ?? 0);
+        if (!blockUnlimited(bid) && (invCounts.get(bid) ?? 0) <= 0) badge.classList.add('empty');
+        s.appendChild(badge);
+      }
       // Drop target for inventory drag&drop onto the real bar (kind-checked).
       (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
         const di = itemById(dragId);
@@ -1252,6 +1272,14 @@ autoToolCb.onchange = () => {
   settings.autoTool = autoToolCb.checked;
   saveSettings();
 };
+const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
+creativeCb.checked = settings.creative;
+creativeCb.onchange = () => {
+  settings.creative = creativeCb.checked;
+  net?.setCreative(settings.creative); // server skips stack consumption while creative
+  updateHud(); // ∞ vs counts
+  saveSettings();
+};
 
 // Wield editor: tunes how the CURRENTLY HELD item attaches to the hand; the ‹ ›
 // buttons step the held hotbar slot through all items. Persisted per item id.
@@ -1361,6 +1389,7 @@ function currentSettingsBlob(): unknown {
     fly: settings.fly,
     peaceful: settings.peaceful,
     sound: settings.sound,
+    creative: settings.creative,
     skin: playerSkin,
     wield,
     hotbar: { tools: [...tools], blocks: [...blocks] },
@@ -1384,6 +1413,7 @@ function applyServerSettings(s: unknown): void {
     fly: boolean;
     peaceful: boolean;
     sound: boolean;
+    creative: boolean;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1401,6 +1431,12 @@ function applyServerSettings(s: unknown): void {
     settings.sound = o.sound;
     sound.enabled = o.sound;
     soundCb.checked = o.sound;
+  }
+  if (typeof o.creative === 'boolean') {
+    settings.creative = o.creative;
+    creativeCb.checked = o.creative;
+    net?.setCreative(o.creative);
+    updateHud();
   }
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;
@@ -1448,9 +1484,6 @@ function applyServerSettings(s: unknown): void {
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
 // ── Item pickup (collected drops) ─────────────────────────────────────────────
-// Client mirror of the server stack inventory (block id → count), updated from
-// 'pickup'. Drives the survival hotbar counts + place-consumes-stack.
-const invCounts = new Map<number, number>();
 const toast = document.createElement('div');
 toast.id = 'vx-toast';
 toast.style.cssText =
@@ -1472,9 +1505,18 @@ function onPickup(m: { block: number; count: number; total: number }): void {
   sound.play('place', 0.4);
   updateHud(); // reflect the new count on the hotbar
 }
+function onInv(m: { block: number; total: number }): void {
+  if (m.total > 0) invCounts.set(m.block, m.total);
+  else invCounts.delete(m.block);
+  updateHud();
+}
+// Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
+function blockUnlimited(id: number): boolean {
+  return settings.creative || id === WATER_ID || id === PORTAL_ID || id === LAVA_ID;
+}
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

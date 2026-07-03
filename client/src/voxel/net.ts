@@ -30,6 +30,7 @@ export interface VoxelNet {
   sendAttack(npc: string): void;
   sendArmor(defense: number): void;
   setPeaceful(on: boolean): void;
+  setCreative(on: boolean): void;
   leave(): Promise<void>;
 }
 
@@ -43,6 +44,7 @@ export interface VoxelHandlers {
   onWorlds?: (list: unknown) => void;
   onTeleport?: (m: { x: number; y: number; z: number }) => void;
   onPickup?: (m: { block: number; count: number; total: number }) => void;
+  onInv?: (m: { block: number; total: number }) => void;
 }
 
 export interface JoinOpts {
@@ -78,6 +80,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('worlds', (list: unknown) => handlers.onWorlds?.(list));
   room.onMessage('tp', (m: { x: number; y: number; z: number }) => handlers.onTeleport?.(m));
   room.onMessage('pickup', (m: { block: number; count: number; total: number }) => handlers.onPickup?.(m));
+  room.onMessage('inv', (m: { block: number; total: number }) => handlers.onInv?.(m));
   return {
     room,
     sessionId: room.sessionId,
@@ -89,6 +92,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendAttack: (npc) => room.send('attack', { npc }),
     sendArmor: (defense) => room.send('setArmor', { defense }),
     setPeaceful: (on) => room.send('setPeaceful', { on }),
+    setCreative: (on) => room.send('setCreative', { on }),
     leave: async () => {
       await room.leave();
     },
