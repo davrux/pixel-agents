@@ -22,23 +22,24 @@ export interface MobDef {
   spawnByDay: boolean; // animals spawn in daylight, monsters at night
 }
 
-// Hostile monster only (zombie), spawning at night — like Minecraft, no wandering
-// humanoid NPCs. The animal/runaway path stays in the FSM for future creatures.
+// Animals (day, flee when punched) + hostile monsters (night, chase + hit). The FSM
+// in VoxelRoom drives both from these defs. Art is still a placeholder player skin per
+// mob (real mob models = a later asset-conversion step).
+const animal = (kind: string, skin: string, hp: number, walkVel: number, runVel: number): MobDef => ({
+  kind, type: 'animal', skin, hp, viewRange: 8, walkVel, runVel, damage: 0, reach: 1.5, runaway: true, fearHeight: 3, spawnByDay: true,
+});
+const monster = (kind: string, skin: string, hp: number, viewRange: number, walkVel: number, runVel: number, damage: number, reach: number): MobDef => ({
+  kind, type: 'monster', skin, hp, viewRange, walkVel, runVel, damage, reach, runaway: false, fearHeight: 0, spawnByDay: false,
+});
 export const MOB_DEFS: Record<string, MobDef> = {
-  zombie: {
-    kind: 'zombie',
-    type: 'monster',
-    skin: 'character_8',
-    hp: 20,
-    viewRange: 12,
-    walkVel: 1.5,
-    runVel: 3.0,
-    damage: 2,
-    reach: 2.4,
-    runaway: false,
-    fearHeight: 0,
-    spawnByDay: false,
-  },
+  // Peaceful animals — spawn in daylight, wander, flee when hit.
+  sheep: animal('sheep', 'character_3', 8, 1.0, 2.4),
+  cow: animal('cow', 'character_5', 10, 1.0, 2.2),
+  chicken: animal('chicken', 'character_6', 4, 1.2, 2.6),
+  // Hostile monsters — spawn at night, chase + attack the player.
+  zombie: monster('zombie', 'character_8', 20, 12, 1.5, 3.0, 2, 2.4),
+  skeleton: monster('skeleton', 'character_9', 20, 14, 1.6, 3.2, 3, 2.6),
+  spider: monster('spider', 'character_10', 12, 12, 2.2, 3.6, 2, 2.2),
 };
 
 export const MOB_DEFS_LIST = Object.values(MOB_DEFS);
