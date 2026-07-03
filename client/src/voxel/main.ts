@@ -264,8 +264,25 @@ interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
   npcs: { forEach(cb: (p: RemoteNpc, k: string) => void): void; get(k: string): RemoteNpc | undefined };
 }
-const remote = new Map<string, { avatar: Avatar; px: number; pz: number }>();
-const npcAvatars = new Map<string, { avatar: Avatar; px: number; pz: number }>();
+const remote = new Map<string, { avatar: Avatar }>();
+const npcAvatars = new Map<string, { avatar: Avatar }>();
+
+/** Smoothly move + turn an avatar toward its synced transform (server sends ~10 Hz;
+ *  we interpolate at frame rate so movement + walk animation aren't choppy). Returns
+ *  whether it's still moving (drives walk vs idle, stable between server updates). */
+function smoothAvatar(a: Avatar, tx: number, ty: number, tz: number, tyaw: number, dt: number): boolean {
+  const g = a.group.position;
+  const moving = Math.hypot(tx - g.x, tz - g.z) > 0.03;
+  const k = Math.min(1, dt * 12);
+  g.x += (tx - g.x) * k;
+  g.y += (ty - g.y) * k;
+  g.z += (tz - g.z) * k;
+  let dyaw = tyaw - a.group.rotation.y;
+  while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+  while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+  a.group.rotation.y += dyaw * k;
+  return moving;
+}
 
 function onWelcome(m: unknown): void {
   const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number };
@@ -311,18 +328,15 @@ function syncRemotePlayers(dt: number): void {
     let r = remote.get(sid);
     if (!r) {
       const a = new Avatar(p.skin || 'character_1');
+      a.group.position.set(p.x, p.y, p.z); // spawn at the right spot, don't lerp from origin
       scene.add(a.group);
-      r = { avatar: a, px: p.x, pz: p.z };
+      r = { avatar: a };
       remote.set(sid, r);
     }
-    const speed = Math.hypot(p.x - r.px, p.z - r.pz) / Math.max(dt, 0.001);
-    r.px = p.x;
-    r.pz = p.z;
-    r.avatar.group.position.set(p.x, p.y, p.z);
-    r.avatar.group.rotation.y = p.yaw;
+    const moving = smoothAvatar(r.avatar, p.x, p.y, p.z, p.yaw, dt);
     r.avatar.setSwimming(p.state === 'swim');
     r.avatar.setTint(dayColors.light);
-    r.avatar.animate(dt, speed, p.pitch);
+    r.avatar.animate(dt, moving ? 2 : 0, p.pitch);
   });
   for (const [sid, r] of remote) {
     if (!state.players.get(sid)) {
@@ -340,17 +354,14 @@ function syncNpcs(dt: number, state: RemoteState): void {
     let r = npcAvatars.get(id);
     if (!r) {
       const a = new Avatar(n.skin || 'character_2');
+      a.group.position.set(n.x, n.y, n.z);
       scene.add(a.group);
-      r = { avatar: a, px: n.x, pz: n.z };
+      r = { avatar: a };
       npcAvatars.set(id, r);
     }
-    const speed = Math.hypot(n.x - r.px, n.z - r.pz) / Math.max(dt, 0.001);
-    r.px = n.x;
-    r.pz = n.z;
-    r.avatar.group.position.set(n.x, n.y, n.z);
-    r.avatar.group.rotation.y = n.yaw;
+    const moving = smoothAvatar(r.avatar, n.x, n.y, n.z, n.yaw, dt);
     r.avatar.setTint(dayColors.light);
-    r.avatar.animate(dt, speed);
+    r.avatar.animate(dt, moving ? 2 : 0);
   });
   for (const [id, r] of npcAvatars) {
     if (!state.npcs.get(id)) {
@@ -372,7 +383,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -497,6 +508,12 @@ const travelMap = new TravelMap({
       player.vel.set(0, 0, 0);
     }
   },
+  onOpen: () => {
+    if (locked()) document.exitPointerLock(); // free the mouse to click the map
+  },
+  onClose: () => {
+    if (mode === 'first') canvas.requestPointerLock(); // re-capture in first person
+  },
 });
 function onTeleport(m: { x: number; y: number; z: number }): void {
   spawn = { x: m.x, y: m.y, z: m.z };
@@ -616,6 +633,10 @@ const inventory = new Inventory({
   },
   item: itemById,
   palette: { tools: TOOL_ITEMS, blocks: BLOCK_ITEMS, armor: ARMOR_ITEMS },
+  // Raise the live bottom hotbar above the inventory panel while it's open, so you can
+  // drag palette items straight onto the real bar (not just the mirrored rows).
+  onOpen: () => document.getElementById('hotbar')?.classList.add('drop-target'),
+  onClose: () => document.getElementById('hotbar')?.classList.remove('drop-target'),
 });
 updateArmorHud();
 let rotating = false; // RMB held → free-orbit the camera (iso + third)
@@ -871,7 +892,7 @@ function updateHud(): void {
     label.textContent = `View: ${mode} (V) · Break: ${itemById(tools[selTool]).name} · Place: ${itemById(blocks[selBlock]).name} · B items · K skin`;
   const bar = document.getElementById('hotbar')!;
   bar.innerHTML = '';
-  const addSlots = (ids: string[], sel: number, pick: (i: number) => void): void => {
+  const addSlots = (ids: string[], sel: number, pick: (i: number) => void, isTool: boolean): void => {
     ids.forEach((id, i) => {
       const it = itemById(id);
       const s = document.createElement('div');
@@ -880,15 +901,26 @@ function updateHud(): void {
       s.style.backgroundSize = 'cover';
       s.title = it.name;
       s.onclick = () => pick(i);
+      // Drop target for inventory drag&drop onto the real bar (kind-checked).
+      (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
+        const di = itemById(dragId);
+        if (isTool ? !!di.tool : di.block !== undefined) {
+          (isTool ? tools : blocks)[i] = dragId;
+          updateHud();
+          refreshEditor();
+          pushSettings();
+          inventory.render();
+        }
+      };
       bar.appendChild(s);
     });
   };
-  addSlots(tools, selTool, selectTool);
+  addSlots(tools, selTool, selectTool, true);
   const divider = document.createElement('div');
   divider.className = 'hdivider';
   divider.title = 'left: dig tools · right: build blocks';
   bar.appendChild(divider);
-  addSlots(blocks, selBlock, selectBlock);
+  addSlots(blocks, selBlock, selectBlock, false);
   document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
 
@@ -1022,6 +1054,18 @@ camCollideCb.onchange = () => {
   settings.camCollide = camCollideCb.checked;
   saveSettings();
 };
+const dayNightCb = document.getElementById('opt-daynight') as HTMLInputElement;
+const flyCb = document.getElementById('opt-fly') as HTMLInputElement;
+dayNightCb.checked = settings.dayNight;
+flyCb.checked = settings.fly;
+dayNightCb.onchange = () => {
+  settings.dayNight = dayNightCb.checked;
+  saveSettings();
+};
+flyCb.onchange = () => {
+  settings.fly = flyCb.checked;
+  saveSettings();
+};
 
 // Items page. Auto-switch tool toggle (default off = Minecraft-manual).
 const autoToolCb = document.getElementById('opt-autotool') as HTMLInputElement;
@@ -1135,6 +1179,8 @@ function currentSettingsBlob(): unknown {
     invertY: settings.invertY,
     camCollide: settings.camCollide,
     autoTool: settings.autoTool,
+    dayNight: settings.dayNight,
+    fly: settings.fly,
     skin: playerSkin,
     wield,
     hotbar: { tools: [...tools], blocks: [...blocks] },
@@ -1153,6 +1199,8 @@ function applyServerSettings(s: unknown): void {
     invertY: boolean;
     camCollide: boolean;
     autoTool: boolean;
+    dayNight: boolean;
+    fly: boolean;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1162,9 +1210,13 @@ function applyServerSettings(s: unknown): void {
   if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
   if (typeof o.camCollide === 'boolean') settings.camCollide = o.camCollide;
   if (typeof o.autoTool === 'boolean') settings.autoTool = o.autoTool;
+  if (typeof o.dayNight === 'boolean') settings.dayNight = o.dayNight;
+  if (typeof o.fly === 'boolean') settings.fly = o.fly;
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;
   autoToolCb.checked = settings.autoTool;
+  dayNightCb.checked = settings.dayNight;
+  flyCb.checked = settings.fly;
   if (typeof o.skin === 'string') {
     playerSkin = o.skin;
     avatar.setSkin(o.skin);
@@ -1327,6 +1379,8 @@ document.getElementById('settings-logout')!.onclick = gotoLogout;
 rebuildWorldSelect();
 void connectWorld('default');
 
+
+
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
 let lastMoveSent = 0;
@@ -1378,7 +1432,7 @@ function frame(now: number): void {
     lt = a;
     rt = d;
   }
-  const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down };
+  const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down, fly: settings.fly };
   if (ready) player.update(dt, input);
   // Safety net: never fall out of the world — snap back to spawn if you somehow
   // drop below the bedrock floor (e.g. through not-yet-streamed chunks).
@@ -1387,7 +1441,8 @@ function frame(now: number): void {
     player.vel.set(0, 0, 0);
   }
   // Day/night: advance the shared clock and tint sky/fog + the unlit world.
-  todNow = (((Date.now() + clockOffset) / dayLengthMs) % 1 + 1) % 1;
+  // Day/night only when enabled in settings; otherwise hold a bright daytime.
+  todNow = settings.dayNight ? ((((Date.now() + clockOffset) / dayLengthMs) % 1) + 1) % 1 : 0.4;
   daySample(todNow, dayColors);
   (scene.background as THREE.Color).copy(dayColors.sky);
   perspFog.color.copy(dayColors.sky);

@@ -10,6 +10,8 @@ export interface MapDeps {
   player: () => { x: number; z: number; yaw: number };
   /** Travel to world (x,z) — the caller asks the server to teleport. */
   onTravel: (x: number, z: number) => void;
+  onOpen?: () => void; // e.g. release pointer lock so the map is clickable
+  onClose?: () => void; // e.g. re-capture the mouse in first person
 }
 
 const RANGE = 64; // blocks shown each way from the player
@@ -66,11 +68,14 @@ export class TravelMap {
   show(): void {
     this.open = true;
     this.root.classList.add('open');
+    this.deps.onOpen?.();
     this.render();
   }
   close(): void {
+    if (!this.open) return;
     this.open = false;
     this.root.classList.remove('open');
+    this.deps.onClose?.();
   }
 
   /** Repaint from the currently loaded columns (called on open + periodically). */

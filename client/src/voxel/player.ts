@@ -20,6 +20,7 @@ const WADE_SPEED = 0.7; // horizontal speed factor while wading (shallow)
 const SWIM_GRAVITY = -6.5; // gentle sink when giving no vertical input
 const SWIM_SINK_MAX = -1.6; // terminal gentle-sink speed
 const SWIM_UP = 4.6; // hold jump → rise/surface; hold sneak → dive (negated)
+const FLY_SPEED = 7; // vertical fly speed (Space up / Shift down)
 
 export interface MoveInput {
   forward: boolean;
@@ -28,6 +29,7 @@ export interface MoveInput {
   right: boolean;
   jump: boolean;
   down: boolean; // sneak / dive (Shift)
+  fly: boolean; // creative fly (no gravity; Space up, Shift down)
 }
 
 export class Player {
@@ -110,33 +112,43 @@ export class Player {
       mx -= rx;
       mz -= rz;
     }
-    // Water: check feet + head cells (water is non-solid, detected separately from
-    // collision). Swim only in DEEP water (submerged, or feet in water with no solid
-    // ground under you). Shallow water on solid ground = wading (walk, just slowed).
-    const wx = Math.floor(this.pos.x),
-      wz = Math.floor(this.pos.z);
-    const feetWater = this.world.water(wx, Math.floor(this.pos.y), wz);
-    const headWater = this.world.water(wx, Math.floor(this.pos.y + 1.6), wz);
-    const swimming = headWater || (feetWater && !this.onGround);
-    this.inWater = swimming; // drives the swim animation (not while wading)
-    const wading = feetWater && !swimming;
-
-    const factor = swimming ? SWIM_SPEED : wading ? WADE_SPEED : 1;
     const len = Math.hypot(mx, mz) || 1;
-    this.vel.x = (mx / len) * SPEED * factor * (mx || mz ? 1 : 0);
-    this.vel.z = (mz / len) * SPEED * factor * (mx || mz ? 1 : 0);
-
-    if (swimming) {
-      if (input.jump) this.vel.y = SWIM_UP; // hold Space → rise / surface
-      else if (input.down) this.vel.y = -SWIM_UP; // hold Shift → dive
-      else this.vel.y = Math.max(SWIM_SINK_MAX, this.vel.y + SWIM_GRAVITY * dt); // gentle sink
-      this.vel.y = Math.min(SWIM_UP, this.vel.y);
+    if (input.fly) {
+      // Creative fly: no gravity, full horizontal speed, Space up / Shift down; block
+      // collision still applies (resolved per-axis below).
+      this.inWater = false;
+      this.vel.x = (mx / len) * SPEED * (mx || mz ? 1 : 0);
+      this.vel.z = (mz / len) * SPEED * (mx || mz ? 1 : 0);
+      this.vel.y = input.jump ? FLY_SPEED : input.down ? -FLY_SPEED : 0;
       this.onGround = false;
     } else {
-      this.vel.y += GRAVITY * dt;
-      if (input.jump && this.onGround) {
-        this.vel.y = JUMP;
+      // Water: check feet + head cells (water is non-solid, detected separately from
+      // collision). Swim only in DEEP water (submerged, or feet in water with no solid
+      // ground under you). Shallow water on solid ground = wading (walk, just slowed).
+      const wx = Math.floor(this.pos.x),
+        wz = Math.floor(this.pos.z);
+      const feetWater = this.world.water(wx, Math.floor(this.pos.y), wz);
+      const headWater = this.world.water(wx, Math.floor(this.pos.y + 1.6), wz);
+      const swimming = headWater || (feetWater && !this.onGround);
+      this.inWater = swimming; // drives the swim animation (not while wading)
+      const wading = feetWater && !swimming;
+
+      const factor = swimming ? SWIM_SPEED : wading ? WADE_SPEED : 1;
+      this.vel.x = (mx / len) * SPEED * factor * (mx || mz ? 1 : 0);
+      this.vel.z = (mz / len) * SPEED * factor * (mx || mz ? 1 : 0);
+
+      if (swimming) {
+        if (input.jump) this.vel.y = SWIM_UP; // hold Space → rise / surface
+        else if (input.down) this.vel.y = -SWIM_UP; // hold Shift → dive
+        else this.vel.y = Math.max(SWIM_SINK_MAX, this.vel.y + SWIM_GRAVITY * dt); // gentle sink
+        this.vel.y = Math.min(SWIM_UP, this.vel.y);
         this.onGround = false;
+      } else {
+        this.vel.y += GRAVITY * dt;
+        if (input.jump && this.onGround) {
+          this.vel.y = JUMP;
+          this.onGround = false;
+        }
       }
     }
 

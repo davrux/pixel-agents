@@ -19,6 +19,8 @@ export interface InventoryDeps {
   setArmor: (slot: ArmorSlot, id: string | null) => void;
   item: (id: string) => Item;
   palette: { tools: Item[]; blocks: Item[]; armor: Item[] };
+  onOpen?: () => void; // e.g. raise the live hotbar above the panel so you can drop onto it
+  onClose?: () => void;
 }
 
 export class Inventory {
@@ -72,9 +74,11 @@ export class Inventory {
   show(): void {
     this.open = true;
     this.root.classList.add('open');
+    this.deps.onOpen?.();
     this.render();
   }
   close(): void {
+    this.deps.onClose?.();
     this.open = false;
     this.root.classList.remove('open');
   }

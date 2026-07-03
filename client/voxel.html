@@ -74,6 +74,12 @@
         border-color: #fff;
         box-shadow: 0 0 0 2px #000 inset;
       }
+      /* while the inventory is open, lift the bar above its overlay so palette items
+         can be dragged straight onto the real hotbar */
+      #hotbar.drop-target {
+        z-index: 210;
+        outline: 2px dashed #7fd08a;
+      }
       /* divider between the dig-tool track (left) and build-block track (right) */
       #hotbar .hdivider {
         width: 4px;
@@ -262,6 +268,8 @@
       <div class="page" data-page="camera">
         <label><input type="checkbox" id="opt-inverty" /> Invert Y-axis</label>
         <label><input type="checkbox" id="opt-camcollide" /> Camera collision (don't clip through blocks)</label>
+        <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
+        <label><input type="checkbox" id="opt-fly" /> Fly (Space = up, Shift = down, no gravity)</label>
         <p class="hint">
           Rotate camera: hold <b>right mouse button</b> (free — up/down/around).<br />
           Scroll = zoom &middot; Iso: <b>left-click</b> = walk there.

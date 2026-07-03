@@ -50,6 +50,12 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
     const nid = world.get(x, y, z);
     return nid !== AIR && !isWaterId(nid) && !TRANSPARENT.has(nid);
   };
+  // Surface height of a water cell (1 if submerged/source), or -1 if not water.
+  const waterTop = (x: number, y: number, z: number): number => {
+    const wid = world.get(x, y, z);
+    if (!isWaterId(wid)) return -1;
+    return isWaterId(world.get(x, y + 1, z)) ? 1 : 1 - (waterLevel(wid) / 8) * 0.82;
+  };
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
@@ -68,10 +74,20 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
         for (const f of FACES) {
           const [nx, ny, nz] = f.n;
           const nid = world.get(x + nx, y + ny, z + nz);
-          // Cull: water shows only air-exposed faces; a transparent block hides only
-          // against the same id or behind opaque (so a glass pane doesn't blank the
-          // block it sits on); opaque hides only behind another opaque block.
-          const hidden = isWater ? nid !== AIR : transparent ? nid === id || occludes(x + nx, y + ny, z + nz) : occludes(x + nx, y + ny, z + nz);
+          // Cull. Water: top hidden under water; bottom shown only vs air; a SIDE is
+          // hidden only if the neighbour water's surface is at least as high (else the
+          // step between differing levels shows — no cracks). Transparent: hidden vs
+          // same id or behind opaque. Opaque: hidden behind opaque.
+          let hidden: boolean;
+          if (isWater) {
+            if (ny === 1) hidden = isWaterId(nid);
+            else if (ny === -1) hidden = nid !== AIR;
+            else hidden = isWaterId(nid) ? waterTop(x + nx, y + ny, z + nz) >= topY - 0.01 : nid !== AIR;
+          } else if (transparent) {
+            hidden = nid === id || occludes(x + nx, y + ny, z + nz);
+          } else {
+            hidden = occludes(x + nx, y + ny, z + nz);
+          }
           if (hidden) continue;
           const shade = SHADE[f.fam];
           const r = atlas.rect(def.tiles[f.fam]);
