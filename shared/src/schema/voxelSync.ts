@@ -17,6 +17,7 @@ export class VoxelPlayerSync extends EntitySync {
   @type('string') item = 'items/default_tool_steelpick'; // held item texUrl
   @type('uint8') hp = 20; // health (0 → respawn); armour reduces incoming damage
   @type('uint8') hpMax = 20;
+  @type('uint8') armor = 0; // total defence points from equipped armour
 }
 
 /**

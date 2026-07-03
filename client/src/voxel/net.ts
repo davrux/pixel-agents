@@ -28,6 +28,7 @@ export interface VoxelNet {
   setPortal(x: number, y: number, z: number, dest: unknown): void;
   sendTeleport(x: number, z: number): void;
   sendAttack(npc: string): void;
+  sendArmor(defense: number): void;
   leave(): Promise<void>;
 }
 
@@ -83,6 +84,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     setPortal: (x, y, z, dest) => room.send('setPortal', { x, y, z, dest }),
     sendTeleport: (x, z) => room.send('teleport', { x, z }),
     sendAttack: (npc) => room.send('attack', { npc }),
+    sendArmor: (defense) => room.send('setArmor', { defense }),
     leave: async () => {
       await room.leave();
     },

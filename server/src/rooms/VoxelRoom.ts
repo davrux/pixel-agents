@@ -117,6 +117,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number }) => this.onEdit(client, m));
     this.onMessage('teleport', (client, m: { x: number; z: number }) => this.onTeleport(client, m));
     this.onMessage('attack', (client, m: { npc?: string }) => this.onAttack(client, m));
+    this.onMessage('setArmor', (client, m: { defense?: number }) => {
+      const p = this.state.players.get(client.sessionId);
+      if (p && Number.isFinite(m?.defense)) p.armor = Math.max(0, Math.min(40, Math.floor(m.defense!)));
+    });
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -214,10 +218,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     b.think = 1.5;
   }
 
-  /** Apply damage to a player (armour mitigation lands with the armour step). */
+  /** Apply damage to a player, mitigated by equipped armour (defence points). */
   private damagePlayer(sid: string, p: VoxelPlayerSync, dmg: number): void {
     if (p.hp <= 0) return;
-    p.hp = Math.max(0, p.hp - dmg);
+    const mitigated = Math.max(1, dmg - Math.floor(p.armor / 5)); // armour softens hits
+    p.hp = Math.max(0, p.hp - mitigated);
     if (p.hp <= 0) this.respawnPlayer(sid, p);
   }
 

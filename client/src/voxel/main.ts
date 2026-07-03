@@ -14,7 +14,8 @@ import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
-import { type Item, TOOL_ITEMS, BLOCK_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
+import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
+import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeCrackStages } from './crack.js';
@@ -445,7 +446,9 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
+  if (e.code === 'Escape' && inventory.isOpen()) return inventory.close();
   if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
+  if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) return inventory.toggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
@@ -461,7 +464,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen();
 
 // Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
 const MAP_COLORS: Record<number, number> = {
@@ -551,6 +554,67 @@ function attackNearestNpc(): void {
     avatar.playDig(); // swing feedback
   }
 }
+
+// ── Inventory + armour (I) ───────────────────────────────────────────────────
+const armorEquipped: Record<ArmorSlot, string | null> = { head: null, torso: null, legs: null, feet: null };
+function armorDefense(): number {
+  let d = 0;
+  for (const id of Object.values(armorEquipped)) if (id) d += itemById(id).armor?.defense ?? 0;
+  return d;
+}
+const armorHudStyle = document.createElement('style');
+armorHudStyle.textContent = `
+  #vx-armor{position:fixed;left:14px;bottom:88px;display:flex;gap:4px;align-items:center;z-index:60;
+    font-family:'FS Pixel Sans',ui-monospace,monospace;color:#fff;font-size:.72rem;text-shadow:1px 1px 0 #000;}
+  #vx-armor .a{width:20px;height:20px;border:2px solid #1c1c1c;border-radius:3px;background:#0006 center/80% no-repeat;image-rendering:pixelated;}
+  #vx-armor b{margin-left:4px;}`;
+document.head.appendChild(armorHudStyle);
+const armorHud = document.createElement('div');
+armorHud.id = 'vx-armor';
+(document.getElementById('game') ?? document.body).appendChild(armorHud);
+function updateArmorHud(): void {
+  armorHud.innerHTML = '';
+  for (const slot of ['head', 'torso', 'legs', 'feet'] as ArmorSlot[]) {
+    const id = armorEquipped[slot];
+    const a = document.createElement('div');
+    a.className = 'a';
+    if (id) a.style.backgroundImage = `url(${itemById(id).icon ?? ''})`;
+    a.title = slot + (id ? `: ${itemById(id).name}` : ' (empty)');
+    armorHud.appendChild(a);
+  }
+  const def = document.createElement('b');
+  def.textContent = `🛡 ${armorDefense()}`;
+  armorHud.appendChild(def);
+}
+function applyArmor(): void {
+  net?.sendArmor(armorDefense());
+  updateArmorHud();
+  pushSettings();
+}
+const inventory = new Inventory({
+  toolSlots: () => tools,
+  blockSlots: () => blocks,
+  armorSlots: () => armorEquipped,
+  setToolSlot: (i, id) => {
+    tools[i] = id;
+    updateHud();
+    refreshEditor();
+    pushSettings();
+  },
+  setBlockSlot: (i, id) => {
+    blocks[i] = id;
+    updateHud();
+    refreshEditor();
+    pushSettings();
+  },
+  setArmor: (slot, id) => {
+    armorEquipped[slot] = id;
+    applyArmor();
+  },
+  item: itemById,
+  palette: { tools: TOOL_ITEMS, blocks: BLOCK_ITEMS, armor: ARMOR_ITEMS },
+});
+updateArmorHud();
 let rotating = false; // RMB held → free-orbit the camera (iso + third)
 const ndc = (e: MouseEvent): THREE.Vector2 =>
   new THREE.Vector2((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -1064,7 +1128,15 @@ function currentSettingsBlob(): unknown {
       }
     }
   }
-  return { invertY: settings.invertY, camCollide: settings.camCollide, autoTool: settings.autoTool, skin: playerSkin, wield };
+  return {
+    invertY: settings.invertY,
+    camCollide: settings.camCollide,
+    autoTool: settings.autoTool,
+    skin: playerSkin,
+    wield,
+    hotbar: { tools: [...tools], blocks: [...blocks] },
+    armor: { ...armorEquipped },
+  };
 }
 let pushTimer = 0;
 function pushSettings(): void {
@@ -1080,6 +1152,8 @@ function applyServerSettings(s: unknown): void {
     autoTool: boolean;
     skin: string;
     wield: Record<string, Wield>;
+    hotbar: { tools?: string[]; blocks?: string[] };
+    armor: Record<string, string | null>;
   }> | null;
   if (!o || typeof o !== 'object') return;
   if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
@@ -1101,6 +1175,21 @@ function applyServerSettings(s: unknown): void {
         /* ignore */
       }
     }
+  }
+  // Restore the saved hotbar layout (kind-checked) + armour.
+  if (o.hotbar) {
+    if (Array.isArray(o.hotbar.tools)) o.hotbar.tools.forEach((id, i) => i < tools.length && itemById(id).tool && (tools[i] = id));
+    if (Array.isArray(o.hotbar.blocks))
+      o.hotbar.blocks.forEach((id, i) => i < blocks.length && itemById(id).block !== undefined && (blocks[i] = id));
+    updateHud();
+  }
+  if (o.armor && typeof o.armor === 'object') {
+    for (const slot of ['head', 'torso', 'legs', 'feet'] as ArmorSlot[]) {
+      const id = o.armor[slot];
+      armorEquipped[slot] = id && itemById(id).armor?.slot === slot ? id : null;
+    }
+    net?.sendArmor(armorDefense());
+    updateArmorHud();
   }
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
