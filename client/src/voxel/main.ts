@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId } from '@pixel/sha
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -213,6 +213,7 @@ void loadBlockAtlas(BLOCK_TEXTURES, SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
+  dropMaterial = new THREE.MeshBasicMaterial({ map: a.texture, alphaTest: 0.5 }); // drop-cube icons
   for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
 });
 
@@ -284,12 +285,36 @@ interface RemoteNpc {
   skin: string;
   state: string;
 }
+interface RemoteItem {
+  x: number;
+  y: number;
+  z: number;
+  block: number;
+  count: number;
+}
 interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
   npcs: { forEach(cb: (p: RemoteNpc, k: string) => void): void; get(k: string): RemoteNpc | undefined };
+  items: { forEach(cb: (p: RemoteItem, k: string) => void): void; get(k: string): RemoteItem | undefined };
 }
 const remote = new Map<string, { avatar: Avatar }>();
 const npcAvatars = new Map<string, { avatar: Avatar }>();
+// Dropped items: small textured cubes that bob + spin, synced from state.items (AOI).
+const itemGroup = new THREE.Group();
+scene.add(itemGroup);
+const itemDrops = new Map<string, { mesh: THREE.Mesh; block: number }>();
+let dropMaterial: THREE.MeshBasicMaterial | null = null;
+/** A 0.32-cube geometry UV-mapped to a block's side tile on every face (drop icon). */
+function buildDropGeo(block: number): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(0.32, 0.32, 0.32);
+  const r = atlas!.rect(BLOCKS[block]?.tiles.side ?? 'stone');
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) {
+    uv.setXY(i, r.u0 + uv.getX(i) * (r.u1 - r.u0), r.vBot + uv.getY(i) * (r.vTop - r.vBot));
+  }
+  uv.needsUpdate = true;
+  return g;
+}
 
 /** Smoothly move + turn an avatar toward its synced transform (server sends ~10 Hz;
  *  we interpolate at frame rate so movement + walk animation aren't choppy). Returns
@@ -413,6 +438,34 @@ function syncNpcs(dt: number, state: RemoteState): void {
     if (!state.npcs.get(id)) {
       scene.remove(r.avatar.group);
       npcAvatars.delete(id);
+    }
+  }
+  syncItemDrops(state);
+}
+
+/** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */
+let dropSpin = 0;
+function syncItemDrops(state: RemoteState): void {
+  dropSpin += 0.03;
+  state.items.forEach((it, id) => {
+    let d = itemDrops.get(id);
+    if ((!d || d.block !== it.block) && atlas && dropMaterial) {
+      if (d) ((itemGroup.remove(d.mesh), d.mesh.geometry.dispose()));
+      const mesh = new THREE.Mesh(buildDropGeo(it.block), dropMaterial);
+      itemGroup.add(mesh);
+      d = { mesh, block: it.block };
+      itemDrops.set(id, d);
+    }
+    if (d) {
+      d.mesh.position.set(it.x, it.y + 0.15 + Math.sin(dropSpin + it.x) * 0.08, it.z);
+      d.mesh.rotation.y = dropSpin;
+    }
+  });
+  for (const [id, d] of itemDrops) {
+    if (!state.items.get(id)) {
+      itemGroup.remove(d.mesh);
+      d.mesh.geometry.dispose();
+      itemDrops.delete(id);
     }
   }
 }
@@ -1394,8 +1447,34 @@ function applyServerSettings(s: unknown): void {
   }
   refreshEditor(); // reload the held item's (possibly server-provided) transform
 }
+// ── Item pickup (collected drops) ─────────────────────────────────────────────
+// Client mirror of the server stack inventory (block id → count), updated from
+// 'pickup'. Drives the survival hotbar counts + place-consumes-stack.
+const invCounts = new Map<number, number>();
+const toast = document.createElement('div');
+toast.id = 'vx-toast';
+toast.style.cssText =
+  "position:fixed;left:50%;bottom:9.5rem;transform:translateX(-50%);z-index:120;padding:.35rem .7rem;" +
+  "background:rgba(20,22,28,.82);border:2px solid #1c1c1c;border-radius:5px;color:#fff;font-family:'FS Pixel Sans',ui-monospace,monospace;" +
+  'font-size:.8rem;text-shadow:1px 1px 0 #000;opacity:0;transition:opacity .2s;pointer-events:none;';
+(document.getElementById('game') ?? document.body).appendChild(toast);
+let toastTimer = 0;
+function showToast(text: string): void {
+  toast.textContent = text;
+  toast.style.opacity = '1';
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (toast.style.opacity = '0'), 1400);
+}
+function onPickup(m: { block: number; count: number; total: number }): void {
+  invCounts.set(m.block, m.total);
+  const name = BLOCKS[m.block]?.name ?? `block ${m.block}`;
+  showToast(`+${m.count} ${name}  ×${m.total}`);
+  sound.play('place', 0.4);
+  updateHud(); // reflect the new count on the hotbar
+}
+
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
@@ -1451,6 +1530,9 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   remote.clear();
   for (const [, r] of npcAvatars) scene.remove(r.avatar.group);
   npcAvatars.clear();
+  for (const [, d] of itemDrops) ((itemGroup.remove(d.mesh), d.mesh.geometry.dispose()));
+  itemDrops.clear();
+  invCounts.clear(); // reconnect = new session id → server inventory starts fresh
   exploredColors.clear(); // new world → fresh map
   for (const m of chunkMeshes.values()) {
     terrainGroup.remove(m);

@@ -33,10 +33,23 @@ export class VoxelNpcSync extends EntitySync {
   @type('number') hp = 20; // current health (combat lands in a later step)
 }
 
+/**
+ * A dropped item lying in the world — spawned when a block is broken, collected when a
+ * player walks over it (Luanti-style). Server-authoritative: the server spawns, moves
+ * (none for now — it rests where it dropped), and removes it on pickup/despawn. `block`
+ * is the block id it represents; `count` how many (stacks merge on the client HUD).
+ */
+export class VoxelItemSync extends EntitySync {
+  @type('number') z = 0;
+  @type('uint8') block = 0;
+  @type('uint8') count = 1;
+}
+
 export class VoxelRoomState extends Schema {
-  // @view(): players + NPCs are area-of-interest filtered — each client only receives
-  // the entities its StateView has added (nearby ones), not the whole world.
+  // @view(): players + NPCs + item drops are area-of-interest filtered — each client only
+  // receives the entities its StateView has added (nearby ones), not the whole world.
   @view() @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
   @view() @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
+  @view() @type({ map: VoxelItemSync }) items = new MapSchema<VoxelItemSync>();
   @type('string') worldId = '';
 }

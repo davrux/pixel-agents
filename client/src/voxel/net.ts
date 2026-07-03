@@ -42,6 +42,7 @@ export interface VoxelHandlers {
   onPortal?: (dest: unknown) => void;
   onWorlds?: (list: unknown) => void;
   onTeleport?: (m: { x: number; y: number; z: number }) => void;
+  onPickup?: (m: { block: number; count: number; total: number }) => void;
 }
 
 export interface JoinOpts {
@@ -76,6 +77,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('portal', (dest: unknown) => handlers.onPortal?.(dest));
   room.onMessage('worlds', (list: unknown) => handlers.onWorlds?.(list));
   room.onMessage('tp', (m: { x: number; y: number; z: number }) => handlers.onTeleport?.(m));
+  room.onMessage('pickup', (m: { block: number; count: number; total: number }) => handlers.onPickup?.(m));
   return {
     room,
     sessionId: room.sessionId,

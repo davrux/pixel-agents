@@ -26,7 +26,7 @@ import {
   FLUIDS,
   fluidOf,
 } from '@pixel/shared';
-import { VoxelPlayerSync, VoxelNpcSync, VoxelRoomState } from '@pixel/shared/schema';
+import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
 import { settleAround } from '../voxel/fluid.js';
 import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
@@ -83,6 +83,9 @@ const LAVA_TICK = 0.5; // seconds between lava burn ticks
 const LAVA_DMG = 4; // damage per lava tick to a player standing in lava
 const OBSIDIAN = 15; // lava SOURCE cooled by water (Luanti default cool_lava) — solid obsidian, not obsidian-glass (16)
 const STONE = 3; // flowing lava cooled by water
+const PICKUP_DIST = 1.6; // walk within this of a drop to collect it
+const DROP_LIFETIME = 180; // seconds a dropped item lingers before despawning
+const STACK_MAX = 99; // max of one block id in a stack
 
 interface NpcBrain {
   sync: VoxelNpcSync;
@@ -108,6 +111,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private peaceful = false; // no monsters spawn while true (shared-world toggle)
   private aoiAcc = 0; // seconds accumulated toward the next entity-AOI refresh
   private lavaAcc = 0; // seconds accumulated toward the next lava burn tick
+  private itemSeq = 0; // id counter for dropped items
+  private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
+  private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -198,6 +204,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.lavaAcc = 0;
       this.burnPlayersInLava();
     }
+    // Dropped items: age out, then let nearby players collect them.
+    for (const [key, d] of this.drops) {
+      d.life -= dt;
+      if (d.life <= 0) this.removeDrop(key);
+    }
+    this.collectDrops();
     for (const [key, b] of this.npcs) {
       b.life -= dt;
       const far = this.minPlayerDist(b.sync.x, b.sync.z);
@@ -266,6 +278,49 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.npcs.delete(key);
   }
 
+  /** Spawn a dropped item at a broken block's cell (rests at the cell centre). */
+  private spawnDrop(block: number, x: number, y: number, z: number): void {
+    const it = new VoxelItemSync();
+    it.id = ++this.itemSeq;
+    it.x = x + 0.5;
+    it.y = y + 0.25;
+    it.z = z + 0.5;
+    it.block = block;
+    it.count = 1;
+    const key = `i${it.id}`;
+    this.state.items.set(key, it);
+    this.drops.set(key, { sync: it, life: DROP_LIFETIME });
+  }
+
+  private removeDrop(key: string): void {
+    const d = this.drops.get(key);
+    if (d) this.dropFromViews(d.sync);
+    this.state.items.delete(key);
+    this.drops.delete(key);
+  }
+
+  /** Collect drops within PICKUP_DIST of a living player: add to that player's stack
+   *  inventory and tell the client. Runs on the entity tick. */
+  private collectDrops(): void {
+    if (!this.drops.size) return;
+    for (const [key, d] of this.drops) {
+      let taker: { sid: string; p: VoxelPlayerSync } | null = null;
+      this.state.players.forEach((p, sid) => {
+        if (p.hp <= 0 || taker) return;
+        if (Math.hypot(p.x - d.sync.x, p.z - d.sync.z) <= PICKUP_DIST && Math.abs(p.y - d.sync.y) <= 2) taker = { sid, p };
+      });
+      if (!taker) continue;
+      const { sid } = taker as { sid: string };
+      const bag = this.inv.get(sid) ?? new Map<number, number>();
+      const total = Math.min(STACK_MAX, (bag.get(d.sync.block) ?? 0) + d.sync.count);
+      bag.set(d.sync.block, total);
+      this.inv.set(sid, bag);
+      const client = this.clients.find((c) => c.sessionId === sid);
+      client?.send('pickup', { block: d.sync.block, count: d.sync.count, total });
+      this.removeDrop(key);
+    }
+  }
+
   /** Remove an entity from every client's AOI view (on despawn / leave). */
   private dropFromViews(entity: object): void {
     this.views.forEach((v) => {
@@ -290,6 +345,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       });
       this.state.npcs.forEach((n) => {
         if (Math.hypot(n.x - self.x, n.z - self.z) <= AOI) want.add(n);
+      });
+      this.state.items.forEach((it) => {
+        if (Math.hypot(it.x - self.x, it.z - self.z) <= AOI) want.add(it);
       });
       for (const e of want) if (!v.aoiSet.has(e)) ((v.view.add(e as never), v.aoiSet.add(e)));
       for (const e of v.aoiSet) if (!want.has(e)) ((v.view.remove(e as never), v.aoiSet.delete(e)));
@@ -560,6 +618,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
+    this.inv.delete(client.sessionId);
   }
 
   onDispose(): void {
@@ -639,8 +698,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const dy = y + 0.5 - (v.py + 1.6);
     const dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    const prev = this.world.getBlock(x, y, z);
     if (!this.world.setBlock(x, y, z, id)) return; // no change
     this.broadcastEdit(x, y, z, id);
+    // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
+    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(prev, x, y, z);
     // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
     // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
     // Water and lava settle independently (each treats the other as a wall).
