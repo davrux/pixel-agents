@@ -19,6 +19,8 @@ export interface InventoryDeps {
   setArmor: (slot: ArmorSlot, id: string | null) => void;
   item: (id: string) => Item;
   palette: { tools: Item[]; blocks: Item[]; armor: Item[] };
+  /** Collected stacks (block id → count) from the survival inventory, count>0. */
+  collected: () => { block: number; count: number }[];
   onOpen?: () => void; // e.g. raise the live hotbar above the panel so you can drop onto it
   onClose?: () => void;
 }
@@ -49,6 +51,8 @@ export class Inventory {
         image-rendering:pixelated;cursor:grab;position:relative;}
       #vx-inv .cell.slot{border-color:#6a6a6a;background-color:#242424;}
       #vx-inv .cell.slot .lab{position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:.5rem;color:#9a9a9a;}
+      #vx-inv .cell .num{position:absolute;right:0;bottom:0;font-size:.62rem;padding:0 2px;background:rgba(0,0,0,.62);color:#fff;text-shadow:1px 1px 0 #000;border-radius:2px 0 0 0;}
+      #vx-inv .empty{font-size:.72rem;color:#9a9a9a;padding:.1rem 0 .3rem;}
       #vx-inv .cell.drop{border-color:#7fd08a;box-shadow:0 0 0 2px #7fd08a inset;}
       #vx-inv .tip{margin-top:.6rem;font-size:.7rem;color:#bdbdbd;}
       .vx-drag-ghost{position:fixed;width:2.2rem;height:2.2rem;margin:-1.1rem 0 0 -1.1rem;background:#3a3a3a center/80% no-repeat;
@@ -83,7 +87,7 @@ export class Inventory {
     this.root.classList.remove('open');
   }
 
-  private cell(it: Item | null, opts: { slot?: boolean; label?: string; draggable?: boolean }): HTMLDivElement {
+  private cell(it: Item | null, opts: { slot?: boolean; label?: string; draggable?: boolean; count?: number }): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'cell' + (opts.slot ? ' slot' : '');
     if (it) {
@@ -103,6 +107,12 @@ export class Inventory {
       l.className = 'lab';
       l.textContent = opts.label;
       el.appendChild(l);
+    }
+    if (opts.count !== undefined) {
+      const n = document.createElement('div');
+      n.className = 'num';
+      n.textContent = String(opts.count);
+      el.appendChild(n);
     }
     return el;
   }
@@ -184,6 +194,22 @@ export class Inventory {
         }
       });
       ar.appendChild(cell);
+    }
+
+    // Collected stacks (survival backpack) — what you've dug/crafted, with counts.
+    // Drag a stack onto the block hotbar track to make it your active build block.
+    heading('Collected');
+    const collected = this.deps.collected();
+    if (!collected.length) {
+      const e = document.createElement('div');
+      e.className = 'empty';
+      e.textContent = 'Nothing yet — dig blocks to collect them.';
+      b.appendChild(e);
+    } else {
+      const cg = document.createElement('div');
+      cg.className = 'grid';
+      for (const { block, count } of collected) cg.appendChild(this.cell(this.deps.item('block:' + block), { count }));
+      b.appendChild(cg);
     }
 
     // (The hotbar is no longer mirrored here — drag palette items straight onto the

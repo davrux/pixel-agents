@@ -764,6 +764,11 @@ const inventory = new Inventory({
   },
   item: itemById,
   palette: { tools: TOOL_ITEMS, blocks: BLOCK_ITEMS, armor: ARMOR_ITEMS },
+  collected: () =>
+    [...invCounts.entries()]
+      .filter(([, c]) => c > 0)
+      .sort((a, b) => a[0] - b[0])
+      .map(([block, count]) => ({ block, count })),
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
   // drag palette items straight onto the real bar (not just the mirrored rows).
   onOpen: () => document.getElementById('hotbar')?.classList.add('drop-target'),
@@ -1507,12 +1512,14 @@ function onPickup(m: { block: number; count: number; total: number }): void {
   sound.play('place', 0.4);
   updateHud(); // reflect the new count on the hotbar
   craftRender(); // affordability may have changed
+  if (inventory.isOpen()) inventory.render(); // collected counts
 }
 function onInv(m: { block: number; total: number }): void {
   if (m.total > 0) invCounts.set(m.block, m.total);
   else invCounts.delete(m.block);
   updateHud();
   craftRender();
+  if (inventory.isOpen()) inventory.render();
 }
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
