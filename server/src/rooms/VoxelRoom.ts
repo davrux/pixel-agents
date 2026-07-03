@@ -23,6 +23,7 @@ import {
 import { VoxelPlayerSync, VoxelNpcSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
 import { settleAround } from '../voxel/fluid.js';
+import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore } from '../userStore.js';
@@ -53,30 +54,35 @@ const REACH = 8; // max edit distance from the player's eye (blocks)
 const MOVE_MIN_MS = 40; // ~25 moves/s cap
 const DAY_LENGTH_MS = 20 * 60 * 1000; // full day/night cycle (Minecraft-like 20 min)
 
-// NPCs: server-authoritative creatures with an A*-driven idle/wander/chase FSM.
-const NPC_COUNT = 3;
-const NPC_SPEED = 3.0; // blocks/s
-const NPC_WANDER_R = 10; // random-target radius around home
-const NPC_CHASE_R = 14; // start chasing a player within this
-const NPC_KEEP_R = 2.0; // stop this close to the chased player
-const NPC_SKINS = ['character_2', 'character_5', 'character_8'];
-// Combat.
-const MELEE_REACH = 3.4; // player↔npc melee distance
+// Mobs (Luanti mobs_redo-style, server-authoritative). Spawning: try near players,
+// but never within SPAWN_MIN of one, on dry ground, capped, day/night-gated; despawn
+// when far from every player or when the lifetimer runs out (respawn = the spawner
+// refilling over time). Behaviour FSM per mob: stand/walk/runaway/attack.
+const MOB_CAP = 10; // active_object_count — max mobs in the world
+const SPAWN_INTERVAL = 4; // seconds between spawn attempts
+const SPAWN_MIN = 12; // never spawn within this of a player (mobs_redo rule)
+const SPAWN_MAX = 34; // ...nor beyond this
+const DESPAWN_DIST = 64; // remove when farther than this from every player
+const MOB_LIFETIME = 300; // seconds before a mob despawns (unless something resets it)
+const WANDER_R = 8; // random wander-target radius
+const MELEE_REACH = 3.4; // player↔mob melee distance (player's hits)
 const PLAYER_HP = 20;
-const NPC_HP = 20;
-const PLAYER_DMG = 5; // damage a player melee hit deals to an NPC
-const NPC_DMG = 2; // damage an NPC hit deals to a player (before armour)
-const NPC_ATTACK_CD = 1.0; // seconds between an NPC's hits
+const PLAYER_DMG = 5; // damage a player melee hit deals to a mob
+const MOB_ATTACK_CD = 1.0; // seconds between a monster's hits
+const RUNAWAY_TIME = 4; // seconds an animal flees after being hit
 
 interface NpcBrain {
   sync: VoxelNpcSync;
-  home: { x: number; z: number };
+  def: MobDef;
   path: { x: number; y: number; z: number }[];
   pi: number; // index of the next path node
-  think: number; // seconds until the next idle decision
-  mode: 'idle' | 'wander' | 'chase';
-  repath: number; // seconds until a chase re-path is allowed
-  attackCd: number; // seconds until this NPC can hit again
+  think: number; // seconds until the next stand→walk decision
+  mode: 'stand' | 'walk' | 'runaway' | 'attack';
+  repath: number; // seconds until a chase/flee re-path is allowed
+  attackCd: number; // seconds until this mob can hit again
+  runawayT: number; // seconds left fleeing (animals)
+  fleeFrom: { x: number; z: number }; // point to flee away from
+  life: number; // seconds left before despawn
 }
 
 export class VoxelRoom extends Room<VoxelRoomState> {
@@ -85,6 +91,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly views = new Map<string, ClientView>();
   private readonly npcs = new Map<string, NpcBrain>(); // npc id → brain (AI state is server-only)
   private npcSeq = 0;
+  private spawnAcc = 0; // seconds accumulated toward the next spawn attempt
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -144,45 +151,97 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if ([x, y, z].every(Number.isFinite)) portals.set(this.state.worldId, x, y, z, dest);
     });
 
-    this.spawnNpcs();
-    this.setSimulationInterval((dt) => this.tickNpcs(dt / 1000), 100); // 10 Hz AI
+    this.setSimulationInterval((dt) => this.tick(dt / 1000), 100); // 10 Hz sim + AI
   }
 
-  // ── NPCs (server-authoritative A* + idle/wander/chase FSM) ───────────────────
-  private spawnNpcs(): void {
-    for (let i = 0; i < NPC_COUNT; i++) {
-      // Spawn on dry land near (but not in) the spawn area; the default world's
-      // lake is at +x, so fan out on the -x side and snap to a standable cell.
-      const cand = { x: -8 - i * 3, z: (i - 1) * 7 };
-      const home = this.findNpcSpawn(cand.x, cand.z);
-      const n = new VoxelNpcSync();
-      n.id = ++this.npcSeq;
-      n.x = home.x + 0.5;
-      n.z = home.z + 0.5;
-      n.y = this.world.columnTop(home.x, home.z) + 1;
-      n.skin = NPC_SKINS[i % NPC_SKINS.length];
-      n.state = 'idle';
-      const key = `n${n.id}`;
-      this.state.npcs.set(key, n);
-      n.hp = NPC_HP;
-      this.npcs.set(key, { sync: n, home, path: [], pi: 0, think: 0.4 + i * 0.5, mode: 'idle', repath: 0, attackCd: 0 });
+  // ── Mobs (Luanti mobs_redo-style spawn/despawn + FSM) ────────────────────────
+  /** Server time of day (0..1), shared clock; day ≈ 0.25..0.75. */
+  private isDay(): boolean {
+    const tod = (Date.now() / DAY_LENGTH_MS) % 1;
+    return tod >= 0.23 && tod <= 0.8;
+  }
+
+  private tick(dt: number): void {
+    // Spawn attempts on an interval; despawn + run the behaviour FSM every step.
+    this.spawnAcc += dt;
+    if (this.spawnAcc >= SPAWN_INTERVAL) {
+      this.spawnAcc = 0;
+      this.trySpawn();
     }
-  }
-
-  /** Nearest dry-land column to (cx,cz) whose surface is standable (not water). */
-  private findNpcSpawn(cx: number, cz: number): { x: number; z: number } {
-    for (let r = 0; r <= 8; r++) {
-      for (let dz = -r; dz <= r; dz++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue; // ring only
-          const x = cx + dx,
-            z = cz + dz;
-          const top = this.world.columnTop(x, z);
-          if (this.world.getBlock(x, top, z) !== 27 && this.world.getBlock(x, top + 1, z) === 0) return { x, z };
-        }
+    for (const [key, b] of this.npcs) {
+      b.life -= dt;
+      const far = this.minPlayerDist(b.sync.x, b.sync.z);
+      if (b.life <= 0 || far > DESPAWN_DIST) {
+        this.removeMob(key);
+        continue;
       }
+      this.tickMob(b, dt);
     }
-    return { x: cx, z: cz };
+  }
+
+  /** Try to spawn one mob near a random player: dry ground, outside SPAWN_MIN,
+   *  under the cap, matching the day/night type. */
+  private trySpawn(): void {
+    if (this.npcs.size >= MOB_CAP) return;
+    const players = [...this.state.players.values()].filter((p) => p.hp > 0);
+    if (!players.length) return;
+    const day = this.isDay();
+    const defs = MOB_DEFS_LIST.filter((d) => d.spawnByDay === day);
+    if (!defs.length) return;
+    const p = players[Math.floor(Math.random() * players.length)];
+    const ang = Math.random() * Math.PI * 2;
+    const dist = SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN);
+    const sx = Math.floor(p.x + Math.cos(ang) * dist);
+    const sz = Math.floor(p.z + Math.sin(ang) * dist);
+    const top = this.world.columnTop(sx, sz);
+    // Suitable: solid dry ground with two air cells above, and not right next to a player.
+    const ground = this.world.getBlock(sx, top, sz);
+    if (ground === 0 || isWaterId(ground)) return;
+    if (this.world.getBlock(sx, top + 1, sz) !== 0 || this.world.getBlock(sx, top + 2, sz) !== 0) return;
+    if (this.minPlayerDist(sx, sz) < SPAWN_MIN) return;
+    this.spawnMob(defs[Math.floor(Math.random() * defs.length)], sx, top + 1, sz);
+  }
+
+  private spawnMob(def: MobDef, x: number, y: number, z: number): void {
+    const n = new VoxelNpcSync();
+    n.id = ++this.npcSeq;
+    n.x = x + 0.5;
+    n.y = y;
+    n.z = z + 0.5;
+    n.skin = def.skin;
+    n.kind = def.kind;
+    n.hp = def.hp;
+    n.state = 'idle';
+    const key = `n${n.id}`;
+    this.state.npcs.set(key, n);
+    this.npcs.set(key, {
+      sync: n,
+      def,
+      path: [],
+      pi: 0,
+      think: Math.random() * 2,
+      mode: 'stand',
+      repath: 0,
+      attackCd: 0,
+      runawayT: 0,
+      fleeFrom: { x, z },
+      life: MOB_LIFETIME,
+    });
+  }
+
+  private removeMob(key: string): void {
+    this.state.npcs.delete(key);
+    this.npcs.delete(key);
+  }
+
+  /** Distance from (x,z) to the nearest living player (Infinity if none). */
+  private minPlayerDist(x: number, z: number): number {
+    let best = Infinity;
+    this.state.players.forEach((p) => {
+      if (p.hp <= 0) return;
+      best = Math.min(best, Math.hypot(p.x - x, p.z - z));
+    });
+    return best;
   }
 
   private nearestPlayer(x: number, z: number, within: number): { sid: string; p: VoxelPlayerSync } | null {
@@ -196,28 +255,29 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     return best;
   }
 
-  /** Player melee hit on an NPC (client sends the npc key + must be in reach). */
+  /** Player melee hit on a mob: damage it; animals flee (runaway); dead → removed
+   *  (the spawner refills the population over time). */
   private onAttack(client: Client, m: { npc?: string }): void {
     const p = this.state.players.get(client.sessionId);
-    const b = m?.npc ? this.npcs.get(m.npc) : undefined;
-    if (!p || !b) return;
+    const key = m?.npc;
+    const b = key ? this.npcs.get(key) : undefined;
+    if (!p || !b || !key) return;
     const n = b.sync;
     if (Math.hypot(n.x - p.x, n.z - p.z) > MELEE_REACH + 1) return; // reach (+slack)
     n.hp = Math.max(0, n.hp - PLAYER_DMG);
-    if (n.hp <= 0) this.respawnNpc(b); // "dies" and a fresh one returns home
-  }
-
-  private respawnNpc(b: NpcBrain): void {
-    const n = b.sync;
-    n.x = b.home.x + 0.5;
-    n.z = b.home.z + 0.5;
-    n.y = this.world.columnTop(b.home.x, b.home.z) + 1;
-    n.hp = NPC_HP;
-    n.state = 'idle';
-    b.path = [];
-    b.pi = 0;
-    b.mode = 'idle';
-    b.think = 1.5;
+    if (n.hp <= 0) {
+      this.removeMob(key);
+      return;
+    }
+    if (b.def.runaway) {
+      // Animals bolt away from the attacker for a few seconds.
+      b.mode = 'runaway';
+      b.runawayT = RUNAWAY_TIME;
+      b.fleeFrom = { x: p.x, z: p.z };
+      b.path = [];
+      b.repath = 0;
+    }
+    b.life = MOB_LIFETIME; // interacting with a mob keeps it around
   }
 
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
@@ -247,65 +307,90 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
   }
 
-  private tickNpcs(dt: number): void {
-    for (const b of this.npcs.values()) {
-      const n = b.sync;
-      b.think -= dt;
-      b.repath -= dt;
-      b.attackCd -= dt;
-      const prey = this.nearestPlayer(n.x, n.z, NPC_CHASE_R);
-      if (prey) {
-        // Chase: re-path toward the player; when in reach, hit on a cooldown.
-        b.mode = 'chase';
-        const target = prey.p;
-        const dist = Math.hypot(target.x - n.x, target.z - n.z);
-        n.yaw = Math.atan2(-(target.x - n.x), -(target.z - n.z)); // face the player
-        if (dist <= MELEE_REACH) {
-          if (b.attackCd <= 0) {
-            b.attackCd = NPC_ATTACK_CD;
-            this.damagePlayer(prey.sid, target, NPC_DMG);
+  /** One mob's behaviour step: runaway (fleeing animal) > attack (hostile monster) >
+   *  wander/stand. Movement runs the current path at walk or run velocity. */
+  private tickMob(b: NpcBrain, dt: number): void {
+    const n = b.sync;
+    const def = b.def;
+    b.think -= dt;
+    b.repath -= dt;
+    b.attackCd -= dt;
+    b.runawayT -= dt;
+
+    if (b.runawayT > 0) {
+      // Runaway: path to a reachable spot away from the threat; run velocity. Try the
+      // straight-away direction first, then spread out, so a blocked flee still moves.
+      b.mode = 'runaway';
+      if (b.repath <= 0 || b.pi >= b.path.length) {
+        const base = Math.atan2(n.z - b.fleeFrom.z, n.x - b.fleeFrom.x); // away from threat
+        for (const off of [0, 0.6, -0.6, 1.2, -1.2, Math.PI]) {
+          const a = base + off;
+          const tx = Math.floor(n.x + Math.cos(a) * 8),
+            tz = Math.floor(n.z + Math.sin(a) * 8);
+          const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: tx, y: this.world.columnTop(tx, tz) + 1, z: tz }, 500);
+          if (p && p.length) {
+            b.path = p;
+            b.pi = 0;
+            break;
           }
         }
-        if (dist <= NPC_KEEP_R) {
-          b.path = [];
-          n.state = 'idle';
-          continue;
-        }
-        if (b.repath <= 0 || b.pi >= b.path.length) {
-          const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: target.x, y: target.y, z: target.z }, 900);
-          b.path = p ?? [];
-          b.pi = 0;
-          b.repath = 0.5;
-        }
-      } else if (b.mode === 'chase') {
-        b.mode = 'idle';
-        b.path = [];
-        b.think = 1;
-      } else if (b.mode === 'idle' && b.think <= 0) {
-        // Pick a random reachable spot around home and wander to it.
-        const tx = b.home.x + Math.round((this.rand() * 2 - 1) * NPC_WANDER_R);
-        const tz = b.home.z + Math.round((this.rand() * 2 - 1) * NPC_WANDER_R);
-        const ty = this.world.columnTop(tx, tz) + 1;
-        const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: tx, y: ty, z: tz }, 1000);
-        if (p && p.length) {
-          b.path = p;
-          b.pi = 0;
-          b.mode = 'wander';
-        } else {
-          b.think = 1 + this.rand() * 2;
-        }
+        b.repath = 0.4;
       }
-      this.advanceNpc(b, dt);
+      this.advance(b, def.runVel, dt);
+      return;
     }
+
+    const prey = def.type === 'monster' ? this.nearestPlayer(n.x, n.z, def.viewRange) : null;
+    if (prey) {
+      // Attack: chase the player; hit on a cooldown when in reach; run velocity.
+      b.mode = 'attack';
+      b.life = MOB_LIFETIME;
+      const t = prey.p;
+      const dist = Math.hypot(t.x - n.x, t.z - n.z);
+      n.yaw = Math.atan2(-(t.x - n.x), -(t.z - n.z));
+      if (dist <= def.reach) {
+        b.path = [];
+        n.state = 'idle';
+        if (b.attackCd <= 0) {
+          b.attackCd = MOB_ATTACK_CD;
+          this.damagePlayer(prey.sid, t, def.damage);
+        }
+        return;
+      }
+      if (b.repath <= 0 || b.pi >= b.path.length) {
+        b.path = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: t.x, y: t.y, z: t.z }, 900) ?? [];
+        b.pi = 0;
+        b.repath = 0.5;
+      }
+      this.advance(b, def.runVel, dt);
+      return;
+    }
+
+    // Idle wander: from stand, occasionally pick a reachable spot and walk there.
+    if ((b.mode === 'attack' || b.mode === 'runaway') && b.pi >= b.path.length) {
+      b.mode = 'stand';
+      b.think = 1 + Math.random() * 2;
+    }
+    if (b.mode === 'stand' && b.think <= 0) {
+      const tx = Math.floor(n.x + (Math.random() * 2 - 1) * WANDER_R),
+        tz = Math.floor(n.z + (Math.random() * 2 - 1) * WANDER_R);
+      const p = findPath(this.world, { x: n.x, y: n.y, z: n.z }, { x: tx, y: this.world.columnTop(tx, tz) + 1, z: tz }, 900);
+      if (p && p.length) {
+        b.path = p;
+        b.pi = 0;
+        b.mode = 'walk';
+      } else b.think = 1 + Math.random() * 2;
+    }
+    this.advance(b, def.walkVel, dt);
   }
 
-  /** Move an NPC along its path; update transform + walk/idle state. */
-  private advanceNpc(b: NpcBrain, dt: number): void {
+  /** Move a mob along its path at `vel`; sets walk/idle state. Ends → stand. */
+  private advance(b: NpcBrain, vel: number, dt: number): void {
     const n = b.sync;
     if (b.pi >= b.path.length) {
-      if (b.mode === 'wander') {
-        b.mode = 'idle';
-        b.think = 1 + this.rand() * 2;
+      if (b.mode === 'walk' || b.mode === 'runaway') {
+        b.mode = 'stand';
+        b.think = 1 + Math.random() * 2;
       }
       if (n.state !== 'idle') n.state = 'idle';
       return;
@@ -317,7 +402,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const dx = tx - n.x,
       dz = tz - n.z;
     const d = Math.hypot(dx, dz);
-    const step = NPC_SPEED * dt;
+    const step = vel * dt;
     if (d <= step) {
       n.x = tx;
       n.z = tz;
@@ -326,14 +411,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     } else {
       n.x += (dx / d) * step;
       n.z += (dz / d) * step;
-      n.y += (ty - n.y) * Math.min(1, dt * 8); // ease vertical toward the node
-      n.yaw = Math.atan2(-dx, -dz); // 0 faces -Z
+      n.y += (ty - n.y) * Math.min(1, dt * 8);
+      n.yaw = Math.atan2(-dx, -dz);
     }
     n.state = 'walk';
-  }
-
-  private rand(): number {
-    return Math.random();
   }
 
   onJoin(client: Client, options?: { name?: string; skin?: string }): void {
