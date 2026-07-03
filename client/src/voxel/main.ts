@@ -909,12 +909,14 @@ function selectTool(i: number): void {
   lastTrack = 'tool';
   updateHud();
   refreshEditor();
+  pushSettings(); // remember the selected slot across sessions
 }
 function selectBlock(i: number): void {
   selBlock = (i + blocks.length) % blocks.length;
   lastTrack = 'block';
   updateHud();
   refreshEditor();
+  pushSettings();
 }
 /** Number keys 1..N run across both tracks: 1..tools then blocks. */
 function selectSlot(i: number): void {
@@ -1228,6 +1230,7 @@ function currentSettingsBlob(): unknown {
     wield,
     hotbar: { tools: [...tools], blocks: [...blocks] },
     armor: { ...armorEquipped },
+    sel: { tool: selTool, block: selBlock, track: lastTrack }, // remembered hotbar selection
   };
 }
 let pushTimer = 0;
@@ -1249,6 +1252,7 @@ function applyServerSettings(s: unknown): void {
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
     armor: Record<string, string | null>;
+    sel: { tool?: number; block?: number; track?: 'tool' | 'block' };
   }> | null;
   if (!o || typeof o !== 'object') return;
   if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
@@ -1283,6 +1287,13 @@ function applyServerSettings(s: unknown): void {
     if (Array.isArray(o.hotbar.tools)) o.hotbar.tools.forEach((id, i) => i < tools.length && itemById(id).tool && (tools[i] = id));
     if (Array.isArray(o.hotbar.blocks))
       o.hotbar.blocks.forEach((id, i) => i < blocks.length && itemById(id).block !== undefined && (blocks[i] = id));
+    updateHud();
+  }
+  // Restore the remembered hotbar selection (which slots were active).
+  if (o.sel) {
+    if (Number.isInteger(o.sel.tool)) selTool = Math.max(0, Math.min(tools.length - 1, o.sel.tool!));
+    if (Number.isInteger(o.sel.block)) selBlock = Math.max(0, Math.min(blocks.length - 1, o.sel.block!));
+    if (o.sel.track === 'tool' || o.sel.track === 'block') lastTrack = o.sel.track;
     updateHud();
   }
   if (o.armor && typeof o.armor === 'object') {
