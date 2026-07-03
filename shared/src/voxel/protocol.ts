@@ -75,8 +75,10 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Item-id ranges: placeable blocks 1..MAX_BLOCK_ID, MATERIALS 100..199, TOOLS 200..299.
 // MAX_BLOCK_ID is the highest valid placeable block id (bump it when blocks.ts grows);
 // the server's place guard uses it so materials/tools can't be placed as blocks.
-export const MAX_BLOCK_ID = 34;
+export const MAX_BLOCK_ID = 36;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
+export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
+export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
 export const MATERIAL_BASE = 100;
 export const TOOL_BASE = 200;
 export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE && id < TOOL_BASE;
@@ -100,7 +102,9 @@ export const STARTER_TOOL = TOOL_IDS.pick_wood;
 
 // Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore
 // block). Anything not listed drops itself. Used at the spawnDrop call site.
-export const ORE_DROPS: Record<number, number> = { 30: COAL_LUMP, 31: IRON_LUMP };
+// Block → the item it drops when broken (default: itself). Ores drop lumps; an open
+// door drops the (closed) door item, not the state-only open id.
+export const ORE_DROPS: Record<number, number> = { 30: COAL_LUMP, 31: IRON_LUMP, [DOOR_OPEN]: DOOR_CLOSED };
 export const dropFor = (blockId: number): number => ORE_DROPS[blockId] ?? blockId;
 
 // ── Crafting ─────────────────────────────────────────────────────────────────
@@ -132,6 +136,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: COAL_LUMP, count: 1 }, { block: STICK, count: 1 }], out: { block: 33, count: 4 } }, // → 4 torches
   { in: [{ block: STICK, count: 3 }], out: { block: 32, count: 3 } }, // 3 sticks → 3 ladders
   { in: [{ block: 18, count: 8 }], out: { block: CHEST_ID, count: 1 } }, // 8 planks → 1 chest
+  { in: [{ block: 18, count: 6 }], out: { block: DOOR_CLOSED, count: 1 } }, // 6 planks → 1 door
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────

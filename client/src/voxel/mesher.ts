@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, TRANSPARENT } from './blocks.js';
+import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
 
@@ -81,7 +81,7 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
     for (let y = y0; y < y0 + CHUNK; y++) {
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = cellAt(x, y, z);
-        if (id === AIR) continue;
+        if (id === AIR || RENDER_SKIP.has(id)) continue; // air + state-only ids (open door) draw nothing
         const fluid = fluidOf(id); // water/lava def, or null
         const transparent = TRANSPARENT.has(id);
         const def = fluid ? BLOCKS[fluid.source] : BLOCKS[id] ?? BLOCKS[3];

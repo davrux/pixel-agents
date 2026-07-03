@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -1040,8 +1040,9 @@ function useAimedNode(): boolean {
   const x = Math.floor(p.x),
     y = Math.floor(p.y),
     z = Math.floor(p.z);
-  if (world.get(x, y, z) === CHEST_ID) {
-    net?.use(x, y, z); // server replies with 'chestOpen' → openChestUI
+  const b = world.get(x, y, z);
+  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN) {
+    net?.use(x, y, z); // chest → 'chestOpen'; door → server toggles open/closed
     return true;
   }
   return false;

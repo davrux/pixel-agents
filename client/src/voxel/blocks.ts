@@ -58,6 +58,8 @@ export const BLOCKS: BlockDef[] = [
   u('ladder', 'ladder'), // id 32 — non-solid, climbable (Luanti wood ladder)
   u('torch', 'torch'), // id 33 — non-solid light source (emits a point light nearby)
   b('chest', 'chest_top', 'chest_front', 'chest_top', 'chest_front'), // id 34 — openable storage node
+  u('door', 'door'), // id 35 — door (closed): solid, 2-tall, toggles with id 36 on use
+  u('door (open)', 'door'), // id 36 — door (open): non-solid + not rendered (walk through)
 ];
 
 export const WATER_ID = 27;
@@ -66,18 +68,24 @@ export const LAVA_ID = 29;
 export const LADDER_ID = 32;
 export const TORCH_ID = 33;
 export const CHEST_ID = 34;
+export const DOOR_CLOSED = 35;
+export const DOOR_OPEN = 36;
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block a glass pane sits on THROUGH it), and only cull against the
- *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal, ladder, torch. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33]);
+ *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal, ladder, torch, doors. */
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36]);
 
-/** Non-solid blocks: the player passes through them (like fluids). Ladders + torches. */
-export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID]);
+/** Non-solid blocks: the player passes through them (like fluids). Ladders, torches, open doors. */
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client places a point light at nearby instances. */
 export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
+/** Blocks the mesher never draws (present for physics/state only). An open door. */
+export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
+/** Blocks kept out of the placeable palette (state-only ids you never place directly). */
+export const HIDDEN = new Set<number>([DOOR_OPEN]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore'];
@@ -91,8 +99,8 @@ export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tile
  *  composited by synthetic tiles (e.g. stone + mineral overlay → ore). */
 export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron'];
 
-/** All placeable block ids (everything except air). */
-export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0);
+/** All placeable block ids (everything except air + state-only hidden ids). */
+export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0 && !HIDDEN.has(i));
 
 /** Default quick-slot hotbar (block ids) — the "b" picker can swap any slot. */
 export const DEFAULT_HOTBAR = [1, 2, 3, 4, 7, 17, 21, 22, 15];

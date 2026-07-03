@@ -34,6 +34,8 @@ import {
   STARTER_TOOL,
   MAX_BLOCK_ID,
   CHEST_ID,
+  DOOR_CLOSED,
+  DOOR_OPEN,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -511,7 +513,22 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       dy = y + 0.5 - (v.py + 1.6),
       dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
-    if (this.world.getBlock(x, y, z) === CHEST_ID) this.sendChest(client, x, y, z);
+    const block = this.world.getBlock(x, y, z);
+    if (block === CHEST_ID) this.sendChest(client, x, y, z);
+    else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
+  }
+
+  /** Toggle a 2-tall door open/closed: flip every door cell in this vertical pair
+   *  (the used cell + the one above/below) between DOOR_CLOSED and DOOR_OPEN. */
+  private toggleDoor(x: number, y: number, z: number): void {
+    const isDoor = (yy: number): boolean => {
+      const b = this.world.getBlock(x, yy, z);
+      return b === DOOR_CLOSED || b === DOOR_OPEN;
+    };
+    const to = this.world.getBlock(x, y, z) === DOOR_CLOSED ? DOOR_OPEN : DOOR_CLOSED;
+    for (const yy of [y - 1, y, y + 1]) {
+      if (isDoor(yy) && this.world.setBlock(x, yy, z, to)) this.broadcastEdit(x, yy, z, to);
+    }
   }
 
   /** Send a chest's current contents to the opening client (drives its chest UI). */
@@ -894,6 +911,19 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const c = chests.get(this.state.worldId, x, y, z);
       c.forEach((count, cid) => this.spawnDrop(cid, x, y, z, count));
       chests.delete(this.state.worldId, x, y, z);
+    }
+    // Placing a door: auto-add its top half (doors are 2-tall) if the cell above is air.
+    if (id === DOOR_CLOSED && this.world.getBlock(x, y + 1, z) === 0) {
+      this.world.setBlock(x, y + 1, z, DOOR_CLOSED);
+      this.broadcastEdit(x, y + 1, z, DOOR_CLOSED);
+    }
+    // Breaking a door: remove its paired half too (the generic drop above already
+    // dropped one door item, so the pair is removed silently).
+    if (id === 0 && (prev === DOOR_CLOSED || prev === DOOR_OPEN)) {
+      for (const dy of [-1, 1]) {
+        const b = this.world.getBlock(x, y + dy, z);
+        if ((b === DOOR_CLOSED || b === DOOR_OPEN) && this.world.setBlock(x, y + dy, z, 0)) this.broadcastEdit(x, y + dy, z, 0);
+      }
     }
     // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
     // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
