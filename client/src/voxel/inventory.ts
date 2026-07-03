@@ -25,6 +25,8 @@ export class Inventory {
   private readonly root: HTMLDivElement;
   private readonly body: HTMLDivElement;
   private open = false;
+  private dragItem: string | null = null; // pointer-drag payload (item id)
+  private ghost: HTMLDivElement | null = null;
 
   constructor(private readonly deps: InventoryDeps) {
     const style = document.createElement('style');
@@ -45,8 +47,10 @@ export class Inventory {
         image-rendering:pixelated;cursor:grab;position:relative;}
       #vx-inv .cell.slot{border-color:#6a6a6a;background-color:#242424;}
       #vx-inv .cell.slot .lab{position:absolute;bottom:-1px;left:0;right:0;text-align:center;font-size:.5rem;color:#9a9a9a;}
-      #vx-inv .cell.drop{border-color:#7fd08a;}
-      #vx-inv .tip{margin-top:.6rem;font-size:.7rem;color:#bdbdbd;}`;
+      #vx-inv .cell.drop{border-color:#7fd08a;box-shadow:0 0 0 2px #7fd08a inset;}
+      #vx-inv .tip{margin-top:.6rem;font-size:.7rem;color:#bdbdbd;}
+      .vx-drag-ghost{position:fixed;width:2.2rem;height:2.2rem;margin:-1.1rem 0 0 -1.1rem;background:#3a3a3a center/80% no-repeat;
+        border:3px solid #fff;border-radius:4px;image-rendering:pixelated;pointer-events:none;z-index:400;opacity:.9;}`;
     document.head.appendChild(style);
     this.root = document.createElement('div');
     this.root.id = 'vx-inv';
@@ -82,8 +86,12 @@ export class Inventory {
       el.style.backgroundImage = `url(${iconUrl(it)})`;
       el.title = it.name;
       if (opts.draggable !== false) {
-        el.draggable = true;
-        el.addEventListener('dragstart', (e) => e.dataTransfer?.setData('text/plain', it.id));
+        const id = it.id;
+        el.style.cursor = 'grab';
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          this.startDrag(id, e);
+        });
       }
     }
     if (opts.label) {
@@ -96,17 +104,45 @@ export class Inventory {
   }
 
   private dropTarget(el: HTMLElement, accept: (id: string) => void): void {
-    el.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      el.classList.add('drop');
-    });
-    el.addEventListener('dragleave', () => el.classList.remove('drop'));
-    el.addEventListener('drop', (e) => {
-      e.preventDefault();
-      el.classList.remove('drop');
-      const id = e.dataTransfer?.getData('text/plain');
-      if (id) accept(id);
-    });
+    (el as unknown as { __accept?: (id: string) => void }).__accept = accept;
+  }
+
+  /** Element under (x,y) that is a drop target (walks up ancestors), or null. */
+  private targetAt(x: number, y: number): HTMLElement | null {
+    let el = document.elementFromPoint(x, y) as HTMLElement | null;
+    while (el && !(el as unknown as { __accept?: unknown }).__accept) el = el.parentElement;
+    return el;
+  }
+
+  /** Pointer-based drag: a ghost follows the cursor; drop = target under release. */
+  private startDrag(id: string, e: MouseEvent): void {
+    this.dragItem = id;
+    const g = document.createElement('div');
+    g.className = 'vx-drag-ghost';
+    g.style.backgroundImage = `url(${iconUrl(this.deps.item(id))})`;
+    document.body.appendChild(g);
+    this.ghost = g;
+    const move = (ev: MouseEvent): void => {
+      g.style.left = ev.clientX + 'px';
+      g.style.top = ev.clientY + 'px';
+      this.body.querySelectorAll('.drop').forEach((c) => c.classList.remove('drop'));
+      this.targetAt(ev.clientX, ev.clientY)?.classList.add('drop');
+    };
+    const up = (ev: MouseEvent): void => {
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      g.remove();
+      this.ghost = null;
+      const target = this.targetAt(ev.clientX, ev.clientY);
+      const accept = target && (target as unknown as { __accept?: (id: string) => void }).__accept;
+      const dragId = this.dragItem;
+      this.dragItem = null;
+      this.body.querySelectorAll('.drop').forEach((c) => c.classList.remove('drop'));
+      if (accept && dragId) accept(dragId);
+    };
+    move(e);
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
   }
 
   render(): void {
