@@ -55,6 +55,9 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   28: { cracky: 3, oddly_breakable_by_hand: 3 }, // portal marker (glass cube)
   30: { cracky: 3 }, // coal ore (wood pick ok)
   31: { cracky: 2 }, // iron ore (needs a stone pick or better)
+  37: { cracky: 2 }, // copper ore (stone pick+)
+  38: { cracky: 2 }, // tin ore (stone pick+)
+  39: { cracky: 2 }, // gold ore (stone pick+)
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).

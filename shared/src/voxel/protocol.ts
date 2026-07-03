@@ -75,10 +75,13 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Item-id ranges: placeable blocks 1..MAX_BLOCK_ID, MATERIALS 100..199, TOOLS 200..299.
 // MAX_BLOCK_ID is the highest valid placeable block id (bump it when blocks.ts grows);
 // the server's place guard uses it so materials/tools can't be placed as blocks.
-export const MAX_BLOCK_ID = 36;
+export const MAX_BLOCK_ID = 39;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
 export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
+export const COPPER_ORE = 37;
+export const TIN_ORE = 38;
+export const GOLD_ORE = 39;
 export const MATERIAL_BASE = 100;
 export const TOOL_BASE = 200;
 export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE && id < TOOL_BASE;
@@ -87,6 +90,13 @@ export const COAL_LUMP = 100;
 export const IRON_LUMP = 101;
 export const STEEL_INGOT = 102;
 export const STICK = 103;
+export const COPPER_LUMP = 104;
+export const TIN_LUMP = 105;
+export const GOLD_LUMP = 106;
+export const COPPER_INGOT = 107;
+export const TIN_INGOT = 108;
+export const GOLD_INGOT = 109;
+export const BRONZE_INGOT = 110;
 
 // Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
@@ -104,7 +114,14 @@ export const STARTER_TOOL = TOOL_IDS.pick_wood;
 // block). Anything not listed drops itself. Used at the spawnDrop call site.
 // Block → the item it drops when broken (default: itself). Ores drop lumps; an open
 // door drops the (closed) door item, not the state-only open id.
-export const ORE_DROPS: Record<number, number> = { 30: COAL_LUMP, 31: IRON_LUMP, [DOOR_OPEN]: DOOR_CLOSED };
+export const ORE_DROPS: Record<number, number> = {
+  30: COAL_LUMP,
+  31: IRON_LUMP,
+  [COPPER_ORE]: COPPER_LUMP,
+  [TIN_ORE]: TIN_LUMP,
+  [GOLD_ORE]: GOLD_LUMP,
+  [DOOR_OPEN]: DOOR_CLOSED,
+};
 export const dropFor = (blockId: number): number => ORE_DROPS[blockId] ?? blockId;
 
 // ── Crafting ─────────────────────────────────────────────────────────────────
@@ -137,6 +154,10 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STICK, count: 3 }], out: { block: 32, count: 3 } }, // 3 sticks → 3 ladders
   { in: [{ block: 18, count: 8 }], out: { block: CHEST_ID, count: 1 } }, // 8 planks → 1 chest
   { in: [{ block: 18, count: 6 }], out: { block: DOOR_CLOSED, count: 1 } }, // 6 planks → 1 door
+  // Metals: alloy bronze from copper + tin; pack ingots into storage blocks.
+  { in: [{ block: COPPER_INGOT, count: 1 }, { block: TIN_INGOT, count: 1 }], out: { block: BRONZE_INGOT, count: 1 } },
+  { in: [{ block: COPPER_INGOT, count: 9 }], out: { block: 24, count: 1 } }, // → copper block
+  { in: [{ block: BRONZE_INGOT, count: 9 }], out: { block: 25, count: 1 } }, // → bronze block
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────
@@ -151,6 +172,9 @@ export interface SmeltRecipe {
 }
 export const SMELT_RECIPES: SmeltRecipe[] = [
   { in: IRON_LUMP, out: STEEL_INGOT, count: 1 }, // iron lump → steel ingot
+  { in: COPPER_LUMP, out: COPPER_INGOT, count: 1 }, // copper lump → copper ingot
+  { in: TIN_LUMP, out: TIN_INGOT, count: 1 }, // tin lump → tin ingot
+  { in: GOLD_LUMP, out: GOLD_INGOT, count: 1 }, // gold lump → gold ingot
   { in: 7, out: 14, count: 1 }, // sand → glass
   { in: 4, out: 3, count: 1 }, // cobble → stone
 ];

@@ -21,6 +21,9 @@ const LEAVES = 21;
 export const WATER = 27;
 const COAL_ORE = 30; // stone speckled with coal — common, upper stone
 const IRON_ORE = 31; // stone speckled with iron — deeper
+const COPPER_ORE = 37; // mid-depth
+const TIN_ORE = 38; // mid-depth, rarer
+const GOLD_ORE = 39; // deep + rare
 
 const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
@@ -200,6 +203,9 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
         if (id === STONE && wy < h - 2) {
           if (hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4001) < 0.03) id = COAL_ORE;
           else if (wy < 24 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4002) < 0.022) id = IRON_ORE;
+          else if (wy < 20 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4003) < 0.014) id = COPPER_ORE;
+          else if (wy < 16 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4004) < 0.01) id = TIN_ORE;
+          else if (wy < 8 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4005) < 0.006) id = GOLD_ORE;
         }
         if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;
       }

@@ -60,6 +60,9 @@ export const BLOCKS: BlockDef[] = [
   b('chest', 'chest_top', 'chest_front', 'chest_top', 'chest_front'), // id 34 — openable storage node
   u('door', 'door'), // id 35 — door (closed): solid, 2-tall, toggles with id 36 on use
   u('door (open)', 'door'), // id 36 — door (open): non-solid + not rendered (walk through)
+  u('copper ore', 'copper_ore'), // id 37 — stone + copper speckle (synthetic composite)
+  u('tin ore', 'tin_ore'), // id 38
+  u('gold ore', 'gold_ore'), // id 39
 ];
 
 export const WATER_ID = 27;
@@ -88,7 +91,7 @@ export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
 export const HIDDEN = new Set<number>([DOOR_OPEN]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
-export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore'];
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(
@@ -97,7 +100,7 @@ export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tile
 
 /** Extra PNGs loaded into the atlas' image map but NOT used as block faces — they're
  *  composited by synthetic tiles (e.g. stone + mineral overlay → ore). */
-export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron'];
+export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron', 'mineral_copper', 'mineral_tin', 'mineral_gold'];
 
 /** All placeable block ids (everything except air + state-only hidden ids). */
 export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0 && !HIDDEN.has(i));

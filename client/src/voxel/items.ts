@@ -5,7 +5,10 @@
  * drives digging (tool → its dig speed; block → hand speed) and placing (blocks
  * only). More kinds (food, buckets, …) can be added here as their behaviour lands.
  */
-import { MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK } from '@pixel/shared';
+import {
+  MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
+  COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT,
+} from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
 
@@ -131,6 +134,13 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(IRON_LUMP, 'Iron Lump', 'default_iron_lump'),
   materialItem(STEEL_INGOT, 'Steel Ingot', 'default_steel_ingot'),
   materialItem(STICK, 'Stick', 'default_stick'),
+  materialItem(COPPER_LUMP, 'Copper Lump', 'default_copper_lump'),
+  materialItem(TIN_LUMP, 'Tin Lump', 'default_tin_lump'),
+  materialItem(GOLD_LUMP, 'Gold Lump', 'default_gold_lump'),
+  materialItem(COPPER_INGOT, 'Copper Ingot', 'default_copper_ingot'),
+  materialItem(TIN_INGOT, 'Tin Ingot', 'default_tin_ingot'),
+  materialItem(GOLD_INGOT, 'Gold Ingot', 'default_gold_ingot'),
+  materialItem(BRONZE_INGOT, 'Bronze Ingot', 'default_bronze_ingot'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */
