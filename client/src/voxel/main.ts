@@ -770,9 +770,16 @@ const inventory = new Inventory({
       .sort((a, b) => a[0] - b[0])
       .map(([block, count]) => ({ block, count })),
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
-  // drag palette items straight onto the real bar (not just the mirrored rows).
-  onOpen: () => document.getElementById('hotbar')?.classList.add('drop-target'),
-  onClose: () => document.getElementById('hotbar')?.classList.remove('drop-target'),
+  // drag palette items straight onto the real bar (not just the mirrored rows). Also
+  // free the mouse in first person (to drag), and re-capture it on close.
+  onOpen: () => {
+    document.getElementById('hotbar')?.classList.add('drop-target');
+    if (locked()) document.exitPointerLock();
+  },
+  onClose: () => {
+    document.getElementById('hotbar')?.classList.remove('drop-target');
+    if (mode === 'first') canvas.requestPointerLock();
+  },
 });
 updateArmorHud();
 let rotating = false; // RMB held → free-orbit the camera (iso + third)
@@ -1568,6 +1575,7 @@ function craftShow(): void {
 }
 function craftClose(): void {
   craftEl.classList.remove('open');
+  if (mode === 'first') canvas.requestPointerLock(); // re-capture the mouse in first person
 }
 function iconHtml(block: number, count: number): string {
   const url = itemTexUrl(itemById('block:' + block).texUrl);
