@@ -53,6 +53,8 @@ export const BLOCKS: BlockDef[] = [
   u('water', 'water'), // id 27 — generated lakes/seas (synthetic tile)
   b('portal', 'glass', 'portal', 'glass', 'portal'), // id 28 — glass cube with a P on the sides
   u('lava', 'lava'), // id 29 — placeable liquid (synthetic tile); flows + burns
+  u('coal ore', 'coal_ore'), // id 30 — stone + coal speckle (synthetic composite)
+  u('iron ore', 'iron_ore'), // id 31 — stone + iron speckle (synthetic composite)
 ];
 
 export const WATER_ID = 27;
@@ -64,13 +66,17 @@ export const LAVA_ID = 29;
  *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal. */
 export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28]);
 
-/** Tiles drawn at runtime (not PNG files): water, lava + the portal P overlay. */
-export const SYNTHETIC_TILES = ['water', 'portal', 'lava'];
+/** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(
   (t) => !SYNTHETIC_TILES.includes(t),
 );
+
+/** Extra PNGs loaded into the atlas' image map but NOT used as block faces — they're
+ *  composited by synthetic tiles (e.g. stone + mineral overlay → ore). */
+export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron'];
 
 /** All placeable block ids (everything except air). */
 export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0);

@@ -15,6 +15,8 @@ const SAND = 7;
 const WOOD = 17;
 const LEAVES = 21;
 export const WATER = 27;
+const COAL_ORE = 30; // stone speckled with coal — common, upper stone
+const IRON_ORE = 31; // stone speckled with iron — deeper
 
 const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
@@ -162,6 +164,12 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
         else if (wy <= SEA) id = WATER; // fill lakes/seas above low land
         // carve caves out of the solid interior (not water)
         if ((id === STONE || id === DIRT) && wy >= 0 && isCave(wx, wy, wz, seed, h)) id = AIR;
+        // Ores in solid stone (after caves): small clumps (2³ cells share a roll → veins).
+        // Coal is common in the upper stone; iron sits deeper. Mining them drops the ore.
+        if (id === STONE && wy < h - 2) {
+          if (hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4001) < 0.03) id = COAL_ORE;
+          else if (wy < 24 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4002) < 0.022) id = IRON_ORE;
+        }
         if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;
       }
     }

@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId } from '@pixel/sha
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, PORTAL_ID, WATER_ID, LAVA_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -209,7 +209,7 @@ function flushDirty(cap = 6): void {
     if (++n >= cap) break;
   }
 }
-void loadBlockAtlas(BLOCK_TEXTURES, SYNTHETIC).then((a) => {
+void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES], SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;

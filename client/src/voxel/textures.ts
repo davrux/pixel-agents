@@ -74,11 +74,27 @@ function drawPortal(ctx: CanvasRenderingContext2D, s: number, img: Map<string, H
   bar(4, 6, 7, 3);
 }
 
+/** Ore tile = stone base with a mineral overlay drawn on top (Luanti `stone^mineral`). */
+function drawOre(overlay: string) {
+  return (ctx: CanvasRenderingContext2D, s: number, img: Map<string, HTMLImageElement>): void => {
+    const st = img.get('stone');
+    if (st) ctx.drawImage(st, 0, 0, s, s);
+    else {
+      ctx.fillStyle = '#8f8f8f';
+      ctx.fillRect(0, 0, s, s);
+    }
+    const o = img.get(overlay);
+    if (o) ctx.drawImage(o, 0, 0, s, s);
+  };
+}
+
 /** Built-in synthetic tiles (passed to loadBlockAtlas as `extra`). */
 export const SYNTHETIC: SyntheticTile[] = [
   { name: 'water', render: (ctx, s) => drawWater(ctx, s) },
   { name: 'portal', render: drawPortal },
   { name: 'lava', render: (ctx, s) => drawLava(ctx, s) },
+  { name: 'coal_ore', render: drawOre('mineral_coal') },
+  { name: 'iron_ore', render: drawOre('mineral_iron') },
 ];
 
 export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {
