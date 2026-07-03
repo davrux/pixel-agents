@@ -186,31 +186,8 @@ export class Inventory {
       ar.appendChild(cell);
     }
 
-    // Hotbar mirror — tools then blocks.
-    heading('Hotbar — Tools (dig)');
-    const tr = rowEl();
-    this.deps.toolSlots().forEach((id, i) => {
-      const cell = this.cell(this.deps.item(id), { slot: true, draggable: false });
-      this.dropTarget(cell, (dragId) => {
-        if (this.deps.item(dragId).tool) {
-          this.deps.setToolSlot(i, dragId);
-          this.render();
-        }
-      });
-      tr.appendChild(cell);
-    });
-    heading('Hotbar — Blocks (build)');
-    const br = rowEl();
-    this.deps.blockSlots().forEach((id, i) => {
-      const cell = this.cell(this.deps.item(id), { slot: true, draggable: false });
-      this.dropTarget(cell, (dragId) => {
-        if (this.deps.item(dragId).block !== undefined) {
-          this.deps.setBlockSlot(i, dragId);
-          this.render();
-        }
-      });
-      br.appendChild(cell);
-    });
+    // (The hotbar is no longer mirrored here — drag palette items straight onto the
+    //  real bottom hotbar, which is a drop target while this panel is open.)
 
     // Palette grids.
     const grid = (title: string, items: Item[]): void => {

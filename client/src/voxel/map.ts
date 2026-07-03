@@ -1,28 +1,28 @@
 /**
- * Travel map (M): a top-down minimap of the current world built from the loaded
- * chunks — each column painted by its top block's colour, the player marked with a
- * heading arrow. Click a spot to travel there (server-authoritative teleport within
- * the current world/zone). Only loaded terrain (the AOI around you) is shown.
+ * Travel map (M): a top-down minimap of everything you've explored (a persistent
+ * colour cache the caller fills as chunks load), centred on the player with a heading
+ * arrow. Scroll to zoom in/out; click a spot to travel there (server-authoritative
+ * teleport). Unexplored area is dark.
  */
 export interface MapDeps {
-  /** Top-block colour (0xRRGGBB) at column (x,z), or null if not loaded. */
-  columnColor: (x: number, z: number) => number | null;
+  /** Cached top-block colour (0xRRGGBB) at explored column (x,z), or null. */
+  colorAt: (x: number, z: number) => number | null;
   player: () => { x: number; z: number; yaw: number };
-  /** Travel to world (x,z) — the caller asks the server to teleport. */
   onTravel: (x: number, z: number) => void;
-  onOpen?: () => void; // e.g. release pointer lock so the map is clickable
-  onClose?: () => void; // e.g. re-capture the mouse in first person
+  onOpen?: () => void;
+  onClose?: () => void;
 }
 
-const RANGE = 64; // blocks shown each way from the player
-const PX = 3; // canvas pixels per block
-const SIZE = RANGE * 2 * PX; // canvas is SIZE×SIZE
+const SIZE = 420; // canvas pixels (square)
+const MIN_RANGE = 32; // most zoomed-in: blocks shown each way
+const MAX_RANGE = 384; // most zoomed-out
 
 export class TravelMap {
   private readonly root: HTMLDivElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private open = false;
+  private range = 72; // current half-extent in blocks (zoom)
 
   constructor(private readonly deps: MapDeps) {
     const style = document.createElement('style');
@@ -40,14 +40,10 @@ export class TravelMap {
     document.head.appendChild(style);
     this.root = document.createElement('div');
     this.root.id = 'vx-map';
-    this.root.innerHTML = `<div class="win"><div class="hd"><h3>Map — click to travel</h3><div class="x" title="Close (M / Esc)">✕</div></div></div>`;
+    this.root.innerHTML = `<div class="win"><div class="hd"><h3>Map — click to travel</h3><div class="x" title="Close (M / Esc)">✕</div></div><div class="tip">Scroll to zoom · click a spot to travel · dark = unexplored</div></div>`;
     this.canvas = document.createElement('canvas');
     this.canvas.width = this.canvas.height = SIZE;
     this.root.querySelector('.win')!.insertBefore(this.canvas, this.root.querySelector('.tip'));
-    const tip = document.createElement('div');
-    tip.className = 'tip';
-    tip.textContent = 'Only explored (loaded) terrain is shown · click a spot to travel';
-    this.root.querySelector('.win')!.appendChild(tip);
     (document.getElementById('game') ?? document.body).appendChild(this.root);
     this.ctx = this.canvas.getContext('2d')!;
     this.ctx.imageSmoothingEnabled = false;
@@ -57,6 +53,12 @@ export class TravelMap {
       if (e.target === this.root) this.close();
     });
     this.canvas.addEventListener('click', (e) => this.onClick(e));
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const f = e.deltaY > 0 ? 1.2 : 1 / 1.2; // out / in
+      this.range = Math.max(MIN_RANGE, Math.min(MAX_RANGE, Math.round(this.range * f)));
+      this.render();
+    });
   }
 
   isOpen(): boolean {
@@ -78,42 +80,33 @@ export class TravelMap {
     this.deps.onClose?.();
   }
 
-  /** Repaint from the currently loaded columns (called on open + periodically). */
+  /** Repaint the explored cache within the current zoom, centred on the player. */
   render(): void {
     if (!this.open) return;
     const { x: cxp, z: czp, yaw } = this.deps.player();
-    const ox = Math.floor(cxp) - RANGE;
-    const oz = Math.floor(czp) - RANGE;
-    const img = this.ctx.createImageData(RANGE * 2, RANGE * 2);
-    for (let iz = 0; iz < RANGE * 2; iz++) {
-      for (let ix = 0; ix < RANGE * 2; ix++) {
-        const c = this.deps.columnColor(ox + ix, oz + iz);
-        const o = (iz * RANGE * 2 + ix) * 4;
-        if (c == null) {
-          img.data[o] = 17;
-          img.data[o + 1] = 21;
-          img.data[o + 2] = 28;
-          img.data[o + 3] = 255; // unloaded → dark
-        } else {
-          img.data[o] = (c >> 16) & 255;
-          img.data[o + 1] = (c >> 8) & 255;
-          img.data[o + 2] = c & 255;
-          img.data[o + 3] = 255;
-        }
+    const span = this.range * 2;
+    const ox = Math.floor(cxp) - this.range;
+    const oz = Math.floor(czp) - this.range;
+    const img = this.ctx.createImageData(span, span);
+    for (let iz = 0; iz < span; iz++) {
+      for (let ix = 0; ix < span; ix++) {
+        const c = this.deps.colorAt(ox + ix, oz + iz);
+        const o = (iz * span + ix) * 4;
+        img.data[o] = c == null ? 17 : (c >> 16) & 255;
+        img.data[o + 1] = c == null ? 21 : (c >> 8) & 255;
+        img.data[o + 2] = c == null ? 28 : c & 255;
+        img.data[o + 3] = 255;
       }
     }
-    // Scale the RANGE*2 image up to the PX-scaled canvas.
     const tmp = document.createElement('canvas');
-    tmp.width = tmp.height = RANGE * 2;
+    tmp.width = tmp.height = span;
     tmp.getContext('2d')!.putImageData(img, 0, 0);
     this.ctx.clearRect(0, 0, SIZE, SIZE);
     this.ctx.drawImage(tmp, 0, 0, SIZE, SIZE);
-    // Player marker: a heading arrow at centre.
-    const cx = RANGE * PX,
-      cy = RANGE * PX;
+    // Player heading arrow at centre.
     this.ctx.save();
-    this.ctx.translate(cx, cy);
-    this.ctx.rotate(-yaw); // yaw 0 faces -Z (up on the map)
+    this.ctx.translate(SIZE / 2, SIZE / 2);
+    this.ctx.rotate(-yaw);
     this.ctx.fillStyle = '#fff';
     this.ctx.strokeStyle = '#000';
     this.ctx.lineWidth = 1.5;
@@ -130,12 +123,11 @@ export class TravelMap {
 
   private onClick(e: MouseEvent): void {
     const rect = this.canvas.getBoundingClientRect();
-    const mx = ((e.clientX - rect.left) / rect.width) * RANGE * 2;
-    const mz = ((e.clientY - rect.top) / rect.height) * RANGE * 2;
+    const span = this.range * 2;
+    const mx = ((e.clientX - rect.left) / rect.width) * span;
+    const mz = ((e.clientY - rect.top) / rect.height) * span;
     const { x: cxp, z: czp } = this.deps.player();
-    const wx = Math.floor(cxp) - RANGE + Math.floor(mx);
-    const wz = Math.floor(czp) - RANGE + Math.floor(mz);
-    this.deps.onTravel(wx, wz);
+    this.deps.onTravel(Math.floor(cxp) - this.range + Math.floor(mx), Math.floor(czp) - this.range + Math.floor(mz));
     this.close();
   }
 }

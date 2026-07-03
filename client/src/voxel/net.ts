@@ -29,6 +29,7 @@ export interface VoxelNet {
   sendTeleport(x: number, z: number): void;
   sendAttack(npc: string): void;
   sendArmor(defense: number): void;
+  setPeaceful(on: boolean): void;
   leave(): Promise<void>;
 }
 
@@ -85,6 +86,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendTeleport: (x, z) => room.send('teleport', { x, z }),
     sendAttack: (npc) => room.send('attack', { npc }),
     sendArmor: (defense) => room.send('setArmor', { defense }),
+    setPeaceful: (on) => room.send('setPeaceful', { on }),
     leave: async () => {
       await room.leave();
     },

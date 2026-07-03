@@ -312,6 +312,7 @@ function onWelcome(m: unknown): void {
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
   world.setChunk(c.cx, c.cy, c.cz, c.cells);
   markDirty(c.cx, c.cy, c.cz);
+  markExploredChunk(c.cx, c.cz); // remember this area for the map
 }
 function onUnload(cx: number, cy: number, cz: number): void {
   world.dropChunk(cx, cy, cz);
@@ -327,6 +328,7 @@ function onUnload(cx: number, cy: number, cz: number): void {
 function onServerEdit(e: { x: number; y: number; z: number; id: number }): void {
   world.set(e.x, e.y, e.z, e.id);
   markDirty(toChunk(e.x), toChunk(e.y), toChunk(e.z));
+  markExploredColumn(e.x, e.z); // keep the map in sync with edits
 }
 /** Reconcile remote-player avatars from the room state each frame. */
 function syncRemotePlayers(dt: number): void {
@@ -393,7 +395,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -499,6 +501,22 @@ const MAP_COLORS: Record<number, number> = {
   27: 0x3a6ea5, // water
   28: 0x8fe9ff, // portal
 };
+// Persistent explored-terrain colour cache for the map (grows as chunks load, so the
+// map shows everything you've explored, not just the current AOI).
+const exploredColors = new Map<string, number>();
+function markExploredChunk(cx: number, cz: number): void {
+  const x0 = cx * CHUNK,
+    z0 = cz * CHUNK;
+  for (let lx = 0; lx < CHUNK; lx++)
+    for (let lz = 0; lz < CHUNK; lz++) {
+      const c = columnColor(x0 + lx, z0 + lz);
+      if (c != null) exploredColors.set(x0 + lx + ',' + (z0 + lz), c);
+    }
+}
+function markExploredColumn(x: number, z: number): void {
+  const c = columnColor(x, z);
+  if (c != null) exploredColors.set(x + ',' + z, c);
+}
 function columnColor(x: number, z: number): number | null {
   // Scan only LOADED chunks top-down via their raw cells (a null chunk skips a whole
   // 16-cell band with one Map lookup) — far cheaper than 100+ keyed world.get/column.
@@ -516,7 +534,7 @@ function columnColor(x: number, z: number): number | null {
   return null;
 }
 const travelMap = new TravelMap({
-  columnColor,
+  colorAt: (x, z) => exploredColors.get(x + ',' + z) ?? null,
   player: () => ({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }),
   onTravel: (x, z) => {
     if (net) net.sendTeleport(x, z);
@@ -1083,6 +1101,13 @@ flyCb.onchange = () => {
   settings.fly = flyCb.checked;
   saveSettings();
 };
+const peacefulCb = document.getElementById('opt-peaceful') as HTMLInputElement;
+peacefulCb.checked = settings.peaceful;
+peacefulCb.onchange = () => {
+  settings.peaceful = peacefulCb.checked;
+  net?.setPeaceful(settings.peaceful); // server suppresses/clears monsters
+  saveSettings();
+};
 
 // Items page. Auto-switch tool toggle (default off = Minecraft-manual).
 const autoToolCb = document.getElementById('opt-autotool') as HTMLInputElement;
@@ -1198,6 +1223,7 @@ function currentSettingsBlob(): unknown {
     autoTool: settings.autoTool,
     dayNight: settings.dayNight,
     fly: settings.fly,
+    peaceful: settings.peaceful,
     skin: playerSkin,
     wield,
     hotbar: { tools: [...tools], blocks: [...blocks] },
@@ -1218,6 +1244,7 @@ function applyServerSettings(s: unknown): void {
     autoTool: boolean;
     dayNight: boolean;
     fly: boolean;
+    peaceful: boolean;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1229,11 +1256,14 @@ function applyServerSettings(s: unknown): void {
   if (typeof o.autoTool === 'boolean') settings.autoTool = o.autoTool;
   if (typeof o.dayNight === 'boolean') settings.dayNight = o.dayNight;
   if (typeof o.fly === 'boolean') settings.fly = o.fly;
+  if (typeof o.peaceful === 'boolean') settings.peaceful = o.peaceful;
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;
   autoToolCb.checked = settings.autoTool;
   dayNightCb.checked = settings.dayNight;
   flyCb.checked = settings.fly;
+  peacefulCb.checked = settings.peaceful;
+  net?.setPeaceful(settings.peaceful); // tell the server the loaded preference
   if (typeof o.skin === 'string') {
     playerSkin = o.skin;
     avatar.setSkin(o.skin);
@@ -1322,6 +1352,7 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   remote.clear();
   for (const [, r] of npcAvatars) scene.remove(r.avatar.group);
   npcAvatars.clear();
+  exploredColors.clear(); // new world → fresh map
   for (const m of chunkMeshes.values()) {
     terrainGroup.remove(m);
     m.geometry.dispose();
