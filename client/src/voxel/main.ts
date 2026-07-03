@@ -15,6 +15,7 @@ import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
+import { sound, footstepFor } from './sounds.js';
 import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
@@ -80,6 +81,7 @@ const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.D
 // terrain shows through). Animated waving-liquid shader (see water.ts).
 const { material: waterMaterial, uniforms: waterUniforms } = createWaterMaterial();
 const { material: lavaMaterial, uniforms: lavaUniforms } = createLavaMaterial();
+sound.preload(); // CC Luanti sound effects (footsteps, dig/place, hurt, lava hiss)
 let atlas: Atlas | null = null;
 const terrainGroup = new THREE.Group(); // opaque blocks — the aim/raycast target
 const waterGroup = new THREE.Group(); // translucent water — NOT raycast (can't build on water)
@@ -337,10 +339,30 @@ function onUnload(cx: number, cy: number, cz: number): void {
   }
   dirty.delete(key);
 }
+let lastHiss = -1e9;
 function onServerEdit(e: { x: number; y: number; z: number; id: number }): void {
+  const prev = world.get(e.x, e.y, e.z);
   world.set(e.x, e.y, e.z, e.id);
   markDirty(toChunk(e.x), toChunk(e.y), toChunk(e.z));
   markExploredColumn(e.x, e.z); // keep the map in sync with edits
+  // Lava hiss: a cell just hardened to obsidian/stone next to lava (cool_lava). Throttle
+  // (many cells harden at once) + only when audibly close to the player.
+  if ((e.id === 15 || e.id === 3) && !isLavaId(prev)) {
+    const near = Math.hypot(e.x - player.pos.x, e.y - player.pos.y, e.z - player.pos.z) < 24;
+    const touchesLava = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ].some(([a, b, c]) => world.lava(e.x + a, e.y + b, e.z + c));
+    const t = performance.now();
+    if (near && touchesLava && t - lastHiss > 500) {
+      lastHiss = t;
+      sound.play('cool_lava', 0.8);
+    }
+  }
 }
 /** Reconcile remote-player avatars from the room state each frame. */
 function syncRemotePlayers(dt: number): void {
@@ -407,12 +429,13 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false, sound: true };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
   /* ignore bad storage */
 }
+sound.enabled = settings.sound; // apply the loaded preference to the audio manager
 let net: VoxelNet | null = null; // set once connected; null = offline (local only)
 function saveSettings(): void {
   try {
@@ -596,6 +619,7 @@ function updateHpBar(hp: number, max: number): void {
   if (hp < lastHp) {
     dmgFlash.style.opacity = '1';
     window.setTimeout(() => (dmgFlash.style.opacity = '0'), 90);
+    sound.play('hurt');
   }
   lastHp = hp;
 }
@@ -848,6 +872,7 @@ function placeBlock(): void {
   // Don't place inside yourself — that would embed the AABB and lock movement.
   if (world.solid(bx, by, bz) || player.intersectsBlock(bx, by, bz)) return;
   avatar.playDig();
+  sound.play('place');
   if (net) {
     net.sendEdit(bx, by, bz, block); // authoritative — applied when the server echoes
   } else {
@@ -891,6 +916,8 @@ function updateBreaking(dt: number, want: boolean): void {
     mat.needsUpdate = true;
   }
   if (breaking.t >= breaking.dur) {
+    const broke = world.get(tgt.x, tgt.y, tgt.z);
+    sound.play(broke === 14 || broke === 16 ? 'glass_break' : 'dug'); // glass shatters, else generic dug
     if (net) {
       net.sendEdit(tgt.x, tgt.y, tgt.z, 0); // authoritative break — server confirms
     } else {
@@ -900,6 +927,37 @@ function updateBreaking(dt: number, want: boolean): void {
     breaking = null;
     breakOverlay.visible = false;
     avatar.setMining(false);
+  }
+}
+
+// Footsteps: accumulate the ACTUAL horizontal distance walked (robust to the per-axis
+// collision zeroing velocity on bumps/steps) and fire a step every stride. "On ground"
+// = onGround OR a solid block right below (steps make onGround flicker). In water it's
+// the wet step; flying is silent.
+let stepAcc = 0;
+let fsPrevX = 0;
+let fsPrevZ = 0;
+function updateFootsteps(_dt: number): void {
+  const dx = player.pos.x - fsPrevX;
+  const dz = player.pos.z - fsPrevZ;
+  fsPrevX = player.pos.x;
+  fsPrevZ = player.pos.z;
+  const dist = Math.hypot(dx, dz);
+  if (settings.fly || dist < 0.002 || dist > 3) return; // idle / flying / teleport-jump → no step
+  const bx = Math.floor(player.pos.x),
+    bz = Math.floor(player.pos.z),
+    fy = Math.floor(player.pos.y);
+  if (player.inWater) {
+    stepAcc += dist;
+    if (stepAcc >= 1.4) ((stepAcc = 0), sound.play('foot_water', 0.7, 0.95 + Math.random() * 0.1));
+    return;
+  }
+  if (!player.onGround && !world.solid(bx, fy - 1, bz)) return; // airborne (not just over a step)
+  stepAcc += dist;
+  if (stepAcc >= 2.0) {
+    stepAcc = 0;
+    const below = world.get(bx, fy - 1, bz);
+    if (below !== 0) sound.play(footstepFor(below), 0.55, 0.94 + Math.random() * 0.12);
   }
 }
 
@@ -1122,6 +1180,14 @@ peacefulCb.onchange = () => {
   net?.setPeaceful(settings.peaceful); // server suppresses/clears monsters
   saveSettings();
 };
+const soundCb = document.getElementById('opt-sound') as HTMLInputElement;
+soundCb.checked = settings.sound;
+soundCb.onchange = () => {
+  settings.sound = soundCb.checked;
+  sound.enabled = settings.sound;
+  if (settings.sound) sound.play('place', 0.6); // audible confirmation
+  saveSettings();
+};
 
 // Items page. Auto-switch tool toggle (default off = Minecraft-manual).
 const autoToolCb = document.getElementById('opt-autotool') as HTMLInputElement;
@@ -1238,6 +1304,7 @@ function currentSettingsBlob(): unknown {
     dayNight: settings.dayNight,
     fly: settings.fly,
     peaceful: settings.peaceful,
+    sound: settings.sound,
     skin: playerSkin,
     wield,
     hotbar: { tools: [...tools], blocks: [...blocks] },
@@ -1260,6 +1327,7 @@ function applyServerSettings(s: unknown): void {
     dayNight: boolean;
     fly: boolean;
     peaceful: boolean;
+    sound: boolean;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1273,6 +1341,11 @@ function applyServerSettings(s: unknown): void {
   if (typeof o.dayNight === 'boolean') settings.dayNight = o.dayNight;
   if (typeof o.fly === 'boolean') settings.fly = o.fly;
   if (typeof o.peaceful === 'boolean') settings.peaceful = o.peaceful;
+  if (typeof o.sound === 'boolean') {
+    settings.sound = o.sound;
+    sound.enabled = o.sound;
+    soundCb.checked = o.sound;
+  }
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;
   autoToolCb.checked = settings.autoTool;
@@ -1550,6 +1623,7 @@ function frame(now: number): void {
   updateWield();
   avatar.setSwimming(player.inWater);
   avatar.animate(dt, player.speed2d, player.pitch);
+  updateFootsteps(dt);
   // Report our transform to the server (throttled) so AOI + other players update.
   if (net && ready && now - lastMoveSent > 100) {
     lastMoveSent = now;
