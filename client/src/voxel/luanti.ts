@@ -52,6 +52,9 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   24: { cracky: 1, level: 2 }, // copper block
   25: { cracky: 1, level: 2 }, // bronze block
   26: { cracky: 1, level: 3 }, // diamond block
+  28: { cracky: 3, oddly_breakable_by_hand: 3 }, // portal marker (glass cube)
+  30: { cracky: 3 }, // coal ore (wood pick ok)
+  31: { cracky: 2 }, // iron ore (needs a stone pick or better)
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).
@@ -70,8 +73,14 @@ export const TOOLS: Record<string, ToolCaps> = {
   pick_bronze: { full_punch_interval: 1.0, groupcaps: { cracky: { times: { 1: 4.5, 2: 1.8, 3: 0.9 }, maxlevel: 2 } } },
   pick_mese: { full_punch_interval: 0.9, groupcaps: { cracky: { times: { 1: 2.4, 2: 1.2, 3: 0.6 }, maxlevel: 3 } } },
   pick_diamond: { full_punch_interval: 0.9, groupcaps: { cracky: { times: { 1: 2.0, 2: 1.0, 3: 0.5 }, maxlevel: 3 } } },
+  axe_wood: { full_punch_interval: 1.0, groupcaps: { choppy: { times: { 2: 3.0, 3: 1.6 }, maxlevel: 1 } } },
+  axe_stone: { full_punch_interval: 1.2, groupcaps: { choppy: { times: { 1: 3.0, 2: 2.0, 3: 1.3 }, maxlevel: 1 } } },
   axe_steel: { full_punch_interval: 1.0, groupcaps: { choppy: { times: { 1: 2.5, 2: 1.4, 3: 1.0 }, maxlevel: 2 } } },
+  shovel_wood: { full_punch_interval: 1.2, groupcaps: { crumbly: { times: { 1: 3.0, 2: 1.6, 3: 0.6 }, maxlevel: 1 } } },
+  shovel_stone: { full_punch_interval: 1.4, groupcaps: { crumbly: { times: { 1: 1.8, 2: 1.2, 3: 0.5 }, maxlevel: 1 } } },
   shovel_steel: { full_punch_interval: 1.1, groupcaps: { crumbly: { times: { 1: 1.5, 2: 0.9, 3: 0.4 }, maxlevel: 2 } } },
+  sword_wood: { full_punch_interval: 1.0, groupcaps: { snappy: { times: { 2: 1.6, 3: 0.4 }, maxlevel: 1 } } },
+  sword_stone: { full_punch_interval: 1.2, groupcaps: { snappy: { times: { 2: 1.4, 3: 0.4 }, maxlevel: 1 } } },
   sword_steel: { full_punch_interval: 0.8, groupcaps: { snappy: { times: { 1: 2.5, 2: 1.2, 3: 0.35 }, maxlevel: 2 } } },
 };
 

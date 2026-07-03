@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -16,7 +16,7 @@ import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
 import { sound, footstepFor } from './sounds.js';
-import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, invItem, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
+import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, invItem, toolNum, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
@@ -804,7 +804,7 @@ const inventory = new Inventory({
       .map(([block, count]) => ({ block, count })),
   materials: () =>
     [...invCounts.entries()]
-      .filter(([id, c]) => c > 0 && id >= MATERIAL_BASE) // non-block materials (lumps/ingots)
+      .filter(([id, c]) => c > 0 && id >= MATERIAL_BASE && id < TOOL_BASE) // non-block materials (lumps/ingots/sticks)
       .sort((a, b) => a[0] - b[0])
       .map(([id, count]) => ({ id, count })),
   creative: () => settings.creative,
@@ -911,14 +911,21 @@ const REACH = 7; // max build distance from the player (blocks)
 const CENTER = new THREE.Vector2(0, 0);
 const UP = new THREE.Vector3(0, 1, 0);
 
-/** The best tool the player is carrying (a hotbar tool) for a block, or undefined
- *  if none helps. Used by auto-switch and the dig-time calc. */
+/** Whether the player owns (has crafted) a given tool — creative owns everything.
+ *  Unowned tools are shown in the hotbar but dig at bare-hand speed. */
+function toolOwned(stringId: string): boolean {
+  if (settings.creative) return true;
+  const n = toolNum(stringId);
+  return n !== undefined && (invCounts.get(n) ?? 0) > 0;
+}
+/** The best tool the player OWNS (a hotbar tool) for a block, or undefined if none
+ *  helps. Used by auto-switch and the dig-time calc. */
 function bestToolFor(blockId: number): string | undefined {
   let best: string | undefined;
   let bestT = Infinity;
   for (const id of tools) {
     const tool = itemById(id).tool;
-    if (!tool) continue;
+    if (!tool || !toolOwned(id)) continue;
     const t = digTime(blockId, [tool]);
     if (t !== null && t < bestT) {
       bestT = t;
@@ -927,14 +934,15 @@ function bestToolFor(blockId: number): string | undefined {
   }
   return best;
 }
-/** Tool(s) used to dig a block right now: auto-switch picks the best carried
- *  tool; otherwise it's whatever is held (a block = bare hand). */
+/** Tool(s) used to dig a block right now: auto-switch picks the best owned tool;
+ *  otherwise it's the held tool IF owned (unowned tool or a block = bare hand). */
 function digToolsFor(blockId: number): string[] {
   if (settings.autoTool) {
     const best = bestToolFor(blockId);
     if (best) return [best];
   }
-  const digTool = itemById(tools[selTool]).tool; // the selected breaking tool
+  const sel = tools[selTool];
+  const digTool = sel && toolOwned(sel) ? itemById(sel).tool : undefined; // selected breaking tool, if owned
   return digTool ? [digTool] : [];
 }
 
@@ -1138,6 +1146,15 @@ function updateHud(): void {
         if (!blockUnlimited(bid) && (invCounts.get(bid) ?? 0) <= 0) badge.classList.add('empty');
         s.appendChild(badge);
       }
+      // Tools: dim the slot (with a 🔒) until crafted/owned — unowned tools dig at hand speed.
+      if (isTool && !toolOwned(id)) {
+        s.style.opacity = '0.38';
+        s.title = it.name + ' — craft to unlock (🔒)';
+        const lock = document.createElement('span');
+        lock.className = 'count';
+        lock.textContent = '🔒';
+        s.appendChild(lock);
+      }
       // Drop target for inventory drag&drop onto the real bar (kind-checked).
       (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
         const di = itemById(dragId);
@@ -1203,10 +1220,12 @@ function updateWield(): void {
       const ti = tool ? TOOL_ITEMS.find((i) => i.tool === tool) : undefined;
       if (ti) return setWielded(ti);
     }
-    return setWielded(itemById(tools[selTool])); // manual: the selected dig tool
+    const sel = tools[selTool];
+    return sel && toolOwned(sel) ? setWielded(itemById(sel)) : clearWielded(); // manual: the selected dig tool, if owned
   }
   const active = held();
   if (active.block !== undefined) return clearWielded(); // only tools are held in hand, not blocks
+  if (active.tool && !toolOwned(active.id)) return clearWielded(); // don't show a tool you haven't crafted
   setWielded(active);
 }
 updateHud();
@@ -1447,7 +1466,7 @@ function currentSettingsBlob(): unknown {
     creative: settings.creative,
     skin: playerSkin,
     wield,
-    hotbar: { tools: [...tools], blocks: [...blocks] },
+    hotbar: { blocks: [...blocks] }, // tool track is now a fixed catalog (owned tools unlock), not persisted
     armor: { ...armorEquipped },
     sel: { tool: selTool, block: selBlock, track: lastTrack }, // remembered hotbar selection
   };
@@ -1514,9 +1533,9 @@ function applyServerSettings(s: unknown): void {
       }
     }
   }
-  // Restore the saved hotbar layout (kind-checked) + armour.
+  // Restore the saved block hotbar layout (kind-checked). The tool track is a fixed
+  // catalog now (owned tools unlock), so it is no longer persisted/restored.
   if (o.hotbar) {
-    if (Array.isArray(o.hotbar.tools)) o.hotbar.tools.forEach((id, i) => i < tools.length && itemById(id).tool && (tools[i] = id));
     if (Array.isArray(o.hotbar.blocks))
       o.hotbar.blocks.forEach((id, i) => i < blocks.length && itemById(id).block !== undefined && (blocks[i] = id));
     updateHud();

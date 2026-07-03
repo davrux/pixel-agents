@@ -72,11 +72,27 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // billboards (not cubes), and feed crafting/smelting. The server's inv/drop maps are
 // keyed by number, so they already carry any id; only the "is this placeable?" and
 // "how is it drawn?" branches care about the split.
+// Item-id ranges: placeable blocks 1..31, MATERIALS 100..199, TOOLS 200..299.
 export const MATERIAL_BASE = 100;
-export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE;
+export const TOOL_BASE = 200;
+export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE && id < TOOL_BASE;
+export const isToolId = (id: number): boolean => id >= TOOL_BASE;
 export const COAL_LUMP = 100;
 export const IRON_LUMP = 101;
 export const STEEL_INGOT = 102;
+export const STICK = 103;
+
+// Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
+// Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
+// to bare-hand digging. Tiers: wood (start) → stone → steel.
+export const TOOL_IDS: Record<string, number> = {
+  pick_wood: 200, pick_stone: 201, pick_steel: 202,
+  axe_wood: 210, axe_stone: 211, axe_steel: 212,
+  shovel_wood: 220, shovel_stone: 221, shovel_steel: 222,
+  sword_wood: 230, sword_stone: 231, sword_steel: 232,
+};
+/** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
+export const STARTER_TOOL = TOOL_IDS.pick_wood;
 
 // Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore
 // block). Anything not listed drops itself. Used at the spawnDrop call site.
@@ -92,8 +108,22 @@ export interface CraftRecipe {
 }
 export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 17, count: 1 }], out: { block: 18, count: 4 } }, // 1 wood → 4 planks
+  { in: [{ block: 18, count: 1 }], out: { block: STICK, count: 4 } }, // 1 planks → 4 sticks
   { in: [{ block: 7, count: 4 }], out: { block: 9, count: 1 } }, // 4 sand → 1 sandstone
   { in: [{ block: COAL_LUMP, count: 9 }], out: { block: 23, count: 1 } }, // 9 coal lumps → 1 coal block
+  // Tools (Luanti: material head + sticks). Wood = planks, stone = cobble, steel = ingots.
+  { in: [{ block: 18, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_wood, count: 1 } },
+  { in: [{ block: 18, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_wood, count: 1 } },
+  { in: [{ block: 18, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_wood, count: 1 } },
+  { in: [{ block: 18, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_wood, count: 1 } },
+  { in: [{ block: 4, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_stone, count: 1 } },
+  { in: [{ block: 4, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_stone, count: 1 } },
+  { in: [{ block: 4, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_stone, count: 1 } },
+  { in: [{ block: 4, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_stone, count: 1 } },
+  { in: [{ block: STEEL_INGOT, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_steel, count: 1 } },
+  { in: [{ block: STEEL_INGOT, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_steel, count: 1 } },
+  { in: [{ block: STEEL_INGOT, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_steel, count: 1 } },
+  { in: [{ block: STEEL_INGOT, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_steel, count: 1 } },
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────

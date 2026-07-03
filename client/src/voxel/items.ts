@@ -5,7 +5,7 @@
  * drives digging (tool → its dig speed; block → hand speed) and placing (blocks
  * only). More kinds (food, buckets, …) can be added here as their behaviour lands.
  */
-import { MATERIAL_BASE, COAL_LUMP, IRON_LUMP, STEEL_INGOT } from '@pixel/shared';
+import { MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
 
@@ -18,6 +18,7 @@ export interface Item {
   pivot: [number, number]; // sprite pivot for the held mesh (grip point)
   block?: number; // placeable block id (undefined for tools)
   tool?: string; // luanti TOOLS key (drives dig time; undefined for blocks)
+  toolId?: number; // numeric inventory id for a craftable tool (≥TOOL_BASE)
   material?: number; // non-block material item id (lump/ingot; ≥MATERIAL_BASE) — not placeable
   armor?: { slot: ArmorSlot; defense: number }; // wearable armour piece
   icon?: string; // ready-made icon URL (data:) — overrides texUrl for the HUD thumb
@@ -76,15 +77,33 @@ export const ARMOR_ITEMS: Item[] = [
   armorPiece('steel', 'Steel', '#c2c6d0', 'feet', 2),
 ];
 
-// Tools we have art + tool_capabilities for. Pivot at the handle end so the fist
-// grips it (see buildItemMesh / DEFAULT_WIELD).
+// Tools we have art + tool_capabilities for (wood → stone → steel tiers). Pivot at the
+// handle end so the fist grips it (see buildItemMesh / DEFAULT_WIELD). `toolId` is the
+// numeric inventory id (craftable/owned); `tool` is the luanti dig-cap key.
+const tex: Record<string, string> = {
+  pick: 'pick', axe: 'axe', shovel: 'shovel', sword: 'sword',
+};
+const toolItem = (kind: 'pick' | 'axe' | 'shovel' | 'sword', tier: 'wood' | 'stone' | 'steel', label: string): Item => {
+  const key = `${kind}_${tier}`;
+  return {
+    id: key,
+    name: `${tier[0].toUpperCase()}${tier.slice(1)} ${label}`,
+    texUrl: `items/default_tool_${tier}${tex[kind]}`,
+    pivot: [0.1, 0.85],
+    tool: key,
+    toolId: TOOL_IDS[key],
+  };
+};
 export const TOOL_ITEMS: Item[] = [
-  { id: 'pick_steel', name: 'Steel Pickaxe', texUrl: 'items/default_tool_steelpick', pivot: [0.1, 0.85], tool: 'pick_steel' },
-  { id: 'axe_steel', name: 'Steel Axe', texUrl: 'items/default_tool_steelaxe', pivot: [0.1, 0.85], tool: 'axe_steel' },
-  { id: 'shovel_steel', name: 'Steel Shovel', texUrl: 'items/default_tool_steelshovel', pivot: [0.1, 0.85], tool: 'shovel_steel' },
-  { id: 'sword_steel', name: 'Steel Sword', texUrl: 'items/default_tool_steelsword', pivot: [0.1, 0.85], tool: 'sword_steel' },
-  { id: 'pick_wood', name: 'Wood Pickaxe', texUrl: 'items/default_tool_woodpick', pivot: [0.1, 0.85], tool: 'pick_wood' },
+  toolItem('pick', 'wood', 'Pickaxe'), toolItem('pick', 'stone', 'Pickaxe'), toolItem('pick', 'steel', 'Pickaxe'),
+  toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'),
+  toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'),
+  toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
 ];
+/** Numeric tool id → its Item (for invItem / ownership checks). */
+const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
+/** A tool's numeric inventory id from its string id (e.g. 'pick_steel' → 202). */
+export const toolNum = (stringId: string): number | undefined => TOOL_IDS[stringId];
 
 /** A block as a held/placeable item (centre pivot). */
 export const blockItem = (id: number): Item => ({
@@ -111,6 +130,7 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(COAL_LUMP, 'Coal Lump', 'default_coal_lump'),
   materialItem(IRON_LUMP, 'Iron Lump', 'default_iron_lump'),
   materialItem(STEEL_INGOT, 'Steel Ingot', 'default_steel_ingot'),
+  materialItem(STICK, 'Stick', 'default_stick'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */
@@ -121,14 +141,26 @@ const REGISTRY: Item[] = [...ALL_ITEMS, ...ARMOR_ITEMS, ...MATERIAL_ITEMS];
 export const itemById = (id: string): Item => REGISTRY.find((i) => i.id === id) ?? ALL_ITEMS[0];
 
 /** Resolve a numeric inventory id (as stored in invCounts / dropped items) to its Item:
- *  ids ≥ MATERIAL_BASE are materials, everything else is a block. */
-export const invItem = (n: number): Item => (n >= MATERIAL_BASE ? MATERIAL_ITEMS.find((m) => m.material === n) ?? MATERIAL_ITEMS[0] : blockItem(n));
+ *  ids ≥ TOOL_BASE are tools, ≥ MATERIAL_BASE are materials, everything else is a block. */
+export const invItem = (n: number): Item =>
+  n >= TOOL_BASE
+    ? toolByNum.get(n) ?? TOOL_ITEMS[0]
+    : n >= MATERIAL_BASE
+      ? MATERIAL_ITEMS.find((m) => m.material === n) ?? MATERIAL_ITEMS[0]
+      : blockItem(n);
 /** An item's HUD thumbnail URL (ready-made icon, else the textures/ sprite). */
 export const iconUrl = (it: Item): string => it.icon ?? new URL(`textures/${it.texUrl}.png`, document.baseURI).href;
 
 // The hotbar is split into two independent tracks: tools (used when breaking) and
 // blocks (used when placing). Each has its own default set + its own selection.
-export const DEFAULT_TOOLS: string[] = ['pick_steel', 'axe_steel', 'shovel_steel', 'sword_steel'];
+// Full tool set shown in the hotbar (dimmed until crafted/owned). One pick/axe/shovel/
+// sword per tier so the progression is visible: wood → stone → steel.
+export const DEFAULT_TOOLS: string[] = [
+  'pick_wood', 'pick_stone', 'pick_steel',
+  'axe_wood', 'axe_stone', 'axe_steel',
+  'shovel_wood', 'shovel_stone', 'shovel_steel',
+  'sword_wood', 'sword_stone', 'sword_steel',
+];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */
 export const DEFAULT_HOTBAR: string[] = [...DEFAULT_TOOLS, ...DEFAULT_BLOCKS];

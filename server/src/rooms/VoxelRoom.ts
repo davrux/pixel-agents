@@ -30,6 +30,8 @@ import {
   SMELT_RECIPES,
   FUEL_ITEMS,
   dropFor,
+  TOOL_BASE,
+  STARTER_TOOL,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -692,6 +694,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         bag.forEach((c, id) => (items[id] = c));
         client.send('invAll', items);
       }
+    }
+    // Everyone starts with a wooden pickaxe so they can bootstrap the tool progression
+    // (hand-mine wood → planks → sticks → craft better tools). Only if they own no tool.
+    const startBag = this.inv.get(client.sessionId) ?? new Map<number, number>();
+    if (![...startBag.keys()].some((id) => id >= TOOL_BASE)) {
+      startBag.set(STARTER_TOOL, 1);
+      this.inv.set(client.sessionId, startBag);
+      client.send('inv', { block: STARTER_TOOL, total: 1 });
     }
     this.streamAround(client, p.x, p.y, p.z);
   }
