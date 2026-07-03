@@ -76,9 +76,10 @@ const smoothstep = (a: number, b: number, t: number): number => {
 // Guaranteed lake right beside the spawn (only the default/first world). Centred a
 // few blocks off origin with a curved bowl (floor below SEA → fills with water) and
 // a flat shore, so you spawn on land next to open water. See surfaceHeight().
-const LAKE_CX = 9;
+const LAKE_CX = 10;
 const LAKE_CZ = 0;
-const LAKE_R = 7; // water radius
+const LAKE_R = 10; // water radius
+const LAKE_FLOOR = SEA - 9; // deep centre (multi-layer water, like a real lake)
 const LAKE_SHORE = SEA + 2; // flat land height around the lake + spawn pad
 
 /** Surface land height at world (x,z): continents dip into basins (lakes/seas)
@@ -95,7 +96,7 @@ export function surfaceHeight(x: number, z: number, seed: number, spawnLake = fa
     const d = Math.hypot(x - LAKE_CX, z - LAKE_CZ);
     if (d < LAKE_R) {
       const t = d / LAKE_R; // 0 centre .. 1 rim
-      h = LAKE_SHORE + (SEA - 6 - LAKE_SHORE) * (1 - t * t); // curved bowl, floor < SEA
+      h = LAKE_SHORE + (LAKE_FLOOR - LAKE_SHORE) * (1 - t * t); // curved bowl, deep centre
     } else if (d < LAKE_R + 4) {
       const t = (d - LAKE_R) / 4; // blend shore → natural terrain
       h = LAKE_SHORE + (h - LAKE_SHORE) * (t * t * (3 - 2 * t));

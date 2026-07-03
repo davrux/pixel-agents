@@ -54,6 +54,7 @@ export class Avatar {
   private actions: Record<string, THREE.AnimationAction> = {};
   private head: THREE.Object3D | null = null;
   private armR: THREE.Object3D | null = null;
+  private bodyPivot: THREE.Group | null = null; // rotates the body around its centre (swim tilt)
   private tool: THREE.Mesh | null = null;
   private toolMat: THREE.Material | null = null;
   private wieldT: Wield = { ...DEFAULT_WIELD };
@@ -92,9 +93,15 @@ export class Avatar {
     const box = new THREE.Box3().setFromObject(model);
     const s = TARGET_H / (box.max.y - box.min.y);
     model.scale.setScalar(s);
-    model.position.y = -box.min.y * s;
     model.rotation.y = FACING;
-    this.group.add(model);
+    // Wrap in a pivot at body-centre height so the swim tilt rotates around the
+    // middle (a horizontal float), not the feet. Standing pose is unchanged.
+    model.position.y = -box.min.y * s - TARGET_H / 2;
+    const pivot = new THREE.Group();
+    pivot.position.y = TARGET_H / 2;
+    pivot.add(model);
+    this.bodyPivot = pivot;
+    this.group.add(pivot);
 
     // Slice the one baked timeline into named clips and build looping actions.
     this.mixer = new THREE.AnimationMixer(model);
@@ -232,9 +239,15 @@ export class Avatar {
   animate(dt: number, speed: number, pitch = 0): void {
     if (!this.mixer) return;
     if (this.digT > 0) this.digT -= dt;
-    const want = this.swimming ? 'lay' : this.mining || this.digT > 0 ? 'mine' : speed > 0.4 ? 'walk' : 'stand';
+    // Swimming plays the walk clip (paddling limbs) with the whole body tilted
+    // horizontal via the pivot — a real swim look, not the flat 'lay' bed pose.
+    const want = this.mining || this.digT > 0 ? 'mine' : this.swimming || speed > 0.4 ? 'walk' : 'stand';
     this.cross(want);
     this.mixer.update(dt);
+    if (this.bodyPivot) {
+      const target = this.swimming ? -1.45 : 0; // ~ -83°: prone, facing forward
+      this.bodyPivot.rotation.x += (target - this.bodyPivot.rotation.x) * Math.min(1, dt * 9);
+    }
     // Head look is layered on after the clip poses the skeleton.
     if (this.head) this.head.rotation.x = Math.max(-0.5, Math.min(0.5, -pitch * 0.4));
   }

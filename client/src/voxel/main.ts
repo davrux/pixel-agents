@@ -14,6 +14,7 @@ import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, PORTAL_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
+import { createWaterMaterial } from './water.js';
 import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
@@ -61,14 +62,8 @@ const dayColors = { sky: new THREE.Color(0x8fc7ff), light: new THREE.Color(0xfff
 const world = new VoxelWorld();
 const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
 // Water: separate translucent pass (see-through, no depth write so submerged
-// terrain shows through; double-sided so it looks right from under the surface).
-const waterMaterial = new THREE.MeshBasicMaterial({
-  vertexColors: true,
-  side: THREE.DoubleSide,
-  transparent: true,
-  opacity: 0.62,
-  depthWrite: false,
-});
+// terrain shows through). Animated waving-liquid shader (see water.ts).
+const { material: waterMaterial, uniforms: waterUniforms } = createWaterMaterial();
 let atlas: Atlas | null = null;
 const terrainGroup = new THREE.Group(); // opaque blocks — the aim/raycast target
 const waterGroup = new THREE.Group(); // translucent water — NOT raycast (can't build on water)
@@ -186,8 +181,6 @@ void loadBlockAtlas(BLOCK_TEXTURES, SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
-  waterMaterial.map = a.texture;
-  waterMaterial.needsUpdate = true;
   for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
 });
 
@@ -1379,7 +1372,8 @@ function frame(now: number): void {
   (scene.background as THREE.Color).copy(dayColors.sky);
   perspFog.color.copy(dayColors.sky);
   material.color.copy(dayColors.light);
-  waterMaterial.color.copy(dayColors.light);
+  waterUniforms.uLight.value.copy(dayColors.light);
+  waterUniforms.uTime.value = now * 0.001;
   (clouds.material as THREE.MeshBasicMaterial).color.copy(dayColors.light);
   avatar.setTint(dayColors.light);
   // Clouds follow the player + drift.
