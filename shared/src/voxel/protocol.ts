@@ -66,6 +66,19 @@ export const fluidLevel = (f: FluidDef, id: number): number => (id === f.source 
 /** Block id for a flowing level of THIS fluid (level ≤0 → source). */
 export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ? f.source : f.flowMin + Math.min(f.maxLevel, level) - 1);
 
+// ── Crafting ─────────────────────────────────────────────────────────────────
+// Block→block recipes (Luanti-flavoured), shared so the server validates the exact
+// set the client shows. `in` is consumed from the stack inventory, `out` is granted.
+export interface CraftRecipe {
+  in: { block: number; count: number }[];
+  out: { block: number; count: number };
+}
+export const CRAFT_RECIPES: CraftRecipe[] = [
+  { in: [{ block: 17, count: 1 }], out: { block: 18, count: 4 } }, // 1 wood → 4 planks
+  { in: [{ block: 7, count: 4 }], out: { block: 9, count: 1 } }, // 4 sand → 1 sandstone
+  { in: [{ block: 30, count: 9 }], out: { block: 23, count: 1 } }, // 9 coal ore → 1 coal block
+];
+
 export const CHUNK = 16; // chunk edge; a chunk is CHUNK^3 block ids
 export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
 

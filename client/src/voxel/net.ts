@@ -31,6 +31,7 @@ export interface VoxelNet {
   sendArmor(defense: number): void;
   setPeaceful(on: boolean): void;
   setCreative(on: boolean): void;
+  craft(i: number): void;
   leave(): Promise<void>;
 }
 
@@ -93,6 +94,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendArmor: (defense) => room.send('setArmor', { defense }),
     setPeaceful: (on) => room.send('setPeaceful', { on }),
     setCreative: (on) => room.send('setCreative', { on }),
+    craft: (i) => room.send('craft', { i }),
     leave: async () => {
       await room.leave();
     },

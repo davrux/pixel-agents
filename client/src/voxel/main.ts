@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -564,8 +564,10 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
   if (e.code === 'Escape' && inventory.isOpen()) return inventory.close();
+  if (e.code === 'Escape' && craftOpen()) return craftClose();
   if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
   if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) return inventory.toggle();
+  if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
@@ -581,7 +583,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen();
 
 // Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
 const MAP_COLORS: Record<number, number> = {
@@ -1504,15 +1506,87 @@ function onPickup(m: { block: number; count: number; total: number }): void {
   showToast(`+${m.count} ${name}  ×${m.total}`);
   sound.play('place', 0.4);
   updateHud(); // reflect the new count on the hotbar
+  craftRender(); // affordability may have changed
 }
 function onInv(m: { block: number; total: number }): void {
   if (m.total > 0) invCounts.set(m.block, m.total);
   else invCounts.delete(m.block);
   updateHud();
+  craftRender();
 }
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
   return settings.creative || id === WATER_ID || id === PORTAL_ID || id === LAVA_ID;
+}
+
+// ── Crafting panel (C) ────────────────────────────────────────────────────────
+// A simple recipe list: each row shows the inputs → output; a row is enabled only
+// when the stack inventory (invCounts, or creative) can afford it. Crafting is
+// server-authoritative — we send the recipe index and the server validates + updates
+// inventory via 'inv'. Re-rendered whenever the inventory changes while open.
+const craftStyle = document.createElement('style');
+craftStyle.textContent = `
+  #vx-craft{position:fixed;inset:0;z-index:150;display:none;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;color:#fff;}
+  #vx-craft.open{display:flex;}
+  #vx-craft .win{background:#2b2b2b;border:4px solid #1c1c1c;border-radius:6px;box-shadow:0 8px 0 rgba(0,0,0,.5);padding:.8rem;min-width:340px;max-height:80vh;overflow:auto;}
+  #vx-craft .hd{display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem;}
+  #vx-craft .hd h3{margin:0;font-size:1.05rem;text-shadow:1px 1px 0 #000;}
+  #vx-craft .hd .x{margin-left:auto;cursor:pointer;width:1.6rem;height:1.6rem;display:flex;align-items:center;justify-content:center;background:#3a3a3a;border:3px solid #1c1c1c;border-radius:4px;}
+  #vx-craft .row{display:flex;align-items:center;gap:.5rem;padding:.4rem;border:3px solid #1c1c1c;border-radius:5px;margin-bottom:.5rem;background:#333;}
+  #vx-craft .row.off{opacity:.45;}
+  #vx-craft .ic{width:34px;height:34px;background-size:cover;image-rendering:pixelated;border:2px solid #1c1c1c;position:relative;}
+  #vx-craft .ic .c{position:absolute;right:0;bottom:0;font-size:.62rem;padding:0 1px;background:rgba(0,0,0,.6);text-shadow:1px 1px 0 #000;}
+  #vx-craft .arrow{opacity:.8;}
+  #vx-craft .mk{margin-left:auto;padding:.35rem .7rem;background:#3a6ea5;border:3px solid #1c1c1c;border-radius:4px;cursor:pointer;color:#fff;}
+  #vx-craft .row.off .mk{background:#555;cursor:default;}
+  #vx-craft .tip{font-size:.72rem;color:#cfcfcf;text-align:center;margin-top:.3rem;}`;
+document.head.appendChild(craftStyle);
+const craftEl = document.createElement('div');
+craftEl.id = 'vx-craft';
+craftEl.innerHTML = `<div class="win"><div class="hd"><h3>Crafting</h3><div class="x" title="Close (C / Esc)">✕</div></div><div class="list"></div><div class="tip">Dig materials, then craft · needs the ingredients in your inventory</div></div>`;
+(document.getElementById('game') ?? document.body).appendChild(craftEl);
+craftEl.querySelector<HTMLElement>('.x')!.onclick = () => craftClose();
+craftEl.addEventListener('mousedown', (e) => {
+  if (e.target === craftEl) craftClose();
+});
+const craftOpen = (): boolean => craftEl.classList.contains('open');
+function craftToggle(): void {
+  craftOpen() ? craftClose() : craftShow();
+}
+function craftShow(): void {
+  if (locked()) document.exitPointerLock();
+  craftEl.classList.add('open');
+  craftRender();
+}
+function craftClose(): void {
+  craftEl.classList.remove('open');
+}
+function iconHtml(block: number, count: number): string {
+  const url = itemTexUrl(itemById('block:' + block).texUrl);
+  return `<div class="ic" title="${BLOCKS[block]?.name ?? block}" style="background-image:url(${url})"><span class="c">${count}</span></div>`;
+}
+function craftRender(): void {
+  if (!craftOpen()) return;
+  const list = craftEl.querySelector('.list')!;
+  list.innerHTML = '';
+  CRAFT_RECIPES.forEach((r, i) => {
+    const afford = settings.creative || r.in.every((ing) => (invCounts.get(ing.block) ?? 0) >= ing.count);
+    const row = document.createElement('div');
+    row.className = 'row' + (afford ? '' : ' off');
+    row.innerHTML =
+      r.in.map((ing) => iconHtml(ing.block, ing.count)).join('') +
+      `<span class="arrow">→</span>` +
+      iconHtml(r.out.block, r.out.count) +
+      `<button class="mk">Craft</button>`;
+    const btn = row.querySelector<HTMLButtonElement>('.mk')!;
+    btn.onclick = () => {
+      if (!afford || !net) return;
+      net.craft(i);
+      sound.play('place', 0.5);
+    };
+    list.appendChild(row);
+  });
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────

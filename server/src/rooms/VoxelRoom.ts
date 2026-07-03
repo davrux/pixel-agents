@@ -26,6 +26,7 @@ import {
   WATER_FLUID,
   FLUIDS,
   fluidOf,
+  CRAFT_RECIPES,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -162,6 +163,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (m?.on) this.creative.add(client.sessionId); // unlimited-block placing for this client
       else this.creative.delete(client.sessionId);
     });
+    this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -417,6 +419,24 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         this.damagePlayer(sid, p, LAVA_DMG);
       }
     });
+  }
+
+  /** Server-authoritative craft: if the player's stack inventory holds every input of
+   *  recipe `i`, consume them and grant the output. Broadcasts an 'inv' per changed block. */
+  private onCraft(client: Client, i: number): void {
+    const r = CRAFT_RECIPES[i];
+    const sid = client.sessionId;
+    const bag = this.inv.get(sid);
+    if (!r || !bag) return;
+    if (!r.in.every((ing) => (bag.get(ing.block) ?? 0) >= ing.count)) return; // can't afford
+    for (const ing of r.in) {
+      const left = (bag.get(ing.block) ?? 0) - ing.count;
+      left > 0 ? bag.set(ing.block, left) : bag.delete(ing.block);
+      client.send('inv', { block: ing.block, total: Math.max(0, left) });
+    }
+    const total = Math.min(STACK_MAX, (bag.get(r.out.block) ?? 0) + r.out.count);
+    bag.set(r.out.block, total);
+    client.send('inv', { block: r.out.block, total });
   }
 
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
