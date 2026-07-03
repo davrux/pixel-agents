@@ -92,6 +92,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly npcs = new Map<string, NpcBrain>(); // npc id → brain (AI state is server-only)
   private npcSeq = 0;
   private spawnAcc = 0; // seconds accumulated toward the next spawn attempt
+  private liquidAcc = 0; // seconds accumulated toward the next liquid re-settle
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -167,6 +168,20 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (this.spawnAcc >= SPAWN_INTERVAL) {
       this.spawnAcc = 0;
       this.trySpawn();
+    }
+    // Liquid equalisation (Luanti-style continuous): periodically re-settle water
+    // around each player so it seeks its level + fills reachable low spots (e.g.
+    // holes dug earlier). No-op broadcast once settled.
+    this.liquidAcc += dt;
+    if (this.liquidAcc >= 2) {
+      this.liquidAcc = 0;
+      this.state.players.forEach((p) => {
+        const changes = settleAround(this.world, Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+        if (changes.length) {
+          this.world.setBlocks(changes);
+          for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+        }
+      });
     }
     for (const [key, b] of this.npcs) {
       b.life -= dt;
