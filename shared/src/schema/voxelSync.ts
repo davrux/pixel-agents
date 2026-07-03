@@ -1,4 +1,4 @@
-import { MapSchema, Schema, type } from '@colyseus/schema';
+import { MapSchema, Schema, type, view } from '@colyseus/schema';
 import { EntitySync } from './officeSync.js';
 
 /**
@@ -34,7 +34,9 @@ export class VoxelNpcSync extends EntitySync {
 }
 
 export class VoxelRoomState extends Schema {
-  @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
-  @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
+  // @view(): players + NPCs are area-of-interest filtered — each client only receives
+  // the entities its StateView has added (nearby ones), not the whole world.
+  @view() @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
+  @view() @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
   @type('string') worldId = '';
 }

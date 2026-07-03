@@ -10,6 +10,7 @@
  * Chunks go out as binary (client.sendBytes 'c'); everything else is small JSON.
  */
 import { Room, type AuthContext, type Client } from '@colyseus/core';
+import { StateView } from '@colyseus/schema';
 
 import {
   VOXEL_ROOM,
@@ -40,6 +41,8 @@ interface AuthInfo {
 }
 interface ClientView {
   sent: Set<string>; // chunk keys already streamed to this client
+  view: StateView; // entity AOI: only nearby players/npcs are synced to this client
+  aoiSet: Set<object>; // entities currently added to `view` (to diff each AOI pass)
   cx: number;
   cy: number;
   cz: number; // last chunk the player was in (-9999 = unset)
@@ -93,6 +96,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly npcs = new Map<string, NpcBrain>(); // npc id → brain (AI state is server-only)
   private npcSeq = 0;
   private spawnAcc = 0; // seconds accumulated toward the next spawn attempt
+  private peaceful = false; // no monsters spawn while true (shared-world toggle)
+  private aoiAcc = 0; // seconds accumulated toward the next entity-AOI refresh
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -130,6 +135,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('setArmor', (client, m: { defense?: number }) => {
       const p = this.state.players.get(client.sessionId);
       if (p && Number.isFinite(m?.defense)) p.armor = Math.max(0, Math.min(40, Math.floor(m.defense!)));
+    });
+    this.onMessage('setPeaceful', (_client, m: { on?: boolean }) => {
+      this.peaceful = !!m?.on; // shared-world flag; when on, no monsters spawn
+      if (this.peaceful) for (const key of [...this.npcs.keys()]) this.removeMob(key);
     });
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
@@ -169,6 +178,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.spawnAcc = 0;
       this.trySpawn();
     }
+    this.aoiAcc += dt;
+    if (this.aoiAcc >= 0.4) {
+      this.aoiAcc = 0;
+      this.updateAoi();
+    }
     for (const [key, b] of this.npcs) {
       b.life -= dt;
       const far = this.minPlayerDist(b.sync.x, b.sync.z);
@@ -183,7 +197,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   /** Try to spawn one mob near a random player: dry ground, outside SPAWN_MIN,
    *  under the cap, matching the day/night type. */
   private trySpawn(): void {
-    if (this.npcs.size >= MOB_CAP) return;
+    if (this.peaceful || this.npcs.size >= MOB_CAP) return;
     const players = [...this.state.players.values()].filter((p) => p.hp > 0);
     if (!players.length) return;
     const day = this.isDay();
@@ -231,8 +245,40 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   private removeMob(key: string): void {
+    const b = this.npcs.get(key);
+    if (b) this.dropFromViews(b.sync);
     this.state.npcs.delete(key);
     this.npcs.delete(key);
+  }
+
+  /** Remove an entity from every client's AOI view (on despawn / leave). */
+  private dropFromViews(entity: object): void {
+    this.views.forEach((v) => {
+      if (v.aoiSet.has(entity)) {
+        v.view.remove(entity as never);
+        v.aoiSet.delete(entity);
+      }
+    });
+  }
+
+  /** Entity AOI: each client's view holds only its own player + players/npcs within
+   *  AOI_ENTITY blocks. Diffed against the client's aoiSet so we only add/remove on
+   *  transitions (no per-tick re-encode churn). */
+  private updateAoi(): void {
+    const AOI = 64;
+    this.views.forEach((v, sid) => {
+      const self = this.state.players.get(sid);
+      if (!self) return;
+      const want = new Set<object>([self]);
+      this.state.players.forEach((p) => {
+        if (Math.hypot(p.x - self.x, p.z - self.z) <= AOI) want.add(p);
+      });
+      this.state.npcs.forEach((n) => {
+        if (Math.hypot(n.x - self.x, n.z - self.z) <= AOI) want.add(n);
+      });
+      for (const e of want) if (!v.aoiSet.has(e)) ((v.view.add(e as never), v.aoiSet.add(e)));
+      for (const e of v.aoiSet) if (!want.has(e)) ((v.view.remove(e as never), v.aoiSet.delete(e)));
+    });
   }
 
   /** Distance from (x,z) to the nearest living player (Infinity if none). */
@@ -439,8 +485,15 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     p.hpMax = PLAYER_HP;
     if (typeof options?.skin === 'string') p.skin = options.skin.slice(0, 40);
     this.state.players.set(client.sessionId, p);
+    // Entity AOI: give the client a StateView and always include its own player (so it
+    // gets its own HP/position). Nearby players/npcs are added/removed in updateAoi().
+    const stateView = new StateView();
+    stateView.add(p);
+    client.view = stateView;
     this.views.set(client.sessionId, {
       sent: new Set(),
+      view: stateView,
+      aoiSet: new Set([p]),
       cx: -9999,
       cy: -9999,
       cz: -9999,
@@ -476,6 +529,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const auth = client.auth as AuthInfo | undefined;
     const p = this.state.players.get(client.sessionId);
     if (auth?.userId && p) voxelPositions.set(auth.userId, this.state.worldId, p.x, p.y, p.z);
+    if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
   }
