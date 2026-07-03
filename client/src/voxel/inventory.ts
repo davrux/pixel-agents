@@ -23,6 +23,8 @@ export interface InventoryDeps {
   collected: () => { block: number; count: number }[];
   /** Creative mode → show the whole block palette (unlimited); else only owned blocks. */
   creative: () => boolean;
+  /** Always-available build tools (water/lava/portal): placeable + shown even in survival. */
+  special: () => number[];
   onOpen?: () => void; // e.g. raise the live hotbar above the panel so you can drop onto it
   onClose?: () => void;
 }
@@ -89,7 +91,7 @@ export class Inventory {
     this.root.classList.remove('open');
   }
 
-  private cell(it: Item | null, opts: { slot?: boolean; label?: string; draggable?: boolean; count?: number }): HTMLDivElement {
+  private cell(it: Item | null, opts: { slot?: boolean; label?: string; draggable?: boolean; count?: number | string }): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'cell' + (opts.slot ? ' slot' : '');
     if (it) {
@@ -214,19 +216,21 @@ export class Inventory {
     // palette is shown (unlimited, no counts). Drag one onto the block hotbar track.
     const creative = this.deps.creative();
     const owned = new Map(this.deps.collected().map((c) => [c.block, c.count]));
+    const special = new Set(this.deps.special()); // water/lava/portal — always placeable + shown
     heading('Blocks');
     const bg = document.createElement('div');
     bg.className = 'grid';
-    const blockList = creative ? this.deps.palette.blocks : this.deps.palette.blocks.filter((it) => (owned.get(it.block ?? -1) ?? 0) > 0);
-    if (!blockList.length) {
-      const e = document.createElement('div');
-      e.className = 'empty';
-      e.textContent = 'No blocks yet — dig some to collect them.';
-      b.appendChild(e);
-    } else {
-      for (const it of blockList) bg.appendChild(this.cell(it, { count: owned.get(it.block ?? -1) || undefined }));
-      b.appendChild(bg);
+    // Survival: owned blocks (with counts) PLUS the always-available special build tools
+    // (shown with ∞). Creative: the whole palette.
+    const blockList = creative
+      ? this.deps.palette.blocks
+      : this.deps.palette.blocks.filter((it) => (owned.get(it.block ?? -1) ?? 0) > 0 || special.has(it.block ?? -1));
+    for (const it of blockList) {
+      const id = it.block ?? -1;
+      const count = special.has(id) && !(owned.get(id) ?? 0) ? '∞' : owned.get(id) || undefined;
+      bg.appendChild(this.cell(it, { count }));
     }
+    b.appendChild(bg);
 
     // Tools + armour palettes (always available — tools aren't collected yet).
     grid('Tools', this.deps.palette.tools);

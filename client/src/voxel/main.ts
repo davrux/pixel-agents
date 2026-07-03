@@ -770,6 +770,7 @@ const inventory = new Inventory({
       .sort((a, b) => a[0] - b[0])
       .map(([block, count]) => ({ block, count })),
   creative: () => settings.creative,
+  special: () => [WATER_ID, PORTAL_ID, LAVA_ID], // always placeable + always shown
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
   // drag palette items straight onto the real bar (not just the mirrored rows). Also
   // free the mouse in first person (to drag), and re-capture it on close.
