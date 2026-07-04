@@ -98,6 +98,9 @@ BLOCKS.push(
   u('brown mushroom', 'mushroom_brown'), // 74
   u('geranium', 'geranium'), // 75 — blue flower
   u('viola', 'viola'), // 76 — purple flower
+  u('gold block', 'gold_block'), // 77
+  u('tin block', 'tin_block'), // 78
+  u('mese lamp', 'meselamp'), // 79 — light source (emits a glow like a torch)
 );
 
 export const WATER_ID = 27;
@@ -125,8 +128,8 @@ export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, 
 export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, ...PLANT]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
-/** Light-emitting blocks: the client places a point light at nearby instances. */
-export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
+/** Light-emitting blocks: the client draws a warm glow halo at each instance. */
+export const LIGHT_BLOCKS = new Set<number>([TORCH_ID, 79]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow

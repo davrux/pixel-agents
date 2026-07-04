@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, LIGHT_BLOCKS } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -162,13 +162,13 @@ function refreshTorchGlow(cx: number, cy: number, cz: number): void {
     }
   }
   const cells = world.rawChunk(cx, cy, cz);
-  if (!cells || !cells.includes(TORCH_ID)) return;
+  if (!cells || !cells.some((c) => LIGHT_BLOCKS.has(c))) return;
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
   const AREA = CHUNK * CHUNK;
   for (let i = 0; i < cells.length; i++) {
-    if (cells[i] !== TORCH_ID) continue;
+    if (!LIGHT_BLOCKS.has(cells[i])) continue;
     const ly = (i / AREA) | 0,
       rem = i % AREA,
       lz = (rem / CHUNK) | 0,

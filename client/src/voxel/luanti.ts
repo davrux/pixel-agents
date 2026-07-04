@@ -83,6 +83,9 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   74: { snappy: 3, oddly_breakable_by_hand: 3 }, // brown mushroom
   75: { snappy: 3, oddly_breakable_by_hand: 3 }, // geranium
   76: { snappy: 3, oddly_breakable_by_hand: 3 }, // viola
+  77: { cracky: 1, level: 2 }, // gold block
+  78: { cracky: 2 }, // tin block
+  79: { cracky: 3, oddly_breakable_by_hand: 3 }, // mese lamp
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).
