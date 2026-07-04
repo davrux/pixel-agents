@@ -43,6 +43,8 @@ import {
   isCrop,
   SAPLING,
   SOIL,
+  DESERT_SOIL,
+  isSoil,
   isHoe,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -336,7 +338,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         continue;
       }
       if (b >= WHEAT_MATURE) continue; // fully grown
-      if (this.world.getBlock(x, y - 1, z) !== SOIL) continue; // crops only grow on tilled soil
+      if (!isSoil(this.world.getBlock(x, y - 1, z))) continue; // crops only grow on tilled soil
       if (Math.random() < 0.5 && this.world.setBlock(x, y, z, b + 1)) this.broadcastEdit(x, y, z, b + 1);
     }
   }
@@ -585,8 +587,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
     else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
-    // Hoe on dirt/grass → till into farmland (soil), so crops planted on top can grow.
-    else if (isHoe(m.held ?? 0) && (block === 2 || block === 1) && this.world.setBlock(x, y, z, SOIL)) this.broadcastEdit(x, y, z, SOIL);
+    // Hoe tills the ground into farmland so crops planted on top can grow: dirt/grass →
+    // soil, sand/desert-sand → desert soil.
+    else if (isHoe(m.held ?? 0)) {
+      const soil = block === 2 || block === 1 ? SOIL : block === 7 || block === 8 ? DESERT_SOIL : 0;
+      if (soil && this.world.setBlock(x, y, z, soil)) this.broadcastEdit(x, y, z, soil);
+    }
   }
 
   /** Toggle a 2-tall door open/closed: flip every door cell in this vertical pair

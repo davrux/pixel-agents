@@ -1047,8 +1047,8 @@ function useAimedNode(): boolean {
     net?.use(x, y, z, heldId); // chest → 'chestOpen'; door → toggle; furnace → 'furnaceOpen'
     return true;
   }
-  // Holding a hoe + aiming at dirt/grass → till into farmland (server converts it).
-  if (isHoe(heldId) && (b === 2 || b === 1)) {
+  // Holding a hoe + aiming at tillable ground (dirt/grass/sand) → farmland (server converts it).
+  if (isHoe(heldId) && (b === 2 || b === 1 || b === 7 || b === 8)) {
     net?.use(x, y, z, heldId);
     return true;
   }
