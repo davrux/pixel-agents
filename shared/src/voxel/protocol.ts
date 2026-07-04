@@ -78,10 +78,11 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 63;
+export const MAX_BLOCK_ID = 64;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
 export const SAPLING = 63; // planted → grows into a tree over time
+export const SOIL = 64; // farmland — dirt tilled by a hoe; crops only grow on it
 // Farming: wheat grows through 4 cross-plant stages (57 seedling → 60 mature). Only the
 // seedling (57) is plantable; 58-60 are growth states the server advances over time.
 export const WHEAT_SEED = 57;
@@ -118,9 +119,12 @@ export const TOOL_IDS: Record<string, number> = {
   axe_wood: 210, axe_stone: 211, axe_steel: 212,
   shovel_wood: 220, shovel_stone: 221, shovel_steel: 222,
   sword_wood: 230, sword_stone: 231, sword_steel: 232,
+  hoe_wood: 240, hoe_stone: 241, hoe_steel: 242,
 };
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
+/** Hoe tool ids — used (not to dig, but) to till dirt/grass into SOIL via the use action. */
+export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id === TOOL_IDS.hoe_stone || id === TOOL_IDS.hoe_steel;
 
 // Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore
 // block). Anything not listed drops itself. Used at the spawnDrop call site.
@@ -133,6 +137,7 @@ export const ORE_DROPS: Record<number, number> = {
   [TIN_ORE]: TIN_LUMP,
   [GOLD_ORE]: GOLD_LUMP,
   [DOOR_OPEN]: DOOR_CLOSED,
+  [SOIL]: 2, // tilled soil breaks back into dirt
 };
 export const dropFor = (blockId: number): number => ORE_DROPS[blockId] ?? blockId;
 
@@ -172,6 +177,10 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: BRONZE_INGOT, count: 9 }], out: { block: 25, count: 1 } }, // → bronze block
   { in: [{ block: WHEAT, count: 9 }], out: { block: STRAW, count: 1 } }, // 9 wheat → straw block
   { in: [{ block: 4, count: 8 }], out: { block: FURNACE_ID, count: 1 } }, // 8 cobble → furnace
+  // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
+  { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
+  { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },
+  { in: [{ block: STEEL_INGOT, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_steel, count: 1 } },
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────

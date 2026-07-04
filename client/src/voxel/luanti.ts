@@ -70,6 +70,7 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   60: { snappy: 3, oddly_breakable_by_hand: 3 }, // wheat (mature)
   61: { crumbly: 3, oddly_breakable_by_hand: 3 }, // straw
   63: { snappy: 3, oddly_breakable_by_hand: 3 }, // sapling
+  64: { crumbly: 3, oddly_breakable_by_hand: 3 }, // soil (farmland)
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).
@@ -97,6 +98,10 @@ export const TOOLS: Record<string, ToolCaps> = {
   sword_wood: { full_punch_interval: 1.0, groupcaps: { snappy: { times: { 2: 1.6, 3: 0.4 }, maxlevel: 1 } } },
   sword_stone: { full_punch_interval: 1.2, groupcaps: { snappy: { times: { 2: 1.4, 3: 0.4 }, maxlevel: 1 } } },
   sword_steel: { full_punch_interval: 0.8, groupcaps: { snappy: { times: { 1: 2.5, 2: 1.2, 3: 0.35 }, maxlevel: 2 } } },
+  // Hoes don't dig blocks (used via the use-action to till soil) → no groupcaps (hand digs).
+  hoe_wood: { full_punch_interval: 1.0, groupcaps: {} },
+  hoe_stone: { full_punch_interval: 1.0, groupcaps: {} },
+  hoe_steel: { full_punch_interval: 1.0, groupcaps: {} },
 };
 
 /** Dig time (s) of a block with one tool, or null if that tool can't dig it. */

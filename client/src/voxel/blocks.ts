@@ -85,6 +85,7 @@ BLOCKS.push(
   u('straw', 'straw'), // 61 — solid cube (9 wheat)
   b('furnace', 'furnace_top', 'furnace_front', 'furnace_top', 'furnace_front'), // 62 — smelting node
   u('sapling', 'sapling'), // 63 — cross-plant; grows into a tree over time
+  b('soil', 'soil', 'dirt', 'dirt', 'soil'), // 64 — farmland (made by a hoe; crops grow on it)
 );
 
 export const WATER_ID = 27;
@@ -117,7 +118,7 @@ export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
-export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60]);
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];

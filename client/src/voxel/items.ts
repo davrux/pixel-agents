@@ -83,15 +83,16 @@ export const ARMOR_ITEMS: Item[] = [
 // Tools we have art + tool_capabilities for (wood → stone → steel tiers). Pivot at the
 // handle end so the fist grips it (see buildItemMesh / DEFAULT_WIELD). `toolId` is the
 // numeric inventory id (craftable/owned); `tool` is the luanti dig-cap key.
-const tex: Record<string, string> = {
-  pick: 'pick', axe: 'axe', shovel: 'shovel', sword: 'sword',
-};
-const toolItem = (kind: 'pick' | 'axe' | 'shovel' | 'sword', tier: 'wood' | 'stone' | 'steel', label: string): Item => {
+type ToolKind = 'pick' | 'axe' | 'shovel' | 'sword' | 'hoe';
+// default_tool_<tier>{pick|axe|shovel|sword} but farming_tool_<tier>hoe for hoes.
+const toolTex = (kind: ToolKind, tier: string): string =>
+  kind === 'hoe' ? `items/farming_tool_${tier}hoe` : `items/default_tool_${tier}${kind}`;
+const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel', label: string): Item => {
   const key = `${kind}_${tier}`;
   return {
     id: key,
     name: `${tier[0].toUpperCase()}${tier.slice(1)} ${label}`,
-    texUrl: `items/default_tool_${tier}${tex[kind]}`,
+    texUrl: toolTex(kind, tier),
     pivot: [0.1, 0.85],
     tool: key,
     toolId: TOOL_IDS[key],
@@ -102,6 +103,7 @@ export const TOOL_ITEMS: Item[] = [
   toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'),
   toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'),
   toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
+  toolItem('hoe', 'wood', 'Hoe'), toolItem('hoe', 'stone', 'Hoe'), toolItem('hoe', 'steel', 'Hoe'),
 ];
 /** Numeric tool id → its Item (for invItem / ownership checks). */
 const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
@@ -171,6 +173,7 @@ export const DEFAULT_TOOLS: string[] = [
   'axe_wood', 'axe_stone', 'axe_steel',
   'shovel_wood', 'shovel_stone', 'shovel_steel',
   'sword_wood', 'sword_stone', 'sword_steel',
+  'hoe_wood', 'hoe_stone', 'hoe_steel',
 ];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */

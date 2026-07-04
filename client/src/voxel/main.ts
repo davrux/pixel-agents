@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -1042,11 +1042,26 @@ function useAimedNode(): boolean {
     y = Math.floor(p.y),
     z = Math.floor(p.z);
   const b = world.get(x, y, z);
+  const heldId = heldNum();
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID) {
-    net?.use(x, y, z); // chest → 'chestOpen'; door → toggle; furnace → 'furnaceOpen'
+    net?.use(x, y, z, heldId); // chest → 'chestOpen'; door → toggle; furnace → 'furnaceOpen'
+    return true;
+  }
+  // Holding a hoe + aiming at dirt/grass → till into farmland (server converts it).
+  if (isHoe(heldId) && (b === 2 || b === 1)) {
+    net?.use(x, y, z, heldId);
     return true;
   }
   return false;
+}
+/** Numeric id of the currently held item (owned tool from the tool track, else the
+ *  selected build block) — sent with the use-action so the server can act on it (hoe). */
+function heldNum(): number {
+  if (lastTrack === 'tool') {
+    const t = tools[selTool];
+    return t && toolOwned(t) ? itemById(t).toolId ?? 0 : 0;
+  }
+  return itemById(blocks[selBlock]).block ?? 0;
 }
 
 /** Place the held block against the aimed face (instant). Tools don't place. */

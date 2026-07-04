@@ -33,7 +33,7 @@ export interface VoxelNet {
   setCreative(on: boolean): void;
   craft(i: number): void;
   smelt(i: number): void;
-  use(x: number, y: number, z: number): void;
+  use(x: number, y: number, z: number, held?: number): void;
   chestMove(x: number, y: number, z: number, id: number, dir: 'take' | 'put'): void;
   leave(): Promise<void>;
 }
@@ -105,7 +105,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     setCreative: (on) => room.send('setCreative', { on }),
     craft: (i) => room.send('craft', { i }),
     smelt: (i) => room.send('smelt', { i }),
-    use: (x, y, z) => room.send('use', { x, y, z }),
+    use: (x, y, z, held = 0) => room.send('use', { x, y, z, held }),
     chestMove: (x, y, z, id, dir) => room.send('chestMove', { x, y, z, id, dir }),
     leave: async () => {
       await room.leave();

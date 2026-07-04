@@ -42,6 +42,8 @@ import {
   WHEAT,
   isCrop,
   SAPLING,
+  SOIL,
+  isHoe,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -186,7 +188,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     });
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
-    this.onMessage('use', (client, m: { x: number; y: number; z: number }) => this.onUse(client, m));
+    this.onMessage('use', (client, m: { x: number; y: number; z: number; held?: number }) => this.onUse(client, m));
     this.onMessage('chestMove', (client, m: { x: number; y: number; z: number; id: number; dir: string }) => this.onChestMove(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
@@ -334,6 +336,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         continue;
       }
       if (b >= WHEAT_MATURE) continue; // fully grown
+      if (this.world.getBlock(x, y - 1, z) !== SOIL) continue; // crops only grow on tilled soil
       if (Math.random() < 0.5 && this.world.setBlock(x, y, z, b + 1)) this.broadcastEdit(x, y, z, b + 1);
     }
   }
@@ -567,7 +570,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
 
   /** Generic "use node" action (right-clicking a node). Dispatch by block id — for now
    *  a chest opens its inventory; doors/furnace-nodes hook in here later. Reach-checked. */
-  private onUse(client: Client, m: { x: number; y: number; z: number }): void {
+  private onUse(client: Client, m: { x: number; y: number; z: number; held?: number }): void {
     const v = this.views.get(client.sessionId);
     if (!v) return;
     const x = Math.floor(m.x),
@@ -582,6 +585,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
     else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
+    // Hoe on dirt/grass → till into farmland (soil), so crops planted on top can grow.
+    else if (isHoe(m.held ?? 0) && (block === 2 || block === 1) && this.world.setBlock(x, y, z, SOIL)) this.broadcastEdit(x, y, z, SOIL);
   }
 
   /** Toggle a 2-tall door open/closed: flip every door cell in this vertical pair
