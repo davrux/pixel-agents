@@ -23,7 +23,7 @@ export interface VoxelNet {
   room: Room;
   sessionId: string;
   saveSettings(obj: unknown): void;
-  sendEdit(x: number, y: number, z: number, id: number): void;
+  sendEdit(x: number, y: number, z: number, id: number, tool?: number): void;
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
   setPortal(x: number, y: number, z: number, dest: unknown): void;
   sendTeleport(x: number, z: number): void;
@@ -52,6 +52,7 @@ export interface VoxelHandlers {
   onInvAll?: (items: Record<string, number>) => void;
   onChestOpen?: (m: { x: number; y: number; z: number; items: Record<string, number> }) => void;
   onFurnaceOpen?: () => void;
+  onDurability?: (m: { tool: number; left: number; max: number }) => void;
 }
 
 export interface JoinOpts {
@@ -91,11 +92,12 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('invAll', (items: Record<string, number>) => handlers.onInvAll?.(items));
   room.onMessage('chestOpen', (m: { x: number; y: number; z: number; items: Record<string, number> }) => handlers.onChestOpen?.(m));
   room.onMessage('furnaceOpen', () => handlers.onFurnaceOpen?.());
+  room.onMessage('durability', (m: { tool: number; left: number; max: number }) => handlers.onDurability?.(m));
   return {
     room,
     sessionId: room.sessionId,
     saveSettings: (obj: unknown) => room.send('saveSettings', obj),
-    sendEdit: (x, y, z, id) => room.send('edit', { x, y, z, id }),
+    sendEdit: (x, y, z, id, tool = 0) => room.send('edit', { x, y, z, id, tool }),
     sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
     setPortal: (x, y, z, dest) => room.send('setPortal', { x, y, z, dest }),
     sendTeleport: (x, z) => room.send('teleport', { x, z }),

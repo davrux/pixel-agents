@@ -128,6 +128,9 @@ export const TOOL_IDS: Record<string, number> = {
 };
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
+/** Max durability (block-breaks) of a tool, by tier (id%10: 0=wood,1=stone,2=steel).
+ *  A tool wears one use per block broken and shatters at zero (Minecraft-ish counts). */
+export const toolMaxUses = (toolId: number): number => [60, 132, 250][toolId % 10] ?? 60;
 /** Hoe tool ids — used (not to dig, but) to till dirt/grass into SOIL via the use action. */
 export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id === TOOL_IDS.hoe_stone || id === TOOL_IDS.hoe_steel;
 

@@ -356,6 +356,9 @@ const itemDrops = new Map<string, { obj: THREE.Object3D; block: number }>();
 // Client mirror of the server stack inventory (item id → count) — drives the hotbar
 // counts + place-consumes-stack. Declared early: updateHud() reads it during init.
 const invCounts = new Map<number, number>();
+// Per-tool durability (tool id → uses left / max), from the server; drives the wear bar
+// on hotbar tool slots. In-memory (resets on reconnect, like the server's wear).
+const toolDurability = new Map<number, { left: number; max: number }>();
 let dropMaterial: THREE.MeshBasicMaterial | null = null;
 /** A 0.32-cube geometry UV-mapped to a block's side tile on every face (drop icon). */
 function buildDropGeo(block: number): THREE.BufferGeometry {
@@ -1140,8 +1143,11 @@ function updateBreaking(dt: number, want: boolean): void {
   if (breaking.t >= breaking.dur) {
     const broke = world.get(tgt.x, tgt.y, tgt.z);
     sound.play(broke === 14 || broke === 16 ? 'glass_break' : 'dug'); // glass shatters, else generic dug
+    // The tool used (numeric id) so the server can wear it; 0 = bare hand (no wear).
+    const usedTool = digToolsFor(broke)[0];
+    const toolId = usedTool ? toolNum(usedTool) ?? 0 : 0;
     if (net) {
-      net.sendEdit(tgt.x, tgt.y, tgt.z, 0); // authoritative break — server confirms
+      net.sendEdit(tgt.x, tgt.y, tgt.z, 0, toolId); // authoritative break — server confirms
     } else {
       world.set(tgt.x, tgt.y, tgt.z, 0);
       markDirty(toChunk(tgt.x), toChunk(tgt.y), toChunk(tgt.z));
@@ -1247,6 +1253,19 @@ function updateHud(): void {
         lock.className = 'count';
         lock.textContent = '🔒';
         s.appendChild(lock);
+      } else if (isTool && it.toolId !== undefined) {
+        // Durability wear bar (green→red) for an owned tool that's been used.
+        const dur = toolDurability.get(it.toolId);
+        if (dur && dur.left < dur.max) {
+          const frac = Math.max(0, dur.left / dur.max);
+          const bar = document.createElement('span');
+          bar.style.cssText = `position:absolute;left:2px;right:2px;bottom:2px;height:3px;background:#05060b;`;
+          const fill = document.createElement('span');
+          const hue = Math.round(frac * 120); // 0=red .. 120=green
+          fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:${Math.round(frac * 100)}%;background:hsl(${hue},70%,50%);`;
+          bar.appendChild(fill);
+          s.appendChild(bar);
+        }
       }
       // Drop target for inventory drag&drop onto the real bar (kind-checked).
       (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
@@ -1670,6 +1689,17 @@ function onInv(m: { block: number; total: number }): void {
   if (chestUiOpen()) chestRender();
   if (furnaceOpen()) smeltRender();
 }
+/** Tool wear from the server: update the slot's wear bar; toast + forget when it breaks. */
+function onDurability(m: { tool: number; left: number; max: number }): void {
+  if (m.left <= 0) {
+    toolDurability.delete(m.tool);
+    showToast(`${invItem(m.tool).name} zerbrochen!`);
+    sound.play('dug', 0.6);
+  } else {
+    toolDurability.set(m.tool, { left: m.left, max: m.max });
+  }
+  updateHud();
+}
 /** Bulk inventory snapshot on join (persisted survival inventory restored server-side). */
 function onInvAll(items: Record<string, number>): void {
   invCounts.clear();
@@ -1875,7 +1905,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

@@ -32,6 +32,7 @@ import {
   dropFor,
   TOOL_BASE,
   STARTER_TOOL,
+  toolMaxUses,
   MAX_BLOCK_ID,
   CHEST_ID,
   FURNACE_ID,
@@ -140,6 +141,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
+  private readonly wear = new Map<string, Map<number, number>>(); // sid → (tool id → uses left)
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
   private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
   private cropAcc = 0; // seconds toward the next crop-growth tick
@@ -174,7 +176,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('move', (client, m: { x: number; y: number; z: number; yaw?: number; pitch?: number; state?: string }) =>
       this.onMove(client, m),
     );
-    this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number }) => this.onEdit(client, m));
+    this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number; tool?: number }) => this.onEdit(client, m));
     this.onMessage('teleport', (client, m: { x: number; z: number }) => this.onTeleport(client, m));
     this.onMessage('attack', (client, m: { npc?: string }) => this.onAttack(client, m));
     this.onMessage('setArmor', (client, m: { defense?: number }) => {
@@ -574,6 +576,29 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     client.send('inv', { block: r.out, total });
   }
 
+  /** Wear the tool used for a break by one use; when it runs out, the tool shatters
+   *  (removed from the inventory). Creative + the bare hand (tool 0) never wear.
+   *  Durability is per-session (in-memory) — a reconnected tool comes back full. */
+  private wearTool(client: Client, sid: string, tool: number): void {
+    if (tool < TOOL_BASE || this.creative.has(sid)) return;
+    const bag = this.inv.get(sid);
+    if (!bag || (bag.get(tool) ?? 0) <= 0) return; // don't wear a tool they don't hold
+    let byTool = this.wear.get(sid);
+    if (!byTool) this.wear.set(sid, (byTool = new Map()));
+    const max = toolMaxUses(tool);
+    const left = (byTool.get(tool) ?? max) - 1;
+    if (left <= 0) {
+      byTool.delete(tool);
+      const total = Math.max(0, (bag.get(tool) ?? 1) - 1); // shatter one tool
+      total > 0 ? bag.set(tool, total) : bag.delete(tool);
+      client.send('inv', { block: tool, total });
+      client.send('durability', { tool, left: 0, max });
+    } else {
+      byTool.set(tool, left);
+      client.send('durability', { tool, left, max });
+    }
+  }
+
   /** Generic "use node" action (right-clicking a node). Dispatch by block id — for now
    *  a chest opens its inventory; doors/furnace-nodes hook in here later. Reach-checked. */
   private onUse(client: Client, m: { x: number; y: number; z: number; held?: number }): void {
@@ -883,6 +908,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.views.delete(client.sessionId);
     this.inv.delete(client.sessionId);
     this.creative.delete(client.sessionId);
+    this.wear.delete(client.sessionId);
   }
 
   onDispose(): void {
@@ -946,7 +972,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     client.send('tp', { x, y, z });
   }
 
-  private onEdit(client: Client, m: { x: number; y: number; z: number; id: number }): void {
+  private onEdit(client: Client, m: { x: number; y: number; z: number; id: number; tool?: number }): void {
     const v = this.views.get(client.sessionId);
     if (!v) return;
     const now = Date.now();
@@ -995,6 +1021,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     // Crops are handled separately (custom harvest drops below), so skip them here.
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev) && !isCrop(prev)) this.spawnDrop(dropFor(prev), x, y, z);
+    // Breaking a real block wears the tool used (one use); a depleted tool shatters.
+    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.wearTool(client, sid, m.tool ?? 0);
     // Harvest wheat: mature (60) → 1-2 wheat + 1-2 seeds; immature → the seed back.
     if (id === 0 && isCrop(prev)) {
       this.crops.delete(key);
