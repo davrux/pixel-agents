@@ -46,6 +46,7 @@ import {
   DESERT_SOIL,
   isSoil,
   isHoe,
+  needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -1003,6 +1004,18 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
     // Cutting tall grass (51) sometimes yields a wheat seed (Luanti: grass → seeds).
     if (id === 0 && prev === 51 && Math.random() < 0.4) this.spawnDrop(WHEAT_SEED, x, y, z, 1);
+    // A plant/crop/sapling resting on the block just broken loses its support → pops off
+    // and drops (so decoration doesn't float when you mine the ground under it).
+    if (id === 0 && prev !== 0) {
+      const above = this.world.getBlock(x, y + 1, z);
+      if (needsGround(above) && this.world.setBlock(x, y + 1, z, 0)) {
+        this.broadcastEdit(x, y + 1, z, 0);
+        this.spawnDrop(isCrop(above) ? WHEAT_SEED : dropFor(above), x, y + 1, z);
+        const akey = `${x},${y + 1},${z}`;
+        this.crops.delete(akey);
+        this.saplings.delete(akey);
+      }
+    }
     // Breaking a chest spills its contents as drops, then clears the stored inventory.
     if (id === 0 && prev === CHEST_ID) {
       const c = chests.get(this.state.worldId, x, y, z);
