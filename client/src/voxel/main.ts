@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, surfaceColor } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -886,7 +886,8 @@ const inventory = new Inventory({
       .sort((a, b) => a[0] - b[0])
       .map(([id, count]) => ({ id, count })),
   creative: () => settings.creative,
-  special: () => [WATER_ID, PORTAL_ID, LAVA_ID], // always placeable + always shown
+  // Portal is always a shown build tool; water/lava are direct-place only in creative (else use a bucket).
+  special: () => (settings.creative ? [WATER_ID, PORTAL_ID, LAVA_ID] : [PORTAL_ID]),
   owns: (it) => it.toolId === undefined || settings.creative || (invCounts.get(it.toolId) ?? 0) > 0,
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
   // drag palette items straight onto the real bar (not just the mirrored rows). Also
@@ -995,7 +996,7 @@ const UP = new THREE.Vector3(0, 1, 0);
  *  Unowned tools are shown in the hotbar but dig at bare-hand speed. */
 function toolOwned(stringId: string): boolean {
   if (settings.creative) return true;
-  const n = toolNum(stringId);
+  const n = itemById(stringId).toolId; // works for dig tools + buckets (both carry toolId)
   return n !== undefined && (invCounts.get(n) ?? 0) > 0;
 }
 /** The best tool the player OWNS (a hotbar tool) for a block, or undefined if none
@@ -1077,6 +1078,20 @@ function useAimedNode(): boolean {
     z = Math.floor(p.z);
   const b = world.get(x, y, z);
   const heldId = heldNum();
+  // Buckets act on liquids instead of placing: empty scoops the aimed source; filled
+  // pours its source into the air cell against the aimed face. Holding one never places.
+  if (isBucket(heldId)) {
+    if (heldId === BUCKET_EMPTY) {
+      if (b === WATER_ID || b === LAVA_ID) net?.use(x, y, z, heldId);
+    } else {
+      const po = h.point.clone().addScaledVector(nrm, 0.5);
+      const ox = Math.floor(po.x),
+        oy = Math.floor(po.y),
+        oz = Math.floor(po.z);
+      if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
+    }
+    return true;
+  }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID) {
     net?.use(x, y, z, heldId); // chest → open; door → toggle; furnace → smelt UI; TNT → ignite
     return true;
@@ -1774,7 +1789,8 @@ function onInvAll(items: Record<string, number>): void {
 }
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
-  return settings.creative || id === WATER_ID || id === PORTAL_ID || id === LAVA_ID;
+  // Portals are always a free build tool; water/lava are ∞ only in creative (survival uses buckets).
+  return settings.creative || id === PORTAL_ID;
 }
 
 // ── Crafting panel (C) ────────────────────────────────────────────────────────

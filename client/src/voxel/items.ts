@@ -8,6 +8,7 @@
 import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
   COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD,
+  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA,
 } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
@@ -98,12 +99,16 @@ const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel', label: strin
     toolId: TOOL_IDS[key],
   };
 };
+// Buckets: tool-track items with no dig `tool` (so they dig at hand speed + never wear);
+// used via the use-action to scoop/place water & lava.
+const bucketItem = (id: number, name: string, tex: string): Item => ({ id: 'b' + id, name, texUrl: 'items/' + tex, pivot: [0.5, 0.5], toolId: id });
 export const TOOL_ITEMS: Item[] = [
   toolItem('pick', 'wood', 'Pickaxe'), toolItem('pick', 'stone', 'Pickaxe'), toolItem('pick', 'steel', 'Pickaxe'),
   toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'),
   toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'),
   toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
   toolItem('hoe', 'wood', 'Hoe'), toolItem('hoe', 'stone', 'Hoe'), toolItem('hoe', 'steel', 'Hoe'),
+  bucketItem(BUCKET_EMPTY, 'Bucket', 'bucket'), bucketItem(BUCKET_WATER, 'Water Bucket', 'bucket_water'), bucketItem(BUCKET_LAVA, 'Lava Bucket', 'bucket_lava'),
 ];
 /** Numeric tool id → its Item (for invItem / ownership checks). */
 const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
@@ -175,6 +180,7 @@ export const DEFAULT_TOOLS: string[] = [
   'shovel_wood', 'shovel_stone', 'shovel_steel',
   'sword_wood', 'sword_stone', 'sword_steel',
   'hoe_wood', 'hoe_stone', 'hoe_steel',
+  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA,
 ];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */

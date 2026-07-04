@@ -136,6 +136,14 @@ export const toolMaxUses = (toolId: number): number => [60, 132, 250][toolId % 1
 /** Hoe tool ids — used (not to dig, but) to till dirt/grass into SOIL via the use action. */
 export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id === TOOL_IDS.hoe_stone || id === TOOL_IDS.hoe_steel;
 
+// Buckets (tool-track items, don't dig): empty ↔ water/lava. Filling scoops a source
+// (removes it); emptying places a source. In survival this is the ONLY way to move
+// water/lava (direct placement is creative-only).
+export const BUCKET_EMPTY = 250;
+export const BUCKET_WATER = 251;
+export const BUCKET_LAVA = 252;
+export const isBucket = (id: number): boolean => id === BUCKET_EMPTY || id === BUCKET_WATER || id === BUCKET_LAVA;
+
 // Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore
 // block). Anything not listed drops itself. Used at the spawnDrop call site.
 // Block → the item it drops when broken (default: itself). Ores drop lumps; an open
@@ -201,6 +209,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: GOLD_INGOT, count: 9 }], out: { block: 77, count: 1 } }, // → gold block
   { in: [{ block: TIN_INGOT, count: 9 }], out: { block: 78, count: 1 } }, // → tin block
   { in: [{ block: 14, count: 4 }, { block: GOLD_INGOT, count: 1 }], out: { block: 79, count: 1 } }, // 4 glass + gold → mese lamp
+  { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

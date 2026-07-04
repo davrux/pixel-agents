@@ -49,6 +49,10 @@ import {
   DESERT_SOIL,
   isSoil,
   isHoe,
+  isBucket,
+  BUCKET_EMPTY,
+  BUCKET_WATER,
+  BUCKET_LAVA,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -709,6 +713,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       dy = y + 0.5 - (v.py + 1.6),
       dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    // A held bucket scoops/places liquids and ignores the block dispatch below.
+    if (isBucket(m.held ?? 0)) {
+      this.onBucket(client, x, y, z, m.held!);
+      return;
+    }
     const block = this.world.getBlock(x, y, z);
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
@@ -733,6 +742,43 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     for (const yy of [y - 1, y, y + 1]) {
       if (isDoor(yy) && this.world.setBlock(x, yy, z, to)) this.broadcastEdit(x, yy, z, to);
     }
+  }
+
+  /** Bucket use: an empty bucket scoops a liquid SOURCE the player aims at (source→air,
+   *  empty→filled bucket); a filled bucket pours its source into the aimed AIR cell
+   *  (air→source, filled→empty bucket). Survival swaps the bucket item; creative is free. */
+  private onBucket(client: Client, x: number, y: number, z: number, held: number): void {
+    const sid = client.sessionId;
+    const bag = this.inv.get(sid) ?? new Map<number, number>();
+    this.inv.set(sid, bag);
+    const creative = this.creative.has(sid);
+    const have = (id: number): number => (creative ? Infinity : (bag.get(id) ?? 0));
+    if (held === BUCKET_EMPTY) {
+      const b = this.world.getBlock(x, y, z);
+      const filled = b === WATER_SOURCE ? BUCKET_WATER : b === LAVA_SOURCE ? BUCKET_LAVA : 0;
+      if (!filled || have(BUCKET_EMPTY) <= 0) return;
+      if (!this.world.setBlock(x, y, z, 0)) return;
+      this.broadcastEdit(x, y, z, 0);
+      this.settleFluidsAt(x, y, z);
+      if (!creative) this.swapItem(client, bag, BUCKET_EMPTY, filled);
+    } else {
+      if (this.world.getBlock(x, y, z) !== 0 || have(held) <= 0) return;
+      const src = held === BUCKET_WATER ? WATER_SOURCE : LAVA_SOURCE;
+      if (!this.world.setBlock(x, y, z, src)) return;
+      this.broadcastEdit(x, y, z, src);
+      this.settleFluidsAt(x, y, z);
+      if (!creative) this.swapItem(client, bag, held, BUCKET_EMPTY);
+    }
+  }
+
+  /** Consume one `from` item and add one `to` item, echoing both new counts (used by buckets). */
+  private swapItem(client: Client, bag: Map<number, number>, from: number, to: number): void {
+    const left = (bag.get(from) ?? 0) - 1;
+    left > 0 ? bag.set(from, left) : bag.delete(from);
+    client.send('inv', { block: from, total: Math.max(0, left) });
+    const gained = (bag.get(to) ?? 0) + 1;
+    bag.set(to, gained);
+    client.send('inv', { block: to, total: gained });
   }
 
   /** Send a chest's current contents to the opening client (drives its chest UI). */
@@ -1100,6 +1146,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
     const prev = this.world.getBlock(x, y, z);
     const sid = client.sessionId;
+    // Survival can't place liquid sources directly — that needs a filled bucket (see onBucket).
+    // Creative keeps free water/lava placement as an ∞ build tool.
+    if ((id === WATER_SOURCE || id === LAVA_SOURCE) && !this.creative.has(sid)) return;
     // Survival: placing a normal node into air consumes one from the stack inventory.
     // Fluids + the portal marker (27/28/29) are exempt build tools; creative skips it.
     const consumes = id !== 0 && prev === 0 && id !== WATER_SOURCE && id !== LAVA_SOURCE && id !== 28;
@@ -1174,9 +1223,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         if ((b === DOOR_CLOSED || b === DOOR_OPEN) && this.world.setBlock(x, y + dy, z, 0)) this.broadcastEdit(x, y + dy, z, 0);
       }
     }
-    // Fluid flow: if this edit touches a liquid, recompute the local pool of THAT fluid
-    // to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
-    // Water and lava settle independently (each treats the other as a wall).
+    this.settleFluidsAt(x, y, z);
+  }
+
+  /** Fluid flow: if a liquid touches this cell, recompute the local pool of THAT fluid
+   *  to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
+   *  Water and lava settle independently (each treats the other as a wall). Then apply
+   *  the Luanti cool_lava rule. Shared by block edits and bucket fill/empty. */
+  private settleFluidsAt(x: number, y: number, z: number): void {
     const NB = [
       [0, 0, 0],
       [1, 0, 0],
