@@ -5,7 +5,9 @@
  * lakes/seas filled with water up to sea level, 3D-noise caves carved
  * underground, and a deterministic forest. Block ids match blocks.ts.
  */
-import { CHUNK, CHUNK_VOL, cellIndex } from '@pixel/shared';
+import { CHUNK, CHUNK_VOL, cellIndex, hash2, hash3, noise3, biomeAt, surfaceHeight, SEA, ROCK_LINE, SNOW_LINE } from '@pixel/shared';
+
+export { surfaceHeight, biomeAt } from '@pixel/shared'; // re-export for existing importers
 
 const AIR = 0;
 const GRASS = 1;
@@ -32,108 +34,9 @@ const DANDELION = 54;
 const DRY_SHRUB = 55;
 const CACTUS = 56;
 
-const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
-const ROCK_LINE = SEA + 22; // above here peaks are bare rock
-const SNOW_LINE = SEA + 30; // above here peaks are snow-capped (any biome)
-
-// Biomes from low-frequency temperature × humidity noise (Luanti-style climate map).
-export type Biome = 'desert' | 'snow' | 'plains';
-export function biomeAt(x: number, z: number, seed: number): Biome {
-  const temp = noise2(x, z, 160, seed + 900);
-  const hum = noise2(x, z, 160, seed + 901);
-  if (temp > 0.62 && hum < 0.42) return 'desert'; // hot + dry
-  if (temp < 0.32) return 'snow'; // cold
-  return 'plains'; // temperate (grass + forest)
-}
-
-// ── noise ─────────────────────────────────────────────────────────────────────
-function hash2(x: number, z: number, seed: number): number {
-  let h = (x | 0) * 374761393 + (z | 0) * 668265263 + (seed | 0) * 1274126177;
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = (h * 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-function hash3(x: number, y: number, z: number, seed: number): number {
-  let h = (x | 0) * 374761393 + (y | 0) * 1103515245 + (z | 0) * 668265263 + (seed | 0) * 1274126177;
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = (h * 1274126177) >>> 0;
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-}
-const smooth = (t: number): number => t * t * (3 - 2 * t);
-const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-
-function noise2(x: number, z: number, cell: number, seed: number): number {
-  const gx = Math.floor(x / cell);
-  const gz = Math.floor(z / cell);
-  const fx = smooth((x - gx * cell) / cell);
-  const fz = smooth((z - gz * cell) / cell);
-  const a = hash2(gx, gz, seed);
-  const b = hash2(gx + 1, gz, seed);
-  const c = hash2(gx, gz + 1, seed);
-  const d = hash2(gx + 1, gz + 1, seed);
-  return lerp(lerp(a, b, fx), lerp(c, d, fx), fz);
-}
-function noise3(x: number, y: number, z: number, cell: number, seed: number): number {
-  const gx = Math.floor(x / cell),
-    gy = Math.floor(y / cell),
-    gz = Math.floor(z / cell);
-  const fx = smooth((x - gx * cell) / cell);
-  const fy = smooth((y - gy * cell) / cell);
-  const fz = smooth((z - gz * cell) / cell);
-  const c000 = hash3(gx, gy, gz, seed),
-    c100 = hash3(gx + 1, gy, gz, seed);
-  const c010 = hash3(gx, gy + 1, gz, seed),
-    c110 = hash3(gx + 1, gy + 1, gz, seed);
-  const c001 = hash3(gx, gy, gz + 1, seed),
-    c101 = hash3(gx + 1, gy, gz + 1, seed);
-  const c011 = hash3(gx, gy + 1, gz + 1, seed),
-    c111 = hash3(gx + 1, gy + 1, gz + 1, seed);
-  return lerp(
-    lerp(lerp(c000, c100, fx), lerp(c010, c110, fx), fy),
-    lerp(lerp(c001, c101, fx), lerp(c011, c111, fx), fy),
-    fz,
-  );
-}
-const ridged = (x: number, z: number, cell: number, seed: number): number => 1 - Math.abs(noise2(x, z, cell, seed) * 2 - 1);
-const smoothstep = (a: number, b: number, t: number): number => {
-  const u = Math.max(0, Math.min(1, (t - a) / (b - a)));
-  return u * u * (3 - 2 * u);
-};
-
-// Guaranteed lake right beside the spawn (only the default/first world). Centred a
-// few blocks off origin with a curved bowl (floor below SEA → fills with water) and
-// a flat shore, so you spawn on land next to open water. See surfaceHeight().
-const LAKE_CX = 10;
-const LAKE_CZ = 0;
-const LAKE_R = 10; // water radius
-const LAKE_FLOOR = SEA - 9; // deep centre (multi-layer water, like a real lake)
-const LAKE_RIM = SEA; // rim height = water level → the lake looks brim-full (flush shore)
-const SPAWN_PAD = SEA + 1; // spawn on dry ground one block above the waterline
-
-/** Surface land height at world (x,z): continents dip into basins (lakes/seas)
- *  and rise into mountains, plus rolling hills. cell 80 → variety within a view.
- *  With spawnLake, a lake + shore is carved near origin and the spawn is a flat pad. */
-export function surfaceHeight(x: number, z: number, seed: number, spawnLake = false): number {
-  const cont = noise2(x, z, 80, seed); // 0..1 continents
-  const land = 8 + cont * 30; // 8 (below SEA → water basins) .. 38
-  const hills = (noise2(x, z, 24, seed + 11) * 2 - 1) * 4; // ±4 rolling hills
-  const mtnMask = smoothstep(0.72, 0.96, cont); // only high continents grow mountains
-  const mtn = Math.pow(ridged(x, z, 48, seed + 7), 1.6) * 36; // sharp ridges
-  let h = land + hills + mtnMask * mtn;
-  if (spawnLake) {
-    const d = Math.hypot(x - LAKE_CX, z - LAKE_CZ);
-    if (d < LAKE_R) {
-      const t = d / LAKE_R; // 0 centre .. 1 rim
-      h = LAKE_RIM + (LAKE_FLOOR - LAKE_RIM) * (1 - t * t); // curved bowl, rim flush with waterline
-    } else if (d < LAKE_R + 4) {
-      const t = (d - LAKE_R) / 4; // blend rim → natural terrain
-      h = LAKE_RIM + (h - LAKE_RIM) * (t * t * (3 - 2 * t));
-    }
-    if (Math.hypot(x, z) < 3) h = SPAWN_PAD; // dry spawn pad just above the waterline
-  }
-  return Math.floor(h);
-}
+// SEA, ROCK_LINE, SNOW_LINE, the noise fns, biomeAt + surfaceHeight now live in
+// @pixel/shared (voxel/terrain) so the client map can paint the world from the seed.
 
 /** True where a cave should be carved (air) at underground (x,y,z). */
 function isCave(x: number, y: number, z: number, seed: number, surface: number): boolean {

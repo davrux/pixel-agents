@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
@@ -414,8 +414,10 @@ function smoothAvatar(a: Avatar, tx: number, ty: number, tz: number, tyaw: numbe
   return moving;
 }
 
+let worldSeed = 0; // seed of the current world (from 'welcome') — drives the full-world map
 function onWelcome(m: unknown): void {
-  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number };
+  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number; seed?: number };
+  if (Number.isFinite(w.seed)) worldSeed = w.seed!; // for the full-world map colour
   if (Number.isFinite(w.now)) clockOffset = w.now! - Date.now(); // align to the server day clock
   if (Number.isFinite(w.dayLengthMs) && w.dayLengthMs! > 0) dayLengthMs = w.dayLengthMs!;
   if (w.spawn) {
@@ -708,7 +710,9 @@ function columnColor(x: number, z: number): number | null {
   return null;
 }
 const travelMap = new TravelMap({
-  colorAt: (x, z) => exploredColors.get(x + ',' + z) ?? null,
+  // Full world from the seed (no "explored" gaps) — an edited/loaded column overrides
+  // with its real top colour so player-made changes show on the map.
+  colorAt: (x, z) => exploredColors.get(x + ',' + z) ?? surfaceColor(x, z, worldSeed, currentWorld === 'default'),
   player: () => ({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }),
   onTravel: (x, z) => {
     if (net) net.sendTeleport(x, z);
