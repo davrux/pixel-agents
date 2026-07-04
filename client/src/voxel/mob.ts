@@ -12,10 +12,10 @@ interface Part {
   base: THREE.Color; // untinted colour (day tint multiplies this)
 }
 
-export const ANIMAL_KINDS = new Set<string>(['sheep', 'cow', 'chicken']);
+export const ANIMAL_KINDS = new Set<string>(['sheep', 'cow', 'chicken', 'pig']);
 /** All mob kinds that have a blocky model here (animals + monsters). Others fall back
  *  to a generic humanoid. */
-export const MOB_KINDS = new Set<string>(['sheep', 'cow', 'chicken', 'zombie', 'skeleton', 'spider']);
+export const MOB_KINDS = new Set<string>(['sheep', 'cow', 'chicken', 'pig', 'zombie', 'skeleton', 'spider']);
 
 export class MobModel {
   readonly group = new THREE.Group();
@@ -26,6 +26,7 @@ export class MobModel {
   constructor(kind: string) {
     if (kind === 'chicken') this.buildChicken();
     else if (kind === 'cow') this.buildCow();
+    else if (kind === 'pig') this.buildPig();
     else if (kind === 'zombie') this.buildHumanoid(0x4b7a4b, 0x2f5030); // green
     else if (kind === 'skeleton') this.buildHumanoid(0xd8d8d0, 0xb8b8b0); // bone-white
     else if (kind === 'spider') this.buildSpider();
@@ -80,6 +81,20 @@ export class MobModel {
     this.leg(0.28, hy, -0.42, 0.22, 0.5, leg);
     this.leg(-0.28, hy, 0.42, 0.22, 0.5, leg);
     this.leg(0.28, hy, 0.42, 0.22, 0.5, leg);
+  }
+
+  private buildPig(): void {
+    const body = 0xe89a9a,
+      snout = 0xd98080,
+      leg = 0xc06868;
+    this.box(0.7, 0.6, 1.0, 0, 0.62, 0, body); // body
+    this.box(0.5, 0.46, 0.42, 0, 0.66, -0.62, body); // head at -Z
+    this.box(0.24, 0.18, 0.1, 0, 0.62, -0.86, snout); // snout
+    const hy = 0.34;
+    this.leg(-0.22, hy, -0.3, 0.18, 0.34, leg);
+    this.leg(0.22, hy, -0.3, 0.18, 0.34, leg);
+    this.leg(-0.22, hy, 0.3, 0.18, 0.34, leg);
+    this.leg(0.22, hy, 0.3, 0.18, 0.34, leg);
   }
 
   private buildChicken(): void {
