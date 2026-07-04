@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
+import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, LIGHT_BLOCKS } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
@@ -79,6 +80,28 @@ const dayColors = { sky: new THREE.Color(0x8fc7ff), light: new THREE.Color(0xfff
 // neighbours. A dirty-set is flushed (capped) each frame to smooth the join burst.
 const world = new VoxelWorld();
 const material = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, alphaTest: 0.5 });
+// Voxel light engine: the terrain is unlit, so we combine the two baked light channels
+// (aSky/aBlock, see mesher + light.ts) in-shader. Final brightness = AO×shade (vColor) ×
+// max(daylight×skylight, warmTorch×blocklight), floored by a small ambient so nothing is
+// pitch black. `uSky` tracks the live day/night colour each frame ⇒ re-lights without
+// re-meshing. material.color stays white (the daylight tint now lives in uSky).
+const lightUniforms = {
+  uSky: { value: new THREE.Color(1, 1, 1) }, // daytime sky/sun colour (updated per frame)
+  uBlockCol: { value: new THREE.Color(1.0, 0.78, 0.5) }, // warm torch/lava light
+  uAmbient: { value: 0.05 }, // faint floor so unlit caves aren't fully black
+};
+material.onBeforeCompile = (shader) => {
+  shader.uniforms.uSky = lightUniforms.uSky;
+  shader.uniforms.uBlockCol = lightUniforms.uBlockCol;
+  shader.uniforms.uAmbient = lightUniforms.uAmbient;
+  shader.vertexShader = 'attribute float aSky;\nattribute float aBlock;\nvarying float vSky;\nvarying float vBlock;\n' + shader.vertexShader.replace('#include <color_vertex>', '#include <color_vertex>\n  vSky = aSky;\n  vBlock = aBlock;');
+  shader.fragmentShader =
+    'uniform vec3 uSky;\nuniform vec3 uBlockCol;\nuniform float uAmbient;\nvarying float vSky;\nvarying float vBlock;\n' +
+    shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      '#include <color_fragment>\n  vec3 vxLit = max(uSky * vSky, uBlockCol * vBlock);\n  diffuseColor.rgb *= max(vxLit, vec3(uAmbient));',
+    );
+};
 // Water: separate translucent pass (see-through, no depth write so submerged
 // terrain shows through). Animated waving-liquid shader (see water.ts).
 const { material: waterMaterial, uniforms: waterUniforms } = createWaterMaterial();
@@ -109,7 +132,7 @@ function markDirty(cx: number, cy: number, cz: number): void {
 }
 function remeshChunk(cx: number, cy: number, cz: number): void {
   const key = chunkKey(cx, cy, cz);
-  const geom = atlas ? buildChunkMesh(world, atlas, cx, cy, cz) : null;
+  const geom = atlas ? buildChunkMesh(world, atlas, computeChunkLight(world, cx, cy, cz), cx, cy, cz) : null;
   // Update one layer (opaque or water) in place: swap geometry, or add/remove the mesh.
   const layer = (map: Map<string, THREE.Mesh>, group: THREE.Group, mat: THREE.Material, geo: THREE.BufferGeometry | null): void => {
     const existing = map.get(key);
@@ -448,6 +471,7 @@ function onWelcome(m: unknown): void {
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
   world.setChunk(c.cx, c.cy, c.cz, c.cells);
+  invalidateLight(c.cx, c.cy, c.cz); // fresh terrain → recompute column heights + sources
   markDirty(c.cx, c.cy, c.cz);
   markExploredChunk(c.cx, c.cz); // remember this area for the map
 }
@@ -466,6 +490,7 @@ let lastHiss = -1e9;
 function onServerEdit(e: { x: number; y: number; z: number; id: number }): void {
   const prev = world.get(e.x, e.y, e.z);
   world.set(e.x, e.y, e.z, e.id);
+  invalidateLight(toChunk(e.x), toChunk(e.y), toChunk(e.z)); // block changed → recompute local light
   markDirty(toChunk(e.x), toChunk(e.y), toChunk(e.z));
   markExploredColumn(e.x, e.z); // keep the map in sync with edits
   // Lava hiss: a cell just hardened to obsidian/stone next to lava (cool_lava). Throttle
@@ -2063,6 +2088,7 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   for (const node of torchGlows.values()) torchGlowGroup.remove(node);
   torchGlows.clear();
   dirty.clear();
+  clearLightCache(); // new world → drop cached column heights + light sources
   world.clear();
   ready = false;
   breaking = null;
@@ -2201,7 +2227,9 @@ function frameBody(now: number): void {
   daySample(todNow, dayColors);
   (scene.background as THREE.Color).copy(dayColors.sky);
   perspFog.color.copy(dayColors.sky);
-  material.color.copy(dayColors.light);
+  // Terrain daylight now drives the skylight channel in-shader (material.color stays white);
+  // caves/interiors keep their baked darkness while the surface follows the sun.
+  lightUniforms.uSky.value.copy(dayColors.light);
   waterUniforms.uLight.value.copy(dayColors.light);
   waterUniforms.uTime.value = now * 0.001;
   lavaUniforms.uTime.value = now * 0.001;
