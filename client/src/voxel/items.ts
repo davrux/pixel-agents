@@ -7,8 +7,8 @@
  */
 import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
-  COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL,
-  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA,
+  COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL, FLINT,
+  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL,
 } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
@@ -109,6 +109,7 @@ export const TOOL_ITEMS: Item[] = [
   toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
   toolItem('hoe', 'wood', 'Hoe'), toolItem('hoe', 'stone', 'Hoe'), toolItem('hoe', 'steel', 'Hoe'),
   bucketItem(BUCKET_EMPTY, 'Bucket', 'bucket'), bucketItem(BUCKET_WATER, 'Water Bucket', 'bucket_water'), bucketItem(BUCKET_LAVA, 'Lava Bucket', 'bucket_lava'),
+  bucketItem(FLINT_STEEL, 'Flint & Steel', 'fire_flint_steel'), // tool-track item; use-action lights fire
 ];
 /** Numeric tool id → its Item (for invItem / ownership checks). */
 const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
@@ -151,6 +152,7 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(WHEAT, 'Wheat', 'default_wheat'),
   materialItem(BREAD, 'Bread', 'farming_bread'),
   materialItem(CHARCOAL, 'Charcoal', 'default_charcoal_lump'),
+  materialItem(FLINT, 'Flint', 'default_flint'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */
@@ -181,7 +183,7 @@ export const DEFAULT_TOOLS: string[] = [
   'shovel_wood', 'shovel_stone', 'shovel_steel',
   'sword_wood', 'sword_stone', 'sword_steel',
   'hoe_wood', 'hoe_stone', 'hoe_steel',
-  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA,
+  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA, 'b' + FLINT_STEEL,
 ];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */

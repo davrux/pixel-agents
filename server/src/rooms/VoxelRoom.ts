@@ -53,6 +53,11 @@ import {
   BUCKET_EMPTY,
   BUCKET_WATER,
   BUCKET_LAVA,
+  FIRE_ID,
+  FLINT,
+  FLINT_STEEL,
+  isFlintSteel,
+  isFlammable,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -152,6 +157,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
   private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
   private fuses: { x: number; y: number; z: number; t: number }[] = []; // lit TNT (t = seconds to boom)
+  private readonly fires = new Map<string, number>(); // burning cell "x,y,z" → age in fire ticks
+  private fireAcc = 0; // seconds toward the next fire tick
   private readonly noHunger = new Set<string>(); // sids with hunger turned OFF (food stays full)
   private cropAcc = 0; // seconds toward the next crop-growth tick
   private hungerAcc = 0; // seconds toward the next hunger tick
@@ -272,6 +279,13 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.growSaplings();
     }
     if (this.fuses.length) this.tickFuses(dt);
+    if (this.fires.size) {
+      this.fireAcc += dt;
+      if (this.fireAcc >= 1) {
+        this.fireAcc = 0;
+        this.tickFire();
+      }
+    }
     this.hungerAcc += dt;
     if (this.hungerAcc >= 4) {
       this.hungerAcc = 0;
@@ -480,6 +494,97 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.state.players.forEach((p, sid) => {
       const d = Math.hypot(p.x - (x + 0.5), p.y - (y + 0.5), p.z - (z + 0.5));
       if (d <= R + 1.5) this.damagePlayer(sid, p, Math.max(2, Math.round((R + 2 - d) * 4)));
+    });
+  }
+
+  /** Flint & steel: light a fire in the aimed AIR cell if a flammable block is adjacent
+   *  (or the cell sits on solid ground). Registers it for the fire tick (spread + burnout). */
+  private igniteFire(client: Client, x: number, y: number, z: number): void {
+    if (this.world.getBlock(x, y, z) !== 0) return; // only into air
+    const NB = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    const nearFlammable = NB.some(([a, b, c]) => isFlammable(this.world.getBlock(x + a, y + b, z + c)));
+    const onGround = this.world.getBlock(x, y - 1, z) !== 0 && !fluidOf(this.world.getBlock(x, y - 1, z));
+    if (!nearFlammable && !onGround) return; // nothing to burn / no footing
+    if (!this.world.setBlock(x, y, z, FIRE_ID)) return;
+    this.broadcastEdit(x, y, z, FIRE_ID);
+    if (this.fires.size < 4000) this.fires.set(`${x},${y},${z}`, 0);
+    this.wearTool(client, client.sessionId, FLINT_STEEL); // flint & steel wears per use
+  }
+
+  /** Fire tick (~1 Hz): extinguish near water, spread to flammable neighbours, consume the
+   *  flammable block it feeds on, and burn out over time (Luanti fire, server-authoritative). */
+  private tickFire(): void {
+    const NB = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0],
+      [0, 0, 1],
+      [0, 0, -1],
+    ];
+    const kill = (kx: number, ky: number, kz: number): void => {
+      if (this.world.setBlock(kx, ky, kz, 0)) this.broadcastEdit(kx, ky, kz, 0);
+      this.fires.delete(`${kx},${ky},${kz}`);
+    };
+    for (const [key, age] of [...this.fires]) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (this.world.getBlock(x, y, z) !== FIRE_ID) {
+        this.fires.delete(key); // block was removed/overwritten elsewhere
+        continue;
+      }
+      // Water anywhere adjacent snuffs it out.
+      if (NB.some(([a, b, c]) => isWaterId(this.world.getBlock(x + a, y + b, z + c)))) {
+        kill(x, y, z);
+        continue;
+      }
+      const fuel = NB.filter(([a, b, c]) => isFlammable(this.world.getBlock(x + a, y + b, z + c)));
+      // Spread: light an air cell next to a flammable block.
+      if (fuel.length && Math.random() < 0.35 && this.fires.size < 4000) {
+        for (const [a, b, c] of NB) {
+          const ax = x + a,
+            ay = y + b,
+            az = z + c;
+          if (this.world.getBlock(ax, ay, az) !== 0) continue;
+          const nb = [
+            [1, 0, 0],
+            [-1, 0, 0],
+            [0, 1, 0],
+            [0, -1, 0],
+            [0, 0, 1],
+            [0, 0, -1],
+          ];
+          if (!nb.some(([i, j, k]) => isFlammable(this.world.getBlock(ax + i, ay + j, az + k)))) continue;
+          if (this.world.setBlock(ax, ay, az, FIRE_ID)) {
+            this.broadcastEdit(ax, ay, az, FIRE_ID);
+            this.fires.set(`${ax},${ay},${az}`, 0);
+          }
+          break;
+        }
+      }
+      // Consume fuel: occasionally burn away one adjacent flammable block.
+      if (fuel.length && Math.random() < 0.25) {
+        const [a, b, c] = fuel[Math.floor(Math.random() * fuel.length)];
+        kill(x + a, y + b, z + c);
+      }
+      // Burn out: no fuel left dies fast; with fuel it lingers, then dies with age.
+      const next = age + 1;
+      if ((!fuel.length && Math.random() < 0.5) || next > 6 || (next > 2 && Math.random() < 0.3)) kill(x, y, z);
+      else this.fires.set(key, next);
+    }
+    // Fire hurts players standing in a burning cell.
+    this.state.players.forEach((p, sid) => {
+      const fx = Math.floor(p.x),
+        fz = Math.floor(p.z);
+      if (this.fires.has(`${fx},${Math.floor(p.y)},${fz}`) || this.fires.has(`${fx},${Math.floor(p.y + 1)},${fz}`)) {
+        this.damagePlayer(sid, p, 2);
+      }
     });
   }
 
@@ -716,6 +821,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // A held bucket scoops/places liquids and ignores the block dispatch below.
     if (isBucket(m.held ?? 0)) {
       this.onBucket(client, x, y, z, m.held!);
+      return;
+    }
+    // Flint & steel lights a fire in the aimed air cell (client sends the air cell,
+    // like emptying a bucket) if a flammable block is next to it.
+    if (isFlintSteel(m.held ?? 0)) {
+      this.igniteFire(client, x, y, z);
       return;
     }
     const block = this.world.getBlock(x, y, z);
@@ -1177,7 +1288,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     // Crops are handled separately (custom harvest drops below), so skip them here.
-    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev) && !isCrop(prev)) this.spawnDrop(dropFor(prev), x, y, z);
+    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev) && !isCrop(prev) && prev !== FIRE_ID) {
+      const drop = prev === 6 && Math.random() < 0.15 ? FLINT : dropFor(prev); // gravel sometimes knaps flint (Luanti)
+      this.spawnDrop(drop, x, y, z);
+    }
+    // Fire is transient state, not an item: putting it out (or overwriting it) unregisters it.
+    if (prev === FIRE_ID && id !== FIRE_ID) this.fires.delete(key);
     // Breaking a real block wears the tool used (one use); a depleted tool shatters.
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.wearTool(client, sid, m.tool ?? 0);
     // Harvest wheat: mature (60) → 1-2 wheat + 1-2 seeds; immature → the seed back.

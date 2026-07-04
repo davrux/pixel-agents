@@ -101,6 +101,7 @@ BLOCKS.push(
   u('gold block', 'gold_block'), // 77
   u('tin block', 'tin_block'), // 78
   u('mese lamp', 'meselamp'), // 79 — light source (emits a glow like a torch)
+  u('fire', 'fire'), // 80 — cross-plant flame; non-solid light source, spreads + burns out
 );
 
 export const WATER_ID = 27;
@@ -113,10 +114,11 @@ export const DOOR_CLOSED = 35;
 export const DOOR_OPEN = 36;
 export const FURNACE_ID = 62;
 export const TNT_ID = 71;
+export const FIRE_ID = 80;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
-export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63, 72, 73, 74, 75, 76]);
+export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63, 72, 73, 74, 75, 76, FIRE_ID]);
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
@@ -129,12 +131,12 @@ export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, ...PLAN
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client draws a warm glow halo at each instance. */
-export const LIGHT_BLOCKS = new Set<number>([TORCH_ID, 79]);
+export const LIGHT_BLOCKS = new Set<number>([TORCH_ID, 79, FIRE_ID]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
-export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65]);
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];

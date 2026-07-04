@@ -78,7 +78,8 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 79;
+export const MAX_BLOCK_ID = 80;
+export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -118,6 +119,13 @@ export const BRONZE_INGOT = 110;
 export const WHEAT = 111; // harvested from mature wheat
 export const BREAD = 112; // 3 wheat → bread; eaten to restore hunger
 export const CHARCOAL = 113; // Luanti: cook wood → charcoal; a coal-equivalent fuel + torch fuel
+export const FLINT = 114; // knapped from gravel; + steel ingot → flint & steel (fire lighter)
+
+/** Flammable blocks — fire spreads to and consumes these (wood/planks/leaves, plants,
+ *  straw, bookshelf, sapling). Everything else resists fire. */
+export const isFlammable = (id: number): boolean =>
+  id === 17 || id === 18 || id === 19 || id === 20 || id === 21 || id === 61 || id === 63 || id === 69 ||
+  (id >= 51 && id <= 55) || (id >= 72 && id <= 76);
 
 // Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
@@ -128,7 +136,11 @@ export const TOOL_IDS: Record<string, number> = {
   shovel_wood: 220, shovel_stone: 221, shovel_steel: 222,
   sword_wood: 230, sword_stone: 231, sword_steel: 232,
   hoe_wood: 240, hoe_stone: 241, hoe_steel: 242,
+  flint_steel: 243,
 };
+/** Flint & steel: a tool-track item (no dig caps) used via the use-action to light fire. */
+export const FLINT_STEEL = 243;
+export const isFlintSteel = (id: number): boolean => id === FLINT_STEEL;
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
 /** Max durability (block-breaks) of a tool, by tier (id%10: 0=wood,1=stone,2=steel).
@@ -212,6 +224,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: TIN_INGOT, count: 9 }], out: { block: 78, count: 1 } }, // → tin block
   { in: [{ block: 14, count: 4 }, { block: GOLD_INGOT, count: 1 }], out: { block: 79, count: 1 } }, // 4 glass + gold → mese lamp
   { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
+  { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

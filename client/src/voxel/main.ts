@@ -7,7 +7,7 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
@@ -1115,6 +1115,15 @@ function useAimedNode(): boolean {
         oz = Math.floor(po.z);
       if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
     }
+    return true;
+  }
+  // Flint & steel lights fire in the air cell against the aimed face (server checks flammability).
+  if (isFlintSteel(heldId)) {
+    const po = h.point.clone().addScaledVector(nrm, 0.5);
+    const ox = Math.floor(po.x),
+      oy = Math.floor(po.y),
+      oz = Math.floor(po.z);
+    if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
     return true;
   }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID) {

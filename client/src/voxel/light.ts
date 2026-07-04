@@ -27,6 +27,7 @@ const SKY_BOTTOM = -CHUNK * 2;
 function sourceLevel(id: number): number {
   if (id === TORCH_ID) return 13;
   if (id === 79) return 14; // mese lamp
+  if (id === 80) return 13; // fire
   if (isLavaId(id)) return 12;
   return 0;
 }
