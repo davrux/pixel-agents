@@ -54,6 +54,7 @@ export interface VoxelHandlers {
   onChestOpen?: (m: { x: number; y: number; z: number; items: Record<string, number> }) => void;
   onFurnaceOpen?: () => void;
   onDurability?: (m: { tool: number; left: number; max: number }) => void;
+  onBoom?: (m: { x: number; y: number; z: number }) => void;
 }
 
 export interface JoinOpts {
@@ -94,6 +95,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('chestOpen', (m: { x: number; y: number; z: number; items: Record<string, number> }) => handlers.onChestOpen?.(m));
   room.onMessage('furnaceOpen', () => handlers.onFurnaceOpen?.());
   room.onMessage('durability', (m: { tool: number; left: number; max: number }) => handlers.onDurability?.(m));
+  room.onMessage('boom', (m: { x: number; y: number; z: number }) => handlers.onBoom?.(m));
   return {
     room,
     sessionId: room.sessionId,

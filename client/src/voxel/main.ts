@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -1059,8 +1059,8 @@ function useAimedNode(): boolean {
     z = Math.floor(p.z);
   const b = world.get(x, y, z);
   const heldId = heldNum();
-  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID) {
-    net?.use(x, y, z, heldId); // chest → 'chestOpen'; door → toggle; furnace → 'furnaceOpen'
+  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID) {
+    net?.use(x, y, z, heldId); // chest → open; door → toggle; furnace → smelt UI; TNT → ignite
     return true;
   }
   // Holding a hoe + aiming at tillable ground (dirt/grass/sand) → farmland (server converts it).
@@ -1704,6 +1704,14 @@ function onInv(m: { block: number; total: number }): void {
   if (chestUiOpen()) chestRender();
   if (furnaceOpen()) smeltRender();
 }
+/** TNT explosion (server): a red flash + a bang if it went off near the player. */
+function onBoom(m: { x: number; y: number; z: number }): void {
+  const d = Math.hypot(m.x - player.pos.x, m.y - player.pos.y, m.z - player.pos.z);
+  if (d > 28) return;
+  dmgFlash.style.opacity = '1';
+  window.setTimeout(() => (dmgFlash.style.opacity = '0'), 120);
+  sound.play('dug', Math.max(0.3, 1 - d / 28), 0.5); // low-pitched thud (no dedicated boom sample)
+}
 /** Tool wear from the server: update the slot's wear bar; toast + forget when it breaks. */
 function onDurability(m: { tool: number; left: number; max: number }): void {
   if (m.left <= 0) {
@@ -1920,7 +1928,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

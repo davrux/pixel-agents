@@ -78,7 +78,8 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 70;
+export const MAX_BLOCK_ID = 71;
+export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
 export const SAPLING = 63; // planted → grows into a tree over time
@@ -194,6 +195,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 15, count: 4 }], out: { block: 68, count: 4 } }, // 4 obsidian → 4 obsidian brick
   { in: [{ block: 18, count: 6 }], out: { block: 69, count: 1 } }, // 6 planks → 1 bookshelf
   { in: [{ block: STEEL_INGOT, count: 9 }], out: { block: 70, count: 1 } }, // 9 steel ingot → steel block
+  { in: [{ block: COAL_LUMP, count: 4 }, { block: 7, count: 4 }], out: { block: TNT_ID, count: 1 } }, // 4 coal + 4 sand → TNT
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

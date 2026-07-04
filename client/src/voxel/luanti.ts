@@ -77,6 +77,7 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   68: { cracky: 1, level: 2 }, // obsidian brick
   69: { choppy: 2, oddly_breakable_by_hand: 3 }, // bookshelf
   70: { cracky: 1, level: 2 }, // steel block
+  71: { crumbly: 3, oddly_breakable_by_hand: 3 }, // tnt (break = pick up; use = ignite)
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).

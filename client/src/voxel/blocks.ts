@@ -92,6 +92,7 @@ BLOCKS.push(
   u('obsidian brick', 'obsidian_brick'), // 68
   b('bookshelf', 'acacia_wood', 'bookshelf', 'acacia_wood', 'bookshelf'), // 69 — wood top/bottom, books on the sides
   u('steel block', 'steel_block'), // 70
+  b('tnt', 'tnt_top', 'tnt_side', 'tnt_bottom', 'tnt_top'), // 71 — ignite (use) → explodes
 );
 
 export const WATER_ID = 27;
@@ -103,6 +104,7 @@ export const CHEST_ID = 34;
 export const DOOR_CLOSED = 35;
 export const DOOR_OPEN = 36;
 export const FURNACE_ID = 62;
+export const TNT_ID = 71;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */

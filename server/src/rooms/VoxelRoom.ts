@@ -36,6 +36,7 @@ import {
   MAX_BLOCK_ID,
   CHEST_ID,
   FURNACE_ID,
+  TNT_ID,
   DOOR_CLOSED,
   DOOR_OPEN,
   WHEAT_SEED,
@@ -145,6 +146,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly noWear = new Set<string>(); // sids with tool durability turned OFF (tools stay max)
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
   private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
+  private fuses: { x: number; y: number; z: number; t: number }[] = []; // lit TNT (t = seconds to boom)
   private cropAcc = 0; // seconds toward the next crop-growth tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
@@ -256,6 +258,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.growCrops();
       this.growSaplings();
     }
+    if (this.fuses.length) this.tickFuses(dt);
     // Dropped items: age out, fall to the ground (Minecraft-style — drops don't hang in
     // the air; break a tree and they drop down), then let nearby players collect them.
     for (const [key, d] of this.drops) {
@@ -386,6 +389,54 @@ export class VoxelRoom extends Room<VoxelRoomState> {
           if (dx * dx + dz * dz + dy * dy * 2 <= 5 && this.world.getBlock(x + dx, top + dy, z + dz) === 0) put(x + dx, top + dy, z + dz, 21);
         }
     put(x, top + 1, z, 21);
+  }
+
+  /** Light a TNT block (from a use-action or a nearby blast). Ignores if already lit. */
+  private igniteTnt(x: number, y: number, z: number, t = 2): void {
+    if (this.world.getBlock(x, y, z) !== TNT_ID) return;
+    if (this.fuses.some((f) => f.x === x && f.y === y && f.z === z)) return;
+    if (this.fuses.length < 200) this.fuses.push({ x, y, z, t });
+  }
+
+  /** Count down lit fuses; detonate the ones that reach zero. */
+  private tickFuses(dt: number): void {
+    const ready = [];
+    for (const f of this.fuses) {
+      f.t -= dt;
+      if (f.t <= 0) ready.push(f);
+    }
+    if (!ready.length) return;
+    this.fuses = this.fuses.filter((f) => f.t > 0);
+    for (const f of ready) this.explodeTnt(f.x, f.y, f.z);
+  }
+
+  /** TNT blast: clear solid blocks in a radius (skip bedrock + fluids), damage nearby
+   *  players, and chain-ignite any other TNT caught in the blast. */
+  private explodeTnt(x: number, y: number, z: number): void {
+    const R = 3;
+    const changes: { x: number; y: number; z: number; id: number }[] = [];
+    for (let dx = -R; dx <= R; dx++)
+      for (let dy = -R; dy <= R; dy++)
+        for (let dz = -R; dz <= R; dz++) {
+          if (dx * dx + dy * dy + dz * dz > R * R) continue;
+          const bx = x + dx,
+            by = y + dy,
+            bz = z + dz;
+          if (by < 0) continue; // keep the bedrock floor
+          const b = this.world.getBlock(bx, by, bz);
+          if (b === 0 || fluidOf(b)) continue;
+          if (b === TNT_ID && !(dx === 0 && dy === 0 && dz === 0)) this.igniteTnt(bx, by, bz, 0.25); // chain reaction
+          else changes.push({ x: bx, y: by, z: bz, id: 0 });
+        }
+    if (changes.length) {
+      this.world.setBlocks(changes);
+      for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+    }
+    this.broadcast('boom', { x: x + 0.5, y: y + 0.5, z: z + 0.5 }); // client flash/shake
+    this.state.players.forEach((p, sid) => {
+      const d = Math.hypot(p.x - (x + 0.5), p.y - (y + 0.5), p.z - (z + 0.5));
+      if (d <= R + 1.5) this.damagePlayer(sid, p, Math.max(2, Math.round((R + 2 - d) * 4)));
+    });
   }
 
   /** Spawn a dropped item at a broken block's cell (rests at the cell centre). */
@@ -622,6 +673,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
     else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
+    else if (block === TNT_ID) this.igniteTnt(x, y, z); // light the fuse (2s → boom)
     // Hoe tills the ground into farmland so crops planted on top can grow: dirt/grass →
     // soil, sand/desert-sand → desert soil.
     else if (isHoe(m.held ?? 0)) {
