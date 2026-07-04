@@ -441,6 +441,7 @@ function onWelcome(m: unknown): void {
   }
   net?.setCreative(settings.creative); // sync build mode to this (possibly fresh) session
   net?.setPeaceful(settings.peaceful); // default peaceful → animals only, no monsters
+  net?.setDurability(settings.durability); // tool wear on/off
   updateHud();
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
@@ -578,7 +579,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -1439,6 +1440,13 @@ autoToolCb.onchange = () => {
   settings.autoTool = autoToolCb.checked;
   saveSettings();
 };
+const durabilityCb = document.getElementById('opt-durability') as HTMLInputElement;
+durabilityCb.checked = settings.durability;
+durabilityCb.onchange = () => {
+  settings.durability = durabilityCb.checked;
+  net?.setDurability(settings.durability); // off → server never wears tools
+  saveSettings();
+};
 const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
 creativeCb.checked = settings.creative;
 creativeCb.onchange = () => {
@@ -1561,6 +1569,7 @@ function currentSettingsBlob(): unknown {
     peaceful: settings.peaceful,
     sound: settings.sound,
     creative: settings.creative,
+    durability: settings.durability,
     skin: playerSkin,
     wield,
     hotbar: { blocks: [...blocks] }, // tool track is now a fixed catalog (owned tools unlock), not persisted
@@ -1585,6 +1594,7 @@ function applyServerSettings(s: unknown): void {
     peaceful: boolean;
     sound: boolean;
     creative: boolean;
+    durability: boolean;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1608,6 +1618,11 @@ function applyServerSettings(s: unknown): void {
     creativeCb.checked = o.creative;
     net?.setCreative(o.creative);
     updateHud();
+  }
+  if (typeof o.durability === 'boolean') {
+    settings.durability = o.durability;
+    durabilityCb.checked = o.durability;
+    net?.setDurability(o.durability);
   }
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;

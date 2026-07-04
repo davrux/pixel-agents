@@ -142,6 +142,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
   private readonly wear = new Map<string, Map<number, number>>(); // sid → (tool id → uses left)
+  private readonly noWear = new Set<string>(); // sids with tool durability turned OFF (tools stay max)
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
   private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
   private cropAcc = 0; // seconds toward the next crop-growth tick
@@ -191,6 +192,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('setCreative', (client, m: { on?: boolean }) => {
       if (m?.on) this.creative.add(client.sessionId); // unlimited-block placing for this client
       else this.creative.delete(client.sessionId);
+    });
+    this.onMessage('setDurability', (client, m: { on?: boolean }) => {
+      // on = tools wear (default); off = tools never break (stay at max).
+      if (m?.on === false) this.noWear.add(client.sessionId);
+      else this.noWear.delete(client.sessionId);
     });
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
@@ -580,7 +586,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
    *  (removed from the inventory). Creative + the bare hand (tool 0) never wear.
    *  Durability is per-session (in-memory) — a reconnected tool comes back full. */
   private wearTool(client: Client, sid: string, tool: number): void {
-    if (tool < TOOL_BASE || this.creative.has(sid)) return;
+    if (tool < TOOL_BASE || this.creative.has(sid) || this.noWear.has(sid)) return;
     const bag = this.inv.get(sid);
     if (!bag || (bag.get(tool) ?? 0) <= 0) return; // don't wear a tool they don't hold
     let byTool = this.wear.get(sid);
@@ -909,6 +915,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.inv.delete(client.sessionId);
     this.creative.delete(client.sessionId);
     this.wear.delete(client.sessionId);
+    this.noWear.delete(client.sessionId);
   }
 
   onDispose(): void {
