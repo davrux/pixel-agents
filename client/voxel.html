@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
     <title>pixel-agents — voxel spike</title>
     <style>
+      /* ── Pixel-menu look (mirrors the project design tokens — see AGENTS.md) ── */
       html,
       body {
         margin: 0;
@@ -58,50 +59,49 @@
         transform: translateX(-50%);
         display: flex;
         gap: 4px;
-        padding: 4px;
-        background: rgba(0, 0, 0, 0.45);
-        border: 3px solid #1c1c1c;
-        border-radius: 4px;
+        padding: 5px;
+        background: rgba(6, 8, 14, 0.55);
+        border: 2px solid #05060b;
+        border-radius: 0.45rem;
+        box-shadow: inset 0 2px 0 #232a44, inset 0 -3px 0 #080a14;
       }
       #hotbar .slot {
         width: 40px;
         height: 40px;
-        border: 3px solid #4a4a4a;
+        border: 2px solid #05060b;
+        background-color: #0a0d16;
         image-rendering: pixelated;
         cursor: pointer;
         position: relative;
+        border-radius: 0.25rem;
       }
-      /* survival stack count on build-block slots */
       #hotbar .slot .count {
         position: absolute;
         right: 0;
         bottom: 0;
         padding: 0 2px;
         font: 700 11px/1.2 'FS Pixel Sans', ui-monospace, monospace;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.6);
+        color: #eef1fb;
+        background: rgba(5, 6, 11, 0.7);
         text-shadow: 1px 1px 0 #000;
         pointer-events: none;
       }
       #hotbar .slot .count.empty {
-        color: #ff8a8a;
+        color: #b34a5a;
       }
       #hotbar .slot.on {
-        border-color: #fff;
-        box-shadow: 0 0 0 2px #000 inset;
+        border-color: #5a92d6;
+        box-shadow: 0 0 0 2px #163862 inset;
       }
-      /* while the inventory is open, lift the bar above its overlay so palette items
-         can be dragged straight onto the real hotbar */
       #hotbar.drop-target {
         z-index: 210;
         outline: 2px dashed #7fd08a;
       }
-      /* divider between the dig-tool track (left) and build-block track (right) */
       #hotbar .hdivider {
         width: 4px;
         align-self: stretch;
         margin: 0 4px;
-        background: repeating-linear-gradient(#6a6a6a, #6a6a6a 4px, #2a2a2a 4px, #2a2a2a 8px);
+        background: repeating-linear-gradient(#2b3252, #2b3252 4px, #0a0d16 4px, #0a0d16 8px);
         border-radius: 2px;
       }
       #mode {
@@ -109,6 +109,7 @@
         left: 10px;
         top: 8px;
         font-size: 14px;
+        color: #e9ecf7;
         text-shadow: 1px 1px 0 #000;
       }
       #help {
@@ -118,10 +119,30 @@
         font-size: 12px;
         line-height: 1.5;
         text-align: right;
+        color: #e9ecf7;
         text-shadow: 1px 1px 0 #000;
         opacity: 0.9;
       }
-      /* settings */
+      /* ── shared control tokens ── */
+      .vx-btn,
+      #settings button {
+        color: #e9ecf7;
+        background: #141826;
+        border: 2px solid #05060b;
+        border-radius: 0.4rem;
+        padding: 6px 14px;
+        cursor: pointer;
+        box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
+      }
+      .vx-btn:hover,
+      #settings button:hover {
+        background: #1a2036;
+      }
+      #settings button.primary {
+        background: #2f66b0;
+        box-shadow: inset 0 2px 0 #5a92d6, inset 0 -3px 0 #163862;
+      }
+      /* ── settings panel ── */
       #settings-btn {
         position: fixed;
         left: 10px;
@@ -130,73 +151,80 @@
         height: 30px;
         font-size: 16px;
         line-height: 24px;
-        color: #fff;
-        background: rgba(0, 0, 0, 0.45);
-        border: 3px solid #1c1c1c;
-        border-radius: 4px;
+        color: #e9ecf7;
+        background: #141826;
+        border: 2px solid #05060b;
+        border-radius: 0.4rem;
         cursor: pointer;
+        box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
       }
       #settings {
         position: fixed;
         left: 12px;
         top: 56px;
-        width: 320px;
-        padding: 12px 16px 16px;
-        background: rgba(20, 20, 24, 0.94);
-        border: 3px solid #1c1c1c;
-        border-radius: 6px;
-        color: #fff;
+        width: 340px;
+        padding: 0 16px 16px;
+        background: #0f1220;
+        border: 2px solid #05060b;
+        border-radius: 0.6rem;
+        color: #e9ecf7;
         font-size: 14px;
+        box-shadow: inset 0 2px 0 #232a44, inset 0 -3px 0 #080a14, 0 12px 28px rgba(0, 0, 0, 0.55);
       }
       #settings[hidden] {
         display: none;
       }
       #settings h3 {
-        margin: -12px -16px 12px;
-        padding: 8px 16px;
+        margin: 0 -16px 12px;
+        padding: 9px 16px;
         font-size: 16px;
+        color: #eef1fb;
         cursor: move;
         user-select: none;
-        background: rgba(255, 255, 255, 0.06);
-        border-bottom: 2px solid #1c1c1c;
-        border-radius: 3px 3px 0 0;
+        background: #141826;
+        border-bottom: 2px solid #05060b;
+        border-radius: 0.5rem 0.5rem 0 0;
       }
       #settings h3::before {
         content: '⠿ ';
-        opacity: 0.5;
+        color: #6f7590;
       }
       #settings label {
         display: flex;
         align-items: center;
         gap: 8px;
         cursor: pointer;
+        margin: 7px 0;
       }
       #settings .hint {
         margin: 12px 0 14px;
-        opacity: 0.7;
+        color: #9aa0b8;
         font-size: 12px;
         line-height: 1.5;
-      }
-      #settings button {
-        color: #fff;
-        background: #2a2a30;
-        border: 2px solid #4a4a4a;
-        border-radius: 4px;
-        padding: 6px 14px;
-        cursor: pointer;
       }
       #tabs {
         display: flex;
         gap: 4px;
         margin-bottom: 12px;
+        background: #0a0d16;
+        border: 2px solid #05060b;
+        border-radius: 0.45rem;
+        padding: 3px;
       }
       #tabs .tab {
         flex: 1;
-        padding: 5px 12px;
+        padding: 5px 8px;
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        color: #9aa0b8;
+        font-size: 12px;
       }
       #tabs .tab.on {
-        background: #3a6ea5;
-        border-color: #5b9bd5;
+        background: #242c46;
+        color: #eef1fb;
+        border-radius: 0.3rem;
+        box-shadow: inset 0 0 0 2px #5a92d6;
       }
       .page[hidden] {
         display: none;
@@ -214,28 +242,27 @@
         flex: 1;
         text-align: center;
         font-weight: bold;
+        color: #eef1fb;
       }
       #world-jump {
         display: flex;
         gap: 8px;
         margin: 6px 0 10px;
       }
-      #world-input {
-        flex: 1;
-        background: #14161c;
-        color: #fff;
-        border: 2px solid #3a4150;
-        border-radius: 4px;
+      #world-input,
+      #world-seed,
+      #world-select {
+        background: #171b2b;
+        color: #e9ecf7;
+        border: 2px solid #05060b;
+        border-radius: 0.35rem;
         padding: 6px 8px;
         font: 13px ui-monospace, monospace;
       }
-      #world-select {
-        background: #14161c;
-        color: #fff;
-        border: 2px solid #3a4150;
-        border-radius: 4px;
-        padding: 5px;
-        font: 13px ui-monospace, monospace;
+      #world-input,
+      #world-seed {
+        flex: 1;
+        min-width: 0;
       }
       #settings-foot {
         display: flex;
@@ -256,7 +283,7 @@
       #hand-values {
         margin: 8px 0;
         font-size: 11px;
-        opacity: 0.75;
+        color: #6f7590;
         font-family: ui-monospace, monospace;
         white-space: nowrap;
         overflow-x: auto;
@@ -277,25 +304,40 @@
     <div id="settings" hidden>
       <h3>Settings</h3>
       <div id="tabs">
-        <button class="tab on" data-tab="camera" type="button">Camera</button>
-        <button class="tab" data-tab="items" type="button">Items</button>
+        <button class="tab on" data-tab="gameplay" type="button">Gameplay</button>
+        <button class="tab" data-tab="camera" type="button">Camera</button>
         <button class="tab" data-tab="world" type="button">World</button>
+        <button class="tab" data-tab="item" type="button">Item</button>
       </div>
-      <div class="page" data-page="camera">
+      <div class="page" data-page="gameplay">
+        <label><input type="checkbox" id="opt-creative" /> Creative mode (fly, no damage, everything unlocked)</label>
+        <label><input type="checkbox" id="opt-peaceful" /> Peaceful (no monsters spawn)</label>
+        <label><input type="checkbox" id="opt-fly" /> Fly (Space = up, Shift = down, no gravity)</label>
+        <label><input type="checkbox" id="opt-autotool" /> Auto-switch to best tool (else manual, like Minecraft)</label>
+        <label><input type="checkbox" id="opt-sound" /> Sound effects (footsteps, digging, …)</label>
+        <p class="hint">Survival: dig to collect, craft tools, watch your health. Creative unlocks everything + flying.</p>
+      </div>
+      <div class="page" data-page="camera" hidden>
         <label><input type="checkbox" id="opt-inverty" /> Invert Y-axis</label>
         <label><input type="checkbox" id="opt-camcollide" /> Camera collision (don't clip through blocks)</label>
-        <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
-        <label><input type="checkbox" id="opt-fly" /> Fly (Space = up, Shift = down, no gravity)</label>
-        <label><input type="checkbox" id="opt-peaceful" /> Peaceful (no monsters spawn)</label>
-        <label><input type="checkbox" id="opt-sound" /> Sound effects (footsteps, digging, …)</label>
         <p class="hint">
           Rotate camera: hold <b>right mouse button</b> (free — up/down/around).<br />
           Scroll = zoom &middot; Iso: <b>left-click</b> = walk there.
         </p>
       </div>
-      <div class="page" data-page="items" hidden>
-        <label><input type="checkbox" id="opt-autotool" /> Auto-switch to best tool (else manual, like Minecraft)</label>
-        <label><input type="checkbox" id="opt-creative" /> Creative (unlimited blocks — off = survival: dig to collect)</label>
+      <div class="page" data-page="world" hidden>
+        <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
+        <p class="hint" style="margin-top: 10px">Current world: <b id="world-current">default</b></p>
+        <label>Go to: <select id="world-select"></select></label>
+        <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
+        <div id="world-jump">
+          <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
+          <input id="world-seed" type="text" placeholder="seed (optional)" />
+          <button id="world-go" class="primary">Go</button>
+        </div>
+        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed only applies to a new world.</p>
+      </div>
+      <div class="page" data-page="item" hidden>
         <p class="hint">How the held item attaches to the figure (live):</p>
         <div id="item-select">
           <button id="item-prev" type="button">&lsaquo;</button>
@@ -307,20 +349,9 @@
         <button id="hand-copy">Copy values</button>
         <button id="hand-reset">Reset</button>
       </div>
-      <div class="page" data-page="world" hidden>
-        <p class="hint">Current world: <b id="world-current">default</b></p>
-        <label>Go to: <select id="world-select"></select></label>
-        <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
-        <div id="world-jump">
-          <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
-          <input id="world-seed" type="text" placeholder="seed (optional)" />
-          <button id="world-go">Go</button>
-        </div>
-        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed only applies to a new world.</p>
-      </div>
       <div id="settings-foot">
         <button id="settings-logout">Log out</button>
-        <button id="settings-close">Close</button>
+        <button id="settings-close" class="primary">Close</button>
       </div>
     </div>
     <div id="help">

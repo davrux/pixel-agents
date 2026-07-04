@@ -25,6 +25,7 @@ import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout } from '../net/room';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
+import { injectPixelSkin } from './ui.js';
 
 // The CC0 "Simple Skins" set staged under textures/player/skins/.
 const SKINS = [...Array(31)].map((_, i) => `character_${i + 1}`).concat(['character_900']);
@@ -2144,4 +2145,5 @@ function frame(now: number): void {
   renderer.render(scene, activeCam());
   requestAnimationFrame(frame);
 }
+injectPixelSkin(); // one pixel-menu look for all voxel panels (appended last → wins the cascade)
 requestAnimationFrame(frame);
