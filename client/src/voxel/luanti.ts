@@ -72,6 +72,11 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   63: { snappy: 3, oddly_breakable_by_hand: 3 }, // sapling
   64: { crumbly: 3, oddly_breakable_by_hand: 3 }, // soil (farmland)
   65: { crumbly: 3, oddly_breakable_by_hand: 3 }, // desert soil
+  66: { cracky: 2 }, // stone brick
+  67: { crumbly: 2, cracky: 3 }, // sandstone brick
+  68: { cracky: 1, level: 2 }, // obsidian brick
+  69: { choppy: 2, oddly_breakable_by_hand: 3 }, // bookshelf
+  70: { cracky: 1, level: 2 }, // steel block
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).

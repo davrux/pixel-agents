@@ -8,7 +8,7 @@ These bundled textures are **not** ours; they are used under their licenses.
 - License: **CC BY-SA 4.0** (<https://creativecommons.org/licenses/by-sa/4.0/>)
 - Used files (renamed): `blocks/*.png` (grass/dirt/stone/sand/tree/leaves/brick;
   ladder, torch, chest, door, furnace; mineral_* ore overlays; tall grass, fern, rose,
-  dandelion, dry shrub, cactus; wheat crop stages, straw; sapling; soil, desert soil), `items/*.png` (wood/stone/
+  dandelion, dry shrub, cactus; wheat crop stages, straw; sapling; soil, desert soil; stone/sandstone/obsidian brick, bookshelf, steel block), `items/*.png` (wood/stone/
   steel pick, axe, shovel, sword; stick; coal/iron/copper/tin/gold lump; steel/copper/
   tin/gold/bronze ingot; wheat; wood/stone/steel hoe), `player/character.png`.
 - Per CC BY-SA 4.0: attribution given here, and these texture files (and any

@@ -87,6 +87,11 @@ BLOCKS.push(
   u('sapling', 'sapling'), // 63 — cross-plant; grows into a tree over time
   b('soil', 'soil', 'dirt', 'dirt', 'soil'), // 64 — farmland (made by a hoe; crops grow on it)
   b('desert soil', 'desert_soil', 'desert_sand', 'desert_sand', 'desert_soil'), // 65 — tilled sand
+  u('stone brick', 'stone_brick'), // 66
+  u('sandstone brick', 'sandstone_brick'), // 67
+  u('obsidian brick', 'obsidian_brick'), // 68
+  b('bookshelf', 'acacia_wood', 'bookshelf', 'acacia_wood', 'bookshelf'), // 69 — wood top/bottom, books on the sides
+  u('steel block', 'steel_block'), // 70
 );
 
 export const WATER_ID = 27;
