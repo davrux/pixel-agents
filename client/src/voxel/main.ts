@@ -12,7 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -1207,8 +1207,8 @@ function useAimedNode(): boolean {
     promptSign(x, y, z);
     return true;
   }
-  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID) {
-    net?.use(x, y, z, heldId); // chest → open; door → toggle; furnace → smelt UI; TNT → ignite
+  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN) {
+    net?.use(x, y, z, heldId); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite
     return true;
   }
   // Holding a hoe + aiming at tillable ground (dirt/grass/sand) → farmland (server converts it).

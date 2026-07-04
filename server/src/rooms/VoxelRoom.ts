@@ -59,6 +59,8 @@ import {
   isFlintSteel,
   isFlammable,
   SIGN_ID,
+  FENCE_GATE_CLOSED,
+  FENCE_GATE_OPEN,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -855,6 +857,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const block = this.world.getBlock(x, y, z);
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
+    else if (block === FENCE_GATE_CLOSED || block === FENCE_GATE_OPEN) this.toggleGate(x, y, z);
     else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
     else if (block === TNT_ID) this.igniteTnt(x, y, z); // light the fuse (2s → boom)
     // Hoe tills the ground into farmland so crops planted on top can grow: dirt/grass →
@@ -863,6 +866,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const soil = block === 2 || block === 1 ? SOIL : block === 7 || block === 8 ? DESERT_SOIL : 0;
       if (soil && this.world.setBlock(x, y, z, soil)) this.broadcastEdit(x, y, z, soil);
     }
+  }
+
+  /** Toggle a fence gate open (non-solid, passable) ↔ closed (solid). Single cell. */
+  private toggleGate(x: number, y: number, z: number): void {
+    const to = this.world.getBlock(x, y, z) === FENCE_GATE_CLOSED ? FENCE_GATE_OPEN : FENCE_GATE_CLOSED;
+    if (this.world.setBlock(x, y, z, to)) this.broadcastEdit(x, y, z, to);
   }
 
   /** Toggle a 2-tall door open/closed: flip every door cell in this vertical pair

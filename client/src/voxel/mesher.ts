@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, PLANT } from './blocks.js';
+import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN } from './blocks.js';
 import { MAX_LIGHT, type LightSampler } from './light.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
@@ -80,6 +80,46 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
     return fluidOf(cellAt(x, y + 1, z)) === f ? 1 : 1 - (fluidLevel(f, wid) / 8) * 0.82;
   };
 
+  // Fence / closed gate: a central post plus rails toward each connected neighbour
+  // (another fence-shape, a gate, or any opaque solid). Built from axis-aligned boxes;
+  // the DoubleSide material means winding is irrelevant. Flat face-shade + the cell's
+  // baked light (fence is transparent, so its own cell carries sky/block light).
+  const buildFence = (x: number, y: number, z: number, id: number): void => {
+    const def = BLOCKS[id] ?? BLOCKS[3];
+    const rect = (fam: 'top' | 'side' | 'bottom'): { u0: number; u1: number; vBot: number; vTop: number } => atlas.rect(def.tiles[fam]);
+    const csky = light.sky(x, y, z) / MAX_LIGHT;
+    const cblk = light.block(x, y, z) / MAX_LIGHT;
+    const uv = [[0, 0], [0, 1], [1, 1], [1, 0]];
+    const quad = (fam: 'top' | 'side' | 'bottom', cs: number[][]): void => {
+      const r = rect(fam);
+      const shade = SHADE[fam];
+      for (const i of [0, 1, 2, 0, 2, 3]) {
+        opq.pos.push(cs[i][0], cs[i][1], cs[i][2]);
+        opq.col.push(shade, shade, shade);
+        opq.sky.push(csky);
+        opq.blk.push(cblk);
+        opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
+      }
+    };
+    const box = (ax: number, ay: number, az: number, bx: number, by: number, bz: number): void => {
+      quad('top', [[ax, by, az], [bx, by, az], [bx, by, bz], [ax, by, bz]]);
+      quad('bottom', [[ax, ay, az], [bx, ay, az], [bx, ay, bz], [ax, ay, bz]]);
+      quad('side', [[ax, ay, az], [ax, by, az], [bx, by, az], [bx, ay, az]]);
+      quad('side', [[ax, ay, bz], [ax, by, bz], [bx, by, bz], [bx, ay, bz]]);
+      quad('side', [[ax, ay, az], [ax, by, az], [ax, by, bz], [ax, ay, bz]]);
+      quad('side', [[bx, ay, az], [bx, by, az], [bx, by, bz], [bx, ay, bz]]);
+    };
+    box(x + 0.375, y, z + 0.375, x + 0.625, y + 1, z + 0.625); // central post
+    const conn = (dx: number, dz: number): boolean => {
+      const nid = cellAt(x + dx, y, z + dz);
+      return FENCE_SHAPE.has(nid) || nid === FENCE_GATE_OPEN || occludes(x + dx, y, z + dz);
+    };
+    if (conn(1, 0)) { box(x + 0.625, y + 0.3, z + 0.4375, x + 1, y + 0.45, z + 0.5625); box(x + 0.625, y + 0.6, z + 0.4375, x + 1, y + 0.75, z + 0.5625); }
+    if (conn(-1, 0)) { box(x, y + 0.3, z + 0.4375, x + 0.375, y + 0.45, z + 0.5625); box(x, y + 0.6, z + 0.4375, x + 0.375, y + 0.75, z + 0.5625); }
+    if (conn(0, 1)) { box(x + 0.4375, y + 0.3, z + 0.625, x + 0.5625, y + 0.45, z + 1); box(x + 0.4375, y + 0.6, z + 0.625, x + 0.5625, y + 0.75, z + 1); }
+    if (conn(0, -1)) { box(x + 0.4375, y + 0.3, z, x + 0.5625, y + 0.45, z + 0.375); box(x + 0.4375, y + 0.6, z, x + 0.5625, y + 0.75, z + 0.375); }
+  };
+
   for (let x = x0; x < x0 + CHUNK; x++) {
     for (let y = y0; y < y0 + CHUNK; y++) {
       for (let z = z0; z < z0 + CHUNK; z++) {
@@ -106,6 +146,11 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
               opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
             }
           }
+          continue;
+        }
+        // Fence / closed gate: custom post + rails geometry (see buildFence).
+        if (FENCE_SHAPE.has(id)) {
+          buildFence(x, y, z, id);
           continue;
         }
         const fluid = fluidOf(id); // water/lava def, or null

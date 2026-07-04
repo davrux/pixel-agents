@@ -78,10 +78,14 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 81;
+export const MAX_BLOCK_ID = 84;
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
 export const SIGN_MAX_LEN = 120; // max characters of sign text
+export const FENCE_ID = 82; // fence: thin post + rails to neighbours; solid, doesn't cull faces
+export const FENCE_GATE_CLOSED = 83; // gate (closed): solid; use → toggles to open
+export const FENCE_GATE_OPEN = 84; // gate (open): non-solid + not rendered (walk through)
+export const isFenceGate = (id: number): boolean => id === FENCE_GATE_CLOSED || id === FENCE_GATE_OPEN;
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -174,6 +178,7 @@ export const ORE_DROPS: Record<number, number> = {
   [DOOR_OPEN]: DOOR_CLOSED,
   [SOIL]: 2, // tilled soil breaks back into dirt
   [DESERT_SOIL]: 8, // desert soil breaks back into desert sand
+  [FENCE_GATE_OPEN]: FENCE_GATE_CLOSED, // an open gate drops the (closed) gate item
 };
 export const dropFor = (blockId: number): number => ORE_DROPS[blockId] ?? blockId;
 
@@ -228,6 +233,8 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
   { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
   { in: [{ block: 18, count: 6 }], out: { block: SIGN_ID, count: 3 } }, // 6 planks → 3 signs
+  { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_ID, count: 6 } }, // 2 planks + 4 sticks → 6 fences
+  { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_GATE_CLOSED, count: 1 } }, // → 1 fence gate
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

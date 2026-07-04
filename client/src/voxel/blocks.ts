@@ -103,6 +103,9 @@ BLOCKS.push(
   u('mese lamp', 'meselamp'), // 79 — light source (emits a glow like a torch)
   u('fire', 'fire'), // 80 — cross-plant flame; non-solid light source, spreads + burns out
   b('sign', 'sign', 'sign', 'sign', 'sign'), // 81 — use-action edits its text (rendered in-world)
+  u('fence', 'fence'), // 82 — post + rails (custom geometry); solid, connects to neighbours
+  u('fence gate', 'fence'), // 83 — gate (closed): solid; use → open
+  u('fence gate (open)', 'fence'), // 84 — gate (open): non-solid + not rendered
 );
 
 export const WATER_ID = 27;
@@ -117,28 +120,35 @@ export const FURNACE_ID = 62;
 export const TNT_ID = 71;
 export const FIRE_ID = 80;
 export const SIGN_ID = 81;
+export const FENCE_ID = 82;
+export const FENCE_GATE_CLOSED = 83;
+export const FENCE_GATE_OPEN = 84;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
 export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63, 72, 73, 74, 75, 76, FIRE_ID]);
 
+/** Fence-shaped blocks: rendered as a central post + rails auto-connecting to solid /
+ *  fence neighbours (custom geometry, not a cube). Fence + closed gate. */
+export const FENCE_SHAPE = new Set<number>([FENCE_ID, FENCE_GATE_CLOSED]);
+
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
  *  the same id. ice, glass, obsidian glass, leaves, portal, ladder, torch, doors, plants. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, ...PLANT]);
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
 
 /** Non-solid blocks: the player passes through them (like fluids). Ladders, torches,
  *  open doors, cross-plants. */
-export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, ...PLANT]);
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, FENCE_GATE_OPEN, ...PLANT]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client draws a warm glow halo at each instance. */
 export const LIGHT_BLOCKS = new Set<number>([TORCH_ID, 79, FIRE_ID]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
-export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
+export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
-export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID]);
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];
