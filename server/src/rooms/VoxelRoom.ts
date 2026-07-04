@@ -61,7 +61,7 @@ import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
 import { voxelPositions } from '../voxel/positionStore.js';
-import { voxelInventory } from '../voxel/inventoryStore.js';
+import { voxelInventory, voxelDurability } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
 import { chests } from '../voxel/chestStore.js';
 
@@ -941,6 +941,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         bag.forEach((c, id) => (items[id] = c));
         client.send('invAll', items);
       }
+      // Restore per-tool durability + push it so the client shows the wear bars.
+      const wear = voxelDurability.get(auth.userId);
+      if (wear && wear.size) {
+        this.wear.set(client.sessionId, wear);
+        wear.forEach((left, tool) => client.send('durability', { tool, left, max: toolMaxUses(tool) }));
+      }
     }
     // Everyone starts with a wooden pickaxe so they can bootstrap the tool progression
     // (hand-mine wood → planks → sticks → craft better tools). Only if they own no tool.
@@ -961,6 +967,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Persist the survival inventory so it survives reconnects (and carries across worlds).
     const bag = this.inv.get(client.sessionId);
     if (auth?.userId && bag) voxelInventory.set(auth.userId, bag);
+    const wear = this.wear.get(client.sessionId);
+    if (auth?.userId && wear) voxelDurability.set(auth.userId, wear); // persist half-worn tools
     if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);

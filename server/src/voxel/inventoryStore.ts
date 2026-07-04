@@ -42,3 +42,38 @@ export const voxelInventory = {
     setStmt.run(userId, json);
   },
 };
+
+// Per-user tool durability (tool id → uses left), so a half-worn tool stays worn across
+// reconnects. Same shape/pattern as the inventory above.
+db.exec('CREATE TABLE IF NOT EXISTS voxel_durability (user_id TEXT PRIMARY KEY, wear TEXT)');
+const durGet = db.prepare('SELECT wear FROM voxel_durability WHERE user_id = ?');
+const durSet = db.prepare(
+  'INSERT INTO voxel_durability (user_id, wear) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET wear = excluded.wear',
+);
+
+export const voxelDurability = {
+  get(userId: string): Map<number, number> | null {
+    if (!userId) return null;
+    const r = durGet.get(userId) as { wear: string } | undefined;
+    if (!r?.wear) return null;
+    try {
+      const obj = JSON.parse(r.wear) as Record<string, number>;
+      const m = new Map<number, number>();
+      for (const [k, v] of Object.entries(obj)) {
+        const id = Number(k);
+        if (Number.isFinite(id) && Number.isFinite(v) && v > 0) m.set(id, v);
+      }
+      return m;
+    } catch {
+      return null;
+    }
+  },
+  set(userId: string, wear: Map<number, number>): void {
+    if (!userId) return;
+    const obj: Record<string, number> = {};
+    for (const [id, c] of wear) if (c > 0) obj[id] = c;
+    const json = JSON.stringify(obj);
+    if (json.length > MAX_JSON) return;
+    durSet.run(userId, json);
+  },
+};
