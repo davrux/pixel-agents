@@ -42,6 +42,7 @@ import {
   WHEAT_SEED,
   WHEAT_MATURE,
   WHEAT,
+  BREAD,
   isCrop,
   SAPLING,
   SOIL,
@@ -147,7 +148,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
   private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
   private fuses: { x: number; y: number; z: number; t: number }[] = []; // lit TNT (t = seconds to boom)
+  private readonly noHunger = new Set<string>(); // sids with hunger turned OFF (food stays full)
   private cropAcc = 0; // seconds toward the next crop-growth tick
+  private hungerAcc = 0; // seconds toward the next hunger tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -200,6 +203,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (m?.on === false) this.noWear.add(client.sessionId);
       else this.noWear.delete(client.sessionId);
     });
+    this.onMessage('setHunger', (client, m: { on?: boolean }) => {
+      // on = hunger drains + can starve (default); off = food stays full.
+      if (m?.on === false) this.noHunger.add(client.sessionId);
+      else this.noHunger.delete(client.sessionId);
+    });
+    this.onMessage('eat', (client) => this.onEat(client));
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
     this.onMessage('use', (client, m: { x: number; y: number; z: number; held?: number }) => this.onUse(client, m));
@@ -259,6 +268,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.growSaplings();
     }
     if (this.fuses.length) this.tickFuses(dt);
+    this.hungerAcc += dt;
+    if (this.hungerAcc >= 4) {
+      this.hungerAcc = 0;
+      this.tickHunger();
+    }
     // Dropped items: age out, fall to the ground (Minecraft-style — drops don't hang in
     // the air; break a tree and they drop down), then let nearby players collect them.
     for (const [key, d] of this.drops) {
@@ -389,6 +403,32 @@ export class VoxelRoom extends Room<VoxelRoomState> {
           if (dx * dx + dz * dz + dy * dy * 2 <= 5 && this.world.getBlock(x + dx, top + dy, z + dz) === 0) put(x + dx, top + dy, z + dz, 21);
         }
     put(x, top + 1, z, 21);
+  }
+
+  /** Hunger tick (~every 4s): drain food, starve at 0, regen HP when well-fed. Players
+   *  with hunger OFF keep full food; creative never starves (damagePlayer skips it). */
+  private tickHunger(): void {
+    this.state.players.forEach((p, sid) => {
+      if (p.hp <= 0) return;
+      if (this.noHunger.has(sid)) {
+        if (p.food !== 20) p.food = 20;
+        return;
+      }
+      if (Math.random() < 0.4) p.food = Math.max(0, p.food - 1); // ~1 food / 10s
+      if (p.food === 0) this.damagePlayer(sid, p, 1); // starving
+      else if (p.food >= 18 && p.hp < (p.hpMax || PLAYER_HP)) p.hp = Math.min(p.hpMax || PLAYER_HP, p.hp + 1); // regen
+    });
+  }
+
+  /** Eat one bread from the inventory (if hungry) → +6 food. */
+  private onEat(client: Client): void {
+    const p = this.state.players.get(client.sessionId);
+    const bag = this.inv.get(client.sessionId);
+    if (!p || !bag || p.food >= 20 || (bag.get(BREAD) ?? 0) <= 0) return;
+    const left = (bag.get(BREAD) ?? 0) - 1;
+    left > 0 ? bag.set(BREAD, left) : bag.delete(BREAD);
+    client.send('inv', { block: BREAD, total: Math.max(0, left) });
+    p.food = Math.min(20, p.food + 6);
   }
 
   /** Light a TNT block (from a use-action or a nearby blast). Ignores if already lit. */
@@ -976,6 +1016,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.creative.delete(client.sessionId);
     this.wear.delete(client.sessionId);
     this.noWear.delete(client.sessionId);
+    this.noHunger.delete(client.sessionId);
   }
 
   onDispose(): void {

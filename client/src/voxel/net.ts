@@ -32,6 +32,8 @@ export interface VoxelNet {
   setPeaceful(on: boolean): void;
   setCreative(on: boolean): void;
   setDurability(on: boolean): void;
+  setHunger(on: boolean): void;
+  eat(): void;
   craft(i: number): void;
   smelt(i: number): void;
   use(x: number, y: number, z: number, held?: number): void;
@@ -109,6 +111,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     setPeaceful: (on) => room.send('setPeaceful', { on }),
     setCreative: (on) => room.send('setCreative', { on }),
     setDurability: (on) => room.send('setDurability', { on }),
+    setHunger: (on) => room.send('setHunger', { on }),
+    eat: () => room.send('eat', {}),
     craft: (i) => room.send('craft', { i }),
     smelt: (i) => room.send('smelt', { i }),
     use: (x, y, z, held = 0) => room.send('use', { x, y, z, held }),

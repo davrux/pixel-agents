@@ -116,6 +116,7 @@ export const TIN_INGOT = 108;
 export const GOLD_INGOT = 109;
 export const BRONZE_INGOT = 110;
 export const WHEAT = 111; // harvested from mature wheat
+export const BREAD = 112; // 3 wheat → bread; eaten to restore hunger
 
 // Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
@@ -196,6 +197,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 18, count: 6 }], out: { block: 69, count: 1 } }, // 6 planks → 1 bookshelf
   { in: [{ block: STEEL_INGOT, count: 9 }], out: { block: 70, count: 1 } }, // 9 steel ingot → steel block
   { in: [{ block: COAL_LUMP, count: 4 }, { block: 7, count: 4 }], out: { block: TNT_ID, count: 1 } }, // 4 coal + 4 sand → TNT
+  { in: [{ block: WHEAT, count: 3 }], out: { block: BREAD, count: 1 } }, // 3 wheat → 1 bread (food)
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

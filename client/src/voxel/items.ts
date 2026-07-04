@@ -7,7 +7,7 @@
  */
 import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
-  COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT,
+  COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD,
 } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
@@ -144,6 +144,7 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(GOLD_INGOT, 'Gold Ingot', 'default_gold_ingot'),
   materialItem(BRONZE_INGOT, 'Bronze Ingot', 'default_bronze_ingot'),
   materialItem(WHEAT, 'Wheat', 'default_wheat'),
+  materialItem(BREAD, 'Bread', 'farming_bread'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */

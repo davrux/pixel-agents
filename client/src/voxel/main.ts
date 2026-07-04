@@ -322,6 +322,7 @@ interface RemotePlayer {
   state: string;
   hp: number;
   hpMax: number;
+  food: number;
 }
 interface RemoteNpc {
   x: number;
@@ -442,6 +443,7 @@ function onWelcome(m: unknown): void {
   net?.setCreative(settings.creative); // sync build mode to this (possibly fresh) session
   net?.setPeaceful(settings.peaceful); // default peaceful → animals only, no monsters
   net?.setDurability(settings.durability); // tool wear on/off
+  net?.setHunger(settings.hunger); // hunger on/off
   updateHud();
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
@@ -579,7 +581,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -668,6 +670,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   if (e.code === 'KeyF' && !menuOpen()) return attackNearestNpc(); // melee the nearest NPC
+  if (e.code === 'KeyG' && !menuOpen()) return void net?.eat(); // eat bread → restore hunger
   const n = Number(e.key);
   if (n >= 1 && n <= tools.length + blocks.length) selectSlot(n - 1);
   keys.add(e.code);
@@ -753,8 +756,11 @@ hpStyle.textContent = `
   #vx-hp{position:fixed;left:14px;bottom:64px;width:180px;height:18px;background:rgba(0,0,0,.5);
     border:3px solid #1c1c1c;border-radius:4px;overflow:hidden;font-family:'FS Pixel Sans',ui-monospace,monospace;z-index:60;}
   #vx-hp .fill{position:absolute;inset:0;background:linear-gradient(#e05a5a,#b83232);width:100%;transition:width .15s;}
-  #vx-hp span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
+  #vx-hp span,#vx-food span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
     font-size:.72rem;text-shadow:1px 1px 0 #000;}
+  #vx-food{position:fixed;left:14px;bottom:86px;width:180px;height:16px;background:rgba(0,0,0,.5);
+    border:3px solid #1c1c1c;border-radius:4px;overflow:hidden;font-family:'FS Pixel Sans',ui-monospace,monospace;z-index:60;}
+  #vx-food .fill{position:absolute;inset:0;background:linear-gradient(#d0973f,#8a5a1e);width:100%;transition:width .15s;}
   #vx-dmg{position:fixed;inset:0;pointer-events:none;z-index:55;opacity:0;transition:opacity .25s;
     box-shadow:inset 0 0 120px 40px rgba(200,0,0,.75);}`;
 document.head.appendChild(hpStyle);
@@ -762,6 +768,16 @@ const hpBar = document.createElement('div');
 hpBar.id = 'vx-hp';
 hpBar.innerHTML = '<div class="fill"></div><span></span>';
 (document.getElementById('game') ?? document.body).appendChild(hpBar);
+const foodBar = document.createElement('div');
+foodBar.id = 'vx-food';
+foodBar.innerHTML = '<div class="fill"></div><span></span>';
+(document.getElementById('game') ?? document.body).appendChild(foodBar);
+const foodFill = foodBar.querySelector('.fill') as HTMLDivElement;
+const foodText = foodBar.querySelector('span') as HTMLSpanElement;
+function updateFoodBar(food: number): void {
+  foodFill.style.width = Math.max(0, Math.min(100, (food / 20) * 100)) + '%';
+  foodText.textContent = `🍖 ${food} / 20`;
+}
 const dmgFlash = document.createElement('div');
 dmgFlash.id = 'vx-dmg';
 (document.getElementById('game') ?? document.body).appendChild(dmgFlash);
@@ -1449,6 +1465,13 @@ durabilityCb.onchange = () => {
   net?.setDurability(settings.durability); // off → server never wears tools
   saveSettings();
 };
+const hungerCb = document.getElementById('opt-hunger') as HTMLInputElement;
+hungerCb.checked = settings.hunger;
+hungerCb.onchange = () => {
+  settings.hunger = hungerCb.checked;
+  net?.setHunger(settings.hunger); // off → food stays full, no starving
+  saveSettings();
+};
 const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
 creativeCb.checked = settings.creative;
 creativeCb.onchange = () => {
@@ -1572,6 +1595,7 @@ function currentSettingsBlob(): unknown {
     sound: settings.sound,
     creative: settings.creative,
     durability: settings.durability,
+    hunger: settings.hunger,
     view: mode,
     skin: playerSkin,
     wield,
@@ -1598,6 +1622,7 @@ function applyServerSettings(s: unknown): void {
     sound: boolean;
     creative: boolean;
     durability: boolean;
+    hunger: boolean;
     view: CamMode;
     skin: string;
     wield: Record<string, Wield>;
@@ -1627,6 +1652,11 @@ function applyServerSettings(s: unknown): void {
     settings.durability = o.durability;
     durabilityCb.checked = o.durability;
     net?.setDurability(o.durability);
+  }
+  if (typeof o.hunger === 'boolean') {
+    settings.hunger = o.hunger;
+    hungerCb.checked = o.hunger;
+    net?.setHunger(o.hunger);
   }
   if (o.view === 'iso' || o.view === 'third' || o.view === 'first') {
     mode = o.view; // restore the last-used camera view
@@ -2192,7 +2222,10 @@ function frameBody(now: number): void {
   // Own HP → bar (+ damage flash on decrease).
   if (net) {
     const me = (net.room.state as unknown as RemoteState).players.get(net.sessionId);
-    if (me) updateHpBar(me.hp, me.hpMax);
+    if (me) {
+      updateHpBar(me.hp, me.hpMax);
+      updateFoodBar(me.food);
+    }
   }
   placeCamera();
   // Fluid murk: dense fog + screen overlay when the camera is submerged (lava wins if both).
