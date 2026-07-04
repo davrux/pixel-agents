@@ -78,7 +78,7 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 71;
+export const MAX_BLOCK_ID = 76;
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -94,7 +94,7 @@ export const STRAW = 61; // 9 wheat → a straw block
 export const isCrop = (id: number): boolean => id >= WHEAT_SEED && id <= WHEAT_MATURE;
 /** Blocks that need a solid block beneath them: cross-plants (51-55), wheat crops
  *  (57-60) and saplings (63). When their support is removed they pop off + drop. */
-export const needsGround = (id: number): boolean => (id >= 51 && id <= 55) || isCrop(id) || id === SAPLING;
+export const needsGround = (id: number): boolean => (id >= 51 && id <= 55) || (id >= 72 && id <= 76) || isCrop(id) || id === SAPLING;
 export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
 export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
 export const COPPER_ORE = 37;

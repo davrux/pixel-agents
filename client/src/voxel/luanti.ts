@@ -78,6 +78,11 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   69: { choppy: 2, oddly_breakable_by_hand: 3 }, // bookshelf
   70: { cracky: 1, level: 2 }, // steel block
   71: { crumbly: 3, oddly_breakable_by_hand: 3 }, // tnt (break = pick up; use = ignite)
+  72: { snappy: 3, oddly_breakable_by_hand: 3 }, // papyrus
+  73: { snappy: 3, oddly_breakable_by_hand: 3 }, // red mushroom
+  74: { snappy: 3, oddly_breakable_by_hand: 3 }, // brown mushroom
+  75: { snappy: 3, oddly_breakable_by_hand: 3 }, // geranium
+  76: { snappy: 3, oddly_breakable_by_hand: 3 }, // viola
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).

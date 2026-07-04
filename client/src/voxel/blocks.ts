@@ -93,6 +93,11 @@ BLOCKS.push(
   b('bookshelf', 'acacia_wood', 'bookshelf', 'acacia_wood', 'bookshelf'), // 69 — wood top/bottom, books on the sides
   u('steel block', 'steel_block'), // 70
   b('tnt', 'tnt_top', 'tnt_side', 'tnt_bottom', 'tnt_top'), // 71 — ignite (use) → explodes
+  u('papyrus', 'papyrus'), // 72 — cross-plant, near water
+  u('red mushroom', 'mushroom_red'), // 73 — cross-plant, shade
+  u('brown mushroom', 'mushroom_brown'), // 74
+  u('geranium', 'geranium'), // 75 — blue flower
+  u('viola', 'viola'), // 76 — purple flower
 );
 
 export const WATER_ID = 27;
@@ -108,7 +113,7 @@ export const TNT_ID = 71;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
-export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63]);
+export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63, 72, 73, 74, 75, 76]);
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against

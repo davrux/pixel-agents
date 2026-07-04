@@ -12,7 +12,7 @@ export { surfaceHeight, biomeAt } from '@pixel/shared'; // re-export for existin
 /** Bump this whenever terrain generation changes. A world whose stored gen version is
  *  older is wiped (edited chunks dropped) so it regenerates fresh — see ChunkStore.meta.
  *  Lets a world-affecting change ship a fresh default map without manual world deletion. */
-export const GEN_VERSION = 2;
+export const GEN_VERSION = 3; // bumped: papyrus/mushrooms/flowers decoration added
 
 const AIR = 0;
 const GRASS = 1;
@@ -38,6 +38,11 @@ const ROSE = 53;
 const DANDELION = 54;
 const DRY_SHRUB = 55;
 const CACTUS = 56;
+const PAPYRUS = 72;
+const MUSH_RED = 73;
+const MUSH_BROWN = 74;
+const GERANIUM = 75;
+const VIOLA = 76;
 
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
 // SEA, ROCK_LINE, SNOW_LINE, the noise fns, biomeAt + surfaceHeight now live in
@@ -125,9 +130,14 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
         // Surface decoration: a plant on the cell just above dry ground (biome-dependent).
         if (id === AIR && wy === h + 1 && h > SEA && !beach) {
           const rr = hash3(wx, 7, wz, seed + 5000);
-          if (biome === 'plains') id = rr < 0.09 ? TALL_GRASS : rr < 0.11 ? FERN : rr < 0.118 ? ROSE : rr < 0.126 ? DANDELION : AIR;
+          if (biome === 'plains')
+            id =
+              rr < 0.09 ? TALL_GRASS : rr < 0.11 ? FERN : rr < 0.118 ? ROSE : rr < 0.126 ? DANDELION
+              : rr < 0.132 ? GERANIUM : rr < 0.138 ? VIOLA : rr < 0.142 ? MUSH_RED : rr < 0.146 ? MUSH_BROWN : AIR;
           else if (biome === 'desert') id = rr < 0.02 ? CACTUS : rr < 0.05 ? DRY_SHRUB : AIR;
         }
+        // Papyrus clusters on the shore (beach cells next to water).
+        if (id === AIR && wy === h + 1 && beach && hash3(wx, 9, wz, seed + 5100) < 0.09) id = PAPYRUS;
         if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;
       }
     }
