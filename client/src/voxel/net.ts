@@ -67,6 +67,8 @@ export interface VoxelHandlers {
   onBoom?: (m: { x: number; y: number; z: number }) => void;
   onSign?: (m: SignMsg) => void;
   onSigns?: (list: SignMsg[]) => void;
+  onTime?: (m: { now: number; dayLengthMs: number }) => void;
+  onNote?: (m: { text: string }) => void;
 }
 
 export interface JoinOpts {
@@ -110,6 +112,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('boom', (m: { x: number; y: number; z: number }) => handlers.onBoom?.(m));
   room.onMessage('sign', (m: SignMsg) => handlers.onSign?.(m));
   room.onMessage('signs', (list: SignMsg[]) => handlers.onSigns?.(list));
+  room.onMessage('time', (m: { now: number; dayLengthMs: number }) => handlers.onTime?.(m));
+  room.onMessage('note', (m: { text: string }) => handlers.onNote?.(m));
   return {
     room,
     sessionId: room.sessionId,

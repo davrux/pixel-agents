@@ -61,6 +61,7 @@ import {
   SIGN_ID,
   FENCE_GATE_CLOSED,
   FENCE_GATE_OPEN,
+  BED_ID,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -253,10 +254,20 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.setSimulationInterval((dt) => this.tick(dt / 1000), 100); // 10 Hz sim + AI
   }
 
+  // Shared day clock. `timeShiftMs` is bumped when someone sleeps in a bed so the whole
+  // world jumps to morning; every client is realigned via a 'time' broadcast.
+  private timeShiftMs = 0;
+  private serverNow(): number {
+    return Date.now() + this.timeShiftMs;
+  }
+  private tod(): number {
+    return ((this.serverNow() / DAY_LENGTH_MS) % 1 + 1) % 1;
+  }
+
   // ── Mobs (Luanti mobs_redo-style spawn/despawn + FSM) ────────────────────────
   /** Server time of day (0..1), shared clock; day ≈ 0.25..0.75. */
   private isDay(): boolean {
-    const tod = (Date.now() / DAY_LENGTH_MS) % 1;
+    const tod = this.tod();
     return tod >= 0.23 && tod <= 0.8;
   }
 
@@ -858,6 +869,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
     else if (block === FENCE_GATE_CLOSED || block === FENCE_GATE_OPEN) this.toggleGate(x, y, z);
+    else if (block === BED_ID) this.onSleep(client); // sleep → skip the night (shared clock)
     else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
     else if (block === TNT_ID) this.igniteTnt(x, y, z); // light the fuse (2s → boom)
     // Hoe tills the ground into farmland so crops planted on top can grow: dirt/grass →
@@ -866,6 +878,21 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const soil = block === 2 || block === 1 ? SOIL : block === 7 || block === 8 ? DESERT_SOIL : 0;
       if (soil && this.world.setBlock(x, y, z, soil)) this.broadcastEdit(x, y, z, soil);
     }
+  }
+
+  /** Sleep in a bed: only at night. Advances the shared day clock to morning (Luanti /
+   *  Minecraft) and realigns every client via a 'time' broadcast; day → a hint note. */
+  private onSleep(client: Client): void {
+    const tod = this.tod();
+    if (tod >= 0.23 && tod <= 0.8) {
+      client.send('note', { text: 'You can only sleep at night.' });
+      return;
+    }
+    const target = 0.27; // just after dawn
+    const frac = (((target - tod) % 1) + 1) % 1; // forward distance to morning
+    this.timeShiftMs += frac * DAY_LENGTH_MS;
+    this.broadcast('time', { now: this.serverNow(), dayLengthMs: DAY_LENGTH_MS });
+    this.broadcast('note', { text: 'Good morning!' });
   }
 
   /** Toggle a fence gate open (non-solid, passable) ↔ closed (solid). Single cell. */
@@ -1153,7 +1180,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       seed: this.world.seed,
       spawn: { x: p.x, y: p.y, z: p.z },
       worldId: this.state.worldId,
-      now: Date.now(),
+      now: this.serverNow(),
       dayLengthMs: DAY_LENGTH_MS,
     });
     client.send('worlds', listWorlds()); // for the client's world dropdown

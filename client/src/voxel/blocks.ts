@@ -106,6 +106,7 @@ BLOCKS.push(
   u('fence', 'fence'), // 82 — post + rails (custom geometry); solid, connects to neighbours
   u('fence gate', 'fence'), // 83 — gate (closed): solid; use → open
   u('fence gate (open)', 'fence'), // 84 — gate (open): non-solid + not rendered
+  b('bed', 'bed_top', 'bed_side', 'acacia_wood', 'bed_top'), // 85 — use at night → skip to morning
 );
 
 export const WATER_ID = 27;
@@ -123,6 +124,7 @@ export const SIGN_ID = 81;
 export const FENCE_ID = 82;
 export const FENCE_GATE_CLOSED = 83;
 export const FENCE_GATE_OPEN = 84;
+export const BED_ID = 85;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */

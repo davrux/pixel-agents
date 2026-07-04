@@ -12,7 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -544,6 +544,14 @@ function onWelcome(m: unknown): void {
   net?.setDurability(settings.durability); // tool wear on/off
   net?.setHunger(settings.hunger); // hunger on/off
   updateHud();
+}
+/** Shared day clock jumped (someone slept) — realign our local clock to the server's. */
+function onTime(m: { now: number; dayLengthMs: number }): void {
+  if (Number.isFinite(m.now)) clockOffset = m.now - Date.now();
+  if (Number.isFinite(m.dayLengthMs) && m.dayLengthMs > 0) dayLengthMs = m.dayLengthMs;
+}
+function onNote(m: { text: string }): void {
+  if (m?.text) showToast(m.text);
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
   world.setChunk(c.cx, c.cy, c.cz, c.cells);
@@ -1207,8 +1215,8 @@ function useAimedNode(): boolean {
     promptSign(x, y, z);
     return true;
   }
-  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN) {
-    net?.use(x, y, z, heldId); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite
+  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN || b === BED_ID) {
+    net?.use(x, y, z, heldId); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite; bed → sleep
     return true;
   }
   // Holding a hoe + aiming at tillable ground (dirt/grass/sand) → farmland (server converts it).
@@ -2098,7 +2106,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
