@@ -127,6 +127,14 @@ export const WHEAT = 111; // harvested from mature wheat
 export const BREAD = 112; // 3 wheat → bread; eaten to restore hunger
 export const CHARCOAL = 113; // Luanti: cook wood → charcoal; a coal-equivalent fuel + torch fuel
 export const FLINT = 114; // knapped from gravel; + steel ingot → flint & steel (fire lighter)
+export const APPLE = 115; // drops from leaves; edible (restores a little hunger)
+
+/** Edible items → hunger restored, in eat-priority order (snacks before staples). The
+ *  eat action consumes the first food the player holds. */
+export const FOOD_VALUES: { item: number; food: number }[] = [
+  { item: APPLE, food: 2 },
+  { item: BREAD, food: 6 },
+];
 
 /** Flammable blocks — fire spreads to and consumes these (wood/planks/leaves, plants,
  *  straw, bookshelf, sapling). Everything else resists fire. */

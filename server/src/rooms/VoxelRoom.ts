@@ -41,8 +41,9 @@ import {
   DOOR_OPEN,
   WHEAT_SEED,
   WHEAT_MATURE,
+  APPLE,
+  FOOD_VALUES,
   WHEAT,
-  BREAD,
   isCrop,
   SAPLING,
   SOIL,
@@ -458,11 +459,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private onEat(client: Client): void {
     const p = this.state.players.get(client.sessionId);
     const bag = this.inv.get(client.sessionId);
-    if (!p || !bag || p.food >= 20 || (bag.get(BREAD) ?? 0) <= 0) return;
-    const left = (bag.get(BREAD) ?? 0) - 1;
-    left > 0 ? bag.set(BREAD, left) : bag.delete(BREAD);
-    client.send('inv', { block: BREAD, total: Math.max(0, left) });
-    p.food = Math.min(20, p.food + 6);
+    if (!p || !bag || p.food >= 20) return;
+    // Eat the first food the player holds (apples before bread — see FOOD_VALUES).
+    const food = FOOD_VALUES.find((f) => (bag.get(f.item) ?? 0) > 0);
+    if (!food) return;
+    const left = (bag.get(food.item) ?? 0) - 1;
+    left > 0 ? bag.set(food.item, left) : bag.delete(food.item);
+    client.send('inv', { block: food.item, total: Math.max(0, left) });
+    p.food = Math.min(20, p.food + food.food);
   }
 
   /** Light a TNT block (from a use-action or a nearby blast). Ignores if already lit. */
@@ -1345,6 +1349,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (id === SAPLING && this.saplings.size < 5000) this.saplings.set(key, 0);
     // Cutting leaves (21) sometimes yields a sapling (Luanti-faithful).
     if (id === 0 && prev === 21 && Math.random() < 0.15) this.spawnDrop(SAPLING, x, y, z, 1);
+    // Leaves sometimes yield an apple (Luanti apple trees → edible food).
+    if (id === 0 && prev === 21 && Math.random() < 0.12) this.spawnDrop(APPLE, x, y, z, 1);
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     // Crops are handled separately (custom harvest drops below), so skip them here.

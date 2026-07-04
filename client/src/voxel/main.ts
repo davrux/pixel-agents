@@ -779,7 +779,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   if (e.code === 'KeyF' && !menuOpen()) return attackNearestNpc(); // melee the nearest NPC
-  if (e.code === 'KeyG' && !menuOpen()) return void net?.eat(); // eat bread → restore hunger
+  if (e.code === 'KeyG' && !menuOpen()) return void net?.eat(); // eat food (apple/bread) → restore hunger
   const n = Number(e.key);
   if (n >= 1 && n <= tools.length + blocks.length) selectSlot(n - 1);
   keys.add(e.code);
