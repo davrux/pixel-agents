@@ -136,6 +136,8 @@ export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id ===
 // Block → the item it drops when broken (default: itself). Ores drop lumps; an open
 // door drops the (closed) door item, not the state-only open id.
 export const ORE_DROPS: Record<number, number> = {
+  3: 4, // mining STONE drops COBBLE (Minecraft/Luanti; smelt cobble back to stone). This
+  //     is how you obtain cobble — the input for stone tools + the furnace.
   30: COAL_LUMP,
   31: IRON_LUMP,
   [COPPER_ORE]: COPPER_LUMP,
