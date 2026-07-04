@@ -871,6 +871,7 @@ const inventory = new Inventory({
       .map(([id, count]) => ({ id, count })),
   creative: () => settings.creative,
   special: () => [WATER_ID, PORTAL_ID, LAVA_ID], // always placeable + always shown
+  owns: (it) => it.toolId === undefined || settings.creative || (invCounts.get(it.toolId) ?? 0) > 0,
   // Raise the live bottom hotbar above the inventory panel while it's open, so you can
   // drag palette items straight onto the real bar (not just the mirrored rows). Also
   // free the mouse in first person (to drag), and re-capture it on close.
@@ -961,6 +962,7 @@ function cycleMode(): void {
     player.pitch = 0; // reset the first-person look-down so the figure stands level in iso/third
   }
   updateHud();
+  pushSettings(); // remember the last-used view (iso/third/first) across sessions
 }
 
 // ── Break / place via raycast ────────────────────────────────────────────────
@@ -1570,6 +1572,7 @@ function currentSettingsBlob(): unknown {
     sound: settings.sound,
     creative: settings.creative,
     durability: settings.durability,
+    view: mode,
     skin: playerSkin,
     wield,
     hotbar: { blocks: [...blocks] }, // tool track is now a fixed catalog (owned tools unlock), not persisted
@@ -1595,6 +1598,7 @@ function applyServerSettings(s: unknown): void {
     sound: boolean;
     creative: boolean;
     durability: boolean;
+    view: CamMode;
     skin: string;
     wield: Record<string, Wield>;
     hotbar: { tools?: string[]; blocks?: string[] };
@@ -1623,6 +1627,11 @@ function applyServerSettings(s: unknown): void {
     settings.durability = o.durability;
     durabilityCb.checked = o.durability;
     net?.setDurability(o.durability);
+  }
+  if (o.view === 'iso' || o.view === 'third' || o.view === 'first') {
+    mode = o.view; // restore the last-used camera view
+    if (mode !== 'first' && locked()) document.exitPointerLock();
+    updateHud();
   }
   invertYCb.checked = settings.invertY;
   camCollideCb.checked = settings.camCollide;

@@ -27,6 +27,8 @@ export interface InventoryDeps {
   creative: () => boolean;
   /** Always-available build tools (water/lava/portal): placeable + shown even in survival. */
   special: () => number[];
+  /** Whether a palette item is owned (tools you've crafted; non-tools = always true). */
+  owns: (item: Item) => boolean;
   onOpen?: () => void; // e.g. raise the live hotbar above the panel so you can drop onto it
   onClose?: () => void;
 }
@@ -245,8 +247,25 @@ export class Inventory {
       b.appendChild(mg);
     }
 
-    // Tools + armour palettes (always available — tools aren't collected yet).
-    grid('Tools', this.deps.palette.tools);
+    // Tools — owned ones are bright + draggable to the tool hotbar; the rest are dimmed
+    // with a 🔒 (craftable but not owned yet), so you can see what you actually have.
+    heading('Tools');
+    const tg = document.createElement('div');
+    tg.className = 'grid';
+    for (const it of this.deps.palette.tools) {
+      const has = this.deps.owns(it);
+      const c = this.cell(it, { draggable: has });
+      if (!has) {
+        c.style.opacity = '0.4';
+        c.title = it.name + ' — not crafted yet';
+        const lock = document.createElement('div');
+        lock.className = 'num';
+        lock.textContent = '🔒';
+        c.appendChild(lock);
+      }
+      tg.appendChild(c);
+    }
+    b.appendChild(tg);
     grid('Armour', this.deps.palette.armor);
   }
 }
