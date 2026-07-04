@@ -43,6 +43,7 @@ import {
   WHEAT_MATURE,
   APPLE,
   FOOD_VALUES,
+  STICK,
   WHEAT,
   isCrop,
   SAPLING,
@@ -168,6 +169,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private fireAcc = 0; // seconds toward the next fire tick
   private readonly noHunger = new Set<string>(); // sids with hunger turned OFF (food stays full)
   private cropAcc = 0; // seconds toward the next crop-growth tick
+  private readonly decayLeaves = new Set<string>(); // orphaned leaf cells to check for decay
+  private decayAcc = 0; // seconds toward the next leaf-decay tick
   private hungerAcc = 0; // seconds toward the next hunger tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
@@ -296,6 +299,13 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.growCrops();
       this.growSaplings();
     }
+    if (this.decayLeaves.size) {
+      this.decayAcc += dt;
+      if (this.decayAcc >= 1) {
+        this.decayAcc = 0;
+        this.tickLeafDecay();
+      }
+    }
     if (this.fuses.length) this.tickFuses(dt);
     if (this.fires.size) {
       this.fireAcc += dt;
@@ -421,6 +431,37 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         this.saplings.delete(key);
         this.growTree(x, y, z);
       } else this.saplings.set(key, age + 1);
+    }
+  }
+
+  /** Luanti leaf decay: a leaf with no trunk within 2 blocks (its tree was chopped) fades
+   *  away, occasionally dropping a sapling / apple / stick, and queues its leaf neighbours
+   *  so the whole orphaned canopy decays outward over a few seconds. Bounded per tick. */
+  private tickLeafDecay(): void {
+    const nearTrunk = (x: number, y: number, z: number): boolean => {
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dz = -2; dz <= 2; dz++)
+          for (let dx = -2; dx <= 2; dx++) if (this.world.getBlock(x + dx, y + dy, z + dz) === 17) return true;
+      return false;
+    };
+    let processed = 0;
+    for (const key of [...this.decayLeaves]) {
+      if (processed++ > 300) break; // cap work per tick
+      this.decayLeaves.delete(key);
+      const [x, y, z] = key.split(',').map(Number);
+      if (this.world.getBlock(x, y, z) !== 21) continue; // no longer a leaf
+      if (nearTrunk(x, y, z)) continue; // a trunk still supports it → stays
+      if (Math.random() < 0.4) { // stagger so the canopy fades gradually, not all at once
+        this.decayLeaves.add(key);
+        continue;
+      }
+      if (this.world.setBlock(x, y, z, 0)) this.broadcastEdit(x, y, z, 0);
+      const r = Math.random();
+      if (r < 0.1) this.spawnDrop(SAPLING, x, y, z, 1);
+      else if (r < 0.2) this.spawnDrop(APPLE, x, y, z, 1);
+      else if (r < 0.3) this.spawnDrop(STICK, x, y, z, 1);
+      for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]])
+        if (this.world.getBlock(x + dx, y + dy, z + dz) === 21 && this.decayLeaves.size < 6000) this.decayLeaves.add(`${x + dx},${y + dy},${z + dz}`);
     }
   }
 
@@ -1350,6 +1391,15 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (id === WHEAT_SEED && this.crops.size < 5000) this.crops.add(key);
     // Planting a sapling registers it (grows into a tree after a few ticks).
     if (id === SAPLING && this.saplings.size < 5000) this.saplings.set(key, 0);
+    // Cutting a trunk (17): the tree does NOT fall (Luanti-faithful — everything stays
+    // floating), but nearby leaves now check for a remaining trunk and decay if orphaned.
+    if (id === 0 && prev === 17) {
+      for (let dy = -3; dy <= 4; dy++)
+        for (let dz = -3; dz <= 3; dz++)
+          for (let dx = -3; dx <= 3; dx++) {
+            if (this.world.getBlock(x + dx, y + dy, z + dz) === 21 && this.decayLeaves.size < 6000) this.decayLeaves.add(`${x + dx},${y + dy},${z + dz}`);
+          }
+    }
     // Cutting leaves (21) sometimes yields a sapling (Luanti-faithful).
     if (id === 0 && prev === 21 && Math.random() < 0.15) this.spawnDrop(SAPLING, x, y, z, 1);
     // Leaves sometimes yield an apple (Luanti apple trees → edible food).
