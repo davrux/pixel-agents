@@ -18,6 +18,7 @@ const SIZE = 480; // displayed canvas pixels (square)
 const RES = 256; // internal sample resolution (scaled up to SIZE — keeps render fast at any zoom)
 const MIN_RANGE = 24; // most zoomed-in: blocks shown each way
 const MAX_RANGE = 2400; // most zoomed-out
+const DRAG_SLOP = 6; // press→release Manhattan px under which a mouse action counts as a click (not a pan)
 
 export class TravelMap {
   private readonly root: HTMLDivElement;
@@ -156,7 +157,7 @@ export class TravelMap {
     if (!this.drag) return;
     const dx = e.clientX - this.drag.x;
     const dy = e.clientY - this.drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 3) this.drag.moved = true;
+    if (Math.abs(dx) + Math.abs(dy) > DRAG_SLOP) this.drag.moved = true;
     const worldPerPx = (this.range * 2) / SIZE;
     this.cx = this.drag.cx - dx * worldPerPx; // drag right → view content moves right
     this.cz = this.drag.cz - dy * worldPerPx;
@@ -164,10 +165,12 @@ export class TravelMap {
   }
   private onUp(e: MouseEvent): void {
     if (!this.drag) return;
-    const wasDrag = this.drag.moved;
+    // Click vs pan by the total press→release distance (ignores minor jitter during a
+    // click — a too-tight threshold made ordinary clicks read as pans → no travel).
+    const dist = Math.abs(e.clientX - this.drag.x) + Math.abs(e.clientY - this.drag.y);
     this.canvas.classList.remove('grabbing');
     this.drag = null;
-    if (wasDrag) return; // a pan, not a click
+    if (dist > DRAG_SLOP) return; // a pan, not a click
     const rect = this.canvas.getBoundingClientRect();
     if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
     const span = this.range * 2;
