@@ -102,6 +102,7 @@ BLOCKS.push(
   u('tin block', 'tin_block'), // 78
   u('mese lamp', 'meselamp'), // 79 — light source (emits a glow like a torch)
   u('fire', 'fire'), // 80 — cross-plant flame; non-solid light source, spreads + burns out
+  b('sign', 'sign', 'sign', 'sign', 'sign'), // 81 — use-action edits its text (rendered in-world)
 );
 
 export const WATER_ID = 27;
@@ -115,6 +116,7 @@ export const DOOR_OPEN = 36;
 export const FURNACE_ID = 62;
 export const TNT_ID = 71;
 export const FIRE_ID = 80;
+export const SIGN_ID = 81;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */

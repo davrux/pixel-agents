@@ -78,8 +78,10 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 80;
+export const MAX_BLOCK_ID = 81;
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
+export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
+export const SIGN_MAX_LEN = 120; // max characters of sign text
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -225,6 +227,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 14, count: 4 }, { block: GOLD_INGOT, count: 1 }], out: { block: 79, count: 1 } }, // 4 glass + gold → mese lamp
   { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
   { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
+  { in: [{ block: 18, count: 6 }], out: { block: SIGN_ID, count: 3 } }, // 6 planks → 3 signs
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },

@@ -38,7 +38,15 @@ export interface VoxelNet {
   smelt(i: number): void;
   use(x: number, y: number, z: number, held?: number): void;
   chestMove(x: number, y: number, z: number, id: number, dir: 'take' | 'put'): void;
+  setSign(x: number, y: number, z: number, text: string): void;
   leave(): Promise<void>;
+}
+
+export interface SignMsg {
+  x: number;
+  y: number;
+  z: number;
+  text: string;
 }
 
 export interface VoxelHandlers {
@@ -57,6 +65,8 @@ export interface VoxelHandlers {
   onFurnaceOpen?: () => void;
   onDurability?: (m: { tool: number; left: number; max: number }) => void;
   onBoom?: (m: { x: number; y: number; z: number }) => void;
+  onSign?: (m: SignMsg) => void;
+  onSigns?: (list: SignMsg[]) => void;
 }
 
 export interface JoinOpts {
@@ -98,6 +108,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('furnaceOpen', () => handlers.onFurnaceOpen?.());
   room.onMessage('durability', (m: { tool: number; left: number; max: number }) => handlers.onDurability?.(m));
   room.onMessage('boom', (m: { x: number; y: number; z: number }) => handlers.onBoom?.(m));
+  room.onMessage('sign', (m: SignMsg) => handlers.onSign?.(m));
+  room.onMessage('signs', (list: SignMsg[]) => handlers.onSigns?.(list));
   return {
     room,
     sessionId: room.sessionId,
@@ -117,6 +129,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     smelt: (i) => room.send('smelt', { i }),
     use: (x, y, z, held = 0) => room.send('use', { x, y, z, held }),
     chestMove: (x, y, z, id, dir) => room.send('chestMove', { x, y, z, id, dir }),
+    setSign: (x, y, z, text) => room.send('setSign', { x, y, z, text }),
     leave: async () => {
       await room.leave();
     },

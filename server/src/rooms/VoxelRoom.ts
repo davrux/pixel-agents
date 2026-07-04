@@ -58,6 +58,7 @@ import {
   FLINT_STEEL,
   isFlintSteel,
   isFlammable,
+  SIGN_ID,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -74,6 +75,7 @@ import { voxelPositions } from '../voxel/positionStore.js';
 import { voxelInventory, voxelDurability } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
 import { chests } from '../voxel/chestStore.js';
+import { signs, cleanSignText } from '../voxel/signStore.js';
 
 interface AuthInfo {
   userId: string;
@@ -224,6 +226,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
     this.onMessage('use', (client, m: { x: number; y: number; z: number; held?: number }) => this.onUse(client, m));
     this.onMessage('chestMove', (client, m: { x: number; y: number; z: number; id: number; dir: string }) => this.onChestMove(client, m));
+    this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
@@ -782,6 +785,26 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     client.send('inv', { block: r.out, total });
   }
 
+  /** Set (or clear) a sign's text. Reach- + type-checked; persisted per world/pos and
+   *  broadcast to everyone so the in-world text updates live. Empty text removes it. */
+  private onSetSign(client: Client, m: { x: number; y: number; z: number; text?: string }): void {
+    const v = this.views.get(client.sessionId);
+    if (!v) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (![x, y, z].every(Number.isFinite)) return;
+    const dx = x + 0.5 - v.px,
+      dy = y + 0.5 - (v.py + 1.6),
+      dz = z + 0.5 - v.pz;
+    if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    if (this.world.getBlock(x, y, z) !== SIGN_ID) return;
+    const text = cleanSignText(m.text);
+    if (text) signs.set(this.state.worldId, x, y, z, text);
+    else signs.delete(this.state.worldId, x, y, z);
+    this.broadcast('sign', { x, y, z, text });
+  }
+
   /** Wear the tool used for a break by one use; when it runs out, the tool shatters
    *  (removed from the inventory). Creative + the bare hand (tool 0) never wear.
    *  Durability is per-session (in-memory) — a reconnected tool comes back full. */
@@ -1125,6 +1148,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       dayLengthMs: DAY_LENGTH_MS,
     });
     client.send('worlds', listWorlds()); // for the client's world dropdown
+    client.send('signs', signs.all(this.state.worldId)); // all sign texts in this world (rendered in-world)
     // Server-side per-user settings (camera/auto-switch/wield transforms). Only
     // for logged-in users; anonymous clients keep their local settings.
     if (auth?.userId) {
@@ -1294,6 +1318,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
     // Fire is transient state, not an item: putting it out (or overwriting it) unregisters it.
     if (prev === FIRE_ID && id !== FIRE_ID) this.fires.delete(key);
+    // Breaking a sign clears its stored text (and the in-world label on every client).
+    if (prev === SIGN_ID && id !== SIGN_ID) {
+      signs.delete(this.state.worldId, x, y, z);
+      this.broadcast('sign', { x, y, z, text: '' });
+    }
     // Breaking a real block wears the tool used (one use); a depleted tool shatters.
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.wearTool(client, sid, m.tool ?? 0);
     // Harvest wheat: mature (60) → 1-2 wheat + 1-2 seeds; immature → the seed back.

@@ -12,7 +12,8 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, LIGHT_BLOCKS } from './blocks.js';
+import type { SignMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -201,6 +202,81 @@ function refreshTorchGlow(cx: number, cy: number, cz: number): void {
     torchGlows.set(`${x0 + lx},${y0 + ly},${z0 + lz}`, halo);
     torchGlowGroup.add(halo);
   }
+}
+
+// Signs: each sign block with text gets an in-world label — a camera-facing canvas-
+// texture plane just above the block. Texts arrive via 'signs' (all, on join) + 'sign'
+// (live edits); empty text removes the label. Billboarded toward the camera each frame.
+const signGroup = new THREE.Group();
+scene.add(signGroup);
+const signObjs = new Map<string, THREE.Mesh>();
+const signTexts = new Map<string, string>(); // cellKey → text (so the editor prefills the current text)
+function makeSignTexture(text: string): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = 256;
+  cv.height = 128;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = 'rgba(60,42,24,0.92)';
+  g.fillRect(0, 0, 256, 128);
+  g.strokeStyle = '#2a1c0e';
+  g.lineWidth = 8;
+  g.strokeRect(4, 4, 248, 120);
+  g.fillStyle = '#f4e4c1';
+  g.font = 'bold 26px monospace';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const w of words) {
+    const t = line ? line + ' ' + w : w;
+    if (g.measureText(t).width > 232 && line) {
+      lines.push(line);
+      line = w;
+    } else line = t;
+  }
+  if (line) lines.push(line);
+  const shown = lines.slice(0, 4);
+  const lh = 30;
+  const y0 = 64 - ((shown.length - 1) * lh) / 2;
+  shown.forEach((l, i) => g.fillText(l, 128, y0 + i * lh));
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter;
+  return tex;
+}
+function removeSign(key: string): void {
+  const m = signObjs.get(key);
+  if (!m) return;
+  signGroup.remove(m);
+  (m.material as THREE.MeshBasicMaterial).map?.dispose();
+  (m.material as THREE.Material).dispose();
+  m.geometry.dispose();
+  signObjs.delete(key);
+}
+function applySign(m: SignMsg): void {
+  const key = `${m.x},${m.y},${m.z}`;
+  removeSign(key);
+  if (!m.text) {
+    signTexts.delete(key);
+    return;
+  }
+  signTexts.set(key, m.text);
+  const mat = new THREE.MeshBasicMaterial({ map: makeSignTexture(m.text), transparent: true, side: THREE.DoubleSide, depthWrite: false });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.45), mat);
+  mesh.position.set(m.x + 0.5, m.y + 1.15, m.z + 0.5); // float just above the sign block
+  signObjs.set(key, mesh);
+  signGroup.add(mesh);
+}
+function applySigns(list: SignMsg[]): void {
+  for (const key of [...signObjs.keys()]) removeSign(key);
+  signTexts.clear();
+  for (const m of list) applySign(m);
+}
+/** Turn every sign label to face the camera (billboard) — called each frame. */
+function updateSignBillboards(): void {
+  if (!signObjs.size) return;
+  const cam = activeCam();
+  for (const m of signObjs.values()) m.quaternion.copy(cam.quaternion);
 }
 
 // Portal glow: every portal cube (block id 28) in a loaded chunk gets a pulsing
@@ -1126,6 +1202,11 @@ function useAimedNode(): boolean {
     if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
     return true;
   }
+  // A sign: open its text editor (client-side prompt, prefilled with the current text).
+  if (b === SIGN_ID) {
+    promptSign(x, y, z);
+    return true;
+  }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID) {
     net?.use(x, y, z, heldId); // chest → open; door → toggle; furnace → smelt UI; TNT → ignite
     return true;
@@ -2017,7 +2098,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
@@ -2042,6 +2123,15 @@ function promptPortal(x: number, y: number, z: number): void {
   const val = ans.slice(i + 1).trim();
   const dest = kind === 'world' && val ? { kind: 'voxel', world: val } : kind === 'zone' && val ? { kind: 'zone', id: val } : null;
   if (dest) net.setPortal(x, y, z, dest);
+}
+/** Edit a sign's text: prompt (prefilled with the current text) → send to the server,
+ *  which stores + broadcasts it so the in-world label updates for everyone. */
+function promptSign(x: number, y: number, z: number): void {
+  if (!net) return;
+  const cur = signTexts.get(`${x},${y},${z}`) ?? '';
+  const ans = window.prompt('Sign text:', cur);
+  if (ans === null) return; // cancelled
+  net.setSign(x, y, z, ans);
 }
 /** Re-target the aimed block as a portal (P key) — handy for existing blocks. */
 function makePortal(): void {
@@ -2096,6 +2186,8 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   portalGlows.clear();
   for (const node of torchGlows.values()) torchGlowGroup.remove(node);
   torchGlows.clear();
+  for (const key of [...signObjs.keys()]) removeSign(key);
+  signTexts.clear();
   dirty.clear();
   clearLightCache(); // new world → drop cached column heights + light sources
   world.clear();
@@ -2247,6 +2339,7 @@ function frameBody(now: number): void {
   // Clouds follow the player + drift.
   clouds.position.set(player.pos.x, 70, player.pos.z);
   cloudTex.offset.x += dt * 0.004;
+  updateSignBillboards(); // sign labels always face the camera
   // Travel map: repaint from loaded terrain while open (throttled).
   if (travelMap.isOpen() && now - lastMapRender > 500) {
     lastMapRender = now;
