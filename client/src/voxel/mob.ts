@@ -12,8 +12,10 @@ interface Part {
   base: THREE.Color; // untinted colour (day tint multiplies this)
 }
 
-export type AnimalKind = 'sheep' | 'cow' | 'chicken';
 export const ANIMAL_KINDS = new Set<string>(['sheep', 'cow', 'chicken']);
+/** All mob kinds that have a blocky model here (animals + monsters). Others fall back
+ *  to a generic humanoid. */
+export const MOB_KINDS = new Set<string>(['sheep', 'cow', 'chicken', 'zombie', 'skeleton', 'spider']);
 
 export class MobModel {
   readonly group = new THREE.Group();
@@ -24,6 +26,9 @@ export class MobModel {
   constructor(kind: string) {
     if (kind === 'chicken') this.buildChicken();
     else if (kind === 'cow') this.buildCow();
+    else if (kind === 'zombie') this.buildHumanoid(0x4b7a4b, 0x2f5030); // green
+    else if (kind === 'skeleton') this.buildHumanoid(0xd8d8d0, 0xb8b8b0); // bone-white
+    else if (kind === 'spider') this.buildSpider();
     else this.buildSheep();
   }
 
@@ -91,6 +96,34 @@ export class MobModel {
     const hy = 0.3;
     this.leg(-0.1, hy, 0, 0.07, 0.3, leg);
     this.leg(0.1, hy, 0, 0.07, 0.3, leg);
+  }
+
+  /** Blocky humanoid (zombie/skeleton): head, torso, 2 arms + 2 legs that swing. */
+  private buildHumanoid(body: number, limb: number): void {
+    const hipY = 0.9,
+      legLen = 0.9;
+    this.leg(-0.15, hipY, 0, 0.22, legLen, limb);
+    this.leg(0.15, hipY, 0, 0.22, legLen, limb);
+    this.box(0.55, 0.75, 0.3, 0, 1.27, 0, body); // torso
+    this.box(0.44, 0.44, 0.44, 0, 1.87, 0, body); // head
+    this.leg(-0.4, 1.6, 0, 0.18, 0.7, body); // arms pivot at the shoulder + swing
+    this.leg(0.4, 1.6, 0, 0.18, 0.7, body);
+  }
+
+  /** Blocky spider: wide dark abdomen + head + red eyes + 8 skittering legs. */
+  private buildSpider(): void {
+    const dark = 0x33323a,
+      eye = 0xc0392b;
+    this.box(0.95, 0.42, 0.7, 0, 0.5, 0.1, dark); // abdomen
+    this.box(0.5, 0.4, 0.45, 0, 0.5, -0.5, dark); // cephalothorax (front, -Z)
+    this.box(0.09, 0.09, 0.06, -0.13, 0.58, -0.72, eye);
+    this.box(0.09, 0.09, 0.06, 0.13, 0.58, -0.72, eye);
+    const hy = 0.42,
+      ll = 0.42;
+    for (const z of [-0.2, 0.0, 0.2, 0.4]) {
+      this.leg(-0.5, hy, z, 0.08, ll, dark);
+      this.leg(0.5, hy, z, 0.08, ll, dark);
+    }
   }
 
   /** Multiply every part by the current day-light colour (matches world shading). */

@@ -20,7 +20,7 @@ import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemBy
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
-import { MobModel, ANIMAL_KINDS } from './mob.js';
+import { MobModel } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout } from '../net/room';
@@ -517,8 +517,8 @@ function syncNpcs(dt: number, state: RemoteState): void {
   state.npcs.forEach((n, id) => {
     let r = npcAvatars.get(id);
     if (!r) {
-      // Animals get a blocky animal model; monsters keep the humanoid avatar.
-      const a: NpcRender = ANIMAL_KINDS.has(n.kind) ? new MobModel(n.kind) : new Avatar(n.skin || 'character_2');
+      // Every mob (animals + monsters) is a blocky model now — no humanoid placeholders.
+      const a: NpcRender = new MobModel(n.kind);
       a.group.position.set(n.x, n.y, n.z);
       scene.add(a.group);
       r = { avatar: a };
