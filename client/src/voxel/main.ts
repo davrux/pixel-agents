@@ -432,6 +432,7 @@ function onWelcome(m: unknown): void {
     ready = false;
   }
   net?.setCreative(settings.creative); // sync build mode to this (possibly fresh) session
+  net?.setPeaceful(settings.peaceful); // default peaceful → animals only, no monsters
   updateHud();
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
@@ -567,7 +568,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: false, sound: true, creative: false };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -652,7 +653,6 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
-  if (e.code === 'KeyB') return pickerOpen() ? closePicker() : openItemPicker();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
@@ -1211,7 +1211,7 @@ function selectSlot(i: number): void {
 function updateHud(): void {
   const label = document.getElementById('mode');
   if (label)
-    label.textContent = `View: ${mode} (V) · Break: ${itemById(tools[selTool]).name} · Place: ${itemById(blocks[selBlock]).name} · B items · K skin`;
+    label.textContent = `View: ${mode} (V) · Break: ${itemById(tools[selTool]).name} · Place: ${itemById(blocks[selBlock]).name} · I inventory · K skin`;
   const bar = document.getElementById('hotbar')!;
   bar.innerHTML = '';
   const addSlots = (ids: string[], sel: number, pick: (i: number) => void, isTool: boolean): void => {
@@ -1264,27 +1264,9 @@ function updateHud(): void {
   document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
 
-function openItemPicker(): void {
-  if (locked()) document.exitPointerLock();
-  const isTool = lastTrack === 'tool';
-  const pool = isTool ? TOOL_ITEMS : BLOCK_ITEMS;
-  const curId = isTool ? tools[selTool] : blocks[selBlock];
-  openPicker(
-    isTool ? 'Dig tools — click to equip' : 'Build blocks — click to equip',
-    pool.map((it) => ({
-      thumb: itemTexUrl(it.texUrl),
-      label: it.name,
-      selected: it.id === curId,
-      onPick: () => {
-        if (isTool) tools[selTool] = it.id;
-        else blocks[selBlock] = it.id;
-        updateHud();
-        refreshEditor();
-        closePicker();
-      },
-    })),
-  );
-}
+// (The old "B" hotbar-slot picker was removed — there's no such menu in Minecraft/
+// Luanti; the Inventory panel (I) already drags items onto hotbar slots, and creative
+// shows the full palette there.)
 
 // Wield sync: the avatar holds the block being built by default, and swaps to the
 // dig tool while actively breaking (auto-switch shows the best carried tool).

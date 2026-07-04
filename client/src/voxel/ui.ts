@@ -6,28 +6,36 @@
  * the same look. Call once, LAST (after the panels' own <style> blocks), so it wins by
  * cascade order. voxel.html's own chrome (settings/hotbar) uses the same tokens inline.
  */
+const PANELS = ['#vx-inv', '#vx-craft', '#vx-map', '#vx-chest'];
+
+/** Expand a child selector across every panel id — e.g. sel('.win') →
+ *  "#vx-inv .win,#vx-craft .win,…". (Writing "#a,#b .win" would attach ".win" to #b
+ *  ONLY and leave #a/#b bare — the cascade bug this skin originally shipped with.) */
+function sel(child: string): string {
+  return PANELS.map((p) => `${p} ${child}`).join(',');
+}
+
 export function injectPixelSkin(): void {
   const s = document.createElement('style');
-  // Panels share class names across ids; list them so the override is scoped to chrome.
-  const P = '#vx-inv, #vx-craft, #vx-map, #vx-chest';
   s.textContent = `
-    /* backdrop */
-    ${P} { background: rgba(6,8,14,.62); }
+    /* backdrop: transparent so the world stays visible behind the panel (only the
+       floating .win is opaque); still full-screen to catch a click-outside → close. */
+    ${PANELS.join(',')} { background: transparent; }
     /* window (panel) */
-    ${P} .win {
+    ${sel('.win')} {
       background:#0f1220; border:2px solid #05060b; border-radius:.6rem;
       box-shadow: inset 0 2px 0 #232a44, inset 0 -3px 0 #080a14, 0 12px 28px rgba(0,0,0,.55);
     }
-    ${P} .hd h3 { color:#eef1fb; text-shadow:none; }
+    ${sel('.hd h3')} { color:#eef1fb; text-shadow:none; }
     #vx-inv h4, #vx-chest h4 { color:#9aa0b8; text-shadow:none; }
-    ${P} .tip { color:#6f7590; }
+    ${sel('.tip')} { color:#6f7590; }
     #vx-craft .sect { color:#9aa0b8; border-top:2px solid #05060b; text-shadow:none; }
     /* buttons: close (.x), map re-centre (.btn), craft/smelt (.mk) */
-    ${P} .hd .x, #vx-map .hd .btn {
+    ${sel('.hd .x')}, #vx-map .hd .btn {
       background:#141826; border:2px solid #05060b; border-radius:.4rem; color:#e9ecf7;
       box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
     }
-    ${P} .hd .x:hover, #vx-map .hd .btn:hover { background:#1a2036; }
+    ${PANELS.map((p) => `${p} .hd .x:hover`).join(',')}, #vx-map .hd .btn:hover { background:#1a2036; }
     #vx-craft .mk {
       background:#2f66b0; border:2px solid #05060b; border-radius:.4rem; color:#fff;
       box-shadow: inset 0 2px 0 #5a92d6, inset 0 -3px 0 #163862;
