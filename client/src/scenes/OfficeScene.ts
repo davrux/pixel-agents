@@ -2997,6 +2997,12 @@ export class OfficeScene extends Phaser.Scene {
       this.showCommandHelp(args);
       return;
     }
+    if (name === 'voxel') {
+      // Client-only: hop to the 3D voxel world (same-origin, session carries over).
+      this.appendSystemLine('Entering the voxel world…');
+      window.location.href = './voxel.html';
+      return;
+    }
     const spec = findCommand(name);
     if (!spec) {
       this.appendSystemLine(`Unknown command: /${name}. Try /help.`);

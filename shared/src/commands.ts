@@ -39,6 +39,12 @@ export const COMMANDS: CommandSpec[] = [
     summary: 'Toggle an "afk" marker over your avatar; it clears when you move or run /afk again.',
   },
   {
+    name: 'voxel',
+    group: 'user',
+    usage: '/voxel',
+    summary: 'Enter the 3D voxel world (your session carries over).',
+  },
+  {
     name: 'users',
     group: 'user',
     usage: '/users [all|online]',
