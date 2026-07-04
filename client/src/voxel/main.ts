@@ -1110,8 +1110,9 @@ function updateBreaking(dt: number, want: boolean): void {
     if (world.solid(x, y, z)) tgt = { x, y, z };
   }
   // Dig time from the held/auto tool + block group (Luanti data). null = the tool
-  // is too weak (e.g. steel pick on a diamond block) → can't break it.
-  const dur = tgt ? digTime(world.get(tgt.x, tgt.y, tgt.z), digToolsFor(world.get(tgt.x, tgt.y, tgt.z))) : null;
+  // is too weak (e.g. steel pick on a diamond block) → can't break it. Creative breaks
+  // ANY block near-instantly (Minecraft-style), never blocked by tool tier.
+  const dur = !tgt ? null : settings.creative ? 0.05 : digTime(world.get(tgt.x, tgt.y, tgt.z), digToolsFor(world.get(tgt.x, tgt.y, tgt.z)));
   if (!tgt || dur === null) {
     breaking = null;
     breakOverlay.visible = false;
@@ -1434,7 +1435,10 @@ const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
 creativeCb.checked = settings.creative;
 creativeCb.onchange = () => {
   settings.creative = creativeCb.checked;
-  net?.setCreative(settings.creative); // server skips stack consumption while creative
+  net?.setCreative(settings.creative); // server skips stack consumption + damage while creative
+  // Creative implies flight (Minecraft-style): enable fly on, disable it when leaving creative.
+  settings.fly = creativeCb.checked;
+  flyCb.checked = settings.fly;
   updateHud(); // ∞ vs counts
   if (inventory.isOpen()) inventory.render(); // full palette vs owned-only
   saveSettings();

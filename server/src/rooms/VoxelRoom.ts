@@ -656,7 +656,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
 
   /** Apply damage to a player, mitigated by equipped armour (defence points). */
   private damagePlayer(sid: string, p: VoxelPlayerSync, dmg: number): void {
-    if (p.hp <= 0) return;
+    if (p.hp <= 0 || this.creative.has(sid)) return; // creative = invincible (no lava/mob/fall damage)
     const mitigated = Math.max(1, dmg - Math.floor(p.armor / 5)); // armour softens hits
     p.hp = Math.max(0, p.hp - mitigated);
     if (p.hp <= 0) this.respawnPlayer(sid, p);
