@@ -183,7 +183,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     });
     this.onMessage('setPeaceful', (_client, m: { on?: boolean }) => {
       this.peaceful = !!m?.on; // shared-world flag; when on, no monsters spawn
-      if (this.peaceful) for (const key of [...this.npcs.keys()]) this.removeMob(key);
+      // Clear existing MONSTERS only (animals stay — peaceful keeps passive mobs).
+      if (this.peaceful) for (const [key, b] of this.npcs) if (b.def.type === 'monster') this.removeMob(key);
     });
     this.onMessage('setCreative', (client, m: { on?: boolean }) => {
       if (m?.on) this.creative.add(client.sessionId); // unlimited-block placing for this client
@@ -272,11 +273,13 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   /** Try to spawn one mob near a random player: dry ground, outside SPAWN_MIN,
    *  under the cap, matching the day/night type. */
   private trySpawn(): void {
-    if (this.peaceful || this.npcs.size >= MOB_CAP) return;
+    if (this.npcs.size >= MOB_CAP) return;
     const players = [...this.state.players.values()].filter((p) => p.hp > 0);
     if (!players.length) return;
-    const day = this.isDay();
-    const defs = MOB_DEFS_LIST.filter((d) => d.spawnByDay === day);
+    // Animals (passive) spawn any time; monsters only at night, and never while peaceful.
+    // (Minecraft-faithful: peaceful removes hostiles but keeps passive mobs around.)
+    const night = !this.isDay();
+    const defs = MOB_DEFS_LIST.filter((d) => (d.type === 'animal' ? true : night && !this.peaceful));
     if (!defs.length) return;
     const p = players[Math.floor(Math.random() * players.length)];
     const ang = Math.random() * Math.PI * 2;
