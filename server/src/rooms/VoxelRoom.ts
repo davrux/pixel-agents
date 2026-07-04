@@ -34,6 +34,7 @@ import {
   STARTER_TOOL,
   MAX_BLOCK_ID,
   CHEST_ID,
+  FURNACE_ID,
   DOOR_CLOSED,
   DOOR_OPEN,
   WHEAT_SEED,
@@ -544,6 +545,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const block = this.world.getBlock(x, y, z);
     if (block === CHEST_ID) this.sendChest(client, x, y, z);
     else if (block === DOOR_CLOSED || block === DOOR_OPEN) this.toggleDoor(x, y, z);
+    else if (block === FURNACE_ID) client.send('furnaceOpen', {}); // client opens the smelting UI
   }
 
   /** Toggle a 2-tall door open/closed: flip every door cell in this vertical pair

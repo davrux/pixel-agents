@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID } from './blocks.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -643,6 +643,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && inventory.isOpen()) return inventory.close();
   if (e.code === 'Escape' && craftOpen()) return craftClose();
   if (e.code === 'Escape' && chestUiOpen()) return chestClose();
+  if (e.code === 'Escape' && furnaceOpen()) return furnaceClose();
   if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
   if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) return inventory.toggle();
   if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
@@ -661,7 +662,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen();
 
 // Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
 const MAP_COLORS: Record<number, number> = {
@@ -1041,8 +1042,8 @@ function useAimedNode(): boolean {
     y = Math.floor(p.y),
     z = Math.floor(p.z);
   const b = world.get(x, y, z);
-  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN) {
-    net?.use(x, y, z); // chest → 'chestOpen'; door → server toggles open/closed
+  if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID) {
+    net?.use(x, y, z); // chest → 'chestOpen'; door → toggle; furnace → 'furnaceOpen'
     return true;
   }
   return false;
@@ -1645,6 +1646,7 @@ function onPickup(m: { block: number; count: number; total: number }): void {
   craftRender(); // affordability may have changed
   if (inventory.isOpen()) inventory.render(); // collected counts
   if (chestUiOpen()) chestRender();
+  if (furnaceOpen()) smeltRender();
 }
 function onInv(m: { block: number; total: number }): void {
   if (m.total > 0) invCounts.set(m.block, m.total);
@@ -1653,6 +1655,7 @@ function onInv(m: { block: number; total: number }): void {
   craftRender();
   if (inventory.isOpen()) inventory.render();
   if (chestUiOpen()) chestRender();
+  if (furnaceOpen()) smeltRender();
 }
 /** Bulk inventory snapshot on join (persisted survival inventory restored server-side). */
 function onInvAll(items: Record<string, number>): void {
@@ -1662,6 +1665,7 @@ function onInvAll(items: Record<string, number>): void {
   craftRender();
   if (inventory.isOpen()) inventory.render();
   if (chestUiOpen()) chestRender();
+  if (furnaceOpen()) smeltRender();
 }
 // Fluids + the portal marker are build tools (no finite supply); creative = unlimited all.
 function blockUnlimited(id: number): boolean {
@@ -1734,14 +1738,42 @@ function craftRender(): void {
   if (!craftOpen()) return;
   const list = craftEl.querySelector('.list')!;
   list.innerHTML = '';
-  // Crafting: block/material → item (creative affords everything).
+  // Crafting: block/material → item (creative affords everything). Smelting moved to
+  // the furnace node (place + use a furnace) — see smeltRender().
   CRAFT_RECIPES.forEach((r, i) => {
     const afford = settings.creative || r.in.every((ing) => (invCounts.get(ing.block) ?? 0) >= ing.count);
     const inner = r.in.map((ing) => iconHtml(ing.block, ing.count)).join('') + `<span class="arrow">→</span>` + iconHtml(r.out.block, r.out.count);
     list.appendChild(craftRow(afford, inner, 'Craft', () => net!.craft(i)));
   });
-  // Smelting (furnace): one input + one unit of fuel → output. Fuel = any carried
-  // FUEL_ITEMS (coal lump / wood / planks / coal block). Creative does NOT bypass it.
+}
+
+// ── Furnace UI (smelting — opened by using a placed furnace node) ────────────────
+// Smelting is gated behind a furnace now (Luanti-faithful): place a furnace, right-click
+// it. The recipes + validation are unchanged (net.smelt → server onSmelt); this is just
+// its own panel, reusing the craft panel's chrome.
+const furnaceEl = document.createElement('div');
+furnaceEl.id = 'vx-craft'; // reuse the craft panel's CSS
+furnaceEl.style.zIndex = '151';
+furnaceEl.innerHTML = `<div class="win"><div class="hd"><h3>Furnace</h3><div class="x" title="Close (Esc)">✕</div></div><div class="list"></div><div class="tip">Smelt with fuel in your inventory (coal, wood, planks)</div></div>`;
+(document.getElementById('game') ?? document.body).appendChild(furnaceEl);
+furnaceEl.querySelector<HTMLElement>('.x')!.onclick = () => furnaceClose();
+furnaceEl.addEventListener('mousedown', (e) => {
+  if (e.target === furnaceEl) furnaceClose();
+});
+const furnaceOpen = (): boolean => furnaceEl.classList.contains('open');
+function onFurnaceOpen(): void {
+  if (locked()) document.exitPointerLock();
+  furnaceEl.classList.add('open');
+  smeltRender();
+}
+function furnaceClose(): void {
+  furnaceEl.classList.remove('open');
+  if (mode === 'first') canvas.requestPointerLock();
+}
+function smeltRender(): void {
+  if (!furnaceOpen()) return;
+  const list = furnaceEl.querySelector('.list')!;
+  list.innerHTML = '';
   const haveFuel = FUEL_ITEMS.some((f) => (invCounts.get(f) ?? 0) >= 1);
   const sect = document.createElement('div');
   sect.className = 'sect';
@@ -1830,7 +1862,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

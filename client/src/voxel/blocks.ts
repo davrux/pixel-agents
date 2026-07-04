@@ -83,6 +83,7 @@ BLOCKS.push(
   u('wheat', 'wheat_3'), // 59 — growth stage
   u('wheat', 'wheat_4'), // 60 — mature (harvest)
   u('straw', 'straw'), // 61 — solid cube (9 wheat)
+  b('furnace', 'furnace_top', 'furnace_front', 'furnace_top', 'furnace_front'), // 62 — smelting node
 );
 
 export const WATER_ID = 27;
@@ -93,6 +94,7 @@ export const TORCH_ID = 33;
 export const CHEST_ID = 34;
 export const DOOR_CLOSED = 35;
 export const DOOR_OPEN = 36;
+export const FURNACE_ID = 62;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
