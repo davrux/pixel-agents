@@ -78,9 +78,10 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 62;
+export const MAX_BLOCK_ID = 63;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
+export const SAPLING = 63; // planted → grows into a tree over time
 // Farming: wheat grows through 4 cross-plant stages (57 seedling → 60 mature). Only the
 // seedling (57) is plantable; 58-60 are growth states the server advances over time.
 export const WHEAT_SEED = 57;

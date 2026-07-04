@@ -84,6 +84,7 @@ BLOCKS.push(
   u('wheat', 'wheat_4'), // 60 — mature (harvest)
   u('straw', 'straw'), // 61 — solid cube (9 wheat)
   b('furnace', 'furnace_top', 'furnace_front', 'furnace_top', 'furnace_front'), // 62 — smelting node
+  u('sapling', 'sapling'), // 63 — cross-plant; grows into a tree over time
 );
 
 export const WATER_ID = 27;
@@ -98,7 +99,7 @@ export const FURNACE_ID = 62;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
-export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60]);
+export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60, 63]);
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against

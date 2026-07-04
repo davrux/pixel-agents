@@ -41,6 +41,7 @@ import {
   WHEAT_MATURE,
   WHEAT,
   isCrop,
+  SAPLING,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -135,6 +136,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
   private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
+  private readonly saplings = new Map<string, number>(); // planted sapling cell → age in ticks
   private cropAcc = 0; // seconds toward the next crop-growth tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
@@ -238,6 +240,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (this.cropAcc >= 3) {
       this.cropAcc = 0;
       this.growCrops();
+      this.growSaplings();
     }
     // Dropped items: age out, fall to the ground (Minecraft-style — drops don't hang in
     // the air; break a tree and they drop down), then let nearby players collect them.
@@ -333,6 +336,39 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (b >= WHEAT_MATURE) continue; // fully grown
       if (Math.random() < 0.5 && this.world.setBlock(x, y, z, b + 1)) this.broadcastEdit(x, y, z, b + 1);
     }
+  }
+
+  /** Age planted saplings; once mature (~4 ticks) replace them with a grown tree. */
+  private growSaplings(): void {
+    if (!this.saplings.size) return;
+    for (const [key, age] of this.saplings) {
+      const [x, y, z] = key.split(',').map(Number);
+      if (this.world.getBlock(x, y, z) !== SAPLING) {
+        this.saplings.delete(key);
+        continue;
+      }
+      if (age >= 4 && Math.random() < 0.5) {
+        this.saplings.delete(key);
+        this.growTree(x, y, z);
+      } else this.saplings.set(key, age + 1);
+    }
+  }
+
+  /** Grow a small tree in the live world at a sapling cell (trunk + leaf blob), each
+   *  changed cell broadcast to clients that have the chunk. */
+  private growTree(x: number, y: number, z: number): void {
+    const h = 4 + Math.floor(Math.random() * 2); // 4-5 trunk
+    const put = (xx: number, yy: number, zz: number, id: number): void => {
+      if (this.world.setBlock(xx, yy, zz, id)) this.broadcastEdit(xx, yy, zz, id);
+    };
+    for (let i = 0; i < h; i++) put(x, y + i, z, 17); // trunk (overwrites the sapling)
+    const top = y + h - 1;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -2; dx <= 2; dx++)
+        for (let dz = -2; dz <= 2; dz++) {
+          if (dx * dx + dz * dz + dy * dy * 2 <= 5 && this.world.getBlock(x + dx, top + dy, z + dz) === 0) put(x + dx, top + dy, z + dz, 21);
+        }
+    put(x, top + 1, z, 21);
   }
 
   /** Spawn a dropped item at a broken block's cell (rests at the cell centre). */
@@ -936,6 +972,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const key = `${x},${y},${z}`;
     // Planting a wheat seedling registers the cell so it grows over time.
     if (id === WHEAT_SEED && this.crops.size < 5000) this.crops.add(key);
+    // Planting a sapling registers it (grows into a tree after a few ticks).
+    if (id === SAPLING && this.saplings.size < 5000) this.saplings.set(key, 0);
+    // Cutting leaves (21) sometimes yields a sapling (Luanti-faithful).
+    if (id === 0 && prev === 21 && Math.random() < 0.15) this.spawnDrop(SAPLING, x, y, z, 1);
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     // Crops are handled separately (custom harvest drops below), so skip them here.
