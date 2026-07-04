@@ -78,7 +78,7 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 93;
+export const MAX_BLOCK_ID = 94;
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
 export const SIGN_MAX_LEN = 120; // max characters of sign text
@@ -97,6 +97,7 @@ export const WOOL_GREEN = 90;
 export const WOOL_BLUE = 91;
 export const WOOL_VIOLET = 92;
 export const WOOL_BLACK = 93;
+export const DIAMOND_ORE = 94; // deep + rare; drops a diamond (top tool tier)
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -146,6 +147,7 @@ export const DYE_GREEN = 119;
 export const DYE_BLUE = 120;
 export const DYE_VIOLET = 121;
 export const DYE_BLACK = 122;
+export const DIAMOND = 123; // mined from diamond ore; crafts the diamond pickaxe + block
 
 /** Edible items → hunger restored, in eat-priority order (snacks before staples). The
  *  eat action consumes the first food the player holds. */
@@ -164,7 +166,7 @@ export const isFlammable = (id: number): boolean =>
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
 // to bare-hand digging. Tiers: wood (start) → stone → steel.
 export const TOOL_IDS: Record<string, number> = {
-  pick_wood: 200, pick_stone: 201, pick_steel: 202,
+  pick_wood: 200, pick_stone: 201, pick_steel: 202, pick_diamond: 203,
   axe_wood: 210, axe_stone: 211, axe_steel: 212,
   shovel_wood: 220, shovel_stone: 221, shovel_steel: 222,
   sword_wood: 230, sword_stone: 231, sword_steel: 232,
@@ -178,7 +180,7 @@ export const isFlintSteel = (id: number): boolean => id === FLINT_STEEL;
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
 /** Max durability (block-breaks) of a tool, by tier (id%10: 0=wood,1=stone,2=steel).
  *  A tool wears one use per block broken and shatters at zero (Minecraft-ish counts). */
-export const toolMaxUses = (toolId: number): number => [60, 132, 250][toolId % 10] ?? 60;
+export const toolMaxUses = (toolId: number): number => [60, 132, 250, 1560][toolId % 10] ?? 60; // wood/stone/steel/diamond
 /** Hoe tool ids — used (not to dig, but) to till dirt/grass into SOIL via the use action. */
 export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id === TOOL_IDS.hoe_stone || id === TOOL_IDS.hoe_steel;
 
@@ -202,6 +204,7 @@ export const ORE_DROPS: Record<number, number> = {
   [COPPER_ORE]: COPPER_LUMP,
   [TIN_ORE]: TIN_LUMP,
   [GOLD_ORE]: GOLD_LUMP,
+  [DIAMOND_ORE]: DIAMOND, // diamond ore drops a diamond (no smelting)
   [DOOR_OPEN]: DOOR_CLOSED,
   [SOIL]: 2, // tilled soil breaks back into dirt
   [DESERT_SOIL]: 8, // desert soil breaks back into desert sand
@@ -234,6 +237,8 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STEEL_INGOT, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_steel, count: 1 } },
   { in: [{ block: STEEL_INGOT, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_steel, count: 1 } },
   { in: [{ block: STEEL_INGOT, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_steel, count: 1 } },
+  { in: [{ block: DIAMOND, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_diamond, count: 1 } }, // 3 diamonds + 2 sticks → diamond pick
+  { in: [{ block: DIAMOND, count: 9 }], out: { block: 26, count: 1 } }, // 9 diamonds → diamond block
   // Functional nodes (Luanti): torch = coal + stick, ladder = sticks.
   { in: [{ block: COAL_LUMP, count: 1 }, { block: STICK, count: 1 }], out: { block: 33, count: 4 } }, // coal + stick → 4 torches
   { in: [{ block: CHARCOAL, count: 1 }, { block: STICK, count: 1 }], out: { block: 33, count: 4 } }, // charcoal + stick → 4 torches

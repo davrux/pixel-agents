@@ -58,6 +58,7 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   37: { cracky: 2 }, // copper ore (stone pick+)
   38: { cracky: 2 }, // tin ore (stone pick+)
   39: { cracky: 2 }, // gold ore (stone pick+)
+  94: { cracky: 2 }, // diamond ore (stone pick+; deep + rare)
   51: { snappy: 3, oddly_breakable_by_hand: 3 }, // tall grass
   52: { snappy: 3, oddly_breakable_by_hand: 3 }, // fern
   53: { snappy: 3, oddly_breakable_by_hand: 3 }, // rose

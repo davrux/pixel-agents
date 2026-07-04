@@ -12,7 +12,7 @@ export { surfaceHeight, biomeAt } from '@pixel/shared'; // re-export for existin
 /** Bump this whenever terrain generation changes. A world whose stored gen version is
  *  older is wiped (edited chunks dropped) so it regenerates fresh — see ChunkStore.meta.
  *  Lets a world-affecting change ship a fresh default map without manual world deletion. */
-export const GEN_VERSION = 3; // bumped: papyrus/mushrooms/flowers decoration added
+export const GEN_VERSION = 4; // bumped: diamond ore (deep + rare)
 
 const AIR = 0;
 const GRASS = 1;
@@ -31,6 +31,7 @@ const IRON_ORE = 31; // stone speckled with iron — deeper
 const COPPER_ORE = 37; // mid-depth
 const TIN_ORE = 38; // mid-depth, rarer
 const GOLD_ORE = 39; // deep + rare
+const DIAMOND_ORE = 94; // deepest + rarest (top tool tier)
 // Decorative surface plants (ids 51+; cross-plants except cactus).
 const TALL_GRASS = 51;
 const FERN = 52;
@@ -126,6 +127,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
           else if (wy < 20 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4003) < 0.014) id = COPPER_ORE;
           else if (wy < 16 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4004) < 0.01) id = TIN_ORE;
           else if (wy < 8 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4005) < 0.006) id = GOLD_ORE;
+          else if (wy < 6 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4006) < 0.0045) id = DIAMOND_ORE; // deepest + rarest
         }
         // Surface decoration: a plant on the cell just above dry ground (biome-dependent).
         if (id === AIR && wy === h + 1 && h > SEA && !beach) {

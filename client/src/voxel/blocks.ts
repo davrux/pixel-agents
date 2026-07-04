@@ -115,6 +115,7 @@ BLOCKS.push(
   u('blue wool', 'wool_blue'), // 91
   u('violet wool', 'wool_violet'), // 92
   u('black wool', 'wool_black'), // 93
+  u('diamond ore', 'diamond_ore'), // 94 — stone + diamond speckle (synthetic composite)
 );
 
 export const WATER_ID = 27;
@@ -161,7 +162,7 @@ export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
 export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
-export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore', 'diamond_ore'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(
@@ -170,7 +171,7 @@ export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tile
 
 /** Extra PNGs loaded into the atlas' image map but NOT used as block faces — they're
  *  composited by synthetic tiles (e.g. stone + mineral overlay → ore). */
-export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron', 'mineral_copper', 'mineral_tin', 'mineral_gold'];
+export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron', 'mineral_copper', 'mineral_tin', 'mineral_gold', 'mineral_diamond'];
 
 /** All placeable block ids (everything except air + state-only hidden ids). */
 export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0 && !HIDDEN.has(i));
