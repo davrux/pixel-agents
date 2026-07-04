@@ -27,8 +27,8 @@ export class MobModel {
     if (kind === 'chicken') this.buildChicken();
     else if (kind === 'cow') this.buildCow();
     else if (kind === 'pig') this.buildPig();
-    else if (kind === 'zombie') this.buildHumanoid(0x4b7a4b, 0x2f5030); // green
-    else if (kind === 'skeleton') this.buildHumanoid(0xd8d8d0, 0xb8b8b0); // bone-white
+    else if (kind === 'zombie') this.buildZombie();
+    else if (kind === 'skeleton') this.buildSkeleton();
     else if (kind === 'spider') this.buildSpider();
     else this.buildSheep();
   }
@@ -113,31 +113,72 @@ export class MobModel {
     this.leg(0.1, hy, 0, 0.07, 0.3, leg);
   }
 
-  /** Blocky humanoid (zombie/skeleton): head, torso, 2 arms + 2 legs that swing. */
-  private buildHumanoid(body: number, limb: number): void {
-    const hipY = 0.9,
-      legLen = 0.9;
-    this.leg(-0.15, hipY, 0, 0.22, legLen, limb);
-    this.leg(0.15, hipY, 0, 0.22, legLen, limb);
-    this.box(0.55, 0.75, 0.3, 0, 1.27, 0, body); // torso
-    this.box(0.44, 0.44, 0.44, 0, 1.87, 0, body); // head
-    this.leg(-0.4, 1.6, 0, 0.18, 0.7, body); // arms pivot at the shoulder + swing
-    this.leg(0.4, 1.6, 0, 0.18, 0.7, body);
+  /** A shoulder-pivoted arm at a FIXED rotation (doesn't swing — for a pose). */
+  private armFixed(x: number, shoulderY: number, w: number, len: number, color: number, rotX: number): void {
+    const sh = new THREE.Group();
+    sh.position.set(x, shoulderY, 0);
+    sh.rotation.x = rotX;
+    this.group.add(sh);
+    this.box(w, len, w, 0, -len / 2, 0, color, sh);
   }
 
-  /** Blocky spider: wide dark abdomen + head + red eyes + 8 skittering legs. */
+  /** Zombie: green skin, tattered shirt, dark sunken eyes, arms outstretched forward. */
+  private buildZombie(): void {
+    const skin = 0x5aa84b,
+      shirt = 0x35506b,
+      pants = 0x2f333d,
+      eye = 0x11220d;
+    const hipY = 0.9,
+      legLen = 0.9;
+    this.leg(-0.15, hipY, 0, 0.24, legLen, pants);
+    this.leg(0.15, hipY, 0, 0.24, legLen, pants);
+    this.box(0.56, 0.78, 0.32, 0, 1.28, 0, shirt); // torso
+    this.box(0.46, 0.46, 0.46, 0, 1.9, 0, skin); // head
+    this.box(0.1, 0.08, 0.04, -0.11, 1.93, -0.235, eye); // sunken eyes (front = -Z)
+    this.box(0.1, 0.08, 0.04, 0.11, 1.93, -0.235, eye);
+    this.armFixed(-0.4, 1.62, 0.2, 0.72, skin, -1.45); // both arms reach forward
+    this.armFixed(0.4, 1.62, 0.2, 0.72, skin, -1.45);
+  }
+
+  /** Skeleton: thin bone-white limbs, a skull with eye sockets, holding a wooden bow. */
+  private buildSkeleton(): void {
+    const bone = 0xe8e6dd,
+      dark = 0x1e1e1a,
+      bow = 0x6b4a2b;
+    const hipY = 0.88,
+      legLen = 0.88;
+    this.leg(-0.12, hipY, 0, 0.14, legLen, bone); // thin legs
+    this.leg(0.12, hipY, 0, 0.14, legLen, bone);
+    this.box(0.32, 0.72, 0.2, 0, 1.24, 0, bone); // narrow ribcage
+    this.box(0.4, 0.42, 0.4, 0, 1.82, 0, bone); // skull
+    this.box(0.09, 0.09, 0.04, -0.1, 1.84, -0.205, dark); // eye sockets
+    this.box(0.09, 0.09, 0.04, 0.1, 1.84, -0.205, dark);
+    this.armFixed(-0.26, 1.56, 0.12, 0.66, bone, -0.4); // thin arms; right raised to hold the bow
+    this.armFixed(0.26, 1.56, 0.12, 0.66, bone, -1.25);
+    this.box(0.05, 0.6, 0.05, 0.36, 1.16, -0.34, bow); // bow stave
+    this.box(0.05, 0.14, 0.14, 0.36, 1.44, -0.3, bow); // upper tip
+    this.box(0.05, 0.14, 0.14, 0.36, 0.9, -0.3, bow); // lower tip
+  }
+
+  /** Blocky spider: wide abdomen, cephalothorax with a 4-eye cluster + fangs, 8 legs. */
   private buildSpider(): void {
-    const dark = 0x33323a,
-      eye = 0xc0392b;
-    this.box(0.95, 0.42, 0.7, 0, 0.5, 0.1, dark); // abdomen
-    this.box(0.5, 0.4, 0.45, 0, 0.5, -0.5, dark); // cephalothorax (front, -Z)
-    this.box(0.09, 0.09, 0.06, -0.13, 0.58, -0.72, eye);
-    this.box(0.09, 0.09, 0.06, 0.13, 0.58, -0.72, eye);
-    const hy = 0.42,
-      ll = 0.42;
+    const dark = 0x2a2730,
+      hair = 0x1b1922,
+      eye = 0xc0392b,
+      fang = 0xdedede;
+    this.box(1.0, 0.5, 0.82, 0, 0.5, 0.16, dark); // abdomen
+    this.box(0.56, 0.44, 0.5, 0, 0.5, -0.5, hair); // cephalothorax (front, -Z)
+    this.box(0.08, 0.08, 0.05, -0.14, 0.6, -0.74, eye); // main eyes
+    this.box(0.08, 0.08, 0.05, 0.14, 0.6, -0.74, eye);
+    this.box(0.06, 0.06, 0.05, -0.08, 0.5, -0.74, eye); // secondary eyes
+    this.box(0.06, 0.06, 0.05, 0.08, 0.5, -0.74, eye);
+    this.box(0.06, 0.12, 0.06, -0.1, 0.35, -0.72, fang); // fangs
+    this.box(0.06, 0.12, 0.06, 0.1, 0.35, -0.72, fang);
+    const hy = 0.46,
+      ll = 0.5;
     for (const z of [-0.2, 0.0, 0.2, 0.4]) {
-      this.leg(-0.5, hy, z, 0.08, ll, dark);
-      this.leg(0.5, hy, z, 0.08, ll, dark);
+      this.leg(-0.5, hy, z, 0.07, ll, dark);
+      this.leg(0.5, hy, z, 0.07, ll, dark);
     }
   }
 
