@@ -64,6 +64,11 @@ export const BLOCK_GROUPS: Record<number, Groups> = {
   54: { snappy: 3, oddly_breakable_by_hand: 3 }, // dandelion
   55: { snappy: 3, oddly_breakable_by_hand: 3 }, // dry shrub
   56: { choppy: 3, oddly_breakable_by_hand: 3 }, // cactus
+  57: { snappy: 3, oddly_breakable_by_hand: 3 }, // wheat (seedling)
+  58: { snappy: 3, oddly_breakable_by_hand: 3 }, // wheat stage 2
+  59: { snappy: 3, oddly_breakable_by_hand: 3 }, // wheat stage 3
+  60: { snappy: 3, oddly_breakable_by_hand: 3 }, // wheat (mature)
+  61: { crumbly: 3, oddly_breakable_by_hand: 3 }, // straw
 };
 
 // tool_capabilities verbatim from minetest_game tools.lua (+ the default hand).

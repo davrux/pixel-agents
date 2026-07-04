@@ -78,6 +78,11 @@ BLOCKS.push(
   u('dandelion', 'dandelion'), // 54 — cross-plant, plains
   u('dry shrub', 'dry_shrub'), // 55 — cross-plant, desert
   b('cactus', 'cactus_top', 'cactus_side', 'cactus_top', 'cactus_side'), // 56 — solid cube, desert
+  u('wheat', 'wheat_1'), // 57 — wheat seedling (plantable); grows 57→60
+  u('wheat', 'wheat_2'), // 58 — growth stage
+  u('wheat', 'wheat_3'), // 59 — growth stage
+  u('wheat', 'wheat_4'), // 60 — mature (harvest)
+  u('straw', 'straw'), // 61 — solid cube (9 wheat)
 );
 
 export const WATER_ID = 27;
@@ -90,8 +95,8 @@ export const DOOR_CLOSED = 35;
 export const DOOR_OPEN = 36;
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
- *  tall grass, fern, rose, dandelion, dry shrub. Non-solid + transparent. */
-export const PLANT = new Set<number>([51, 52, 53, 54, 55]);
+ *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
+export const PLANT = new Set<number>([51, 52, 53, 54, 55, 57, 58, 59, 60]);
 
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
@@ -107,9 +112,9 @@ export const CLIMBABLE = new Set<number>([LADDER_ID]);
 export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
-/** Blocks kept out of the placeable palette: an open door + the reserved fluid-flow
- *  ids 40..50 (state/flow ids you never place directly). */
-export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
+/** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
+ *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];

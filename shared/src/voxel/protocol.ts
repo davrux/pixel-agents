@@ -78,8 +78,14 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 56;
+export const MAX_BLOCK_ID = 61;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
+// Farming: wheat grows through 4 cross-plant stages (57 seedling → 60 mature). Only the
+// seedling (57) is plantable; 58-60 are growth states the server advances over time.
+export const WHEAT_SEED = 57;
+export const WHEAT_MATURE = 60;
+export const STRAW = 61; // 9 wheat → a straw block
+export const isCrop = (id: number): boolean => id >= WHEAT_SEED && id <= WHEAT_MATURE;
 export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
 export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
 export const COPPER_ORE = 37;
@@ -100,6 +106,7 @@ export const COPPER_INGOT = 107;
 export const TIN_INGOT = 108;
 export const GOLD_INGOT = 109;
 export const BRONZE_INGOT = 110;
+export const WHEAT = 111; // harvested from mature wheat
 
 // Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
@@ -161,6 +168,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: COPPER_INGOT, count: 1 }, { block: TIN_INGOT, count: 1 }], out: { block: BRONZE_INGOT, count: 1 } },
   { in: [{ block: COPPER_INGOT, count: 9 }], out: { block: 24, count: 1 } }, // → copper block
   { in: [{ block: BRONZE_INGOT, count: 9 }], out: { block: 25, count: 1 } }, // → bronze block
+  { in: [{ block: WHEAT, count: 9 }], out: { block: STRAW, count: 1 } }, // 9 wheat → straw block
 ];
 
 // ── Smelting (furnace) ───────────────────────────────────────────────────────

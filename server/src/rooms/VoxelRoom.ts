@@ -36,6 +36,10 @@ import {
   CHEST_ID,
   DOOR_CLOSED,
   DOOR_OPEN,
+  WHEAT_SEED,
+  WHEAT_MATURE,
+  WHEAT,
+  isCrop,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -129,6 +133,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
+  private readonly crops = new Set<string>(); // planted crop cells "x,y,z" (grow over time)
+  private cropAcc = 0; // seconds toward the next crop-growth tick
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -227,6 +233,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.lavaAcc = 0;
       this.burnPlayersInLava();
     }
+    this.cropAcc += dt;
+    if (this.cropAcc >= 3) {
+      this.cropAcc = 0;
+      this.growCrops();
+    }
     // Dropped items: age out, fall to the ground (Minecraft-style — drops don't hang in
     // the air; break a tree and they drop down), then let nearby players collect them.
     for (const [key, d] of this.drops) {
@@ -304,6 +315,23 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (b) this.dropFromViews(b.sync);
     this.state.npcs.delete(key);
     this.npcs.delete(key);
+  }
+
+  /** Advance planted crops one growth stage (probabilistically), dropping cells that are
+   *  no longer a crop (broken/replaced) from the registry. Registry is populated on plant;
+   *  crops from a prior server run stay at their stored stage (not re-registered). */
+  private growCrops(): void {
+    if (!this.crops.size) return;
+    for (const key of this.crops) {
+      const [x, y, z] = key.split(',').map(Number);
+      const b = this.world.getBlock(x, y, z);
+      if (!isCrop(b)) {
+        this.crops.delete(key);
+        continue;
+      }
+      if (b >= WHEAT_MATURE) continue; // fully grown
+      if (Math.random() < 0.5 && this.world.setBlock(x, y, z, b + 1)) this.broadcastEdit(x, y, z, b + 1);
+    }
   }
 
   /** Spawn a dropped item at a broken block's cell (rests at the cell centre). */
@@ -903,9 +931,25 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       total > 0 ? bag.set(id, total) : bag.delete(id);
       client.send('inv', { block: id, total });
     }
+    const key = `${x},${y},${z}`;
+    // Planting a wheat seedling registers the cell so it grows over time.
+    if (id === WHEAT_SEED && this.crops.size < 5000) this.crops.add(key);
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
-    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.spawnDrop(dropFor(prev), x, y, z);
+    // Crops are handled separately (custom harvest drops below), so skip them here.
+    if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev) && !isCrop(prev)) this.spawnDrop(dropFor(prev), x, y, z);
+    // Harvest wheat: mature (60) → 1-2 wheat + 1-2 seeds; immature → the seed back.
+    if (id === 0 && isCrop(prev)) {
+      this.crops.delete(key);
+      if (prev === WHEAT_MATURE) {
+        this.spawnDrop(WHEAT, x, y, z, 1 + Math.floor(Math.random() * 2));
+        this.spawnDrop(WHEAT_SEED, x, y, z, 1 + Math.floor(Math.random() * 2));
+      } else {
+        this.spawnDrop(WHEAT_SEED, x, y, z, 1);
+      }
+    }
+    // Cutting tall grass (51) sometimes yields a wheat seed (Luanti: grass → seeds).
+    if (id === 0 && prev === 51 && Math.random() < 0.4) this.spawnDrop(WHEAT_SEED, x, y, z, 1);
     // Breaking a chest spills its contents as drops, then clears the stored inventory.
     if (id === 0 && prev === CHEST_ID) {
       const c = chests.get(this.state.worldId, x, y, z);
