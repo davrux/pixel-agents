@@ -9,6 +9,11 @@ import { CHUNK, CHUNK_VOL, cellIndex, hash2, hash3, noise3, biomeAt, surfaceHeig
 
 export { surfaceHeight, biomeAt } from '@pixel/shared'; // re-export for existing importers
 
+/** Bump this whenever terrain generation changes. A world whose stored gen version is
+ *  older is wiped (edited chunks dropped) so it regenerates fresh — see ChunkStore.meta.
+ *  Lets a world-affecting change ship a fresh default map without manual world deletion. */
+export const GEN_VERSION = 2;
+
 const AIR = 0;
 const GRASS = 1;
 const DIRT = 2;

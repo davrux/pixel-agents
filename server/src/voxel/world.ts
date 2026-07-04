@@ -8,7 +8,7 @@
 import { CHUNK, cellIndex, chunkKey, encodeCells, decodeCells, toChunk, toLocal, isWaterId } from '@pixel/shared';
 
 import { ChunkStore } from './chunkStore.js';
-import { generateChunk } from './gen.js';
+import { generateChunk, GEN_VERSION } from './gen.js';
 
 export class VoxelServerWorld {
   readonly worldId: string;
@@ -19,7 +19,7 @@ export class VoxelServerWorld {
   constructor(worldId: string, seed?: number) {
     this.worldId = worldId;
     this.store = new ChunkStore(worldId);
-    this.seed = this.store.meta(seed).seed; // `seed` only applies if the world is new
+    this.seed = this.store.meta(seed, GEN_VERSION).seed; // `seed` only for a new world; a gen-version bump wipes+regenerates
   }
 
   /** A chunk's cells: from cache, else the persisted (edited) blob, else generated. */

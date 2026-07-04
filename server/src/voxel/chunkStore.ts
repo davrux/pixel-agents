@@ -25,6 +25,7 @@ export function listWorlds(): string[] {
 export interface WorldMeta {
   seed: number;
   createdAt: number;
+  gen?: number; // terrain-generation version this world was built with (see meta())
 }
 
 export class ChunkStore {
@@ -47,12 +48,22 @@ export class ChunkStore {
   }
 
   /** World seed + creation time, created on first open. Uses `seed` if this call
-   *  creates the world (else a random one); existing worlds keep their seed. */
-  meta(seed?: number): WorldMeta {
+   *  creates the world (else a random one); existing worlds keep their seed. If the
+   *  world's stored gen version is older than `gen`, its edited chunks are wiped so the
+   *  world regenerates with the current terrain (a fresh map, no manual deletion). */
+  meta(seed?: number, gen = 0): WorldMeta {
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'meta'").get() as { value: string } | undefined;
-    if (row) return JSON.parse(row.value) as WorldMeta;
+    if (row) {
+      const m = JSON.parse(row.value) as WorldMeta;
+      if ((m.gen ?? 0) !== gen) {
+        this.db.exec('DELETE FROM chunks'); // generation changed → drop edits, regenerate fresh
+        m.gen = gen;
+        this.db.prepare("UPDATE meta SET value = ? WHERE key = 'meta'").run(JSON.stringify(m));
+      }
+      return m;
+    }
     const chosen = Number.isFinite(seed) ? (seed as number) >>> 0 : (Math.random() * 0x7fffffff) | 0;
-    const meta: WorldMeta = { seed: chosen, createdAt: Date.now() };
+    const meta: WorldMeta = { seed: chosen, createdAt: Date.now(), gen };
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('meta', ?)").run(JSON.stringify(meta));
     return meta;
   }
