@@ -63,6 +63,7 @@ import {
   FENCE_GATE_CLOSED,
   FENCE_GATE_OPEN,
   BED_ID,
+  WOOL_WHITE,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -732,6 +733,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (Math.hypot(n.x - p.x, n.z - p.z) > MELEE_REACH + 1) return; // reach (+slack)
     n.hp = Math.max(0, n.hp - PLAYER_DMG);
     if (n.hp <= 0) {
+      // Loot: a slain sheep drops wool (the base for dyeing).
+      if (b.def.kind === 'sheep') this.spawnDrop(WOOL_WHITE, Math.floor(n.x), Math.floor(n.y), Math.floor(n.z), 1 + Math.floor(Math.random() * 2));
       this.removeMob(key);
       return;
     }

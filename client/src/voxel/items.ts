@@ -8,6 +8,7 @@
 import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
   COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL, FLINT, APPLE,
+  DYE_RED, DYE_ORANGE, DYE_YELLOW, DYE_GREEN, DYE_BLUE, DYE_VIOLET, DYE_BLACK,
   BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL,
 } from '@pixel/shared';
 
@@ -154,6 +155,13 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(CHARCOAL, 'Charcoal', 'default_charcoal_lump'),
   materialItem(FLINT, 'Flint', 'default_flint'),
   materialItem(APPLE, 'Apple', 'default_apple'),
+  materialItem(DYE_RED, 'Red Dye', 'dye_red'),
+  materialItem(DYE_ORANGE, 'Orange Dye', 'dye_orange'),
+  materialItem(DYE_YELLOW, 'Yellow Dye', 'dye_yellow'),
+  materialItem(DYE_GREEN, 'Green Dye', 'dye_green'),
+  materialItem(DYE_BLUE, 'Blue Dye', 'dye_blue'),
+  materialItem(DYE_VIOLET, 'Violet Dye', 'dye_violet'),
+  materialItem(DYE_BLACK, 'Black Dye', 'dye_black'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */

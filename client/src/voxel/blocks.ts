@@ -107,6 +107,14 @@ BLOCKS.push(
   u('fence gate', 'fence'), // 83 — gate (closed): solid; use → open
   u('fence gate (open)', 'fence'), // 84 — gate (open): non-solid + not rendered
   b('bed', 'bed_top', 'bed_side', 'acacia_wood', 'bed_top'), // 85 — use at night → skip to morning
+  u('white wool', 'wool_white'), // 86 — dropped by sheep; dye it for colours
+  u('red wool', 'wool_red'), // 87
+  u('orange wool', 'wool_orange'), // 88
+  u('yellow wool', 'wool_yellow'), // 89
+  u('green wool', 'wool_green'), // 90
+  u('blue wool', 'wool_blue'), // 91
+  u('violet wool', 'wool_violet'), // 92
+  u('black wool', 'wool_black'), // 93
 );
 
 export const WATER_ID = 27;

@@ -78,7 +78,7 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 85;
+export const MAX_BLOCK_ID = 93;
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
 export const SIGN_MAX_LEN = 120; // max characters of sign text
@@ -87,6 +87,16 @@ export const FENCE_GATE_CLOSED = 83; // gate (closed): solid; use → toggles to
 export const FENCE_GATE_OPEN = 84; // gate (open): non-solid + not rendered (walk through)
 export const isFenceGate = (id: number): boolean => id === FENCE_GATE_CLOSED || id === FENCE_GATE_OPEN;
 export const BED_ID = 85; // bed: use-action at night → skip to morning (shared day clock)
+// Wool: white (86, dropped by sheep) + 7 dyed colours (87-93). Coloured by crafting
+// white wool + a dye. Plain solid blocks.
+export const WOOL_WHITE = 86;
+export const WOOL_RED = 87;
+export const WOOL_ORANGE = 88;
+export const WOOL_YELLOW = 89;
+export const WOOL_GREEN = 90;
+export const WOOL_BLUE = 91;
+export const WOOL_VIOLET = 92;
+export const WOOL_BLACK = 93;
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -128,6 +138,14 @@ export const BREAD = 112; // 3 wheat → bread; eaten to restore hunger
 export const CHARCOAL = 113; // Luanti: cook wood → charcoal; a coal-equivalent fuel + torch fuel
 export const FLINT = 114; // knapped from gravel; + steel ingot → flint & steel (fire lighter)
 export const APPLE = 115; // drops from leaves; edible (restores a little hunger)
+// Dyes (materials): ground from flowers / coal / cactus, used to colour wool.
+export const DYE_RED = 116;
+export const DYE_ORANGE = 117;
+export const DYE_YELLOW = 118;
+export const DYE_GREEN = 119;
+export const DYE_BLUE = 120;
+export const DYE_VIOLET = 121;
+export const DYE_BLACK = 122;
 
 /** Edible items → hunger restored, in eat-priority order (snacks before staples). The
  *  eat action consumes the first food the player holds. */
@@ -245,6 +263,22 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_ID, count: 6 } }, // 2 planks + 4 sticks → 6 fences
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_GATE_CLOSED, count: 1 } }, // → 1 fence gate
   { in: [{ block: 61, count: 3 }, { block: 18, count: 3 }], out: { block: BED_ID, count: 1 } }, // 3 straw + 3 planks → bed
+  // Dyes from flowers / cactus / coal (Luanti: a flower grinds into dye).
+  { in: [{ block: 53, count: 1 }], out: { block: DYE_RED, count: 2 } }, // rose → red
+  { in: [{ block: 54, count: 1 }], out: { block: DYE_YELLOW, count: 2 } }, // dandelion → yellow
+  { in: [{ block: 75, count: 1 }], out: { block: DYE_BLUE, count: 2 } }, // geranium → blue
+  { in: [{ block: 76, count: 1 }], out: { block: DYE_VIOLET, count: 2 } }, // viola → violet
+  { in: [{ block: 56, count: 1 }], out: { block: DYE_GREEN, count: 2 } }, // cactus → green
+  { in: [{ block: COAL_LUMP, count: 1 }], out: { block: DYE_BLACK, count: 4 } }, // coal → black
+  { in: [{ block: DYE_RED, count: 1 }, { block: DYE_YELLOW, count: 1 }], out: { block: DYE_ORANGE, count: 2 } }, // red+yellow → orange
+  // Colour white wool with a dye (Luanti: wool + dye → coloured wool).
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_RED, count: 1 }], out: { block: WOOL_RED, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_ORANGE, count: 1 }], out: { block: WOOL_ORANGE, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_YELLOW, count: 1 }], out: { block: WOOL_YELLOW, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_GREEN, count: 1 }], out: { block: WOOL_GREEN, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_BLUE, count: 1 }], out: { block: WOOL_BLUE, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_VIOLET, count: 1 }], out: { block: WOOL_VIOLET, count: 1 } },
+  { in: [{ block: WOOL_WHITE, count: 1 }, { block: DYE_BLACK, count: 1 }], out: { block: WOOL_BLACK, count: 1 } },
   // Hoes (2 material heads + 2 sticks) — till dirt/grass into farmland.
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_wood, count: 1 } },
   { in: [{ block: 4, count: 2 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.hoe_stone, count: 1 } },
