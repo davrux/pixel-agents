@@ -20,6 +20,7 @@ import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemBy
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
+import { MobModel, ANIMAL_KINDS } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout } from '../net/room';
@@ -328,6 +329,7 @@ interface RemoteNpc {
   z: number;
   yaw: number;
   skin: string;
+  kind: string;
   state: string;
 }
 interface RemoteItem {
@@ -343,7 +345,10 @@ interface RemoteState {
   items: { forEach(cb: (p: RemoteItem, k: string) => void): void; get(k: string): RemoteItem | undefined };
 }
 const remote = new Map<string, { avatar: Avatar }>();
-const npcAvatars = new Map<string, { avatar: Avatar }>();
+// An NPC is rendered as either a humanoid Avatar (monsters) or a blocky MobModel
+// (animals) — both expose the same group/setTint/animate surface used below.
+type NpcRender = { group: THREE.Object3D; setTint(c: THREE.Color): void; animate(dt: number, speed: number): void };
+const npcAvatars = new Map<string, { avatar: NpcRender }>();
 // Dropped items: small textured cubes that bob + spin, synced from state.items (AOI).
 const itemGroup = new THREE.Group();
 scene.add(itemGroup);
@@ -401,7 +406,7 @@ function disposeDrop(d: { obj: THREE.Object3D }): void {
 /** Smoothly move + turn an avatar toward its synced transform (server sends ~10 Hz;
  *  we interpolate at frame rate so movement + walk animation aren't choppy). Returns
  *  whether it's still moving (drives walk vs idle, stable between server updates). */
-function smoothAvatar(a: Avatar, tx: number, ty: number, tz: number, tyaw: number, dt: number): boolean {
+function smoothAvatar(a: { group: THREE.Object3D }, tx: number, ty: number, tz: number, tyaw: number, dt: number): boolean {
   const g = a.group.position;
   const moving = Math.hypot(tx - g.x, tz - g.z) > 0.03;
   const k = Math.min(1, dt * 12);
@@ -480,6 +485,7 @@ function onServerEdit(e: { x: number; y: number; z: number; id: number }): void 
 function syncRemotePlayers(dt: number): void {
   if (!net) return;
   const state = net.room.state as unknown as RemoteState;
+  if (!state?.players || !state.npcs || !state.items) return; // schema not synced yet (early frames)
   const mySid = net.sessionId;
   state.players.forEach((p, sid) => {
     if (sid === mySid) return;
@@ -511,7 +517,8 @@ function syncNpcs(dt: number, state: RemoteState): void {
   state.npcs.forEach((n, id) => {
     let r = npcAvatars.get(id);
     if (!r) {
-      const a = new Avatar(n.skin || 'character_2');
+      // Animals get a blocky animal model; monsters keep the humanoid avatar.
+      const a: NpcRender = ANIMAL_KINDS.has(n.kind) ? new MobModel(n.kind) : new Avatar(n.skin || 'character_2');
       a.group.position.set(n.x, n.y, n.z);
       scene.add(a.group);
       r = { avatar: a };
@@ -2018,6 +2025,14 @@ let last = performance.now();
 let lastMoveSent = 0;
 let lastMapRender = 0;
 function frame(now: number): void {
+  requestAnimationFrame(frame); // schedule next FIRST — a thrown frame must never stop the loop
+  try {
+    frameBody(now);
+  } catch (e) {
+    console.warn('[voxel] frame error (skipped):', e);
+  }
+}
+function frameBody(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   flushDirty(); // (re)mesh a few dirty chunks per frame
@@ -2129,7 +2144,6 @@ function frame(now: number): void {
   underwaterOverlay.style.opacity = camWet ? '0.4' : '0';
   lavaOverlay.style.opacity = camLava ? '0.62' : '0';
   renderer.render(scene, activeCam());
-  requestAnimationFrame(frame);
 }
 injectPixelSkin(); // one pixel-menu look for all voxel panels (appended last → wins the cascade)
 requestAnimationFrame(frame);
