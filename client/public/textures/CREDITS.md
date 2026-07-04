@@ -7,9 +7,10 @@ These bundled textures are **not** ours; they are used under their licenses.
 - Source: <https://content.luanti.org/packages/Mirtilo/baunilha/>
 - License: **CC BY-SA 4.0** (<https://creativecommons.org/licenses/by-sa/4.0/>)
 - Used files (renamed): `blocks/*.png` (grass/dirt/stone/sand/tree/leaves/brick;
-  ladder, torch, chest, door; mineral_* ore overlays), `items/*.png` (wood/stone/
-  steel pick, axe, shovel, sword; stick; coal/iron/copper/tin/gold lump; steel/
-  copper/tin/gold/bronze ingot), `player/character.png`.
+  ladder, torch, chest, door; mineral_* ore overlays; tall grass, fern, rose,
+  dandelion, dry shrub, cactus), `items/*.png` (wood/stone/steel pick, axe, shovel,
+  sword; stick; coal/iron/copper/tin/gold lump; steel/copper/tin/gold/bronze ingot),
+  `player/character.png`.
 - Per CC BY-SA 4.0: attribution given here, and these texture files (and any
   modifications of them) remain licensed under CC BY-SA 4.0. This does **not**
   affect the licensing of the project's own source code.

@@ -75,7 +75,10 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Item-id ranges: placeable blocks 1..MAX_BLOCK_ID, MATERIALS 100..199, TOOLS 200..299.
 // MAX_BLOCK_ID is the highest valid placeable block id (bump it when blocks.ts grows);
 // the server's place guard uses it so materials/tools can't be placed as blocks.
-export const MAX_BLOCK_ID = 39;
+// Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
+// (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
+// blocks.ts grows so the server place guard admits the new ids.
+export const MAX_BLOCK_ID = 56;
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
 export const DOOR_OPEN = 36; // door (open): non-solid, not rendered

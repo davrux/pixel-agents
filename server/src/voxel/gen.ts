@@ -24,6 +24,13 @@ const IRON_ORE = 31; // stone speckled with iron — deeper
 const COPPER_ORE = 37; // mid-depth
 const TIN_ORE = 38; // mid-depth, rarer
 const GOLD_ORE = 39; // deep + rare
+// Decorative surface plants (ids 51+; cross-plants except cactus).
+const TALL_GRASS = 51;
+const FERN = 52;
+const ROSE = 53;
+const DANDELION = 54;
+const DRY_SHRUB = 55;
+const CACTUS = 56;
 
 const SEA = 12; // water fills land lower than this, up to here
 const TREE_MARGIN = 2; // columns just outside a chunk whose leaves may reach in
@@ -206,6 +213,12 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
           else if (wy < 20 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4003) < 0.014) id = COPPER_ORE;
           else if (wy < 16 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4004) < 0.01) id = TIN_ORE;
           else if (wy < 8 && hash3(wx >> 1, wy >> 1, wz >> 1, seed + 4005) < 0.006) id = GOLD_ORE;
+        }
+        // Surface decoration: a plant on the cell just above dry ground (biome-dependent).
+        if (id === AIR && wy === h + 1 && h > SEA && !beach) {
+          const rr = hash3(wx, 7, wz, seed + 5000);
+          if (biome === 'plains') id = rr < 0.09 ? TALL_GRASS : rr < 0.11 ? FERN : rr < 0.118 ? ROSE : rr < 0.126 ? DANDELION : AIR;
+          else if (biome === 'desert') id = rr < 0.02 ? CACTUS : rr < 0.05 ? DRY_SHRUB : AIR;
         }
         if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;
       }

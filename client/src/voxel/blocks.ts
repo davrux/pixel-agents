@@ -65,6 +65,21 @@ export const BLOCKS: BlockDef[] = [
   u('gold ore', 'gold_ore'), // id 39
 ];
 
+// ── id 40..50 are RESERVED for the fluid FLOW levels (see protocol WATER_FLOW 40-46 /
+// LAVA_FLOW 47-50). Those cells are rendered via the fluid path (BLOCKS[source]), never
+// via BLOCKS[id], but the array must stay dense so real blocks can use ids ≥ 51. Fill
+// the gap with a placeholder and keep them out of the placeable palette (HIDDEN below).
+while (BLOCKS.length <= 50) BLOCKS.push(u('(reserved: fluid flow)', 'stone'));
+// New content blocks start at id 51 (above the fluid-flow band).
+BLOCKS.push(
+  u('tall grass', 'tall_grass'), // 51 — cross-plant, plains
+  u('fern', 'fern'), // 52 — cross-plant, plains
+  u('rose', 'rose'), // 53 — cross-plant, plains
+  u('dandelion', 'dandelion'), // 54 — cross-plant, plains
+  u('dry shrub', 'dry_shrub'), // 55 — cross-plant, desert
+  b('cactus', 'cactus_top', 'cactus_side', 'cactus_top', 'cactus_side'), // 56 — solid cube, desert
+);
+
 export const WATER_ID = 27;
 export const PORTAL_ID = 28;
 export const LAVA_ID = 29;
@@ -74,21 +89,27 @@ export const CHEST_ID = 34;
 export const DOOR_CLOSED = 35;
 export const DOOR_OPEN = 36;
 
-/** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
- *  should see the block a glass pane sits on THROUGH it), and only cull against the
- *  same id (connected glass/ice). ice, glass, obsidian glass, leaves, portal, ladder, torch, doors. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36]);
+/** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
+ *  tall grass, fern, rose, dandelion, dry shrub. Non-solid + transparent. */
+export const PLANT = new Set<number>([51, 52, 53, 54, 55]);
 
-/** Non-solid blocks: the player passes through them (like fluids). Ladders, torches, open doors. */
-export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN]);
+/** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
+ *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
+ *  the same id. ice, glass, obsidian glass, leaves, portal, ladder, torch, doors, plants. */
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, ...PLANT]);
+
+/** Non-solid blocks: the player passes through them (like fluids). Ladders, torches,
+ *  open doors, cross-plants. */
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, ...PLANT]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client places a point light at nearby instances. */
 export const LIGHT_BLOCKS = new Set<number>([TORCH_ID]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN]);
-/** Blocks kept out of the placeable palette (state-only ids you never place directly). */
-export const HIDDEN = new Set<number>([DOOR_OPEN]);
+/** Blocks kept out of the placeable palette: an open door + the reserved fluid-flow
+ *  ids 40..50 (state/flow ids you never place directly). */
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
 export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore'];

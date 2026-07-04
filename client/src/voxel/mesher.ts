@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP } from './blocks.js';
+import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, PLANT } from './blocks.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
 
@@ -82,6 +82,25 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, cx: number, cy: 
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = cellAt(x, y, z);
         if (id === AIR || RENDER_SKIP.has(id)) continue; // air + state-only ids (open door) draw nothing
+        // Cross-plant: two crossed quads (an "X"), double-sided (material is DoubleSide) with
+        // alpha-cutout — a flat plant, not a cube. No neighbour culling / AO.
+        if (PLANT.has(id)) {
+          const r = atlas.rect((BLOCKS[id] ?? BLOCKS[3]).tiles.side);
+          const c = 0.95; // near-full-bright (plants read the same day + night-ish)
+          const quads = [
+            [[x, y, z], [x + 1, y, z + 1], [x + 1, y + 1, z + 1], [x, y + 1, z]],
+            [[x + 1, y, z], [x, y, z + 1], [x, y + 1, z + 1], [x + 1, y + 1, z]],
+          ];
+          const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+          for (const quad of quads) {
+            for (const i of [0, 1, 2, 0, 2, 3]) {
+              opq.pos.push(quad[i][0], quad[i][1], quad[i][2]);
+              opq.col.push(c, c, c);
+              opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
+            }
+          }
+          continue;
+        }
         const fluid = fluidOf(id); // water/lava def, or null
         const transparent = TRANSPARENT.has(id);
         const def = fluid ? BLOCKS[fluid.source] : BLOCKS[id] ?? BLOCKS[3];
