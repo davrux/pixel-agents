@@ -318,6 +318,7 @@ export const SMELT_RECIPES: SmeltRecipe[] = [
 /** Items usable as furnace fuel (coal lump, charcoal, wood, planks, coal block). */
 export const FUEL_ITEMS: number[] = [COAL_LUMP, CHARCOAL, 17, 18, 23];
 
+export const MAP_LIMIT = 31000; // world half-extent per axis (Luanti's default mapgen_limit)
 export const CHUNK = 16; // chunk edge; a chunk is CHUNK^3 block ids
 export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
 

@@ -16,6 +16,7 @@ import {
   VOXEL_ROOM,
   VIEW_CHUNKS,
   VIEW_CHUNKS_Y,
+  MAP_LIMIT,
   toChunk,
   chunkKey,
   packChunk,
@@ -78,7 +79,7 @@ import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
-import { listWorlds } from '../voxel/chunkStore.js';
+import { listWorlds, deleteWorld } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
 import { voxelPositions } from '../voxel/positionStore.js';
 import { voxelInventory, voxelDurability } from '../voxel/inventoryStore.js';
@@ -244,6 +245,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
+    this.onMessage('deleteWorld', (client, m: { world?: string }) => this.onDeleteWorld(client, m));
     // Zone voice (per-world) — same LiveKit flow as the 2D office (shared helper).
     this.onMessage('zoneVoiceToken', (client) => void this.onZoneVoiceToken(client));
     this.onMessage('voiceEvent', (client, m: { event?: string }) => this.onVoiceEvent(client, m));
@@ -1343,8 +1345,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const p = this.state.players.get(client.sessionId);
     if (!v || !p) return;
     if (![m?.x, m?.z].every((n) => Number.isFinite(n))) return;
-    const x = Math.max(-4000, Math.min(4000, Math.floor(m.x))) + 0.5;
-    const z = Math.max(-4000, Math.min(4000, Math.floor(m.z))) + 0.5;
+    const x = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, Math.floor(m.x))) + 0.5; // Luanti map limit
+    const z = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, Math.floor(m.z))) + 0.5;
     const y = this.world.columnTop(Math.floor(x), Math.floor(z)) + 1;
     p.x = x;
     p.y = y;
@@ -1552,6 +1554,19 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (!text) return;
     const from = this.state.players.get(client.sessionId)?.name || 'player';
     this.broadcast('m', { type: 'chat', from, text, at: Date.now() });
+  }
+
+  /** Delete a persisted world (admin only; not the current world or the default). */
+  private onDeleteWorld(client: Client, m: { world?: string }): void {
+    const sys = (text: string): void => void client.send('m', { type: 'system', text });
+    if (!(client.auth as AuthInfo).isAdmin) return sys('Deleting worlds is admin-only.');
+    const id = (typeof m?.world === 'string' ? m.world : '').replace(/[^a-z0-9_-]/gi, '_').slice(0, 40);
+    if (!id) return;
+    if (id === this.state.worldId) return sys("You can't delete the world you're in.");
+    if (id === 'default') return sys("The default world can't be deleted.");
+    const ok = deleteWorld(id);
+    sys(ok ? `Deleted world "${id}".` : `No such world: "${id}".`);
+    this.broadcast('worlds', listWorlds()); // refresh everyone's world dropdown
   }
 
   /** Mint a per-world zone-voice LiveKit token (proximity identity `p<player.id>`). */

@@ -2377,6 +2377,16 @@ function onWorlds(list: unknown): void {
   if (Array.isArray(list)) knownWorlds = list.filter((x): x is string => typeof x === 'string');
   rebuildWorldSelect();
 }
+// Delete the selected voxel world (admin-only, server-gated; can't be the current world).
+document.getElementById('world-delete')!.onclick = () => {
+  const v = worldSelect.value;
+  if (!v.startsWith('voxel:')) return showToast('Select a voxel world to delete.');
+  const id = v.slice('voxel:'.length);
+  if (id === currentWorld) return showToast("You can't delete the world you're in.");
+  if (id === 'default') return showToast("The default world can't be deleted.");
+  if (!window.confirm(`Delete voxel world "${id}"? This removes its saved terrain permanently.`)) return;
+  net?.deleteWorld(id);
+};
 worldSelect.onchange = () => {
   const v = worldSelect.value;
   const i = v.indexOf(':');

@@ -6,7 +6,7 @@
  * Each row is the RLE-encoded cells blob (see shared encodeCells).
  */
 import { DatabaseSync } from 'node:sqlite';
-import { readdirSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 
 import { dataPath, dataDir } from '../paths.js';
 
@@ -20,6 +20,23 @@ export function listWorlds(): string[] {
   } catch {
     return [];
   }
+}
+
+/** Delete a world's files (the .sqlite + its WAL/SHM sidecars). Returns true if the main
+ *  file existed. Caller must ensure no room is currently serving that world (it would be
+ *  re-persisted on the next edit). */
+export function deleteWorld(id: string): boolean {
+  const safe = id.replace(/[^a-z0-9_-]/gi, '_');
+  let existed = false;
+  for (const ext of ['.sqlite', '.sqlite-wal', '.sqlite-shm']) {
+    try {
+      rmSync(dataPath(`world_${safe}${ext}`));
+      if (ext === '.sqlite') existed = true;
+    } catch {
+      /* not present */
+    }
+  }
+  return existed;
 }
 
 export interface WorldMeta {

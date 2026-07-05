@@ -43,6 +43,7 @@ export interface VoxelNet {
   sendCommand(name: string, args: string): void;
   sendZoneVoiceToken(): void;
   sendVoiceEvent(event: string): void;
+  deleteWorld(world: string): void;
   leave(): Promise<void>;
 }
 
@@ -153,6 +154,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendCommand: (name, args) => room.send('command', { name, args }),
     sendZoneVoiceToken: () => room.send('zoneVoiceToken'),
     sendVoiceEvent: (event) => room.send('voiceEvent', { event }),
+    deleteWorld: (world) => room.send('deleteWorld', { world }),
     leave: async () => {
       await room.leave();
     },
