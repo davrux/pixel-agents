@@ -84,6 +84,8 @@ import { voxelPositions } from '../voxel/positionStore.js';
 import { voxelInventory, voxelDurability } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
 import { chests } from '../voxel/chestStore.js';
+import { appStore } from '../appStore.js';
+import { voiceConfigured, voiceUrl, voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { signs, cleanSignText } from '../voxel/signStore.js';
 
 interface AuthInfo {
@@ -172,6 +174,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private fireAcc = 0; // seconds toward the next fire tick
   private readonly noHunger = new Set<string>(); // sids with hunger turned OFF (food stays full)
   private cropAcc = 0; // seconds toward the next crop-growth tick
+  private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
+  private readonly lastVoiceEventAt = new Map<string, number>(); // per-session throttle for voice announcements
   private readonly decayLeaves = new Set<string>(); // orphaned leaf cells to check for decay
   private decayAcc = 0; // seconds toward the next leaf-decay tick
   private hungerAcc = 0; // seconds toward the next hunger tick
@@ -240,6 +244,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
+    // Zone voice (per-world) — same LiveKit flow as the 2D office (shared helper).
+    this.onMessage('zoneVoiceToken', (client) => void this.onZoneVoiceToken(client));
+    this.onMessage('voiceEvent', (client, m: { event?: string }) => this.onVoiceEvent(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
     this.onMessage('saveSettings', (client, obj: unknown) => {
@@ -1545,6 +1552,37 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (!text) return;
     const from = this.state.players.get(client.sessionId)?.name || 'player';
     this.broadcast('m', { type: 'chat', from, text, at: Date.now() });
+  }
+
+  /** Mint a per-world zone-voice LiveKit token (proximity identity `p<player.id>`). */
+  private async onZoneVoiceToken(client: Client): Promise<void> {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return void client.send('m', { type: 'zoneVoiceToken', error: 'no-avatar' });
+    if (!voiceConfigured()) return void client.send('m', { type: 'zoneVoiceToken', error: 'not-configured' });
+    const room = voiceRoomName(this.voiceNs, `zv-vox-${this.state.worldId}`);
+    const token = await mintVoiceToken(`p${p.id}`, p.name || 'player', room);
+    if (token) client.send('m', { type: 'zoneVoiceToken', url: voiceUrl(), token, room });
+  }
+
+  /** Announce a voice state change (join/leave/mute/deafen) into the world chat. */
+  private onVoiceEvent(client: Client, msg: { event?: string }): void {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return;
+    const now = Date.now();
+    if (now - (this.lastVoiceEventAt.get(client.sessionId) ?? 0) < 700) return; // rate-limit
+    const name = p.name || 'player';
+    const texts: Record<string, string> = {
+      join: `${name} joined the voice chat.`,
+      leave: `${name} left the voice chat.`,
+      'mic-off': `${name} muted their mic.`,
+      'mic-on': `${name} unmuted their mic.`,
+      'deaf-on': `${name} muted sound.`,
+      'deaf-off': `${name} unmuted sound.`,
+    };
+    const text = texts[msg?.event ?? ''];
+    if (!text) return;
+    this.lastVoiceEventAt.set(client.sessionId, now);
+    this.broadcast('m', { type: 'system', text });
   }
 
   /** Slash commands — same registry/gating as the 2D world (shared `commands`). Client-only

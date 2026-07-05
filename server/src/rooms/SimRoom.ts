@@ -1,5 +1,5 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
-import { AccessToken } from 'livekit-server-sdk';
+import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
 import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -414,24 +414,12 @@ export class SimRoom extends Room<RoomState> {
 
   /** Namespaced + sanitised LiveKit room name (prevents cross-deployment clashes). */
   private voiceRoom(suffix: string): string {
-    return `${this.voiceNs}-${suffix}`.replace(/[^A-Za-z0-9_-]/g, '-');
+    return voiceRoomName(this.voiceNs, suffix);
   }
 
-  /** Mint a LiveKit access token for player `id` in `room` (identity p<id>, so
-   *  the client can map a participant back to its avatar for proximity audio).
-   *  Returns null if LiveKit isn't configured. */
+  /** Mint a LiveKit access token for player `id` in `room` (see the shared helper). */
   private async mintVoiceToken(id: number, room: string): Promise<string | null> {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
-    if (!apiKey || !apiSecret) return null;
-    const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
-    // Short TTL: the client requests a fresh token per join, so a scoped token
-    // that leaks is only usable briefly (defense in depth).
-    const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name, ttl: '1h' });
-    // canUpdateOwnMetadata lets a participant publish its own attributes (we use
-    // a `deaf` attribute so others can see when someone has their sound off).
-    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canUpdateOwnMetadata: true });
-    return at.toJwt();
+    return mintVoiceToken(`p${id}`, this.os.getCharacter(id)?.folderName || `Guest-${id}`, room);
   }
 
   /** Remove a player from one conference (by key) + broadcast the new roster. */

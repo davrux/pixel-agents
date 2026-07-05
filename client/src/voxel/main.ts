@@ -12,6 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { ChatUI } from '../ui/chatUI.js';
+import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
@@ -414,6 +415,7 @@ scene.add(avatar.group);
 
 // ── Networking: server chunks + authoritative edits + remote players ──────────
 interface RemotePlayer {
+  id: number;
   x: number;
   y: number;
   z: number;
@@ -796,7 +798,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen();
 // Bring a panel to the front when opened, so the last-opened window is always on top
 // (all panels share a base z-index → without this, DOM order decided stacking).
 let panelZTop = 300;
@@ -998,6 +1000,65 @@ const chat = new ChatUI({
   onFocus: () => {
     if (locked()) document.exitPointerLock();
   },
+});
+
+// Audio / zone voice — the SAME ZoneVoiceUI as the 2D office, mounted in a top-right
+// panel (mirrors the top-left settings). Per-world LiveKit voice; proximity uses the
+// horizontal (x,z) distance between players. Voice media needs a mic + LiveKit config.
+const audioStyle = document.createElement('style');
+audioStyle.textContent = `
+  #vx-audio-btn{position:fixed;right:10px;top:30px;width:30px;height:30px;z-index:120;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-size:1rem;background:#141826;border:2px solid #05060b;
+    border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #vx-audio-btn.on{border-color:#4ad06a;color:#9fe6b0;}
+  #vx-audio{position:fixed;right:12px;top:66px;width:340px;max-width:92vw;z-index:120;display:none;
+    background:#0f1220;border:2px solid #05060b;border-radius:.6rem;color:#eef1fb;
+    box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);
+    font-family:'FS Pixel Sans',ui-monospace,monospace;}
+  #vx-audio.open{display:block;}
+  #vx-audio .hd{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;border-bottom:2px solid #05060b;}
+  #vx-audio .hd h3{margin:0;font-size:1rem;} #vx-audio .hd .x{margin-left:auto;cursor:pointer;padding:.1rem .5rem;
+    background:#141826;border:2px solid #05060b;border-radius:.4rem;}
+  #vx-audio .pa-body{padding:.7rem .8rem;max-height:70vh;overflow-y:auto;}`;
+document.head.appendChild(audioStyle);
+const audioPanelEl = document.createElement('div');
+audioPanelEl.id = 'vx-audio';
+audioPanelEl.innerHTML = '<div class="hd"><h3>Audio · Voice</h3><div class="x" title="Close">✕</div></div><div class="pa-body"></div>';
+(document.getElementById('game') ?? document.body).appendChild(audioPanelEl);
+const audioBtn = document.createElement('div');
+audioBtn.id = 'vx-audio-btn';
+audioBtn.textContent = '🔊';
+audioBtn.title = 'Audio / voice';
+(document.getElementById('game') ?? document.body).appendChild(audioBtn);
+function audioOpen(): boolean {
+  return audioPanelEl.classList.contains('open');
+}
+function toggleAudio(): void {
+  const open = !audioOpen();
+  audioPanelEl.classList.toggle('open', open);
+  if (open) {
+    frontPanel(audioPanelEl);
+    if (locked()) document.exitPointerLock();
+  }
+}
+audioBtn.onclick = toggleAudio;
+audioPanelEl.querySelector<HTMLElement>('.x')!.onclick = () => audioPanelEl.classList.remove('open');
+const playerPosById = (id: number): { x: number; y: number } | null => {
+  if (!net) return null;
+  let pos: { x: number; y: number } | null = null;
+  (net.room.state as unknown as RemoteState).players.forEach((p) => {
+    if (p.id === id) pos = { x: p.x, y: p.z }; // horizontal plane for proximity
+  });
+  return pos;
+};
+const zoneVoice = new ZoneVoiceUI(audioPanelEl.querySelector<HTMLElement>('.pa-body')!, {
+  requestToken: () => net?.sendZoneVoiceToken(),
+  announceVoice: (event) => net?.sendVoiceEvent(event),
+  myPosition: () => ({ x: player.pos.x, y: player.pos.z }),
+  positionOf: (id) => playerPosById(id),
+  onSpeakers: () => {},
+  onVoiceStatus: () => {},
+  onStateChange: (s) => audioBtn.classList.toggle('on', !!(s.connected || s.micOn)),
 });
 function updateArmorHud(): void {
   armorHud.innerHTML = '';
@@ -2173,7 +2234,12 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: (m: ChatMsg) => (m.type === 'system' ? chat.addSystemLine(m.text ?? '') : chat.addChatLine(m.from ?? 'player', m.text ?? '', m.at)) };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg };
+function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string }): void {
+  if (m.type === 'zoneVoiceToken') void zoneVoice.onToken(m);
+  else if (m.type === 'system') chat.addSystemLine(m.text ?? '');
+  else if (m.type === 'chat') chat.addChatLine(m.from ?? 'player', m.text ?? '', m.at);
+}
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

@@ -41,6 +41,8 @@ export interface VoxelNet {
   setSign(x: number, y: number, z: number, text: string): void;
   sendChat(text: string): void;
   sendCommand(name: string, args: string): void;
+  sendZoneVoiceToken(): void;
+  sendVoiceEvent(event: string): void;
   leave(): Promise<void>;
 }
 
@@ -149,6 +151,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     setSign: (x, y, z, text) => room.send('setSign', { x, y, z, text }),
     sendChat: (text) => room.send('chat', { text }),
     sendCommand: (name, args) => room.send('command', { name, args }),
+    sendZoneVoiceToken: () => room.send('zoneVoiceToken'),
+    sendVoiceEvent: (event) => room.send('voiceEvent', { event }),
     leave: async () => {
       await room.leave();
     },
