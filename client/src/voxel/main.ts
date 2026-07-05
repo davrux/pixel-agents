@@ -422,6 +422,7 @@ interface RemotePlayer {
   hp: number;
   hpMax: number;
   food: number;
+  name: string;
 }
 interface RemoteNpc {
   x: number;
@@ -770,8 +771,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && craftOpen()) return craftClose();
   if (e.code === 'Escape' && chestUiOpen()) return chestClose();
   if (e.code === 'Escape' && furnaceOpen()) return furnaceClose();
-  if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) return travelMap.toggle();
-  if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) return inventory.toggle();
+  if (e.code === 'KeyM' && !pickerOpen() && !settingsOpen()) { travelMap.toggle(); frontPanel('vx-map'); return; }
+  if (e.code === 'KeyI' && !pickerOpen() && !settingsOpen()) { inventory.toggle(); frontPanel('vx-inv'); return; }
   if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
@@ -789,6 +790,13 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
 const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen();
+// Bring a panel to the front when opened, so the last-opened window is always on top
+// (all panels share a base z-index → without this, DOM order decided stacking).
+let panelZTop = 300;
+function frontPanel(idOrEl: string | HTMLElement): void {
+  const el = typeof idOrEl === 'string' ? document.getElementById(idOrEl) : idOrEl;
+  if (el) el.style.zIndex = String(++panelZTop);
+}
 
 // Travel map (M): top-down minimap of loaded terrain + click-to-teleport.
 const MAP_COLORS: Record<number, number> = {
@@ -860,27 +868,37 @@ function onTeleport(m: { x: number; y: number; z: number }): void {
 }
 
 // ── Combat HUD (HP bar + damage flash) + melee ───────────────────────────────
+// Player HUD (top-left, stacked): HP + food + armor, then the player nameplate with an
+// online/offline dot. Grouped in one #vx-hud column so it reads as a player frame.
 const hpStyle = document.createElement('style');
 hpStyle.textContent = `
-  #vx-hp{position:fixed;left:14px;bottom:64px;width:180px;height:18px;background:rgba(0,0,0,.5);
-    border:3px solid #1c1c1c;border-radius:4px;overflow:hidden;font-family:'FS Pixel Sans',ui-monospace,monospace;z-index:60;}
+  #vx-hud{position:fixed;left:12px;top:64px;display:flex;flex-direction:column;gap:5px;z-index:60;
+    font-family:'FS Pixel Sans',ui-monospace,monospace;}
+  #vx-hp,#vx-food{position:relative;width:180px;background:rgba(0,0,0,.5);border:3px solid #1c1c1c;
+    border-radius:4px;overflow:hidden;}
+  #vx-hp{height:18px;} #vx-food{height:16px;}
   #vx-hp .fill{position:absolute;inset:0;background:linear-gradient(#e05a5a,#b83232);width:100%;transition:width .15s;}
+  #vx-food .fill{position:absolute;inset:0;background:linear-gradient(#d0973f,#8a5a1e);width:100%;transition:width .15s;}
   #vx-hp span,#vx-food span{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;
     font-size:.72rem;text-shadow:1px 1px 0 #000;}
-  #vx-food{position:fixed;left:14px;bottom:86px;width:180px;height:16px;background:rgba(0,0,0,.5);
-    border:3px solid #1c1c1c;border-radius:4px;overflow:hidden;font-family:'FS Pixel Sans',ui-monospace,monospace;z-index:60;}
-  #vx-food .fill{position:absolute;inset:0;background:linear-gradient(#d0973f,#8a5a1e);width:100%;transition:width .15s;}
+  #vx-name{display:flex;align-items:center;gap:6px;color:#eef1fb;font-size:.82rem;text-shadow:1px 1px 0 #000;margin-top:1px;}
+  #vx-name .dot{width:9px;height:9px;border-radius:50%;background:#4ad06a;box-shadow:0 0 5px #4ad06a;}
+  #vx-name .st{color:#9fe6b0;font-size:.68rem;}
+  #vx-name.off .dot{background:#c0392b;box-shadow:none;} #vx-name.off .st{color:#e79a9a;}
   #vx-dmg{position:fixed;inset:0;pointer-events:none;z-index:55;opacity:0;transition:opacity .25s;
     box-shadow:inset 0 0 120px 40px rgba(200,0,0,.75);}`;
 document.head.appendChild(hpStyle);
+const hud = document.createElement('div');
+hud.id = 'vx-hud';
+(document.getElementById('game') ?? document.body).appendChild(hud);
 const hpBar = document.createElement('div');
 hpBar.id = 'vx-hp';
 hpBar.innerHTML = '<div class="fill"></div><span></span>';
-(document.getElementById('game') ?? document.body).appendChild(hpBar);
+hud.appendChild(hpBar);
 const foodBar = document.createElement('div');
 foodBar.id = 'vx-food';
 foodBar.innerHTML = '<div class="fill"></div><span></span>';
-(document.getElementById('game') ?? document.body).appendChild(foodBar);
+hud.appendChild(foodBar);
 const foodFill = foodBar.querySelector('.fill') as HTMLDivElement;
 const foodText = foodBar.querySelector('span') as HTMLSpanElement;
 function updateFoodBar(food: number): void {
@@ -935,14 +953,28 @@ function armorDefense(): number {
 }
 const armorHudStyle = document.createElement('style');
 armorHudStyle.textContent = `
-  #vx-armor{position:fixed;left:14px;bottom:88px;display:flex;gap:4px;align-items:center;z-index:60;
+  #vx-armor{display:flex;gap:4px;align-items:center;
     font-family:'FS Pixel Sans',ui-monospace,monospace;color:#fff;font-size:.72rem;text-shadow:1px 1px 0 #000;}
   #vx-armor .a{width:20px;height:20px;border:2px solid #1c1c1c;border-radius:3px;background:#0006 center/80% no-repeat;image-rendering:pixelated;}
   #vx-armor b{margin-left:4px;}`;
 document.head.appendChild(armorHudStyle);
 const armorHud = document.createElement('div');
 armorHud.id = 'vx-armor';
-(document.getElementById('game') ?? document.body).appendChild(armorHud);
+hud.appendChild(armorHud);
+// Player nameplate + online/offline dot (below the bars/armor).
+const nameEl = document.createElement('div');
+nameEl.id = 'vx-name';
+nameEl.innerHTML = '<span class="dot"></span><b class="nm">player</b><span class="st">online</span>';
+hud.appendChild(nameEl);
+const nameNm = nameEl.querySelector('.nm') as HTMLElement;
+const nameSt = nameEl.querySelector('.st') as HTMLElement;
+function setPlayerName(name: string): void {
+  if (name && nameNm.textContent !== name) nameNm.textContent = name;
+}
+function setOnline(on: boolean): void {
+  nameEl.classList.toggle('off', !on);
+  nameSt.textContent = on ? 'online' : 'offline';
+}
 function updateArmorHud(): void {
   armorHud.innerHTML = '';
   for (const slot of ['head', 'torso', 'legs', 'feet'] as ArmorSlot[]) {
@@ -1482,6 +1514,7 @@ function updateWield(): void {
 updateHud();
 function openSkinPicker(): void {
   if (locked()) document.exitPointerLock();
+  frontPanel('vx-picker');
   openPicker(
     'Player skin',
     SKINS.map((name) => ({
@@ -1508,6 +1541,7 @@ const settingsPanel = document.getElementById('settings') as HTMLElement;
 const settingsOpen = (): boolean => !settingsPanel.hidden;
 function openSettings(): void {
   settingsPanel.hidden = false;
+  frontPanel('settings');
   rotating = false; // cancel any in-progress camera drag / break so the world stays put
   firstBreakHeld = false;
   if (locked()) document.exitPointerLock();
@@ -1953,6 +1987,7 @@ function craftToggle(): void {
   craftOpen() ? craftClose() : craftShow();
 }
 function craftShow(): void {
+  frontPanel(craftEl);
   if (locked()) document.exitPointerLock();
   craftEl.classList.add('open');
   craftRender();
@@ -2006,6 +2041,7 @@ furnaceEl.addEventListener('mousedown', (e) => {
 });
 const furnaceOpen = (): boolean => furnaceEl.classList.contains('open');
 function onFurnaceOpen(): void {
+  frontPanel(furnaceEl);
   if (locked()) document.exitPointerLock();
   furnaceEl.classList.add('open');
   smeltRender();
@@ -2071,6 +2107,7 @@ function onChestOpen(m: { x: number; y: number; z: number; items: Record<string,
     if (locked()) document.exitPointerLock();
     chestEl.classList.add('open');
   }
+  frontPanel(chestEl);
   chestRender();
 }
 function chestClose(): void {
@@ -2106,7 +2143,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false) };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
@@ -2207,6 +2244,7 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   if (worldLabel) worldLabel.textContent = worldId;
   rebuildWorldSelect();
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed });
+  setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
 // World tab: jump to another world by id (created on first visit).
@@ -2379,6 +2417,7 @@ function frameBody(now: number): void {
     if (me) {
       updateHpBar(me.hp, me.hpMax);
       updateFoodBar(me.food);
+      setPlayerName(me.name);
     }
   }
   placeCamera();

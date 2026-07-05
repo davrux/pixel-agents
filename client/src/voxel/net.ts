@@ -69,6 +69,7 @@ export interface VoxelHandlers {
   onSigns?: (list: SignMsg[]) => void;
   onTime?: (m: { now: number; dayLengthMs: number }) => void;
   onNote?: (m: { text: string }) => void;
+  onLeave?: (code: number) => void; // socket dropped (server restart / network) → show offline
 }
 
 export interface JoinOpts {
@@ -114,6 +115,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('signs', (list: SignMsg[]) => handlers.onSigns?.(list));
   room.onMessage('time', (m: { now: number; dayLengthMs: number }) => handlers.onTime?.(m));
   room.onMessage('note', (m: { text: string }) => handlers.onNote?.(m));
+  room.onLeave((code: number) => handlers.onLeave?.(code));
   return {
     room,
     sessionId: room.sessionId,
