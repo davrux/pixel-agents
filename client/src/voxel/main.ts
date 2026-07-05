@@ -1007,11 +1007,11 @@ const chat = new ChatUI({
 // horizontal (x,z) distance between players. Voice media needs a mic + LiveKit config.
 const audioStyle = document.createElement('style');
 audioStyle.textContent = `
-  #vx-audio-btn{position:fixed;right:10px;top:30px;width:30px;height:30px;z-index:120;cursor:pointer;
+  #vx-audio-btn{position:fixed;left:10px;top:8px;width:30px;height:30px;z-index:120;cursor:pointer;
     display:flex;align-items:center;justify-content:center;font-size:1rem;background:#141826;border:2px solid #05060b;
     border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #vx-audio-btn.on{border-color:#4ad06a;color:#9fe6b0;}
-  #vx-audio{position:fixed;right:12px;top:66px;width:340px;max-width:92vw;z-index:120;display:none;
+  #vx-audio{position:fixed;left:12px;top:44px;width:340px;max-width:92vw;z-index:120;display:none;
     background:#0f1220;border:2px solid #05060b;border-radius:.6rem;color:#eef1fb;
     box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);
     font-family:'FS Pixel Sans',ui-monospace,monospace;}
