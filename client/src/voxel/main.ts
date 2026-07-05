@@ -12,6 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { ChatUI } from '../ui/chatUI.js';
+import { injectPaSkin } from '../ui/paSkin.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
@@ -1017,7 +1018,7 @@ audioStyle.textContent = `
     display:flex;align-items:center;justify-content:center;font-size:1rem;background:#141826;border:2px solid #05060b;
     border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #vx-audio-btn.on{border-color:#4ad06a;color:#9fe6b0;}
-  #vx-audio{position:fixed;left:12px;top:44px;width:340px;max-width:92vw;z-index:120;display:none;
+  #vx-audio{position:fixed;left:0.75rem;top:3.7rem;width:24rem;max-width:94vw;z-index:120;display:none;
     background:#0f1220;border:2px solid #05060b;border-radius:.6rem;color:#eef1fb;
     box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);
     font-family:'FS Pixel Sans',ui-monospace,monospace;}
@@ -2573,5 +2574,6 @@ function frameBody(now: number): void {
   lavaOverlay.style.opacity = camLava ? '0.62' : '0';
   renderer.render(scene, activeCam());
 }
+injectPaSkin(); // shared .pa-* skin (same as the 2D office) for the voxel select/inputs/buttons
 injectPixelSkin(); // one pixel-menu look for all voxel panels (appended last → wins the cascade)
 requestAnimationFrame(frame);

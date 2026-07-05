@@ -160,11 +160,11 @@
       }
       #settings {
         position: fixed;
-        right: 12px;
-        top: 44px;
-        width: 420px;
-        max-width: calc(100vw - 24px);
-        max-height: calc(100vh - 56px);
+        right: 0.75rem;
+        top: 3.7rem;
+        width: 24rem;
+        max-width: 94vw;
+        max-height: calc(100vh - 4.7rem);
         overflow-y: auto;
         padding: 0 18px 18px;
         background: #0f1220;
@@ -198,7 +198,9 @@
       }
       #settings h3 {
         margin: 0;
-        font-size: 16px;
+        font-size: 1.3rem;
+        font-weight: 600;
+        letter-spacing: 0.3px;
         color: #eef1fb;
       }
       #settings-x {
@@ -232,30 +234,7 @@
         font-size: 12px;
         line-height: 1.5;
       }
-      #tabs {
-        display: flex;
-        gap: 4px;
-        margin-bottom: 12px;
-        background: #0a0d16;
-        border: 2px solid #05060b;
-        border-radius: 0.45rem;
-        padding: 3px;
-      }
-      #tabs .tab {
-        flex: 1;
-        padding: 5px 8px;
-        background: transparent;
-        border: 0;
-        box-shadow: none;
-        color: #9aa0b8;
-        font-size: 12px;
-      }
-      #tabs .tab.on {
-        background: #242c46;
-        color: #eef1fb;
-        border-radius: 0.3rem;
-        box-shadow: inset 0 0 0 2px #5a92d6;
-      }
+      /* tabs use the shared .pa-seg / .seg styles (paSkin.ts) — same as the 2D office */
       .page[hidden] {
         display: none;
       }
@@ -280,18 +259,10 @@
         margin: 6px 0 10px;
         flex-wrap: wrap;
       }
+      /* world select + inputs use the shared .pa-select / .pa-input styles (paSkin.ts) */
       #world-input,
       #world-seed,
-      #world-select {
-        background: #171b2b;
-        color: #e9ecf7;
-        border: 2px solid #05060b;
-        border-radius: 0.35rem;
-        padding: 6px 8px;
-        font: 13px ui-monospace, monospace;
-      }
-      #world-input,
-      #world-seed {
+      #world-size {
         flex: 1;
         min-width: 0;
       }
@@ -334,11 +305,11 @@
     <button id="settings-btn" title="Settings (O)">⚙</button>
     <div id="settings" hidden>
       <div class="settings-hd"><h3>Settings</h3><button id="settings-x" type="button" title="Close (O / Esc)">✕</button></div>
-      <div id="tabs">
-        <button class="tab on" data-tab="gameplay" type="button">Gameplay</button>
-        <button class="tab" data-tab="camera" type="button">Camera</button>
-        <button class="tab" data-tab="world" type="button">World</button>
-        <button class="tab" data-tab="item" type="button">Item</button>
+      <div id="tabs" class="pa-seg">
+        <button class="tab seg on" data-tab="gameplay" type="button">Gameplay</button>
+        <button class="tab seg" data-tab="camera" type="button">Camera</button>
+        <button class="tab seg" data-tab="world" type="button">World</button>
+        <button class="tab seg" data-tab="item" type="button">Item</button>
       </div>
       <div class="page" data-page="gameplay">
         <label><input type="checkbox" id="opt-creative" /> Creative mode (fly, no damage, everything unlocked)</label>
@@ -361,13 +332,13 @@
       <div class="page" data-page="world" hidden>
         <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
         <p class="hint" style="margin-top: 10px">Current world: <b id="world-current">default</b></p>
-        <label>Go to: <select id="world-select"></select> <button id="world-delete" type="button" title="Delete the selected voxel world (admin)">🗑</button></label>
+        <label>Go to: <select id="world-select" class="pa-select"></select> <button id="world-delete" class="pa-b danger" type="button" title="Delete the selected voxel world (admin)">🗑</button></label>
         <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
         <div id="world-jump">
-          <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
-          <input id="world-seed" type="text" placeholder="seed (optional)" />
-          <input id="world-size" type="text" placeholder="size in blocks (optional)" />
-          <button id="world-go" class="primary">Go</button>
+          <input id="world-input" class="pa-input" type="text" placeholder="world id (e.g. dungeon1)" />
+          <input id="world-seed" class="pa-input" type="text" placeholder="seed (optional)" />
+          <input id="world-size" class="pa-input" type="text" placeholder="size in blocks (optional)" />
+          <button id="world-go" class="pa-b primary">Go</button>
         </div>
         <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed + size apply only to a NEW world (size = square edge in blocks; height is fixed). Empty size = max (Luanti ±31000).</p>
       </div>
