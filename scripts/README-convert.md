@@ -1,8 +1,26 @@
 # Model converter (→ our glTF format)
 
 The voxel game loads **glTF** (separate `.gltf` + `.bin`, no embedded texture — the game
-maps its own skin, see `client/public/models/character/`). This converter turns any model
-Blender can read into that format, so there's **one import pipeline for every format**.
+maps its own skin, see `client/public/models/character/`). Two converters:
+
+## Recommended: assimp (handles Luanti `.b3d` WITH animations)
+
+`scripts/convert-model-assimp.mjs` uses **assimp** (via the `assimpjs` WASM package — no
+native lib, no upload to any online service). assimp reads `.b3d` including its baked
+animation keyframes, so animated mob/character models come through complete:
+
+```sh
+node scripts/convert-model-assimp.mjs <input-model> client/public/models/<name>/<name>.gltf
+```
+
+Verified: Luanti `character.b3d` → glTF with a skinned mesh (6 joints, JOINTS_0/WEIGHTS_0)
+**and its animation**. Supports most formats assimp reads (b3d, x, obj, fbx, dae, 3ds, …).
+This is the same engine online B3D→glTF converters run under the hood — done locally.
+
+## Alternative: Blender
+
+`scripts/convert-model.py` turns any model Blender can read into glTF (one pipeline for
+every format Blender imports).
 
 ## Usage
 
@@ -41,13 +59,10 @@ which Blender does **not** import out of the box. Enable a B3D import add-on onc
 The player character in `client/public/models/character/` was produced this way (b3d →
 glTF), so mob models convert the same way with the add-on present.
 
-**Animation caveat:** the `io_scene_b3d` add-on imports **geometry + the skeleton (rest
-pose) + skinning**, but NOT the baked animation keyframes — the exported glTF has a
-skinned mesh + bones but no `animations`. That's fine for static nodes and for mobs we
-animate procedurally (see `mob.ts`); for baked clips you'd need an add-on that reads b3d
-`ANIM`/keyframes (the original character clips were sliced from a manual export). The
-converter itself already assigns/export any actions it finds, so a better importer drops
-straight in.
+**Animation caveat (Blender path only):** the `io_scene_b3d` add-on imports geometry +
+skeleton (rest pose) + skinning, but NOT the baked animation keyframes. **For animated
+b3d, use the assimp converter above instead** — it reads the keyframes. (This Blender
+path is still fine for static models or when you prefer Blender.)
 
 Note: the "Draco … library could not be found" line on export is harmless — we export
 uncompressed on purpose.
