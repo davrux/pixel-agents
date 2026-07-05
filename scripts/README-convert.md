@@ -39,7 +39,18 @@ which Blender does **not** import out of the box. Enable a B3D import add-on onc
    `import_scene.blitz3d_b3d` / `import_scene.directx_x` operators the add-ons register.
 
 The player character in `client/public/models/character/` was produced this way (b3d →
-glTF), so animated mob models convert the same way once the add-on is present.
+glTF), so mob models convert the same way with the add-on present.
+
+**Animation caveat:** the `io_scene_b3d` add-on imports **geometry + the skeleton (rest
+pose) + skinning**, but NOT the baked animation keyframes — the exported glTF has a
+skinned mesh + bones but no `animations`. That's fine for static nodes and for mobs we
+animate procedurally (see `mob.ts`); for baked clips you'd need an add-on that reads b3d
+`ANIM`/keyframes (the original character clips were sliced from a manual export). The
+converter itself already assigns/export any actions it finds, so a better importer drops
+straight in.
+
+Note: the "Draco … library could not be found" line on export is harmless — we export
+uncompressed on purpose.
 
 ## Wiring the result into the game
 

@@ -17,7 +17,10 @@ inp, out = os.path.abspath(argv[0]), os.path.abspath(argv[1])
 tex = os.path.abspath(argv[2]) if len(argv) > 2 else None
 ext = os.path.splitext(inp)[1].lower()
 
-bpy.ops.wm.read_factory_settings(use_empty=True)  # fresh, empty scene
+# Empty the startup scene (default cube/camera/light) WITHOUT a factory reset — a reset
+# would disable the user's enabled add-ons (the .b3d/.x importers we rely on).
+for _o in list(bpy.data.objects):
+    bpy.data.objects.remove(_o, do_unlink=True)
 
 # Import dispatch by extension. .b3d/.x only resolve if an import add-on is enabled.
 importers = {
@@ -54,6 +57,16 @@ if tex and os.path.exists(tex):
         if o.type == 'MESH':
             o.data.materials.clear()
             o.data.materials.append(mat)
+
+# If the importer produced any animation action, assign it to the armature so glTF
+# exports it (some importers leave actions unlinked). Harmless when there are none.
+if bpy.data.actions:
+    for o in bpy.data.objects:
+        if o.type == 'ARMATURE':
+            if not o.animation_data:
+                o.animation_data_create()
+            if not o.animation_data.action:
+                o.animation_data.action = bpy.data.actions[0]
 
 os.makedirs(os.path.dirname(out) or '.', exist_ok=True)
 bpy.ops.export_scene.gltf(
