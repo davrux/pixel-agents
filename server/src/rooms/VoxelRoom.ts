@@ -841,6 +841,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const total = Math.min(STACK_MAX, (bag.get(r.out.block) ?? 0) + r.out.count);
     bag.set(r.out.block, total);
     client.send('inv', { block: r.out.block, total });
+    client.send('crafted', { block: r.out.block, count: r.out.count }); // client shows a toast
   }
 
   /** Server-authoritative smelt (furnace): needs one input item + one unit of fuel in
@@ -866,6 +867,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const total = Math.min(STACK_MAX, (bag.get(r.out) ?? 0) + r.count);
     bag.set(r.out, total);
     client.send('inv', { block: r.out, total });
+    client.send('crafted', { block: r.out, count: r.count }); // client shows a toast
   }
 
   /** Set (or clear) a sign's text. Reach- + type-checked; persisted per world/pos and

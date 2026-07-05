@@ -274,49 +274,6 @@
         font-weight: bold;
         color: #eef1fb;
       }
-      #world-list {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        margin: 6px 0 10px;
-        max-height: 220px;
-        overflow-y: auto;
-      }
-      .world-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 9px;
-        background: #141826;
-        border: 2px solid #05060b;
-        border-radius: 0.4rem;
-      }
-      .world-row.here {
-        box-shadow: inset 0 0 0 2px #5a92d6;
-      }
-      .world-row .nm {
-        flex: 1;
-        cursor: pointer;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .world-row .sub {
-        font-size: 12px;
-        color: #9aa0b8;
-        cursor: pointer;
-      }
-      .world-row .del {
-        cursor: pointer;
-        padding: 1px 6px;
-        background: #2a1620;
-        border: 2px solid #05060b;
-        border-radius: 0.35rem;
-        color: #e79a9a;
-      }
-      .world-row .del:hover {
-        background: #4a1f2c;
-      }
       #world-jump {
         display: flex;
         gap: 8px;
@@ -404,8 +361,7 @@
       <div class="page" data-page="world" hidden>
         <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
         <p class="hint" style="margin-top: 10px">Current world: <b id="world-current">default</b></p>
-        <p class="hint" style="margin-top: 10px">Go to a world (🗑 deletes it — admin):</p>
-        <div id="world-list"></div>
+        <label>Go to: <select id="world-select"></select> <button id="world-delete" type="button" title="Delete the selected voxel world (admin)">🗑</button></label>
         <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
         <div id="world-jump">
           <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />

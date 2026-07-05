@@ -83,6 +83,7 @@ export interface VoxelHandlers {
   onNote?: (m: { text: string }) => void;
   onLeave?: (code: number) => void; // socket dropped (server restart / network) → show offline
   onMsg?: (m: ChatMsg) => void; // chat / system lines (the shared 'm' channel)
+  onCrafted?: (m: { block: number; count: number }) => void; // craft/smelt success feedback
 }
 
 export interface JoinOpts {
@@ -130,6 +131,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('time', (m: { now: number; dayLengthMs: number }) => handlers.onTime?.(m));
   room.onMessage('note', (m: { text: string }) => handlers.onNote?.(m));
   room.onMessage('m', (m: ChatMsg) => handlers.onMsg?.(m));
+  room.onMessage('crafted', (m: { block: number; count: number }) => handlers.onCrafted?.(m));
   room.onLeave((code: number) => handlers.onLeave?.(code));
   return {
     room,

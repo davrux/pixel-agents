@@ -2245,7 +2245,8 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg,
+  onCrafted: (m: { block: number; count: number }) => showToast(`✔ Crafted ${m.count}× ${invItem(m.block).name}`) };
 function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string }): void {
   if (m.type === 'zoneVoiceToken') void zoneVoice.onToken(m);
   else if (m.type === 'system') chat.addSystemLine(m.text ?? '');
@@ -2372,60 +2373,44 @@ worldInput.onkeydown = (e) => {
   if (e.key === 'Enter') goWorld();
 };
 
-// Known voxel worlds (from the server) + the 2D zones, rendered as a Pixel-style row
-// list: click a row to go there; a 🗑 on each (deletable) voxel world deletes it inline.
-const worldListEl = document.getElementById('world-list') as HTMLElement;
+// World switcher: a <select> dropdown (like the 2D office zone switcher) — pick a voxel
+// world or a 2D zone; the 🗑 next to it deletes the selected voxel world (admin).
+const worldSelect = document.getElementById('world-select') as HTMLSelectElement;
 let knownWorlds: string[] = ['default'];
 function renderWorldList(): void {
   const worlds = [...new Set([...knownWorlds, currentWorld])].sort();
-  worldListEl.replaceChildren();
-  for (const w of worlds) {
-    const here = w === currentWorld;
-    const row = document.createElement('div');
-    row.className = 'world-row' + (here ? ' here' : '');
-    const label = document.createElement('span');
-    label.className = 'nm';
-    label.textContent = '🧊 ' + w;
-    if (!here) label.onclick = () => void connectWorld(w);
-    row.appendChild(label);
-    const sub = document.createElement('span');
-    sub.className = 'sub';
-    sub.textContent = here ? '● here' : 'Go';
-    if (!here) sub.onclick = () => void connectWorld(w);
-    row.appendChild(sub);
-    // Delete (admin, server-gated) — never the current world or default.
-    if (w !== 'default' && !here) {
-      const del = document.createElement('button');
-      del.className = 'del';
-      del.textContent = '🗑';
-      del.title = `Delete world "${w}"`;
-      del.onclick = (e) => {
-        e.stopPropagation();
-        if (window.confirm(`Delete voxel world "${w}"? This removes its saved terrain permanently.`)) net?.deleteWorld(w);
-      };
-      row.appendChild(del);
-    }
-    worldListEl.appendChild(row);
-  }
-  for (const z of Object.values(ZONES)) {
-    const row = document.createElement('div');
-    row.className = 'world-row';
-    const label = document.createElement('span');
-    label.className = 'nm';
-    label.textContent = '🚪 ' + z.label;
-    row.appendChild(label);
-    const sub = document.createElement('span');
-    sub.className = 'sub';
-    sub.textContent = '2D';
-    row.appendChild(sub);
-    row.onclick = () => jumpTo({ kind: 'zone', id: z.id });
-    worldListEl.appendChild(row);
-  }
+  const opt = (v: string, label: string, sel: boolean): string => `<option value="${v}"${sel ? ' selected' : ''}>${label}</option>`;
+  worldSelect.innerHTML =
+    '<optgroup label="Voxel worlds">' +
+    worlds.map((w) => opt('voxel:' + w, w + (w === currentWorld ? ' (here)' : ''), w === currentWorld)).join('') +
+    '</optgroup><optgroup label="2D zones">' +
+    Object.values(ZONES)
+      .map((z) => opt('zone:' + z.id, z.label, false))
+      .join('') +
+    '</optgroup>';
 }
 function onWorlds(list: unknown): void {
   if (Array.isArray(list)) knownWorlds = list.filter((x): x is string => typeof x === 'string');
   renderWorldList();
 }
+worldSelect.onchange = () => {
+  const v = worldSelect.value;
+  const i = v.indexOf(':');
+  const kind = v.slice(0, i),
+    id = v.slice(i + 1);
+  if (kind === 'voxel') {
+    if (id !== currentWorld) void connectWorld(id);
+  } else if (kind === 'zone') jumpTo({ kind: 'zone', id });
+};
+// Delete the currently-selected voxel world (admin, server-gated; not current/default).
+document.getElementById('world-delete')!.onclick = () => {
+  const v = worldSelect.value;
+  if (!v.startsWith('voxel:')) return showToast('Select a voxel world to delete.');
+  const id = v.slice('voxel:'.length);
+  if (id === currentWorld) return showToast("You can't delete the world you're in.");
+  if (id === 'default') return showToast("The default world can't be deleted.");
+  if (window.confirm(`Delete voxel world "${id}"? This removes its saved terrain permanently.`)) net?.deleteWorld(id);
+};
 
 // Log out (clears the session on the server, redirects to login).
 document.getElementById('settings-logout')!.onclick = gotoLogout;
