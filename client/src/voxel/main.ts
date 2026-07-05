@@ -1647,14 +1647,15 @@ function closeSettings(): void {
   settingsPanel.hidden = true;
 }
 document.getElementById('settings-btn')!.onclick = () => (settingsOpen() ? closeSettings() : openSettings());
-document.getElementById('settings-close')!.onclick = closeSettings;
+document.getElementById('settings-x')!.onclick = closeSettings;
 
-// Make the settings window draggable by its title bar (free placement so it need
+// Make the settings window draggable by its header bar (free placement so it need
 // not cover the centred character). Uses its own listeners; the world handlers
 // ignore input while the menu is open, so dragging never moves the player.
-const dragHandle = settingsPanel.querySelector('h3') as HTMLElement;
+const dragHandle = settingsPanel.querySelector('.settings-hd') as HTMLElement;
 let dragOff: { x: number; y: number } | null = null;
 dragHandle.addEventListener('mousedown', (e) => {
+  if ((e.target as HTMLElement)?.id === 'settings-x') return; // clicking ✕ closes, doesn't drag
   const r = settingsPanel.getBoundingClientRect();
   settingsPanel.style.left = `${r.left}px`;
   settingsPanel.style.top = `${r.top}px`;
