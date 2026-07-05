@@ -8,7 +8,7 @@
 import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
   COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL, FLINT, APPLE,
-  DYE_RED, DYE_ORANGE, DYE_YELLOW, DYE_GREEN, DYE_BLUE, DYE_VIOLET, DYE_BLACK, DIAMOND,
+  DYE_RED, DYE_ORANGE, DYE_YELLOW, DYE_GREEN, DYE_BLUE, DYE_VIOLET, DYE_BLACK, DIAMOND, MESE_CRYSTAL,
   BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL,
 } from '@pixel/shared';
 
@@ -89,7 +89,7 @@ type ToolKind = 'pick' | 'axe' | 'shovel' | 'sword' | 'hoe';
 // default_tool_<tier>{pick|axe|shovel|sword} but farming_tool_<tier>hoe for hoes.
 const toolTex = (kind: ToolKind, tier: string): string =>
   kind === 'hoe' ? `items/farming_tool_${tier}hoe` : `items/default_tool_${tier}${kind}`;
-const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel' | 'diamond', label: string): Item => {
+const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel' | 'diamond' | 'mese', label: string): Item => {
   const key = `${kind}_${tier}`;
   return {
     id: key,
@@ -104,7 +104,7 @@ const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel' | 'diamond', 
 // used via the use-action to scoop/place water & lava.
 const bucketItem = (id: number, name: string, tex: string): Item => ({ id: 'b' + id, name, texUrl: 'items/' + tex, pivot: [0.5, 0.5], toolId: id });
 export const TOOL_ITEMS: Item[] = [
-  toolItem('pick', 'wood', 'Pickaxe'), toolItem('pick', 'stone', 'Pickaxe'), toolItem('pick', 'steel', 'Pickaxe'), toolItem('pick', 'diamond', 'Pickaxe'),
+  toolItem('pick', 'wood', 'Pickaxe'), toolItem('pick', 'stone', 'Pickaxe'), toolItem('pick', 'steel', 'Pickaxe'), toolItem('pick', 'diamond', 'Pickaxe'), toolItem('pick', 'mese', 'Pickaxe'),
   toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'),
   toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'),
   toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
@@ -163,6 +163,7 @@ export const MATERIAL_ITEMS: Item[] = [
   materialItem(DYE_VIOLET, 'Violet Dye', 'dye_violet'),
   materialItem(DYE_BLACK, 'Black Dye', 'dye_black'),
   materialItem(DIAMOND, 'Diamond', 'default_diamond'),
+  materialItem(MESE_CRYSTAL, 'Mese Crystal', 'default_mese_crystal'),
 ];
 
 /** Everything selectable for the hotbar (tools first, then every block). */
@@ -188,7 +189,7 @@ export const iconUrl = (it: Item): string => it.icon ?? new URL(`textures/${it.t
 // Full tool set shown in the hotbar (dimmed until crafted/owned). One pick/axe/shovel/
 // sword per tier so the progression is visible: wood → stone → steel.
 export const DEFAULT_TOOLS: string[] = [
-  'pick_wood', 'pick_stone', 'pick_steel', 'pick_diamond',
+  'pick_wood', 'pick_stone', 'pick_steel', 'pick_diamond', 'pick_mese',
   'axe_wood', 'axe_stone', 'axe_steel',
   'shovel_wood', 'shovel_stone', 'shovel_steel',
   'sword_wood', 'sword_stone', 'sword_steel',

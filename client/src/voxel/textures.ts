@@ -99,6 +99,7 @@ export const SYNTHETIC: SyntheticTile[] = [
   { name: 'tin_ore', render: drawOre('mineral_tin') },
   { name: 'gold_ore', render: drawOre('mineral_gold') },
   { name: 'diamond_ore', render: drawOre('mineral_diamond') },
+  { name: 'mese_ore', render: drawOre('mineral_mese') },
 ];
 
 export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {
