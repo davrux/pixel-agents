@@ -879,7 +879,7 @@ function onTeleport(m: { x: number; y: number; z: number }): void {
 // online/offline dot. Grouped in one #vx-hud column so it reads as a player frame.
 const hpStyle = document.createElement('style');
 hpStyle.textContent = `
-  #vx-hud{position:fixed;left:12px;top:64px;display:flex;flex-direction:column;gap:5px;z-index:60;
+  #vx-hud{position:fixed;right:12px;bottom:12px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;z-index:60;
     font-family:'FS Pixel Sans',ui-monospace,monospace;}
   #vx-hp,#vx-food{position:relative;width:180px;background:rgba(0,0,0,.5);border:3px solid #1c1c1c;
     border-radius:4px;overflow:hidden;}
@@ -1442,6 +1442,10 @@ function updateHud(): void {
   bar.innerHTML = '';
   const addSlots = (ids: string[], sel: number, pick: (i: number) => void, isTool: boolean): void => {
     ids.forEach((id, i) => {
+      // Luanti-style short hotbar: the tool track shows only tools you actually own
+      // (creative owns all). The full catalogue (dimmed unowned tools) lives in the
+      // inventory panel. Keeps the bar from being a huge fixed row of every tier.
+      if (isTool && !toolOwned(id)) return;
       const it = itemById(id);
       const s = document.createElement('div');
       s.className = 'slot' + (i === sel ? ' on' : '');
@@ -1458,16 +1462,8 @@ function updateHud(): void {
         if (!blockUnlimited(bid) && (invCounts.get(bid) ?? 0) <= 0) badge.classList.add('empty');
         s.appendChild(badge);
       }
-      // Tools: dim the slot (with a 🔒) until crafted/owned — unowned tools dig at hand speed.
-      if (isTool && !toolOwned(id)) {
-        s.style.opacity = '0.38';
-        s.title = it.name + ' — craft to unlock (🔒)';
-        const lock = document.createElement('span');
-        lock.className = 'count';
-        lock.textContent = '🔒';
-        s.appendChild(lock);
-      } else if (isTool && it.toolId !== undefined) {
-        // Durability wear bar (green→red) for an owned tool that's been used.
+      // Owned tool: a durability wear bar (green→red) once it's been used.
+      if (isTool && it.toolId !== undefined) {
         const dur = toolDurability.get(it.toolId);
         if (dur && dur.left < dur.max) {
           const frac = Math.max(0, dur.left / dur.max);

@@ -64,7 +64,7 @@ export class Inventory {
       #vx-inv .cell.drop{border-color:#7fd08a;box-shadow:0 0 0 2px #7fd08a inset;}
       #vx-inv .tip{margin-top:.6rem;font-size:.7rem;color:#bdbdbd;}
       .vx-drag-ghost{position:fixed;width:2.2rem;height:2.2rem;margin:-1.1rem 0 0 -1.1rem;background:#3a3a3a center/80% no-repeat;
-        border:3px solid #fff;border-radius:4px;image-rendering:pixelated;pointer-events:none;z-index:400;opacity:.9;}`;
+        border:3px solid #fff;border-radius:4px;image-rendering:pixelated;pointer-events:none;z-index:9999;opacity:.9;}`;
     document.head.appendChild(style);
     this.root = document.createElement('div');
     this.root.id = 'vx-inv';
