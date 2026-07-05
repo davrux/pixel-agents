@@ -153,6 +153,8 @@ interface NpcBrain {
 }
 
 export class VoxelRoom extends Room<VoxelRoomState> {
+  /** Active rooms by world id (in-process) — lets a delete evict a deleted world's players. */
+  private static readonly byWorld = new Map<string, Set<VoxelRoom>>();
   private authRequired = false;
   private world!: VoxelServerWorld;
   private readonly views = new Map<string, ClientView>();
@@ -207,6 +209,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.world = new VoxelServerWorld(worldId, Number.isFinite(options.seed) ? options.seed : undefined, Number.isFinite(options.size) ? options.size : undefined);
     this.setState(new VoxelRoomState());
     this.state.worldId = worldId;
+    let set = VoxelRoom.byWorld.get(worldId);
+    if (!set) VoxelRoom.byWorld.set(worldId, (set = new Set()));
+    set.add(this); // register so a world-delete can evict this room's players
 
     this.onMessage('move', (client, m: { x: number; y: number; z: number; yaw?: number; pitch?: number; state?: string }) =>
       this.onMove(client, m),
@@ -1304,6 +1309,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   onDispose(): void {
+    const set = VoxelRoom.byWorld.get(this.state.worldId);
+    if (set) {
+      set.delete(this);
+      if (!set.size) VoxelRoom.byWorld.delete(this.state.worldId);
+    }
     this.world?.close();
   }
 
@@ -1576,6 +1586,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (id === this.state.worldId) return sys("You can't delete the world you're in.");
     if (id === 'default') return sys("The default world can't be deleted.");
     const ok = deleteWorld(id);
+    // Evict anyone currently in the deleted world → the default world (client jumps via
+    // the portal handler). Its room disposes once empty.
+    for (const room of VoxelRoom.byWorld.get(id) ?? []) {
+      for (const c of room.clients) c.send('portal', { kind: 'voxel', world: 'default' });
+    }
     sys(ok ? `Deleted world "${id}".` : `No such world: "${id}".`);
     this.broadcast('worlds', listWorlds()); // refresh everyone's world dropdown
   }

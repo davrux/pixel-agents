@@ -895,6 +895,7 @@ hpStyle.textContent = `
   #vx-name{display:flex;align-items:center;gap:6px;color:#eef1fb;font-size:.82rem;text-shadow:1px 1px 0 #000;margin-top:1px;}
   #vx-name .dot{width:9px;height:9px;border-radius:50%;background:#4ad06a;box-shadow:0 0 5px #4ad06a;}
   #vx-name .st{color:#9fe6b0;font-size:.68rem;}
+  #vx-name .fps{color:#9aa0b8;font-size:.68rem;margin-left:2px;}
   #vx-name.off .dot{background:#c0392b;box-shadow:none;} #vx-name.off .st{color:#e79a9a;}
   #vx-dmg{position:fixed;inset:0;pointer-events:none;z-index:55;opacity:0;transition:opacity .25s;
     box-shadow:inset 0 0 120px 40px rgba(200,0,0,.75);}`;
@@ -975,10 +976,13 @@ hud.appendChild(armorHud);
 // Player nameplate + online/offline dot (below the bars/armor).
 const nameEl = document.createElement('div');
 nameEl.id = 'vx-name';
-nameEl.innerHTML = '<span class="dot"></span><b class="nm">player</b><span class="st">online</span>';
+nameEl.innerHTML = '<span class="dot"></span><b class="nm">player</b><span class="st">online</span><span class="fps"></span>';
 hud.appendChild(nameEl);
 const nameNm = nameEl.querySelector('.nm') as HTMLElement;
 const nameSt = nameEl.querySelector('.st') as HTMLElement;
+const nameFps = nameEl.querySelector('.fps') as HTMLElement;
+let fpsAvg = 60; // smoothed FPS, shown in the nameplate
+let fpsAcc = 0; // seconds since the last nameplate FPS update
 function setPlayerName(name: string): void {
   if (name && nameNm.textContent !== name) nameNm.textContent = name;
 }
@@ -2345,7 +2349,7 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   moveTarget = null;
   currentWorld = worldId;
   if (worldLabel) worldLabel.textContent = worldId;
-  rebuildWorldSelect();
+  renderWorldList();
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
@@ -2368,49 +2372,65 @@ worldInput.onkeydown = (e) => {
   if (e.key === 'Enter') goWorld();
 };
 
-// Dropdown of known voxel worlds (from the server) + the 2D zones.
-const worldSelect = document.getElementById('world-select') as HTMLSelectElement;
+// Known voxel worlds (from the server) + the 2D zones, rendered as a Pixel-style row
+// list: click a row to go there; a 🗑 on each (deletable) voxel world deletes it inline.
+const worldListEl = document.getElementById('world-list') as HTMLElement;
 let knownWorlds: string[] = ['default'];
-function rebuildWorldSelect(): void {
+function renderWorldList(): void {
   const worlds = [...new Set([...knownWorlds, currentWorld])].sort();
-  const opt = (v: string, label: string, sel: boolean): string => `<option value="${v}"${sel ? ' selected' : ''}>${label}</option>`;
-  worldSelect.innerHTML =
-    '<optgroup label="Voxel worlds">' +
-    worlds.map((w) => opt('voxel:' + w, w, w === currentWorld)).join('') +
-    '</optgroup><optgroup label="2D zones">' +
-    Object.values(ZONES)
-      .map((z) => opt('zone:' + z.id, z.label, false))
-      .join('') +
-    '</optgroup>';
+  worldListEl.replaceChildren();
+  for (const w of worlds) {
+    const here = w === currentWorld;
+    const row = document.createElement('div');
+    row.className = 'world-row' + (here ? ' here' : '');
+    const label = document.createElement('span');
+    label.className = 'nm';
+    label.textContent = '🧊 ' + w;
+    if (!here) label.onclick = () => void connectWorld(w);
+    row.appendChild(label);
+    const sub = document.createElement('span');
+    sub.className = 'sub';
+    sub.textContent = here ? '● here' : 'Go';
+    if (!here) sub.onclick = () => void connectWorld(w);
+    row.appendChild(sub);
+    // Delete (admin, server-gated) — never the current world or default.
+    if (w !== 'default' && !here) {
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '🗑';
+      del.title = `Delete world "${w}"`;
+      del.onclick = (e) => {
+        e.stopPropagation();
+        if (window.confirm(`Delete voxel world "${w}"? This removes its saved terrain permanently.`)) net?.deleteWorld(w);
+      };
+      row.appendChild(del);
+    }
+    worldListEl.appendChild(row);
+  }
+  for (const z of Object.values(ZONES)) {
+    const row = document.createElement('div');
+    row.className = 'world-row';
+    const label = document.createElement('span');
+    label.className = 'nm';
+    label.textContent = '🚪 ' + z.label;
+    row.appendChild(label);
+    const sub = document.createElement('span');
+    sub.className = 'sub';
+    sub.textContent = '2D';
+    row.appendChild(sub);
+    row.onclick = () => jumpTo({ kind: 'zone', id: z.id });
+    worldListEl.appendChild(row);
+  }
 }
 function onWorlds(list: unknown): void {
   if (Array.isArray(list)) knownWorlds = list.filter((x): x is string => typeof x === 'string');
-  rebuildWorldSelect();
+  renderWorldList();
 }
-// Delete the selected voxel world (admin-only, server-gated; can't be the current world).
-document.getElementById('world-delete')!.onclick = () => {
-  const v = worldSelect.value;
-  if (!v.startsWith('voxel:')) return showToast('Select a voxel world to delete.');
-  const id = v.slice('voxel:'.length);
-  if (id === currentWorld) return showToast("You can't delete the world you're in.");
-  if (id === 'default') return showToast("The default world can't be deleted.");
-  if (!window.confirm(`Delete voxel world "${id}"? This removes its saved terrain permanently.`)) return;
-  net?.deleteWorld(id);
-};
-worldSelect.onchange = () => {
-  const v = worldSelect.value;
-  const i = v.indexOf(':');
-  const kind = v.slice(0, i),
-    id = v.slice(i + 1);
-  if (kind === 'voxel') {
-    if (id !== currentWorld) void connectWorld(id);
-  } else if (kind === 'zone') jumpTo({ kind: 'zone', id });
-};
 
 // Log out (clears the session on the server, redirects to login).
 document.getElementById('settings-logout')!.onclick = gotoLogout;
 
-rebuildWorldSelect();
+renderWorldList();
 void connectWorld('default');
 
 
@@ -2432,6 +2452,13 @@ function frame(now: number): void {
 function frameBody(now: number): void {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
+  // FPS readout in the nameplate (EMA-smoothed, refreshed ~2×/s).
+  if (dt > 0) fpsAvg += (1 / dt - fpsAvg) * 0.1;
+  fpsAcc += dt;
+  if (fpsAcc >= 0.5) {
+    fpsAcc = 0;
+    nameFps.textContent = `· ${Math.round(fpsAvg)} fps`;
+  }
   flushDirty(); // (re)mesh a few dirty chunks per frame
   // Hold physics until the spawn column has streamed in, then drop the player on it.
   if (!ready && world.hasChunk(toChunk(spawn.x), toChunk(spawn.y - 1), toChunk(spawn.z))) {
