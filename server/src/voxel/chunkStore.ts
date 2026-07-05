@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readdirSync, rmSync } from 'node:fs';
 
 import { dataPath, dataDir } from '../paths.js';
+import { MAP_LIMIT } from '@pixel/shared';
 
 /** Ids of all persisted worlds (scans the data dir for world_<id>.sqlite). */
 export function listWorlds(): string[] {
@@ -43,6 +44,7 @@ export interface WorldMeta {
   seed: number;
   createdAt: number;
   gen?: number; // terrain-generation version this world was built with (see meta())
+  size?: number; // square world edge in blocks (0/undefined = unbounded up to MAP_LIMIT)
 }
 
 export class ChunkStore {
@@ -68,7 +70,7 @@ export class ChunkStore {
    *  creates the world (else a random one); existing worlds keep their seed. If the
    *  world's stored gen version is older than `gen`, its edited chunks are wiped so the
    *  world regenerates with the current terrain (a fresh map, no manual deletion). */
-  meta(seed?: number, gen = 0): WorldMeta {
+  meta(seed?: number, gen = 0, size?: number): WorldMeta {
     const row = this.db.prepare("SELECT value FROM meta WHERE key = 'meta'").get() as { value: string } | undefined;
     if (row) {
       const m = JSON.parse(row.value) as WorldMeta;
@@ -80,7 +82,9 @@ export class ChunkStore {
       return m;
     }
     const chosen = Number.isFinite(seed) ? (seed as number) >>> 0 : (Math.random() * 0x7fffffff) | 0;
-    const meta: WorldMeta = { seed: chosen, createdAt: Date.now(), gen };
+    // A brand-new world may fix a square size (edge in blocks); clamped to the map limit.
+    const sz = Number.isFinite(size) && (size as number) > 0 ? Math.min(Math.floor(size as number), MAP_LIMIT * 2) : 0;
+    const meta: WorldMeta = { seed: chosen, createdAt: Date.now(), gen, size: sz };
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('meta', ?)").run(JSON.stringify(meta));
     return meta;
   }

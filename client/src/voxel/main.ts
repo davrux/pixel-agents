@@ -530,9 +530,11 @@ function smoothAvatar(a: { group: THREE.Object3D }, tx: number, ty: number, tz: 
 
 let worldSeed = 0; // seed of the current world (from 'welcome') — drives the full-world map
 let playerIsAdmin = false; // from welcome; gates admin slash-commands in the chat /help
+let worldHalfExtent = 0; // world border half-extent in blocks (0 = unbounded), from welcome
 function onWelcome(m: unknown): void {
-  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number; seed?: number; isAdmin?: boolean };
+  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number; seed?: number; isAdmin?: boolean; size?: number };
   if (typeof w.isAdmin === 'boolean') playerIsAdmin = w.isAdmin;
+  worldHalfExtent = Number.isFinite(w.size) && w.size! > 0 ? w.size! / 2 : 0; // 0 = unbounded
   if (Number.isFinite(w.seed)) worldSeed = w.seed!; // for the full-world map colour
   if (Number.isFinite(w.now)) clockOffset = w.now! - Date.now(); // align to the server day clock
   if (Number.isFinite(w.dayLengthMs) && w.dayLengthMs! > 0) dayLengthMs = w.dayLengthMs!;
@@ -1391,7 +1393,11 @@ function updateBreaking(dt: number, want: boolean): void {
     const x = Math.floor(p.x),
       y = Math.floor(p.y),
       z = Math.floor(p.z);
-    if (world.solid(x, y, z)) tgt = { x, y, z };
+    // Any real block the aim hits is diggable — not just solid ones. Torches, ladders,
+    // plants, fire etc. are NONSOLID but still breakable (the ray only hits terrain mesh,
+    // so a non-air, non-fluid cell here is a placed block).
+    const b = world.get(x, y, z);
+    if (b !== 0 && !isWaterId(b) && !isLavaId(b)) tgt = { x, y, z };
   }
   // Dig time from the held/auto tool + block group (Luanti data). null = the tool
   // is too weak (e.g. steel pick on a diamond block) → can't break it. Creative breaks
@@ -2290,7 +2296,7 @@ function goOffline(): void {
 }
 /** Connect to (or jump to) a voxel world: tears down the current world's client
  *  state and reconnects. Voxel↔voxel is seamless (no page reload). */
-async function connectWorld(worldId: string, seed?: number): Promise<void> {
+async function connectWorld(worldId: string, seed?: number, size?: number): Promise<void> {
   if (net) {
     try {
       await net.leave();
@@ -2339,18 +2345,21 @@ async function connectWorld(worldId: string, seed?: number): Promise<void> {
   currentWorld = worldId;
   if (worldLabel) worldLabel.textContent = worldId;
   rebuildWorldSelect();
-  net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed });
+  net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
 // World tab: jump to another world by id (created on first visit).
 const worldInput = document.getElementById('world-input') as HTMLInputElement;
 const seedInput = document.getElementById('world-seed') as HTMLInputElement;
+const sizeInput = document.getElementById('world-size') as HTMLInputElement;
 function goWorld(): void {
   const id = (worldInput.value.trim() || 'default').slice(0, 40);
   const seedRaw = seedInput.value.trim();
   const seed = seedRaw ? Number(seedRaw) >>> 0 : undefined; // custom seed (new worlds only)
-  if (id !== currentWorld) void connectWorld(id, Number.isFinite(seed) ? seed : undefined);
+  const sizeRaw = sizeInput.value.trim();
+  const size = sizeRaw ? Math.max(0, Math.floor(Number(sizeRaw))) : undefined; // square edge, new worlds only
+  if (id !== currentWorld) void connectWorld(id, Number.isFinite(seed) ? seed : undefined, Number.isFinite(size) ? size : undefined);
   worldInput.value = '';
 }
 document.getElementById('world-go')!.onclick = goWorld;
@@ -2468,6 +2477,18 @@ function frameBody(now: number): void {
   }
   const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down, fly: settings.fly };
   if (ready) player.update(dt, input);
+  // World border: keep the player inside a sized world (invisible wall at ±half-extent).
+  if (worldHalfExtent > 0) {
+    const lim = worldHalfExtent - 0.3; // player half-width slack
+    if (player.pos.x < -lim || player.pos.x > lim) {
+      player.pos.x = Math.max(-lim, Math.min(lim, player.pos.x));
+      player.vel.x = 0;
+    }
+    if (player.pos.z < -lim || player.pos.z > lim) {
+      player.pos.z = Math.max(-lim, Math.min(lim, player.pos.z));
+      player.vel.z = 0;
+    }
+  }
   // Safety net: never fall out of the world — snap back to spawn if you somehow
   // drop below the bedrock floor (e.g. through not-yet-streamed chunks).
   if (ready && player.pos.y < -30) {

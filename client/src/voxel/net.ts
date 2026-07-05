@@ -88,6 +88,7 @@ export interface VoxelHandlers {
 export interface JoinOpts {
   skin?: string;
   seed?: number; // only used when this join CREATES the world
+  size?: number; // square world edge in blocks; only used when this join CREATES the world
 }
 
 export async function connectVoxel(world: string, handlers: VoxelHandlers, opts: JoinOpts = {}): Promise<VoxelNet | null> {
@@ -99,7 +100,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   }
   let room: Room;
   try {
-    room = await client.joinOrCreate(VOXEL_ROOM, { world, skin: opts.skin, seed: opts.seed });
+    room = await client.joinOrCreate(VOXEL_ROOM, { world, skin: opts.skin, seed: opts.seed, size: opts.size });
   } catch (err) {
     if (isAuthError(err)) {
       redirectToLogin(); // login required — the server gate serves the form

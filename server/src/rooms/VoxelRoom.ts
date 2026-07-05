@@ -200,11 +200,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     throw new Error('unauthorized');
   }
 
-  onCreate(options: { world?: string; authRequired?: boolean; version?: string; seed?: number }): void {
+  onCreate(options: { world?: string; authRequired?: boolean; version?: string; seed?: number; size?: number }): void {
     this.authRequired = options.authRequired ?? false;
     const worldId = (options.world || 'default').slice(0, 40);
-    // The creating client may request a seed (used only for a brand-new world).
-    this.world = new VoxelServerWorld(worldId, Number.isFinite(options.seed) ? options.seed : undefined);
+    // The creating client may request a seed + square size (both only for a brand-new world).
+    this.world = new VoxelServerWorld(worldId, Number.isFinite(options.seed) ? options.seed : undefined, Number.isFinite(options.size) ? options.size : undefined);
     this.setState(new VoxelRoomState());
     this.state.worldId = worldId;
 
@@ -280,6 +280,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
   private tod(): number {
     return ((this.serverNow() / DAY_LENGTH_MS) % 1 + 1) % 1;
+  }
+  /** World border half-extent in blocks (from the per-world size, else the map limit). */
+  private halfExtent(): number {
+    return this.world.size > 0 ? Math.floor(this.world.size / 2) : MAP_LIMIT;
   }
 
   // ── Mobs (Luanti mobs_redo-style spawn/despawn + FSM) ────────────────────────
@@ -1243,6 +1247,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       worldId: this.state.worldId,
       now: this.serverNow(),
       dayLengthMs: DAY_LENGTH_MS,
+      size: this.world.size, // square world edge in blocks (0 = unbounded); client clamps to it
       isAdmin: auth?.isAdmin ?? false, // gates the admin slash-commands in the chat /help
     });
     client.send('worlds', listWorlds()); // for the client's world dropdown
@@ -1310,6 +1315,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (now - v.lastMove < MOVE_MIN_MS) return;
     v.lastMove = now;
     if (![m.x, m.y, m.z].every((n) => Number.isFinite(n))) return;
+    const lim = this.halfExtent() + 0.5; // keep the player inside the world border (client clamps too)
+    m.x = Math.max(-lim, Math.min(lim, m.x));
+    m.z = Math.max(-lim, Math.min(lim, m.z));
     p.x = m.x;
     p.y = m.y;
     p.z = m.z;
@@ -1345,8 +1353,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const p = this.state.players.get(client.sessionId);
     if (!v || !p) return;
     if (![m?.x, m?.z].every((n) => Number.isFinite(n))) return;
-    const x = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, Math.floor(m.x))) + 0.5; // Luanti map limit
-    const z = Math.max(-MAP_LIMIT, Math.min(MAP_LIMIT, Math.floor(m.z))) + 0.5;
+    const lim = this.halfExtent(); // per-world border (or the Luanti map limit)
+    const x = Math.max(-lim, Math.min(lim, Math.floor(m.x))) + 0.5;
+    const z = Math.max(-lim, Math.min(lim, Math.floor(m.z))) + 0.5;
     const y = this.world.columnTop(Math.floor(x), Math.floor(z)) + 1;
     p.x = x;
     p.y = y;
@@ -1377,6 +1386,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const dy = y + 0.5 - (v.py + 1.6);
     const dz = z + 0.5 - v.pz;
     if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+    const lim = this.halfExtent();
+    if (Math.abs(x) > lim || Math.abs(z) > lim) return; // outside the world border
     const prev = this.world.getBlock(x, y, z);
     const sid = client.sessionId;
     // Survival can't place liquid sources directly — that needs a filled bucket (see onBucket).

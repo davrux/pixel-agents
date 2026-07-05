@@ -335,9 +335,10 @@
         <div id="world-jump">
           <input id="world-input" type="text" placeholder="world id (e.g. dungeon1)" />
           <input id="world-seed" type="text" placeholder="seed (optional)" />
+          <input id="world-size" type="text" placeholder="size in blocks (optional)" />
           <button id="world-go" class="primary">Go</button>
         </div>
-        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed only applies to a new world.</p>
+        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed + size apply only to a NEW world (size = square edge in blocks; height is fixed). Empty size = max (Luanti ±31000).</p>
       </div>
       <div class="page" data-page="item" hidden>
         <p class="hint">How the held item attaches to the figure (live):</p>
