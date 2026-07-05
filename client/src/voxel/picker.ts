@@ -8,6 +8,7 @@ export interface PickerItem {
   label: string;
   selected?: boolean;
   onPick: () => void;
+  onHover?: () => void; // e.g. update a live preview while hovering
 }
 
 let root: HTMLDivElement | null = null;
@@ -27,8 +28,13 @@ function ensure(): HTMLDivElement {
       #vx-picker .hd h3{margin:0;font-size:1.15rem;text-shadow:1px 1px 0 #000;}
       #vx-picker .hd .x{margin-left:auto;cursor:pointer;width:1.8rem;height:1.8rem;display:flex;
         align-items:center;justify-content:center;background:#3a3a3a;border:3px solid #1c1c1c;border-radius:4px;}
-      #vx-picker .grid{overflow-y:auto;padding:.8rem;display:grid;gap:.5rem;
+      #vx-picker .body{display:flex;min-height:0;flex:1;}
+      #vx-picker .grid{overflow-y:auto;padding:.8rem;display:grid;gap:.5rem;flex:1;align-content:start;
         grid-template-columns:repeat(auto-fill,minmax(4.4rem,1fr));}
+      #vx-picker .preview{display:none;flex:0 0 auto;padding:.9rem;border-left:3px solid #1c1c1c;
+        flex-direction:column;align-items:center;gap:.5rem;}
+      #vx-picker .preview.on{display:flex;}
+      #vx-picker .preview .pl{font-size:.72rem;color:#cfcfcf;}
       #vx-picker .cell{cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:.25rem;
         padding:.35rem;background:#3a3a3a;border:3px solid #4a4a4a;border-radius:4px;}
       #vx-picker .cell:hover{border-color:#fff;}
@@ -41,7 +47,7 @@ function ensure(): HTMLDivElement {
   }
   root = document.createElement('div');
   root.id = 'vx-picker';
-  root.innerHTML = `<div class="win"><div class="hd"><h3></h3><div class="x" title="Close (Esc)">✕</div></div><div class="grid"></div></div>`;
+  root.innerHTML = `<div class="win"><div class="hd"><h3></h3><div class="x" title="Close (Esc)">✕</div></div><div class="body"><div class="grid"></div><div class="preview"></div></div></div>`;
   (document.getElementById('game') ?? document.body).appendChild(root);
   root.addEventListener('mousedown', (e) => {
     if (e.target === root) closePicker(); // backdrop click
@@ -50,7 +56,7 @@ function ensure(): HTMLDivElement {
   return root;
 }
 
-export function openPicker(title: string, items: PickerItem[]): void {
+export function openPicker(title: string, items: PickerItem[], preview?: HTMLElement): void {
   const el = ensure();
   el.querySelector('h3')!.textContent = title;
   const grid = el.querySelector<HTMLDivElement>('.grid')!;
@@ -61,8 +67,16 @@ export function openPicker(title: string, items: PickerItem[]): void {
     c.title = it.label;
     c.innerHTML = `<img src="${it.thumb}" alt=""><span>${it.label}</span>`;
     c.onclick = () => it.onPick();
+    if (it.onHover) c.onmouseenter = () => it.onHover!();
     grid.appendChild(c);
   }
+  // Optional live-preview pane on the right (e.g. the 3D skin preview).
+  const pv = el.querySelector<HTMLDivElement>('.preview')!;
+  pv.innerHTML = '';
+  if (preview) {
+    pv.appendChild(preview);
+    pv.classList.add('on');
+  } else pv.classList.remove('on');
   el.classList.add('open');
 }
 

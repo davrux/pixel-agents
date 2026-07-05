@@ -12,6 +12,7 @@ import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { VoxelChat } from './chat.js';
+import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
@@ -1530,14 +1531,22 @@ function updateWield(): void {
   setWielded(active);
 }
 updateHud();
+let skinPreview: SkinPreview | null = null;
 function openSkinPicker(): void {
   if (locked()) document.exitPointerLock();
   frontPanel('vx-picker');
+  if (!skinPreview) skinPreview = new SkinPreview(playerSkin);
+  skinPreview.setSkin(playerSkin);
+  const pane = document.createElement('div');
+  pane.innerHTML = '<div class="pl">Preview</div>';
+  pane.prepend(skinPreview.canvas);
   openPicker(
     'Player skin',
     SKINS.map((name) => ({
       thumb: skinUrl(name),
       label: name.replace('character_', '#'),
+      selected: name === playerSkin,
+      onHover: () => skinPreview!.setSkin(name), // live 3D preview while hovering
       onPick: () => {
         playerSkin = name;
         avatar.setSkin(name);
@@ -1551,7 +1560,9 @@ function openSkinPicker(): void {
         closePicker();
       },
     })),
+    pane,
   );
+  skinPreview.start(() => pickerOpen());
 }
 
 // ── Settings menu ─────────────────────────────────────────────────────────────
