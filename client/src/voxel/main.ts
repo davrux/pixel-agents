@@ -11,7 +11,7 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
-import { VoxelChat } from './chat.js';
+import { ChatUI } from '../ui/chatUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
@@ -769,9 +769,8 @@ function placeCamera(): void {
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
   // While typing in chat, the input handles keys itself — suspend all game keybinds.
+  // (ChatUI owns the Enter-to-focus binding + stopPropagation while typing.)
   if (chat.isFocused()) return;
-  // Enter opens the chat input (unless another menu is capturing keys).
-  if (e.code === 'Enter' && !menuOpen()) return chat.open();
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
@@ -984,12 +983,18 @@ function setOnline(on: boolean): void {
   nameSt.textContent = on ? 'online' : 'offline';
 }
 
-// Chat: same system as the 2D world (shared 'm' channel + slash commands). Enter opens
-// the input; while typing, game keybinds are suspended (see the keydown guard).
-const chat = new VoxelChat({
+// Chat: the SAME shared ChatUI as the 2D office (client/src/ui/chatUI.ts) — one codebase.
+// Enter opens the input; while typing, game keybinds are suspended (stopPropagation +
+// the isFocused guard in the keydown handler).
+const chat = new ChatUI({
   sendChat: (text) => net?.sendChat(text),
   sendCommand: (name, args) => net?.sendCommand(name, args),
   isAdmin: () => playerIsAdmin,
+  canFocus: () => !menuOpen(),
+  clientCommand: (name, _args, sys) => {
+    if (name === 'voxel') return sys('You are already in the voxel world.'), true;
+    return false;
+  },
   onFocus: () => {
     if (locked()) document.exitPointerLock();
   },
@@ -2172,7 +2177,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: (m: ChatMsg) => chat.onMessage(m) };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: (m: ChatMsg) => (m.type === 'system' ? chat.addSystemLine(m.text ?? '') : chat.addChatLine(m.from ?? 'player', m.text ?? '', m.at)) };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */

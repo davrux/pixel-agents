@@ -48,7 +48,8 @@ import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHt
 import { isDesktop, desktop } from '../desktop/bridge.js';
 import { showSignInScreen } from '../screens/signin.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
-import { findCommand, mayRunCommand, commandsForGroup, KICK_CLOSE_CODE } from '@pixel/shared/commands';
+import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
+import { ChatUI } from '../ui/chatUI.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -132,18 +133,8 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
   private tip!: HTMLDivElement;
-  private chatBox?: HTMLDivElement;
-  private chatOpenBtn?: HTMLButtonElement;
-  /** Submitted chat/command lines for ↑/↓ recall (bash-style); idx -1 = the live
-   *  draft, 0 = most recent. chatDraft preserves the in-progress line. */
-  private readonly chatHistory: string[] = [];
-  private chatHistIdx = -1;
-  private chatDraft = '';
-  private chatLogEl?: HTMLDivElement;
-  private chatInputEl?: HTMLInputElement;
-  /** Idle-fade clock for the chat (performance.now() ms); fades when idle. */
-  private chatActiveUntil = 0;
-  private chatFaded = false;
+  /** Shared chat panel (client/src/ui/chatUI.ts) — same component as the voxel client. */
+  private chat?: ChatUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
   private myConference: { col: number; row: number; name?: string } | null = null;
   /** A monitor we clicked and are walking toward (join finalizes on arrival). */
@@ -461,7 +452,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
-        else if (m.type === 'system') this.appendSystemLine((m.text as string) ?? '');
+        else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
@@ -1064,7 +1055,6 @@ export class OfficeScene extends Phaser.Scene {
     this.updateChatBubbles();
     this.updateVoiceBubbles();
     this.updateAfkLabels();
-    this.tickChatFade();
   }
 
   // ── Menus (grouped top bar + one shared popover style) ───────────
@@ -2754,344 +2744,52 @@ export class OfficeScene extends Phaser.Scene {
   // ── Chat (zone-local; log + input + bubbles over avatars) ────────
 
   private createChat(): void {
-    if (!document.getElementById('pa-chat-style')) {
-      const style = document.createElement('style');
-      style.id = 'pa-chat-style';
-      style.textContent = `
-        #pa-chat{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;width:24rem;max-width:46vw;
-          display:flex;flex-direction:column;gap:0.35rem;font-family:'FS Pixel Sans',ui-monospace,monospace;
-          transition:opacity 0.8s ease;}
-        /* Stay fully visible while hovered or while typing, even when idle. */
-        #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
-        #pa-chatlog{height:13rem;min-height:4rem;overflow-y:auto;
-          background:rgba(15,18,32,.72);border:2px solid #05060b;
-          border-radius:0.45rem;padding:0.45rem 0.6rem;color:#e9ecf7;font-size:1rem;line-height:1.35;
-          display:flex;flex-direction:column;gap:0.1rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14;}
-        /* Resize grip at the top-right: drag up to grow taller, right to grow wider
-           (the chat is anchored bottom-left, so it grows up and to the right). */
-        #pa-chatresize{position:absolute;top:0;right:0;width:1.1rem;height:1.1rem;cursor:nesw-resize;z-index:57;
-          border-top:2px solid #6f7590;border-right:2px solid #6f7590;border-top-right-radius:0.4rem;opacity:0.6;}
-        #pa-chatresize:hover{opacity:1;border-color:#7fa7e0;}
-        #pa-chatrow{display:flex;gap:0.35rem;align-items:stretch;}
-        #pa-chatrow #pa-chatinput{flex:1;min-width:0;}
-        #pa-chathide{flex:0 0 auto;background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;
-          color:#9aa0b8;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-        #pa-chathide:hover{color:#e9ecf7;}
-        #pa-chatopen{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;display:none;background:rgba(23,27,43,.9);
-          border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-        #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
-        #pa-chatlog .ln b{color:#7fa7e0;}
-        #pa-chatlog .ln a{color:#9ecbff;text-decoration:underline;overflow-wrap:anywhere;}
-        #pa-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
-        /* System / command-feedback lines (help, /afk, errors). */
-        #pa-chatlog .ln.sys{color:#9aa0b8;font-style:italic;}
-        #pa-chatinput{background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;
-          font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-        #pa-chatinput::placeholder{color:#6f7590;}
+    // Avatar overlays (chat bubbles / voice status / afk markers) are 2D-specific and stay
+    // here; the chat panel itself is the shared ChatUI (client/src/ui/chatUI.ts).
+    if (!document.getElementById("pa-bubble-style")) {
+      const s = document.createElement("style");
+      s.id = "pa-bubble-style";
+      s.textContent = `
         .pa-chatbubble{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
-        /* Tiny zone-voice status icon over an avatar (very small, no bubble). */
         .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
           font-size:0.6rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
-        /* crossed-out: a red diagonal slash over the icon (muted / sound off). */
         .pa-vstat.crossed::after{content:'';position:absolute;left:-12%;top:45%;width:124%;height:0.1rem;
           background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
-        /* "afk" marker over an away player's avatar. */
         .pa-afk{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           font:0.72rem 'FS Pixel Sans',monospace;color:#ffd98a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;}
         .pa-vstat.spk{animation:pa-voice 0.9s infinite ease-in-out;}
         @keyframes pa-voice{0%,100%{transform:translate(-50%,-100%) scale(0.92);opacity:.75;}50%{transform:translate(-50%,-100%) scale(1.1);opacity:1;}}
       `;
-      document.head.appendChild(style);
+      document.head.appendChild(s);
     }
-    const host = document.getElementById('game') ?? document.body;
-    const box = document.createElement('div');
-    box.id = 'pa-chat';
-    box.className = 'pa-ui';
-    const log = document.createElement('div');
-    log.id = 'pa-chatlog';
-    const input = document.createElement('input');
-    input.id = 'pa-chatinput';
-    input.type = 'text';
-    input.maxLength = 200;
-    input.placeholder = 'Press Enter to chat…';
-    input.autocomplete = 'off';
-    box.onmouseenter = () => this.bumpChat();
-    input.onfocus = () => this.bumpChat();
-    input.onkeydown = (e) => {
-      this.bumpChat();
-      if (e.key === 'Enter') {
-        const text = input.value.trim();
-        if (text) {
-          this.pushChatHistory(text);
-          this.submitChat(text);
+    this.chat = new ChatUI({
+      sendChat: (text) => void this.room?.send("chat", { text }),
+      sendCommand: (name, args) => void this.room?.send("command", { name, args }),
+      isAdmin: () => this.isAdmin,
+      canFocus: () => !this.editor.isEditing(),
+      clientCommand: (name, _args, sys) => {
+        if (name === "voxel") {
+          sys("Entering the voxel world…");
+          window.location.href = "./voxel.html";
+          return true;
         }
-        input.value = '';
-        this.chatHistIdx = -1;
-        // Keep the cursor in the field so you can keep typing; Escape returns
-        // control to the game (movement keys).
-        e.preventDefault();
-      } else if (e.key === 'ArrowUp') {
-        this.navChatHistory(input, -1); // older
-        e.preventDefault();
-      } else if (e.key === 'ArrowDown') {
-        this.navChatHistory(input, 1); // newer
-        e.preventDefault();
-      } else if (e.key === 'Escape') {
-        input.value = '';
-        this.chatHistIdx = -1;
-        input.blur();
-      }
-      e.stopPropagation(); // typing never reaches game-key handlers
-    };
-
-    // Input row: the text field + a small button to hide the chat immediately
-    // (rather than waiting for the idle fade).
-    const row = document.createElement('div');
-    row.id = 'pa-chatrow';
-    const hide = document.createElement('button');
-    hide.id = 'pa-chathide';
-    hide.textContent = '🗕';
-    hide.title = 'Hide chat';
-    hide.onclick = () => this.setChatHidden(true);
-    row.append(input, hide);
-    box.append(log, row);
-
-    // Resize grip (top-right): drag up = taller, right = wider; size persisted.
-    const grip = document.createElement('div');
-    grip.id = 'pa-chatresize';
-    grip.title = 'Drag to resize';
-    box.appendChild(grip);
-    this.wireChatResize(box, log, grip);
-    host.appendChild(box);
-
-    // Collapsed launcher to bring the chat back.
-    const open = document.createElement('button');
-    open.id = 'pa-chatopen';
-    open.className = 'pa-ui';
-    open.textContent = '💬';
-    open.title = 'Open chat';
-    open.onclick = () => {
-      this.setChatHidden(false);
-      input.focus();
-    };
-    host.appendChild(open);
-
-    this.chatBox = box;
-    this.chatOpenBtn = open;
-    this.chatLogEl = log;
-    this.chatInputEl = input;
-    this.bumpChat(); // visible briefly on load, then fades if idle
-
-    // Enter focuses the chat (unless already typing or editing the layout); also
-    // reopens it if it was hidden.
-    window.addEventListener('keydown', (e) => {
-      if (e.key !== 'Enter') return;
-      const tag = document.activeElement?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || this.editor.isEditing()) return;
-      this.setChatHidden(false);
-      input.focus();
+        return false;
+      },
     });
   }
 
-  /** Remember a submitted line for ↑/↓ recall (skips consecutive duplicates). */
-  private pushChatHistory(text: string): void {
-    if (this.chatHistory[this.chatHistory.length - 1] !== text) this.chatHistory.push(text);
-    if (this.chatHistory.length > 100) this.chatHistory.shift();
-    this.chatHistIdx = -1;
-    this.chatDraft = '';
-  }
-
-  /** Bash-style history navigation: dir -1 = older, +1 = newer; idx -1 restores
-   *  the in-progress draft. The recalled line is editable like any input. */
-  private navChatHistory(input: HTMLInputElement, dir: -1 | 1): void {
-    const h = this.chatHistory;
-    if (h.length === 0) return;
-    if (dir === -1) {
-      if (this.chatHistIdx === -1) this.chatDraft = input.value; // save the draft
-      this.chatHistIdx = Math.min(this.chatHistIdx + 1, h.length - 1);
-    } else {
-      if (this.chatHistIdx === -1) return; // already at the live draft
-      this.chatHistIdx -= 1;
-    }
-    input.value = this.chatHistIdx === -1 ? this.chatDraft : h[h.length - 1 - this.chatHistIdx];
-    const end = input.value.length;
-    input.setSelectionRange(end, end);
-  }
-
-  /** Custom resize grip at the chat's top-right corner: drag up grows the log
-   *  height, drag right grows the box width (both clamped + persisted). */
-  private wireChatResize(box: HTMLDivElement, log: HTMLDivElement, grip: HTMLDivElement): void {
-    const applyHeight = (h: string): void => {
-      log.style.height = h;
-      log.style.maxHeight = 'none';
-    };
-    const applyWidth = (w: string): void => {
-      box.style.width = w;
-      box.style.maxWidth = 'none';
-    };
-    try {
-      const w = localStorage.getItem('pa-chat-w');
-      const h = localStorage.getItem('pa-chat-h');
-      if (w) applyWidth(w);
-      if (h) applyHeight(h);
-    } catch {
-      /* localStorage unavailable */
-    }
-    let sx = 0,
-      sy = 0,
-      sw = 0,
-      sh = 0;
-    const onMove = (e: PointerEvent): void => {
-      const w = Math.max(220, Math.min(window.innerWidth * 0.9, sw + (e.clientX - sx)));
-      const h = Math.max(64, Math.min(window.innerHeight * 0.8, sh - (e.clientY - sy)));
-      applyWidth(`${Math.round(w)}px`);
-      applyHeight(`${Math.round(h)}px`);
-    };
-    const end = (e: PointerEvent): void => {
-      grip.removeEventListener('pointermove', onMove);
-      try {
-        localStorage.setItem('pa-chat-w', box.style.width);
-        localStorage.setItem('pa-chat-h', log.style.height);
-      } catch {
-        /* ignore */
-      }
-      if (grip.hasPointerCapture(e.pointerId)) grip.releasePointerCapture(e.pointerId);
-    };
-    grip.onpointerdown = (e) => {
-      sx = e.clientX;
-      sy = e.clientY;
-      sw = box.getBoundingClientRect().width;
-      sh = log.getBoundingClientRect().height;
-      grip.setPointerCapture(e.pointerId);
-      grip.addEventListener('pointermove', onMove);
-      e.preventDefault();
-    };
-    grip.onpointerup = end;
-    grip.onpointercancel = end;
-  }
-
-  /** Hide the chat outright (immediate, no idle fade) and show a small launcher;
-   *  or restore it. */
-  private setChatHidden(hidden: boolean): void {
-    if (this.chatBox) this.chatBox.style.display = hidden ? 'none' : 'flex';
-    if (this.chatOpenBtn) this.chatOpenBtn.style.display = hidden ? 'block' : 'none';
-    if (!hidden) this.bumpChat();
-  }
-
-  /** Route a submitted chat line: slash commands vs. plain chat. */
-  private submitChat(text: string): void {
-    if (text.startsWith('/')) this.runSlashCommand(text);
-    else this.room?.send('chat', { text });
-  }
-
-  /** Parse `/name args`: /help is rendered locally; everything else is gated by
-   *  the shared registry and forwarded to the server. */
-  private runSlashCommand(text: string): void {
-    const sp = text.slice(1).trim().split(/\s+/);
-    const name = (sp.shift() ?? '').toLowerCase();
-    const args = sp.join(' ');
-    if (name === 'help') {
-      this.showCommandHelp(args);
-      return;
-    }
-    if (name === 'voxel') {
-      // Client-only: hop to the 3D voxel world (same-origin, session carries over).
-      this.appendSystemLine('Entering the voxel world…');
-      window.location.href = './voxel.html';
-      return;
-    }
-    const spec = findCommand(name);
-    if (!spec) {
-      this.appendSystemLine(`Unknown command: /${name}. Try /help.`);
-    } else if (!mayRunCommand(spec, this.isAdmin)) {
-      this.appendSystemLine(`/${spec.name} is for admins only.`);
-    } else {
-      this.room?.send('command', { name: spec.name, args });
-    }
-  }
-
-  /** `/help` lists the viewer's commands; `/help <cmd>` shows one command's help. */
-  private showCommandHelp(arg: string): void {
-    const q = arg.trim();
-    if (q) {
-      const spec = findCommand(q);
-      if (!spec || !mayRunCommand(spec, this.isAdmin)) this.appendSystemLine(`No such command: /${q.replace(/^\//, '')}`);
-      else this.appendSystemLine(`${spec.usage} — ${spec.summary}`);
-      return;
-    }
-    const list = commandsForGroup(this.isAdmin)
-      .map((c) => `/${c.name}`)
-      .join(', ');
-    this.appendSystemLine(`Commands: ${list}. Use /help <command> for details.`);
-  }
-
-  /** Append a local "system" line to the chat log (command feedback / help). */
-  private appendSystemLine(text: string): void {
-    const log = this.chatLogEl;
-    if (!log) return;
-    const ln = document.createElement('div');
-    ln.className = 'ln sys';
-    // Timestamp span + the message text (text kept as textContent to avoid HTML).
-    const ts = document.createElement('span');
-    ts.className = 'ts';
-    ts.textContent = this.fmtTime();
-    ln.append(ts, document.createTextNode(' ' + text));
-    log.appendChild(ln);
-    while (log.childElementCount > 120) log.firstElementChild?.remove();
-    log.scrollTop = log.scrollHeight;
-    this.bumpChat();
-  }
-
   private onChatHistory(m: Record<string, unknown>): void {
-    const msgs = (m.messages as Array<{ from?: string; text?: string; at?: number }>) ?? [];
-    for (const c of msgs) this.appendChatLine(c.from ?? '?', c.text ?? '', c.at);
+    this.chat?.addHistory((m.messages as Array<{ from?: string; text?: string; at?: number }>) ?? []);
   }
 
   private onChat(m: Record<string, unknown>): void {
-    const from = (m.from as string) ?? '?';
-    const text = (m.text as string) ?? '';
-    this.appendChatLine(from, text, m.at as number | undefined);
-    if (typeof m.id === 'number') this.showChatBubble(m.id, text);
-  }
-
-  /** Local HH:MM (24h) for a chat timestamp (server ms, or now for local lines). */
-  private fmtTime(at?: number): string {
-    const d = at ? new Date(at) : new Date();
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  }
-
-  private appendChatLine(from: string, text: string, at?: number): void {
-    const log = this.chatLogEl;
-    if (!log) return;
-    const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 24;
-    const ln = document.createElement('div');
-    ln.className = 'ln';
-    ln.innerHTML = `<span class="ts">${this.fmtTime(at)}</span> <b>${esc(from)}:</b> ${linkify(text)}`;
-    log.appendChild(ln);
-    while (log.childElementCount > 120) log.firstElementChild?.remove();
-    if (atBottom) log.scrollTop = log.scrollHeight; // follow only if already at bottom
-    this.bumpChat();
-  }
-
-  /** Mark the chat active (a message, focus, hover, or typing) → show it; it
-   *  fades again after a quiet stretch (see tickChatFade). */
-  private bumpChat(): void {
-    this.chatActiveUntil = performance.now() + 8000;
-    if (this.chatBox) this.chatBox.style.opacity = '1';
-    this.chatFaded = false;
-  }
-
-  /** Fade the chat out once it's been idle (hover/focus override via CSS). */
-  private tickChatFade(): void {
-    if (!this.chatBox) return;
-    const idle = performance.now() >= this.chatActiveUntil;
-    if (idle !== this.chatFaded) {
-      this.chatFaded = idle;
-      this.chatBox.style.opacity = idle ? '0.1' : '1';
-    }
+    const from = (m.from as string) ?? "?";
+    const text = (m.text as string) ?? "";
+    this.chat?.addChatLine(from, text, m.at as number | undefined);
+    if (typeof m.id === "number") this.showChatBubble(m.id, text);
   }
 
   private showChatBubble(id: number, text: string): void {
@@ -3292,29 +2990,6 @@ function fuelColor(ratio: number): string {
 
 function esc(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
-}
-
-/** Escape chat text to HTML and turn http(s) URLs into clickable links. Escaping
- *  is done per segment (so both the visible text and the href are HTML-safe), and
- *  only `http`/`https` schemes match — `javascript:`/`data:` can never slip in. */
-function linkify(text: string): string {
-  const re = /(https?:\/\/[^\s<]+)/g;
-  let out = '';
-  let last = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    out += esc(text.slice(last, m.index));
-    let url = m[0];
-    // Keep trailing sentence punctuation out of the link.
-    const trail = url.match(/[.,!?;:]+$/);
-    const tail = trail ? trail[0] : '';
-    if (tail) url = url.slice(0, -tail.length);
-    const safe = esc(url);
-    out += `<a href="${safe}" target="_blank" rel="noopener noreferrer nofollow">${safe}</a>${esc(tail)}`;
-    last = m.index + m[0].length;
-  }
-  out += esc(text.slice(last));
-  return out;
 }
 
 function setStatus(text: string): void {
