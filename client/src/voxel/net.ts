@@ -39,7 +39,16 @@ export interface VoxelNet {
   use(x: number, y: number, z: number, held?: number): void;
   chestMove(x: number, y: number, z: number, id: number, dir: 'take' | 'put'): void;
   setSign(x: number, y: number, z: number, text: string): void;
+  sendChat(text: string): void;
+  sendCommand(name: string, args: string): void;
   leave(): Promise<void>;
+}
+
+export interface ChatMsg {
+  type: string; // 'chat' | 'system' | …
+  from?: string;
+  text?: string;
+  at?: number;
 }
 
 export interface SignMsg {
@@ -70,6 +79,7 @@ export interface VoxelHandlers {
   onTime?: (m: { now: number; dayLengthMs: number }) => void;
   onNote?: (m: { text: string }) => void;
   onLeave?: (code: number) => void; // socket dropped (server restart / network) → show offline
+  onMsg?: (m: ChatMsg) => void; // chat / system lines (the shared 'm' channel)
 }
 
 export interface JoinOpts {
@@ -115,6 +125,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('signs', (list: SignMsg[]) => handlers.onSigns?.(list));
   room.onMessage('time', (m: { now: number; dayLengthMs: number }) => handlers.onTime?.(m));
   room.onMessage('note', (m: { text: string }) => handlers.onNote?.(m));
+  room.onMessage('m', (m: ChatMsg) => handlers.onMsg?.(m));
   room.onLeave((code: number) => handlers.onLeave?.(code));
   return {
     room,
@@ -136,6 +147,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     use: (x, y, z, held = 0) => room.send('use', { x, y, z, held }),
     chestMove: (x, y, z, id, dir) => room.send('chestMove', { x, y, z, id, dir }),
     setSign: (x, y, z, text) => room.send('setSign', { x, y, z, text }),
+    sendChat: (text) => room.send('chat', { text }),
+    sendCommand: (name, args) => room.send('command', { name, args }),
     leave: async () => {
       await room.leave();
     },

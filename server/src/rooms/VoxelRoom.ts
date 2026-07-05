@@ -65,6 +65,9 @@ import {
   FENCE_GATE_OPEN,
   BED_ID,
   WOOL_WHITE,
+  findCommand,
+  mayRunCommand,
+  KICK_CLOSE_CODE,
   needsGround,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
@@ -73,7 +76,7 @@ import { settleAround } from '../voxel/fluid.js';
 import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
-import { userStore, UserStore } from '../userStore.js';
+import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
@@ -236,6 +239,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.onMessage('chestMove', (client, m: { x: number; y: number; z: number; id: number; dir: string }) => this.onChestMove(client, m));
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
+    this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
     this.onMessage('saveSettings', (client, obj: unknown) => {
@@ -1230,6 +1234,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       worldId: this.state.worldId,
       now: this.serverNow(),
       dayLengthMs: DAY_LENGTH_MS,
+      isAdmin: auth?.isAdmin ?? false, // gates the admin slash-commands in the chat /help
     });
     client.send('worlds', listWorlds()); // for the client's world dropdown
     client.send('signs', signs.all(this.state.worldId)); // all sign texts in this world (rendered in-world)
@@ -1540,6 +1545,62 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (!text) return;
     const from = this.state.players.get(client.sessionId)?.name || 'player';
     this.broadcast('m', { type: 'chat', from, text, at: Date.now() });
+  }
+
+  /** Slash commands — same registry/gating as the 2D world (shared `commands`). Client-only
+   *  commands (/help) never reach here; account/admin ops use the shared user store. World-
+   *  specific ones (afk) aren't modelled in the voxel world → a friendly note. */
+  private onCommand(client: Client, msg: { name?: string; args?: string }): void {
+    const sys = (text: string): void => void client.send('m', { type: 'system', text });
+    const spec = findCommand(typeof msg?.name === 'string' ? msg.name : '');
+    if (!spec) return sys('Unknown command. Try /help.');
+    const me = client.auth as AuthInfo;
+    if (!mayRunCommand(spec, me.isAdmin)) return sys(`/${spec.name} is for admins only.`);
+    const args = (typeof msg?.args === 'string' ? msg.args : '').trim() ? msg.args!.trim().split(/\s+/) : [];
+    const star = (uid: string): string => (userStore.get(uid)?.isAdmin ? ' ★' : '');
+    switch (spec.name) {
+      case 'afk':
+        return sys('afk is only available in the 2D world.');
+      case 'voxel':
+        return sys('You are already in the voxel world.');
+      case 'users': {
+        if (args[0]?.toLowerCase() === 'all') {
+          const users = userStore.list();
+          return sys(users.length ? `All users (${users.length}):\n` + users.map((u) => `• ${UserStore.displayName(u)} (${u.userId})${star(u.userId)}`).join('\n') : 'No users registered.');
+        }
+        const here: string[] = [];
+        this.state.players.forEach((p) => here.push(p.name));
+        return sys(here.length ? `Players in this world (${here.length}):\n` + here.map((n) => `• ${n}`).join('\n') : 'No players here.');
+      }
+      case 'add': {
+        const [loginId, password] = args;
+        if (!loginId || !password) return sys(`Usage: ${spec.usage}`);
+        if (!isValidPassword(password)) return sys(`Password must be at least ${MIN_PASSWORD_LEN} characters.`);
+        if (userStore.exists(loginId)) return sys(`User "${normalizeLoginId(loginId)}" already exists.`);
+        return sys(`Created user "${userStore.createUser(loginId, password).userId}".`);
+      }
+      case 'delete': {
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        if (loginId === me.userId) return sys(`You can't delete yourself.`);
+        return sys(userStore.deleteUser(loginId) ? `Deleted user "${loginId}".` : `No such user: "${loginId}".`);
+      }
+      case 'set-admin':
+      case 'remove-admin': {
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        if (!userStore.exists(loginId)) return sys(`No such user: "${loginId}".`);
+        userStore.setAdmin(loginId, spec.name === 'set-admin');
+        return sys(`"${loginId}" is ${spec.name === 'set-admin' ? 'now an admin' : 'no longer an admin'}.`);
+      }
+      case 'kick': {
+        const loginId = normalizeLoginId(args[0]);
+        if (!loginId) return sys(`Usage: ${spec.usage}`);
+        let kicked = false;
+        for (const c of this.clients) if ((c.auth as AuthInfo)?.userId === loginId) ((c.leave(KICK_CLOSE_CODE)), (kicked = true));
+        return sys(kicked ? `Kicked "${loginId}".` : `"${loginId}" is not online in this world.`);
+      }
+    }
   }
 
   /** Send every in-range chunk not yet sent, and unload those now out of range. */

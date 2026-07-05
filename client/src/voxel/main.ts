@@ -11,9 +11,10 @@ import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SM
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
+import { VoxelChat } from './chat.js';
 import { Player, type MoveInput } from './player.js';
 import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
-import type { SignMsg } from './net.js';
+import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
@@ -525,8 +526,10 @@ function smoothAvatar(a: { group: THREE.Object3D }, tx: number, ty: number, tz: 
 }
 
 let worldSeed = 0; // seed of the current world (from 'welcome') — drives the full-world map
+let playerIsAdmin = false; // from welcome; gates admin slash-commands in the chat /help
 function onWelcome(m: unknown): void {
-  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number; seed?: number };
+  const w = m as { spawn?: { x: number; y: number; z: number }; now?: number; dayLengthMs?: number; seed?: number; isAdmin?: boolean };
+  if (typeof w.isAdmin === 'boolean') playerIsAdmin = w.isAdmin;
   if (Number.isFinite(w.seed)) worldSeed = w.seed!; // for the full-world map colour
   if (Number.isFinite(w.now)) clockOffset = w.now! - Date.now(); // align to the server day clock
   if (Number.isFinite(w.dayLengthMs) && w.dayLengthMs! > 0) dayLengthMs = w.dayLengthMs!;
@@ -764,6 +767,10 @@ function placeCamera(): void {
 // ── Input ───────────────────────────────────────────────────────────────────
 const keys = new Set<string>();
 window.addEventListener('keydown', (e) => {
+  // While typing in chat, the input handles keys itself — suspend all game keybinds.
+  if (chat.isFocused()) return;
+  // Enter opens the chat input (unless another menu is capturing keys).
+  if (e.code === 'Enter' && !menuOpen()) return chat.open();
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
@@ -975,6 +982,17 @@ function setOnline(on: boolean): void {
   nameEl.classList.toggle('off', !on);
   nameSt.textContent = on ? 'online' : 'offline';
 }
+
+// Chat: same system as the 2D world (shared 'm' channel + slash commands). Enter opens
+// the input; while typing, game keybinds are suspended (see the keydown guard).
+const chat = new VoxelChat({
+  sendChat: (text) => net?.sendChat(text),
+  sendCommand: (name, args) => net?.sendCommand(name, args),
+  isAdmin: () => playerIsAdmin,
+  onFocus: () => {
+    if (locked()) document.exitPointerLock();
+  },
+});
 function updateArmorHud(): void {
   armorHud.innerHTML = '';
   for (const slot of ['head', 'torso', 'legs', 'feet'] as ArmorSlot[]) {
@@ -2143,7 +2161,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false) };
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: (m: ChatMsg) => chat.onMessage(m) };
 let currentWorld = 'default';
 let lastJump = 0;
 /** Jump to a portal destination: another voxel world (seamless) or the 2D client. */
