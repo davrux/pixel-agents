@@ -149,14 +149,18 @@ async function main(): Promise<void> {
   const version = serverVersion();
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: !!ADMIN_TOKEN, version }).filterBy(['zone']);
+  // No visitors anywhere: every room + the feed require a logged-in account (a valid
+  // session cookie / bearer). Login is served by registerAuth, which needs an admin
+  // token to be configured — without one nobody can join (there is no anonymous mode).
+  if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
+  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: true, version }).filterBy(['zone']);
   // Voxel MMO world: one authoritative instance per world id (multiworld),
   // matchmade by `world`. Persistent chunks + server-authoritative edits.
-  gameServer.define(VOXEL_ROOM, VoxelRoom, { authRequired: !!ADMIN_TOKEN, version }).filterBy(['world']);
+  gameServer.define(VOXEL_ROOM, VoxelRoom, { authRequired: true, version }).filterBy(['world']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
-  attachFeedServer(httpServer, { authRequired: !!ADMIN_TOKEN });
+  attachFeedServer(httpServer, { authRequired: true });
 
   httpServer.listen(PORT, HOST, () => {
     const scheme = useTls ? 'https' : 'http';
