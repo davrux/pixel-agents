@@ -84,7 +84,7 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 96;
+export const MAX_BLOCK_ID = 97;
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
 export const SIGN_MAX_LEN = 120; // max characters of sign text
@@ -106,6 +106,8 @@ export const WOOL_BLACK = 93;
 export const DIAMOND_ORE = 94; // deep + rare; drops a diamond (top tool tier)
 export const MESE_ORE = 95; // deep + rare; drops a mese crystal (top tool tier)
 export const MESE_BLOCK = 96; // 9 mese crystals
+export const RAIL_ID = 97; // flat rail track (Luanti carts): laid on the ground, carts run along it
+export const isRail = (id: number): boolean => id === RAIL_ID;
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
@@ -121,7 +123,7 @@ export const STRAW = 61; // 9 wheat → a straw block
 export const isCrop = (id: number): boolean => id >= WHEAT_SEED && id <= WHEAT_MATURE;
 /** Blocks that need a solid block beneath them: cross-plants (51-55), wheat crops
  *  (57-60) and saplings (63). When their support is removed they pop off + drop. */
-export const needsGround = (id: number): boolean => (id >= 51 && id <= 55) || (id >= 72 && id <= 76) || isCrop(id) || id === SAPLING;
+export const needsGround = (id: number): boolean => (id >= 51 && id <= 55) || (id >= 72 && id <= 76) || isCrop(id) || id === SAPLING || id === RAIL_ID;
 /** Non-solid decorative plants/flowers/crops/fire — "buildable_to" nodes that a fluid
  *  flows into and REPLACES (Luanti: water/lava overrun plants instead of leaving a dry
  *  pocket). Mirrors the client PLANT set (blocks.ts). FIRE_ID is defined below (80). */
@@ -290,6 +292,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
   { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
   { in: [{ block: 17, count: 5 }], out: { block: BOAT_ITEM, count: 1 } }, // 5 wood → boat (Luanti boats)
+  { in: [{ block: STEEL_INGOT, count: 1 }], out: { block: RAIL_ID, count: 4 } }, // 1 steel → 4 rails
   { in: [{ block: 18, count: 6 }], out: { block: SIGN_ID, count: 3 } }, // 6 planks → 3 signs
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_ID, count: 6 } }, // 2 planks + 4 sticks → 6 fences
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_GATE_CLOSED, count: 1 } }, // → 1 fence gate

@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, MODEL_NODES, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN } from './blocks.js';
+import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, MODEL_NODES, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN, RAIL_ID } from './blocks.js';
 import { MAX_LIGHT, type LightSampler } from './light.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
@@ -145,6 +145,24 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
               opq.blk.push(pblk);
               opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
             }
+          }
+          continue;
+        }
+        // Rail: a single flat quad just above the ground (not a cube), textured top-down.
+        if (id === RAIL_ID) {
+          const r = atlas.rect((BLOCKS[id] ?? BLOCKS[3]).tiles.top);
+          const c = 0.95;
+          const psky = light.sky(x, y, z) / MAX_LIGHT;
+          const pblk = light.block(x, y, z) / MAX_LIGHT;
+          const yb = y + 0.03;
+          const quad = [[x, yb, z], [x + 1, yb, z], [x + 1, yb, z + 1], [x, yb, z + 1]];
+          const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+          for (const i of [0, 1, 2, 0, 2, 3]) {
+            opq.pos.push(quad[i][0], quad[i][1], quad[i][2]);
+            opq.col.push(c, c, c);
+            opq.sky.push(psky);
+            opq.blk.push(pblk);
+            opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
           }
           continue;
         }

@@ -118,6 +118,7 @@ BLOCKS.push(
   u('diamond ore', 'diamond_ore'), // 94 — stone + diamond speckle (synthetic composite)
   u('mese ore', 'mese_ore'), // 95 — stone + mese speckle (synthetic composite)
   u('mese block', 'mese_block'), // 96 — 9 mese crystals
+  u('rail', 'rail'), // 97 — flat track (rendered as a ground quad, not a cube; carts run on it)
 );
 
 export const WATER_ID = 27;
@@ -136,6 +137,7 @@ export const FENCE_ID = 82;
 export const FENCE_GATE_CLOSED = 83;
 export const FENCE_GATE_OPEN = 84;
 export const BED_ID = 85;
+export const RAIL_ID = 97; // flat track — rendered as a ground quad, carts run on it
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
@@ -148,11 +150,11 @@ export const FENCE_SHAPE = new Set<number>([FENCE_ID, FENCE_GATE_CLOSED]);
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
  *  the same id. ice, glass, obsidian glass, leaves, portal, ladder, torch, doors, plants. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, RAIL_ID, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
 
 /** Non-solid blocks: the player passes through them (like fluids). Ladders, torches,
  *  open doors, cross-plants. */
-export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, FENCE_GATE_OPEN, ...PLANT]);
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, FENCE_GATE_OPEN, RAIL_ID, ...PLANT]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client draws a warm glow halo at each instance. */
