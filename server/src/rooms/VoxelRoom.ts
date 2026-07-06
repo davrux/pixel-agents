@@ -130,7 +130,7 @@ const MOB_LIFETIME = 300; // seconds before a mob despawns (unless something res
 const FALLING = new Set<number>([6, 7, 8]); // gravity nodes: gravel, sand, desert sand (Luanti falling_node)
 // Which ANIMALS spawn in each biome (monsters ignore biome — they spawn anywhere at night).
 const BIOME_ANIMALS: Record<string, Set<string>> = {
-  plains: new Set(['sheep', 'cow', 'chicken', 'pig', 'bunny', 'panda']),
+  plains: new Set(['sheep', 'cow', 'chicken', 'pig', 'bunny', 'panda', 'bee']),
   snow: new Set(['penguin', 'bunny', 'sheep']),
   desert: new Set(['bunny']), // deserts are sparse
 };
@@ -161,6 +161,7 @@ interface NpcBrain {
   runawayT: number; // seconds left fleeing (animals)
   fleeFrom: { x: number; z: number }; // point to flee away from
   life: number; // seconds left before despawn
+  flyT?: { x: number; y: number; z: number }; // flying mob's current hover target
 }
 
 export class VoxelRoom extends Room<VoxelRoomState> {
@@ -1279,9 +1280,36 @@ export class VoxelRoom extends Room<VoxelRoomState> {
 
   /** One mob's behaviour step: runaway (fleeing animal) > attack (hostile monster) >
    *  wander/stand. Movement runs the current path at walk or run velocity. */
+  /** Flying mob (bee): hover-wander in 3D — drift toward a random point a few blocks up,
+   *  pick a new one on arrival / timeout. No gravity, no A* (bees fly over terrain). */
+  private tickFly(b: NpcBrain, dt: number): void {
+    const n = b.sync;
+    b.think -= dt;
+    if (!b.flyT || b.think <= 0 || Math.hypot(n.x - b.flyT.x, n.y - b.flyT.y, n.z - b.flyT.z) < 0.8) {
+      const gx = Math.floor(n.x + (Math.random() * 2 - 1) * 6);
+      const gz = Math.floor(n.z + (Math.random() * 2 - 1) * 6);
+      b.flyT = { x: gx + 0.5, y: this.world.columnTop(gx, gz) + 1.5 + Math.random() * 3, z: gz + 0.5 };
+      b.think = 2 + Math.random() * 3;
+      b.mode = 'walk';
+    }
+    const dx = b.flyT.x - n.x,
+      dy = b.flyT.y - n.y,
+      dz = b.flyT.z - n.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    const step = Math.min(d, b.def.walkVel * dt);
+    n.x += (dx / d) * step;
+    n.y += (dy / d) * step;
+    n.z += (dz / d) * step;
+    const minY = this.world.columnTop(Math.floor(n.x), Math.floor(n.z)) + 1.2; // never dip into the ground
+    if (n.y < minY) n.y = minY;
+    n.yaw = Math.atan2(-dx, -dz);
+    n.state = 'walk';
+  }
+
   private tickMob(b: NpcBrain, dt: number): void {
     const n = b.sync;
     const def = b.def;
+    if (def.fly) return this.tickFly(b, dt);
     b.think -= dt;
     b.repath -= dt;
     b.attackCd -= dt;

@@ -30,6 +30,7 @@ export const LUANTI_MOBS: Record<string, MobSpec> = {
   bunny: { dir: 'mobs_bunny', h: 0.5, stand: [1, 15], walk: [16, 24] },
   panda: { dir: 'mobs_panda', h: 1.3, stand: [130, 270], walk: [10, 70] },
   penguin: { dir: 'mobs_penguin', h: 0.8, stand: [1, 20], walk: [25, 45] },
+  bee: { dir: 'mobs_bee', h: 0.6, stand: [0, 30], walk: [35, 65] },
 };
 
 const FPS = 60; // the batch converter bakes the b3d timeline at 60 fps

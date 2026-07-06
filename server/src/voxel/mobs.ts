@@ -20,6 +20,7 @@ export interface MobDef {
   runaway: boolean; // animals flee when punched
   fearHeight: number; // won't path off drops taller than this (cliff avoidance)
   spawnByDay: boolean; // animals spawn in daylight, monsters at night
+  fly?: boolean; // flying mob (bee): hover-wanders in 3D, ignores gravity + A* ground pathing
 }
 
 // Animals (day, flee when punched) + hostile monsters (night, chase + hit). The FSM
@@ -40,6 +41,7 @@ export const MOB_DEFS: Record<string, MobDef> = {
   bunny: animal('bunny', 'character_3', 4, 1.3, 3.0), // fast hopper
   panda: animal('panda', 'character_5', 15, 0.8, 1.6), // slow + tanky
   penguin: animal('penguin', 'character_6', 6, 0.9, 1.8),
+  bee: { ...animal('bee', 'character_6', 4, 2.0, 2.0), fly: true }, // hovers over flowers
   // Hostile monsters — spawn at night, chase + attack the player.
   zombie: monster('zombie', 'character_8', 20, 12, 1.5, 3.0, 2, 2.4),
   skeleton: monster('skeleton', 'character_9', 20, 14, 1.6, 3.2, 3, 2.6),
