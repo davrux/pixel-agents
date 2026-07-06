@@ -75,6 +75,16 @@
         position: relative;
         border-radius: 0.25rem;
       }
+      #hotbar .slot .idx {
+        position: absolute;
+        left: 2px;
+        top: 0;
+        font: 700 9px/1.2 'FS Pixel Sans', ui-monospace, monospace;
+        color: #cfd4e6;
+        text-shadow: 1px 1px 0 #000;
+        pointer-events: none;
+        opacity: 0.85;
+      }
       #hotbar .slot .count {
         position: absolute;
         right: 0;
@@ -125,7 +135,7 @@
       }
       /* ── shared control tokens ── */
       .vx-btn,
-      #settings button {
+      #settings button:not(.pa-x):not(.pa-b) {
         color: #e9ecf7;
         background: #141826;
         border: 2px solid #05060b;
@@ -135,7 +145,7 @@
         box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
       }
       .vx-btn:hover,
-      #settings button:hover {
+      #settings button:not(.pa-x):not(.pa-b):hover {
         background: #1a2036;
       }
       #settings button.primary {
@@ -158,68 +168,21 @@
         cursor: pointer;
         box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
       }
-      #settings {
-        position: fixed;
-        right: 0.75rem;
-        top: 3.7rem;
-        width: 24rem;
-        max-width: 94vw;
-        max-height: calc(100vh - 4.7rem);
-        overflow-y: auto;
-        padding: 0 18px 18px;
-        background: #0f1220;
-        border: 2px solid #05060b;
-        border-radius: 0.6rem;
-        color: #e9ecf7;
-        font-size: 15px;
-        box-shadow: inset 0 2px 0 #232a44, inset 0 -3px 0 #080a14, 0 12px 28px rgba(0, 0, 0, 0.55);
-      }
-      /* keep the draggable header pinned while the body scrolls */
-      .settings-hd {
-        position: sticky;
-        top: 0;
-        z-index: 1;
-      }
+      /* #settings reuses the shared .pa-panel / .pa-head / .pa-body shell (paSkin.ts),
+         so it looks + sizes exactly like the 2D office menus. Only the toggle + the
+         draggable-header cursor need voxel-local rules. */
       #settings[hidden] {
         display: none;
       }
-      /* Header bar matching the 2D office panels (.pa-head): title + ✕ close. */
+      #settings:not([hidden]) {
+        display: block;
+      }
+      /* never scroll sideways — content wraps/shrinks to the panel width instead */
+      #settings {
+        overflow-x: hidden;
+      }
       .settings-hd {
-        display: flex;
-        align-items: center;
-        gap: 0.6rem;
-        margin: 0 -18px 12px;
-        padding: 10px 18px;
         cursor: move;
-        user-select: none;
-        background: #141826;
-        border-bottom: 2px solid #05060b;
-        border-radius: 0.5rem 0.5rem 0 0;
-      }
-      #settings h3 {
-        margin: 0;
-        font-size: 1.3rem;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-        color: #eef1fb;
-      }
-      #settings-x {
-        margin-left: auto;
-        cursor: pointer;
-        width: 1.7rem;
-        height: 1.7rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        color: #e9ecf7;
-        background: #141826;
-        border: 2px solid #05060b;
-        border-radius: 0.4rem;
-        box-shadow: inset 0 2px 0 #2b3252, inset 0 -3px 0 #090b16;
-      }
-      #settings-x:hover {
-        background: #1a2036;
       }
       #settings label {
         display: flex;
@@ -231,7 +194,7 @@
       #settings .hint {
         margin: 12px 0 14px;
         color: #9aa0b8;
-        font-size: 12px;
+        font-size: 0.9rem;
         line-height: 1.5;
       }
       /* tabs use the shared .pa-seg / .seg styles (paSkin.ts) — same as the 2D office */
@@ -260,6 +223,10 @@
         flex-wrap: wrap;
       }
       /* world select + inputs use the shared .pa-select / .pa-input styles (paSkin.ts) */
+      #world-select {
+        flex: 1;
+        min-width: 0; /* allow it to shrink inside the flex label (no h-scroll) */
+      }
       #world-input,
       #world-seed,
       #world-size {
@@ -303,8 +270,9 @@
     <div id="hotbar"></div>
     <div id="mode"></div>
     <button id="settings-btn" title="Settings (O)">⚙</button>
-    <div id="settings" hidden>
-      <div class="settings-hd"><h3>Settings</h3><button id="settings-x" type="button" title="Close (O / Esc)">✕</button></div>
+    <div id="settings" class="pa-ui pa-panel right" hidden>
+      <div class="settings-hd pa-head"><h4>Settings</h4><button id="settings-x" class="pa-x" type="button" title="Close (O / Esc)">✕</button></div>
+      <div class="pa-body">
       <div id="tabs" class="pa-seg">
         <button class="tab seg on" data-tab="gameplay" type="button">Gameplay</button>
         <button class="tab seg" data-tab="camera" type="button">Camera</button>
@@ -318,7 +286,9 @@
         <label><input type="checkbox" id="opt-autotool" /> Auto-switch to best tool (else manual, like Minecraft)</label>
         <label><input type="checkbox" id="opt-durability" /> Tool durability (tools wear out &amp; break; off = tools never break)</label>
         <label><input type="checkbox" id="opt-hunger" /> Hunger (food drains &amp; you can starve; off = food stays full)</label>
+        <label><input type="checkbox" id="opt-keepinv" /> Keep inventory on death (off = drop a bones chest at the death spot, Luanti-style)</label>
         <label><input type="checkbox" id="opt-sound" /> Sound effects (footsteps, digging, …)</label>
+        <label>Hotbar slots: <input type="number" id="opt-hotbar" min="4" max="12" step="1" class="pa-input" style="width: 3.4rem" /> <span class="hint" style="margin: 0">(Luanti hud_hotbar_itemcount, 4–12)</span></label>
         <p class="hint">Survival: dig to collect, craft tools, watch your health. Creative unlocks everything + flying.</p>
       </div>
       <div class="page" data-page="camera" hidden>
@@ -357,12 +327,13 @@
       <div id="settings-foot">
         <button id="settings-logout">Log out</button>
       </div>
+      </div>
     </div>
     <div id="help">
-      WASD move · Space jump · <b>E</b> place · hold <b>Q</b> to break (at cursor)<br />
-      Iso: <b>left-click</b> = walk · <b>right-drag</b> = rotate<br />
+      WASD move · Space jump · one held item: <b>E</b> use/place · hold <b>Q</b> to dig (at cursor)<br />
+      Iso: <b>left-click</b> = walk · <b>right-drag</b> = rotate · First: LMB dig · RMB use/place<br />
       Third: <b>right-drag</b> = orbit · First: click = mouse-look (Esc)<br />
-      <b>V</b> view · scroll = zoom · 1–9 = slot · <b>C</b> craft · <b>I</b> inventory · <b>G</b> eat · <b>K</b> skin · <b>M</b> map · <b>O</b> settings
+      <b>V</b> view · scroll = zoom (iso/third) or select slot (first) · 1–8 = slot · <b>C</b> craft · <b>I</b> inventory · <b>G</b> eat · <b>K</b> skin · <b>M</b> map · <b>O</b> settings
     </div>
     <script type="module" src="/src/voxel/main.ts"></script>
   </body>

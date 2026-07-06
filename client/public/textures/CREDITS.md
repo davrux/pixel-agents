@@ -37,7 +37,21 @@ licences (from `mods/default/README.txt`):
   `.2` Tomlija (97669), `.3` lsprice (88808).
 - **sonictechtonic** (freesound 241872) — CC BY 3.0: `player_damage`.
 - `default_cool_lava.*` — CC BY-SA 3.0 (minetest_game default media, celeron55 et al.).
+- **Full `default` sound set** (now bundled): footsteps also for `metal`; dig sounds
+  `default_dig_{cracky,choppy,crumbly,snappy,metal,oddly_breakable_by_hand,dig_immediate}`,
+  `default_gravel_dig.*`, `default_ice_dig.*`; dug `default_dug_metal.*`,
+  `default_gravel_dug.*`, `default_ice_dug`; place `default_place_node_{hard,metal}.*`;
+  `default_tool_breaks.*`, `default_furnace_active`, `default_item_smoke`,
+  `default_chest_open`, `default_chest_close`. minetest_game `default` media, CC BY-SA 3.0
+  / CC BY 3.0 / CC0 per `mods/default/README.txt`.
+- **Other minetest_game mods** (same repo, media CC BY-SA 3.0 unless noted):
+  `doors/` — `doors_door_{open,close}`, `doors_fencegate_{open,close}`,
+  `doors_{steel,glass}_door_{open,close}`; `fire/` — `fire_flint_and_steel`,
+  `fire_fire.*`, `fire_{small,large}`, `fire_extinguish_flame.*`; `tnt/` —
+  `tnt_{explode,ignite,gunpowder_burning}`; `env_sounds/` — `env_sounds_{water,lava}.*`;
+  `carts/` — `carts_cart_moving.*`; `xpanes/` — `xpanes_steel_bar_door_{open,close}`.
 - CC BY-SA 3.0: <https://creativecommons.org/licenses/by-sa/3.0/> · CC BY 3.0:
   <https://creativecommons.org/licenses/by/3.0/> · CC0: <https://creativecommons.org/publicdomain/zero/1.0/>
-- Source: <https://github.com/minetest/minetest_game> (mod `default`, LGPL 2.1+ code;
-  media under the licences above). Attribution retained per CC BY / CC BY-SA terms.
+- Source: <https://github.com/minetest/minetest_game> (mods `default`/`doors`/`fire`/`tnt`/
+  `env_sounds`/`carts`/`xpanes`, LGPL 2.1+ code; media under the licences above).
+  Attribution retained per CC BY / CC BY-SA terms.

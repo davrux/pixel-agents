@@ -70,10 +70,16 @@ export function injectPaSkin(): void {
         box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       .pa-menurow.here{color:#f2c14e;}
       .pa-menurow .sub{margin-left:auto;color:#6f7590;font-size:0.8rem;}
-      /* Native dropdown / text input styled to match (the office uses custom ones). */
+      /* Native dropdown / text input styled to match (the office uses custom ones).
+         appearance:none strips the OS chrome so our pixel styling actually shows;
+         a custom caret is drawn via background-image. max-width keeps them in-panel. */
       .pa-select,.pa-input{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;
-        padding:0.4rem 0.55rem;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      .pa-select{cursor:pointer;}
+        padding:0.4rem 0.55rem;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;
+        max-width:100%;box-sizing:border-box;}
+      .pa-select{cursor:pointer;-webkit-appearance:none;-moz-appearance:none;appearance:none;
+        padding-right:1.7rem;background-repeat:no-repeat;background-position:right 0.55rem center;
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath fill='%239aa0b8' d='M0 0h10L5 7z'/%3E%3C/svg%3E");}
+      .pa-select option{background:#171b2b;color:#e9ecf7;}
       /* Space (Layouts / Zones) — kept close to the originals, restyled. */
       #pa-layouts h4,#pa-zones h4{margin:0 0 0.5rem;font-size:0.95rem;color:#8a90a8;font-weight:400;}
       #pa-layouts .item,#pa-zones .item{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.1rem;

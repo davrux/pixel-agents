@@ -17,6 +17,7 @@ import {
   VIEW_CHUNKS,
   VIEW_CHUNKS_Y,
   MAP_LIMIT,
+  biomeAt,
   toChunk,
   chunkKey,
   packChunk,
@@ -27,6 +28,7 @@ import {
   WATER_FLUID,
   FLUIDS,
   fluidOf,
+  type FluidDef,
   CRAFT_RECIPES,
   SMELT_RECIPES,
   FUEL_ITEMS,
@@ -54,6 +56,7 @@ import {
   isHoe,
   isBucket,
   BUCKET_EMPTY,
+  BOAT_ITEM,
   BUCKET_WATER,
   BUCKET_LAVA,
   FIRE_ID,
@@ -71,9 +74,9 @@ import {
   KICK_CLOSE_CODE,
   needsGround,
 } from '@pixel/shared';
-import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelRoomState } from '@pixel/shared/schema';
+import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelBoatSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
-import { settleAround } from '../voxel/fluid.js';
+import { stepFluid, seedCells } from '../voxel/fluid.js';
 import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
@@ -84,6 +87,7 @@ import { voxelSettings } from '../voxel/settingsStore.js';
 import { voxelPositions } from '../voxel/positionStore.js';
 import { voxelInventory, voxelDurability } from '../voxel/inventoryStore.js';
 import { portals, cleanDest } from '../voxel/portalStore.js';
+import { boatStore, type StoredBoat } from '../voxel/boatStore.js';
 import { chests } from '../voxel/chestStore.js';
 import { appStore } from '../appStore.js';
 import { voiceConfigured, voiceUrl, voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
@@ -123,6 +127,13 @@ const SPAWN_MIN = 12; // never spawn within this of a player (mobs_redo rule)
 const SPAWN_MAX = 34; // ...nor beyond this
 const DESPAWN_DIST = 64; // remove when farther than this from every player
 const MOB_LIFETIME = 300; // seconds before a mob despawns (unless something resets it)
+const FALLING = new Set<number>([6, 7, 8]); // gravity nodes: gravel, sand, desert sand (Luanti falling_node)
+// Which ANIMALS spawn in each biome (monsters ignore biome — they spawn anywhere at night).
+const BIOME_ANIMALS: Record<string, Set<string>> = {
+  plains: new Set(['sheep', 'cow', 'chicken', 'pig', 'bunny', 'panda']),
+  snow: new Set(['penguin', 'bunny', 'sheep']),
+  desert: new Set(['bunny']), // deserts are sparse
+};
 const WANDER_R = 8; // random wander-target radius
 const MELEE_REACH = 3.4; // player↔mob melee distance (player's hits)
 const PLAYER_HP = 20;
@@ -165,6 +176,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private aoiAcc = 0; // seconds accumulated toward the next entity-AOI refresh
   private lavaAcc = 0; // seconds accumulated toward the next lava burn tick
   private itemSeq = 0; // id counter for dropped items
+  private boatSeq = 0; // id counter for boats
+  private readonly boatSteer = new Map<string, { forward: number; turn: number }>(); // rider sid → steering input
   private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
@@ -176,6 +189,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly fires = new Map<string, number>(); // burning cell "x,y,z" → age in fire ticks
   private fireAcc = 0; // seconds toward the next fire tick
   private readonly noHunger = new Set<string>(); // sids with hunger turned OFF (food stays full)
+  private readonly bonesOn = new Set<string>(); // sids who DROP a bones chest on death (default off = keep inventory)
   private cropAcc = 0; // seconds toward the next crop-growth tick
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private readonly lastVoiceEventAt = new Map<string, number>(); // per-session throttle for voice announcements
@@ -242,11 +256,23 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (m?.on === false) this.noHunger.add(client.sessionId);
       else this.noHunger.delete(client.sessionId);
     });
+    this.onMessage('setKeepInv', (client, m: { on?: boolean }) => {
+      // on = keep inventory on death (default, no loss); off = drop a bones chest (Luanti).
+      if (m?.on === false) this.bonesOn.add(client.sessionId);
+      else this.bonesOn.delete(client.sessionId);
+    });
     this.onMessage('eat', (client) => this.onEat(client));
     this.onMessage('craft', (client, m: { i?: number }) => this.onCraft(client, m?.i ?? -1));
     this.onMessage('smelt', (client, m: { i?: number }) => this.onSmelt(client, m?.i ?? -1));
     this.onMessage('use', (client, m: { x: number; y: number; z: number; held?: number }) => this.onUse(client, m));
     this.onMessage('chestMove', (client, m: { x: number; y: number; z: number; id: number; dir: string }) => this.onChestMove(client, m));
+    this.onMessage('boatPlace', (client, m: { x: number; y: number; z: number }) => this.onBoatPlace(client, m));
+    this.onMessage('boatMount', (client, m: { id?: string }) => this.onBoatMount(client, m?.id ?? ''));
+    this.onMessage('boatSteer', (client, m: { forward?: number; turn?: number }) => {
+      if ([...this.state.boats.values()].some((b) => b.rider === client.sessionId))
+        this.boatSteer.set(client.sessionId, { forward: Math.max(-1, Math.min(1, m?.forward ?? 0)), turn: Math.max(-1, Math.min(1, m?.turn ?? 0)) });
+    });
+    this.onMessage('boatDismount', (client) => this.dismountBoat(client.sessionId));
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
@@ -274,6 +300,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if ([x, y, z].every(Number.isFinite)) portals.set(this.state.worldId, x, y, z, dest);
     });
 
+    this.loadBoats(); // respawn this world's saved boats
     this.setSimulationInterval((dt) => this.tick(dt / 1000), 100); // 10 Hz sim + AI
   }
 
@@ -315,6 +342,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.lavaAcc = 0;
       this.burnPlayersInLava();
     }
+    this.tickFluids(); // cellular liquid flow (self-gates per fluid viscosity)
+    this.tickBoats(dt); // ridden boats steer + carry their rider
     this.cropAcc += dt;
     if (this.cropAcc >= 3) {
       this.cropAcc = 0;
@@ -385,7 +414,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (ground === 0 || isWaterId(ground)) return;
     if (this.world.getBlock(sx, top + 1, sz) !== 0 || this.world.getBlock(sx, top + 2, sz) !== 0) return;
     if (this.minPlayerDist(sx, sz) < SPAWN_MIN) return;
-    this.spawnMob(defs[Math.floor(Math.random() * defs.length)], sx, top + 1, sz);
+    // Biome-gate animals (penguins on snow, sparse deserts, …); monsters spawn anywhere.
+    const allowed = BIOME_ANIMALS[biomeAt(sx, sz, this.world.seed)] ?? BIOME_ANIMALS.plains;
+    const pool = defs.filter((d) => d.type === 'monster' || allowed.has(d.kind));
+    if (!pool.length) return;
+    this.spawnMob(pool[Math.floor(Math.random() * pool.length)], sx, top + 1, sz);
   }
 
   private spawnMob(def: MobDef, x: number, y: number, z: number): void {
@@ -759,6 +792,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.state.items.forEach((it) => {
         if (Math.hypot(it.x - self.x, it.z - self.z) <= AOI) want.add(it);
       });
+      this.state.boats.forEach((bt) => {
+        if (Math.hypot(bt.x - self.x, bt.z - self.z) <= AOI) want.add(bt);
+      });
       for (const e of want) if (!v.aoiSet.has(e)) ((v.view.add(e as never), v.aoiSet.add(e)));
       for (const e of v.aoiSet) if (!want.has(e)) ((v.view.remove(e as never), v.aoiSet.delete(e)));
     });
@@ -1076,7 +1112,40 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (p.hp <= 0) this.respawnPlayer(sid, p);
   }
 
+  /** Luanti "bones": on death, dump the player's whole inventory into a chest at the
+   *  death spot (nothing is lost permanently — walk back + open it), then hand back a
+   *  fresh starter pick so they aren't stranded. Creative players keep everything. */
+  private dropBones(sid: string, dx: number, dy: number, dz: number): void {
+    if (this.creative.has(sid) || !this.bonesOn.has(sid)) return; // creative / keep-inventory → no drop
+    const bag = this.inv.get(sid);
+    if (!bag || bag.size === 0) return;
+    const bx = Math.floor(dx),
+      bz = Math.floor(dz);
+    let cy = -1;
+    for (let yy = Math.floor(dy); yy <= Math.floor(dy) + 3; yy++) {
+      if (this.world.getBlock(bx, yy, bz) === 0) {
+        cy = yy;
+        break;
+      }
+    }
+    const client = this.clients.find((c) => c.sessionId === sid);
+    if (cy < 0) return; // no free cell nearby → keep the bag (rare)
+    this.world.setBlock(bx, cy, bz, CHEST_ID);
+    this.broadcastEdit(bx, cy, bz, CHEST_ID);
+    const chest = chests.get(this.state.worldId, bx, cy, bz);
+    bag.forEach((c, id) => chest.set(id, (chest.get(id) ?? 0) + c));
+    chests.set(this.state.worldId, bx, cy, bz, chest);
+    bag.clear();
+    bag.set(STARTER_TOOL, 1); // fresh starter pick so you can dig back to your things
+    this.inv.set(sid, bag);
+    if (client) {
+      client.send('invAll', { [STARTER_TOOL]: 1 });
+      client.send('note', { text: `☠ You died — your items are in a chest at ${bx}, ${cy}, ${bz}.` });
+    }
+  }
+
   private respawnPlayer(sid: string, p: VoxelPlayerSync): void {
+    this.dropBones(sid, p.x, p.y, p.z); // inventory → recoverable chest at the death spot
     const top = this.world.columnTop(0, 0);
     p.x = 0.5;
     p.y = top + 1;
@@ -1092,6 +1161,119 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (client) {
       this.streamAround(client, p.x, p.y, p.z);
       client.send('tp', { x: p.x, y: p.y, z: p.z });
+    }
+  }
+
+  // ── Boats (Luanti boats mod): rideable water entities ────────────────────────
+  /** Use a boat item on a water cell → spawn a boat there (consumes one item). */
+  private onBoatPlace(client: Client, m: { x: number; y: number; z: number }): void {
+    const sid = client.sessionId;
+    const creative = this.creative.has(sid);
+    const bag = this.inv.get(sid);
+    if (!creative && (bag?.get(BOAT_ITEM) ?? 0) <= 0) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (!isWaterId(this.world.getBlock(x, y, z))) return; // boats only go on water
+    const bt = new VoxelBoatSync();
+    bt.id = ++this.boatSeq;
+    bt.x = x + 0.5;
+    bt.y = y + 0.9;
+    bt.z = z + 0.5;
+    this.state.boats.set(`b${bt.id}`, bt);
+    if (!creative && bag) {
+      const left = (bag.get(BOAT_ITEM) ?? 0) - 1;
+      if (left <= 0) bag.delete(BOAT_ITEM);
+      else bag.set(BOAT_ITEM, left);
+      client.send('inv', { block: BOAT_ITEM, total: Math.max(0, left) });
+    }
+    this.saveBoats();
+  }
+
+  /** Mount an empty boat you're near → you become its rider (steers it). */
+  private onBoatMount(client: Client, id: string): void {
+    const sid = client.sessionId;
+    const bt = this.state.boats.get(id);
+    const p = this.state.players.get(sid);
+    if (!bt || !p || bt.rider) return;
+    if (Math.hypot(bt.x - p.x, bt.z - p.z) > 3.5) return; // must be close
+    this.dismountBoat(sid); // leave any other boat first
+    bt.rider = sid;
+  }
+
+  /** Leave the boat the player is riding (drops them at the boat's spot). */
+  private dismountBoat(sid: string): void {
+    this.boatSteer.delete(sid);
+    this.state.boats.forEach((bt) => {
+      if (bt.rider !== sid) return;
+      bt.rider = '';
+      const p = this.state.players.get(sid);
+      if (p) p.y = bt.y + 1; // pop up out of the boat (then swims/steps off)
+    });
+    this.saveBoats(); // boat came to rest → persist its parked position
+  }
+
+  /** Water surface Y near (x,z) around a height, or null if no water there. */
+  private boatWaterY(x: number, z: number, aroundY: number): number | null {
+    const cx = Math.floor(x),
+      cz = Math.floor(z);
+    for (let y = Math.floor(aroundY) + 1; y >= Math.floor(aroundY) - 2; y--) {
+      if (isWaterId(this.world.getBlock(cx, y, cz))) return y + 0.9;
+    }
+    return null;
+  }
+
+  /** Advance every ridden boat: steer (turn + forward on the water surface), then glue
+   *  the rider to it. Forward matches the player facing convention (-sin,-cos of yaw). */
+  private tickBoats(dt: number): void {
+    if (!this.state.boats.size) return;
+    this.state.boats.forEach((bt) => {
+      if (!bt.rider) return;
+      const p = this.state.players.get(bt.rider);
+      if (!p || p.hp <= 0) {
+        this.dismountBoat(bt.rider);
+        return;
+      }
+      const st = this.boatSteer.get(bt.rider);
+      if (st) {
+        bt.yaw += st.turn * dt * 2.2;
+        const speed = st.forward * 4.5;
+        const nx = bt.x - Math.sin(bt.yaw) * speed * dt;
+        const nz = bt.z - Math.cos(bt.yaw) * speed * dt;
+        const wy = this.boatWaterY(nx, nz, bt.y);
+        if (wy !== null) {
+          bt.x = nx;
+          bt.z = nz;
+          bt.y = wy;
+        } else {
+          const stay = this.boatWaterY(bt.x, bt.z, bt.y); // blocked by land → hold position on water
+          if (stay !== null) bt.y = stay;
+        }
+      }
+      p.x = bt.x;
+      p.y = bt.y + 0.2;
+      p.z = bt.z;
+      p.yaw = bt.yaw;
+    });
+  }
+
+  /** Persist all current boats for this world (so a parked boat survives reload/dispose). */
+  private saveBoats(): void {
+    const arr: StoredBoat[] = [];
+    this.state.boats.forEach((b) => arr.push({ x: b.x, y: b.y, z: b.z, yaw: b.yaw }));
+    boatStore.set(this.state.worldId, arr);
+  }
+
+  /** Respawn the world's saved boats into state (on room create). */
+  private loadBoats(): void {
+    for (const b of boatStore.get(this.state.worldId)) {
+      const bt = new VoxelBoatSync();
+      bt.id = ++this.boatSeq;
+      bt.x = b.x;
+      bt.y = b.y;
+      bt.z = b.z;
+      bt.yaw = b.yaw;
+      this.state.boats.set(`b${bt.id}`, bt);
     }
   }
 
@@ -1300,6 +1482,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (auth?.userId && bag) voxelInventory.set(auth.userId, bag);
     const wear = this.wear.get(client.sessionId);
     if (auth?.userId && wear) voxelDurability.set(auth.userId, wear); // persist half-worn tools
+    this.dismountBoat(client.sessionId); // free any boat the leaver was riding
     if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);
@@ -1311,6 +1494,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   onDispose(): void {
+    this.saveBoats(); // keep parked boats across an empty-room dispose / restart
     const set = VoxelRoom.byWorld.get(this.state.worldId);
     if (set) {
       set.delete(this);
@@ -1500,14 +1684,81 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         if ((b === DOOR_CLOSED || b === DOOR_OPEN) && this.world.setBlock(x, y + dy, z, 0)) this.broadcastEdit(x, y + dy, z, 0);
       }
     }
+    // Gravity nodes (sand/gravel): digging support lets the column above fall; placing one
+    // over air makes it fall. (Luanti falling_node.)
+    if (id === 0 && prev !== 0) this.applyFalling(x, y, z); // dug → node above may drop
+    if (FALLING.has(id)) this.applyFalling(x, y - 1, z); // placed a gravity node → maybe drop
     this.settleFluidsAt(x, y, z);
   }
 
-  /** Fluid flow: if a liquid touches this cell, recompute the local pool of THAT fluid
-   *  to equilibrium (pours in / floods / recedes) and broadcast every resulting change.
-   *  Water and lava settle independently (each treats the other as a wall). Then apply
-   *  the Luanti cool_lava rule. Shared by block edits and bucket fill/empty. */
+  /** Slide a column of gravity nodes (sand/gravel) sitting above the fillable cell (x,ey,z)
+   *  straight down onto the first solid — Luanti falling_node, resolved instantly. Falls
+   *  through air + water (the water re-settles afterwards); rests on any solid. */
+  private applyFalling(x: number, ey: number, z: number): void {
+    const fillable = (id: number): boolean => id === 0 || isWaterId(id);
+    if (!fillable(this.world.getBlock(x, ey, z))) return;
+    if (!FALLING.has(this.world.getBlock(x, ey + 1, z))) return; // nothing above to fall
+    // Lift the contiguous run of gravity nodes above the hole.
+    const run: number[] = [];
+    let y = ey + 1;
+    for (; FALLING.has(this.world.getBlock(x, y, z)); y++) {
+      run.push(this.world.getBlock(x, y, z));
+      this.world.setBlock(x, y, z, 0);
+      this.broadcastEdit(x, y, z, 0);
+    }
+    // Rest position = lowest fillable cell at/under the hole (bounded so an air column
+    // over unloaded chunks can't run away).
+    let rest = ey;
+    const floor = ey - 128;
+    while (rest > floor && fillable(this.world.getBlock(x, rest - 1, z))) rest--;
+    for (let i = 0; i < run.length; i++) {
+      this.world.setBlock(x, rest + i, z, run[i]);
+      this.broadcastEdit(x, rest + i, z, run[i]);
+    }
+    if (rest !== ey) this.settleFluidsAt(x, ey, z); // water may rush into cells the sand left
+  }
+
+  // Cellular fluid flow (Luanti-style): each fluid keeps an "active" set of cells to
+  // (re)evaluate; the tick advances them ONE generation (water every tick, lava every
+  // `viscosity` ticks) so flow spreads/recedes visibly over time instead of instantly.
+  private readonly fluidActive = new Map<FluidDef, Set<string>>(FLUIDS.map((f) => [f, new Set<string>()]));
+  private fluidTickN = 0;
+
+  /** An edit near a liquid re-activates that fluid's cells around the edit so the
+   *  cellular sim pours in / floods / recedes on the following ticks. Also applies the
+   *  instant Luanti cool_lava rule (lava meeting water hardens). */
   private settleFluidsAt(x: number, y: number, z: number): void {
+    const seeds = seedCells(x, y, z);
+    for (const fluid of FLUIDS) {
+      const active = this.fluidActive.get(fluid)!;
+      for (const k of seeds) active.add(k);
+    }
+    this.coolLavaAt(x, y, z);
+  }
+
+  /** Advance every fluid's cellular flow. Called each sim tick; a fluid only steps
+   *  every `viscosity` ticks (water 1 = fast, lava 7 = slow creep). Applies + broadcasts
+   *  the changed cells and re-activates their neighbours (and cools lava that meets water). */
+  private tickFluids(): void {
+    this.fluidTickN++;
+    for (const fluid of FLUIDS) {
+      const active = this.fluidActive.get(fluid)!;
+      if (!active.size || this.fluidTickN % fluid.viscosity !== 0) continue;
+      const { changes, next } = stepFluid(this.world, active, fluid);
+      this.fluidActive.set(fluid, next);
+      if (!changes.length) continue;
+      this.world.setBlocks(changes);
+      for (const ch of changes) {
+        this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+        this.coolLavaAt(ch.x, ch.y, ch.z); // fresh lava/water contact may harden lava
+      }
+    }
+  }
+
+  /** Luanti cool_lava: lava touching water hardens (SOURCE → obsidian, flow → stone).
+   *  Checks only the cell + its 6 neighbours (cheap; called per changed fluid cell).
+   *  Any hardened cell re-activates both fluids nearby so the flow re-settles. */
+  private coolLavaAt(x: number, y: number, z: number): void {
     const NB = [
       [0, 0, 0],
       [1, 0, 0],
@@ -1517,50 +1768,25 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       [0, 0, 1],
       [0, 0, -1],
     ];
-    for (const fluid of FLUIDS) {
-      const touches = NB.some(([a, b, c]) => fluidOf(this.world.getBlock(x + a, y + b, z + c)) === fluid);
-      if (!touches) continue;
-      const changes = settleAround(this.world, x, y, z, fluid);
-      if (changes.length) {
-        this.world.setBlocks(changes);
-        for (const ch of changes) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+    const conv: { x: number; y: number; z: number; id: number }[] = [];
+    for (const [a, b, c] of NB) {
+      const cx = x + a,
+        cy = y + b,
+        cz = z + c;
+      const id = this.world.getBlock(cx, cy, cz);
+      if (!isLavaId(id)) continue;
+      if (NB.some(([p, q, r]) => isWaterId(this.world.getBlock(cx + p, cy + q, cz + r)))) {
+        conv.push({ x: cx, y: cy, z: cz, id: id === LAVA_SOURCE ? OBSIDIAN : STONE });
       }
     }
-    // Luanti cool_lava: lava meeting water hardens — a source → obsidian, flow → stone.
-    this.coolLavaAround(x, y, z);
-  }
-
-  /** After a fluid settle, harden any lava now touching water (Luanti default rule):
-   *  lava SOURCE → obsidian, flowing lava → stone. Then re-settle water once, since the
-   *  fresh solids may open or block its path. Bounded to a box around the edit. */
-  private coolLavaAround(ex: number, ey: number, ez: number): void {
-    const R = 6,
-      DY = 8;
-    const NB6 = [
-      [1, 0, 0],
-      [-1, 0, 0],
-      [0, 1, 0],
-      [0, -1, 0],
-      [0, 0, 1],
-      [0, 0, -1],
-    ];
-    const conv: { x: number; y: number; z: number; id: number }[] = [];
-    for (let y = ey - DY; y <= ey + 2; y++)
-      for (let z = ez - R; z <= ez + R; z++)
-        for (let x = ex - R; x <= ex + R; x++) {
-          const id = this.world.getBlock(x, y, z);
-          if (!isLavaId(id)) continue;
-          if (NB6.some(([a, b, c]) => isWaterId(this.world.getBlock(x + a, y + b, z + c)))) {
-            conv.push({ x, y, z, id: id === LAVA_SOURCE ? OBSIDIAN : STONE });
-          }
-        }
     if (!conv.length) return;
     this.world.setBlocks(conv);
-    for (const ch of conv) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
-    const wc = settleAround(this.world, ex, ey, ez, WATER_FLUID);
-    if (wc.length) {
-      this.world.setBlocks(wc);
-      for (const ch of wc) this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+    for (const ch of conv) {
+      this.broadcastEdit(ch.x, ch.y, ch.z, ch.id);
+      for (const k of seedCells(ch.x, ch.y, ch.z)) {
+        this.fluidActive.get(WATER_FLUID)!.add(k);
+        for (const f of FLUIDS) this.fluidActive.get(f)!.add(k);
+      }
     }
   }
 

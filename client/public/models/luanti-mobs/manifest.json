@@ -1,0 +1,65 @@
+[
+  {
+    "name": "mobs_bee",
+    "source": "mobs_animal/models/mobs_bee.b3d",
+    "meshes": 1,
+    "joints": 8,
+    "animations": 1
+  },
+  {
+    "name": "mobs_bunny",
+    "source": "mobs_animal/models/mobs_bunny.b3d",
+    "meshes": 1,
+    "joints": 14,
+    "animations": 1
+  },
+  {
+    "name": "mobs_chicken",
+    "source": "mobs_animal/models/mobs_chicken.b3d",
+    "meshes": 1,
+    "joints": 10,
+    "animations": 1
+  },
+  {
+    "name": "mobs_cow",
+    "source": "mobs_animal/models/mobs_cow.b3d",
+    "meshes": 1,
+    "joints": 14,
+    "animations": 1
+  },
+  {
+    "name": "mobs_panda",
+    "source": "mobs_animal/models/mobs_panda.b3d",
+    "meshes": 1,
+    "joints": 6,
+    "animations": 1
+  },
+  {
+    "name": "mobs_penguin",
+    "source": "mobs_animal/models/mobs_penguin.b3d",
+    "meshes": 1,
+    "joints": 9,
+    "animations": 1
+  },
+  {
+    "name": "mobs_pumba",
+    "source": "mobs_animal/models/mobs_pumba.b3d",
+    "meshes": 1,
+    "joints": 7,
+    "animations": 1
+  },
+  {
+    "name": "mobs_rat",
+    "source": "mobs_animal/models/mobs_rat.b3d",
+    "meshes": 1,
+    "joints": 0,
+    "animations": 1
+  },
+  {
+    "name": "mobs_sheep",
+    "source": "mobs_animal/models/mobs_sheep.b3d",
+    "meshes": 1,
+    "joints": 6,
+    "animations": 1
+  }
+]

@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
-import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN } from './blocks.js';
+import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, MODEL_NODES, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN } from './blocks.js';
 import { MAX_LIGHT, type LightSampler } from './light.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
@@ -124,7 +124,7 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
     for (let y = y0; y < y0 + CHUNK; y++) {
       for (let z = z0; z < z0 + CHUNK; z++) {
         const id = cellAt(x, y, z);
-        if (id === AIR || RENDER_SKIP.has(id)) continue; // air + state-only ids (open door) draw nothing
+        if (id === AIR || RENDER_SKIP.has(id) || MODEL_NODES.has(id)) continue; // air, state-only ids, + glTF node-models (drawn separately) draw no cube
         // Cross-plant: two crossed quads (an "X"), double-sided (material is DoubleSide) with
         // alpha-cutout — a flat plant, not a cube. No neighbour culling / AO.
         if (PLANT.has(id)) {

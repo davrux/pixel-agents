@@ -1,15 +1,17 @@
 /**
- * Server-side fluid flow — a Minecraft/Luanti-style finite liquid, recomputed to
- * equilibrium in a bounded box whenever an edit near the fluid happens. Sources are
- * infinite + fixed; flowing levels (1..maxLevel) are derived by a flood from the
- * sources: the fluid falls into air below (landing near-full = level 1) and, where it
- * can't fall, spreads sideways one level thinner each block up to maxLevel. Flowing
- * cells no longer reached by any source recede to air. So digging a hole in a lakebed
- * lets it pour in; breaking a dam floods outward then thins; walling off + removing the
- * source drains it. Generalised over any FluidDef (water OR lava) — the OTHER fluid is
- * treated as a solid wall, so water and lava never overwrite each other.
+ * Server-side fluid flow — a Luanti-style cellular automaton that spreads/recedes
+ * GRADUALLY over sim ticks (not instantly), so water visibly flows out and lava
+ * creeps slowly. One `stepFluid` call advances the flow by ONE cell-generation for
+ * the cells in an "active" set; the room ticks it (water every tick, lava every
+ * `viscosity` ticks) and feeds the changed cells' neighbours back in until the pool
+ * reaches equilibrium. Levels follow Luanti: a source is full; flowing levels thin
+ * by one each block away from the source (our ids: level 1 = thick/near source ..
+ * maxLevel = thin/far), and water falling from above fills to thick. A flowing cell
+ * with no path back to a source keeps thinning each tick until it dries to air, so
+ * cut-off water recedes. Water is renewable (2+ source neighbours on a floor make a
+ * new source); lava is not. Each fluid treats the OTHER as a solid wall.
  */
-import { WATER_FLUID, fluidLevel, fluidFlowId, type FluidDef } from '@pixel/shared';
+import { fluidFlowId, isPlant, type FluidDef } from '@pixel/shared';
 
 export interface Cell {
   x: number;
@@ -21,101 +23,92 @@ interface Grid {
   getBlock(x: number, y: number, z: number): number;
 }
 
-const DOWN = 24; // how far the fluid may fall within one settle
 const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+const HORIZ = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+const NB6 = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
 
-/** Recompute flowing fluid (default water) in a box around (ex,ey,ez); returns the
- *  changed cells. Pass LAVA_FLUID to settle lava instead. */
-export function settleAround(w: Grid, ex: number, ey: number, ez: number, fluid: FluidDef = WATER_FLUID): Cell[] {
-  const R = fluid.maxLevel; // horizontal reach from an edit
-  // This fluid's own ids (source + its flowing range); anything else — air aside — is a wall.
-  const sameFluid = (id: number): boolean => id === fluid.source || (id >= fluid.flowMin && id <= fluid.flowMax);
-  const isSolid = (id: number): boolean => id !== 0 && !sameFluid(id);
-  const x0 = ex - R,
-    x1 = ex + R,
-    z0 = ez - R,
-    z1 = ez + R,
-    y0 = ey - DOWN,
-    y1 = ey + 2;
-  // Inner box = cells we may rewrite; padded by 1 = read-only context (inflow from
-  // neighbouring water outside the edited box).
-  const inInner = (x: number, y: number, z: number): boolean => x >= x0 && x <= x1 && y >= y0 && y <= y1 && z >= z0 && z <= z1;
-
-  const level = new Map<string, number>(); // cell → best water level (0 source .. 7)
-  const queue: [number, number, number][] = [];
-  const relax = (x: number, y: number, z: number, lv: number): void => {
-    const k = key(x, y, z);
-    if (lv < (level.get(k) ?? 99)) {
-      level.set(k, lv);
-      queue.push([x, y, z]);
-    }
-  };
-
-  // Seed: sources (infinite, level 0) anywhere, plus water on the padding ring
-  // (inflow from outside the edited box). Interior FLOW is deliberately NOT seeded —
-  // it must be re-derived from sources/inflow so cut-off water recedes.
-  for (let y = y0 - 1; y <= y1 + 1; y++)
-    for (let z = z0 - 1; z <= z1 + 1; z++)
-      for (let x = x0 - 1; x <= x1 + 1; x++) {
-        const id = w.getBlock(x, y, z);
-        if (id === fluid.source) relax(x, y, z, 0);
-        else if (sameFluid(id) && !inInner(x, y, z)) relax(x, y, z, fluidLevel(fluid, id));
-      }
-
-  // The fluid spreads into cells it can occupy: air OR its own existing flow (which is
-  // fluid, not a wall — so re-settling re-levels it instead of treating it as blocked
-  // and receding it, which caused oscillation). Sources/solids/other fluids are not fillable.
-  const fillable = (id: number): boolean => id === 0 || (sameFluid(id) && id !== fluid.source);
-
-  // Flood: fall into a fillable cell below (→ level 1), else spread sideways (level+1 ≤ 7).
-  const HORIZ = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  while (queue.length) {
-    const [x, y, z] = queue.pop()!;
-    const L = level.get(key(x, y, z))!;
-    if (fillable(w.getBlock(x, y - 1, z))) {
-      relax(x, y - 1, z, 1); // falls, lands near-full
-    } else if (L < fluid.maxLevel) {
-      for (const [dx, dz] of HORIZ) if (fillable(w.getBlock(x + dx, y, z + dz))) relax(x + dx, y, z + dz, L + 1);
-    }
-  }
-
-  // Source flood ("the lake grows"): from every source, claim horizontally-connected
-  // water on a solid/water floor (not falling) at the SAME level as full source. So a
-  // dug basin/channel beside a lake fills with flat, full water — part of the lake —
-  // instead of stepped flowing water. Falling water (air below) stays flowing.
-  const srcQ: string[] = [];
-  for (const [k, lv] of level) if (lv === 0) srcQ.push(k);
-  const claimed = new Set(srcQ);
-  while (srcQ.length) {
-    const [x, y, z] = srcQ.pop()!.split(',').map(Number);
-    for (const [dx, dz] of HORIZ) {
-      const nk = key(x + dx, y, z + dz);
-      if (claimed.has(nk)) continue;
-      const nlv = level.get(nk);
-      if (nlv === undefined || nlv < 1) continue; // only flowing cells become source
-      if (w.getBlock(x + dx, y - 1, z + dz) === 0) continue; // falling → keep flowing
-      level.set(nk, 0);
-      claimed.add(nk);
-      srcQ.push(nk);
-    }
-  }
-
-  // Diff the INNER box: promoted cells → source (full), flow cells → their level,
-  // unreached flow → air. Existing sources and solids are never touched.
+/** Advance the fluid one cell-generation over `active`; returns the changed cells and
+ *  the next active set (neighbours of anything that changed + neighbours a source
+ *  drives). `budget` caps cells processed per call; the rest are carried to `next`. */
+export function stepFluid(w: Grid, active: Set<string>, fluid: FluidDef, budget = 6000): { changes: Cell[]; next: Set<string> } {
   const changes: Cell[] = [];
-  for (let y = y0; y <= y1; y++)
-    for (let z = z0; z <= z1; z++)
-      for (let x = x0; x <= x1; x++) {
-        const cur = w.getBlock(x, y, z);
-        if (cur === fluid.source || isSolid(cur)) continue; // fixed
-        const lv = inInner(x, y, z) ? level.get(key(x, y, z)) : undefined;
-        const want = lv === undefined ? 0 : lv === 0 ? fluid.source : fluidFlowId(fluid, lv);
-        if (want !== cur) changes.push({ x, y, z, id: want });
+  const next = new Set<string>();
+  const sameFluid = (id: number): boolean => id === fluid.source || (id >= fluid.flowMin && id <= fluid.flowMax);
+  // level: 0 = source, 1..maxLevel = flowing (1 thick/near source), -1 = not this fluid.
+  const lvlOf = (id: number): number => (id === fluid.source ? 0 : id >= fluid.flowMin && id <= fluid.flowMax ? id - fluid.flowMin + 1 : -1);
+
+  let n = 0;
+  for (const k of active) {
+    if (n++ >= budget) {
+      next.add(k); // over budget this tick — reconsider next tick
+      continue;
+    }
+    const [x, y, z] = k.split(',').map(Number);
+    const cur = w.getBlock(x, y, z);
+
+    // A source is fixed but DRIVES flow: keep its down + side neighbours active so the
+    // pool starts/refills. (It never changes, so it won't re-add itself → no churn.)
+    if (cur === fluid.source) {
+      next.add(key(x, y - 1, z));
+      for (const [dx, dz] of HORIZ) next.add(key(x + dx, y, z + dz));
+      continue;
+    }
+    // Non-solid plants (flowers/grass/crops/fire) are "buildable_to": the fluid flows
+    // INTO them and replaces them (Luanti). Real solids and the OTHER fluid are walls.
+    const isPlantCell = cur !== 0 && !sameFluid(cur) && isPlant(cur);
+    if (cur !== 0 && !sameFluid(cur) && !isPlantCell) continue;
+
+    // cur is air / this fluid's flow / a replaceable plant → recompute its target level.
+    let target = -1; // -1 = should be air (dry)
+    const above = w.getBlock(x, y + 1, z);
+    if (sameFluid(above)) {
+      target = 1; // fed from above → falling, fills to thick
+    } else {
+      let best = Infinity;
+      let srcNeighbours = 0;
+      for (const [dx, dz] of HORIZ) {
+        const L = lvlOf(w.getBlock(x + dx, y, z + dz));
+        if (L === 0) {
+          best = Math.min(best, 1);
+          srcNeighbours++;
+        } else if (L >= 1 && L < fluid.maxLevel) {
+          best = Math.min(best, L + 1);
+        }
       }
-  return changes;
+      // Renewable (water): 2+ source neighbours + solid/fluid support below → new source.
+      if (fluid.renewable && srcNeighbours >= 2 && w.getBlock(x, y - 1, z) !== 0) target = 0;
+      else if (best !== Infinity) target = best;
+    }
+
+    // A plant is only overrun when fluid actually reaches it (target ≥ 0); otherwise
+    // leave it standing (don't clear it to air just because it's not a fluid).
+    if (isPlantCell && target < 0) continue;
+    const newId = target < 0 ? 0 : target === 0 ? fluid.source : fluidFlowId(fluid, target);
+    if (newId !== cur) {
+      changes.push({ x, y, z, id: newId });
+      next.add(k); // may keep changing (e.g. thinning further) — revisit
+      for (const [a, b, c] of NB6) next.add(key(x + a, y + b, z + c));
+    }
+  }
+  return { changes, next };
+}
+
+/** Cells to (re)activate when the world is edited at (x,y,z): the cell + its 6
+ *  neighbours, so any adjacent fluid re-evaluates the change on the next tick. */
+export function seedCells(x: number, y: number, z: number): string[] {
+  const out = [key(x, y, z)];
+  for (const [a, b, c] of NB6) out.push(key(x + a, y + b, z + c));
+  return out;
 }

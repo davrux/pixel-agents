@@ -7,26 +7,28 @@
  * is the foundation to evaluate the look and controls.
  */
 import * as THREE from 'three';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, isBoat, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
+import { NodeModels } from './nodeModels.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
-import { sound, footstepFor } from './sounds.js';
-import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, itemById, invItem, toolNum, DEFAULT_TOOLS, DEFAULT_BLOCKS } from './items.js';
+import { sound, footstepFor, digSoundFor, dugSoundFor, placeSoundFor } from './sounds.js';
+import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_ITEMS, itemById, invItem, toolNum, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
-import { MobModel } from './mob.js';
+import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout } from '../net/room';
@@ -123,6 +125,105 @@ const chunkMeshes = new Map<string, THREE.Mesh>();
 const chunkWater = new Map<string, THREE.Mesh>();
 const chunkLava = new Map<string, THREE.Mesh>();
 const dirty = new Set<string>();
+// Real Luanti glTF node models (torches/doors/fence gates) drawn instead of cubes;
+// reconciled per chunk alongside the mesh (see remeshChunk / onUnload).
+const nodeModels = new NodeModels();
+scene.add(nodeModels.group);
+scene.add(nodeModels.aimGroup); // invisible aim proxies so node models can be targeted
+
+// Boats: rideable water entities synced in state.boats. One glTF template, cloned per
+// boat; the local player's camera follows via player.pos (the server glues it to the boat).
+const boatGroup = new THREE.Group();
+scene.add(boatGroup);
+const boatMeshes = new Map<string, THREE.Object3D>();
+let boatTemplate: THREE.Object3D | null = null;
+{
+  const bbase = new URL('models/luanti/boats_boat/', document.baseURI).href;
+  const bmat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  new THREE.TextureLoader().load(bbase + 'texture.png', (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.flipY = false;
+    bmat.map = t;
+    bmat.needsUpdate = true;
+  });
+  new GLTFLoader().load(bbase + 'boats_boat.gltf', (g) => {
+    const o = g.scene;
+    o.traverse((m) => {
+      if ((m as THREE.Mesh).isMesh) {
+        (m as THREE.Mesh).material = bmat;
+        m.frustumCulled = false;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(o);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const s = 1.5 / Math.max(0.001, size.x); // ~1.5 blocks long
+    o.scale.setScalar(s);
+    o.position.set(-(box.min.x + size.x / 2) * s, -box.min.y * s, -(box.min.z + size.z / 2) * s);
+    const wrap = new THREE.Group();
+    wrap.add(o);
+    boatTemplate = wrap;
+  });
+}
+/** The boat the local player is currently riding (rider === our session id), or null. */
+function ridingBoat(): RemoteBoat | null {
+  if (!net) return null;
+  const st = net.room.state as unknown as RemoteState;
+  if (!st?.boats) return null;
+  let mine: RemoteBoat | null = null;
+  st.boats.forEach((b) => {
+    if (b.rider === net!.sessionId) mine = b;
+  });
+  return mine;
+}
+/** Render/reconcile boat models from state.boats (AOI-filtered). The server moves boats
+ *  at 10 Hz; interpolate the mesh each frame so travel isn't jittery. */
+function syncBoats(dt: number, state: RemoteState): void {
+  if (!state.boats) return;
+  const k = Math.min(1, dt * 10);
+  const seen = new Set<string>();
+  state.boats.forEach((b, id) => {
+    seen.add(id);
+    const ty = b.y - 0.1; // hull floats ON the surface (raised — not half-submerged)
+    const tyaw = b.yaw - Math.PI / 2; // model long-axis is +X → turn its bow to -Z (forward)
+    let m = boatMeshes.get(id);
+    if (!m) {
+      if (!boatTemplate) return;
+      m = boatTemplate.clone(true);
+      m.userData.boatId = id;
+      m.position.set(b.x, ty, b.z); // snap on spawn
+      m.rotation.y = tyaw;
+      boatMeshes.set(id, m);
+      boatGroup.add(m);
+      return;
+    }
+    m.position.x += (b.x - m.position.x) * k;
+    m.position.y += (ty - m.position.y) * k;
+    m.position.z += (b.z - m.position.z) * k;
+    let dyaw = tyaw - m.rotation.y;
+    while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+    while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+    m.rotation.y += dyaw * k;
+  });
+  for (const [id, m] of boatMeshes)
+    if (!seen.has(id)) {
+      boatGroup.remove(m);
+      boatMeshes.delete(id);
+    }
+}
+/** Right-click looking at a boat → mount it. Returns true if it mounted. */
+function tryMountBoat(): boolean {
+  if (ridingBoat() || !net || !boatGroup.children.length) return false;
+  raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
+  const hit = raycaster.intersectObjects(boatGroup.children, true)[0];
+  if (!hit || hit.distance > REACH + 2) return false;
+  let o: THREE.Object3D | null = hit.object;
+  while (o && o.parent !== boatGroup) o = o.parent;
+  const id = o?.userData.boatId as string | undefined;
+  if (!id) return false;
+  net.boatMount(id);
+  return true;
+}
 const NEIGHBORS = [
   [1, 0, 0],
   [-1, 0, 0],
@@ -163,7 +264,16 @@ function remeshChunk(cx: number, cy: number, cz: number): void {
   layer(chunkLava, lavaGroup, lavaMaterial, geom?.lava ?? null);
   refreshPortalGlow(cx, cy, cz);
   refreshTorchGlow(cx, cy, cz);
+  nodeModels.rebuildChunk(cx, cy, cz, world); // torch/door/gate glTF models for this chunk
 }
+// Once all node-model templates have streamed in, rescan already-loaded chunks so
+// their torches/doors/gates appear (chunks loaded before the models finished loading).
+nodeModels.onReady(() => {
+  for (const k of world.keys()) {
+    const [cx, cy, cz] = k.split(',').map(Number);
+    nodeModels.rebuildChunk(cx, cy, cz, world);
+  }
+});
 
 // Torch light: the renderer is unlit (no scene lights), so a torch (id 33) can't cast
 // real light. Instead each torch in a loaded chunk gets a warm additive halo so it
@@ -445,10 +555,18 @@ interface RemoteItem {
   block: number;
   count: number;
 }
+interface RemoteBoat {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  rider: string;
+}
 interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
   npcs: { forEach(cb: (p: RemoteNpc, k: string) => void): void; get(k: string): RemoteNpc | undefined };
   items: { forEach(cb: (p: RemoteItem, k: string) => void): void; get(k: string): RemoteItem | undefined };
+  boats: { forEach(cb: (p: RemoteBoat, k: string) => void): void; get(k: string): RemoteBoat | undefined };
 }
 const remote = new Map<string, { avatar: Avatar }>();
 // An NPC is rendered as either a humanoid Avatar (monsters) or a blocky MobModel
@@ -578,6 +696,7 @@ function onUnload(cx: number, cy: number, cz: number): void {
     mesh.geometry.dispose();
     chunkMeshes.delete(key);
   }
+  nodeModels.removeChunk(cx, cy, cz); // drop this chunk's torch/door/gate models
   dirty.delete(key);
 }
 let lastHiss = -1e9;
@@ -604,6 +723,11 @@ function onServerEdit(e: { x: number; y: number; z: number; id: number }): void 
       lastHiss = t;
       sound.play('cool_lava', 0.8);
     }
+  }
+  // Fire igniting / going out nearby → a one-shot (the crackle loop is in updateAmbient).
+  if ((e.id === FIRE_ID) !== (prev === FIRE_ID)) {
+    const near = Math.hypot(e.x - player.pos.x, e.y - player.pos.y, e.z - player.pos.z) < 20;
+    if (near) sound.play(e.id === FIRE_ID ? 'fire_small' : 'fire_out', 0.7);
   }
 }
 /** Reconcile remote-player avatars from the room state each frame. */
@@ -642,8 +766,9 @@ function syncNpcs(dt: number, state: RemoteState): void {
   state.npcs.forEach((n, id) => {
     let r = npcAvatars.get(id);
     if (!r) {
-      // Every mob (animals + monsters) is a blocky model now — no humanoid placeholders.
-      const a: NpcRender = new MobModel(n.kind);
+      // Animals use their real converted Luanti model; monsters/unmapped kinds
+      // fall back to the blocky box model (see makeMob).
+      const a: NpcRender = makeMob(n.kind);
       a.group.position.set(n.x, n.y, n.z);
       scene.add(a.group);
       r = { avatar: a };
@@ -660,6 +785,7 @@ function syncNpcs(dt: number, state: RemoteState): void {
     }
   }
   syncItemDrops(state);
+  syncBoats(dt, state);
 }
 
 /** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */
@@ -700,7 +826,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, hotbarSize: 8 };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -789,12 +915,12 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
-  if (e.code === 'KeyE' && !pickerOpen()) return placeBlock(); // place a block (Q breaks, held)
+  if (e.code === 'KeyE' && !pickerOpen()) return primaryUse(); // use/place the held item (Q holds to dig)
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   if (e.code === 'KeyF' && !menuOpen()) return attackNearestNpc(); // melee the nearest NPC
   if (e.code === 'KeyG' && !menuOpen()) return void net?.eat(); // eat food (apple/bread) → restore hunger
   const n = Number(e.key);
-  if (n >= 1 && n <= tools.length + blocks.length) selectSlot(n - 1);
+  if (n >= 1 && n <= HOTBAR_N) selectSlot(n - 1); // 1-8 select a hotbar slot
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -1087,17 +1213,19 @@ function applyArmor(): void {
   pushSettings();
 }
 const inventory = new Inventory({
-  toolSlots: () => tools,
-  blockSlots: () => blocks,
+  // The panel doesn't mirror the hotbar (you drag palette items onto the live bar's
+  // slots, which are the drop targets). These slot deps point at the single hotbar.
+  toolSlots: () => hotbar,
+  blockSlots: () => hotbar,
   armorSlots: () => armorEquipped,
   setToolSlot: (i, id) => {
-    tools[i] = id;
+    hotbar[i] = id;
     updateHud();
     refreshEditor();
     pushSettings();
   },
   setBlockSlot: (i, id) => {
-    blocks[i] = id;
+    hotbar[i] = id;
     updateHud();
     refreshEditor();
     pushSettings();
@@ -1163,8 +1291,8 @@ canvas.addEventListener('mousedown', (e) => {
   if (mode === 'first') {
     if (settingsOpen()) return; // don't grab pointer-lock / dig while tuning
     if (!locked()) return void canvas.requestPointerLock();
-    if (e.button === 0) firstBreakHeld = true;
-    else if (e.button === 2) placeBlock();
+    if (e.button === 0) firstBreakHeld = true; // dig with the held item
+    else if (e.button === 2) primaryUse(); // place block / use tool
     return;
   }
   // iso / third: RIGHT button orbits the camera (allowed even with a menu open,
@@ -1184,13 +1312,16 @@ window.addEventListener('mouseup', (e) => {
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
-  // Zoom = camera distance in both perspective orbit modes.
-  const f = e.deltaY > 0 ? 1.12 : 0.9;
-  if (mode === 'iso') {
-    isoDist = clamp(isoDist * f, 3, 45);
-  } else if (mode === 'third') {
-    thirdDist = clamp(thirdDist * f, 1.0, 14); // closer over-the-shoulder
+  // First person: the wheel selects the hotbar slot (like Luanti/Minecraft). Iso/third
+  // keep the wheel as camera zoom (there you pick a slot with 1-8 or by clicking it).
+  if (mode === 'first') {
+    selectSlot(sel + (e.deltaY > 0 ? 1 : -1));
+    e.preventDefault();
+    return;
   }
+  const f = e.deltaY > 0 ? 1.12 : 0.9;
+  if (mode === 'iso') isoDist = clamp(isoDist * f, 3, 45);
+  else if (mode === 'third') thirdDist = clamp(thirdDist * f, 1.0, 14); // closer over-the-shoulder
   e.preventDefault();
 });
 
@@ -1237,9 +1368,9 @@ function toolOwned(stringId: string): boolean {
 function bestToolFor(blockId: number): string | undefined {
   let best: string | undefined;
   let bestT = Infinity;
-  for (const id of tools) {
-    const tool = itemById(id).tool;
-    if (!tool || !toolOwned(id)) continue;
+  for (const it of TOOL_ITEMS) {
+    const tool = it.tool;
+    if (!tool || !toolOwned(it.id)) continue;
     const t = digTime(blockId, [tool]);
     if (t !== null && t < bestT) {
       bestT = t;
@@ -1255,8 +1386,8 @@ function digToolsFor(blockId: number): string[] {
     const best = bestToolFor(blockId);
     if (best) return [best];
   }
-  const sel = tools[selTool];
-  const digTool = sel && toolOwned(sel) ? itemById(sel).tool : undefined; // selected breaking tool, if owned
+  const heldId = hotbar[sel];
+  const digTool = heldId && toolOwned(heldId) ? itemById(heldId).tool : undefined; // held dig tool, if owned
   return digTool ? [digTool] : [];
 }
 
@@ -1268,13 +1399,39 @@ const breakOverlay = new THREE.Mesh(
 breakOverlay.visible = false;
 scene.add(breakOverlay);
 let breaking: { x: number; y: number; z: number; t: number; dur: number } | null = null;
+let digStage = -1; // last crack stage a dig sound played on (repeats the dig sound per stage)
 
-/** First hit of the aim ray, if within reach — or null. */
+/** First hit of the aim ray, if within reach — or null. Includes the node-model aim
+ *  proxies (torch/door/gate) so those can be targeted (broken/opened) too. */
 function aimHit(): THREE.Intersection | null {
   raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
-  const hits = raycaster.intersectObjects(terrainGroup.children, false);
+  const hits = raycaster.intersectObjects([...terrainGroup.children, ...nodeModels.aimGroup.children], false);
   if (!hits.length || hits[0].point.distanceTo(player.eye) > REACH) return null;
   return hits[0];
+}
+
+/** March the aim ray through the voxel grid (fluids aren't in the raycast mesh) and
+ *  return the first cell + the last empty cell before it, up to REACH. Used by the
+ *  bucket: empty scoops the first liquid SOURCE it finds; filled pours into the last
+ *  air cell before a hit. `match` decides what counts as the target cell. */
+function aimVoxel(
+  match: (id: number) => boolean,
+  blocks: (id: number) => boolean = (id) => id !== 0,
+): { hit: { x: number; y: number; z: number }; air: { x: number; y: number; z: number } } | null {
+  raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
+  const o = raycaster.ray.origin;
+  const d = raycaster.ray.direction;
+  let air = { x: Math.floor(o.x), y: Math.floor(o.y), z: Math.floor(o.z) };
+  for (let t = 0; t <= REACH; t += 0.08) {
+    const x = Math.floor(o.x + d.x * t);
+    const y = Math.floor(o.y + d.y * t);
+    const z = Math.floor(o.z + d.z * t);
+    const id = world.get(x, y, z);
+    if (match(id)) return { hit: { x, y, z }, air };
+    if (blocks(id)) return null; // a blocker stops the aim
+    if (id === 0) air = { x, y, z }; // remember the last true-air cell (pour target)
+  }
+  return null;
 }
 
 /** Where a placed block would land: against the aimed face, or — when aiming into
@@ -1299,9 +1456,85 @@ function placeTarget(): { x: number; y: number; z: number } | null {
   return { x: fx + dx, y: fy, z: fz + dz };
 }
 
-/** Right-clicking/using an interactive node (chest → open) instead of placing.
- *  Returns true if it handled the aimed cell (so placing is suppressed). */
-function useAimedNode(): boolean {
+/** Use the currently held TOOL (bucket / hoe / flint&steel) — the tool-track action,
+ *  fired by the dig/tool input (LMB in first person, Q in iso/third). These can't dig:
+ *  a bucket scoops/pours liquid, flint&steel lights fire, a hoe tills ground. Right-click
+ *  stays free to place your build block (two-track hotbar) — see placeBlock. */
+function useHeldTool(): void {
+  const heldId = heldNum();
+  // Boat item: aim at a water surface → spawn a rideable boat there (server consumes it).
+  if (isBoat(heldId)) {
+    const m = aimVoxel(
+      (id) => isWaterId(id),
+      (id) => id !== 0 && !isWaterId(id) && !isLavaId(id),
+    );
+    if (m) {
+      net?.boatPlace(m.hit.x, m.hit.y, m.hit.z);
+      avatar.playDig();
+      sound.play('foot_water');
+    }
+    return;
+  }
+  // Buckets act on liquids. Fluids aren't in the raycast mesh, so march the aim ray
+  // through the voxel grid: empty scoops the first SOURCE (seeing THROUGH flowing
+  // liquid — only solids block); filled pours into the last air cell before a hit.
+  if (isBucket(heldId)) {
+    if (heldId === BUCKET_EMPTY) {
+      const m = aimVoxel(
+        (id) => id === WATER_ID || id === LAVA_ID,
+        (id) => id !== 0 && !isWaterId(id) && !isLavaId(id),
+      );
+      if (m) {
+        const lava = isLavaId(world.get(m.hit.x, m.hit.y, m.hit.z));
+        net?.use(m.hit.x, m.hit.y, m.hit.z, heldId);
+        avatar.playDig(); // arm swing (the wielded bucket dips)
+        sound.play(lava ? 'cool_lava' : 'foot_water'); // sizzle / water splash
+      }
+    } else {
+      const m = aimVoxel((id) => id !== 0);
+      if (m) {
+        net?.use(m.air.x, m.air.y, m.air.z, heldId);
+        avatar.playDig();
+        sound.play('foot_water'); // pour splash
+      }
+    }
+    return;
+  }
+  const h = aimHit();
+  if (!h) return;
+  const nrm = h.face ? h.face.normal : UP;
+  // Flint & steel lights fire in the air cell against the aimed face (server checks flammability).
+  if (isFlintSteel(heldId)) {
+    const po = h.point.clone().addScaledVector(nrm, 0.5);
+    const ox = Math.floor(po.x),
+      oy = Math.floor(po.y),
+      oz = Math.floor(po.z);
+    if (!world.solid(ox, oy, oz)) {
+      net?.use(ox, oy, oz, heldId);
+      avatar.playDig();
+      sound.play('flint'); // flint & steel strike
+    }
+    return;
+  }
+  // Hoe + tillable ground (dirt/grass/sand) → farmland (server converts it).
+  if (isHoe(heldId)) {
+    const p = h.point.clone().addScaledVector(nrm, -0.5);
+    const x = Math.floor(p.x),
+      y = Math.floor(p.y),
+      z = Math.floor(p.z);
+    const b = world.get(x, y, z);
+    if (b === 2 || b === 1 || b === 7 || b === 8) {
+      net?.use(x, y, z, heldId);
+      avatar.playDig(); // hoe swing
+      sound.play('dug'); // soil turn
+    }
+  }
+}
+
+/** Right-click on an interactive NODE (chest → open, door/gate → toggle, sign → edit,
+ *  furnace → smelt UI, TNT → ignite, bed → sleep) — independent of the held item, so it
+ *  works whatever you carry. Returns true if it handled the aimed cell (suppress placing). */
+function interactNode(): boolean {
   const h = aimHit();
   if (!h) return false;
   const nrm = h.face ? h.face.normal : UP;
@@ -1310,61 +1543,44 @@ function useAimedNode(): boolean {
     y = Math.floor(p.y),
     z = Math.floor(p.z);
   const b = world.get(x, y, z);
-  const heldId = heldNum();
-  // Buckets act on liquids instead of placing: empty scoops the aimed source; filled
-  // pours its source into the air cell against the aimed face. Holding one never places.
-  if (isBucket(heldId)) {
-    if (heldId === BUCKET_EMPTY) {
-      if (b === WATER_ID || b === LAVA_ID) net?.use(x, y, z, heldId);
-    } else {
-      const po = h.point.clone().addScaledVector(nrm, 0.5);
-      const ox = Math.floor(po.x),
-        oy = Math.floor(po.y),
-        oz = Math.floor(po.z);
-      if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
-    }
-    return true;
-  }
-  // Flint & steel lights fire in the air cell against the aimed face (server checks flammability).
-  if (isFlintSteel(heldId)) {
-    const po = h.point.clone().addScaledVector(nrm, 0.5);
-    const ox = Math.floor(po.x),
-      oy = Math.floor(po.y),
-      oz = Math.floor(po.z);
-    if (!world.solid(ox, oy, oz)) net?.use(ox, oy, oz, heldId);
-    return true;
-  }
-  // A sign: open its text editor (client-side prompt, prefilled with the current text).
   if (b === SIGN_ID) {
     promptSign(x, y, z);
     return true;
   }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN || b === BED_ID) {
-    net?.use(x, y, z, heldId); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite; bed → sleep
-    return true;
-  }
-  // Holding a hoe + aiming at tillable ground (dirt/grass/sand) → farmland (server converts it).
-  if (isHoe(heldId) && (b === 2 || b === 1 || b === 7 || b === 8)) {
-    net?.use(x, y, z, heldId);
+    net?.use(x, y, z, heldNum()); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite; bed → sleep
+    // Door/gate toggle feedback (chest_open plays on the server's onChestOpen reply).
+    if (b === DOOR_CLOSED) sound.play('door_open');
+    else if (b === DOOR_OPEN) sound.play('door_close');
+    else if (b === FENCE_GATE_CLOSED) sound.play('gate_open');
+    else if (b === FENCE_GATE_OPEN) sound.play('gate_close');
+    else if (b === TNT_ID) sound.play('tnt_ignite');
     return true;
   }
   return false;
 }
-/** Numeric id of the currently held item (owned tool from the tool track, else the
- *  selected build block) — sent with the use-action so the server can act on it (hoe). */
+/** Numeric id of the currently held item (a tool's toolId, else a block's id, else 0)
+ *  — sent with the use-action so the server can act on it (hoe/bucket/flint). */
 function heldNum(): number {
-  if (lastTrack === 'tool') {
-    const t = tools[selTool];
-    return t && toolOwned(t) ? itemById(t).toolId ?? 0 : 0;
-  }
-  return itemById(blocks[selBlock]).block ?? 0;
+  const it = held();
+  return it.toolId ?? it.block ?? 0;
 }
 
-/** Place the held block against the aimed face (instant). Tools don't place. */
+/** Right-click / E action with the held item (Luanti secondary use): interact with an
+ *  aimed node (chest/door) first; else use a held tool (bucket/hoe/flint); else place a
+ *  held block. */
+function primaryUse(): void {
+  if (tryMountBoat()) return; // looking at a boat → climb in
+  if (interactNode()) return; // aiming at a chest/door → open/toggle it, don't place
+  const n = held().toolId ?? 0;
+  if (isBucket(n) || isHoe(n) || isFlintSteel(n) || isBoat(n)) return useHeldTool(); // bucket/hoe/flint/boat
+  placeBlock();
+}
+
+/** Place the held block against the aimed face (instant). A held tool places nothing. */
 function placeBlock(): void {
-  if (useAimedNode()) return; // aiming at a chest → open it, don't place
-  const block = itemById(blocks[selBlock]).block; // the selected build block
-  if (block === undefined) return; // block track is somehow empty → nothing to place
+  const block = held().block; // the held build block
+  if (block === undefined) return; // holding a tool → nothing to place
   const t = placeTarget();
   if (!t) return;
   const { x: bx, y: by, z: bz } = t;
@@ -1372,11 +1588,11 @@ function placeBlock(): void {
   if (world.solid(bx, by, bz) || player.intersectsBlock(bx, by, bz)) return;
   // Survival: need one in the stack inventory (fluids/portal/creative are unlimited).
   if (!blockUnlimited(block) && (invCounts.get(block) ?? 0) <= 0) {
-    showToast(`Kein Vorrat: ${itemById(blocks[selBlock]).name}`);
+    showToast(`Kein Vorrat: ${held().name}`);
     return;
   }
   avatar.playDig();
-  sound.play('place');
+  sound.play(placeSoundFor(block)); // material-specific place (hard/metal/soft)
   if (!blockUnlimited(block)) onInv({ block, total: (invCounts.get(block) ?? 0) - 1 }); // optimistic; server 'inv' corrects
   if (net) {
     net.sendEdit(bx, by, bz, block); // authoritative — applied when the server echoes
@@ -1414,7 +1630,10 @@ function updateBreaking(dt: number, want: boolean): void {
     avatar.setMining(false);
     return;
   }
-  if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) breaking = { ...tgt, t: 0, dur };
+  if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) {
+    breaking = { ...tgt, t: 0, dur };
+    digStage = -1; // new target → restart the dig-sound cadence
+  }
   breaking.t += dt;
   avatar.setMining(true);
   breakOverlay.position.set(tgt.x + 0.5, tgt.y + 0.5, tgt.z + 0.5);
@@ -1425,9 +1644,15 @@ function updateBreaking(dt: number, want: boolean): void {
     mat.map = crackStages[stage];
     mat.needsUpdate = true;
   }
+  // Repeating dig sound (Luanti: the dig-group sound loops while mining) — one hit per
+  // crack stage, at a soft volume so the final dug sound stands out.
+  if (stage !== digStage) {
+    digStage = stage;
+    sound.play(digSoundFor(world.get(tgt.x, tgt.y, tgt.z)), 0.4, 0.95 + Math.random() * 0.1);
+  }
   if (breaking.t >= breaking.dur) {
     const broke = world.get(tgt.x, tgt.y, tgt.z);
-    sound.play(broke === 14 || broke === 16 ? 'glass_break' : 'dug'); // glass shatters, else generic dug
+    sound.play(dugSoundFor(broke)); // material-specific removal (glass shatter, metal clink, …)
     // The tool used (numeric id) so the server can wear it; 0 = bare hand (no wear).
     const usedTool = digToolsFor(broke)[0];
     const toolId = usedTool ? toolNum(usedTool) ?? 0 : 0;
@@ -1474,100 +1699,115 @@ function updateFootsteps(_dt: number): void {
   }
 }
 
+// Positional ambience (Luanti env_sounds): scan a box around the player and set the
+// looping water/lava ambience volume by how much liquid is nearby (submerged → loud).
+let ambAcc = 0;
+function updateAmbient(dt: number): void {
+  ambAcc += dt;
+  if (ambAcc < 0.35) return;
+  ambAcc = 0;
+  const R = 6;
+  const px = Math.floor(player.pos.x),
+    py = Math.floor(player.pos.y),
+    pz = Math.floor(player.pos.z);
+  let water = 0,
+    lava = 0,
+    fire = 0;
+  for (let dx = -R; dx <= R; dx++)
+    for (let dy = -R; dy <= R; dy++)
+      for (let dz = -R; dz <= R; dz++) {
+        const id = world.get(px + dx, py + dy, pz + dz);
+        if (isWaterId(id)) water++;
+        else if (isLavaId(id)) lava++;
+        else if (id === FIRE_ID) fire++;
+      }
+  sound.setAmbient('env_water', Math.min(1, water / 30));
+  sound.setAmbient('env_lava', Math.min(1, lava / 20));
+  sound.setAmbient('fire', Math.min(1, fire / 4)); // crackle near flames
+}
+
 // ── HUD (crosshair + hotbar + pickers) ────────────────────────────────────────
-// The hotbar is split into two independent tracks: a TOOL track (used when
-// breaking) and a BLOCK track (used when placing). Each keeps its own selection,
-// so you never have to swap a single slot between "dig" and "build" — pick a pick
-// once, a block once, and Q/E just work. Number keys run across both tracks
-// (tools first, then blocks); clicking a slot selects it; the wield editor + "b"
-// picker follow whichever track you last touched.
-const tools = [...DEFAULT_TOOLS]; // breaking side
-const blocks = [...DEFAULT_BLOCKS]; // placing side
-let selTool = 0;
-let selBlock = 0;
-let lastTrack: 'tool' | 'block' = 'block'; // side the label / editor / picker follow
-const held = (): Item => itemById(lastTrack === 'tool' ? tools[selTool] : blocks[selBlock]);
-function selectTool(i: number): void {
-  selTool = (i + tools.length) % tools.length;
-  lastTrack = 'tool';
+// Luanti-style SINGLE hotbar: one row, ONE selected slot = the held item. Left-click
+// (first) / Q (iso·third) digs the aimed block with it (tool speed if it's a dig tool);
+// right-click / E places it (block) or uses it (bucket/hoe/flint). Slots are arranged
+// by dragging items from the Inventory (I) onto them — any item into any slot. Numbers
+// 1-8 select; the mouse WHEEL selects only in FIRST person (iso/third keep wheel = zoom).
+let HOTBAR_N = Math.max(4, Math.min(12, settings.hotbarSize || 8)); // slot count — adjustable (Luanti hud_hotbar_itemcount)
+const DEFAULT_SLOTS: string[] = ['pick_wood', 'axe_wood', ...DEFAULT_BLOCKS, 'b' + BUCKET_EMPTY];
+const hotbar: string[] = [...DEFAULT_SLOTS.slice(0, HOTBAR_N)];
+while (hotbar.length < HOTBAR_N) hotbar.push('block:1');
+let sel = 0;
+const held = (): Item => itemById(hotbar[sel]);
+function selectSlot(i: number): void {
+  sel = ((i % HOTBAR_N) + HOTBAR_N) % HOTBAR_N;
   updateHud();
   refreshEditor();
   pushSettings(); // remember the selected slot across sessions
 }
-function selectBlock(i: number): void {
-  selBlock = (i + blocks.length) % blocks.length;
-  lastTrack = 'block';
+/** Resize the hotbar (Luanti-style; 4-12 slots): pad new slots with a default block,
+ *  trim extras, keep the selection valid. Persisted in settings. */
+function setHotbarSize(n: number): void {
+  HOTBAR_N = Math.max(4, Math.min(12, Math.floor(n) || 8));
+  settings.hotbarSize = HOTBAR_N;
+  while (hotbar.length < HOTBAR_N) hotbar.push(DEFAULT_SLOTS[hotbar.length] ?? 'block:1');
+  hotbar.length = HOTBAR_N;
+  if (sel >= HOTBAR_N) sel = HOTBAR_N - 1;
   updateHud();
-  refreshEditor();
-  pushSettings();
-}
-/** Number keys 1..N run across both tracks: 1..tools then blocks. */
-function selectSlot(i: number): void {
-  if (i < tools.length) selectTool(i);
-  else selectBlock(i - tools.length);
+  saveSettings();
 }
 function updateHud(): void {
   const label = document.getElementById('mode');
-  if (label)
-    label.textContent = `View: ${mode} (V) · Break: ${itemById(tools[selTool]).name} · Place: ${itemById(blocks[selBlock]).name} · I inventory · K skin`;
+  if (label) label.textContent = `View: ${mode} (V) · Held: ${held().name} · I inventory · K skin`;
   const bar = document.getElementById('hotbar')!;
   bar.innerHTML = '';
-  const addSlots = (ids: string[], sel: number, pick: (i: number) => void, isTool: boolean): void => {
-    ids.forEach((id, i) => {
-      // Luanti-style short hotbar: the tool track shows only tools you actually own
-      // (creative owns all). The full catalogue (dimmed unowned tools) lives in the
-      // inventory panel. Keeps the bar from being a huge fixed row of every tier.
-      if (isTool && !toolOwned(id)) return;
-      const it = itemById(id);
-      const s = document.createElement('div');
-      s.className = 'slot' + (i === sel ? ' on' : '');
-      s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
-      s.style.backgroundSize = 'cover';
-      s.title = it.name;
-      s.onclick = () => pick(i);
-      // Survival stack count on build blocks (∞ for fluids/portal/creative; dim at 0).
-      if (!isTool && it.block !== undefined) {
-        const bid = it.block;
-        const badge = document.createElement('span');
-        badge.className = 'count';
-        badge.textContent = blockUnlimited(bid) ? '∞' : String(invCounts.get(bid) ?? 0);
-        if (!blockUnlimited(bid) && (invCounts.get(bid) ?? 0) <= 0) badge.classList.add('empty');
-        s.appendChild(badge);
+  hotbar.forEach((id, i) => {
+    const it = itemById(id);
+    const s = document.createElement('div');
+    s.className = 'slot' + (i === sel ? ' on' : '');
+    s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
+    s.style.backgroundSize = 'cover';
+    s.title = `${i + 1}. ${it.name}`;
+    s.onclick = () => selectSlot(i);
+    // Small slot number (1-8…) so you know which key selects it — Luanti/Minecraft-style.
+    if (i < 9) {
+      const idx = document.createElement('span');
+      idx.className = 'idx';
+      idx.textContent = String(i + 1);
+      s.appendChild(idx);
+    }
+    // A block slot shows its stack count (∞ for fluids/portal/creative; dim at 0); a tool
+    // slot dims if not crafted yet and shows a durability wear bar once used.
+    if (it.block !== undefined) {
+      const bid = it.block;
+      const badge = document.createElement('span');
+      badge.className = 'count';
+      badge.textContent = blockUnlimited(bid) ? '∞' : String(invCounts.get(bid) ?? 0);
+      if (!blockUnlimited(bid) && (invCounts.get(bid) ?? 0) <= 0) badge.classList.add('empty');
+      s.appendChild(badge);
+    } else if (it.toolId !== undefined) {
+      if (!toolOwned(id)) s.style.opacity = '0.4'; // not crafted yet → dim (still selectable)
+      const dur = toolDurability.get(it.toolId);
+      if (dur && dur.left < dur.max) {
+        const frac = Math.max(0, dur.left / dur.max);
+        const wbar = document.createElement('span');
+        wbar.style.cssText = `position:absolute;left:2px;right:2px;bottom:2px;height:3px;background:#05060b;`;
+        const fill = document.createElement('span');
+        const hue = Math.round(frac * 120); // 0=red .. 120=green
+        fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:${Math.round(frac * 100)}%;background:hsl(${hue},70%,50%);`;
+        wbar.appendChild(fill);
+        s.appendChild(wbar);
       }
-      // Owned tool: a durability wear bar (green→red) once it's been used.
-      if (isTool && it.toolId !== undefined) {
-        const dur = toolDurability.get(it.toolId);
-        if (dur && dur.left < dur.max) {
-          const frac = Math.max(0, dur.left / dur.max);
-          const bar = document.createElement('span');
-          bar.style.cssText = `position:absolute;left:2px;right:2px;bottom:2px;height:3px;background:#05060b;`;
-          const fill = document.createElement('span');
-          const hue = Math.round(frac * 120); // 0=red .. 120=green
-          fill.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:${Math.round(frac * 100)}%;background:hsl(${hue},70%,50%);`;
-          bar.appendChild(fill);
-          s.appendChild(bar);
-        }
-      }
-      // Drop target for inventory drag&drop onto the real bar (kind-checked).
-      (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
-        const di = itemById(dragId);
-        if (isTool ? !!di.tool : di.block !== undefined) {
-          (isTool ? tools : blocks)[i] = dragId;
-          updateHud();
-          refreshEditor();
-          pushSettings();
-          inventory.render();
-        }
-      };
-      bar.appendChild(s);
-    });
-  };
-  addSlots(tools, selTool, selectTool, true);
-  const divider = document.createElement('div');
-  divider.className = 'hdivider';
-  divider.title = 'left: dig tools · right: build blocks';
-  bar.appendChild(divider);
-  addSlots(blocks, selBlock, selectBlock, false);
+    }
+    // Drag any inventory item onto any slot (single track — no kind check).
+    (s as unknown as { __accept: (dragId: string) => void }).__accept = (dragId) => {
+      hotbar[i] = dragId;
+      updateHud();
+      refreshEditor();
+      pushSettings();
+      inventory.render();
+    };
+    bar.appendChild(s);
+  });
   document.getElementById('cross')!.style.display = mode === 'first' ? 'block' : 'none';
 }
 
@@ -1595,8 +1835,8 @@ function updateWield(): void {
       const ti = tool ? TOOL_ITEMS.find((i) => i.tool === tool) : undefined;
       if (ti) return setWielded(ti);
     }
-    const sel = tools[selTool];
-    return sel && toolOwned(sel) ? setWielded(itemById(sel)) : clearWielded(); // manual: the selected dig tool, if owned
+    const h = hotbar[sel];
+    return h && toolOwned(h) ? setWielded(itemById(h)) : clearWielded(); // manual: the held dig tool, if owned
   }
   const active = held();
   if (active.block !== undefined) return clearWielded(); // only tools are held in hand, not blocks
@@ -1723,7 +1963,14 @@ soundCb.onchange = () => {
   settings.sound = soundCb.checked;
   sound.enabled = settings.sound;
   if (settings.sound) sound.play('place', 0.6); // audible confirmation
+  else sound.stopAmbients(); // silence water/lava/fire loops immediately
   saveSettings();
+};
+const hotbarInput = document.getElementById('opt-hotbar') as HTMLInputElement;
+hotbarInput.value = String(HOTBAR_N);
+hotbarInput.onchange = () => {
+  setHotbarSize(Number(hotbarInput.value));
+  hotbarInput.value = String(HOTBAR_N); // reflect clamping
 };
 
 // Items page. Auto-switch tool toggle (default off = Minecraft-manual).
@@ -1747,14 +1994,20 @@ hungerCb.onchange = () => {
   net?.setHunger(settings.hunger); // off → food stays full, no starving
   saveSettings();
 };
+const keepInvCb = document.getElementById('opt-keepinv') as HTMLInputElement;
+keepInvCb.checked = settings.keepInventory;
+keepInvCb.onchange = () => {
+  settings.keepInventory = keepInvCb.checked;
+  net?.setKeepInv(settings.keepInventory); // off → drop a bones chest on death
+  saveSettings();
+};
 const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
 creativeCb.checked = settings.creative;
 creativeCb.onchange = () => {
   settings.creative = creativeCb.checked;
   net?.setCreative(settings.creative); // server skips stack consumption + damage while creative
-  // Creative implies flight (Minecraft-style): enable fly on, disable it when leaving creative.
-  settings.fly = creativeCb.checked;
-  flyCb.checked = settings.fly;
+  // Creative unlocks flight but does NOT auto-enable it — Fly is its own toggle
+  // (user preference; you can build in creative while still walking on the ground).
   updateHud(); // ∞ vs counts
   if (inventory.isOpen()) inventory.render(); // full palette vs owned-only
   saveSettings();
@@ -1820,13 +2073,9 @@ for (const f of WIELD_FIELDS) {
   slidersBox.appendChild(row);
 }
 function stepItem(dir: number): void {
-  const isTool = lastTrack === 'tool';
-  const pool = isTool ? TOOL_ITEMS : BLOCK_ITEMS;
-  const cur = isTool ? tools[selTool] : blocks[selBlock];
-  const i = pool.findIndex((it) => it.id === cur);
-  const next = pool[(i + dir + pool.length) % pool.length].id;
-  if (isTool) tools[selTool] = next;
-  else blocks[selBlock] = next;
+  // Wield-editor helper: cycle the held slot through every item to tune its hold transform.
+  const i = ALL_ITEMS.findIndex((it) => it.id === hotbar[sel]);
+  hotbar[sel] = ALL_ITEMS[(i + dir + ALL_ITEMS.length) % ALL_ITEMS.length].id;
   updateHud();
   refreshEditor();
 }
@@ -1871,12 +2120,14 @@ function currentSettingsBlob(): unknown {
     creative: settings.creative,
     durability: settings.durability,
     hunger: settings.hunger,
+    keepInventory: settings.keepInventory,
+    hotbarSize: settings.hotbarSize,
     view: mode,
     skin: playerSkin,
     wield,
-    hotbar: { blocks: [...blocks] }, // tool track is now a fixed catalog (owned tools unlock), not persisted
+    hotbar: { slots: [...hotbar] }, // remembered hotbar arrangement (single row)
     armor: { ...armorEquipped },
-    sel: { tool: selTool, block: selBlock, track: lastTrack }, // remembered hotbar selection
+    sel, // remembered selected hotbar slot
   };
 }
 let pushTimer = 0;
@@ -1898,12 +2149,14 @@ function applyServerSettings(s: unknown): void {
     creative: boolean;
     durability: boolean;
     hunger: boolean;
+    keepInventory: boolean;
+    hotbarSize: number;
     view: CamMode;
     skin: string;
     wield: Record<string, Wield>;
-    hotbar: { tools?: string[]; blocks?: string[] };
+    hotbar: { slots?: string[] };
     armor: Record<string, string | null>;
-    sel: { tool?: number; block?: number; track?: 'tool' | 'block' };
+    sel: number;
   }> | null;
   if (!o || typeof o !== 'object') return;
   if (typeof o.invertY === 'boolean') settings.invertY = o.invertY;
@@ -1933,6 +2186,15 @@ function applyServerSettings(s: unknown): void {
     hungerCb.checked = o.hunger;
     net?.setHunger(o.hunger);
   }
+  if (typeof o.keepInventory === 'boolean') {
+    settings.keepInventory = o.keepInventory;
+    keepInvCb.checked = o.keepInventory;
+  }
+  net?.setKeepInv(settings.keepInventory); // tell the server the loaded death preference
+  if (Number.isFinite(o.hotbarSize)) {
+    setHotbarSize(o.hotbarSize as number); // resize BEFORE the slot arrangement is restored
+    hotbarInput.value = String(HOTBAR_N);
+  }
   if (o.view === 'iso' || o.view === 'third' || o.view === 'first') {
     mode = o.view; // restore the last-used camera view
     if (mode !== 'first' && locked()) document.exitPointerLock();
@@ -1959,18 +2221,16 @@ function applyServerSettings(s: unknown): void {
       }
     }
   }
-  // Restore the saved block hotbar layout (kind-checked). The tool track is a fixed
-  // catalog now (owned tools unlock), so it is no longer persisted/restored.
-  if (o.hotbar) {
-    if (Array.isArray(o.hotbar.blocks))
-      o.hotbar.blocks.forEach((id, i) => i < blocks.length && itemById(id).block !== undefined && (blocks[i] = id));
+  // Restore the saved single-row hotbar arrangement (each slot = any valid item id).
+  if (o.hotbar && Array.isArray(o.hotbar.slots)) {
+    o.hotbar.slots.forEach((id, i) => {
+      if (i < HOTBAR_N && (itemById(id).block !== undefined || itemById(id).toolId !== undefined)) hotbar[i] = id;
+    });
     updateHud();
   }
-  // Restore the remembered hotbar selection (which slots were active).
-  if (o.sel) {
-    if (Number.isInteger(o.sel.tool)) selTool = Math.max(0, Math.min(tools.length - 1, o.sel.tool!));
-    if (Number.isInteger(o.sel.block)) selBlock = Math.max(0, Math.min(blocks.length - 1, o.sel.block!));
-    if (o.sel.track === 'tool' || o.sel.track === 'block') lastTrack = o.sel.track;
+  // Restore the remembered selected slot.
+  if (Number.isInteger(o.sel)) {
+    sel = Math.max(0, Math.min(HOTBAR_N - 1, o.sel as number));
     updateHud();
   }
   if (o.armor && typeof o.armor === 'object') {
@@ -2024,14 +2284,14 @@ function onBoom(m: { x: number; y: number; z: number }): void {
   if (d > 28) return;
   dmgFlash.style.opacity = '1';
   window.setTimeout(() => (dmgFlash.style.opacity = '0'), 120);
-  sound.play('dug', Math.max(0.3, 1 - d / 28), 0.5); // low-pitched thud (no dedicated boom sample)
+  sound.play('boom', Math.max(0.3, 1 - d / 28)); // TNT explosion (Luanti tnt_explode)
 }
 /** Tool wear from the server: update the slot's wear bar; toast + forget when it breaks. */
 function onDurability(m: { tool: number; left: number; max: number }): void {
   if (m.left <= 0) {
     toolDurability.delete(m.tool);
     showToast(`${invItem(m.tool).name} zerbrochen!`);
-    sound.play('dug', 0.6);
+    sound.play('tool_breaks'); // Luanti default_tool_breaks
   } else {
     toolDurability.set(m.tool, { left: m.left, max: m.max });
   }
@@ -2209,6 +2469,7 @@ function onChestOpen(m: { x: number; y: number; z: number; items: Record<string,
   if (!chestUiOpen()) {
     if (locked()) document.exitPointerLock();
     chestEl.classList.add('open');
+    sound.play('chest_open'); // Luanti default_chest_open
   }
   frontPanel(chestEl);
   chestRender();
@@ -2216,6 +2477,7 @@ function onChestOpen(m: { x: number; y: number; z: number; items: Record<string,
 function chestClose(): void {
   chestEl.classList.remove('open');
   openChest = null;
+  sound.play('chest_close'); // Luanti default_chest_close
   if (mode === 'first') canvas.requestPointerLock();
 }
 function chestCell(id: number, count: number, onClick: () => void): HTMLDivElement {
@@ -2340,6 +2602,9 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   portalGlows.clear();
   for (const node of torchGlows.values()) torchGlowGroup.remove(node);
   torchGlows.clear();
+  nodeModels.clear();
+  for (const m of boatMeshes.values()) boatGroup.remove(m);
+  boatMeshes.clear();
   for (const key of [...signObjs.keys()]) removeSign(key);
   signTexts.clear();
   dirty.clear();
@@ -2426,6 +2691,8 @@ void connectWorld('default');
 // ── Loop ──────────────────────────────────────────────────────────────────────
 let last = performance.now();
 let lastMoveSent = 0;
+let lastBoatSteer = 0;
+let boatDismountLatch = false;
 let lastMapRender = 0;
 function frame(now: number): void {
   requestAnimationFrame(frame); // schedule next FIRST — a thrown frame must never stop the loop
@@ -2459,13 +2726,37 @@ function frameBody(now: number): void {
   const d = !busy && (keys.has('KeyD') || keys.has('ArrowRight'));
   const jump = !busy && keys.has('Space');
   const down = !busy && (keys.has('ShiftLeft') || keys.has('ShiftRight')); // sneak / dive
+  // Riding a boat: the server drives it — steer with WASD, ride along (camera follows the
+  // player pos the server glues to the boat), Space to climb out. Local physics is skipped.
   // Horizontal intent (WASD, or iso click-to-walk); jump/down always pass through so
   // you can surface/dive while standing still in water.
   let fwd = false,
     bk = false,
     lt = false,
     rt = false;
-  if (mode === 'iso') {
+  const boat = ridingBoat();
+  if (boat) {
+    // Riding: the server owns the boat (10 Hz) — smoothly follow it (no snap = no jitter)
+    // and turn WITH it (so camera + avatar face the boat's heading in every view). WASD
+    // steers; Space climbs out. Local physics + the normal move-input block are skipped.
+    const k = Math.min(1, dt * 10);
+    player.pos.x += (boat.x - player.pos.x) * k;
+    player.pos.y += (boat.y + 0.2 - player.pos.y) * k;
+    player.pos.z += (boat.z - player.pos.z) * k;
+    player.vel.set(0, 0, 0);
+    let dyaw = boat.yaw - player.yaw;
+    while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+    while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+    player.yaw += dyaw * k;
+    if (mode === 'iso') isoYaw = player.yaw; // keep the iso map aligned with the boat heading
+    else if (mode === 'third') camYaw = player.yaw;
+    if (net && now - lastBoatSteer > 90) {
+      lastBoatSteer = now;
+      net.boatSteer(w ? 1 : s ? -1 : 0, a ? 1 : d ? -1 : 0);
+    }
+    if (jump && !boatDismountLatch) net?.boatDismount();
+    boatDismountLatch = jump;
+  } else if (mode === 'iso') {
     if (w || s || a || d) {
       moveTarget = null; // manual movement cancels click-to-walk
       player.yaw = isoYaw; // WASD moves relative to the current map rotation
@@ -2490,7 +2781,7 @@ function frameBody(now: number): void {
     rt = d;
   }
   const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down, fly: settings.fly };
-  if (ready) player.update(dt, input);
+  if (ready && !boat) player.update(dt, input); // boat: server drives position, skip local physics
   // World border: keep the player inside a sized world (invisible wall at ±half-extent).
   if (worldHalfExtent > 0) {
     const lim = worldHalfExtent - 0.3; // player half-width slack
@@ -2545,8 +2836,10 @@ function frameBody(now: number): void {
   avatar.setSwimming(player.inWater);
   avatar.animate(dt, player.speed2d, player.pitch);
   updateFootsteps(dt);
+  updateAmbient(dt);
   // Report our transform to the server (throttled) so AOI + other players update.
-  if (net && ready && now - lastMoveSent > 100) {
+  // (Skipped while riding — the server owns the boat+rider position via boatSteer.)
+  if (net && ready && !boat && now - lastMoveSent > 100) {
     lastMoveSent = now;
     const moveState = player.inWater ? 'swim' : player.speed2d > 0.4 ? 'walk' : 'idle';
     net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, moveState);

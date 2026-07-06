@@ -50,9 +50,15 @@ export interface FluidDef {
   flowMin: number;
   flowMax: number;
   maxLevel: number;
+  // Luanti: water is renewable (a flat pool of connected flow on a floor becomes
+  // source — 2 sources make a third), lava is NOT. Gates the "lake grows" claim.
+  renewable: boolean;
+  // Luanti liquid_viscosity: how many sim ticks between flow steps. Water = 1 (fast),
+  // lava = 7 (slow creep). The cellular sim advances this fluid every `viscosity` ticks.
+  viscosity: number;
 }
-export const WATER_FLUID: FluidDef = { source: WATER_SOURCE, flowMin: WATER_FLOW_MIN, flowMax: WATER_FLOW_MAX, maxLevel: WATER_MAX_LEVEL };
-export const LAVA_FLUID: FluidDef = { source: LAVA_SOURCE, flowMin: LAVA_FLOW_MIN, flowMax: LAVA_FLOW_MAX, maxLevel: LAVA_MAX_LEVEL };
+export const WATER_FLUID: FluidDef = { source: WATER_SOURCE, flowMin: WATER_FLOW_MIN, flowMax: WATER_FLOW_MAX, maxLevel: WATER_MAX_LEVEL, renewable: true, viscosity: 1 };
+export const LAVA_FLUID: FluidDef = { source: LAVA_SOURCE, flowMin: LAVA_FLOW_MIN, flowMax: LAVA_FLOW_MAX, maxLevel: LAVA_MAX_LEVEL, renewable: false, viscosity: 7 };
 export const FLUIDS: FluidDef[] = [WATER_FLUID, LAVA_FLUID];
 
 /** The fluid an id belongs to, or null if it is not a liquid. */
@@ -116,6 +122,10 @@ export const isCrop = (id: number): boolean => id >= WHEAT_SEED && id <= WHEAT_M
 /** Blocks that need a solid block beneath them: cross-plants (51-55), wheat crops
  *  (57-60) and saplings (63). When their support is removed they pop off + drop. */
 export const needsGround = (id: number): boolean => (id >= 51 && id <= 55) || (id >= 72 && id <= 76) || isCrop(id) || id === SAPLING;
+/** Non-solid decorative plants/flowers/crops/fire — "buildable_to" nodes that a fluid
+ *  flows into and REPLACES (Luanti: water/lava overrun plants instead of leaving a dry
+ *  pocket). Mirrors the client PLANT set (blocks.ts). FIRE_ID is defined below (80). */
+export const isPlant = (id: number): boolean => needsGround(id) || id === 80;
 export const DOOR_CLOSED = 35; // door (solid); toggles with DOOR_OPEN via the use action
 export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
 export const COPPER_ORE = 37;
@@ -170,15 +180,18 @@ export const isFlammable = (id: number): boolean =>
 // to bare-hand digging. Tiers: wood (start) → stone → steel.
 export const TOOL_IDS: Record<string, number> = {
   pick_wood: 200, pick_stone: 201, pick_steel: 202, pick_diamond: 203, pick_mese: 204,
-  axe_wood: 210, axe_stone: 211, axe_steel: 212,
-  shovel_wood: 220, shovel_stone: 221, shovel_steel: 222,
-  sword_wood: 230, sword_stone: 231, sword_steel: 232,
+  axe_wood: 210, axe_stone: 211, axe_steel: 212, axe_diamond: 213, axe_mese: 214,
+  shovel_wood: 220, shovel_stone: 221, shovel_steel: 222, shovel_diamond: 223, shovel_mese: 224,
+  sword_wood: 230, sword_stone: 231, sword_steel: 232, sword_diamond: 233, sword_mese: 234,
   hoe_wood: 240, hoe_stone: 241, hoe_steel: 242,
   flint_steel: 243,
 };
 /** Flint & steel: a tool-track item (no dig caps) used via the use-action to light fire. */
 export const FLINT_STEEL = 243;
 export const isFlintSteel = (id: number): boolean => id === FLINT_STEEL;
+/** Boat: a tool-track item; use-action on water spawns a rideable boat (Luanti boats). */
+export const BOAT_ITEM = 244;
+export const isBoat = (id: number): boolean => id === BOAT_ITEM;
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
 /** Max durability (block-breaks) of a tool, by tier (id%10: 0=wood,1=stone,2=steel).
@@ -242,8 +255,14 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: STEEL_INGOT, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_steel, count: 1 } },
   { in: [{ block: STEEL_INGOT, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_steel, count: 1 } },
   { in: [{ block: DIAMOND, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_diamond, count: 1 } }, // 3 diamonds + 2 sticks → diamond pick
+  { in: [{ block: DIAMOND, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_diamond, count: 1 } },
+  { in: [{ block: DIAMOND, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_diamond, count: 1 } },
+  { in: [{ block: DIAMOND, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_diamond, count: 1 } },
   { in: [{ block: DIAMOND, count: 9 }], out: { block: 26, count: 1 } }, // 9 diamonds → diamond block
   { in: [{ block: MESE_CRYSTAL, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.pick_mese, count: 1 } }, // 3 mese + 2 sticks → mese pick
+  { in: [{ block: MESE_CRYSTAL, count: 3 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.axe_mese, count: 1 } },
+  { in: [{ block: MESE_CRYSTAL, count: 1 }, { block: STICK, count: 2 }], out: { block: TOOL_IDS.shovel_mese, count: 1 } },
+  { in: [{ block: MESE_CRYSTAL, count: 2 }, { block: STICK, count: 1 }], out: { block: TOOL_IDS.sword_mese, count: 1 } },
   { in: [{ block: MESE_CRYSTAL, count: 9 }], out: { block: MESE_BLOCK, count: 1 } }, // 9 mese → mese block
   // Functional nodes (Luanti): torch = coal + stick, ladder = sticks.
   { in: [{ block: COAL_LUMP, count: 1 }, { block: STICK, count: 1 }], out: { block: 33, count: 4 } }, // coal + stick → 4 torches
@@ -270,6 +289,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: 14, count: 4 }, { block: GOLD_INGOT, count: 1 }], out: { block: 79, count: 1 } }, // 4 glass + gold → mese lamp
   { in: [{ block: STEEL_INGOT, count: 3 }], out: { block: BUCKET_EMPTY, count: 1 } }, // 3 steel → empty bucket
   { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
+  { in: [{ block: 17, count: 5 }], out: { block: BOAT_ITEM, count: 1 } }, // 5 wood → boat (Luanti boats)
   { in: [{ block: 18, count: 6 }], out: { block: SIGN_ID, count: 3 } }, // 6 planks → 3 signs
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_ID, count: 6 } }, // 2 planks + 4 sticks → 6 fences
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_GATE_CLOSED, count: 1 } }, // → 1 fence gate

@@ -46,11 +46,24 @@ export class VoxelItemSync extends EntitySync {
   @type('uint8') count = 1;
 }
 
+/**
+ * A rideable boat (Luanti boats mod). Server-authoritative: spawned when a player uses a
+ * boat item on water, moved by the rider's steering, kept at the water surface. `rider`
+ * is the session id steering it (empty = unoccupied). Clients render the boats_boat glTF
+ * and, when they are the rider, follow it with the camera.
+ */
+export class VoxelBoatSync extends EntitySync {
+  @type('number') z = 0;
+  @type('number') yaw = 0;
+  @type('string') rider = ''; // session id of the steering player, '' = empty
+}
+
 export class VoxelRoomState extends Schema {
   // @view(): players + NPCs + item drops are area-of-interest filtered — each client only
   // receives the entities its StateView has added (nearby ones), not the whole world.
   @view() @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
   @view() @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
   @view() @type({ map: VoxelItemSync }) items = new MapSchema<VoxelItemSync>();
+  @view() @type({ map: VoxelBoatSync }) boats = new MapSchema<VoxelBoatSync>();
   @type('string') worldId = '';
 }

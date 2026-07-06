@@ -9,7 +9,7 @@ import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
   COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL, FLINT, APPLE,
   DYE_RED, DYE_ORANGE, DYE_YELLOW, DYE_GREEN, DYE_BLUE, DYE_VIOLET, DYE_BLACK, DIAMOND, MESE_CRYSTAL,
-  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL,
+  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL, BOAT_ITEM,
 } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
@@ -105,12 +105,13 @@ const toolItem = (kind: ToolKind, tier: 'wood' | 'stone' | 'steel' | 'diamond' |
 const bucketItem = (id: number, name: string, tex: string): Item => ({ id: 'b' + id, name, texUrl: 'items/' + tex, pivot: [0.5, 0.5], toolId: id });
 export const TOOL_ITEMS: Item[] = [
   toolItem('pick', 'wood', 'Pickaxe'), toolItem('pick', 'stone', 'Pickaxe'), toolItem('pick', 'steel', 'Pickaxe'), toolItem('pick', 'diamond', 'Pickaxe'), toolItem('pick', 'mese', 'Pickaxe'),
-  toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'),
-  toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'),
-  toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'),
+  toolItem('axe', 'wood', 'Axe'), toolItem('axe', 'stone', 'Axe'), toolItem('axe', 'steel', 'Axe'), toolItem('axe', 'diamond', 'Axe'), toolItem('axe', 'mese', 'Axe'),
+  toolItem('shovel', 'wood', 'Shovel'), toolItem('shovel', 'stone', 'Shovel'), toolItem('shovel', 'steel', 'Shovel'), toolItem('shovel', 'diamond', 'Shovel'), toolItem('shovel', 'mese', 'Shovel'),
+  toolItem('sword', 'wood', 'Sword'), toolItem('sword', 'stone', 'Sword'), toolItem('sword', 'steel', 'Sword'), toolItem('sword', 'diamond', 'Sword'), toolItem('sword', 'mese', 'Sword'),
   toolItem('hoe', 'wood', 'Hoe'), toolItem('hoe', 'stone', 'Hoe'), toolItem('hoe', 'steel', 'Hoe'),
   bucketItem(BUCKET_EMPTY, 'Bucket', 'bucket'), bucketItem(BUCKET_WATER, 'Water Bucket', 'bucket_water'), bucketItem(BUCKET_LAVA, 'Lava Bucket', 'bucket_lava'),
   bucketItem(FLINT_STEEL, 'Flint & Steel', 'fire_flint_steel'), // tool-track item; use-action lights fire
+  bucketItem(BOAT_ITEM, 'Boat', 'boats_inventory'), // tool-track item; use on water → rideable boat
 ];
 /** Numeric tool id → its Item (for invItem / ownership checks). */
 const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
@@ -190,11 +191,11 @@ export const iconUrl = (it: Item): string => it.icon ?? new URL(`textures/${it.t
 // sword per tier so the progression is visible: wood → stone → steel.
 export const DEFAULT_TOOLS: string[] = [
   'pick_wood', 'pick_stone', 'pick_steel', 'pick_diamond', 'pick_mese',
-  'axe_wood', 'axe_stone', 'axe_steel',
-  'shovel_wood', 'shovel_stone', 'shovel_steel',
-  'sword_wood', 'sword_stone', 'sword_steel',
+  'axe_wood', 'axe_stone', 'axe_steel', 'axe_diamond', 'axe_mese',
+  'shovel_wood', 'shovel_stone', 'shovel_steel', 'shovel_diamond', 'shovel_mese',
+  'sword_wood', 'sword_stone', 'sword_steel', 'sword_diamond', 'sword_mese',
   'hoe_wood', 'hoe_stone', 'hoe_steel',
-  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA, 'b' + FLINT_STEEL,
+  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA, 'b' + FLINT_STEEL, 'b' + BOAT_ITEM,
 ];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */

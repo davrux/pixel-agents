@@ -6,6 +6,21 @@
  * avatars: `group`, `setTint(color)`, `animate(dt, speed)`.
  */
 import * as THREE from 'three';
+import { GltfMob, LUANTI_MOBS } from './mobGltf.js';
+
+/** Same surface main.ts needs from any NPC render (real avatars, glTF mobs, boxes). */
+export interface NpcRender {
+  group: THREE.Object3D;
+  setTint(c: THREE.Color): void;
+  animate(dt: number, speed: number): void;
+}
+
+/** Pick the best model for a mob kind: the real converted Luanti animal model when
+ *  we have one, else the blocky box fallback (monsters, unmapped kinds). */
+export function makeMob(kind: string): NpcRender {
+  const lm = LUANTI_MOBS[kind];
+  return lm ? new GltfMob(lm) : new MobModel(kind);
+}
 
 interface Part {
   mesh: THREE.Mesh;

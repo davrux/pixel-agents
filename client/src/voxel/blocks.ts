@@ -159,6 +159,10 @@ export const CLIMBABLE = new Set<number>([LADDER_ID]);
 export const LIGHT_BLOCKS = new Set<number>([TORCH_ID, 79, FIRE_ID]);
 /** Blocks the mesher never draws (present for physics/state only). An open door. */
 export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
+/** Blocks drawn as real Luanti glTF NODE MODELS (see nodeModels.ts) instead of cubes —
+ *  the mesher skips them so the model is the only visual. Fences still connect toward a
+ *  closed gate (FENCE_SHAPE membership is unchanged; only the cube draw is suppressed). */
+export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
 export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN]);

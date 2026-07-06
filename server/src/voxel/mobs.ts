@@ -37,6 +37,9 @@ export const MOB_DEFS: Record<string, MobDef> = {
   cow: animal('cow', 'character_5', 10, 1.0, 2.2),
   chicken: animal('chicken', 'character_6', 4, 1.2, 2.6),
   pig: animal('pig', 'character_7', 10, 1.1, 2.4),
+  bunny: animal('bunny', 'character_3', 4, 1.3, 3.0), // fast hopper
+  panda: animal('panda', 'character_5', 15, 0.8, 1.6), // slow + tanky
+  penguin: animal('penguin', 'character_6', 6, 0.9, 1.8),
   // Hostile monsters — spawn at night, chase + attack the player.
   zombie: monster('zombie', 'character_8', 20, 12, 1.5, 3.0, 2, 2.4),
   skeleton: monster('skeleton', 'character_9', 20, 14, 1.6, 3.2, 3, 2.6),
