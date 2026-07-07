@@ -65,6 +65,7 @@ Browser (Phaser) ◄── Colyseus :2567 ── RelayRoom
 | `server/` | Colyseus `RelayRoom`, asset decoding (`assetLoader` + `src/core/assets`), `/feed` ingest + `transcriptParser`, `AgentDirector`, mock driver. |
 | `client/` | Phaser scene, the ported `office/` engine, `PhaserRenderer`, the Colyseus↔engine `bridge`. |
 | `feeder/` | Standalone Node script that streams local `~/.claude/projects/**.jsonl` to `/feed`. |
+| `desktop/` | Electron shell that wraps the built client as a native desktop app (secure `app://` origin, OS-keychain token storage, screen-share source picker). |
 | `assets/` | The original pixel-agents art: `characters/`, `floors/`, `walls/`, `furniture/` (+manifests), `pets/`, and `default-layout-1.json`. Decoded by the server. |
 
 Font: **FS Pixel Sans** (`client/public/fonts/`), the original's UI font.
@@ -104,6 +105,41 @@ pnpm start          # one server: viewer, Colyseus and /feed all on one port
 In production there is **no separate client server** — `pnpm start` (and the
 Docker image) serve the built client from the same origin. A viewer only needs
 a browser pointed at the server URL; an agent only needs Claude + the feeder.
+
+### Desktop client (Electron)
+
+`desktop/` is a thin Electron shell around the same built web client. It exists
+so the office can run as a native window with two things a plain browser tab
+can't give you: a **stable secure origin** (`app://bundle`) so `getUserMedia` /
+WebRTC screen-sharing and persistent settings work reliably, and **OS-keychain
+storage** for your login token (encrypted at rest via Electron `safeStorage`).
+It also adds an in-window screen-source picker and HUD window controls.
+
+The shell only renders the UI — it still talks to a **server you point it at**
+(local or remote). It bundles the client build, not the server.
+
+**Run in development** (builds the client + the Electron main/preload, then
+launches the app):
+
+```bash
+pnpm dev:desktop
+```
+
+Make sure a server is running (`pnpm dev:server`, or a remote one) to connect
+to. On first launch the app shows a **Connection** screen — enter the server URL
+(e.g. `http://localhost:2567`); it probes `/health`, then takes you to sign-in.
+The server URL and token persist across relaunches; you can change the server or
+sign out from within the app.
+
+**Build a distributable** (currently a Linux AppImage, unsigned):
+
+```bash
+pnpm dist:desktop     # → desktop/release/Pixel Agents-<version>-<arch>.AppImage
+```
+
+`pnpm build:desktop` just compiles the shell (client build + Electron
+main/preload) without packaging. Both require `electron`'s postinstall to have
+fetched its Chromium binary (allowed in `pnpm-workspace.yaml`).
 
 ### Accounts & login
 

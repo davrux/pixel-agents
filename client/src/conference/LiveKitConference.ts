@@ -94,12 +94,12 @@ export class LiveKitConference {
     this.room = room;
     room
       .on(RoomEvent.TrackSubscribed, (track, _pub, p) => this.addTrack(track, p, false))
-      .on(RoomEvent.TrackUnsubscribed, (track) => this.removeTrack(track))
+      .on(RoomEvent.TrackUnsubscribed, (track, _pub, p) => this.removeTrack(track, p))
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
-        if (pub.track) this.removeTrack(pub.track);
+        if (pub.track) this.removeTrack(pub.track, room.localParticipant);
       })
       .on(RoomEvent.TrackMuted, () => this.emitParticipants())
       .on(RoomEvent.TrackUnmuted, () => this.emitParticipants())
@@ -188,7 +188,7 @@ export class LiveKitConference {
     this.emitParticipants();
   }
 
-  private removeTrack(track: LkTrack): void {
+  private removeTrack(track: LkTrack, p: Participant): void {
     const sid = track.sid;
     if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
       const el = sid ? this.screens.get(sid) : undefined;
@@ -200,14 +200,14 @@ export class LiveKitConference {
       return;
     }
     if (track.kind === Track.Kind.Video) {
-      // Camera gone → show the placeholder again (tile stays for the participant).
-      for (const t of this.tiles.values()) {
-        const v = t.media.querySelector('video');
-        if (v) {
-          v.remove();
-          t.hasVideo = false;
-          t.placeholder.style.display = '';
-        }
+      // Camera gone → show the placeholder again on this participant's tile only
+      // (the tile stays; other participants' videos are untouched).
+      const t = this.tiles.get(p.identity);
+      const v = t?.media.querySelector('video');
+      if (t && v) {
+        v.remove();
+        t.hasVideo = false;
+        t.placeholder.style.display = '';
       }
     } else if (sid) {
       const a = this.audios.get(sid);
