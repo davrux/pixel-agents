@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CHUNK, toChunk } from '@pixel/shared';
-import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID } from './blocks.js';
+import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID } from './blocks.js';
 
 interface Grid {
   rawChunk(cx: number, cy: number, cz: number): Uint8Array | null;
@@ -45,7 +45,8 @@ interface Place {
   model: string;
   targetH: number;
   rotY: number;
-  wall?: [number, number]; // wall torch: (dx,dz) toward the wall it mounts on → offset there
+  wall?: [number, number]; // wall torch/ladder: (dx,dz) toward the wall it mounts on → offset there
+  off?: number; // how far to offset toward the wall (torch 0.32, ladder ~0.46 = flat on the face)
 }
 
 export class NodeModels {
@@ -62,10 +63,29 @@ export class NodeModels {
   }
 
   private async loadAll(): Promise<void> {
-    await Promise.all([...MODEL_NAMES.map((n) => this.loadTemplate(n)), this.loadPortalTemplate()]);
+    await Promise.all([...MODEL_NAMES.map((n) => this.loadTemplate(n)), this.loadPortalTemplate(), this.loadLadderTemplate()]);
     this.buildMonitorTemplate(); // procedural (no asset) — build synchronously
     this.ready = true;
     this.onReadyCb?.(); // let the app rescan already-loaded chunks
+  }
+
+  /** The ladder is a flat, wall-mounted panel (Luanti wallmounted): a double-sided quad
+   *  with the ladder texture, oriented to face away from the wall it hangs on. */
+  private async loadLadderTemplate(): Promise<void> {
+    const tex = await new THREE.TextureLoader().loadAsync(new URL('textures/blocks/ladder.png', document.baseURI).href).catch(() => null);
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: 0.5, side: THREE.DoubleSide });
+    if (tex) {
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.generateMipmaps = false;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      mat.map = tex;
+    }
+    const g = new THREE.Group();
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.0), mat); // faces +Z by default
+    panel.frustumCulled = false;
+    g.add(panel);
+    this.templates.set('ladder', { obj: g, box: new THREE.Box3().setFromObject(g) });
   }
 
   /** The conference monitor is a procedural multi-cube model (no glTF asset): a flat
@@ -197,6 +217,19 @@ export class NodeModels {
       if (w.solid(x, y + 1, z)) return { model: 'torch_ceiling', targetH: TORCH_H, rotY: 0 };
       return { model: 'torch_floor', targetH: TORCH_H, rotY: 0 };
     }
+    if (id === LADDER_ID) {
+      // Flat panel on the first solid horizontal neighbour, facing away from that wall.
+      const dirs: [number, number, number, number][] = [
+        [0, 0, -1, 0], // wall at -Z → face +Z
+        [0, 0, 1, Math.PI], // wall at +Z → face -Z
+        [-1, 0, 0, Math.PI / 2], // wall at -X → face +X
+        [1, 0, 0, -Math.PI / 2], // wall at +X → face -X
+      ];
+      for (const [dx, , dz, rotY] of dirs) {
+        if (w.solid(x + dx, y, z + dz)) return { model: 'ladder', targetH: 1.0, rotY, wall: [dx, dz], off: 0.46 };
+      }
+      return { model: 'ladder', targetH: 1.0, rotY: 0 }; // no wall found (legacy/free-standing) → centred
+    }
     if (id === DOOR_CLOSED || id === DOOR_OPEN) {
       // Only the bottom cell of the 2-tall door draws the (2-node) model.
       if (w.get(x, y - 1, z) === DOOR_CLOSED || w.get(x, y - 1, z) === DOOR_OPEN) return null;
@@ -257,7 +290,7 @@ export class NodeModels {
     const AREA = CHUNK * CHUNK;
     for (let i = 0; i < cells.length; i++) {
       const id = cells[i];
-      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID) continue;
+      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID && id !== LADDER_ID) continue;
       const ly = (i / AREA) | 0,
         rem = i % AREA,
         lz = (rem / CHUNK) | 0,
@@ -275,9 +308,10 @@ export class NodeModels {
       if (!place) continue;
       const inst = this.makeInstance(place);
       if (!inst) continue;
-      // Wall torch: shift toward its wall so it mounts on the face instead of floating.
-      const ox = place.wall ? place.wall[0] * 0.32 : 0;
-      const oz = place.wall ? place.wall[1] * 0.32 : 0;
+      // Wall-mounted (torch/ladder): shift toward its wall so it sits on the face.
+      const off = place.off ?? 0.32;
+      const ox = place.wall ? place.wall[0] * off : 0;
+      const oz = place.wall ? place.wall[1] * off : 0;
       inst.position.set(x + 0.5 + ox, y, z + 0.5 + oz);
       this.instances.set(`${x},${y},${z}`, inst);
       this.group.add(inst);

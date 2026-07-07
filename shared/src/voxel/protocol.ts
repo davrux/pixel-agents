@@ -111,6 +111,7 @@ export const MESE_BLOCK = 96; // 9 mese crystals
 export const RAIL_ID = 97; // flat rail track (Luanti carts): laid on the ground, carts run along it
 export const isRail = (id: number): boolean => id === RAIL_ID;
 export const TNT_ID = 71; // ignite via the use-action → fuse → explosion
+export const LADDER_ID = 32; // wall-mounted climbable node (needs a solid neighbour to hang on)
 export const CHEST_ID = 34; // openable storage node (per-position inventory, server-side)
 export const FURNACE_ID = 62; // placed smelting node — using it opens the smelting UI
 export const SAPLING = 63; // planted → grows into a tree over time

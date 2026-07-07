@@ -39,6 +39,7 @@ import {
   MAX_BLOCK_ID,
   MONITOR_ID,
   BEDROCK_ID,
+  LADDER_ID,
   conferenceKey,
   CHEST_ID,
   FURNACE_ID,
@@ -1855,6 +1856,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         client.send('inv', { block: id, total: 0 }); // nothing to place — correct the client
         return;
       }
+    }
+    // A ladder is wall-mounted (Luanti): it needs a solid block on at least one horizontal
+    // side to hang on — reject a free-standing placement.
+    if (id === LADDER_ID && prev === 0) {
+      const hasWall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => this.world.getBlock(x + dx, y, z + dz) !== 0);
+      if (!hasWall) return void client.send('m', { type: 'system', text: 'A ladder needs a wall to hang on.' });
     }
     if (!this.world.setBlock(x, y, z, id)) return; // no change
     this.broadcastEdit(x, y, z, id);

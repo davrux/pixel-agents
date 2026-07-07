@@ -149,8 +149,12 @@ export class Player {
         this.vel.y = Math.min(SWIM_UP, this.vel.y);
         this.onGround = false;
       } else if (onLadder) {
-        // Ladder: no gravity — jump climbs, sneak descends, otherwise a gentle slide down.
-        this.vel.y = input.jump ? CLIMB_SPEED : input.down ? -CLIMB_SPEED : -CLIMB_SLIDE;
+        // Ladder (wall-mounted): Space climbs up, Shift descends. Otherwise you hold in
+        // place while pressing INTO the wall the ladder hangs on (Minecraft-style); with
+        // no input you slide gently down.
+        const wall = this.ladderWall(wx, wz, Math.floor(this.pos.y));
+        const intoWall = wall !== null && mx * wall[0] + mz * wall[1] > 0.01;
+        this.vel.y = input.jump ? CLIMB_SPEED : input.down ? -CLIMB_SPEED : intoWall ? 0 : -CLIMB_SLIDE;
         this.onGround = false;
       } else {
         this.vel.y += GRAVITY * dt;
@@ -197,5 +201,22 @@ export class Player {
     const top = this.world.columnTop(x, z);
     this.pos.set(x + 0.5, top + 1, z + 0.5);
     this.vel.set(0, 0, 0);
+  }
+
+  /** The direction toward the wall a ladder at (x,z) hangs on (its first solid horizontal
+   *  neighbour, at the feet or body cell), or null if free-standing. Used to detect
+   *  "pressing into the wall" so the player holds instead of sliding. */
+  private ladderWall(x: number, z: number, yFeet: number): [number, number] | null {
+    const dirs: [number, number][] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    for (const y of [yFeet, yFeet + 1]) {
+      if (!this.world.climb(x, y, z)) continue;
+      for (const [dx, dz] of dirs) if (this.world.solid(x + dx, y, z + dz)) return [dx, dz];
+    }
+    return null;
   }
 }
