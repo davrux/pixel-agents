@@ -120,6 +120,7 @@ BLOCKS.push(
   u('mese block', 'mese_block'), // 96 — 9 mese crystals
   u('rail', 'rail'), // 97 — flat track (rendered as a ground quad, not a cube; carts run on it)
   u('conference monitor', 'monitor'), // 98 — standing multi-cube screen (node model); use → video call
+  u('bedrock', 'bedrock'), // 99 — unbreakable world floor (below y=0); generated, not placeable
 );
 
 export const WATER_ID = 27;
@@ -140,6 +141,7 @@ export const FENCE_GATE_OPEN = 84;
 export const BED_ID = 85;
 export const RAIL_ID = 97; // flat track — rendered as a ground quad, carts run on it
 export const MONITOR_ID = 98; // conference screen — a node model (multi-cube); use-action opens a video call
+export const BEDROCK_ID = 99; // unbreakable world floor (below y=0) — generated only, never placeable/diggable
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
@@ -169,10 +171,10 @@ export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
 export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
-export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN]);
+export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN, BEDROCK_ID]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
-export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore', 'diamond_ore', 'mese_ore', 'monitor'];
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore', 'diamond_ore', 'mese_ore', 'monitor', 'bedrock'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(

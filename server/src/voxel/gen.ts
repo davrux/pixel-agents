@@ -33,6 +33,7 @@ const TIN_ORE = 38; // mid-depth, rarer
 const GOLD_ORE = 39; // deep + rare
 const DIAMOND_ORE = 94; // deepest + rarest (top tool tier)
 const MESE_ORE = 95; // deepest + rarest (top tool tier)
+const BEDROCK = 99; // unbreakable world floor (below y=0) — you can dig down to it but not through
 // Decorative surface plants (ids 51+; cross-plants except cactus).
 const TALL_GRASS = 51;
 const FERN = 52;
@@ -113,7 +114,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
       for (let ly = 0; ly < CHUNK; ly++) {
         const wy = baseY + ly;
         let id = AIR;
-        if (wy < 0) id = STONE; // bedrock floor — never fall through
+        if (wy < 0) id = BEDROCK; // unbreakable world floor — you stand on it, can't dig through
         else if (wy < h - 4) id = STONE;
         else if (wy < h) id = subId;
         else if (wy === h) id = topId;

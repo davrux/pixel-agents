@@ -83,7 +83,8 @@ export class VoxelWorld {
               for (let ly = 0; ly < CHUNK; ly++) {
                 const wy = cy * CHUNK + ly;
                 let id = AIR;
-                if (wy < 0 || wy < h - 4) id = 3; // stone
+                if (wy < 0) id = 99; // bedrock floor (unbreakable)
+                else if (wy < h - 4) id = 3; // stone
                 else if (wy < h) id = 2; // dirt
                 else if (wy === h) id = 1; // grass
                 if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;

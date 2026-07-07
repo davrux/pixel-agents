@@ -38,6 +38,7 @@ import {
   toolMaxUses,
   MAX_BLOCK_ID,
   MONITOR_ID,
+  BEDROCK_ID,
   conferenceKey,
   CHEST_ID,
   FURNACE_ID,
@@ -203,6 +204,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private readonly lastVoiceEventAt = new Map<string, number>(); // per-session throttle for voice announcements
   private readonly lastChatAt = new Map<string, number>(); // per-session chat throttle (matches the 2D office)
+  private readonly chatLog: Array<{ from: string; text: string; at: number }> = []; // recent chat, replayed on join (like 2D)
   private readonly decayLeaves = new Set<string>(); // orphaned leaf cells to check for decay
   private decayAcc = 0; // seconds toward the next leaf-decay tick
   private hungerAcc = 0; // seconds toward the next hunger tick
@@ -1687,6 +1689,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     client.send('worlds', listWorlds()); // for the client's world dropdown
     client.send('signs', signs.all(this.state.worldId)); // all sign texts in this world (rendered in-world)
     client.send('monitors', monitors.all(this.state.worldId)); // all conference-monitor room names
+    client.send('m', { type: 'chatHistory', messages: this.chatLog }); // replay recent chat (like the 2D office)
     // Server-side per-user settings (camera/auto-switch/wield transforms). Only
     // for logged-in users; anonymous clients keep their local settings.
     if (auth?.userId) {
@@ -1838,6 +1841,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const lim = this.halfExtent();
     if (Math.abs(x) > lim || Math.abs(z) > lim) return; // outside the world border
     const prev = this.world.getBlock(x, y, z);
+    if (prev === BEDROCK_ID || id === BEDROCK_ID) return; // bedrock is unbreakable + not placeable
     const sid = client.sessionId;
     // Survival can't place liquid sources directly — that needs a filled bucket (see onBucket).
     // Creative keeps free water/lava placement as an ∞ build tool.
@@ -2063,6 +2067,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (!text) return;
     this.lastChatAt.set(client.sessionId, now);
     const from = this.state.players.get(client.sessionId)?.name || 'player';
+    this.chatLog.push({ from, text, at: now });
+    if (this.chatLog.length > 50) this.chatLog.shift();
     this.broadcast('m', { type: 'chat', from, text, at: now });
   }
 

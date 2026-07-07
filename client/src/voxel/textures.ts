@@ -93,6 +93,22 @@ function drawMonitor(ctx: CanvasRenderingContext2D, s: number): void {
   bar(4, 14, 8, 1);
 }
 
+/** Bedrock: dark stone with a coarse speckle so the unbreakable world floor reads distinctly. */
+function drawBedrock(ctx: CanvasRenderingContext2D, s: number): void {
+  const p = s / 16;
+  ctx.fillStyle = '#3a3a40';
+  ctx.fillRect(0, 0, s, s);
+  const spots: [number, number, string][] = [
+    [1, 2, '#222'], [4, 1, '#555'], [7, 3, '#222'], [11, 1, '#555'], [13, 4, '#222'],
+    [2, 6, '#555'], [6, 7, '#222'], [9, 6, '#555'], [12, 8, '#222'], [3, 10, '#222'],
+    [7, 11, '#555'], [10, 12, '#222'], [14, 11, '#555'], [1, 13, '#555'], [5, 14, '#222'], [11, 14, '#555'],
+  ];
+  for (const [x, y, c] of spots) {
+    ctx.fillStyle = c;
+    ctx.fillRect(x * p, y * p, 2 * p, 2 * p);
+  }
+}
+
 /** Ore tile = stone base with a mineral overlay drawn on top (Luanti `stone^mineral`). */
 function drawOre(overlay: string) {
   return (ctx: CanvasRenderingContext2D, s: number, img: Map<string, HTMLImageElement>): void => {
@@ -120,6 +136,7 @@ export const SYNTHETIC: SyntheticTile[] = [
   { name: 'diamond_ore', render: drawOre('mineral_diamond') },
   { name: 'mese_ore', render: drawOre('mineral_mese') },
   { name: 'monitor', render: (ctx, s) => drawMonitor(ctx, s) },
+  { name: 'bedrock', render: (ctx, s) => drawBedrock(ctx, s) },
 ];
 
 export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {

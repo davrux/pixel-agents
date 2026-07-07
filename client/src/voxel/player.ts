@@ -187,8 +187,10 @@ export class Player {
       this.vel.y = 0;
     }
 
-    // Fell out of the world → respawn on the surface.
-    if (this.pos.y < -8) this.spawnOnColumn(Math.floor(this.pos.x), Math.floor(this.pos.z));
+    // Fell out of the world → respawn on the surface. The threshold sits well below the
+    // bedrock floor (generated at y<0, unbreakable) so you simply land + stand on bedrock
+    // instead of looping — this only fires on a genuine clip-through glitch.
+    if (this.pos.y < -64) this.spawnOnColumn(Math.floor(this.pos.x), Math.floor(this.pos.z));
   }
 
   spawnOnColumn(x: number, z: number): void {

@@ -21,7 +21,7 @@ import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, BEDROCK_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -1966,7 +1966,7 @@ function updateBreaking(dt: number, want: boolean): void {
     // plants, fire etc. are NONSOLID but still breakable (the ray only hits terrain mesh,
     // so a non-air, non-fluid cell here is a placed block).
     const b = world.get(x, y, z);
-    if (b !== 0 && !isWaterId(b) && !isLavaId(b)) tgt = { x, y, z };
+    if (b !== 0 && !isWaterId(b) && !isLavaId(b) && b !== BEDROCK_ID) tgt = { x, y, z }; // bedrock is unbreakable
   }
   // Dig time from the held/auto tool + block group (Luanti data). null = the tool
   // is too weak (e.g. steel pick on a diamond block) → can't break it. Creative breaks
@@ -2880,9 +2880,12 @@ function chestRender(): void {
 // ── World connect + multiworld switching ──────────────────────────────────────
 const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onMonitor: applyMonitor, onMonitors: applyMonitors, onTime, onNote, onLeave: onWorldLeave, onMsg: onWorldMsg,
   onCrafted: (m: { block: number; count: number }) => showToast(`✔ Crafted ${m.count}× ${invItem(m.block).name}`) };
-function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string; x?: number; y?: number; z?: number }): void {
+function onWorldMsg(
+  m: ChatMsg & { url?: string; token?: string; error?: string; x?: number; y?: number; z?: number; messages?: { from?: string; text?: string; at?: number }[] },
+): void {
   if (m.type === 'zoneVoiceToken') void zoneVoice.onToken(m);
   else if (m.type === 'confToken') onConfToken(m);
+  else if (m.type === 'chatHistory') chat.addHistory(m.messages ?? []); // replay recent chat on join (like 2D)
   else if (m.type === 'system') chat.addSystemLine(m.text ?? '');
   else if (m.type === 'chat') chat.addChatLine(m.from ?? 'player', m.text ?? '', m.at);
 }
