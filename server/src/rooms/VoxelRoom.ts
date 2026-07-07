@@ -279,12 +279,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         this.boatSteer.set(client.sessionId, { forward: Math.max(-1, Math.min(1, m?.forward ?? 0)), turn: Math.max(-1, Math.min(1, m?.turn ?? 0)) });
     });
     this.onMessage('boatDismount', (client) => this.dismountBoat(client.sessionId));
+    this.onMessage('boatRemove', (client, m: { id?: string }) => this.onBoatRemove(client, m?.id ?? ''));
     this.onMessage('cartPlace', (client, m: { x: number; y: number; z: number }) => this.onCartPlace(client, m));
     this.onMessage('cartMount', (client, m: { id?: string }) => this.onCartMount(client, m?.id ?? ''));
     this.onMessage('cartSteer', (client, m: { throttle?: number }) => {
       if ([...this.state.carts.values()].some((c) => c.rider === client.sessionId)) this.cartInput.set(client.sessionId, Math.max(-1, Math.min(1, m?.throttle ?? 0)));
     });
     this.onMessage('cartDismount', (client) => this.dismountCart(client.sessionId));
+    this.onMessage('cartRemove', (client, m: { id?: string }) => this.onCartRemove(client, m?.id ?? ''));
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
@@ -1229,6 +1231,26 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.saveBoats(); // boat came to rest → persist its parked position
   }
 
+  /** Give one of `item` to a player (survival inventory) + echo the new count. */
+  private giveItem(client: Client, item: number): void {
+    const bag = this.inv.get(client.sessionId) ?? new Map<number, number>();
+    bag.set(item, (bag.get(item) ?? 0) + 1);
+    this.inv.set(client.sessionId, bag);
+    client.send('inv', { block: item, total: bag.get(item) ?? 1 });
+  }
+
+  /** Punch an empty boat you're near → remove it + get the boat item back (Luanti). */
+  private onBoatRemove(client: Client, id: string): void {
+    const bt = this.state.boats.get(id);
+    const p = this.state.players.get(client.sessionId);
+    if (!bt || !p || bt.rider) return; // can't pick up an occupied boat
+    if (Math.hypot(bt.x - p.x, bt.z - p.z) > 4) return;
+    this.dropFromViews(bt);
+    this.state.boats.delete(id);
+    this.giveItem(client, BOAT_ITEM);
+    this.saveBoats();
+  }
+
   // ── Carts (Luanti carts mod): rideable rail entities ─────────────────────────
   private railAt(x: number, y: number, z: number): boolean {
     return this.world.getBlock(x, y, z) === RAIL_ID;
@@ -1282,6 +1304,18 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     });
   }
 
+  /** Punch an empty cart you're near → remove it + get the cart item back. */
+  private onCartRemove(client: Client, id: string): void {
+    const c = this.state.carts.get(id);
+    const p = this.state.players.get(client.sessionId);
+    if (!c || !p || c.rider) return;
+    if (Math.hypot(c.x - p.x, c.z - p.z) > 4) return;
+    this.dropFromViews(c);
+    this.state.carts.delete(id);
+    this.cartMotion.delete(id);
+    this.giveItem(client, CART_ITEM);
+  }
+
   /** Next travel direction at rail cell (cx,cz): prefer straight (dx,dz), else a turn onto a
    *  connected rail (never reverse), else null (dead end → stop). */
   private pickCartDir(cx: number, cy: number, cz: number, dx: number, dz: number): { dx: number; dz: number } | null {
@@ -1303,6 +1337,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       p.y = c.y + 0.3;
       p.z = c.z;
       p.yaw = c.yaw;
+      p.state = 'sit';
     }
   }
 
@@ -1315,18 +1350,17 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const m = this.cartMotion.get(id);
       if (!m) return;
       if (c.rider && !this.state.players.get(c.rider)) this.dismountCart(c.rider);
-      const throttle = c.rider ? this.cartInput.get(c.rider) ?? 0 : 0;
+      const throttle = c.rider ? this.cartInput.get(c.rider) ?? 0 : 0; // W = +1 forward, S = -1 reverse
       m.speed += throttle * 8 * dt;
-      m.speed -= m.speed * Math.min(1, dt * 0.5); // rolling friction
-      if (m.speed < 0) m.speed = 0; // forward-only; S brakes to a stop
-      if (m.speed > MAX) m.speed = MAX;
+      m.speed -= m.speed * Math.min(1, dt * 0.5); // rolling friction (toward 0)
+      m.speed = Math.max(-MAX, Math.min(MAX, m.speed)); // SIGNED — negative = travelling backward
       const cy = Math.floor(c.y);
-      if (m.speed < 0.05) {
+      if (Math.abs(m.speed) < 0.05) {
         m.speed = 0;
         this.glueCartRider(c);
         return;
       }
-      let cx = Math.floor(c.x),
+      const cx = Math.floor(c.x),
         cz = Math.floor(c.z);
       if (!m.dx && !m.dz) {
         const d = this.pickCartDir(cx, cy, cz, 0, 0);
@@ -1338,39 +1372,39 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         m.dx = d.dx;
         m.dz = d.dz;
       }
-      c.x += m.dx * m.speed * dt;
-      c.z += m.dz * m.speed * dt;
-      if (m.dx) c.z = Math.floor(c.z) + 0.5;
+      // Travel direction = the rail axis oriented by the speed sign (so S drives backward).
+      const sign = m.speed >= 0 ? 1 : -1;
+      const tdx = m.dx * sign,
+        tdz = m.dz * sign;
+      c.x += tdx * Math.abs(m.speed) * dt;
+      c.z += tdz * Math.abs(m.speed) * dt;
+      if (tdx) c.z = Math.floor(c.z) + 0.5;
       else c.x = Math.floor(c.x) + 0.5; // stay centred on the perpendicular axis
       const ncx = Math.floor(c.x),
         ncz = Math.floor(c.z);
       if (ncx !== cx || ncz !== cz) {
         if (!this.railAt(ncx, cy, ncz)) {
-          // ran off the track → stop at the last rail cell
-          c.x = cx + 0.5;
+          c.x = cx + 0.5; // ran off the track → stop at the last rail cell (keep the axis)
           c.z = cz + 0.5;
           m.speed = 0;
-          m.dx = 0;
-          m.dz = 0;
         } else {
-          const d = this.pickCartDir(ncx, cy, ncz, m.dx, m.dz);
-          if (d) {
-            if (d.dx !== m.dx || d.dz !== m.dz) {
-              c.x = ncx + 0.5;
-              c.z = ncz + 0.5;
-            } // snap to centre to start a turn cleanly
-            m.dx = d.dx;
-            m.dz = d.dz;
-          } else {
+          const d = this.pickCartDir(ncx, cy, ncz, tdx, tdz); // continue along travel, else turn
+          if (d && (d.dx !== tdx || d.dz !== tdz)) {
+            // a turn: snap to centre, adopt the new axis, keep the same speed magnitude forward
             c.x = ncx + 0.5;
             c.z = ncz + 0.5;
+            m.dx = d.dx;
+            m.dz = d.dz;
+            m.speed = Math.abs(m.speed);
+          } else if (!d) {
+            c.x = ncx + 0.5; // dead end
+            c.z = ncz + 0.5;
             m.speed = 0;
-            m.dx = 0;
-            m.dz = 0;
           }
+          // straight continuation: keep dir + signed speed unchanged (so reverse stays smooth)
         }
       }
-      c.yaw = Math.atan2(-m.dx, -m.dz);
+      c.yaw = Math.atan2(-tdx, -tdz); // face the way it's actually travelling
       c.y = cy + 0.1;
       this.glueCartRider(c);
     });
@@ -1417,6 +1451,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       p.y = bt.y + 0.2;
       p.z = bt.z;
       p.yaw = bt.yaw;
+      p.state = 'sit'; // not 'swim' — so other clients don't render the rider swimming
     });
   }
 
@@ -1447,22 +1482,23 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private tickFly(b: NpcBrain, dt: number): void {
     const n = b.sync;
     b.think -= dt;
-    if (!b.flyT || b.think <= 0 || Math.hypot(n.x - b.flyT.x, n.y - b.flyT.y, n.z - b.flyT.z) < 0.8) {
-      const gx = Math.floor(n.x + (Math.random() * 2 - 1) * 6);
-      const gz = Math.floor(n.z + (Math.random() * 2 - 1) * 6);
-      b.flyT = { x: gx + 0.5, y: this.world.columnTop(gx, gz) + 1.5 + Math.random() * 3, z: gz + 0.5 };
-      b.think = 2 + Math.random() * 3;
+    // Wander HORIZONTALLY to a new spot; hover at a steady height above the ground there
+    // (new target on arrival / timeout). No big vertical targets → no fast up-and-down.
+    if (!b.flyT || b.think <= 0 || Math.hypot(n.x - b.flyT.x, n.z - b.flyT.z) < 0.8) {
+      const gx = Math.floor(n.x + (Math.random() * 2 - 1) * 8);
+      const gz = Math.floor(n.z + (Math.random() * 2 - 1) * 8);
+      b.flyT = { x: gx + 0.5, y: this.world.columnTop(gx, gz) + 2.2, z: gz + 0.5 };
+      b.think = 3 + Math.random() * 4;
       b.mode = 'walk';
     }
     const dx = b.flyT.x - n.x,
-      dy = b.flyT.y - n.y,
       dz = b.flyT.z - n.z;
-    const d = Math.hypot(dx, dy, dz) || 1;
-    const step = Math.min(d, b.def.walkVel * dt);
-    n.x += (dx / d) * step;
-    n.y += (dy / d) * step;
-    n.z += (dz / d) * step;
-    const minY = this.world.columnTop(Math.floor(n.x), Math.floor(n.z)) + 1.2; // never dip into the ground
+    const dh = Math.hypot(dx, dz) || 1;
+    const step = Math.min(dh, b.def.walkVel * dt);
+    n.x += (dx / dh) * step; // drift horizontally toward the target
+    n.z += (dz / dh) * step;
+    n.y += (b.flyT.y - n.y) * Math.min(1, dt * 1.5); // ease height gently (never snaps)
+    const minY = this.world.columnTop(Math.floor(n.x), Math.floor(n.z)) + 1.2;
     if (n.y < minY) n.y = minY;
     n.yaw = Math.atan2(-dx, -dz);
     n.state = 'walk';

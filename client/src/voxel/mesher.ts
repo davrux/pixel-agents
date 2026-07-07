@@ -148,21 +148,38 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
           }
           continue;
         }
-        // Rail: a single flat quad just above the ground (not a cube), textured top-down.
+        // Rail: a flat ground quad (not a cube). Luanti-style auto-connecting track —
+        // pick the straight/curved/crossing tile + a 90° rotation from the rail neighbours.
         if (id === RAIL_ID) {
-          const r = atlas.rect((BLOCKS[id] ?? BLOCKS[3]).tiles.top);
+          const rail = (dx: number, dz: number): boolean => cellAt(x + dx, y, z + dz) === RAIL_ID;
+          const e = rail(1, 0),
+            w = rail(-1, 0),
+            s = rail(0, 1),
+            nn = rail(0, -1);
+          const cnt = (e ? 1 : 0) + (w ? 1 : 0) + (s ? 1 : 0) + (nn ? 1 : 0);
+          let tile = 'rail';
+          let rot = 0; // straight runs along Z (north-south) at rot 0; rot 1 = along X
+          if (cnt >= 3) tile = 'rail_crossing';
+          else if (cnt === 2 && (e || w) && !(s || nn)) rot = 1; // straight E-W
+          else if (cnt === 2 && (s || nn) && !(e || w)) rot = 0; // straight N-S
+          else if (cnt === 2) {
+            tile = 'rail_curved'; // corner: texture elbow is at N+E (rot 0); r=1→W+N, r=2→W+S, r=3→E+S
+            rot = nn && e ? 0 : nn && w ? 1 : s && w ? 2 : 3; // last = s && e
+          } else if (e || w) rot = 1; // single neighbour along X → straight E-W
+          const r = atlas.rect(tile);
           const c = 0.95;
           const psky = light.sky(x, y, z) / MAX_LIGHT;
           const pblk = light.block(x, y, z) / MAX_LIGHT;
           const yb = y + 0.03;
           const quad = [[x, yb, z], [x + 1, yb, z], [x + 1, yb, z + 1], [x, yb, z + 1]];
-          const uv = [[0, 0], [1, 0], [1, 1], [0, 1]];
+          const base = [[0, 0], [1, 0], [1, 1], [0, 1]];
           for (const i of [0, 1, 2, 0, 2, 3]) {
+            const u = base[(i + rot) % 4]; // rotate the texture by rot × 90°
             opq.pos.push(quad[i][0], quad[i][1], quad[i][2]);
             opq.col.push(c, c, c);
             opq.sky.push(psky);
             opq.blk.push(pblk);
-            opq.uvs.push(r.u0 + uv[i][0] * (r.u1 - r.u0), r.vBot + uv[i][1] * (r.vTop - r.vBot));
+            opq.uvs.push(r.u0 + u[0] * (r.u1 - r.u0), r.vBot + u[1] * (r.vTop - r.vBot));
           }
           continue;
         }

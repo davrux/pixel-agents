@@ -18,7 +18,7 @@ import { injectPaSkin } from '../ui/paSkin.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -185,7 +185,7 @@ function syncBoats(dt: number, state: RemoteState): void {
   state.boats.forEach((b, id) => {
     seen.add(id);
     const ty = b.y - 0.1; // hull floats ON the surface (raised — not half-submerged)
-    const tyaw = b.yaw - Math.PI / 2; // model long-axis is +X → turn its bow to -Z (forward)
+    const tyaw = b.yaw - Math.PI; // +90° clockwise from the earlier -π/2 to face travel
     let m = boatMeshes.get(id);
     if (!m) {
       if (!boatTemplate) return;
@@ -241,21 +241,24 @@ let cartTemplate: THREE.Object3D | null = null;
     cmat.needsUpdate = true;
   });
   new GLTFLoader().load(cbase + 'carts_cart.gltf', (g) => {
-    const o = g.scene;
-    o.traverse((mm) => {
-      if ((mm as THREE.Mesh).isMesh) {
-        (mm as THREE.Mesh).material = cmat;
-        mm.frustumCulled = false;
-      }
+    // The cart is a SkinnedMesh with a single bone carrying a baked 180° rotation — skinned
+    // rendering (and .clone(true)) send it off-screen. We don't animate the cart, so render
+    // its bind-pose GEOMETRY as a plain static mesh (verified: this shows; skinned didn't).
+    let geo: THREE.BufferGeometry | null = null;
+    g.scene.traverse((mm) => {
+      if ((mm as THREE.Mesh).isMesh && !geo) geo = (mm as THREE.Mesh).geometry as THREE.BufferGeometry;
     });
-    const box = new THREE.Box3().setFromObject(o);
+    if (!geo) return;
+    const mesh = new THREE.Mesh(geo, cmat);
+    mesh.frustumCulled = false;
+    const box = new THREE.Box3().setFromObject(mesh);
     const size = new THREE.Vector3();
     box.getSize(size);
     const s = 0.9 / Math.max(0.001, Math.max(size.x, size.z)); // ~1 block
-    o.scale.setScalar(s);
-    o.position.set(-(box.min.x + size.x / 2) * s, -box.min.y * s, -(box.min.z + size.z / 2) * s);
+    mesh.scale.setScalar(s);
+    mesh.position.set(-(box.min.x + size.x / 2) * s, -box.min.y * s, -(box.min.z + size.z / 2) * s);
     const wrap = new THREE.Group();
-    wrap.add(o);
+    wrap.add(mesh);
     cartTemplate = wrap;
   });
 }
@@ -278,7 +281,7 @@ function syncCarts(dt: number, state: RemoteState): void {
     let m = cartMeshes.get(id);
     if (!m) {
       if (!cartTemplate) return;
-      m = cartTemplate.clone(true);
+      m = cartTemplate.clone(true); // template is a plain static mesh now → clone is fine
       m.userData.cartId = id;
       m.position.set(c.x, c.y, c.z);
       m.rotation.y = c.yaw;
@@ -311,6 +314,21 @@ function tryMountCart(): boolean {
   if (!id) return false;
   net.cartMount(id);
   return true;
+}
+/** Punch (dig) an empty boat/cart you're looking at → ask the server to remove it and
+ *  return the item. Returns true if it handled the aim (so no block is dug). */
+function tryRemoveMount(): boolean {
+  if (!net || ridingBoat() || ridingCart()) return false;
+  raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
+  const hit = raycaster.intersectObjects([...boatGroup.children, ...cartGroup.children], true)[0];
+  if (!hit || hit.distance > REACH + 2) return false;
+  let o: THREE.Object3D | null = hit.object;
+  while (o && o.parent !== boatGroup && o.parent !== cartGroup) o = o.parent;
+  const bid = o?.userData.boatId as string | undefined;
+  const cid = o?.userData.cartId as string | undefined;
+  if (bid) return void net.boatRemove(bid), true;
+  if (cid) return void net.cartRemove(cid), true;
+  return false;
 }
 const NEIGHBORS = [
   [1, 0, 0],
@@ -556,12 +574,28 @@ function flushDirty(cap = 6): void {
     if (++n >= cap) break;
   }
 }
-void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES], SYNTHETIC).then((a) => {
+void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES, ...EXTRA_TEXTURES], SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
   dropMaterial = new THREE.MeshBasicMaterial({ map: a.texture, alphaTest: 0.5 }); // drop-cube icons
   for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
+  // Synthetic-tile blocks (ores / water / lava / portal) have no standalone PNG, so their
+  // inventory icon was empty — crop it out of the composited atlas canvas instead.
+  const cv = a.texture.image as HTMLCanvasElement;
+  const iconFromAtlas = (tile: string): string => {
+    const r = a.rect(tile);
+    const out = document.createElement('canvas');
+    out.width = out.height = 32;
+    const octx = out.getContext('2d')!;
+    octx.imageSmoothingEnabled = false;
+    octx.drawImage(cv, r.u0 * cv.width, (1 - r.vTop) * cv.height, (r.u1 - r.u0) * cv.width, (r.vTop - r.vBot) * cv.height, 0, 0, 32, 32);
+    return out.toDataURL();
+  };
+  for (const it of BLOCK_ITEMS) {
+    if (it.block !== undefined && SYNTHETIC_TILES.includes(BLOCKS[it.block].tex)) it.icon = iconFromAtlas(BLOCKS[it.block].tex);
+  }
+  if (inventory.isOpen()) inventory.render();
 });
 
 // Clouds: a big semi-transparent plane high above that follows the player and
@@ -917,7 +951,7 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, hotbarSize: 8 };
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, creativeInstantDig: true, hotbarSize: 8 };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -1007,6 +1041,8 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') return cycleMode();
   if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
   if (e.code === 'KeyE' && !pickerOpen()) return primaryUse(); // use/place the held item (Q holds to dig)
+  // Q press: punch an empty boat/cart you look at → pick it up (else Q holds to dig).
+  if (e.code === 'KeyQ' && !e.repeat && !menuOpen() && tryRemoveMount()) return;
   if (e.code === 'KeyP' && !menuOpen()) return makePortal(); // mark aimed block as a portal
   if (e.code === 'KeyF' && !menuOpen()) return attackNearestNpc(); // melee the nearest NPC
   if (e.code === 'KeyG' && !menuOpen()) return void net?.eat(); // eat food (apple/bread) → restore hunger
@@ -1382,8 +1418,10 @@ canvas.addEventListener('mousedown', (e) => {
   if (mode === 'first') {
     if (settingsOpen()) return; // don't grab pointer-lock / dig while tuning
     if (!locked()) return void canvas.requestPointerLock();
-    if (e.button === 0) firstBreakHeld = true; // dig with the held item
-    else if (e.button === 2) primaryUse(); // place block / use tool
+    if (e.button === 0) {
+      if (tryRemoveMount()) return; // punch an empty boat/cart → pick it up
+      firstBreakHeld = true; // else dig with the held item
+    } else if (e.button === 2) primaryUse(); // place block / use tool
     return;
   }
   // iso / third: RIGHT button orbits the camera (allowed even with a menu open,
@@ -1566,19 +1604,17 @@ function useHeldTool(): void {
     }
     return;
   }
-  // Cart item: aim at a rail → spawn a rideable cart there.
+  // Cart item: march the aim ray to the first RAIL cell (rails are a thin flat quad, so a
+  // face-hit gives the wrong cell) and spawn a cart there.
   if (isCart(heldId)) {
-    const h = aimHit();
-    if (h) {
-      const p = h.point.clone().addScaledVector(h.face ? h.face.normal : UP, -0.5);
-      const rx = Math.floor(p.x),
-        ry = Math.floor(p.y),
-        rz = Math.floor(p.z);
-      if (world.get(rx, ry, rz) === RAIL_ID) {
-        net?.cartPlace(rx, ry, rz);
-        avatar.playDig();
-        sound.play('place');
-      }
+    const m = aimVoxel(
+      (id) => id === RAIL_ID,
+      (id) => id !== 0 && id !== RAIL_ID,
+    );
+    if (m) {
+      net?.cartPlace(m.hit.x, m.hit.y, m.hit.z);
+      avatar.playDig();
+      sound.play('place');
     }
     return;
   }
@@ -1730,7 +1766,17 @@ function updateBreaking(dt: number, want: boolean): void {
   // Dig time from the held/auto tool + block group (Luanti data). null = the tool
   // is too weak (e.g. steel pick on a diamond block) → can't break it. Creative breaks
   // ANY block near-instantly (Minecraft-style), never blocked by tool tier.
-  const dur = !tgt ? null : settings.creative ? 0.05 : digTime(world.get(tgt.x, tgt.y, tgt.z), digToolsFor(world.get(tgt.x, tgt.y, tgt.z)));
+  // Creative digs INSTANTLY by default (Luanti-faithful, one click); the "creativeInstantDig"
+  // setting can turn that off → normal dig times + the full break animation (never blocked,
+  // so a weak held tool still breaks: fall back to 0.8s if digTime says the tool's too weak).
+  const cb = tgt ? world.get(tgt.x, tgt.y, tgt.z) : 0;
+  const dur = !tgt
+    ? null
+    : settings.creative
+      ? settings.creativeInstantDig
+        ? 0.05
+        : digTime(cb, digToolsFor(cb)) ?? 0.8
+      : digTime(cb, digToolsFor(cb));
   if (!tgt || dur === null) {
     breaking = null;
     breakOverlay.visible = false;
@@ -2108,6 +2154,12 @@ keepInvCb.onchange = () => {
   net?.setKeepInv(settings.keepInventory); // off → drop a bones chest on death
   saveSettings();
 };
+const instantDigCb = document.getElementById('opt-instantdig') as HTMLInputElement;
+instantDigCb.checked = settings.creativeInstantDig;
+instantDigCb.onchange = () => {
+  settings.creativeInstantDig = instantDigCb.checked; // client-only dig-time preference
+  saveSettings();
+};
 const creativeCb = document.getElementById('opt-creative') as HTMLInputElement;
 creativeCb.checked = settings.creative;
 creativeCb.onchange = () => {
@@ -2228,6 +2280,7 @@ function currentSettingsBlob(): unknown {
     durability: settings.durability,
     hunger: settings.hunger,
     keepInventory: settings.keepInventory,
+    creativeInstantDig: settings.creativeInstantDig,
     hotbarSize: settings.hotbarSize,
     view: mode,
     skin: playerSkin,
@@ -2257,6 +2310,7 @@ function applyServerSettings(s: unknown): void {
     durability: boolean;
     hunger: boolean;
     keepInventory: boolean;
+    creativeInstantDig: boolean;
     hotbarSize: number;
     view: CamMode;
     skin: string;
@@ -2298,6 +2352,10 @@ function applyServerSettings(s: unknown): void {
     keepInvCb.checked = o.keepInventory;
   }
   net?.setKeepInv(settings.keepInventory); // tell the server the loaded death preference
+  if (typeof o.creativeInstantDig === 'boolean') {
+    settings.creativeInstantDig = o.creativeInstantDig;
+    instantDigCb.checked = o.creativeInstantDig;
+  }
   if (Number.isFinite(o.hotbarSize)) {
     setHotbarSize(o.hotbarSize as number); // resize BEFORE the slot arrangement is restored
     hotbarInput.value = String(HOTBAR_N);
@@ -2354,7 +2412,7 @@ function applyServerSettings(s: unknown): void {
 const toast = document.createElement('div');
 toast.id = 'vx-toast';
 toast.style.cssText =
-  "position:fixed;left:50%;bottom:9.5rem;transform:translateX(-50%);z-index:120;padding:.35rem .7rem;" +
+  "position:fixed;left:50%;bottom:9.5rem;transform:translateX(-50%);z-index:400;padding:.35rem .7rem;" +
   "background:rgba(20,22,28,.82);border:2px solid #1c1c1c;border-radius:5px;color:#fff;font-family:'FS Pixel Sans',ui-monospace,monospace;" +
   'font-size:.8rem;text-shadow:1px 1px 0 #000;opacity:0;transition:opacity .2s;pointer-events:none;';
 (document.getElementById('game') ?? document.body).appendChild(toast);
@@ -2946,7 +3004,7 @@ function frameBody(now: number): void {
   const wantBreak = !busy && ready && (mode === 'first' ? firstBreakHeld : keys.has('KeyQ'));
   updateBreaking(dt, wantBreak);
   updateWield();
-  avatar.setSwimming(player.inWater);
+  avatar.setSwimming(!mount && player.inWater); // riding a boat/cart → sit, don't keep the swim pose
   avatar.animate(dt, player.speed2d, player.pitch);
   updateFootsteps(dt);
   updateAmbient(dt);

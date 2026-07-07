@@ -42,10 +42,12 @@ export interface VoxelNet {
   boatMount(id: string): void;
   boatSteer(forward: number, turn: number): void;
   boatDismount(): void;
+  boatRemove(id: string): void;
   cartPlace(x: number, y: number, z: number): void;
   cartMount(id: string): void;
   cartSteer(throttle: number): void;
   cartDismount(): void;
+  cartRemove(id: string): void;
   chestMove(x: number, y: number, z: number, id: number, dir: 'take' | 'put'): void;
   setSign(x: number, y: number, z: number, text: string): void;
   sendChat(text: string): void;
@@ -165,10 +167,12 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     boatMount: (id) => room.send('boatMount', { id }),
     boatSteer: (forward, turn) => room.send('boatSteer', { forward, turn }),
     boatDismount: () => room.send('boatDismount'),
+    boatRemove: (id) => room.send('boatRemove', { id }),
     cartPlace: (x, y, z) => room.send('cartPlace', { x, y, z }),
     cartMount: (id) => room.send('cartMount', { id }),
     cartSteer: (throttle) => room.send('cartSteer', { throttle }),
     cartDismount: () => room.send('cartDismount'),
+    cartRemove: (id) => room.send('cartRemove', { id }),
     chestMove: (x, y, z, id, dir) => room.send('chestMove', { x, y, z, id, dir }),
     setSign: (x, y, z, text) => room.send('setSign', { x, y, z, text }),
     sendChat: (text) => room.send('chat', { text }),

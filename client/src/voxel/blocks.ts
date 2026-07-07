@@ -181,6 +181,10 @@ export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tile
  *  composited by synthetic tiles (e.g. stone + mineral overlay → ore). */
 export const OVERLAY_TEXTURES = ['mineral_coal', 'mineral_iron', 'mineral_copper', 'mineral_tin', 'mineral_gold', 'mineral_diamond', 'mineral_mese'];
 
+/** Extra atlas tiles not tied to a single block face — rail variants the mesher picks
+ *  by neighbour (straight/curved/crossing), Luanti-style auto-connecting track. */
+export const EXTRA_TEXTURES = ['rail_curved', 'rail_crossing'];
+
 /** All placeable block ids (everything except air + state-only hidden ids). */
 export const ALL_BLOCK_IDS = BLOCKS.map((_, i) => i).filter((i) => i > 0 && !HIDDEN.has(i));
 
