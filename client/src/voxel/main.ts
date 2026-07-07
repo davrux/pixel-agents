@@ -34,7 +34,9 @@ import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
-import { gotoLogout } from '../net/room';
+import { gotoLogout, isServerUp, fetchVoxelWorlds } from '../net/room';
+import { reloadApp } from '../desktop/bridge';
+import { KICK_CLOSE_CODE } from '@pixel/shared';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 import { injectPixelSkin } from './ui.js';
@@ -1262,6 +1264,47 @@ function setPlayerName(name: string): void {
 function setOnline(on: boolean): void {
   nameEl.classList.toggle('off', !on);
   nameSt.textContent = on ? 'online' : 'offline';
+}
+
+// ── Auto-reconnect (mirrors the 2D office): if the socket drops unexpectedly (server
+// restart / network blip), wait for the server to come back and reload so the player
+// rejoins automatically. A consented leave (world switch) or an admin kick is skipped.
+let leavingIntentionally = false; // set before our own net.leave() so it isn't treated as a drop
+let reconnecting = false;
+/** The socket closed. code 1000 = normal (our leave); KICK_CLOSE_CODE = admin kick. */
+function onWorldLeave(code: number): void {
+  setOnline(false);
+  if (code === KICK_CLOSE_CODE) {
+    leavingIntentionally = true; // manual reload/re-login required — don't auto-reconnect
+    showReconnectOverlay('You were kicked by an admin. Reload the page to rejoin.', true);
+    return;
+  }
+  if (!leavingIntentionally && code !== 1000) handleDisconnect();
+}
+function showReconnectOverlay(text: string, kicked = false): HTMLElement {
+  let overlay = document.getElementById('vx-reconnect');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'vx-reconnect';
+    overlay.className = 'pa-ui';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center;text-align:center;padding:1rem;' +
+      `background:rgba(10,12,18,${kicked ? 0.9 : 0.82});color:${kicked ? '#ffd2dc' : '#eef1f6'};font:1.15rem 'FS Pixel Sans',ui-monospace,monospace;`;
+    (document.getElementById('game') ?? document.body).appendChild(overlay);
+  }
+  overlay.textContent = text;
+  return overlay;
+}
+/** Poll /health until the server is back, then reload to rejoin. */
+function handleDisconnect(): void {
+  if (reconnecting || leavingIntentionally) return;
+  reconnecting = true;
+  showReconnectOverlay('Connection lost — reconnecting…');
+  const poll = async (): Promise<void> => {
+    if (await isServerUp()) return void reloadApp();
+    window.setTimeout(() => void poll(), 2000);
+  };
+  window.setTimeout(() => void poll(), 1500);
 }
 
 // Chat: the SAME shared ChatUI as the 2D office (client/src/ui/chatUI.ts) — one codebase.
@@ -2703,7 +2746,7 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onMonitor: applyMonitor, onMonitors: applyMonitors, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg,
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onMonitor: applyMonitor, onMonitors: applyMonitors, onTime, onNote, onLeave: onWorldLeave, onMsg: onWorldMsg,
   onCrafted: (m: { block: number; count: number }) => showToast(`✔ Crafted ${m.count}× ${invItem(m.block).name}`) };
 function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string; x?: number; y?: number; z?: number }): void {
   if (m.type === 'zoneVoiceToken') void zoneVoice.onToken(m);
@@ -2720,7 +2763,10 @@ function jumpTo(dest: unknown): void {
   lastJump = now;
   const d = dest as { kind?: string; world?: string; seed?: number; id?: string };
   if (d?.kind === 'voxel' && d.world) void connectWorld(d.world, Number.isFinite(d.seed) ? d.seed : undefined);
-  else if (d?.kind === 'zone') window.location.href = './'; // 2D client (session carries; zone-targeting is TODO)
+  else if (d?.kind === 'zone') {
+    leavingIntentionally = true; // navigating to the 2D client — not a dropped connection
+    window.location.href = './'; // 2D client (session carries; zone-targeting is TODO)
+  }
 }
 function onPortal(dest: unknown): void {
   jumpTo(dest);
@@ -2893,6 +2939,7 @@ function goOffline(): void {
 async function connectWorld(worldId: string, seed?: number, size?: number): Promise<void> {
   if (inConference) leaveConference(); // don't keep a call open across a world switch
   if (net) {
+    leavingIntentionally = true; // our own teardown — the old room's onLeave isn't a drop
     try {
       await net.leave();
     } catch {
@@ -2944,9 +2991,15 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   breakOverlay.visible = false;
   moveTarget = null;
   currentWorld = worldId;
+  try {
+    localStorage.setItem('vx-last-world', worldId); // so an auto-reconnect reload returns here (like 2D's last-zone)
+  } catch {
+    /* storage unavailable */
+  }
   if (worldLabel) worldLabel.textContent = worldId;
   renderWorldList();
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
+  leavingIntentionally = false; // reconnected — a future unexpected drop should auto-reconnect
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
@@ -3008,10 +3061,36 @@ document.getElementById('world-delete')!.onclick = () => {
 };
 
 // Log out (clears the session on the server, redirects to login).
-document.getElementById('settings-logout')!.onclick = gotoLogout;
+document.getElementById('settings-logout')!.onclick = () => {
+  leavingIntentionally = true; // logging out — not a dropped connection
+  gotoLogout();
+};
 
 renderWorldList();
-void connectWorld('default');
+// Start in the last world we were in (so an auto-reconnect reload lands back there), else
+// default. But if that world was deleted while we were away, connecting would resurrect it
+// as an empty ghost — so validate it against the server's world list first and fall back to
+// default when it's gone (no "nirvana"). If the list can't be fetched, try it anyway.
+void (async (): Promise<void> => {
+  let startWorld = 'default';
+  try {
+    startWorld = localStorage.getItem('vx-last-world') || 'default';
+  } catch {
+    /* storage unavailable */
+  }
+  if (startWorld !== 'default') {
+    const worlds = await fetchVoxelWorlds();
+    if (worlds && !worlds.includes(startWorld)) {
+      startWorld = 'default'; // the saved world no longer exists → land in default, not a ghost
+      try {
+        localStorage.setItem('vx-last-world', 'default');
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  await connectWorld(startWorld);
+})();
 
 
 

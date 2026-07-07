@@ -39,6 +39,7 @@ import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth } from './auth.js';
+import { listWorlds } from './voxel/chunkStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -116,6 +117,9 @@ async function main(): Promise<void> {
   // routes so preflight and actual responses carry the contract.
   app.use(desktopCors());
   app.get('/health', (_req, res) => res.json({ ok: true }));
+  // Existing voxel world ids — the client validates a persisted "last world" against this
+  // before connecting, so an auto-reconnect never resurrects a world that was deleted.
+  app.get('/voxel/worlds', (_req, res) => res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] }));
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
