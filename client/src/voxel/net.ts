@@ -53,6 +53,8 @@ export interface VoxelNet {
   sendChat(text: string): void;
   sendCommand(name: string, args: string): void;
   sendZoneVoiceToken(): void;
+  sendConfToken(x: number, y: number, z: number): void;
+  sendMonitorName(x: number, y: number, z: number, name: string): void;
   sendVoiceEvent(event: string): void;
   deleteWorld(world: string): void;
   leave(): Promise<void>;
@@ -90,6 +92,8 @@ export interface VoxelHandlers {
   onBoom?: (m: { x: number; y: number; z: number }) => void;
   onSign?: (m: SignMsg) => void;
   onSigns?: (list: SignMsg[]) => void;
+  onMonitor?: (m: { x: number; y: number; z: number; name: string }) => void;
+  onMonitors?: (list: { x: number; y: number; z: number; name: string }[]) => void;
   onTime?: (m: { now: number; dayLengthMs: number }) => void;
   onNote?: (m: { text: string }) => void;
   onLeave?: (code: number) => void; // socket dropped (server restart / network) → show offline
@@ -139,6 +143,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('boom', (m: { x: number; y: number; z: number }) => handlers.onBoom?.(m));
   room.onMessage('sign', (m: SignMsg) => handlers.onSign?.(m));
   room.onMessage('signs', (list: SignMsg[]) => handlers.onSigns?.(list));
+  room.onMessage('monitorName', (m: { x: number; y: number; z: number; name: string }) => handlers.onMonitor?.(m));
+  room.onMessage('monitors', (list: { x: number; y: number; z: number; name: string }[]) => handlers.onMonitors?.(list));
   room.onMessage('time', (m: { now: number; dayLengthMs: number }) => handlers.onTime?.(m));
   room.onMessage('note', (m: { text: string }) => handlers.onNote?.(m));
   room.onMessage('m', (m: ChatMsg) => handlers.onMsg?.(m));
@@ -178,6 +184,8 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendChat: (text) => room.send('chat', { text }),
     sendCommand: (name, args) => room.send('command', { name, args }),
     sendZoneVoiceToken: () => room.send('zoneVoiceToken'),
+    sendConfToken: (x: number, y: number, z: number) => room.send('confToken', { x, y, z }),
+    sendMonitorName: (x: number, y: number, z: number, name: string) => room.send('setMonitorName', { x, y, z, name }),
     sendVoiceEvent: (event) => room.send('voiceEvent', { event }),
     deleteWorld: (world) => room.send('deleteWorld', { world }),
     leave: async () => {

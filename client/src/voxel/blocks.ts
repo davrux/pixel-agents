@@ -119,6 +119,7 @@ BLOCKS.push(
   u('mese ore', 'mese_ore'), // 95 — stone + mese speckle (synthetic composite)
   u('mese block', 'mese_block'), // 96 — 9 mese crystals
   u('rail', 'rail'), // 97 — flat track (rendered as a ground quad, not a cube; carts run on it)
+  u('conference monitor', 'monitor'), // 98 — standing multi-cube screen (node model); use → video call
 );
 
 export const WATER_ID = 27;
@@ -138,6 +139,7 @@ export const FENCE_GATE_CLOSED = 83;
 export const FENCE_GATE_OPEN = 84;
 export const BED_ID = 85;
 export const RAIL_ID = 97; // flat track — rendered as a ground quad, carts run on it
+export const MONITOR_ID = 98; // conference screen — a node model (multi-cube); use-action opens a video call
 
 /** Cross-plants: rendered as two crossed double-sided quads (an "X"), not a cube.
  *  tall grass, fern, rose, dandelion, dry shrub + wheat crop stages. Non-solid + transparent. */
@@ -150,7 +152,7 @@ export const FENCE_SHAPE = new Set<number>([FENCE_ID, FENCE_GATE_CLOSED]);
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
  *  the same id. ice, glass, obsidian glass, leaves, portal, ladder, torch, doors, plants. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, RAIL_ID, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, RAIL_ID, MONITOR_ID, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
 
 /** Non-solid blocks: the player passes through them (like fluids). Ladders, torches,
  *  open doors, cross-plants. */
@@ -164,13 +166,13 @@ export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
 /** Blocks drawn as real Luanti glTF NODE MODELS (see nodeModels.ts) instead of cubes —
  *  the mesher skips them so the model is the only visual. Fences still connect toward a
  *  closed gate (FENCE_SHAPE membership is unchanged; only the cube draw is suppressed). */
-export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN]);
+export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
 export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN]);
 
 /** Tiles drawn at runtime (not PNG files): water, lava, portal + composited ores. */
-export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore', 'diamond_ore', 'mese_ore'];
+export const SYNTHETIC_TILES = ['water', 'portal', 'lava', 'coal_ore', 'iron_ore', 'copper_ore', 'tin_ore', 'gold_ore', 'diamond_ore', 'mese_ore', 'monitor'];
 
 /** Every PNG tile the atlas must load (derived from defs, minus synthetic ones). */
 export const BLOCK_TEXTURES = [...new Set(BLOCKS.slice(1).flatMap((d) => [d.tiles.top, d.tiles.side, d.tiles.bottom]))].filter(

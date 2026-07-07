@@ -37,6 +37,8 @@ import {
   STARTER_TOOL,
   toolMaxUses,
   MAX_BLOCK_ID,
+  MONITOR_ID,
+  conferenceKey,
   CHEST_ID,
   FURNACE_ID,
   TNT_ID,
@@ -94,6 +96,7 @@ import { chests } from '../voxel/chestStore.js';
 import { appStore } from '../appStore.js';
 import { voiceConfigured, voiceUrl, voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { signs, cleanSignText } from '../voxel/signStore.js';
+import { monitors, cleanMonitorName } from '../voxel/monitorStore.js';
 
 interface AuthInfo {
   userId: string;
@@ -294,6 +297,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Zone voice (per-world) — same LiveKit flow as the 2D office (shared helper).
     this.onMessage('zoneVoiceToken', (client) => void this.onZoneVoiceToken(client));
     this.onMessage('voiceEvent', (client, m: { event?: string }) => this.onVoiceEvent(client, m));
+    // Conference monitor — set its room name + mint a LiveKit token for the meeting room.
+    this.onMessage('setMonitorName', (client, m: { x: number; y: number; z: number; name?: string }) => this.onSetMonitorName(client, m));
+    this.onMessage('confToken', (client, m: { x: number; y: number; z: number }) => void this.onConfToken(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
     this.onMessage('saveSettings', (client, obj: unknown) => {
@@ -1667,6 +1673,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     });
     client.send('worlds', listWorlds()); // for the client's world dropdown
     client.send('signs', signs.all(this.state.worldId)); // all sign texts in this world (rendered in-world)
+    client.send('monitors', monitors.all(this.state.worldId)); // all conference-monitor room names
     // Server-side per-user settings (camera/auto-switch/wield transforms). Only
     // for logged-in users; anonymous clients keep their local settings.
     if (auth?.userId) {
@@ -1866,6 +1873,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       signs.delete(this.state.worldId, x, y, z);
       this.broadcast('sign', { x, y, z, text: '' });
     }
+    // Breaking a monitor clears its stored room name.
+    if (prev === MONITOR_ID && id !== MONITOR_ID) {
+      monitors.delete(this.state.worldId, x, y, z);
+      this.broadcast('monitorName', { x, y, z, name: '' });
+    }
     // Breaking a real block wears the tool used (one use); a depleted tool shatters.
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev)) this.wearTool(client, sid, m.tool ?? 0);
     // Harvest wheat: mature (60) → 1-2 wheat + 1-2 seeds; immature → the seed back.
@@ -2058,6 +2070,40 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const room = voiceRoomName(this.voiceNs, `zv-vox-${this.state.worldId}`);
     const token = await mintVoiceToken(`p${p.id}`, p.name || 'player', room);
     if (token) client.send('m', { type: 'zoneVoiceToken', url: voiceUrl(), token, room });
+  }
+
+  /** Set (or clear) a conference monitor's room name. Reach-/type-checked; persisted per
+   *  world/pos and broadcast so every client titles the call the same + can join by name. */
+  private onSetMonitorName(client: Client, m: { x: number; y: number; z: number; name?: string }): void {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (![x, y, z].every(Number.isFinite)) return;
+    if (this.world.getBlock(x, y, z) !== MONITOR_ID) return;
+    const name = cleanMonitorName(m.name);
+    if (name) monitors.set(this.state.worldId, x, y, z, name);
+    else monitors.delete(this.state.worldId, x, y, z);
+    this.broadcast('monitorName', { x, y, z, name });
+  }
+
+  /** Mint a LiveKit token for a conference monitor's meeting room. A NAMED monitor's room
+   *  is keyed by name (`cf-vox-<world>-n:<slug>`) so same-named screens share the call;
+   *  an unnamed one is per-position. Guarded: the aimed cell must actually be a monitor. */
+  private async onConfToken(client: Client, m: { x: number; y: number; z: number }): Promise<void> {
+    const p = this.state.players.get(client.sessionId);
+    if (!p) return void client.send('m', { type: 'confToken', error: 'no-avatar' });
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (this.world.getBlock(x, y, z) !== MONITOR_ID) return void client.send('m', { type: 'confToken', error: 'no-monitor', x, y, z });
+    if (!voiceConfigured()) return void client.send('m', { type: 'confToken', error: 'not-configured', x, y, z });
+    const name = monitors.get(this.state.worldId, x, y, z);
+    const key = name ? conferenceKey(name, 0, 0) : `p:${x},${y},${z}`; // named → by name; else per-cell
+    const room = voiceRoomName(this.voiceNs, `cf-vox-${this.state.worldId}-${key}`);
+    const token = await mintVoiceToken(`c${p.id}`, p.name || 'player', room);
+    if (token) client.send('m', { type: 'confToken', url: voiceUrl(), token, room, x, y, z, name });
   }
 
   /** Announce a voice state change (join/leave/mute/deafen) into the world chat. */

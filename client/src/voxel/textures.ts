@@ -74,6 +74,25 @@ function drawPortal(ctx: CanvasRenderingContext2D, s: number, img: Map<string, H
   bar(4, 6, 7, 3);
 }
 
+/** Conference monitor icon: a dark bezel around a blue screen with two person glyphs
+ *  (a video-call look) — matches the 2D office monitor. Drawn at runtime (no PNG). */
+function drawMonitor(ctx: CanvasRenderingContext2D, s: number): void {
+  const p = s / 16;
+  const bar = (x: number, y: number, w: number, h: number): void => ctx.fillRect(x * p, y * p, w * p, h * p);
+  ctx.fillStyle = '#181b22'; // dark bezel
+  bar(1, 1, 14, 11);
+  ctx.fillStyle = '#3a6ea5'; // blue screen
+  bar(2, 2, 12, 9);
+  ctx.fillStyle = '#dfe8f5'; // two head+shoulder silhouettes (call)
+  bar(5, 4, 2, 2);
+  bar(4, 6, 4, 3);
+  bar(10, 4, 2, 2);
+  bar(9, 6, 4, 3);
+  ctx.fillStyle = '#20242e'; // stand + base
+  bar(7, 12, 2, 2);
+  bar(4, 14, 8, 1);
+}
+
 /** Ore tile = stone base with a mineral overlay drawn on top (Luanti `stone^mineral`). */
 function drawOre(overlay: string) {
   return (ctx: CanvasRenderingContext2D, s: number, img: Map<string, HTMLImageElement>): void => {
@@ -100,6 +119,7 @@ export const SYNTHETIC: SyntheticTile[] = [
   { name: 'gold_ore', render: drawOre('mineral_gold') },
   { name: 'diamond_ore', render: drawOre('mineral_diamond') },
   { name: 'mese_ore', render: drawOre('mineral_mese') },
+  { name: 'monitor', render: (ctx, s) => drawMonitor(ctx, s) },
 ];
 
 export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = []): Promise<Atlas> {

@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CHUNK, toChunk } from '@pixel/shared';
-import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN } from './blocks.js';
+import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID } from './blocks.js';
 
 interface Grid {
   rawChunk(cx: number, cy: number, cz: number): Uint8Array | null;
@@ -39,6 +39,7 @@ const TORCH_H = 0.95;
 const DOOR_H = 2.0;
 const GATE_H = 1.0;
 const MODEL_NAMES = ['torch_floor', 'torch_wall', 'torch_ceiling', 'door_a', 'door_b', 'doors_fencegate_closed', 'doors_fencegate_open'];
+const MONITOR_H = 1.33; // total height of the built monitor (base + stand + screen head)
 
 interface Place {
   model: string;
@@ -61,9 +62,90 @@ export class NodeModels {
   }
 
   private async loadAll(): Promise<void> {
-    await Promise.all(MODEL_NAMES.map((n) => this.loadTemplate(n)));
+    await Promise.all([...MODEL_NAMES.map((n) => this.loadTemplate(n)), this.loadPortalTemplate()]);
+    this.buildMonitorTemplate(); // procedural (no asset) — build synchronously
     this.ready = true;
     this.onReadyCb?.(); // let the app rescan already-loaded chunks
+  }
+
+  /** The conference monitor is a procedural multi-cube model (no glTF asset): a flat
+   *  base, a stand pole and a wide screen head whose face shows a "video call" texture —
+   *  the voxel equivalent of the 2D office monitor. Built at final world size (~1.33 tall),
+   *  centred on X/Z; makeInstance scales targetH/height ≈ 1. Screen faces +Z (rotY 0). */
+  private buildMonitorTemplate(): void {
+    const box = (w: number, h: number, d: number, color: number): THREE.Mesh => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color }));
+      m.frustumCulled = false;
+      return m;
+    };
+    const g = new THREE.Group();
+    const dark = 0x20242e; // stand/frame plastic
+    const bezel = 0x15181f; // near-black screen frame
+    const base = box(0.5, 0.08, 0.34, dark);
+    base.position.set(0, 0.04, 0);
+    const pole = box(0.12, 0.55, 0.12, dark);
+    pole.position.set(0, 0.35, 0);
+    const head = box(0.98, 0.66, 0.1, bezel);
+    head.position.set(0, 1.0, 0);
+    // The lit screen face — a canvas "video call" texture on a thin front panel.
+    const cv = document.createElement('canvas');
+    cv.width = 128;
+    cv.height = 96;
+    const c = cv.getContext('2d')!;
+    c.fillStyle = '#2b3550';
+    c.fillRect(0, 0, 128, 96);
+    c.fillStyle = '#3a6ea5'; // blue screen
+    c.fillRect(4, 4, 120, 88);
+    c.fillStyle = '#dfe8f5'; // two head-and-shoulders silhouettes
+    for (const cx of [40, 88]) {
+      c.beginPath();
+      c.arc(cx, 40, 12, 0, Math.PI * 2);
+      c.fill();
+      c.fillRect(cx - 18, 56, 36, 30);
+    }
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.54), new THREE.MeshBasicMaterial({ map: tex }));
+    screen.position.set(0, 1.0, 0.051); // just in front of the head's +Z face
+    screen.frustumCulled = false;
+    g.add(base, pole, head, screen);
+    this.templates.set('monitor', { obj: g, box: new THREE.Box3().setFromObject(g) });
+  }
+
+  /** The portal is the door_a shape with a generated "blue door + bold P" texture — a
+   *  distinct portal archway (no dedicated portal model exists). */
+  private async loadPortalTemplate(): Promise<void> {
+    const gltf = await new GLTFLoader().loadAsync(new URL('models/luanti/door_a/door_a.gltf', document.baseURI).href);
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 64;
+    const g = cv.getContext('2d')!;
+    g.fillStyle = '#26307a'; // deep blue border
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle = '#3f5fd0'; // brighter inner panel
+    g.fillRect(5, 5, 54, 54);
+    g.fillStyle = '#eef2ff';
+    g.font = 'bold 48px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('P', 32, 36); // thick centred P
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.flipY = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    const obj = gltf.scene;
+    obj.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) {
+        (o as THREE.Mesh).material = mat;
+        o.frustumCulled = false;
+      }
+    });
+    this.templates.set('portal', { obj, box: new THREE.Box3().setFromObject(obj) });
   }
 
   private async loadTemplate(name: string): Promise<void> {
@@ -122,6 +204,8 @@ export class NodeModels {
     }
     if (id === FENCE_GATE_CLOSED) return { model: 'doors_fencegate_closed', targetH: GATE_H, rotY: 0 };
     if (id === FENCE_GATE_OPEN) return { model: 'doors_fencegate_open', targetH: GATE_H, rotY: 0 };
+    if (id === PORTAL_ID) return { model: 'portal', targetH: DOOR_H, rotY: 0 }; // a 2-tall blue "P" archway
+    if (id === MONITOR_ID) return { model: 'monitor', targetH: MONITOR_H, rotY: 0 }; // standing conference screen
     return null;
   }
 
@@ -173,7 +257,7 @@ export class NodeModels {
     const AREA = CHUNK * CHUNK;
     for (let i = 0; i < cells.length; i++) {
       const id = cells[i];
-      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN) continue;
+      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID) continue;
       const ly = (i / AREA) | 0,
         rem = i % AREA,
         lz = (rem / CHUNK) | 0,

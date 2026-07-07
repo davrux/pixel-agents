@@ -15,16 +15,19 @@ import { NodeModels } from './nodeModels.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
+import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
+import { ConferenceUI } from '../conference/ConferenceUI.js';
+import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
 import { createWaterMaterial, createLavaMaterial } from './water.js';
 import { sound, footstepFor, digSoundFor, dugSoundFor, placeSoundFor } from './sounds.js';
-import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_ITEMS, itemById, invItem, toolNum, DEFAULT_BLOCKS } from './items.js';
+import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_ITEMS, itemById, invItem, iconUrl, toolNum, DEFAULT_BLOCKS } from './items.js';
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
@@ -431,6 +434,16 @@ const signGroup = new THREE.Group();
 scene.add(signGroup);
 const signObjs = new Map<string, THREE.Mesh>();
 const signTexts = new Map<string, string>(); // cellKey → text (so the editor prefills the current text)
+const monitorNames = new Map<string, string>(); // cellKey → conference room name (title + join-by-name)
+function applyMonitor(m: { x: number; y: number; z: number; name: string }): void {
+  const key = `${m.x},${m.y},${m.z}`;
+  if (m.name) monitorNames.set(key, m.name);
+  else monitorNames.delete(key);
+}
+function applyMonitors(list: { x: number; y: number; z: number; name: string }[]): void {
+  monitorNames.clear();
+  for (const m of list) applyMonitor(m);
+}
 function makeSignTexture(text: string): THREE.CanvasTexture {
   const cv = document.createElement('canvas');
   cv.width = 256;
@@ -1027,6 +1040,12 @@ window.addEventListener('keydown', (e) => {
   // While typing in chat, the input handles keys itself — suspend all game keybinds.
   // (ChatUI owns the Enter-to-focus binding + stopPropagation while typing.)
   if (chat.isFocused()) return;
+  // Typing in any dialog/text field: let the field keep the key (WSAD/Q/E/F… are game
+  // binds that would otherwise steal the char via preventDefault). Esc falls through so
+  // the dialog can still close below.
+  const ae = document.activeElement as HTMLElement | null;
+  if (e.code !== 'Escape' && (ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement || ae instanceof HTMLSelectElement || ae?.isContentEditable)) return;
+  if (e.code === 'Escape' && paDialogOpen()) return closePaDialog();
   if (e.code === 'Escape' && pickerOpen()) return closePicker();
   if (e.code === 'Escape' && settingsOpen()) return closeSettings();
   if (e.code === 'Escape' && travelMap.isOpen()) return travelMap.close();
@@ -1054,7 +1073,7 @@ window.addEventListener('keyup', (e) => keys.delete(e.code));
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen();
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen() || paDialogOpen() || inConference;
 // Bring a panel to the front when opened, so the last-opened window is always on top
 // (all panels share a base z-index → without this, DOM order decided stacking).
 let panelZTop = 300;
@@ -1440,6 +1459,13 @@ window.addEventListener('mouseup', (e) => {
   if (e.button === 0 && mode === 'iso' && e.target === canvas && !menuOpen()) clickToMove(ndc(e));
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+// A right-click that opens a dialog releases the pointer lock mid-handler, which lets the
+// browser deliver its context menu afterwards (no longer on the canvas). Suppress it
+// document-wide — except inside text fields, where the paste/copy menu is still useful.
+document.addEventListener('contextmenu', (e) => {
+  if ((e.target as HTMLElement | null)?.closest('input, textarea, [contenteditable]')) return;
+  e.preventDefault();
+});
 canvas.addEventListener('wheel', (e) => {
   // First person: the wheel selects the hotbar slot (like Luanti/Minecraft). Iso/third
   // keep the wheel as camera zoom (there you pick a slot with 1-8 or by clicking it).
@@ -1690,6 +1716,10 @@ function interactNode(): boolean {
     promptSign(x, y, z);
     return true;
   }
+  if (b === MONITOR_ID) {
+    openConference(x, y, z);
+    return true;
+  }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN || b === BED_ID) {
     net?.use(x, y, z, heldNum()); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite; bed → sleep
     // Door/gate toggle feedback (chest_open plays on the server's onChestOpen reply).
@@ -1917,7 +1947,7 @@ function updateHud(): void {
     const it = itemById(id);
     const s = document.createElement('div');
     s.className = 'slot' + (i === sel ? ' on' : '');
-    s.style.backgroundImage = `url(${itemTexUrl(it.texUrl)})`;
+    s.style.backgroundImage = `url(${iconUrl(it)})`; // iconUrl → the atlas-cropped icon for synthetic blocks (portal/water/lava/ores), else the PNG
     s.style.backgroundSize = 'cover';
     s.title = `${i + 1}. ${it.name}`;
     s.onclick = () => selectSlot(i);
@@ -2648,7 +2678,7 @@ function chestClose(): void {
 function chestCell(id: number, count: number, onClick: () => void): HTMLDivElement {
   const c = document.createElement('div');
   c.className = 'cell';
-  c.style.backgroundImage = `url(${itemTexUrl(invItem(id).texUrl)})`;
+  c.style.backgroundImage = `url(${iconUrl(invItem(id))})`; // atlas-cropped icon for synthetic blocks, else the PNG
   c.title = invItem(id).name;
   const n = document.createElement('div');
   n.className = 'num';
@@ -2673,10 +2703,11 @@ function chestRender(): void {
 }
 
 // ── World connect + multiworld switching ──────────────────────────────────────
-const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg,
+const worldHandlers = { onSettings: applyServerSettings, onWelcome, onChunk, onUnload, onEdit: onServerEdit, onPortal, onWorlds, onTeleport, onPickup, onInv, onInvAll, onChestOpen, onFurnaceOpen, onDurability, onBoom, onSign: applySign, onSigns: applySigns, onMonitor: applyMonitor, onMonitors: applyMonitors, onTime, onNote, onLeave: () => setOnline(false), onMsg: onWorldMsg,
   onCrafted: (m: { block: number; count: number }) => showToast(`✔ Crafted ${m.count}× ${invItem(m.block).name}`) };
-function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string }): void {
+function onWorldMsg(m: ChatMsg & { url?: string; token?: string; error?: string; x?: number; y?: number; z?: number }): void {
   if (m.type === 'zoneVoiceToken') void zoneVoice.onToken(m);
+  else if (m.type === 'confToken') onConfToken(m);
   else if (m.type === 'system') chat.addSystemLine(m.text ?? '');
   else if (m.type === 'chat') chat.addChatLine(m.from ?? 'player', m.text ?? '', m.at);
 }
@@ -2694,26 +2725,155 @@ function jumpTo(dest: unknown): void {
 function onPortal(dest: unknown): void {
   jumpTo(dest);
 }
-/** Mark the aimed block as a portal (server stores it; stepping on it jumps). */
+/** Mark the aimed block as a portal — a pixel-menu dialog with a destination dropdown
+ *  (all known voxel worlds + 2D zones). Stepping on the stored portal jumps there. */
 function promptPortal(x: number, y: number, z: number): void {
   if (!net) return;
-  const ans = window.prompt('Portal target — "world:<id>" or "zone:<id>":', 'world:dungeon1');
-  if (!ans) return;
-  const i = ans.indexOf(':');
-  const kind = ans.slice(0, i).trim();
-  const val = ans.slice(i + 1).trim();
-  const dest = kind === 'world' && val ? { kind: 'voxel', world: val } : kind === 'zone' && val ? { kind: 'zone', id: val } : null;
-  if (dest) net.setPortal(x, y, z, dest);
+  const worlds = [...new Set([...knownWorlds, currentWorld])].sort();
+  const body = document.createElement('div');
+  body.innerHTML =
+    '<div class="fld"><label>Portal target</label><select class="pa-select">' +
+    '<optgroup label="Voxel worlds">' +
+    worlds.map((w) => `<option value="voxel:${w}">${w}${w === currentWorld ? ' (here)' : ''}</option>`).join('') +
+    '</optgroup><optgroup label="2D zones">' +
+    Object.values(ZONES)
+      .map((z) => `<option value="zone:${z.id}">${z.label}</option>`)
+      .join('') +
+    '</optgroup></select></div>';
+  const sel = body.querySelector<HTMLSelectElement>('select')!;
+  if (locked()) document.exitPointerLock(); // free the mouse for the dialog
+  openPaDialog({
+    title: 'Portal destination',
+    body,
+    onClose: () => {
+      if (mode === 'first') canvas.requestPointerLock();
+    },
+    buttons: [
+      {
+        label: 'Set portal',
+        kind: 'green',
+        onClick: () => {
+          const v = sel.value;
+          const i = v.indexOf(':');
+          const kind = v.slice(0, i),
+            id = v.slice(i + 1);
+          const dest = kind === 'voxel' && id ? { kind: 'voxel', world: id } : kind === 'zone' && id ? { kind: 'zone', id } : null;
+          if (dest) net?.setPortal(x, y, z, dest);
+        },
+      },
+    ],
+  });
 }
 /** Edit a sign's text: prompt (prefilled with the current text) → send to the server,
  *  which stores + broadcasts it so the in-world label updates for everyone. */
 function promptSign(x: number, y: number, z: number): void {
   if (!net) return;
   const cur = signTexts.get(`${x},${y},${z}`) ?? '';
-  const ans = window.prompt('Sign text:', cur);
-  if (ans === null) return; // cancelled
-  net.setSign(x, y, z, ans);
+  const body = document.createElement('div');
+  body.innerHTML = '<div class="fld"><label>Sign text</label><input class="pa-input" maxlength="120"></div>';
+  const inp = body.querySelector<HTMLInputElement>('input')!;
+  inp.value = cur;
+  if (locked()) document.exitPointerLock();
+  openPaDialog({
+    title: 'Edit sign',
+    body,
+    onClose: () => {
+      if (mode === 'first') canvas.requestPointerLock();
+    },
+    buttons: [{ label: 'Save', kind: 'green', onClick: () => void net?.setSign(x, y, z, inp.value) }],
+  });
 }
+// ── Conference monitor: a video call bound to a monitor node, reusing the SAME
+// ConferenceUI + LiveKitConference as the 2D office. Using a monitor asks the server
+// for a LiveKit token (per-monitor room); the reply opens the window + connects media.
+const confUI = new ConferenceUI();
+let conf: LiveKitConference | null = null;
+let confCell: { x: number; y: number; z: number } | null = null; // the monitor we're calling on
+let inConference = false; // suppresses game movement while the call window is up
+
+/** Use a monitor → a pixel-menu dialog to name the room (like Pixels), then Join → ask
+ *  the server for the meeting token (reply → onConfToken). A named room is shared by
+ *  every monitor with that name; blank = a per-monitor room. */
+function openConference(x: number, y: number, z: number): void {
+  if (!net || inConference) return;
+  const key = `${x},${y},${z}`;
+  const cur = monitorNames.get(key) ?? '';
+  const body = document.createElement('div');
+  body.innerHTML =
+    '<div class="fld"><label>Room name (optional)</label><input class="pa-input" maxlength="32" placeholder="e.g. Standup"></div>';
+  const inp = body.querySelector<HTMLInputElement>('input')!;
+  inp.value = cur;
+  if (locked()) document.exitPointerLock(); // free the mouse for the dialog + call UI
+  openPaDialog({
+    title: 'Join conference',
+    body,
+    onCancel: () => {
+      if (mode === 'first') canvas.requestPointerLock();
+    },
+    buttons: [
+      {
+        label: 'Join call',
+        kind: 'green',
+        onClick: () => {
+          const name = inp.value.trim().slice(0, 32);
+          if (name !== cur) net?.sendMonitorName(x, y, z, name); // server stores + broadcasts (processed before confToken)
+          confCell = { x, y, z };
+          net?.sendConfToken(x, y, z);
+        },
+      },
+    ],
+  });
+}
+
+/** Server minted a LiveKit token (or reported it's unavailable) for our monitor. */
+function onConfToken(m: { url?: string; token?: string; error?: string; x?: number; y?: number; z?: number; name?: string }): void {
+  if (!confCell || m.x !== confCell.x || m.y !== confCell.y || m.z !== confCell.z) return;
+  inConference = true;
+  const title = (m.name ?? '').trim() || `Monitor (${confCell.x}, ${confCell.y}, ${confCell.z})`;
+  confUI.open(title, conferenceHandlers());
+  if (m.error || typeof m.url !== 'string' || typeof m.token !== 'string') {
+    const msg = m.error === 'not-configured' ? 'Video not configured on the server.' : 'Conference unavailable.';
+    confUI.setState({ connected: false, camOn: true, micOn: true, screenOn: false, error: msg });
+    return;
+  }
+  conf = new LiveKitConference(confUI.stage, confUI.screens, {
+    onState: (s) => confUI.setState(s),
+    onDevices: (d) => confUI.setDevices(d),
+    onChat: (msg) => confUI.addChat(msg),
+    onParticipants: (list) => confUI.setParticipants(list),
+    onScreens: (n) => confUI.setSharing(n > 0),
+  });
+  zoneVoice.voice.suspend(); // can't be in two calls — pause zone voice during the meeting
+  void conf.connect(m.url, m.token).catch(() => {
+    /* connect() reports via the state callback */
+  });
+}
+
+/** Control-bar handlers for the conference window (delegate to the live conf). */
+function conferenceHandlers(): import('../conference/ConferenceUI.js').ConferenceUIHandlers {
+  return {
+    toggleMic: () => void conf?.toggleMic(),
+    toggleCam: () => void conf?.toggleCam(),
+    toggleScreen: () => void conf?.toggleScreen(),
+    switchCamera: (id) => void conf?.switchCamera(id),
+    switchMic: (id) => void conf?.switchMic(id),
+    switchSpeaker: (id) => void conf?.switchSpeaker(id),
+    sendChat: (text) => conf?.sendChat(text),
+    leave: () => leaveConference(),
+  };
+}
+
+/** Tear down the current call: disconnect media, close the window, resume zone voice. */
+function leaveConference(): void {
+  void conf?.disconnect();
+  conf = null;
+  confUI.close();
+  confCell = null;
+  inConference = false;
+  zoneVoice.voice.resume();
+  if (mode === 'first') canvas.requestPointerLock();
+}
+
 /** Re-target the aimed block as a portal (P key) — handy for existing blocks. */
 function makePortal(): void {
   const h = aimHit();
@@ -2731,6 +2891,7 @@ function goOffline(): void {
 /** Connect to (or jump to) a voxel world: tears down the current world's client
  *  state and reconnects. Voxel↔voxel is seamless (no page reload). */
 async function connectWorld(worldId: string, seed?: number, size?: number): Promise<void> {
+  if (inConference) leaveConference(); // don't keep a call open across a world switch
   if (net) {
     try {
       await net.leave();
@@ -2774,6 +2935,7 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   cartMeshes.clear();
   for (const key of [...signObjs.keys()]) removeSign(key);
   signTexts.clear();
+  monitorNames.clear();
   dirty.clear();
   clearLightCache(); // new world → drop cached column heights + light sources
   world.clear();

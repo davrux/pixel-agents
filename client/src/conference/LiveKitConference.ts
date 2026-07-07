@@ -17,6 +17,7 @@ import {
   type Participant,
   type RemoteParticipant,
   type Track as LkTrack,
+  type TrackPublication,
 } from 'livekit-client';
 
 export interface ConferenceState {
@@ -101,8 +102,8 @@ export class LiveKitConference {
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.track) this.removeTrack(pub.track, room.localParticipant);
       })
-      .on(RoomEvent.TrackMuted, () => this.emitParticipants())
-      .on(RoomEvent.TrackUnmuted, () => this.emitParticipants())
+      .on(RoomEvent.TrackMuted, (pub, p) => this.onCamMute(pub, p, true))
+      .on(RoomEvent.TrackUnmuted, (pub, p) => this.onCamMute(pub, p, false))
       .on(RoomEvent.ParticipantConnected, (p) => {
         this.ensureTile(p, false);
         this.emitParticipants();
@@ -177,6 +178,7 @@ export class LiveKitConference {
         t.placeholder.style.display = 'none';
         t.media.appendChild(video);
         t.hasVideo = true;
+        t.root.classList.remove('camoff'); // real video → drop the black cam-off screen
       }
     } else if (track.kind === Track.Kind.Audio && !local) {
       const audio = track.attach();
@@ -208,6 +210,7 @@ export class LiveKitConference {
         v.remove();
         t.hasVideo = false;
         t.placeholder.style.display = '';
+        t.root.classList.add('camoff'); // camera gone → black cam-off screen
       }
     } else if (sid) {
       const a = this.audios.get(sid);
@@ -230,6 +233,24 @@ export class LiveKitConference {
   private markSpeakers(speakers: Participant[]): void {
     const active = new Set(speakers.map((s) => s.identity));
     for (const [identity, t] of this.tiles) t.root.classList.toggle('speaking', active.has(identity));
+  }
+
+  /** A camera track was (un)muted — a participant toggled their cam without unpublishing.
+   *  Hide the (frozen) video and show a black "camera off" tile, or restore it. */
+  private onCamMute(pub: TrackPublication, p: Participant, muted: boolean): void {
+    if (pub.kind === Track.Kind.Video && pub.source === Track.Source.Camera) {
+      const t = this.tiles.get(p.identity);
+      if (t) this.setCamOff(t, muted);
+    }
+    this.emitParticipants();
+  }
+
+  /** Toggle a tile's "camera off" state: black background + placeholder, video hidden. */
+  private setCamOff(t: PTile, off: boolean): void {
+    t.root.classList.toggle('camoff', off);
+    t.placeholder.style.display = off ? '' : 'none';
+    const v = t.media.querySelector('video');
+    if (v) (v as HTMLElement).style.display = off ? 'none' : '';
   }
 
   // ── Chat (LiveKit data channel — ephemeral, per meeting) ───────────
