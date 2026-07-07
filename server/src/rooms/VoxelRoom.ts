@@ -240,7 +240,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.onMove(client, m),
     );
     this.onMessage('edit', (client, m: { x: number; y: number; z: number; id: number; tool?: number }) => this.onEdit(client, m));
-    this.onMessage('teleport', (client, m: { x: number; z: number }) => this.onTeleport(client, m));
+    this.onMessage('teleport', (client, m: { x: number; z: number; y?: number }) => this.onTeleport(client, m));
     this.onMessage('attack', (client, m: { npc?: string }) => this.onAttack(client, m));
     this.onMessage('setArmor', (client, m: { defense?: number }) => {
       const p = this.state.players.get(client.sessionId);
@@ -1748,6 +1748,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const lim = this.halfExtent() + 0.5; // keep the player inside the world border (client clamps too)
     m.x = Math.max(-lim, Math.min(lim, m.x));
     m.z = Math.max(-lim, Math.min(lim, m.z));
+    if (p.afk && Math.abs(m.x - p.x) + Math.abs(m.y - p.y) + Math.abs(m.z - p.z) > 0.05) p.afk = false; // moved → clear afk
     p.x = m.x;
     p.y = m.y;
     p.z = m.z;
@@ -1776,9 +1777,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
   }
 
-  /** Travel (map click): teleport within this world to a column top. Authoritative
-   *  — the server picks the safe Y, moves the player, re-streams, and echoes 'tp'. */
-  private onTeleport(client: Client, m: { x: number; z: number }): void {
+  /** Travel (map click / `/goto`): teleport within this world. Authoritative — the server
+   *  clamps to the border, picks a safe Y (column top) unless an explicit finite `y` is
+   *  given (e.g. `/goto x y z` returning to a precise spot), moves the player + re-streams. */
+  private onTeleport(client: Client, m: { x: number; z: number; y?: number }): void {
     const v = this.views.get(client.sessionId);
     const p = this.state.players.get(client.sessionId);
     if (!v || !p) return;
@@ -1786,7 +1788,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const lim = this.halfExtent(); // per-world border (or the Luanti map limit)
     const x = Math.max(-lim, Math.min(lim, Math.floor(m.x))) + 0.5;
     const z = Math.max(-lim, Math.min(lim, Math.floor(m.z))) + 0.5;
-    const y = this.world.columnTop(Math.floor(x), Math.floor(z)) + 1;
+    const y = Number.isFinite(m.y)
+      ? Math.max(-256, Math.min(1024, m.y as number))
+      : this.world.columnTop(Math.floor(x), Math.floor(z)) + 1;
     p.x = x;
     p.y = y;
     p.z = z;
@@ -2139,8 +2143,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const args = (typeof msg?.args === 'string' ? msg.args : '').trim() ? msg.args!.trim().split(/\s+/) : [];
     const star = (uid: string): string => (userStore.get(uid)?.isAdmin ? ' ★' : '');
     switch (spec.name) {
-      case 'afk':
-        return sys('afk is only available in the 2D world.');
+      case 'afk': {
+        const p = this.state.players.get(client.sessionId);
+        if (!p) return;
+        p.afk = !p.afk; // synced marker over the avatar; cleared automatically on move
+        return sys(p.afk ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
+      }
       case 'voxel':
         return sys('You are already in the voxel world.');
       case 'users': {

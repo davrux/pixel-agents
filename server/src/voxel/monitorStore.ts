@@ -7,7 +7,6 @@
  * message when one is set/cleared; the client shows it as the call's title.
  */
 import { db } from '../db.js';
-import { cleanName } from '@pixel/shared';
 
 db.exec('CREATE TABLE IF NOT EXISTS voxel_monitors (world TEXT, x INTEGER, y INTEGER, z INTEGER, name TEXT NOT NULL, PRIMARY KEY (world, x, y, z))');
 const getStmt = db.prepare('SELECT name FROM voxel_monitors WHERE world = ? AND x = ? AND y = ? AND z = ?');
@@ -17,9 +16,15 @@ const setStmt = db.prepare(
 );
 const delStmt = db.prepare('DELETE FROM voxel_monitors WHERE world = ? AND x = ? AND y = ? AND z = ?');
 
-/** Clamp an untrusted monitor name (whitespace-collapsed, length-capped). */
+/** Clamp an untrusted monitor name: strip control chars, collapse whitespace, trim, and
+ *  cap at 32 Unicode code points (iterate by code point so a multi-byte char / emoji is
+ *  never split mid-sequence). */
 export function cleanMonitorName(n: unknown): string {
-  return cleanName(n, 32);
+  if (typeof n !== 'string') return '';
+  let s = '';
+  for (const ch of n) s += ch.codePointAt(0)! < 32 ? ' ' : ch; // drop control chars
+  s = s.replace(/\s+/g, ' ').trim();
+  return [...s].slice(0, 32).join(''); // 32 code points, no split multi-byte chars
 }
 
 export const monitors = {

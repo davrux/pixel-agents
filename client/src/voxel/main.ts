@@ -36,7 +36,7 @@ import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout, isServerUp, fetchVoxelWorlds } from '../net/room';
 import { reloadApp } from '../desktop/bridge';
-import { KICK_CLOSE_CODE } from '@pixel/shared';
+import { KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
 import { injectPixelSkin } from './ui.js';
@@ -437,12 +437,55 @@ scene.add(signGroup);
 const signObjs = new Map<string, THREE.Mesh>();
 const signTexts = new Map<string, string>(); // cellKey → text (so the editor prefills the current text)
 const monitorNames = new Map<string, string>(); // cellKey → conference room name (title + join-by-name)
+// Named monitors show their room name on a floating label above the screen (like signs).
+const monitorLabels = new Map<string, THREE.Mesh>();
+function makeMonitorLabel(name: string): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = 384;
+  cv.height = 96;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = 'rgba(15,18,32,0.92)'; // dark plaque, blue trim (matches the monitor)
+  g.fillRect(0, 0, 384, 96);
+  g.strokeStyle = '#3a6ea5';
+  g.lineWidth = 8;
+  g.strokeRect(4, 4, 376, 88);
+  g.fillStyle = '#dfe8f5';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  let size = 34;
+  do {
+    g.font = `bold ${size}px sans-serif`;
+    if (g.measureText(name).width <= 356) break;
+    size -= 2;
+  } while (size > 16);
+  g.fillText(`📹 ${name}`, 192, 50);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter;
+  return tex;
+}
+function removeMonitorLabel(key: string): void {
+  const m = monitorLabels.get(key);
+  if (!m) return;
+  signGroup.remove(m);
+  (m.material as THREE.MeshBasicMaterial).map?.dispose();
+  (m.material as THREE.Material).dispose();
+  m.geometry.dispose();
+  monitorLabels.delete(key);
+}
 function applyMonitor(m: { x: number; y: number; z: number; name: string }): void {
   const key = `${m.x},${m.y},${m.z}`;
-  if (m.name) monitorNames.set(key, m.name);
-  else monitorNames.delete(key);
+  removeMonitorLabel(key);
+  if (m.name) {
+    monitorNames.set(key, m.name);
+    const mat = new THREE.MeshBasicMaterial({ map: makeMonitorLabel(m.name), transparent: true, side: THREE.DoubleSide, depthWrite: false });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), mat);
+    mesh.position.set(m.x + 0.5, m.y + 1.85, m.z + 0.5); // above the monitor screen
+    monitorLabels.set(key, mesh);
+    signGroup.add(mesh); // shares the sign group (also billboarded each frame)
+  } else monitorNames.delete(key);
 }
 function applyMonitors(list: { x: number; y: number; z: number; name: string }[]): void {
+  for (const key of [...monitorLabels.keys()]) removeMonitorLabel(key);
   monitorNames.clear();
   for (const m of list) applyMonitor(m);
 }
@@ -507,11 +550,12 @@ function applySigns(list: SignMsg[]): void {
   signTexts.clear();
   for (const m of list) applySign(m);
 }
-/** Turn every sign label to face the camera (billboard) — called each frame. */
+/** Turn every sign + monitor-name label to face the camera (billboard) — each frame. */
 function updateSignBillboards(): void {
-  if (!signObjs.size) return;
+  if (!signObjs.size && !monitorLabels.size) return;
   const cam = activeCam();
   for (const m of signObjs.values()) m.quaternion.copy(cam.quaternion);
+  for (const m of monitorLabels.values()) m.quaternion.copy(cam.quaternion);
 }
 
 // Portal glow: every portal cube (block id 28) in a loaded chunk gets a pulsing
@@ -675,6 +719,7 @@ interface RemotePlayer {
   hpMax: number;
   food: number;
   name: string;
+  afk: boolean;
 }
 interface RemoteNpc {
   x: number;
@@ -707,7 +752,56 @@ interface RemoteState {
   boats: { forEach(cb: (p: RemoteBoat, k: string) => void): void; get(k: string): RemoteBoat | undefined };
   carts: { forEach(cb: (p: RemoteCart, k: string) => void): void; get(k: string): RemoteCart | undefined };
 }
-const remote = new Map<string, { avatar: Avatar }>();
+const remote = new Map<string, { avatar: Avatar; afk?: THREE.Sprite }>();
+
+// A camera-facing "afk" marker (Sprite auto-billboards). Cached texture, one per marker.
+let afkTexture: THREE.Texture | null = null;
+function afkSprite(): THREE.Sprite {
+  if (!afkTexture) {
+    const cv = document.createElement('canvas');
+    cv.width = 128;
+    cv.height = 64;
+    const g = cv.getContext('2d')!;
+    g.fillStyle = 'rgba(15,18,32,0.85)';
+    g.strokeStyle = '#7fa7e0';
+    g.lineWidth = 4;
+    const r = 10;
+    g.beginPath();
+    g.moveTo(r, 2);
+    g.arcTo(126, 2, 126, 62, r);
+    g.arcTo(126, 62, 2, 62, r);
+    g.arcTo(2, 62, 2, 2, r);
+    g.arcTo(2, 2, 126, 2, r);
+    g.fill();
+    g.stroke();
+    g.fillStyle = '#dfe8f5';
+    g.font = 'bold 34px sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('💤 afk', 64, 34);
+    afkTexture = new THREE.CanvasTexture(cv);
+    afkTexture.magFilter = THREE.NearestFilter;
+    afkTexture.colorSpace = THREE.SRGBColorSpace;
+  }
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: afkTexture, transparent: true, depthTest: false }));
+  sp.scale.set(0.9, 0.45, 1);
+  sp.position.set(0, 2.35, 0); // above the head
+  sp.renderOrder = 999;
+  return sp;
+}
+// The local player's afk marker (over your own avatar; the schema drives it via mySid).
+const selfAfkRec: { avatar: Avatar; afk?: THREE.Sprite } = { avatar };
+/** Attach/detach the afk marker on an avatar group to match its afk state. */
+function setAfkMarker(rec: { avatar: { group: THREE.Object3D }; afk?: THREE.Sprite }, on: boolean): void {
+  if (on && !rec.afk) {
+    rec.afk = afkSprite();
+    rec.avatar.group.add(rec.afk);
+  } else if (!on && rec.afk) {
+    rec.avatar.group.remove(rec.afk);
+    rec.afk.material.dispose();
+    rec.afk = undefined;
+  }
+}
 // An NPC is rendered as either a humanoid Avatar (monsters) or a blocky MobModel
 // (animals) — both expose the same group/setTint/animate surface used below.
 type NpcRender = { group: THREE.Object3D; setTint(c: THREE.Color): void; animate(dt: number, speed: number): void };
@@ -889,6 +983,7 @@ function syncRemotePlayers(dt: number): void {
     r.avatar.setSwimming(p.state === 'swim');
     r.avatar.setTint(dayColors.light);
     r.avatar.animate(dt, moving ? 2 : 0, p.pitch);
+    setAfkMarker(r, !!p.afk);
   });
   for (const [sid, r] of remote) {
     if (!state.players.get(sid)) {
@@ -896,6 +991,7 @@ function syncRemotePlayers(dt: number): void {
       remote.delete(sid);
     }
   }
+  setAfkMarker(selfAfkRec, !!state.players.get(mySid)?.afk); // own afk marker (visible in 3rd/iso)
   syncNpcs(dt, state);
 }
 
@@ -1271,7 +1367,10 @@ function setOnline(on: boolean): void {
 // rejoins automatically. A consented leave (world switch) or an admin kick is skipped.
 let leavingIntentionally = false; // set before our own net.leave() so it isn't treated as a drop
 let reconnecting = false;
-/** The socket closed. code 1000 = normal (our leave); KICK_CLOSE_CODE = admin kick. */
+/** The socket closed/errored. KICK_CLOSE_CODE = admin kick (no reconnect). Any other close
+ *  that we didn't initiate (leavingIntentionally) means the server went away → reconnect.
+ *  We rely on the leavingIntentionally flag, not the close code, since a graceful server
+ *  restart can close with 1000 just like a consented leave. */
 function onWorldLeave(code: number): void {
   setOnline(false);
   if (code === KICK_CLOSE_CODE) {
@@ -1279,7 +1378,7 @@ function onWorldLeave(code: number): void {
     showReconnectOverlay('You were kicked by an admin. Reload the page to rejoin.', true);
     return;
   }
-  if (!leavingIntentionally && code !== 1000) handleDisconnect();
+  if (!leavingIntentionally) handleDisconnect();
 }
 function showReconnectOverlay(text: string, kicked = false): HTMLElement {
   let overlay = document.getElementById('vx-reconnect');
@@ -1310,13 +1409,46 @@ function handleDisconnect(): void {
 // Chat: the SAME shared ChatUI as the 2D office (client/src/ui/chatUI.ts) — one codebase.
 // Enter opens the input; while typing, game keybinds are suspended (stopPropagation +
 // the isFocused guard in the keydown handler).
+// Voxel-only chat commands (kept out of the shared registry; merged into /help + TAB
+// autocomplete via ChatUI.extraCommands, handled below in clientCommand).
+const VOXEL_COMMANDS: CommandSpec[] = [
+  { name: 'pos', group: 'user', usage: '/pos [print]', summary: 'Show your position; /pos print posts it to chat as a clickable /goto link.' },
+  { name: 'goto', group: 'user', usage: '/goto <x> <y> <z> | world-spawn', summary: 'Teleport to coordinates in this world, or to the world spawn point.' },
+];
+/** /pos — show your block position; `print` broadcasts it as a clickable /goto. */
+function handlePos(args: string, sys: (t: string) => void): void {
+  const x = Math.floor(player.pos.x),
+    y = Math.round(player.pos.y),
+    z = Math.floor(player.pos.z);
+  const cmd = `/goto ${x} ${y} ${z}`;
+  if (args.trim().toLowerCase() === 'print') net?.sendChat(`📍 ${cmd}`); // everyone sees a clickable link
+  else sys(`Your position: ${x}, ${y}, ${z}  →  ${cmd}`);
+}
+/** /goto — teleport to coords in this world, or to the world spawn (server-authoritative). */
+function handleGoto(args: string, sys: (t: string) => void): void {
+  if (!net) return;
+  const a = args.trim();
+  if (a.toLowerCase() === 'world-spawn') {
+    net.sendTeleport(0, 0); // origin surface = the world spawn point
+    return void sys('Teleporting to the world spawn…');
+  }
+  const p = a.split(/\s+/).map(Number);
+  if (p.length === 3 && p.every((n) => Number.isFinite(n))) {
+    net.sendTeleport(p[0], p[2], p[1]); // (x, z, y)
+    return void sys(`Teleporting to ${p[0]}, ${p[1]}, ${p[2]}…`);
+  }
+  sys('Usage: /goto <x> <y> <z>  or  /goto world-spawn');
+}
 const chat = new ChatUI({
   sendChat: (text) => net?.sendChat(text),
   sendCommand: (name, args) => net?.sendCommand(name, args),
   isAdmin: () => playerIsAdmin,
   canFocus: () => !menuOpen(),
-  clientCommand: (name, _args, sys) => {
+  extraCommands: VOXEL_COMMANDS,
+  clientCommand: (name, args, sys) => {
     if (name === 'voxel') return sys('You are already in the voxel world.'), true;
+    if (name === 'pos') return handlePos(args, sys), true;
+    if (name === 'goto') return handleGoto(args, sys), true;
     return false;
   },
   onFocus: () => {
@@ -2837,9 +2969,9 @@ let conf: LiveKitConference | null = null;
 let confCell: { x: number; y: number; z: number } | null = null; // the monitor we're calling on
 let inConference = false; // suppresses game movement while the call window is up
 
-/** Use a monitor → a pixel-menu dialog to name the room (like Pixels), then Join → ask
- *  the server for the meeting token (reply → onConfToken). A named room is shared by
- *  every monitor with that name; blank = a per-monitor room. */
+/** Use a monitor → a pixel-menu dialog to name the room (like Pixels). "Save name" just
+ *  renames it (no join); "Join call" saves any change then asks the server for the meeting
+ *  token (reply → onConfToken). A named room is shared by every monitor with that name. */
 function openConference(x: number, y: number, z: number): void {
   if (!net || inConference) return;
   const key = `${x},${y},${z}`;
@@ -2849,20 +2981,26 @@ function openConference(x: number, y: number, z: number): void {
     '<div class="fld"><label>Room name (optional)</label><input class="pa-input" maxlength="32" placeholder="e.g. Standup"></div>';
   const inp = body.querySelector<HTMLInputElement>('input')!;
   inp.value = cur;
-  if (locked()) document.exitPointerLock(); // free the mouse for the dialog + call UI
+  const saveName = (): void => {
+    const name = inp.value.trim().slice(0, 32);
+    if (name !== cur) net?.sendMonitorName(x, y, z, name); // server stores + broadcasts (+ trims to 32)
+  };
+  let joining = false; // Join keeps the mouse free for the call UI; other closes re-lock
+  if (locked()) document.exitPointerLock();
   openPaDialog({
-    title: 'Join conference',
+    title: 'Conference monitor',
     body,
-    onCancel: () => {
-      if (mode === 'first') canvas.requestPointerLock();
+    onClose: () => {
+      if (!joining && mode === 'first') canvas.requestPointerLock();
     },
     buttons: [
+      { label: 'Save name', onClick: saveName }, // rename without joining
       {
         label: 'Join call',
         kind: 'green',
         onClick: () => {
-          const name = inp.value.trim().slice(0, 32);
-          if (name !== cur) net?.sendMonitorName(x, y, z, name); // server stores + broadcasts (processed before confToken)
+          joining = true;
+          saveName();
           confCell = { x, y, z };
           net?.sendConfToken(x, y, z);
         },
@@ -2981,6 +3119,7 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   for (const m of cartMeshes.values()) cartGroup.remove(m);
   cartMeshes.clear();
   for (const key of [...signObjs.keys()]) removeSign(key);
+  for (const key of [...monitorLabels.keys()]) removeMonitorLabel(key);
   signTexts.clear();
   monitorNames.clear();
   dirty.clear();
@@ -2998,8 +3137,8 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   }
   if (worldLabel) worldLabel.textContent = worldId;
   renderWorldList();
+  leavingIntentionally = false; // old room already closed above; a drop from here on is unexpected
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
-  leavingIntentionally = false; // reconnected — a future unexpected drop should auto-reconnect
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }

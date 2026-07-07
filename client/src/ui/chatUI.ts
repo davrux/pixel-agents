@@ -6,7 +6,17 @@
  * host-specific — how messages are sent, admin status, chat bubbles over avatars, the
  * focus guard, `/voxel` behaviour — comes in through `ChatHooks`.
  */
-import { findCommand, mayRunCommand, commandsForGroup } from '@pixel/shared/commands';
+import { findCommand, mayRunCommand, commandsForGroup, type CommandSpec } from '@pixel/shared/commands';
+
+/** Commands whose printed form (in a chat line) is rendered as a clickable link that runs
+ *  it — restricted to self-only, harmless actions (teleporting yourself). */
+const CLICKABLE_CMDS = new Set(['goto']);
+
+/** Fixed keyword arguments a command accepts, for TAB completion of its argument. */
+const ARG_HINTS: Record<string, string[]> = {
+  pos: ['print'],
+  goto: ['world-spawn'],
+};
 
 export interface ChatHooks {
   sendChat: (text: string) => void;
@@ -16,6 +26,10 @@ export interface ChatHooks {
   canFocus?: () => boolean;
   /** Handle a client-only slash command (e.g. /voxel). Return true if handled here. */
   clientCommand?: (name: string, args: string, sys: (t: string) => void) => boolean;
+  /** Host-only commands (e.g. voxel /pos, /goto) — merged into /help + TAB autocomplete
+   *  and handled via clientCommand. Kept out of the shared registry so they don't appear
+   *  in the other client. */
+  extraCommands?: CommandSpec[];
   onFocus?: () => void; // e.g. release pointer lock (voxel)
   onBlur?: () => void;
 }
@@ -40,6 +54,14 @@ export class ChatUI {
     this.box.className = 'pa-ui';
     this.log = document.createElement('div');
     this.log.id = 'pa-chatlog';
+    // Clicking a printed command link (e.g. a shared /goto) runs it.
+    this.log.addEventListener('click', (e) => {
+      const a = (e.target as HTMLElement).closest('a.pa-cmd');
+      if (!a) return;
+      e.preventDefault();
+      const cmd = a.getAttribute('data-cmd');
+      if (cmd) this.submit(`/${cmd}`);
+    });
     this.input = document.createElement('input');
     this.input.id = 'pa-chatinput';
     this.input.type = 'text';
@@ -68,6 +90,9 @@ export class ChatUI {
         e.preventDefault();
       } else if (e.key === 'ArrowDown') {
         this.navHistory(1);
+        e.preventDefault();
+      } else if (e.key === 'Tab') {
+        this.autocomplete();
         e.preventDefault();
       } else if (e.key === 'Escape') {
         this.input.value = '';
@@ -124,7 +149,7 @@ export class ChatUI {
     const atBottom = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 24;
     const ln = document.createElement('div');
     ln.className = 'ln';
-    ln.innerHTML = `<span class="ts">${fmtTime(at)}</span> <b>${esc(from)}:</b> ${linkify(text)}`;
+    ln.innerHTML = `<span class="ts">${fmtTime(at)}</span> <b>${esc(from)}:</b> ${this.renderText(text)}`;
     this.log.appendChild(ln);
     this.trim();
     if (atBottom) this.log.scrollTop = this.log.scrollHeight;
@@ -178,16 +203,81 @@ export class ChatUI {
     else this.hooks.sendCommand(spec.name, args);
   }
 
+  /** Escape + URL-linkify a chat line, and turn a printed clickable command (e.g. a
+   *  `/goto x y z` from `/pos print`) into a link that runs it on click. */
+  private renderText(text: string): string {
+    // Only self-teleport /goto links are clickable, and only in a client that has the
+    // command (voxel). Match its exact grammar so trailing words aren't swallowed.
+    if (!(CLICKABLE_CMDS.has('goto') && this.allCommands().some((c) => c.name === 'goto'))) return linkify(text);
+    const re = /\/goto\s+(?:world-spawn|-?\d+\s+-?\d+\s+-?\d+)/gi;
+    let out = '';
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      out += linkify(text.slice(last, m.index));
+      const cmd = m[0].replace(/^\//, '').replace(/\s+/g, ' ').trim(); // "goto 12 68 -5"
+      out += `<a class="pa-cmd" data-cmd="${esc(cmd)}" title="Click to travel">/${esc(cmd)}</a>`;
+      last = m.index + m[0].length;
+    }
+    out += linkify(text.slice(last));
+    return out;
+  }
+
+  /** Every command the viewer may use: shared registry (group-filtered) + host extras. */
+  private allCommands(): CommandSpec[] {
+    const admin = this.hooks.isAdmin();
+    const extras = (this.hooks.extraCommands ?? []).filter((c) => mayRunCommand(c, admin));
+    return [...commandsForGroup(admin), ...extras];
+  }
+  private findAny(name: string): CommandSpec | undefined {
+    const n = name.replace(/^\//, '').trim().toLowerCase();
+    return findCommand(n) ?? this.hooks.extraCommands?.find((c) => c.name === n);
+  }
+
   private showHelp(arg: string): void {
     const q = arg.trim();
     if (q) {
-      const spec = findCommand(q);
+      const spec = this.findAny(q);
       if (!spec || !mayRunCommand(spec, this.hooks.isAdmin())) this.addSystemLine(`No such command: /${q.replace(/^\//, '')}`);
       else this.addSystemLine(`${spec.usage} — ${spec.summary}`);
       return;
     }
-    const list = commandsForGroup(this.hooks.isAdmin()).map((c) => `/${c.name}`).join(', ');
+    const list = this.allCommands().map((c) => `/${c.name}`).join(', ');
     this.addSystemLine(`Commands: ${list}. Use /help <command> for details.`);
+  }
+
+  /** TAB completion for the command name (and /goto's world-spawn target). */
+  private autocomplete(): void {
+    const val = this.input.value;
+    if (!val.startsWith('/')) return;
+    const sp = val.slice(1).split(/\s+/);
+    // Completing an argument (there's already a space) — complete against the command's
+    // fixed keyword args (e.g. /pos print, /goto world-spawn).
+    if (sp.length > 1) {
+      const hints = ARG_HINTS[sp[0].toLowerCase()] ?? [];
+      const last = sp[sp.length - 1].toLowerCase();
+      const matches = hints.filter((h) => h.startsWith(last));
+      if (matches.length === 1) {
+        sp[sp.length - 1] = matches[0];
+        this.input.value = `/${sp.join(' ')}`;
+      }
+      return;
+    }
+    const prefix = sp[0].toLowerCase();
+    const matches = this.allCommands().filter((c) => c.name.startsWith(prefix));
+    if (matches.length === 0) return;
+    if (matches.length === 1) {
+      this.input.value = `/${matches[0].name} `;
+      return;
+    }
+    // Several: complete to the longest common prefix; list them if it doesn't extend.
+    const lcp = matches.reduce((a, c) => {
+      let i = 0;
+      while (i < a.length && i < c.name.length && a[i] === c.name[i]) i++;
+      return a.slice(0, i);
+    }, matches[0].name);
+    if (lcp.length > prefix.length) this.input.value = `/${lcp}`;
+    else this.addSystemLine(`Commands: ${matches.map((c) => `/${c.name}`).join(', ')}`);
   }
 
   private pushHistory(text: string): void {
@@ -320,7 +410,8 @@ function injectStyle(): void {
     #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
     #pa-chatlog{height:13rem;min-height:4rem;overflow-y:auto;background:rgba(15,18,32,.72);border:2px solid #05060b;
       border-radius:0.45rem;padding:0.45rem 0.6rem;color:#e9ecf7;font-size:1rem;line-height:1.35;
-      display:flex;flex-direction:column;gap:0.1rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14;}
+      display:flex;flex-direction:column;gap:0.1rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14;
+      user-select:text;-webkit-user-select:text;cursor:text;}
     #pa-chatresize{position:absolute;top:0;right:0;width:1.1rem;height:1.1rem;cursor:nesw-resize;z-index:57;
       border-top:2px solid #6f7590;border-right:2px solid #6f7590;border-top-right-radius:0.4rem;opacity:0.6;}
     #pa-chatresize:hover{opacity:1;border-color:#7fa7e0;}
@@ -334,6 +425,8 @@ function injectStyle(): void {
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#7fa7e0;}
     #pa-chatlog .ln a{color:#9ecbff;text-decoration:underline;overflow-wrap:anywhere;}
+    #pa-chatlog .ln a.pa-cmd{color:#7fd08a;cursor:pointer;text-decoration:underline dotted;font-weight:600;}
+    #pa-chatlog .ln a.pa-cmd:hover{color:#a6e6ad;text-decoration:underline;}
     #pa-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
     #pa-chatlog .ln.sys{color:#9aa0b8;font-style:italic;}
     #pa-chatinput{background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;

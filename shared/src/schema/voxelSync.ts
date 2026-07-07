@@ -19,6 +19,7 @@ export class VoxelPlayerSync extends EntitySync {
   @type('uint8') hpMax = 20;
   @type('uint8') armor = 0; // total defence points from equipped armour
   @type('uint8') food = 20; // hunger (0 → starve; ≥18 → regen HP); own client shows the bar
+  @type('boolean') afk = false; // player set themselves away (/afk); shows an "afk" marker, cleared on move
 }
 
 /**

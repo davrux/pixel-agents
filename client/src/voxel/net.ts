@@ -26,7 +26,7 @@ export interface VoxelNet {
   sendEdit(x: number, y: number, z: number, id: number, tool?: number): void;
   sendMove(x: number, y: number, z: number, yaw: number, pitch: number, state: string): void;
   setPortal(x: number, y: number, z: number, dest: unknown): void;
-  sendTeleport(x: number, z: number): void;
+  sendTeleport(x: number, z: number, y?: number): void;
   sendAttack(npc: string): void;
   sendArmor(defense: number): void;
   setPeaceful(on: boolean): void;
@@ -150,6 +150,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
   room.onMessage('m', (m: ChatMsg) => handlers.onMsg?.(m));
   room.onMessage('crafted', (m: { block: number; count: number }) => handlers.onCrafted?.(m));
   room.onLeave((code: number) => handlers.onLeave?.(code));
+  room.onError((code: number) => handlers.onLeave?.(code)); // a transport error also drops us → reconnect
   return {
     room,
     sessionId: room.sessionId,
@@ -157,7 +158,7 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendEdit: (x, y, z, id, tool = 0) => room.send('edit', { x, y, z, id, tool }),
     sendMove: (x, y, z, yaw, pitch, state) => room.send('move', { x, y, z, yaw, pitch, state }),
     setPortal: (x, y, z, dest) => room.send('setPortal', { x, y, z, dest }),
-    sendTeleport: (x, z) => room.send('teleport', { x, z }),
+    sendTeleport: (x, z, y) => room.send('teleport', { x, z, y }),
     sendAttack: (npc) => room.send('attack', { npc }),
     sendArmor: (defense) => room.send('setArmor', { defense }),
     setPeaceful: (on) => room.send('setPeaceful', { on }),
