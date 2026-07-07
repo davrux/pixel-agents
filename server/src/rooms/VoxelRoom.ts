@@ -202,6 +202,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private cropAcc = 0; // seconds toward the next crop-growth tick
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private readonly lastVoiceEventAt = new Map<string, number>(); // per-session throttle for voice announcements
+  private readonly lastChatAt = new Map<string, number>(); // per-session chat throttle (matches the 2D office)
   private readonly decayLeaves = new Set<string>(); // orphaned leaf cells to check for decay
   private decayAcc = 0; // seconds toward the next leaf-decay tick
   private hungerAcc = 0; // seconds toward the next hunger tick
@@ -246,8 +247,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const p = this.state.players.get(client.sessionId);
       if (p && Number.isFinite(m?.defense)) p.armor = Math.max(0, Math.min(40, Math.floor(m.defense!)));
     });
-    this.onMessage('setPeaceful', (_client, m: { on?: boolean }) => {
-      this.peaceful = !!m?.on; // shared-world flag; when on, no monsters spawn
+    this.onMessage('setPeaceful', (client, m: { on?: boolean }) => {
+      // Shared-world toggle → admin-only (a normal player must not mass-despawn monsters).
+      if (!(client.auth as AuthInfo | undefined)?.isAdmin) return void client.send('m', { type: 'system', text: 'Peaceful mode is admin-only.' });
+      this.peaceful = !!m?.on; // when on, no monsters spawn
       // Clear existing MONSTERS only (animals stay — peaceful keeps passive mobs).
       if (this.peaceful) for (const [key, b] of this.npcs) if (b.def.type === 'monster') this.removeMob(key);
     });
@@ -311,13 +314,23 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (p && typeof skin === 'string' && skin.length <= 40) p.skin = skin;
     });
     // Mark a block as a portal to another world / 2D zone (dest cleaned server-side).
-    this.onMessage('setPortal', (_client, m: { x: number; y: number; z: number; dest: unknown }) => {
+    this.onMessage('setPortal', (client, m: { x: number; y: number; z: number; dest: unknown }) => {
+      const v = this.views.get(client.sessionId);
+      if (!v) return;
+      // Portals teleport players across worlds / into 2D zones — admin-only, like 2D where
+      // portals are editor-placed content. (Reach-limited too; a normal player can't set one.)
+      if (!(client.auth as AuthInfo | undefined)?.isAdmin) return void client.send('m', { type: 'system', text: 'Setting portals is admin-only.' });
       const dest = cleanDest(m?.dest);
       if (!dest) return;
       const x = Math.floor(m.x),
         y = Math.floor(m.y),
         z = Math.floor(m.z);
-      if ([x, y, z].every(Number.isFinite)) portals.set(this.state.worldId, x, y, z, dest);
+      if (![x, y, z].every(Number.isFinite)) return;
+      const dx = x + 0.5 - v.px, // reach-limit like edits/signs — can't retarget portals across the world
+        dy = y + 0.5 - (v.py + 1.6),
+        dz = z + 0.5 - v.pz;
+      if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
+      portals.set(this.state.worldId, x, y, z, dest);
     });
 
     this.loadBoats(); // respawn this world's saved boats
@@ -1725,6 +1738,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.wear.delete(client.sessionId);
     this.noWear.delete(client.sessionId);
     this.noHunger.delete(client.sessionId);
+    this.lastChatAt.delete(client.sessionId);
+    this.lastVoiceEventAt.delete(client.sessionId);
   }
 
   onDispose(): void {
@@ -2042,10 +2057,13 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   private onChat(client: Client, m: { text?: string }): void {
+    const now = Date.now();
+    if (now - (this.lastChatAt.get(client.sessionId) ?? 0) < 700) return; // ~1.4/s, same as the 2D office
     const text = (typeof m?.text === 'string' ? m.text : '').replace(/\s+/g, ' ').trim().slice(0, 200);
     if (!text) return;
+    this.lastChatAt.set(client.sessionId, now);
     const from = this.state.players.get(client.sessionId)?.name || 'player';
-    this.broadcast('m', { type: 'chat', from, text, at: Date.now() });
+    this.broadcast('m', { type: 'chat', from, text, at: now });
   }
 
   /** Delete a persisted world (admin only; not the current world or the default). */
@@ -2079,12 +2097,16 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   /** Set (or clear) a conference monitor's room name. Reach-/type-checked; persisted per
    *  world/pos and broadcast so every client titles the call the same + can join by name. */
   private onSetMonitorName(client: Client, m: { x: number; y: number; z: number; name?: string }): void {
-    const p = this.state.players.get(client.sessionId);
-    if (!p) return;
+    const v = this.views.get(client.sessionId);
+    if (!v) return;
     const x = Math.floor(m.x),
       y = Math.floor(m.y),
       z = Math.floor(m.z);
     if (![x, y, z].every(Number.isFinite)) return;
+    const dx = x + 0.5 - v.px, // reach-limit like signs/edits — no renaming monitors across the world
+      dy = y + 0.5 - (v.py + 1.6),
+      dz = z + 0.5 - v.pz;
+    if (dx * dx + dy * dy + dz * dz > REACH * REACH) return;
     if (this.world.getBlock(x, y, z) !== MONITOR_ID) return;
     const name = cleanMonitorName(m.name);
     if (name) monitors.set(this.state.worldId, x, y, z, name);

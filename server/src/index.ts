@@ -38,7 +38,7 @@ import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
-import { registerAuth } from './auth.js';
+import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { listWorlds } from './voxel/chunkStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
@@ -119,7 +119,14 @@ async function main(): Promise<void> {
   app.get('/health', (_req, res) => res.json({ ok: true }));
   // Existing voxel world ids — the client validates a persisted "last world" against this
   // before connecting, so an auto-reconnect never resurrects a world that was deleted.
-  app.get('/voxel/worlds', (_req, res) => res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] }));
+  // When login is enforced, require a valid session (same gate as the rest of the app) so
+  // world ids aren't enumerable by anonymous callers.
+  app.get('/voxel/worlds', (req, res) => {
+    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+      return void res.status(401).json({ error: 'unauthorized' });
+    }
+    res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] });
+  });
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
