@@ -58,12 +58,21 @@ export class VoxelBoatSync extends EntitySync {
   @type('string') rider = ''; // session id of the steering player, '' = empty
 }
 
+/** A rideable minecart (Luanti carts mod) running along rail nodes. Server-authoritative:
+ *  the rider accelerates/brakes, the server steers it along connected rails. */
+export class VoxelCartSync extends EntitySync {
+  @type('number') z = 0;
+  @type('number') yaw = 0;
+  @type('string') rider = ''; // session id of the driver, '' = empty
+}
+
 export class VoxelRoomState extends Schema {
-  // @view(): players + NPCs + item drops are area-of-interest filtered — each client only
-  // receives the entities its StateView has added (nearby ones), not the whole world.
+  // @view(): players + NPCs + item drops + boats + carts are area-of-interest filtered —
+  // each client only receives the entities its StateView has added (nearby ones).
   @view() @type({ map: VoxelPlayerSync }) players = new MapSchema<VoxelPlayerSync>();
   @view() @type({ map: VoxelNpcSync }) npcs = new MapSchema<VoxelNpcSync>();
   @view() @type({ map: VoxelItemSync }) items = new MapSchema<VoxelItemSync>();
   @view() @type({ map: VoxelBoatSync }) boats = new MapSchema<VoxelBoatSync>();
+  @view() @type({ map: VoxelCartSync }) carts = new MapSchema<VoxelCartSync>();
   @type('string') worldId = '';
 }

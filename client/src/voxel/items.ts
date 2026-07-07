@@ -9,7 +9,7 @@ import {
   MATERIAL_BASE, TOOL_BASE, TOOL_IDS, COAL_LUMP, IRON_LUMP, STEEL_INGOT, STICK,
   COPPER_LUMP, TIN_LUMP, GOLD_LUMP, COPPER_INGOT, TIN_INGOT, GOLD_INGOT, BRONZE_INGOT, WHEAT, BREAD, CHARCOAL, FLINT, APPLE,
   DYE_RED, DYE_ORANGE, DYE_YELLOW, DYE_GREEN, DYE_BLUE, DYE_VIOLET, DYE_BLACK, DIAMOND, MESE_CRYSTAL,
-  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL, BOAT_ITEM,
+  BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL, BOAT_ITEM, CART_ITEM,
 } from '@pixel/shared';
 
 import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
@@ -112,6 +112,7 @@ export const TOOL_ITEMS: Item[] = [
   bucketItem(BUCKET_EMPTY, 'Bucket', 'bucket'), bucketItem(BUCKET_WATER, 'Water Bucket', 'bucket_water'), bucketItem(BUCKET_LAVA, 'Lava Bucket', 'bucket_lava'),
   bucketItem(FLINT_STEEL, 'Flint & Steel', 'fire_flint_steel'), // tool-track item; use-action lights fire
   bucketItem(BOAT_ITEM, 'Boat', 'boats_inventory'), // tool-track item; use on water → rideable boat
+  bucketItem(CART_ITEM, 'Minecart', 'carts_cart_side'), // tool-track item; use on a rail → rideable cart
 ];
 /** Numeric tool id → its Item (for invItem / ownership checks). */
 const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
@@ -195,7 +196,7 @@ export const DEFAULT_TOOLS: string[] = [
   'shovel_wood', 'shovel_stone', 'shovel_steel', 'shovel_diamond', 'shovel_mese',
   'sword_wood', 'sword_stone', 'sword_steel', 'sword_diamond', 'sword_mese',
   'hoe_wood', 'hoe_stone', 'hoe_steel',
-  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA, 'b' + FLINT_STEEL, 'b' + BOAT_ITEM,
+  'b' + BUCKET_EMPTY, 'b' + BUCKET_WATER, 'b' + BUCKET_LAVA, 'b' + FLINT_STEEL, 'b' + BOAT_ITEM, 'b' + CART_ITEM,
 ];
 export const DEFAULT_BLOCKS: string[] = ['block:1', 'block:3', 'block:4', 'block:17', 'block:15'];
 /** Kept for anything that still wants the flat list (tools then blocks). */

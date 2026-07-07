@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, isBoat, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
+import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, isBoat, isCart, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
 import { buildChunkMesh } from './mesher.js';
 import { NodeModels } from './nodeModels.js';
@@ -18,7 +18,7 @@ import { injectPaSkin } from '../ui/paSkin.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, LIGHT_BLOCKS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -222,6 +222,94 @@ function tryMountBoat(): boolean {
   const id = o?.userData.boatId as string | undefined;
   if (!id) return false;
   net.boatMount(id);
+  return true;
+}
+
+// Carts: rideable rail entities in state.carts. Same pattern as boats (one glTF template,
+// cloned per cart, interpolated); the local rider's camera follows via player.pos.
+const cartGroup = new THREE.Group();
+scene.add(cartGroup);
+const cartMeshes = new Map<string, THREE.Object3D>();
+let cartTemplate: THREE.Object3D | null = null;
+{
+  const cbase = new URL('models/luanti/carts_cart/', document.baseURI).href;
+  const cmat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+  new THREE.TextureLoader().load(cbase + 'texture.png', (t) => {
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.flipY = false;
+    cmat.map = t;
+    cmat.needsUpdate = true;
+  });
+  new GLTFLoader().load(cbase + 'carts_cart.gltf', (g) => {
+    const o = g.scene;
+    o.traverse((mm) => {
+      if ((mm as THREE.Mesh).isMesh) {
+        (mm as THREE.Mesh).material = cmat;
+        mm.frustumCulled = false;
+      }
+    });
+    const box = new THREE.Box3().setFromObject(o);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const s = 0.9 / Math.max(0.001, Math.max(size.x, size.z)); // ~1 block
+    o.scale.setScalar(s);
+    o.position.set(-(box.min.x + size.x / 2) * s, -box.min.y * s, -(box.min.z + size.z / 2) * s);
+    const wrap = new THREE.Group();
+    wrap.add(o);
+    cartTemplate = wrap;
+  });
+}
+function ridingCart(): RemoteCart | null {
+  if (!net) return null;
+  const st = net.room.state as unknown as RemoteState;
+  if (!st?.carts) return null;
+  let mine: RemoteCart | null = null;
+  st.carts.forEach((c) => {
+    if (c.rider === net!.sessionId) mine = c;
+  });
+  return mine;
+}
+function syncCarts(dt: number, state: RemoteState): void {
+  if (!state.carts) return;
+  const k = Math.min(1, dt * 10);
+  const seen = new Set<string>();
+  state.carts.forEach((c, id) => {
+    seen.add(id);
+    let m = cartMeshes.get(id);
+    if (!m) {
+      if (!cartTemplate) return;
+      m = cartTemplate.clone(true);
+      m.userData.cartId = id;
+      m.position.set(c.x, c.y, c.z);
+      m.rotation.y = c.yaw;
+      cartMeshes.set(id, m);
+      cartGroup.add(m);
+      return;
+    }
+    m.position.x += (c.x - m.position.x) * k;
+    m.position.y += (c.y - m.position.y) * k;
+    m.position.z += (c.z - m.position.z) * k;
+    let dyaw = c.yaw - m.rotation.y;
+    while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
+    while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
+    m.rotation.y += dyaw * k;
+  });
+  for (const [id, m] of cartMeshes)
+    if (!seen.has(id)) {
+      cartGroup.remove(m);
+      cartMeshes.delete(id);
+    }
+}
+function tryMountCart(): boolean {
+  if (ridingCart() || !net || !cartGroup.children.length) return false;
+  raycaster.setFromCamera(mode === 'first' ? CENTER : pointerNDC, activeCam());
+  const hit = raycaster.intersectObjects(cartGroup.children, true)[0];
+  if (!hit || hit.distance > REACH + 2) return false;
+  let o: THREE.Object3D | null = hit.object;
+  while (o && o.parent !== cartGroup) o = o.parent;
+  const id = o?.userData.cartId as string | undefined;
+  if (!id) return false;
+  net.cartMount(id);
   return true;
 }
 const NEIGHBORS = [
@@ -562,11 +650,13 @@ interface RemoteBoat {
   yaw: number;
   rider: string;
 }
+type RemoteCart = RemoteBoat; // same shape (x/y/z/yaw/rider)
 interface RemoteState {
   players: { forEach(cb: (p: RemotePlayer, k: string) => void): void; get(k: string): RemotePlayer | undefined };
   npcs: { forEach(cb: (p: RemoteNpc, k: string) => void): void; get(k: string): RemoteNpc | undefined };
   items: { forEach(cb: (p: RemoteItem, k: string) => void): void; get(k: string): RemoteItem | undefined };
   boats: { forEach(cb: (p: RemoteBoat, k: string) => void): void; get(k: string): RemoteBoat | undefined };
+  carts: { forEach(cb: (p: RemoteCart, k: string) => void): void; get(k: string): RemoteCart | undefined };
 }
 const remote = new Map<string, { avatar: Avatar }>();
 // An NPC is rendered as either a humanoid Avatar (monsters) or a blocky MobModel
@@ -786,6 +876,7 @@ function syncNpcs(dt: number, state: RemoteState): void {
   }
   syncItemDrops(state);
   syncBoats(dt, state);
+  syncCarts(dt, state);
 }
 
 /** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */
@@ -1475,6 +1566,22 @@ function useHeldTool(): void {
     }
     return;
   }
+  // Cart item: aim at a rail → spawn a rideable cart there.
+  if (isCart(heldId)) {
+    const h = aimHit();
+    if (h) {
+      const p = h.point.clone().addScaledVector(h.face ? h.face.normal : UP, -0.5);
+      const rx = Math.floor(p.x),
+        ry = Math.floor(p.y),
+        rz = Math.floor(p.z);
+      if (world.get(rx, ry, rz) === RAIL_ID) {
+        net?.cartPlace(rx, ry, rz);
+        avatar.playDig();
+        sound.play('place');
+      }
+    }
+    return;
+  }
   // Buckets act on liquids. Fluids aren't in the raycast mesh, so march the aim ray
   // through the voxel grid: empty scoops the first SOURCE (seeing THROUGH flowing
   // liquid — only solids block); filled pours into the last air cell before a hit.
@@ -1570,10 +1677,10 @@ function heldNum(): number {
  *  aimed node (chest/door) first; else use a held tool (bucket/hoe/flint); else place a
  *  held block. */
 function primaryUse(): void {
-  if (tryMountBoat()) return; // looking at a boat → climb in
+  if (tryMountBoat() || tryMountCart()) return; // looking at a boat/cart → climb in
   if (interactNode()) return; // aiming at a chest/door → open/toggle it, don't place
   const n = held().toolId ?? 0;
-  if (isBucket(n) || isHoe(n) || isFlintSteel(n) || isBoat(n)) return useHeldTool(); // bucket/hoe/flint/boat
+  if (isBucket(n) || isHoe(n) || isFlintSteel(n) || isBoat(n) || isCart(n)) return useHeldTool();
   placeBlock();
 }
 
@@ -2605,6 +2712,8 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   nodeModels.clear();
   for (const m of boatMeshes.values()) boatGroup.remove(m);
   boatMeshes.clear();
+  for (const m of cartMeshes.values()) cartGroup.remove(m);
+  cartMeshes.clear();
   for (const key of [...signObjs.keys()]) removeSign(key);
   signTexts.clear();
   dirty.clear();
@@ -2735,26 +2844,30 @@ function frameBody(now: number): void {
     lt = false,
     rt = false;
   const boat = ridingBoat();
-  if (boat) {
-    // Riding: the server owns the boat (10 Hz) — smoothly follow it (no snap = no jitter)
-    // and turn WITH it (so camera + avatar face the boat's heading in every view). WASD
-    // steers; Space climbs out. Local physics + the normal move-input block are skipped.
+  const cart = boat ? null : ridingCart();
+  const mount = boat || cart;
+  if (mount) {
+    // Riding a boat/cart: the server owns it (10 Hz) — smoothly follow it (no snap = no
+    // jitter) and turn WITH it in every view. Boat: WASD steers. Cart: W accelerate /
+    // S brake (rails steer). Space climbs out. Local physics + move-input are skipped.
     const k = Math.min(1, dt * 10);
-    player.pos.x += (boat.x - player.pos.x) * k;
-    player.pos.y += (boat.y + 0.2 - player.pos.y) * k;
-    player.pos.z += (boat.z - player.pos.z) * k;
+    const oy = boat ? 0.2 : 0.3;
+    player.pos.x += (mount.x - player.pos.x) * k;
+    player.pos.y += (mount.y + oy - player.pos.y) * k;
+    player.pos.z += (mount.z - player.pos.z) * k;
     player.vel.set(0, 0, 0);
-    let dyaw = boat.yaw - player.yaw;
+    let dyaw = mount.yaw - player.yaw;
     while (dyaw > Math.PI) dyaw -= 2 * Math.PI;
     while (dyaw < -Math.PI) dyaw += 2 * Math.PI;
     player.yaw += dyaw * k;
-    if (mode === 'iso') isoYaw = player.yaw; // keep the iso map aligned with the boat heading
+    if (mode === 'iso') isoYaw = player.yaw; // keep the view aligned with the heading
     else if (mode === 'third') camYaw = player.yaw;
     if (net && now - lastBoatSteer > 90) {
       lastBoatSteer = now;
-      net.boatSteer(w ? 1 : s ? -1 : 0, a ? 1 : d ? -1 : 0);
+      if (boat) net.boatSteer(w ? 1 : s ? -1 : 0, a ? 1 : d ? -1 : 0);
+      else net.cartSteer(w ? 1 : s ? -1 : 0);
     }
-    if (jump && !boatDismountLatch) net?.boatDismount();
+    if (jump && !boatDismountLatch) (boat ? net?.boatDismount() : net?.cartDismount());
     boatDismountLatch = jump;
   } else if (mode === 'iso') {
     if (w || s || a || d) {
@@ -2781,7 +2894,7 @@ function frameBody(now: number): void {
     rt = d;
   }
   const input: MoveInput = { forward: fwd, back: bk, left: lt, right: rt, jump, down, fly: settings.fly };
-  if (ready && !boat) player.update(dt, input); // boat: server drives position, skip local physics
+  if (ready && !mount) player.update(dt, input); // boat/cart: server drives position, skip local physics
   // World border: keep the player inside a sized world (invisible wall at ±half-extent).
   if (worldHalfExtent > 0) {
     const lim = worldHalfExtent - 0.3; // player half-width slack
@@ -2839,7 +2952,7 @@ function frameBody(now: number): void {
   updateAmbient(dt);
   // Report our transform to the server (throttled) so AOI + other players update.
   // (Skipped while riding — the server owns the boat+rider position via boatSteer.)
-  if (net && ready && !boat && now - lastMoveSent > 100) {
+  if (net && ready && !mount && now - lastMoveSent > 100) {
     lastMoveSent = now;
     const moveState = player.inWater ? 'swim' : player.speed2d > 0.4 ? 'walk' : 'idle';
     net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, moveState);

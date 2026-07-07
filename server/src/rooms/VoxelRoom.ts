@@ -57,6 +57,8 @@ import {
   isBucket,
   BUCKET_EMPTY,
   BOAT_ITEM,
+  CART_ITEM,
+  RAIL_ID,
   BUCKET_WATER,
   BUCKET_LAVA,
   FIRE_ID,
@@ -74,7 +76,7 @@ import {
   KICK_CLOSE_CODE,
   needsGround,
 } from '@pixel/shared';
-import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelBoatSync, VoxelRoomState } from '@pixel/shared/schema';
+import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelBoatSync, VoxelCartSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
 import { stepFluid, seedCells } from '../voxel/fluid.js';
 import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
@@ -179,6 +181,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private itemSeq = 0; // id counter for dropped items
   private boatSeq = 0; // id counter for boats
   private readonly boatSteer = new Map<string, { forward: number; turn: number }>(); // rider sid → steering input
+  private cartSeq = 0; // id counter for carts
+  private readonly cartMotion = new Map<string, { dx: number; dz: number; speed: number }>(); // cart id → rail travel state
+  private readonly cartInput = new Map<string, number>(); // rider sid → throttle (-1 brake .. +1 accelerate)
   private readonly drops = new Map<string, { sync: VoxelItemSync; life: number }>(); // key → drop
   private readonly inv = new Map<string, Map<number, number>>(); // sid → (block id → count)
   private readonly creative = new Set<string>(); // sids with unlimited-block placing
@@ -274,6 +279,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
         this.boatSteer.set(client.sessionId, { forward: Math.max(-1, Math.min(1, m?.forward ?? 0)), turn: Math.max(-1, Math.min(1, m?.turn ?? 0)) });
     });
     this.onMessage('boatDismount', (client) => this.dismountBoat(client.sessionId));
+    this.onMessage('cartPlace', (client, m: { x: number; y: number; z: number }) => this.onCartPlace(client, m));
+    this.onMessage('cartMount', (client, m: { id?: string }) => this.onCartMount(client, m?.id ?? ''));
+    this.onMessage('cartSteer', (client, m: { throttle?: number }) => {
+      if ([...this.state.carts.values()].some((c) => c.rider === client.sessionId)) this.cartInput.set(client.sessionId, Math.max(-1, Math.min(1, m?.throttle ?? 0)));
+    });
+    this.onMessage('cartDismount', (client) => this.dismountCart(client.sessionId));
     this.onMessage('setSign', (client, m: { x: number; y: number; z: number; text?: string }) => this.onSetSign(client, m));
     this.onMessage('chat', (client, m: { text?: string }) => this.onChat(client, m));
     this.onMessage('command', (client, m: { name?: string; args?: string }) => this.onCommand(client, m));
@@ -345,6 +356,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
     this.tickFluids(); // cellular liquid flow (self-gates per fluid viscosity)
     this.tickBoats(dt); // ridden boats steer + carry their rider
+    this.tickCarts(dt); // carts roll along the rails + carry their rider
     this.cropAcc += dt;
     if (this.cropAcc >= 3) {
       this.cropAcc = 0;
@@ -796,6 +808,9 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       this.state.boats.forEach((bt) => {
         if (Math.hypot(bt.x - self.x, bt.z - self.z) <= AOI) want.add(bt);
       });
+      this.state.carts.forEach((ct) => {
+        if (Math.hypot(ct.x - self.x, ct.z - self.z) <= AOI) want.add(ct);
+      });
       for (const e of want) if (!v.aoiSet.has(e)) ((v.view.add(e as never), v.aoiSet.add(e)));
       for (const e of v.aoiSet) if (!want.has(e)) ((v.view.remove(e as never), v.aoiSet.delete(e)));
     });
@@ -1214,6 +1229,153 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.saveBoats(); // boat came to rest → persist its parked position
   }
 
+  // ── Carts (Luanti carts mod): rideable rail entities ─────────────────────────
+  private railAt(x: number, y: number, z: number): boolean {
+    return this.world.getBlock(x, y, z) === RAIL_ID;
+  }
+
+  /** Use a cart item on a rail → spawn a cart there (consumes one item). */
+  private onCartPlace(client: Client, m: { x: number; y: number; z: number }): void {
+    const sid = client.sessionId;
+    const creative = this.creative.has(sid);
+    const bag = this.inv.get(sid);
+    if (!creative && (bag?.get(CART_ITEM) ?? 0) <= 0) return;
+    const x = Math.floor(m.x),
+      y = Math.floor(m.y),
+      z = Math.floor(m.z);
+    if (!this.railAt(x, y, z)) return; // carts only go on rails
+    const c = new VoxelCartSync();
+    c.id = ++this.cartSeq;
+    c.x = x + 0.5;
+    c.y = y + 0.1;
+    c.z = z + 0.5;
+    const key = `c${c.id}`;
+    this.state.carts.set(key, c);
+    this.cartMotion.set(key, { dx: 0, dz: 0, speed: 0 });
+    if (!creative && bag) {
+      const left = (bag.get(CART_ITEM) ?? 0) - 1;
+      if (left <= 0) bag.delete(CART_ITEM);
+      else bag.set(CART_ITEM, left);
+      client.send('inv', { block: CART_ITEM, total: Math.max(0, left) });
+    }
+  }
+
+  private onCartMount(client: Client, id: string): void {
+    const sid = client.sessionId;
+    const c = this.state.carts.get(id);
+    const p = this.state.players.get(sid);
+    if (!c || !p || c.rider) return;
+    if (Math.hypot(c.x - p.x, c.z - p.z) > 3.5) return;
+    this.dismountCart(sid);
+    c.rider = sid;
+  }
+
+  private dismountCart(sid: string): void {
+    this.cartInput.delete(sid);
+    this.state.carts.forEach((c, id) => {
+      if (c.rider !== sid) return;
+      c.rider = '';
+      const m = this.cartMotion.get(id);
+      if (m) m.speed = 0; // park it
+      const p = this.state.players.get(sid);
+      if (p) p.y = c.y + 1;
+    });
+  }
+
+  /** Next travel direction at rail cell (cx,cz): prefer straight (dx,dz), else a turn onto a
+   *  connected rail (never reverse), else null (dead end → stop). */
+  private pickCartDir(cx: number, cy: number, cz: number, dx: number, dz: number): { dx: number; dz: number } | null {
+    const rail = (a: number, b: number): boolean => this.railAt(cx + a, cy, cz + b);
+    if ((dx || dz) && rail(dx, dz)) return { dx, dz }; // keep going straight
+    for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      if (a === -dx && b === -dz) continue; // never reverse
+      if (a === dx && b === dz) continue; // straight already tried
+      if (rail(a, b)) return { dx: a, dz: b };
+    }
+    return null;
+  }
+
+  private glueCartRider(c: VoxelCartSync): void {
+    if (!c.rider) return;
+    const p = this.state.players.get(c.rider);
+    if (p) {
+      p.x = c.x;
+      p.y = c.y + 0.3;
+      p.z = c.z;
+      p.yaw = c.yaw;
+    }
+  }
+
+  /** Advance every cart along its rails: throttle → speed, then step, re-choosing the
+   *  direction at each cell (straight > turn > stop). Then glue the rider on. */
+  private tickCarts(dt: number): void {
+    if (!this.state.carts.size) return;
+    const MAX = 6;
+    this.state.carts.forEach((c, id) => {
+      const m = this.cartMotion.get(id);
+      if (!m) return;
+      if (c.rider && !this.state.players.get(c.rider)) this.dismountCart(c.rider);
+      const throttle = c.rider ? this.cartInput.get(c.rider) ?? 0 : 0;
+      m.speed += throttle * 8 * dt;
+      m.speed -= m.speed * Math.min(1, dt * 0.5); // rolling friction
+      if (m.speed < 0) m.speed = 0; // forward-only; S brakes to a stop
+      if (m.speed > MAX) m.speed = MAX;
+      const cy = Math.floor(c.y);
+      if (m.speed < 0.05) {
+        m.speed = 0;
+        this.glueCartRider(c);
+        return;
+      }
+      let cx = Math.floor(c.x),
+        cz = Math.floor(c.z);
+      if (!m.dx && !m.dz) {
+        const d = this.pickCartDir(cx, cy, cz, 0, 0);
+        if (!d) {
+          m.speed = 0;
+          this.glueCartRider(c);
+          return;
+        }
+        m.dx = d.dx;
+        m.dz = d.dz;
+      }
+      c.x += m.dx * m.speed * dt;
+      c.z += m.dz * m.speed * dt;
+      if (m.dx) c.z = Math.floor(c.z) + 0.5;
+      else c.x = Math.floor(c.x) + 0.5; // stay centred on the perpendicular axis
+      const ncx = Math.floor(c.x),
+        ncz = Math.floor(c.z);
+      if (ncx !== cx || ncz !== cz) {
+        if (!this.railAt(ncx, cy, ncz)) {
+          // ran off the track → stop at the last rail cell
+          c.x = cx + 0.5;
+          c.z = cz + 0.5;
+          m.speed = 0;
+          m.dx = 0;
+          m.dz = 0;
+        } else {
+          const d = this.pickCartDir(ncx, cy, ncz, m.dx, m.dz);
+          if (d) {
+            if (d.dx !== m.dx || d.dz !== m.dz) {
+              c.x = ncx + 0.5;
+              c.z = ncz + 0.5;
+            } // snap to centre to start a turn cleanly
+            m.dx = d.dx;
+            m.dz = d.dz;
+          } else {
+            c.x = ncx + 0.5;
+            c.z = ncz + 0.5;
+            m.speed = 0;
+            m.dx = 0;
+            m.dz = 0;
+          }
+        }
+      }
+      c.yaw = Math.atan2(-m.dx, -m.dz);
+      c.y = cy + 0.1;
+      this.glueCartRider(c);
+    });
+  }
+
   /** Water surface Y near (x,z) around a height, or null if no water there. */
   private boatWaterY(x: number, z: number, aroundY: number): number | null {
     const cx = Math.floor(x),
@@ -1511,6 +1673,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const wear = this.wear.get(client.sessionId);
     if (auth?.userId && wear) voxelDurability.set(auth.userId, wear); // persist half-worn tools
     this.dismountBoat(client.sessionId); // free any boat the leaver was riding
+    this.dismountCart(client.sessionId); // and any cart
     if (p) this.dropFromViews(p); // drop the leaver from other clients' views
     this.state.players.delete(client.sessionId);
     this.views.delete(client.sessionId);

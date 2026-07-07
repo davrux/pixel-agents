@@ -194,6 +194,9 @@ export const isFlintSteel = (id: number): boolean => id === FLINT_STEEL;
 /** Boat: a tool-track item; use-action on water spawns a rideable boat (Luanti boats). */
 export const BOAT_ITEM = 244;
 export const isBoat = (id: number): boolean => id === BOAT_ITEM;
+/** Minecart: a tool-track item; use-action on a rail spawns a rideable cart (Luanti carts). */
+export const CART_ITEM = 245;
+export const isCart = (id: number): boolean => id === CART_ITEM;
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
 /** Max durability (block-breaks) of a tool, by tier (id%10: 0=wood,1=stone,2=steel).
@@ -293,6 +296,7 @@ export const CRAFT_RECIPES: CraftRecipe[] = [
   { in: [{ block: FLINT, count: 1 }, { block: STEEL_INGOT, count: 1 }], out: { block: FLINT_STEEL, count: 1 } }, // flint + steel → fire lighter
   { in: [{ block: 17, count: 5 }], out: { block: BOAT_ITEM, count: 1 } }, // 5 wood → boat (Luanti boats)
   { in: [{ block: STEEL_INGOT, count: 1 }], out: { block: RAIL_ID, count: 4 } }, // 1 steel → 4 rails
+  { in: [{ block: STEEL_INGOT, count: 5 }], out: { block: CART_ITEM, count: 1 } }, // 5 steel → minecart
   { in: [{ block: 18, count: 6 }], out: { block: SIGN_ID, count: 3 } }, // 6 planks → 3 signs
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_ID, count: 6 } }, // 2 planks + 4 sticks → 6 fences
   { in: [{ block: 18, count: 2 }, { block: STICK, count: 4 }], out: { block: FENCE_GATE_CLOSED, count: 1 } }, // → 1 fence gate
