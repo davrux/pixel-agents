@@ -9,6 +9,7 @@ import { CHUNK, cellIndex, chunkKey, encodeCells, decodeCells, toChunk, toLocal,
 
 import { ChunkStore } from './chunkStore.js';
 import { generateChunk, GEN_VERSION } from './gen.js';
+import { worldStructures, type StructureGen } from './structures.js';
 
 export class VoxelServerWorld {
   readonly worldId: string;
@@ -16,6 +17,7 @@ export class VoxelServerWorld {
   readonly size: number; // square world edge in blocks (0 = unbounded up to MAP_LIMIT)
   private readonly store: ChunkStore;
   private readonly cache = new Map<string, Uint8Array>(); // key → cells
+  private readonly structures: StructureGen[]; // authored content stamped over the terrain (e.g. castle)
 
   constructor(worldId: string, seed?: number, size?: number) {
     this.worldId = worldId;
@@ -23,6 +25,7 @@ export class VoxelServerWorld {
     const meta = this.store.meta(seed, GEN_VERSION, size); // seed/size only for a new world; a gen bump wipes+regenerates
     this.seed = meta.seed;
     this.size = meta.size ?? 0;
+    this.structures = worldStructures(worldId, this.seed);
   }
 
   /** A chunk's cells: from cache, else the persisted (edited) blob, else generated. */
@@ -31,7 +34,7 @@ export class VoxelServerWorld {
     let cells = this.cache.get(key);
     if (cells) return cells;
     const saved = this.store.get(cx, cy, cz);
-    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed, this.worldId === 'default'); // only the start world gets the spawn lake
+    cells = saved ? decodeCells(saved) : generateChunk(cx, cy, cz, this.seed, this.worldId === 'default', this.structures); // only the start world gets the spawn lake
     this.cache.set(key, cells);
     return cells;
   }

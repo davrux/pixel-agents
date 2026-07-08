@@ -6,6 +6,7 @@
  * underground, and a deterministic forest. Block ids match blocks.ts.
  */
 import { CHUNK, CHUNK_VOL, cellIndex, hash2, hash3, noise3, biomeAt, surfaceHeight, SEA, ROCK_LINE, SNOW_LINE } from '@pixel/shared';
+import type { StructureGen } from './structures.js';
 
 export { surfaceHeight, biomeAt } from '@pixel/shared'; // re-export for existing importers
 
@@ -84,7 +85,7 @@ function writeTree(cells: Uint8Array, wx: number, wz: number, h: number, seed: n
 
 /** Generate a chunk's cells from the seed alone. `spawnLake` adds the guaranteed
  *  spawn-side lake (default world only). */
-export function generateChunk(cx: number, cy: number, cz: number, seed: number, spawnLake = false): Uint8Array {
+export function generateChunk(cx: number, cy: number, cz: number, seed: number, spawnLake = false, structures: StructureGen[] = []): Uint8Array {
   const cells = new Uint8Array(CHUNK_VOL);
   const baseX = cx * CHUNK,
     baseY = cy * CHUNK,
@@ -143,6 +144,13 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
         }
         // Papyrus clusters on the shore (beach cells next to water).
         if (id === AIR && wy === h + 1 && beach && hash3(wx, 9, wz, seed + 5100) < 0.09) id = PAPYRUS;
+        // Structures (castle, later dungeons) override terrain: forced block, or 0 to carve.
+        for (const st of structures) {
+          const b = st.bounds;
+          if (wx < b.x0 || wx > b.x1 || wy < b.y0 || wy > b.y1 || wz < b.z0 || wz > b.z1) continue;
+          const s = st.blockAt(wx, wy, wz);
+          if (s !== null) id = s;
+        }
         if (id !== AIR) cells[cellIndex(lx, ly, lz)] = id;
       }
     }
@@ -156,6 +164,7 @@ export function generateChunk(cx: number, cy: number, cz: number, seed: number, 
       const density = biome === 'snow' ? 0.008 : 0.02; // sparse taiga vs temperate forest
       if (hash2(wx, wz, seed + 991) >= density) continue;
       if (spawnLake && Math.hypot(wx, wz) < 6) continue; // keep the spawn clear (no tree to spawn on)
+      if (structures.some((s) => wx >= s.bounds.x0 && wx <= s.bounds.x1 && wz >= s.bounds.z0 && wz <= s.bounds.z1)) continue; // no trees inside a structure
       const h = surfaceHeight(wx, wz, seed, spawnLake);
       if (h <= SEA || h > ROCK_LINE) continue; // no trees in water/shore or on bare peaks
       writeTree(cells, wx, wz, h, seed, baseX, baseY, baseZ);
