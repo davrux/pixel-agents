@@ -177,9 +177,30 @@
       #settings:not([hidden]) {
         display: block;
       }
-      /* never scroll sideways — content wraps/shrinks to the panel width instead */
+      /* never scroll sideways — content wraps/shrinks to the panel width instead.
+         Wider than the default popover so it isn't cramped (closer to the 2D menus). */
       #settings {
         overflow-x: hidden;
+        width: 34rem;
+        max-width: 96vw;
+        font-size: 1.02rem;
+      }
+      #settings .pa-body {
+        padding: 1rem 1.1rem 1.1rem;
+      }
+      #settings .pa-seg {
+        margin-bottom: 1rem;
+      }
+      /* Per-row world list (mirrors the 2D office zone list). */
+      #world-list {
+        margin: 0.4rem 0 0.2rem;
+      }
+      #world-list .pa-list-row .nm small {
+        display: block;
+      }
+      #world-list .pa-list-row .go,
+      #world-list .pa-list-row .del {
+        flex: 0 0 auto;
       }
       .settings-hd {
         cursor: move;
@@ -187,9 +208,10 @@
       #settings label {
         display: flex;
         align-items: center;
-        gap: 8px;
+        gap: 9px;
         cursor: pointer;
-        margin: 7px 0;
+        margin: 11px 0;
+        line-height: 1.35;
       }
       #settings .hint {
         margin: 12px 0 14px;
@@ -302,16 +324,17 @@
       </div>
       <div class="page" data-page="world" hidden>
         <label><input type="checkbox" id="opt-daynight" /> Day/night cycle (off = always day)</label>
-        <p class="hint" style="margin-top: 10px">Current world: <b id="world-current">default</b></p>
-        <label>Go to: <select id="world-select" class="pa-select"></select> <button id="world-delete" class="pa-b danger" type="button" title="Delete the selected voxel world (admin)">🗑</button></label>
-        <p class="hint" style="margin-top: 10px">Or create/enter a new world:</p>
+        <p class="hint" style="margin: 8px 0 2px">Current world: <b id="world-current">default</b></p>
+        <p class="grouplbl">Worlds &amp; 2D zones</p>
+        <div id="world-list"></div>
+        <p class="grouplbl">Create / enter a world</p>
         <div id="world-jump">
           <input id="world-input" class="pa-input" type="text" placeholder="world id (e.g. dungeon1)" />
           <input id="world-seed" class="pa-input" type="text" placeholder="seed (optional)" />
           <input id="world-size" class="pa-input" type="text" placeholder="size in blocks (optional)" />
           <button id="world-go" class="pa-b primary">Go</button>
         </div>
-        <p class="hint">Voxel↔voxel is seamless (no reload); a zone goes to the 2D client. Seed + size apply only to a NEW world (size = square edge in blocks; height is fixed). Empty size = max (Luanti ±31000).</p>
+        <p class="hint">Tip: a world named <b>castle</b> spawns you in a procedural castle. Voxel↔voxel is seamless (no reload); a 2D zone goes to the 2D client. Seed + size apply only to a NEW world (size = square edge; height is fixed). Empty size = max.</p>
       </div>
       <div class="page" data-page="item" hidden>
         <p class="hint">How the held item attaches to the figure (live):</p>
