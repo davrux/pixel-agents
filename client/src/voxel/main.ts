@@ -35,7 +35,7 @@ import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout, isServerUp, fetchVoxelWorlds } from '../net/room';
-import { reloadApp } from '../desktop/bridge';
+import { reloadApp, isDesktop, desktop, setConfiguredServerOrigin } from '../desktop/bridge';
 import { KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
@@ -3255,6 +3255,21 @@ renderWorldList();
 // as an empty ghost — so validate it against the server's world list first and fall back to
 // default when it's gone (no "nirvana"). If the list can't be fetched, try it anyway.
 void (async (): Promise<void> => {
+  // Desktop only: the server origin lives in a module-level cache that the office
+  // bundle's boot flow populates — but arriving here via a full-page navigation to
+  // voxel.html loads a *separate* bundle whose cache starts null. Repopulate it from
+  // the persisted server URL before any network call, or every fetch/connect targets
+  // an empty origin and the world never connects. (Browser: getServerHttpOrigin uses
+  // window.location, so this is a no-op there.)
+  if (isDesktop()) {
+    try {
+      const savedUrl = await desktop().getServerUrl();
+      if (savedUrl) setConfiguredServerOrigin(savedUrl);
+    } catch {
+      /* fall through — connect will surface the failure */
+    }
+  }
+
   let startWorld = 'default';
   try {
     startWorld = localStorage.getItem('vx-last-world') || 'default';
