@@ -1420,7 +1420,50 @@ function handleDisconnect(): void {
 const VOXEL_COMMANDS: CommandSpec[] = [
   { name: 'pos', group: 'user', usage: '/pos [print]', summary: 'Show your position; /pos print posts it to chat as a clickable /goto link.' },
   { name: 'goto', group: 'user', usage: '/goto <x> <y> <z> | world-spawn', summary: 'Teleport to coordinates in this world, or to the world spawn point.' },
+  { name: 'pos1', group: 'user', usage: '/pos1', summary: 'World editor: set selection corner 1 to the block you aim at (or stand on).' },
+  { name: 'pos2', group: 'user', usage: '/pos2', summary: 'World editor: set selection corner 2.' },
+  { name: 'fill', group: 'user', usage: '/fill <block>', summary: 'World editor: fill the selection with a block (creative). e.g. /fill stone · /fill air.' },
+  { name: 'replace', group: 'user', usage: '/replace <from> <to>', summary: 'World editor: replace one block with another inside the selection (creative).' },
 ];
+/** Resolve a block name (e.g. "stone", "glass", "air") or numeric id → a block id. */
+function blockIdByName(arg: string): number | undefined {
+  const a = arg.trim().toLowerCase();
+  if (!a) return undefined;
+  if (a === 'air') return 0;
+  if (/^\d+$/.test(a)) {
+    const n = Number(a);
+    return n >= 0 && n < BLOCKS.length ? n : undefined;
+  }
+  const i = BLOCKS.findIndex((b, idx) => idx > 0 && b.name.toLowerCase() === a);
+  return i > 0 ? i : undefined;
+}
+/** The block cell the player is aiming at (else the block under their feet) — the corner
+ *  the /pos1 // pos2 commands select. */
+function weAimCell(): { x: number; y: number; z: number } {
+  const h = aimHit();
+  if (h) {
+    const nrm = h.face ? h.face.normal : UP;
+    const p = h.point.clone().addScaledVector(nrm, -0.5);
+    return { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) };
+  }
+  return { x: Math.floor(player.pos.x), y: Math.floor(player.pos.y) - 1, z: Math.floor(player.pos.z) };
+}
+function handleFill(args: string, sys: (t: string) => void): void {
+  const id = blockIdByName(args);
+  if (id === undefined) return void sys(`Unknown block: "${args.trim()}". Use a name (stone, glass, air, …) or an id.`);
+  net?.weFill(id);
+}
+function handleReplace(args: string, sys: (t: string) => void): void {
+  const [a, b] = args.trim().split(/\s+/);
+  const from = blockIdByName(a ?? ''),
+    to = blockIdByName(b ?? '');
+  if (from === undefined || to === undefined) return void sys('Usage: /replace <from> <to> — names or ids, e.g. /replace dirt stone');
+  net?.weReplace(from, to);
+}
+function handleWeSel(n: 1 | 2): void {
+  const c = weAimCell();
+  net?.weSel(n, c.x, c.y, c.z);
+}
 /** /pos — show your block position; `print` broadcasts it as a clickable /goto. */
 function handlePos(args: string, sys: (t: string) => void): void {
   const x = Math.floor(player.pos.x),
@@ -1455,6 +1498,10 @@ const chat = new ChatUI({
     if (name === 'voxel') return sys('You are already in the voxel world.'), true;
     if (name === 'pos') return handlePos(args, sys), true;
     if (name === 'goto') return handleGoto(args, sys), true;
+    if (name === 'pos1') return handleWeSel(1), true;
+    if (name === 'pos2') return handleWeSel(2), true;
+    if (name === 'fill') return handleFill(args, sys), true;
+    if (name === 'replace') return handleReplace(args, sys), true;
     return false;
   },
   onFocus: () => {

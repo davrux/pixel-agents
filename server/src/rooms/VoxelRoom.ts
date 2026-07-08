@@ -88,7 +88,7 @@ import { stepFluid, seedCells } from '../voxel/fluid.js';
 import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
-import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
+import { userStore, UserStore } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds, deleteWorld } from '../voxel/chunkStore.js';
 import { voxelSettings } from '../voxel/settingsStore.js';
@@ -101,6 +101,13 @@ import { appStore } from '../appStore.js';
 import { voiceConfigured, voiceUrl, voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { signs, cleanSignText } from '../voxel/signStore.js';
 import { monitors, cleanMonitorName } from '../voxel/monitorStore.js';
+import { presence } from '../presence.js';
+import { controlBus, KICK_EVENT } from '../controlBus.js';
+import { runAccountCommand } from './accountCommands.js';
+
+/** presence-tracker id for a voxel world — namespaced so it can't collide with a
+ *  2D zone id, yet still shows up in the shared `/users online` list. */
+const presenceZone = (worldId: string): string => `voxel:${worldId}`;
 
 interface AuthInfo {
   userId: string;
@@ -207,10 +214,17 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
   private readonly lastVoiceEventAt = new Map<string, number>(); // per-session throttle for voice announcements
   private readonly lastChatAt = new Map<string, number>(); // per-session chat throttle (matches the 2D office)
+  private readonly weSelection = new Map<string, { p1?: [number, number, number]; p2?: [number, number, number] }>(); // world-editor selection per session
   private readonly chatLog: Array<{ from: string; text: string; at: number }> = []; // recent chat, replayed on join (like 2D)
   private readonly decayLeaves = new Set<string>(); // orphaned leaf cells to check for decay
   private decayAcc = 0; // seconds toward the next leaf-decay tick
   private hungerAcc = 0; // seconds toward the next hunger tick
+
+  /** Cross-world admin kick: /kick emits on the controlBus, every room (2D + voxel)
+   *  disconnects the matching user wherever they are. Same code path as the office. */
+  private readonly onKick = (userId: string): void => {
+    for (const c of this.clients) if ((c.auth as AuthInfo | undefined)?.userId === userId) c.leave(KICK_CLOSE_CODE, 'kicked');
+  };
 
   onAuth(_client: Client, _options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false };
@@ -241,6 +255,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     let set = VoxelRoom.byWorld.get(worldId);
     if (!set) VoxelRoom.byWorld.set(worldId, (set = new Set()));
     set.add(this); // register so a world-delete can evict this room's players
+    controlBus.on(KICK_EVENT, this.onKick); // admin /kick reaches players in any world/zone
 
     this.onMessage('move', (client, m: { x: number; y: number; z: number; yaw?: number; pitch?: number; state?: string }) =>
       this.onMove(client, m),
@@ -308,6 +323,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     // Conference monitor — set its room name + mint a LiveKit token for the meeting room.
     this.onMessage('setMonitorName', (client, m: { x: number; y: number; z: number; name?: string }) => this.onSetMonitorName(client, m));
     this.onMessage('confToken', (client, m: { x: number; y: number; z: number }) => void this.onConfToken(client, m));
+    // In-game world editor (WorldEdit-style, creative-gated): pick two corners, then
+    // bulk fill / replace the box between them. Selection is per-session.
+    this.onMessage('weSel', (client, m: { n?: number; x?: number; y?: number; z?: number }) => this.onWeSel(client, m));
+    this.onMessage('weFill', (client, m: { id?: number }) => this.onWeFill(client, m));
+    this.onMessage('weReplace', (client, m: { from?: number; to?: number }) => this.onWeReplace(client, m));
     // Per-user client settings persisted server-side (requires login; anonymous
     // is a no-op). The client owns the shape; we just store/return the blob.
     this.onMessage('saveSettings', (client, obj: unknown) => {
@@ -1674,6 +1694,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     p.hpMax = PLAYER_HP;
     if (typeof options?.skin === 'string') p.skin = options.skin.slice(0, 40);
     this.state.players.set(client.sessionId, p);
+    if (auth?.userId) presence.join(auth.userId, presenceZone(this.state.worldId), p.name); // shared /users + cross-world kick
     // Entity AOI: give the client a StateView and always include its own player (so it
     // gets its own HP/position). Nearby players/npcs are added/removed in updateAoi().
     const stateView = new StateView();
@@ -1743,6 +1764,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   onLeave(client: Client): void {
     // Remember where the player left off (logged-in), so they respawn there.
     const auth = client.auth as AuthInfo | undefined;
+    if (auth?.userId) presence.leave(auth.userId);
     const p = this.state.players.get(client.sessionId);
     if (auth?.userId && p) voxelPositions.set(auth.userId, this.state.worldId, p.x, p.y, p.z);
     // Persist the survival inventory so it survives reconnects (and carries across worlds).
@@ -1762,9 +1784,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.noHunger.delete(client.sessionId);
     this.lastChatAt.delete(client.sessionId);
     this.lastVoiceEventAt.delete(client.sessionId);
+    this.weSelection.delete(client.sessionId);
   }
 
   onDispose(): void {
+    controlBus.off(KICK_EVENT, this.onKick);
     this.saveBoats(); // keep parked boats across an empty-room dispose / restart
     const set = VoxelRoom.byWorld.get(this.state.worldId);
     if (set) {
@@ -2146,6 +2170,86 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (token) client.send('m', { type: 'zoneVoiceToken', url: voiceUrl(), token, room });
   }
 
+  // ── In-game world editor (WorldEdit-style) ──────────────────────────────────
+  /** Set one corner of the session's editor selection. */
+  private onWeSel(client: Client, m: { n?: number; x?: number; y?: number; z?: number }): void {
+    const sys = (t: string): void => void client.send('m', { type: 'system', text: t });
+    const x = Math.floor(m.x as number),
+      y = Math.floor(m.y as number),
+      z = Math.floor(m.z as number);
+    if (![x, y, z].every(Number.isFinite) || (m.n !== 1 && m.n !== 2)) return;
+    const sel = this.weSelection.get(client.sessionId) ?? {};
+    if (m.n === 1) sel.p1 = [x, y, z];
+    else sel.p2 = [x, y, z];
+    this.weSelection.set(client.sessionId, sel);
+    const box = this.weBox(client.sessionId);
+    sys(`Corner ${m.n} set to (${x}, ${y}, ${z}).` + (box ? ` Selection: ${box.vol} blocks.` : ' Set the other corner too.'));
+  }
+
+  /** The min/max box + volume of the session's selection, or null if incomplete. */
+  private weBox(sid: string): { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number; vol: number } | null {
+    const sel = this.weSelection.get(sid);
+    if (!sel?.p1 || !sel?.p2) return null;
+    const [a, b] = [sel.p1, sel.p2];
+    const x0 = Math.min(a[0], b[0]),
+      y0 = Math.min(a[1], b[1]),
+      z0 = Math.min(a[2], b[2]);
+    const x1 = Math.max(a[0], b[0]),
+      y1 = Math.max(a[1], b[1]),
+      z1 = Math.max(a[2], b[2]);
+    return { x0, y0, z0, x1, y1, z1, vol: (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1) };
+  }
+
+  /** Apply a bulk edit over the selection (fill = every cell, or replace = matching cells).
+   *  Creative-gated, volume-capped, bedrock-safe; re-streams the touched chunks. */
+  private weApply(client: Client, to: number, from?: number): void {
+    const sys = (t: string): void => void client.send('m', { type: 'system', text: t });
+    if (!this.creative.has(client.sessionId)) return sys('The world editor needs creative mode (Settings → Creative).');
+    if (to < 0 || to > MAX_BLOCK_ID || to === BEDROCK_ID) return sys('Invalid block for fill.');
+    const box = this.weBox(client.sessionId);
+    if (!box) return sys('Select two corners first: /pos1 and /pos2.');
+    const WE_MAX = 32768; // 32³ safety cap
+    if (box.vol > WE_MAX) return sys(`Selection too large (${box.vol} > ${WE_MAX} blocks).`);
+    const lim = this.halfExtent();
+    const changes: { x: number; y: number; z: number; id: number }[] = [];
+    const chunks = new Set<string>();
+    for (let x = box.x0; x <= box.x1; x++)
+      for (let z = box.z0; z <= box.z1; z++) {
+        if (Math.abs(x) > lim || Math.abs(z) > lim) continue; // world border
+        for (let y = box.y0; y <= box.y1; y++) {
+          const cur = this.world.getBlock(x, y, z);
+          if (cur === BEDROCK_ID) continue; // never overwrite the world floor
+          if (from !== undefined && cur !== from) continue; // replace: only matching cells
+          if (cur === to) continue; // no change
+          changes.push({ x, y, z, id: to });
+          chunks.add(chunkKey(toChunk(x), toChunk(y), toChunk(z)));
+        }
+      }
+    if (!changes.length) return sys('Nothing to change.');
+    this.world.setBlocks(changes);
+    for (const key of chunks) {
+      const [cx, cy, cz] = key.split(',').map(Number);
+      this.restreamChunk(cx, cy, cz);
+    }
+    sys(`${from === undefined ? 'Filled' : 'Replaced'} ${changes.length} block${changes.length === 1 ? '' : 's'}.`);
+  }
+
+  private onWeFill(client: Client, m: { id?: number }): void {
+    this.weApply(client, (m.id as number) | 0);
+  }
+  private onWeReplace(client: Client, m: { from?: number; to?: number }): void {
+    this.weApply(client, (m.to as number) | 0, (m.from as number) | 0);
+  }
+
+  /** Re-send a chunk to every client that currently has it (after a bulk edit). */
+  private restreamChunk(cx: number, cy: number, cz: number): void {
+    const key = chunkKey(cx, cy, cz);
+    const bytes = packChunk(cx, cy, cz, this.world.chunk(cx, cy, cz));
+    for (const c of this.clients) {
+      if (this.views.get(c.sessionId)?.sent.has(key)) c.sendBytes('c', bytes);
+    }
+  }
+
   /** Set (or clear) a conference monitor's room name. Reach-/type-checked; persisted per
    *  world/pos and broadcast so every client titles the call the same + can join by name. */
   private onSetMonitorName(client: Client, m: { x: number; y: number; z: number; name?: string }): void {
@@ -2215,54 +2319,21 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const me = client.auth as AuthInfo;
     if (!mayRunCommand(spec, me.isAdmin)) return sys(`/${spec.name} is for admins only.`);
     const args = (typeof msg?.args === 'string' ? msg.args : '').trim() ? msg.args!.trim().split(/\s+/) : [];
-    const star = (uid: string): string => (userStore.get(uid)?.isAdmin ? ' ★' : '');
-    switch (spec.name) {
-      case 'afk': {
-        const p = this.state.players.get(client.sessionId);
-        if (!p) return;
-        p.afk = !p.afk; // synced marker over the avatar; cleared automatically on move
-        return sys(p.afk ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
-      }
-      case 'voxel':
-        return sys('You are already in the voxel world.');
-      case 'users': {
-        if (args[0]?.toLowerCase() === 'all') {
-          const users = userStore.list();
-          return sys(users.length ? `All users (${users.length}):\n` + users.map((u) => `• ${UserStore.displayName(u)} (${u.userId})${star(u.userId)}`).join('\n') : 'No users registered.');
-        }
-        const here: string[] = [];
-        this.state.players.forEach((p) => here.push(p.name));
-        return sys(here.length ? `Players in this world (${here.length}):\n` + here.map((n) => `• ${n}`).join('\n') : 'No players here.');
-      }
-      case 'add': {
-        const [loginId, password] = args;
-        if (!loginId || !password) return sys(`Usage: ${spec.usage}`);
-        if (!isValidPassword(password)) return sys(`Password must be at least ${MIN_PASSWORD_LEN} characters.`);
-        if (userStore.exists(loginId)) return sys(`User "${normalizeLoginId(loginId)}" already exists.`);
-        return sys(`Created user "${userStore.createUser(loginId, password).userId}".`);
-      }
-      case 'delete': {
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        if (loginId === me.userId) return sys(`You can't delete yourself.`);
-        return sys(userStore.deleteUser(loginId) ? `Deleted user "${loginId}".` : `No such user: "${loginId}".`);
-      }
-      case 'set-admin':
-      case 'remove-admin': {
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        if (!userStore.exists(loginId)) return sys(`No such user: "${loginId}".`);
-        userStore.setAdmin(loginId, spec.name === 'set-admin');
-        return sys(`"${loginId}" is ${spec.name === 'set-admin' ? 'now an admin' : 'no longer an admin'}.`);
-      }
-      case 'kick': {
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        let kicked = false;
-        for (const c of this.clients) if ((c.auth as AuthInfo)?.userId === loginId) ((c.leave(KICK_CLOSE_CODE)), (kicked = true));
-        return sys(kicked ? `Kicked "${loginId}".` : `"${loginId}" is not online in this world.`);
-      }
+    // World-specific commands stay here; everything else is a global account/admin
+    // command shared with the 2D office (see accountCommands.ts) so the chat is identical.
+    if (spec.name === 'afk') {
+      const p = this.state.players.get(client.sessionId);
+      if (!p) return;
+      p.afk = !p.afk; // synced marker over the avatar; cleared automatically on move
+      return sys(p.afk ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
     }
+    if (spec.name === 'voxel') return sys('You are already in the voxel world.');
+    runAccountCommand(spec, args, {
+      me: { userId: me.userId, isAdmin: me.isAdmin },
+      sys,
+      hereLabel: `world "${this.state.worldId}"`,
+      hereId: presenceZone(this.state.worldId),
+    });
   }
 
   /** Send every in-range chunk not yet sent, and unload those now out of range. */

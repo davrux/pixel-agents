@@ -10,8 +10,12 @@
  */
 
 /** WebSocket close code used when an admin kicks a user, so the client can show
- *  a "kicked" notice and skip its auto-reconnect. (Custom codes must be ≥4000.) */
-export const KICK_CLOSE_CODE = 4002;
+ *  a "kicked" notice and skip its auto-reconnect. (Custom codes must be ≥4000.)
+ *  IMPORTANT: must NOT collide with Colyseus' own close codes, which the transport
+ *  uses for its own reasons — WS_CLOSE_CONSENTED=4000, WS_CLOSE_WITH_ERROR=4002
+ *  (sent e.g. on an unregistered/undecodable message), WS_CLOSE_DEVMODE_RESTART=4010.
+ *  Using 4002 made every protocol error look like an admin kick. 4100 is clear of them. */
+export const KICK_CLOSE_CODE = 4100;
 
 export type CommandGroup = 'user' | 'admin';
 

@@ -55,6 +55,9 @@ export interface VoxelNet {
   sendZoneVoiceToken(): void;
   sendConfToken(x: number, y: number, z: number): void;
   sendMonitorName(x: number, y: number, z: number, name: string): void;
+  weSel(n: number, x: number, y: number, z: number): void;
+  weFill(id: number): void;
+  weReplace(from: number, to: number): void;
   sendVoiceEvent(event: string): void;
   deleteWorld(world: string): void;
   leave(): Promise<void>;
@@ -187,6 +190,9 @@ export async function connectVoxel(world: string, handlers: VoxelHandlers, opts:
     sendZoneVoiceToken: () => room.send('zoneVoiceToken'),
     sendConfToken: (x: number, y: number, z: number) => room.send('confToken', { x, y, z }),
     sendMonitorName: (x: number, y: number, z: number, name: string) => room.send('setMonitorName', { x, y, z, name }),
+    weSel: (n: number, x: number, y: number, z: number) => room.send('weSel', { n, x, y, z }),
+    weFill: (id: number) => room.send('weFill', { id }),
+    weReplace: (from: number, to: number) => room.send('weReplace', { from, to }),
     sendVoiceEvent: (event) => room.send('voiceEvent', { event }),
     deleteWorld: (world) => room.send('deleteWorld', { world }),
     leave: async () => {
