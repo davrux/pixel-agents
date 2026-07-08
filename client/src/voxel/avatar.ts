@@ -178,6 +178,7 @@ export class Avatar {
 
   private buildTool(): void {
     if (!this.armR) return; // model not loaded yet — onLoad will build it
+    if (!this.item) return; // no wielded item → don't build (avoids loading textures/.png)
     const arm = this.armR;
     const url = new URL(`textures/${this.item}.png`, document.baseURI).href;
     void buildItemMesh(url, this.pivot).then((tool) => {

@@ -45,6 +45,11 @@ import { injectPixelSkin } from './ui.js';
 const SKINS = [...Array(31)].map((_, i) => `character_${i + 1}`).concat(['character_900']);
 const itemTexUrl = (rel: string): string => new URL(`textures/${rel}.png`, document.baseURI).href;
 const skinUrl = (name: string): string => new URL(`textures/player/skins/${name}.png`, document.baseURI).href;
+// The converted boat/cart glTFs reference their original baked texture name (e.g.
+// carts_cart.png) which we don't ship — each dir has a `texture.png` we override with.
+// Redirect glTF image requests to that sibling so GLTFLoader doesn't 404 + warn.
+const gltfTexManager = new THREE.LoadingManager();
+gltfTexManager.setURLModifier((url) => url.replace(/\/[^/]+\.png(\?.*)?$/i, '/texture.png'));
 const loadWield = (id: string): Wield => {
   try {
     return { ...DEFAULT_WIELD, ...(JSON.parse(localStorage.getItem('voxWield:' + id) ?? '{}') as Partial<Wield>) };
@@ -151,7 +156,7 @@ let boatTemplate: THREE.Object3D | null = null;
     bmat.map = t;
     bmat.needsUpdate = true;
   });
-  new GLTFLoader().load(bbase + 'boats_boat.gltf', (g) => {
+  new GLTFLoader(gltfTexManager).load(bbase + 'boats_boat.gltf', (g) => {
     const o = g.scene;
     o.traverse((m) => {
       if ((m as THREE.Mesh).isMesh) {
@@ -245,7 +250,7 @@ let cartTemplate: THREE.Object3D | null = null;
     cmat.map = t;
     cmat.needsUpdate = true;
   });
-  new GLTFLoader().load(cbase + 'carts_cart.gltf', (g) => {
+  new GLTFLoader(gltfTexManager).load(cbase + 'carts_cart.gltf', (g) => {
     // The cart is a SkinnedMesh with a single bone carrying a baked 180° rotation — skinned
     // rendering (and .clone(true)) send it off-screen. We don't animate the cart, so render
     // its bind-pose GEOMETRY as a plain static mesh (verified: this shows; skinned didn't).
@@ -654,6 +659,7 @@ void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES, ...EXTRA_TEXTURES],
   for (const it of BLOCK_ITEMS) {
     if (it.block !== undefined && SYNTHETIC_TILES.includes(BLOCKS[it.block].tex)) it.icon = iconFromAtlas(BLOCKS[it.block].tex);
   }
+  updateHud(); // re-render the hotbar now that synthetic-block icons exist (else they show black on reload)
   if (inventory.isOpen()) inventory.render();
 });
 
@@ -2177,6 +2183,7 @@ function updateHud(): void {
 // dig tool while actively breaking (auto-switch shows the best carried tool).
 let wieldedId = '';
 function setWielded(it: Item): void {
+  if (!it.texUrl) return clearWielded(); // no held-mesh sprite (e.g. armour) → show an empty hand, don't load textures/.png
   if (it.id === wieldedId) return;
   wieldedId = it.id;
   avatar.wield(it.texUrl, it.pivot, loadWield(it.id));

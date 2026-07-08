@@ -33,6 +33,13 @@ interface Template {
 const AIM_GEO = new THREE.BoxGeometry(1, 1, 1);
 const AIM_MAT = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 
+// The converted glTFs still reference their original baked texture filename (e.g.
+// doors_door_wood.png, carts_cart.png) which we don't ship — each model dir has a
+// `texture.png` instead, and we override the material anyway. Redirect any glTF image
+// request to that sibling texture.png so GLTFLoader doesn't 404 + warn on every load.
+const gltfTexManager = new THREE.LoadingManager();
+gltfTexManager.setURLModifier((url) => url.replace(/\/[^/]+\.png(\?.*)?$/i, '/texture.png'));
+
 // Which model + size for a node. `rotY`/`model` for a torch are decided per-cell (wall
 // vs floor vs ceiling) in placement(); doors/gates use a fixed model + default facing.
 const TORCH_H = 0.95;
@@ -138,7 +145,7 @@ export class NodeModels {
   /** The portal is the door_a shape with a generated "blue door + bold P" texture — a
    *  distinct portal archway (no dedicated portal model exists). */
   private async loadPortalTemplate(): Promise<void> {
-    const gltf = await new GLTFLoader().loadAsync(new URL('models/luanti/door_a/door_a.gltf', document.baseURI).href);
+    const gltf = await new GLTFLoader(gltfTexManager).loadAsync(new URL('models/luanti/door_a/door_a.gltf', document.baseURI).href);
     const cv = document.createElement('canvas');
     cv.width = cv.height = 64;
     const g = cv.getContext('2d')!;
@@ -181,7 +188,7 @@ export class NodeModels {
       tex.colorSpace = THREE.SRGBColorSpace;
       mat.map = tex;
     }
-    const gltf = await new GLTFLoader().loadAsync(base + `${name}.gltf`);
+    const gltf = await new GLTFLoader(gltfTexManager).loadAsync(base + `${name}.gltf`);
     const obj = gltf.scene;
     obj.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) {

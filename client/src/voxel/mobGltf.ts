@@ -13,6 +13,12 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// The converted mob glTFs reference their original baked texture name (e.g.
+// mobs_cow_map.png) which we don't ship — each dir has a `texture.png` we override with.
+// Redirect glTF image requests to that sibling so GLTFLoader doesn't 404 + warn.
+const gltfTexManager = new THREE.LoadingManager();
+gltfTexManager.setURLModifier((url) => url.replace(/\/[^/]+\.png(\?.*)?$/i, '/texture.png'));
+
 export interface MobSpec {
   dir: string;
   h: number; // world-height in blocks
@@ -56,7 +62,7 @@ export class GltfMob {
       this.mat.map = tex;
       this.mat.needsUpdate = true;
     });
-    new GLTFLoader().load(base + `${spec.dir}.gltf`, (gltf) => this.onLoad(gltf));
+    new GLTFLoader(gltfTexManager).load(base + `${spec.dir}.gltf`, (gltf) => this.onLoad(gltf));
   }
 
   private onLoad(gltf: { scene: THREE.Group; animations: THREE.AnimationClip[] }): void {
