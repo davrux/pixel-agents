@@ -86,7 +86,12 @@ async function serveBundle(request: Request): Promise<Response> {
 
 function isAppOrigin(targetUrl: string): boolean {
   try {
-    return new URL(targetUrl).origin === APP_ORIGIN;
+    // The custom `app:` scheme is not a WHATWG "special" scheme, so URL.origin is
+    // the opaque string "null" — comparing it to APP_ORIGIN always fails and the
+    // will-navigate guard wrongly blocks legitimate in-app navigations (e.g. the
+    // /voxel command's index.html → voxel.html). Compare scheme + host directly.
+    const u = new URL(targetUrl);
+    return u.protocol === `${APP_SCHEME}:` && u.host === APP_HOST;
   } catch {
     return false;
   }
