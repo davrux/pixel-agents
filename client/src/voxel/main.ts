@@ -1506,7 +1506,7 @@ audioPanelEl.querySelector<HTMLElement>('.x')!.onclick = () => audioPanelEl.clas
 const playerPosById = (id: number): { x: number; y: number } | null => {
   if (!net) return null;
   let pos: { x: number; y: number } | null = null;
-  (net.room.state as unknown as RemoteState).players.forEach((p) => {
+  (net.room.state as unknown as { players?: RemoteState['players'] }).players?.forEach((p) => {
     if (p.id === id) pos = { x: p.x, y: p.z }; // horizontal plane for proximity
   });
   return pos;
@@ -3464,7 +3464,7 @@ function frameBody(now: number): void {
   syncRemotePlayers(dt);
   // Own HP → bar (+ damage flash on decrease).
   if (net) {
-    const me = (net.room.state as unknown as RemoteState).players.get(net.sessionId);
+    const me = (net.room.state as unknown as { players?: RemoteState['players'] }).players?.get(net.sessionId); // players may be unsynced on the first frames
     if (me) {
       updateHpBar(me.hp, me.hpMax);
       updateFoodBar(me.food);
