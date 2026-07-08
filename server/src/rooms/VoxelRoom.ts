@@ -1782,6 +1782,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     this.wear.delete(client.sessionId);
     this.noWear.delete(client.sessionId);
     this.noHunger.delete(client.sessionId);
+    this.bonesOn.delete(client.sessionId);
     this.lastChatAt.delete(client.sessionId);
     this.lastVoiceEventAt.delete(client.sessionId);
     this.weSelection.delete(client.sessionId);
