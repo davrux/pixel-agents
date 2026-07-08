@@ -1887,6 +1887,13 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     const prev = this.world.getBlock(x, y, z);
     if (prev === BEDROCK_ID || id === BEDROCK_ID) return; // bedrock is unbreakable + not placeable
     const sid = client.sessionId;
+    // Creative mode never yields block drops (Minecraft-faithful): breaking is free and
+    // leaves nothing to collect. Container contents still spill (they're the player's
+    // stored items, handled separately below). `drop` gates every mined-block drop.
+    const noDrops = this.creative.has(sid);
+    const drop = (block: number, dx: number, dy: number, dz: number, count = 1): void => {
+      if (!noDrops) this.spawnDrop(block, dx, dy, dz, count);
+    };
     // Survival can't place liquid sources directly — that needs a filled bucket (see onBucket).
     // Creative keeps free water/lava placement as an ∞ build tool.
     if ((id === WATER_SOURCE || id === LAVA_SOURCE) && !this.creative.has(sid)) return;
@@ -1940,15 +1947,15 @@ export class VoxelRoom extends Room<VoxelRoomState> {
           }
     }
     // Cutting leaves (21) sometimes yields a sapling (Luanti-faithful).
-    if (id === 0 && prev === 21 && Math.random() < 0.15) this.spawnDrop(SAPLING, x, y, z, 1);
+    if (id === 0 && prev === 21 && Math.random() < 0.15) drop(SAPLING, x, y, z, 1);
     // Leaves sometimes yield an apple (Luanti apple trees → edible food).
-    if (id === 0 && prev === 21 && Math.random() < 0.12) this.spawnDrop(APPLE, x, y, z, 1);
+    if (id === 0 && prev === 21 && Math.random() < 0.12) drop(APPLE, x, y, z, 1);
     // Breaking a real (non-fluid) block drops it as a collectible item (Luanti-style).
     // Ores drop a material item (coal/iron lump), not the ore block — see dropFor().
     // Crops are handled separately (custom harvest drops below), so skip them here.
     if (id === 0 && prev !== 0 && !isWaterId(prev) && !isLavaId(prev) && !isCrop(prev) && prev !== FIRE_ID) {
-      const drop = prev === 6 && Math.random() < 0.15 ? FLINT : dropFor(prev); // gravel sometimes knaps flint (Luanti)
-      this.spawnDrop(drop, x, y, z);
+      const item = prev === 6 && Math.random() < 0.15 ? FLINT : dropFor(prev); // gravel sometimes knaps flint (Luanti)
+      drop(item, x, y, z);
     }
     // Fire is transient state, not an item: putting it out (or overwriting it) unregisters it.
     if (prev === FIRE_ID && id !== FIRE_ID) this.fires.delete(key);
@@ -1968,21 +1975,21 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     if (id === 0 && isCrop(prev)) {
       this.crops.delete(key);
       if (prev === WHEAT_MATURE) {
-        this.spawnDrop(WHEAT, x, y, z, 1 + Math.floor(Math.random() * 2));
-        this.spawnDrop(WHEAT_SEED, x, y, z, 1 + Math.floor(Math.random() * 2));
+        drop(WHEAT, x, y, z, 1 + Math.floor(Math.random() * 2));
+        drop(WHEAT_SEED, x, y, z, 1 + Math.floor(Math.random() * 2));
       } else {
-        this.spawnDrop(WHEAT_SEED, x, y, z, 1);
+        drop(WHEAT_SEED, x, y, z, 1);
       }
     }
     // Cutting tall grass (51) sometimes yields a wheat seed (Luanti: grass → seeds).
-    if (id === 0 && prev === 51 && Math.random() < 0.4) this.spawnDrop(WHEAT_SEED, x, y, z, 1);
+    if (id === 0 && prev === 51 && Math.random() < 0.4) drop(WHEAT_SEED, x, y, z, 1);
     // A plant/crop/sapling resting on the block just broken loses its support → pops off
     // and drops (so decoration doesn't float when you mine the ground under it).
     if (id === 0 && prev !== 0) {
       const above = this.world.getBlock(x, y + 1, z);
       if (needsGround(above) && this.world.setBlock(x, y + 1, z, 0)) {
         this.broadcastEdit(x, y + 1, z, 0);
-        this.spawnDrop(isCrop(above) ? WHEAT_SEED : dropFor(above), x, y + 1, z);
+        drop(isCrop(above) ? WHEAT_SEED : dropFor(above), x, y + 1, z);
         const akey = `${x},${y + 1},${z}`;
         this.crops.delete(akey);
         this.saplings.delete(akey);

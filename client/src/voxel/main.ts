@@ -21,7 +21,7 @@ import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, BEDROCK_ID, LIGHT_BLOCKS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, BEDROCK_ID, LIGHT_BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -823,7 +823,60 @@ interface RemoteState {
   boats: { forEach(cb: (p: RemoteBoat, k: string) => void): void; get(k: string): RemoteBoat | undefined };
   carts: { forEach(cb: (p: RemoteCart, k: string) => void): void; get(k: string): RemoteCart | undefined };
 }
-const remote = new Map<string, { avatar: Avatar; afk?: THREE.Sprite }>();
+const remote = new Map<string, { avatar: Avatar; afk?: THREE.Sprite; nameTag?: THREE.Sprite; nameText?: string }>();
+
+// A camera-facing name tag over each remote player's head (Sprite auto-billboards).
+// Sized to the text so short names don't get a wide bar. Texture is per-name (rebuilt
+// only when the name changes) and disposed with the player.
+function makeNameSprite(name: string): THREE.Sprite {
+  const cv = document.createElement('canvas');
+  const font = 'bold 40px sans-serif';
+  const measure = cv.getContext('2d')!;
+  measure.font = font;
+  const padX = 22;
+  cv.width = Math.ceil(measure.measureText(name).width) + padX * 2;
+  cv.height = 64;
+  const g = cv.getContext('2d')!;
+  g.font = font; // resizing the canvas resets the context, so set the font again
+  g.fillStyle = 'rgba(15,18,32,0.7)';
+  const r = 12;
+  g.beginPath();
+  g.moveTo(r, 2);
+  g.arcTo(cv.width - 2, 2, cv.width - 2, 62, r);
+  g.arcTo(cv.width - 2, 62, 2, 62, r);
+  g.arcTo(2, 62, 2, 2, r);
+  g.arcTo(2, 2, cv.width - 2, 2, r);
+  g.fill();
+  g.fillStyle = '#eef3fb';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(name, cv.width / 2, 34);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.magFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  const h = 0.3; // world-units tall; width follows the canvas aspect
+  sp.scale.set(h * (cv.width / cv.height), h, 1);
+  sp.position.set(0, 2.1, 0); // above the head, just under the afk marker (2.35)
+  sp.renderOrder = 999;
+  return sp;
+}
+/** Attach/refresh a remote player's floating name tag; rebuilds only when the name changes. */
+function setNameTag(rec: { avatar: { group: THREE.Object3D }; nameTag?: THREE.Sprite; nameText?: string }, name: string): void {
+  const label = (name || '').trim();
+  if (rec.nameText === label) return;
+  if (rec.nameTag) {
+    rec.avatar.group.remove(rec.nameTag);
+    rec.nameTag.material.map?.dispose();
+    rec.nameTag.material.dispose();
+    rec.nameTag = undefined;
+  }
+  rec.nameText = label;
+  if (label) {
+    rec.nameTag = makeNameSprite(label);
+    rec.avatar.group.add(rec.nameTag);
+  }
+}
 
 // A camera-facing "afk" marker (Sprite auto-billboards). Cached texture, one per marker.
 let afkTexture: THREE.Texture | null = null;
@@ -1058,10 +1111,15 @@ function syncRemotePlayers(dt: number): void {
     r.avatar.setTint(dayColors.light);
     r.avatar.animate(dt, moving ? 2 : 0, p.pitch);
     setAfkMarker(r, !!p.afk);
+    setNameTag(r, p.name);
   });
   for (const [sid, r] of remote) {
     if (!state.players.get(sid)) {
       scene.remove(r.avatar.group);
+      if (r.nameTag) {
+        r.nameTag.material.map?.dispose(); // the per-name canvas texture isn't freed by avatar.dispose()
+        r.nameTag.material.dispose();
+      }
       r.avatar.dispose(); // free GPU geometry/material/texture — not freed by scene.remove()
       remote.delete(sid);
     }
@@ -1758,12 +1816,18 @@ canvas.addEventListener('mousedown', (e) => {
     if (e.button === 0) {
       if (tryRemoveMount()) return; // punch an empty boat/cart → pick it up
       firstBreakHeld = true; // else dig with the held item
+    } else if (e.button === 1) {
+      e.preventDefault(); // no browser autoscroll
+      pickBlock(); // middle-click: load the aimed block into the held slot
     } else if (e.button === 2) primaryUse(); // place block / use tool
     return;
   }
   // iso / third: RIGHT button orbits the camera (allowed even with a menu open,
   // so you can view the wield while adjusting it). LEFT button (iso) walks.
-  if (e.button === 2) rotating = true;
+  if (e.button === 1 && !menuOpen()) {
+    e.preventDefault(); // middle-click: pick the aimed block (no browser autoscroll)
+    pickBlock();
+  } else if (e.button === 2) rotating = true;
 });
 window.addEventListener('mouseup', (e) => {
   if (e.button === 2) rotating = false; // end camera orbit
@@ -2171,6 +2235,22 @@ function updateBreaking(dt: number, want: boolean): void {
     breakOverlay.visible = false;
     avatar.setMining(false);
   }
+}
+
+const PICKABLE_BLOCKS = new Set(ALL_BLOCK_IDS); // placeable ids the pick-block control may load
+/** Middle-click "pick block" (Minecraft-style): load the block the player is aiming at
+ *  into the currently selected hotbar slot so it can be re-placed. */
+function pickBlock(): void {
+  const h = aimHit();
+  if (!h) return;
+  const nrm = h.face ? h.face.normal : UP;
+  const p = h.point.clone().addScaledVector(nrm, -0.5);
+  const id = world.get(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z));
+  if (!PICKABLE_BLOCKS.has(id)) return; // air/fluid/bedrock/hidden → nothing to pick
+  hotbar[sel] = 'block:' + id;
+  updateHud();
+  refreshEditor();
+  pushSettings();
 }
 
 // Footsteps: accumulate the ACTUAL horizontal distance walked (robust to the per-axis
