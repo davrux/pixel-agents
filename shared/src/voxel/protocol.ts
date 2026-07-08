@@ -355,6 +355,12 @@ export const CHUNK_VOL = CHUNK * CHUNK * CHUNK; // 4096
 /** AOI: how many chunks around the player's chunk are streamed (radius). */
 export const VIEW_CHUNKS = 4; // horizontal (x/z)
 export const VIEW_CHUNKS_Y = 2; // vertical (y)
+/** The generated terrain's vertical chunk band, always streamed (in union with the
+ *  player's ±VIEW_CHUNKS_Y band) so the ground stays loaded no matter how high you fly.
+ *  cy 0 = walkable floor (bedrock top at y=0); cy 5 covers to y=95, above the tallest
+ *  mountain peaks (~y=79). Chunks outside this band are pure air until a player builds there. */
+export const WORLD_MIN_CHUNK_Y = 0;
+export const WORLD_MAX_CHUNK_Y = 5;
 
 /** In-chunk cell index (x,y,z each 0..CHUNK-1). Order: y outer, z, x inner. */
 export const cellIndex = (x: number, y: number, z: number): number => x + CHUNK * (z + CHUNK * y);

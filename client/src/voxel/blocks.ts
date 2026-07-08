@@ -106,7 +106,7 @@ BLOCKS.push(
   u('fence', 'fence'), // 82 — post + rails (custom geometry); solid, connects to neighbours
   u('fence gate', 'fence'), // 83 — gate (closed): solid; use → open
   u('fence gate (open)', 'fence'), // 84 — gate (open): non-solid + not rendered
-  b('bed', 'bed_top', 'bed_side', 'acacia_wood', 'bed_top'), // 85 — use at night → skip to morning
+  b('bed', 'bed_top', 'bed_side', 'acacia_wood', 'bed_top'), // 85 — 2-cell node model (foot+head), non-solid; use at night → skip to morning
   u('white wool', 'wool_white'), // 86 — dropped by sheep; dye it for colours
   u('red wool', 'wool_red'), // 87
   u('orange wool', 'wool_orange'), // 88
@@ -154,11 +154,11 @@ export const FENCE_SHAPE = new Set<number>([FENCE_ID, FENCE_GATE_CLOSED]);
 /** Transparent blocks: they must NOT hide the faces of adjacent opaque blocks (you
  *  should see the block behind glass/leaves/plants THROUGH it), and only cull against
  *  the same id. ice, glass, obsidian glass, leaves, portal, ladder, torch, doors, plants. */
-export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, RAIL_ID, MONITOR_ID, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
+export const TRANSPARENT = new Set<number>([13, 14, 16, 21, 28, 32, 33, 35, 36, RAIL_ID, MONITOR_ID, BED_ID, FENCE_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, ...PLANT]);
 
 /** Non-solid blocks: the player passes through them (like fluids). Ladders, torches,
  *  open doors, cross-plants. */
-export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, FENCE_GATE_OPEN, RAIL_ID, ...PLANT]);
+export const NONSOLID = new Set<number>([LADDER_ID, TORCH_ID, DOOR_OPEN, FENCE_GATE_OPEN, RAIL_ID, BED_ID, ...PLANT]);
 /** Climbable blocks: overlapping one lets the player climb (up/down, no fall). */
 export const CLIMBABLE = new Set<number>([LADDER_ID]);
 /** Light-emitting blocks: the client draws a warm glow halo at each instance. */
@@ -168,7 +168,7 @@ export const RENDER_SKIP = new Set<number>([DOOR_OPEN, FENCE_GATE_OPEN]);
 /** Blocks drawn as real Luanti glTF NODE MODELS (see nodeModels.ts) instead of cubes —
  *  the mesher skips them so the model is the only visual. Fences still connect toward a
  *  closed gate (FENCE_SHAPE membership is unchanged; only the cube draw is suppressed). */
-export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID]);
+export const MODEL_NODES = new Set<number>([TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID, BED_ID]);
 /** Blocks kept out of the placeable palette: an open door, the reserved fluid-flow
  *  ids 40..50, and wheat growth states 58-60 (only the 57 seedling is plantable). */
 export const HIDDEN = new Set<number>([DOOR_OPEN, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 58, 59, 60, 64, 65, FIRE_ID, FENCE_GATE_OPEN, BEDROCK_ID]);

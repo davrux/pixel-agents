@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CHUNK, toChunk } from '@pixel/shared';
-import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID } from './blocks.js';
+import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID, BED_ID } from './blocks.js';
 
 interface Grid {
   rawChunk(cx: number, cy: number, cz: number): Uint8Array | null;
@@ -47,6 +47,7 @@ const DOOR_H = 2.0;
 const GATE_H = 1.0;
 const MODEL_NAMES = ['torch_floor', 'torch_wall', 'torch_ceiling', 'door_a', 'door_b', 'doors_fencegate_closed', 'doors_fencegate_open'];
 const MONITOR_H = 1.33; // total height of the built monitor (base + stand + screen head)
+const BED_H = 0.6; // total height of a bed half (legs + frame + mattress, head/footboard on top)
 
 interface Place {
   model: string;
@@ -72,6 +73,7 @@ export class NodeModels {
   private async loadAll(): Promise<void> {
     await Promise.all([...MODEL_NAMES.map((n) => this.loadTemplate(n)), this.loadPortalTemplate(), this.loadLadderTemplate()]);
     this.buildMonitorTemplate(); // procedural (no asset) — build synchronously
+    this.buildBedTemplates();
     this.ready = true;
     this.onReadyCb?.(); // let the app rescan already-loaded chunks
   }
@@ -140,6 +142,59 @@ export class NodeModels {
     screen.frustumCulled = false;
     g.add(base, pole, head, screen);
     this.templates.set('monitor', { obj: g, box: new THREE.Box3().setFromObject(g) });
+  }
+
+  /** Procedural two-cell bed (no glTF asset). A bed spans two adjacent cells that both
+   *  hold BED_ID; placement() decides per cell whether it's the foot half or head half
+   *  (the higher-coordinate cell is the head) and the shared facing, so the two halves meet
+   *  seamlessly into one bed. Each half is authored in a canonical frame with foot→head
+   *  along +Z: legs at the OUTER corners only (so the seam has no doubled legs), a wood
+   *  frame + red mattress filling the cell, a footboard on the foot half and a headboard +
+   *  white pillow on the head half. Built at final size (BED_H tall) ⇒ makeInstance scale ≈ 1. */
+  private buildBedTemplates(): void {
+    const WOOD = 0x6b4423,
+      SHEET = 0xb5352b, // red mattress/blanket (matches the bed_top tile)
+      PILLOW = 0xece3d0;
+    // A box spanning [x0,x1]×[y0,y1]×[z0,z1] (local cell frame: x/z centred on 0, y up from 0).
+    const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, color: number): THREE.Mesh => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), new THREE.MeshBasicMaterial({ color }));
+      m.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+      m.frustumCulled = false;
+      return m;
+    };
+    const leg = (cx: number, cz: number): THREE.Mesh => box(cx - 0.05, cx + 0.05, 0, 0.16, cz - 0.05, cz + 0.05, WOOD);
+    const frame = (): THREE.Mesh => box(-0.5, 0.5, 0.14, 0.3, -0.5, 0.5, WOOD); // base rails, fills the cell
+    const mattress = (): THREE.Mesh => box(-0.44, 0.44, 0.3, 0.5, -0.5, 0.5, SHEET); // meets the seam on ±Z
+    const build = (parts: THREE.Object3D[]): Template => {
+      const g = new THREE.Group();
+      for (const p of parts) g.add(p);
+      return { obj: g, box: new THREE.Box3().setFromObject(g) };
+    };
+    // Foot half: legs at the -Z (outer) corners, a footboard rising above the mattress.
+    this.templates.set(
+      'bed_foot',
+      build([leg(-0.44, -0.44), leg(0.44, -0.44), frame(), mattress(), box(-0.5, 0.5, 0.14, 0.6, -0.5, -0.4, WOOD)]),
+    );
+    // Head half: legs at the +Z (outer) corners, a headboard, and a pillow on the mattress.
+    this.templates.set(
+      'bed_head',
+      build([leg(-0.44, 0.44), leg(0.44, 0.44), frame(), mattress(), box(-0.5, 0.5, 0.14, 0.6, 0.4, 0.5, WOOD), box(-0.4, 0.4, 0.5, 0.6, 0.12, 0.42, PILLOW)]),
+    );
+    // Single fallback (a lone cell mid-break / legacy): a whole bed squeezed into one cell.
+    this.templates.set(
+      'bed_single',
+      build([
+        leg(-0.44, -0.44),
+        leg(0.44, -0.44),
+        leg(-0.44, 0.44),
+        leg(0.44, 0.44),
+        frame(),
+        box(-0.44, 0.44, 0.3, 0.5, -0.5, 0.36, SHEET),
+        box(-0.5, 0.5, 0.14, 0.6, -0.5, -0.42, WOOD),
+        box(-0.5, 0.5, 0.14, 0.6, 0.42, 0.5, WOOD),
+        box(-0.4, 0.4, 0.5, 0.6, 0.16, 0.42, PILLOW),
+      ]),
+    );
   }
 
   /** The portal is the door_a shape with a generated "blue door + bold P" texture — a
@@ -242,6 +297,19 @@ export class NodeModels {
       if (w.get(x, y - 1, z) === DOOR_CLOSED || w.get(x, y - 1, z) === DOOR_OPEN) return null;
       return { model: id === DOOR_OPEN ? 'door_b' : 'door_a', targetH: DOOR_H, rotY: 0 };
     }
+    if (id === BED_ID) {
+      // A bed is two adjacent BED_ID cells. Pair with the first bed neighbour (fixed
+      // priority) and infer the layout from coordinates: foot→head runs toward +X (X axis)
+      // or +Z (Z axis), so the higher-coordinate cell is the head. Both cells derive the
+      // same facing ⇒ the two halves line up seamlessly. A lone cell falls back to a single.
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        if (w.get(x + dx, y, z + dz) !== BED_ID) continue;
+        const alongX = dx !== 0;
+        const isFoot = alongX ? dx === 1 : dz === 1; // the partner is the head ⇒ this cell is the foot
+        return { model: isFoot ? 'bed_foot' : 'bed_head', targetH: BED_H, rotY: alongX ? Math.PI / 2 : 0 };
+      }
+      return { model: 'bed_single', targetH: BED_H, rotY: 0 };
+    }
     if (id === FENCE_GATE_CLOSED) return { model: 'doors_fencegate_closed', targetH: GATE_H, rotY: 0 };
     if (id === FENCE_GATE_OPEN) return { model: 'doors_fencegate_open', targetH: GATE_H, rotY: 0 };
     if (id === PORTAL_ID) return { model: 'portal', targetH: DOOR_H, rotY: 0 }; // a 2-tall blue "P" archway
@@ -297,7 +365,7 @@ export class NodeModels {
     const AREA = CHUNK * CHUNK;
     for (let i = 0; i < cells.length; i++) {
       const id = cells[i];
-      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID && id !== LADDER_ID) continue;
+      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID && id !== LADDER_ID && id !== BED_ID) continue;
       const ly = (i / AREA) | 0,
         rem = i % AREA,
         lz = (rem / CHUNK) | 0,

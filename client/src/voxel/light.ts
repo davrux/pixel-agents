@@ -20,7 +20,7 @@ import type { VoxelWorld } from './world.js';
 
 export const MAX_LIGHT = 15;
 const RADIUS = 8; // block-light reach in levels (< CHUNK so a chunk only sees ±1 chunk of sources)
-const SKY_TOP = CHUNK * 4; // top of the generated column range (see world.columnTop)
+const SKY_TOP = CHUNK * 8; // top of the column scan — above the tallest mountain peaks (~y=79)
 const SKY_BOTTOM = -CHUNK * 2;
 
 /** Emission level of a light-source block (0 = not a source). */
@@ -100,31 +100,38 @@ export interface LightSampler {
   block(x: number, y: number, z: number): number;
 }
 
+const NB = [
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 1, 0],
+  [0, -1, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+];
+
 /**
- * Compute light for one chunk plus a 1-cell border (the cells faces look into). Skylight
- * comes straight from the column cache; blocklight is BFS-flooded from every source in the
- * 3×3×3 chunk neighbourhood over a RADIUS-padded grid, then sampled by the mesher.
+ * Compute light for one chunk plus a 1-cell border (the cells faces look into). Both
+ * channels are BFS-flooded over one RADIUS-padded grid so light bends around obstacles:
+ *
+ *  • skylight  — every open-sky cell (above its column top) is fully lit (MAX_LIGHT); that
+ *    light then floods into shadowed air (cave/overhang gaps) −1 per step, except a straight
+ *    step *down* from a full-strength cell keeps full strength (a sun beam falls without
+ *    dimming). This lets sunlight seep sideways under overhangs and floating blocks, so the
+ *    ground beneath them is dim rather than pitch black; only the deep interior of a wide
+ *    platform (>RADIUS from any opening) stays dark, as it should.
+ *  • blocklight — flooded from every source in the 3×3×3 chunk neighbourhood.
+ *
+ * Opacity for the whole grid is sampled once into a byte grid (`solidG`) so both floods and
+ * the rim scan read a local array instead of doing thousands of keyed world.get() calls.
  */
 export function computeChunkLight(world: VoxelWorld, cx: number, cy: number, cz: number): LightSampler {
   const x0 = cx * CHUNK,
     y0 = cy * CHUNK,
     z0 = cz * CHUNK;
 
-  // Gather sources from this chunk and its 26 neighbours (RADIUS < CHUNK ⇒ nothing farther reaches).
-  const sources: { x: number; y: number; z: number; l: number }[] = [];
-  for (let dz = -1; dz <= 1; dz++)
-    for (let dy = -1; dy <= 1; dy++)
-      for (let dx = -1; dx <= 1; dx++) {
-        const list = chunkSources(world, cx + dx, cy + dy, cz + dz);
-        for (const s of list) sources.push(s);
-      }
-
-  const sky = (x: number, y: number, z: number): number => (y > columnTop(world, x, z) ? MAX_LIGHT : 0);
-
-  if (sources.length === 0) return { sky, block: () => 0 };
-
-  // Flood grid: the kept region (chunk + 1 border) padded by RADIUS so BFS from any
-  // in-range source resolves correctly inside the region. Grid origin = chunk origin − GO.
+  // Kept region (chunk + 1 border) padded by RADIUS so a flood from any in-range cell
+  // resolves inside the region. Grid origin = chunk origin − GO. Skylight seep is bounded
+  // to the same RADIUS (wide overhangs keep a dark core, which is correct).
   const GO = RADIUS + 1;
   const GS = CHUNK + 2 * GO;
   const gx0 = x0 - GO,
@@ -132,9 +139,84 @@ export function computeChunkLight(world: VoxelWorld, cx: number, cy: number, cz:
     gz0 = z0 - GO;
   const idx = (lx: number, ly: number, lz: number): number => lx + GS * (lz + GS * ly);
   const inGrid = (lx: number, ly: number, lz: number): boolean => lx >= 0 && lx < GS && ly >= 0 && ly < GS && lz >= 0 && lz < GS;
-  const blk = new Uint8Array(GS * GS * GS);
 
-  // Seed the BFS with every source (clamped into the grid), taking the max where they overlap.
+  // Opacity + column tops for the grid footprint, resolved once. tops[] uses the full-range
+  // (cached) column scan so a cell at the grid's top edge still knows about blockers above it.
+  const solidG = new Uint8Array(GS * GS * GS);
+  const tops = new Int32Array(GS * GS);
+  for (let lz = 0; lz < GS; lz++) for (let lx = 0; lx < GS; lx++) tops[lx + GS * lz] = columnTop(world, gx0 + lx, gz0 + lz);
+  for (let ly = 0; ly < GS; ly++)
+    for (let lz = 0; lz < GS; lz++)
+      for (let lx = 0; lx < GS; lx++) if (opaqueForLight(world.get(gx0 + lx, gy0 + ly, gz0 + lz))) solidG[idx(lx, ly, lz)] = 1;
+
+  // --- Skylight flood ---
+  // Open-sky cells (above their column top) are lit directly; only cells on the boundary
+  // between open sky and shadowed air are enqueued to seed the flood into the shadow.
+  const skyG = new Uint8Array(GS * GS * GS);
+  let sq: number[] = [];
+  for (let ly = 0; ly < GS; ly++)
+    for (let lz = 0; lz < GS; lz++)
+      for (let lx = 0; lx < GS; lx++) {
+        if (gy0 + ly <= tops[lx + GS * lz]) continue; // shadowed — filled by the flood
+        const i = idx(lx, ly, lz);
+        skyG[i] = MAX_LIGHT; // open to the sky — full daylight
+        for (const [nx, ny, nz] of NB) {
+          const ax = lx + nx,
+            ay = ly + ny,
+            az = lz + nz;
+          // Borders shadowed air (non-solid, at/below its own top) ⇒ this cell must flood in.
+          if (inGrid(ax, ay, az) && !solidG[idx(ax, ay, az)] && gy0 + ay <= tops[ax + GS * az]) {
+            sq.push(i);
+            break;
+          }
+        }
+      }
+  // BFS: −1 per step into non-opaque neighbours, except a straight-down step from a
+  // full-strength cell stays at MAX_LIGHT (a sun beam falls without dimming).
+  while (sq.length) {
+    const next: number[] = [];
+    for (const i of sq) {
+      const level = skyG[i];
+      if (level <= 1) continue;
+      const lx = i % GS;
+      const lz = Math.floor(i / GS) % GS;
+      const ly = Math.floor(i / (GS * GS));
+      for (const [nx, ny, nz] of NB) {
+        const ax = lx + nx,
+          ay = ly + ny,
+          az = lz + nz;
+        if (!inGrid(ax, ay, az)) continue;
+        const j = idx(ax, ay, az);
+        if (solidG[j]) continue;
+        const nl = ny === -1 && level === MAX_LIGHT ? MAX_LIGHT : level - 1;
+        if (nl > skyG[j]) {
+          skyG[j] = nl;
+          next.push(j);
+        }
+      }
+    }
+    sq = next;
+  }
+
+  const sky = (x: number, y: number, z: number): number => {
+    const lx = x - gx0,
+      ly = y - gy0,
+      lz = z - gz0;
+    if (inGrid(lx, ly, lz)) return skyG[idx(lx, ly, lz)];
+    return y > columnTop(world, x, z) ? MAX_LIGHT : 0;
+  };
+
+  // --- Blocklight flood --- (sources from this chunk and its 26 neighbours)
+  const sources: { x: number; y: number; z: number; l: number }[] = [];
+  for (let dz = -1; dz <= 1; dz++)
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const list = chunkSources(world, cx + dx, cy + dy, cz + dz);
+        for (const s of list) sources.push(s);
+      }
+  if (sources.length === 0) return { sky, block: () => 0 };
+
+  const blk = new Uint8Array(GS * GS * GS);
   let queue: number[] = [];
   for (const s of sources) {
     const lx = s.x - gx0,
@@ -147,14 +229,6 @@ export function computeChunkLight(world: VoxelWorld, cx: number, cy: number, cz:
       queue.push(i);
     }
   }
-  const NB = [
-    [1, 0, 0],
-    [-1, 0, 0],
-    [0, 1, 0],
-    [0, -1, 0],
-    [0, 0, 1],
-    [0, 0, -1],
-  ];
   // BFS: spread level−1 into non-opaque neighbours (a source cell itself always lights).
   while (queue.length) {
     const next: number[] = [];
@@ -169,8 +243,8 @@ export function computeChunkLight(world: VoxelWorld, cx: number, cy: number, cz:
           ay = ly + ny,
           az = lz + nz;
         if (!inGrid(ax, ay, az)) continue;
-        if (opaqueForLight(world.get(gx0 + ax, gy0 + ay, gz0 + az))) continue;
         const j = idx(ax, ay, az);
+        if (solidG[j]) continue;
         if (level - 1 > blk[j]) {
           blk[j] = level - 1;
           next.push(j);

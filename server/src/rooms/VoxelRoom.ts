@@ -16,6 +16,8 @@ import {
   VOXEL_ROOM,
   VIEW_CHUNKS,
   VIEW_CHUNKS_Y,
+  WORLD_MIN_CHUNK_Y,
+  WORLD_MAX_CHUNK_Y,
   MAP_LIMIT,
   biomeAt,
   toChunk,
@@ -1062,6 +1064,22 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     }
   }
 
+  /** The second cell of a 2-cell bed: prefer the direction the player faces, then its
+   *  opposite, then the two sides; the first empty (air) cell wins. null if none fits.
+   *  Both cells hold BED_ID — the client infers foot/head from their coordinates. */
+  private bedPartnerCell(sid: string, x: number, y: number, z: number): { x: number; z: number } | null {
+    const yaw = this.state.players.get(sid)?.yaw ?? 0;
+    // Player forward = (-sin yaw, -cos yaw); snap to the dominant cardinal.
+    const fx = -Math.sin(yaw),
+      fz = -Math.cos(yaw);
+    const primary: [number, number] = Math.abs(fx) >= Math.abs(fz) ? [Math.sign(fx) || 1, 0] : [0, Math.sign(fz) || 1];
+    const cands: [number, number][] = [primary, [-primary[0], -primary[1]], [primary[1], primary[0]], [-primary[1], -primary[0]]];
+    for (const [dx, dz] of cands) {
+      if (this.world.getBlock(x + dx, y, z + dz) === 0) return { x: x + dx, z: z + dz };
+    }
+    return null;
+  }
+
   /** Bucket use: an empty bucket scoops a liquid SOURCE the player aims at (source→air,
    *  empty→filled bucket); a filled bucket pours its source into the aimed AIR cell
    *  (air→source, filled→empty bucket). Survival swaps the bucket item; creative is free. */
@@ -1863,6 +1881,12 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const hasWall = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => this.world.getBlock(x + dx, y, z + dz) !== 0);
       if (!hasWall) return void client.send('m', { type: 'system', text: 'A ladder needs a wall to hang on.' });
     }
+    // A bed spans two cells (foot + head): reserve the second cell before placing the first.
+    let bedPartner: { x: number; z: number } | null = null;
+    if (id === BED_ID && prev === 0) {
+      bedPartner = this.bedPartnerCell(sid, x, y, z);
+      if (!bedPartner) return void client.send('m', { type: 'system', text: 'No room to place the bed.' });
+    }
     if (!this.world.setBlock(x, y, z, id)) return; // no change
     this.broadcastEdit(x, y, z, id);
     if (consumes && !this.creative.has(sid)) {
@@ -1870,6 +1894,11 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const total = Math.max(0, (bag.get(id) ?? 0) - 1);
       total > 0 ? bag.set(id, total) : bag.delete(id);
       client.send('inv', { block: id, total });
+    }
+    // Placing a bed: write its second (head/foot partner) cell too.
+    if (id === BED_ID && bedPartner) {
+      this.world.setBlock(bedPartner.x, y, bedPartner.z, BED_ID);
+      this.broadcastEdit(bedPartner.x, y, bedPartner.z, BED_ID);
     }
     const key = `${x},${y},${z}`;
     // Planting a wheat seedling registers the cell so it grows over time.
@@ -1951,6 +1980,16 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       for (const dy of [-1, 1]) {
         const b = this.world.getBlock(x, y + dy, z);
         if ((b === DOOR_CLOSED || b === DOOR_OPEN) && this.world.setBlock(x, y + dy, z, 0)) this.broadcastEdit(x, y + dy, z, 0);
+      }
+    }
+    // Breaking a bed: remove its paired (horizontal) half too. The generic drop above
+    // dropped one bed item; the partner is cleared silently.
+    if (id === 0 && prev === BED_ID) {
+      for (const [ddx, ddz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        if (this.world.getBlock(x + ddx, y, z + ddz) === BED_ID && this.world.setBlock(x + ddx, y, z + ddz, 0)) {
+          this.broadcastEdit(x + ddx, y, z + ddz, 0);
+          break;
+        }
       }
     }
     // Gravity nodes (sand/gravel): digging support lets the column above fall; placing one
@@ -2237,11 +2276,17 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     v.cy = ccy;
     v.cz = ccz;
     const want = new Set<string>();
-    for (let dcy = -VIEW_CHUNKS_Y; dcy <= VIEW_CHUNKS_Y; dcy++) {
+    // Vertical chunks to stream: the fixed terrain band (so the ground stays loaded from
+    // any altitude — no more vanishing floor when you fly high) UNION the player's local
+    // ±VIEW_CHUNKS_Y band (deep caves below the band, tall player builds above it). A union
+    // of two bounded ranges, so flying far up never fills the empty gap between them.
+    const yset = new Set<number>();
+    for (let cy = WORLD_MIN_CHUNK_Y; cy <= WORLD_MAX_CHUNK_Y; cy++) yset.add(cy);
+    for (let dcy = -VIEW_CHUNKS_Y; dcy <= VIEW_CHUNKS_Y; dcy++) yset.add(ccy + dcy);
+    for (const cy of yset) {
       for (let dcz = -VIEW_CHUNKS; dcz <= VIEW_CHUNKS; dcz++) {
         for (let dcx = -VIEW_CHUNKS; dcx <= VIEW_CHUNKS; dcx++) {
           const cx = ccx + dcx,
-            cy = ccy + dcy,
             cz = ccz + dcz;
           const key = chunkKey(cx, cy, cz);
           want.add(key);
