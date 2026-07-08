@@ -62,7 +62,11 @@ type CamMode = 'iso' | 'third' | 'first';
 
 const canvas = document.getElementById('gl') as HTMLCanvasElement;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+renderer.setPixelRatio(1); // bootstrap; replaced by applyRenderScale() once settings load
+/** Apply the render-resolution preference (clamped 0.5..2) to the WebGL pixelRatio. */
+function applyRenderScale(): void {
+  renderer.setPixelRatio(Math.max(0.5, Math.min(2, settings.renderScale || 1)));
+}
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8fc7ff);
@@ -627,15 +631,19 @@ function refreshPortalGlow(cx: number, cy: number, cz: number): void {
     portalGlowGroup.add(node);
   }
 }
-/** Remesh up to `cap` dirty chunks per frame (rest wait for the next frame). */
-function flushDirty(cap = 6): void {
+/** Remesh dirty chunks until a per-frame TIME budget is spent (not a fixed count):
+ *  each chunk's remesh is light-BFS + geometry ≈ several ms, so meshing a fixed 6/frame
+ *  could blow a 60 fps frame (16.7 ms) into a 30–60 ms stall during streaming. We always
+ *  do at least one (progress never stalls), then stop once `budgetMs` is exceeded; the
+ *  rest wait for later frames. A single cold chunk may overshoot, but never a whole batch. */
+function flushDirty(budgetMs = 6): void {
   if (!atlas || dirty.size === 0) return;
-  let n = 0;
+  const t0 = performance.now();
   for (const key of dirty) {
     const [cx, cy, cz] = key.split(',').map(Number);
     remeshChunk(cx, cy, cz);
     dirty.delete(key);
-    if (++n >= cap) break;
+    if (performance.now() - t0 >= budgetMs) break; // out of frame time — resume next frame
   }
 }
 void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES, ...EXTRA_TEXTURES], SYNTHETIC).then((a) => {
@@ -1070,13 +1078,18 @@ let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
 // User settings (persisted). invertY + camera collision default on; auto-switch
 // tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, creativeInstantDig: true, hotbarSize: 8 };
+// renderScale = the WebGL pixelRatio (render pixels per CSS pixel). 1 = native CSS
+// resolution (crisp, the sensible default); <1 renders fewer pixels + upscales (much
+// faster when fill-rate bound, e.g. looking down from high up); 2 = full retina (sharp
+// but 4× the fragments). Adjustable on the Camera settings page — see applyRenderScale.
+const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, creativeInstantDig: true, hotbarSize: 8, renderScale: 1 };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
   /* ignore bad storage */
 }
 sound.enabled = settings.sound; // apply the loaded preference to the audio manager
+applyRenderScale(); // override the bootstrap pixelRatio (line ~65) with the saved preference
 let net: VoxelNet | null = null; // set once connected; null = offline (local only)
 function saveSettings(): void {
   try {
@@ -2352,6 +2365,19 @@ camCollideCb.onchange = () => {
   settings.camCollide = camCollideCb.checked;
   saveSettings();
 };
+const renderScaleInput = document.getElementById('opt-renderscale') as HTMLInputElement;
+const renderScaleVal = document.getElementById('opt-renderscale-val') as HTMLElement;
+const showRenderScale = (): void => {
+  renderScaleVal.textContent = `${settings.renderScale}× ${settings.renderScale < 1 ? '(faster)' : settings.renderScale > 1 ? '(sharper)' : '(native)'}`;
+};
+renderScaleInput.value = String(settings.renderScale);
+showRenderScale();
+renderScaleInput.oninput = () => {
+  settings.renderScale = Number(renderScaleInput.value);
+  applyRenderScale(); // live — no reload needed
+  showRenderScale();
+  saveSettings();
+};
 const dayNightCb = document.getElementById('opt-daynight') as HTMLInputElement;
 const flyCb = document.getElementById('opt-fly') as HTMLInputElement;
 dayNightCb.checked = settings.dayNight;
@@ -3380,7 +3406,7 @@ function frameBody(now: number): void {
     fpsAcc = 0;
     nameFps.textContent = `· ${Math.round(fpsAvg)} fps`;
   }
-  flushDirty(); // (re)mesh a few dirty chunks per frame
+  flushDirty(); // (re)mesh dirty chunks within a per-frame time budget (streaming smoothness)
   // Hold physics until the spawn column has streamed in, then drop the player on it.
   if (!ready && world.hasChunk(toChunk(spawn.x), toChunk(spawn.y - 1), toChunk(spawn.z))) {
     player.pos.set(spawn.x, spawn.y, spawn.z);
