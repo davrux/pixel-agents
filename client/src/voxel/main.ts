@@ -1160,6 +1160,11 @@ function saveSettings(): void {
   pushSettings();
 }
 let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
+// Stuck-detection for click-to-walk: the best (smallest) distance reached so far and
+// when it last improved. If a placed block / wall stops progress, we abandon the walk
+// instead of shoving into it every frame forever (runaway CPU + a "stuck moving" char).
+let moveBestDist = Infinity;
+let moveStuckSince = 0;
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
 function resize(): void {
@@ -1249,6 +1254,16 @@ window.addEventListener('keydown', (e) => {
   keys.add(e.code);
 });
 window.addEventListener('keyup', (e) => keys.delete(e.code));
+// Release all held keys when focus/pointer-lock is lost: a dialog, alt-tab, or Firefox's
+// "slow script" prompt swallows the keyup, so an otherwise-held movement key would stick
+// and the character runs forever (a runaway "movement loop" that also streams chunks
+// nonstop → max CPU). Mirrors the 2D office's blur handler. First-person also drops keys
+// when pointer lock exits (you've clicked away / a dialog opened).
+const releaseKeys = (): void => keys.clear();
+window.addEventListener('blur', releaseKeys);
+document.addEventListener('pointerlockchange', () => {
+  if (!locked()) releaseKeys();
+});
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
 const locked = (): boolean => document.pointerLockElement === canvas;
@@ -1790,6 +1805,8 @@ function clickToMove(p: THREE.Vector2): void {
   if (!hits.length) return;
   const hit = hits[0].point.clone().addScaledVector(hits[0].face?.normal ?? new THREE.Vector3(0, 1, 0), -0.5);
   moveTarget = new THREE.Vector3(Math.floor(hit.x) + 0.5, 0, Math.floor(hit.z) + 0.5);
+  moveBestDist = Infinity; // reset stuck-detection for the new destination
+  moveStuckSince = performance.now();
 }
 
 function cycleMode(): void {
@@ -3537,8 +3554,15 @@ function frameBody(now: number): void {
     } else if (moveTarget && !busy) {
       const dx = moveTarget.x - player.pos.x;
       const dz = moveTarget.z - player.pos.z;
-      if (Math.hypot(dx, dz) < 0.4) moveTarget = null;
-      else {
+      const d = Math.hypot(dx, dz);
+      if (d < 0.4) moveTarget = null; // arrived
+      else if (d < moveBestDist - 0.05) {
+        moveBestDist = d; // still making progress
+        moveStuckSince = now;
+      } else if (now - moveStuckSince > 1200) {
+        moveTarget = null; // no progress for >1.2s → blocked; stop walking (don't loop forever)
+      }
+      if (moveTarget) {
         player.yaw = Math.atan2(-dx, -dz); // face + walk toward the destination
         fwd = true;
       }
