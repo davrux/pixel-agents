@@ -12,7 +12,12 @@ import {
   BUCKET_EMPTY, BUCKET_WATER, BUCKET_LAVA, FLINT_STEEL, BOAT_ITEM, CART_ITEM,
 } from '@pixel/shared';
 
-import { BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
+import { BLOCKS, ALL_BLOCK_IDS, SYNTHETIC_TILES } from './blocks.js';
+
+/** 1×1 transparent placeholder — synthetic-tile blocks (water/lava/portal/ores/monitor/
+ *  bedrock) have no standalone PNG; their real icon is cropped from the atlas after it
+ *  loads. Until then this keeps iconUrl from falling back to a 404ing textures/…png. */
+const TRANSPARENT_PX = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 export type ArmorSlot = 'head' | 'torso' | 'legs' | 'feet';
 
@@ -119,13 +124,16 @@ const toolByNum = new Map<number, Item>(TOOL_ITEMS.map((t) => [t.toolId!, t]));
 /** A tool's numeric inventory id from its string id (e.g. 'pick_steel' → 202). */
 export const toolNum = (stringId: string): number | undefined => TOOL_IDS[stringId];
 
-/** A block as a held/placeable item (centre pivot). */
+/** A block as a held/placeable item (centre pivot). Synthetic-tile blocks get a
+ *  transparent placeholder icon (replaced by the atlas crop once it loads) so no UI
+ *  ever requests their non-existent textures/blocks/<tex>.png. */
 export const blockItem = (id: number): Item => ({
   id: 'block:' + id,
   name: BLOCKS[id].name,
   texUrl: 'blocks/' + BLOCKS[id].tex,
   pivot: [0.5, 0.5],
   block: id,
+  ...(SYNTHETIC_TILES.includes(BLOCKS[id].tex) ? { icon: TRANSPARENT_PX } : {}),
 });
 
 /** Every block as a placeable item (the "placing" side of the split hotbar). */
