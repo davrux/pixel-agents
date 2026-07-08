@@ -2231,6 +2231,10 @@ export class VoxelRoom extends Room<VoxelRoomState> {
           if (cur === to) continue; // no change
           changes.push({ x, y, z, id: to });
           chunks.add(chunkKey(toChunk(x), toChunk(y), toChunk(z)));
+          if (cur === SIGN_ID && to !== SIGN_ID) {
+            signs.delete(this.state.worldId, x, y, z);
+            this.broadcast('sign', { x, y, z, text: '' });
+          }
         }
       }
     if (!changes.length) return sys('Nothing to change.');
