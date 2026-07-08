@@ -810,7 +810,7 @@ function setAfkMarker(rec: { avatar: { group: THREE.Object3D }; afk?: THREE.Spri
 }
 // An NPC is rendered as either a humanoid Avatar (monsters) or a blocky MobModel
 // (animals) — both expose the same group/setTint/animate surface used below.
-type NpcRender = { group: THREE.Object3D; setTint(c: THREE.Color): void; animate(dt: number, speed: number): void };
+type NpcRender = { group: THREE.Object3D; setTint(c: THREE.Color): void; animate(dt: number, speed: number): void; dispose(): void };
 const npcAvatars = new Map<string, { avatar: NpcRender }>();
 // Dropped items: small textured cubes that bob + spin, synced from state.items (AOI).
 const itemGroup = new THREE.Group();
@@ -994,6 +994,7 @@ function syncRemotePlayers(dt: number): void {
   for (const [sid, r] of remote) {
     if (!state.players.get(sid)) {
       scene.remove(r.avatar.group);
+      r.avatar.dispose(); // free GPU geometry/material/texture — not freed by scene.remove()
       remote.delete(sid);
     }
   }
@@ -1022,6 +1023,7 @@ function syncNpcs(dt: number, state: RemoteState): void {
   for (const [id, r] of npcAvatars) {
     if (!state.npcs.get(id)) {
       scene.remove(r.avatar.group);
+      r.avatar.dispose(); // free GPU geometry/material/texture — not freed by scene.remove()
       npcAvatars.delete(id);
     }
   }
@@ -3143,9 +3145,15 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
     net = null;
   }
   // reset the client-side world
-  for (const [, r] of remote) scene.remove(r.avatar.group);
+  for (const [, r] of remote) {
+    scene.remove(r.avatar.group);
+    r.avatar.dispose();
+  }
   remote.clear();
-  for (const [, r] of npcAvatars) scene.remove(r.avatar.group);
+  for (const [, r] of npcAvatars) {
+    scene.remove(r.avatar.group);
+    r.avatar.dispose();
+  }
   npcAvatars.clear();
   for (const [, d] of itemDrops) disposeDrop(d);
   itemDrops.clear();

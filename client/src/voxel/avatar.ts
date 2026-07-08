@@ -252,4 +252,17 @@ export class Avatar {
     // Head look is layered on after the clip poses the skeleton.
     if (this.head) this.head.rotation.x = Math.max(-0.5, Math.min(0.5, -pitch * 0.4));
   }
+
+  /** Free GPU resources when this avatar is removed for good (remote player left
+   *  AOI / world switch). Each Avatar loads its own GLTF geometry + skin texture,
+   *  so scene.remove() alone leaks them — Three.js frees nothing on removal. */
+  dispose(): void {
+    this.mixer?.stopAllAction();
+    this.group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry?.dispose();
+    });
+    this.mat.map?.dispose();
+    this.mat.dispose();
+    this.toolMat?.dispose();
+  }
 }

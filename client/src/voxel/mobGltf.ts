@@ -115,4 +115,16 @@ export class GltfMob {
     this.cross(speed > 0.4 ? 'walk' : 'stand');
     this.mixer.update(dt);
   }
+
+  /** Free the GLTF geometry, our unlit material + its texture, and stop the mixer.
+   *  Each GltfMob loads its own copies (fresh parse + TextureLoader per instance),
+   *  so scene.remove() alone leaks them — see NpcRender.dispose(). */
+  dispose(): void {
+    this.mixer?.stopAllAction();
+    this.group.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry?.dispose();
+    });
+    this.mat.map?.dispose();
+    this.mat.dispose();
+  }
 }

@@ -13,6 +13,10 @@ export interface NpcRender {
   group: THREE.Object3D;
   setTint(c: THREE.Color): void;
   animate(dt: number, speed: number): void;
+  /** Free GPU resources (geometry/material/texture). Three.js does NOT release
+   *  these on scene.remove(), so must be called when the mob is gone for good
+   *  (left AOI / despawned / world switch) — else GPU memory leaks over time. */
+  dispose(): void;
 }
 
 /** Pick the best model for a mob kind: the real converted Luanti animal model when
@@ -210,6 +214,14 @@ export class MobModel {
       this.legs.forEach((l, i) => (l.rotation.x = i % 2 === 0 ? s : -s));
     } else {
       for (const l of this.legs) l.rotation.x *= Math.max(0, 1 - dt * 10); // ease to rest
+    }
+  }
+
+  /** Free the per-box geometry + material this mob built (each box owns its own). */
+  dispose(): void {
+    for (const p of this.parts) {
+      p.mesh.geometry.dispose();
+      (p.mesh.material as THREE.Material).dispose();
     }
   }
 }
