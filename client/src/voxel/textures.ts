@@ -17,6 +17,7 @@ export interface Atlas {
   texture: THREE.CanvasTexture;
   rect(name: string): AtlasRect;
   tileSize: number;
+  rects: Record<string, AtlasRect>; // full name→rect map (for the mesh worker's atlas stub)
 }
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -191,5 +192,9 @@ export async function loadBlockAtlas(names: string[], extra: SyntheticTile[] = [
       vBot: 1 - (row + 1) / rows + inset,
     };
   };
-  return { texture, rect, tileSize: ts };
+  // Full name→rect map, so the mesher can run in a Web Worker with a lightweight
+  // rect-only atlas stub (no GPU texture, no canvas). See meshWorker.ts.
+  const rects: Record<string, AtlasRect> = {};
+  for (const name of index.keys()) rects[name] = rect(name);
+  return { texture, rect, tileSize: ts, rects };
 }

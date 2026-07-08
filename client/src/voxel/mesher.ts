@@ -5,19 +5,30 @@
  * unlit MeshBasicMaterial (map + vertexColors) shows the polished, soft-shadowed
  * Minecraft look. Rebuilt whole on edit; fine for the single spike region.
  */
-import * as THREE from 'three';
 import { CHUNK, isFluidId, fluidOf, fluidLevel, LAVA_FLUID, type FluidDef } from '@pixel/shared';
 import { BLOCKS, SHADE, AIR, TRANSPARENT, RENDER_SKIP, MODEL_NODES, PLANT, FENCE_SHAPE, FENCE_GATE_OPEN, RAIL_ID } from './blocks.js';
 import { MAX_LIGHT, type LightSampler } from './light.js';
 import type { Atlas } from './textures.js';
 import type { VoxelWorld } from './world.js';
 
-/** Opaque + fluid geometry for one chunk. Water and lava each get their own
+// This module is deliberately THREE-free (plain typed arrays only) so it can run
+// inside a Web Worker off the main thread — the caller assembles a BufferGeometry
+// from these buffers (see geometryFromBuffers in main.ts). `pos`/`col`/`uv` are
+// interleaved-per-vertex triples/pairs; `sky`/`blk` (opaque only) are the two baked
+// light channels the terrain shader reads.
+export interface LayerBuffers {
+  pos: Float32Array;
+  col: Float32Array;
+  uv: Float32Array;
+  sky?: Float32Array;
+  blk?: Float32Array;
+}
+/** Opaque + fluid geometry buffers for one chunk. Water and lava each get their own
  *  transparent/emissive mesh (rendered with different materials). */
-export interface ChunkGeom {
-  opaque: THREE.BufferGeometry | null;
-  water: THREE.BufferGeometry | null;
-  lava: THREE.BufferGeometry | null;
+export interface ChunkBuffers {
+  opaque: LayerBuffers | null;
+  water: LayerBuffers | null;
+  lava: LayerBuffers | null;
 }
 
 type Corner = [number, number, number];
@@ -43,7 +54,7 @@ const AO = [0.5, 0.7, 0.85, 1.0]; // occlusion level 0 (deep) → 3 (open)
  *  opaque block hides a face only behind another opaque block (so submerged terrain
  *  still shows through the water); a water cell only emits faces exposed to AIR
  *  (its surface + shore edges), never internal water-water or water-in-terrain faces. */
-export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSampler, cx: number, cy: number, cz: number): ChunkGeom {
+export function buildChunkBuffers(world: VoxelWorld, atlas: Atlas, light: LightSampler, cx: number, cy: number, cz: number): ChunkBuffers {
   // Opaque geometry also carries per-vertex sky/block light (0..1); fluids don't (their
   // materials light differently). `sky`/`blk` stay parallel to `opq.pos` vertex-for-vertex.
   const opq = { pos: [] as number[], col: [] as number[], uvs: [] as number[], sky: [] as number[], blk: [] as number[] };
@@ -249,17 +260,12 @@ export function buildChunkMesh(world: VoxelWorld, atlas: Atlas, light: LightSamp
       }
     }
   }
-  const make = (b: { pos: number[]; col: number[]; uvs: number[]; sky?: number[]; blk?: number[] }): THREE.BufferGeometry | null => {
+  const toBuf = (b: { pos: number[]; col: number[]; uvs: number[]; sky?: number[]; blk?: number[] }): LayerBuffers | null => {
     if (b.pos.length === 0) return null;
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 3));
-    g.setAttribute('uv', new THREE.Float32BufferAttribute(b.uvs, 2));
-    // Opaque geometry carries the two light channels the terrain shader reads (see main.ts).
-    if (b.sky) g.setAttribute('aSky', new THREE.Float32BufferAttribute(b.sky, 1));
-    if (b.blk) g.setAttribute('aBlock', new THREE.Float32BufferAttribute(b.blk, 1));
-    g.computeBoundingSphere();
-    return g;
+    const r: LayerBuffers = { pos: new Float32Array(b.pos), col: new Float32Array(b.col), uv: new Float32Array(b.uvs) };
+    if (b.sky) r.sky = new Float32Array(b.sky);
+    if (b.blk) r.blk = new Float32Array(b.blk);
+    return r;
   };
-  return { opaque: make(opq), water: make(wat), lava: make(lav) };
+  return { opaque: toBuf(opq), water: toBuf(wat), lava: toBuf(lav) };
 }

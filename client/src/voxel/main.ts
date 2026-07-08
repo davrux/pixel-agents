@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CHUNK, chunkKey, toChunk, ZONES, isWaterId, isLavaId, CRAFT_RECIPES, SMELT_RECIPES, FUEL_ITEMS, MATERIAL_BASE, TOOL_BASE, isHoe, isBucket, isFlintSteel, isBoat, isCart, BUCKET_EMPTY, surfaceColor } from '@pixel/shared';
 import { VoxelWorld } from './world.js';
-import { buildChunkMesh } from './mesher.js';
+import { buildChunkBuffers, type LayerBuffers, type ChunkBuffers } from './mesher.js';
 import { NodeModels } from './nodeModels.js';
 import { computeChunkLight, invalidateLight, clearLightCache } from './light.js';
 import { ChatUI } from '../ui/chatUI.js';
@@ -353,13 +353,30 @@ const NEIGHBORS = [
   [0, 0, -1],
 ];
 function markDirty(cx: number, cy: number, cz: number): void {
+  if (meshWorker) return; // the worker meshes from its own world + edit stream (see below)
   dirty.add(chunkKey(cx, cy, cz));
   for (const [dx, dy, dz] of NEIGHBORS) if (world.hasChunk(cx + dx, cy + dy, cz + dz)) dirty.add(chunkKey(cx + dx, cy + dy, cz + dz));
 }
-function remeshChunk(cx: number, cy: number, cz: number): void {
+/** Assemble a renderable BufferGeometry from the mesher's raw (worker-transferable)
+ *  buffers. Kept on the main thread so the mesher itself stays THREE-free. */
+function geometryFromBuffers(b: LayerBuffers | null): THREE.BufferGeometry | null {
+  if (!b) return null;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(b.pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(b.col, 3));
+  g.setAttribute('uv', new THREE.BufferAttribute(b.uv, 2));
+  if (b.sky) g.setAttribute('aSky', new THREE.BufferAttribute(b.sky, 1));
+  if (b.blk) g.setAttribute('aBlock', new THREE.BufferAttribute(b.blk, 1));
+  g.computeBoundingSphere();
+  return g;
+}
+/** Apply freshly-built chunk buffers (from the worker OR the inline path) to the scene:
+ *  swap the three terrain layers in place, then refresh the main-thread-only extras
+ *  (portal/torch glow + glTF node models). Guarded on hasChunk so a worker result that
+ *  arrives just after the chunk was unloaded is dropped instead of re-adding a ghost. */
+function applyChunkBuffers(cx: number, cy: number, cz: number, bufs: ChunkBuffers | null): void {
   const key = chunkKey(cx, cy, cz);
-  const geom = atlas ? buildChunkMesh(world, atlas, computeChunkLight(world, cx, cy, cz), cx, cy, cz) : null;
-  // Update one layer (opaque or water) in place: swap geometry, or add/remove the mesh.
+  if (!world.hasChunk(cx, cy, cz)) return; // chunk unloaded while its mesh was in flight
   const layer = (map: Map<string, THREE.Mesh>, group: THREE.Group, mat: THREE.Material, geo: THREE.BufferGeometry | null): void => {
     const existing = map.get(key);
     if (!geo) {
@@ -379,12 +396,16 @@ function remeshChunk(cx: number, cy: number, cz: number): void {
       group.add(m);
     }
   };
-  layer(chunkMeshes, terrainGroup, material, geom?.opaque ?? null);
-  layer(chunkWater, waterGroup, waterMaterial, geom?.water ?? null);
-  layer(chunkLava, lavaGroup, lavaMaterial, geom?.lava ?? null);
+  layer(chunkMeshes, terrainGroup, material, geometryFromBuffers(bufs?.opaque ?? null));
+  layer(chunkWater, waterGroup, waterMaterial, geometryFromBuffers(bufs?.water ?? null));
+  layer(chunkLava, lavaGroup, lavaMaterial, geometryFromBuffers(bufs?.lava ?? null));
   refreshPortalGlow(cx, cy, cz);
   refreshTorchGlow(cx, cy, cz);
   nodeModels.rebuildChunk(cx, cy, cz, world); // torch/door/gate glTF models for this chunk
+}
+/** Inline (main-thread) remesh — the fallback when no mesh worker is available. */
+function remeshChunk(cx: number, cy: number, cz: number): void {
+  applyChunkBuffers(cx, cy, cz, atlas ? buildChunkBuffers(world, atlas, computeChunkLight(world, cx, cy, cz), cx, cy, cz) : null);
 }
 // Once all node-model templates have streamed in, rescan already-loaded chunks so
 // their torches/doors/gates appear (chunks loaded before the models finished loading).
@@ -646,12 +667,48 @@ function flushDirty(budgetMs = 6): void {
     if (performance.now() - t0 >= budgetMs) break; // out of frame time — resume next frame
   }
 }
+
+// ── Mesh worker: chunk light+geometry off the main thread (see meshWorker.ts). The main
+// thread feeds it the same chunk/edit/unload stream, then just uploads the buffers it
+// posts back. Falls back to inline meshing (flushDirty) if a worker can't be created.
+let meshWorker: Worker | null = null;
+const pendingMesh: { cx: number; cy: number; cz: number; buffers: ChunkBuffers }[] = [];
+try {
+  meshWorker = new Worker(new URL('./meshWorker.ts', import.meta.url), { type: 'module' });
+  meshWorker.onmessage = (e: MessageEvent) => {
+    const m = e.data as { t: string; cx: number; cy: number; cz: number; buffers: ChunkBuffers };
+    if (m.t === 'mesh') pendingMesh.push(m);
+  };
+  meshWorker.onerror = (err) => {
+    console.warn('[voxel] mesh worker error — falling back to inline meshing', err);
+    meshWorker = null;
+    pendingMesh.length = 0;
+    for (const key of world.keys()) dirty.add(key); // re-mesh everything on the main thread
+  };
+} catch (err) {
+  console.warn('[voxel] no mesh worker — inline meshing', err);
+  meshWorker = null;
+}
+/** Apply worker mesh results within a per-frame time budget (upload + node models are
+ *  far cheaper than building them, but a big burst could still spike — so we bound it). */
+function applyPendingMeshes(budgetMs = 6): void {
+  if (pendingMesh.length === 0) return;
+  const t0 = performance.now();
+  while (pendingMesh.length) {
+    const m = pendingMesh.shift()!;
+    applyChunkBuffers(m.cx, m.cy, m.cz, m.buffers);
+    if (performance.now() - t0 >= budgetMs) break;
+  }
+}
 void loadBlockAtlas([...BLOCK_TEXTURES, ...OVERLAY_TEXTURES, ...EXTRA_TEXTURES], SYNTHETIC).then((a) => {
   atlas = a;
   material.map = a.texture;
   material.needsUpdate = true;
   dropMaterial = new THREE.MeshBasicMaterial({ map: a.texture, alphaTest: 0.5 }); // drop-cube icons
-  for (const key of world.keys()) dirty.add(key); // mesh everything already streamed
+  // Hand the worker the atlas rects (it needs them to mesh); it re-meshes every known
+  // chunk once they arrive. No worker → mesh everything already streamed on the main thread.
+  if (meshWorker) meshWorker.postMessage({ t: 'rects', rects: a.rects });
+  else for (const key of world.keys()) dirty.add(key);
   // Synthetic-tile blocks (ores / water / lava / portal) have no standalone PNG, so their
   // inventory icon was empty — crop it out of the composited atlas canvas instead.
   const cv = a.texture.image as HTMLCanvasElement;
@@ -930,12 +987,14 @@ function onNote(m: { text: string }): void {
 }
 function onChunk(c: { cx: number; cy: number; cz: number; cells: Uint8Array }): void {
   world.setChunk(c.cx, c.cy, c.cz, c.cells);
+  meshWorker?.postMessage({ t: 'chunk', cx: c.cx, cy: c.cy, cz: c.cz, cells: c.cells }); // clone (no transfer — main keeps its copy for physics/raycast)
   invalidateLight(c.cx, c.cy, c.cz); // fresh terrain → recompute column heights + sources
-  markDirty(c.cx, c.cy, c.cz);
+  markDirty(c.cx, c.cy, c.cz); // no-op when the worker is active
   markExploredChunk(c.cx, c.cz); // remember this area for the map
 }
 function onUnload(cx: number, cy: number, cz: number): void {
   world.dropChunk(cx, cy, cz);
+  meshWorker?.postMessage({ t: 'unload', cx, cy, cz });
   const key = chunkKey(cx, cy, cz);
   const mesh = chunkMeshes.get(key);
   if (mesh) {
@@ -950,6 +1009,7 @@ let lastHiss = -1e9;
 function onServerEdit(e: { x: number; y: number; z: number; id: number }): void {
   const prev = world.get(e.x, e.y, e.z);
   world.set(e.x, e.y, e.z, e.id);
+  meshWorker?.postMessage({ t: 'edit', x: e.x, y: e.y, z: e.z, id: e.id });
   invalidateLight(toChunk(e.x), toChunk(e.y), toChunk(e.z)); // block changed → recompute local light
   markDirty(toChunk(e.x), toChunk(e.y), toChunk(e.z));
   markExploredColumn(e.x, e.z); // keep the map in sync with edits
@@ -2014,6 +2074,7 @@ function placeBlock(): void {
     net.sendEdit(bx, by, bz, block); // authoritative — applied when the server echoes
   } else {
     world.set(bx, by, bz, block);
+    meshWorker?.postMessage({ t: 'edit', x: bx, y: by, z: bz, id: block });
     markDirty(toChunk(bx), toChunk(by), toChunk(bz));
   }
   // Placing a portal cube → ask for its destination and register it (you stand on it to jump).
@@ -2086,6 +2147,7 @@ function updateBreaking(dt: number, want: boolean): void {
       net.sendEdit(tgt.x, tgt.y, tgt.z, 0, toolId); // authoritative break — server confirms
     } else {
       world.set(tgt.x, tgt.y, tgt.z, 0);
+      meshWorker?.postMessage({ t: 'edit', x: tgt.x, y: tgt.y, z: tgt.z, id: 0 });
       markDirty(toChunk(tgt.x), toChunk(tgt.y), toChunk(tgt.z));
     }
     breaking = null;
@@ -3153,7 +3215,14 @@ function makePortal(): void {
 const worldLabel = document.getElementById('world-current');
 function goOffline(): void {
   world.generateLocalFallback();
-  for (const key of world.keys()) dirty.add(key);
+  // No server stream offline → hand the locally-generated chunks to the worker directly.
+  if (meshWorker) {
+    for (const key of world.keys()) {
+      const [cx, cy, cz] = key.split(',').map(Number);
+      const cells = world.rawChunk(cx, cy, cz);
+      if (cells) meshWorker.postMessage({ t: 'chunk', cx, cy, cz, cells });
+    }
+  } else for (const key of world.keys()) dirty.add(key);
   spawn = { x: 0.5, y: world.columnTop(0, 0) + 1, z: 0.5 };
   ready = false;
 }
@@ -3216,6 +3285,8 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   dirty.clear();
   clearLightCache(); // new world → drop cached column heights + light sources
   world.clear();
+  meshWorker?.postMessage({ t: 'clear' }); // reset the worker's world mirror too
+  pendingMesh.length = 0; // drop stale mesh results from the old world
   ready = false;
   breaking = null;
   breakOverlay.visible = false;
@@ -3406,7 +3477,8 @@ function frameBody(now: number): void {
     fpsAcc = 0;
     nameFps.textContent = `· ${Math.round(fpsAvg)} fps`;
   }
-  flushDirty(); // (re)mesh dirty chunks within a per-frame time budget (streaming smoothness)
+  applyPendingMeshes(); // upload chunk meshes the worker finished (within a frame budget)
+  if (!meshWorker) flushDirty(); // fallback: mesh on the main thread when no worker
   // Hold physics until the spawn column has streamed in, then drop the player on it.
   if (!ready && world.hasChunk(toChunk(spawn.x), toChunk(spawn.y - 1), toChunk(spawn.z))) {
     player.pos.set(spawn.x, spawn.y, spawn.z);
