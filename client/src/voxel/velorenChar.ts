@@ -668,23 +668,35 @@ export class VelorenCharacter {
     this.firstPerson = on;
   }
 
-  /** Overlay a proper overhead chop when placing (one-shot) or mining (held): the
-   *  arm winds up overhead then strikes down, the shoulder follows, and the torso
-   *  leans into the hit at the bottom. The held weapon follows (child of hand_r). */
+  /** Place/dig attack — a real port of Veloren's hammer `solid_smash` (basic.rs):
+   *  wind the weapon up over the head (move1), then strike down (move2), with the
+   *  torso twisting back then forward. Veloren's per-ability blocks are driven by
+   *  a stage timer (Buildup→Action→Recover → move1/move2/move3); here that timer is
+   *  our dig phase — one-shot for a place/single dig, looping while mining. Layered
+   *  on top of the wield hold, so it drives `control` (the whole weapon assembly). */
   private applyDigSwing(dt: number): void {
     if (this.digT > 0) this.digT -= dt;
     if (!this.mining && this.digT <= 0) return;
-    // p: 0 = wound up (arm overhead) → π = struck (arm down/forward).
-    const p = this.mining ? this.animTime * 7 : (1 - this.digT / 0.35) * Math.PI;
-    const raised = 0.5 - 0.5 * Math.cos(p); // 0 at wind-up, 1 at strike
-    const armX = -2.4 * (1 - raised) + 0.5 * raised; // overhead(-2.4) → down/forward(+0.5)
-    // Arc the whole arm+weapon assembly from the body pivot via `control` (parent of
-    // both hands + the weapon on main) — a wide swing, not just a wrist flick.
-    this.bones.control.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
-    this.bones.shoulder_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX * 0.3));
-    // Torso/chest + head lean into the strike (peaks at the bottom of the swing).
-    this.bones.chest.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.28));
-    this.bones.head.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, raised * 0.12));
+    // Stage progress 0→1 (loop while mining, single pass for a place/dig).
+    const base = this.mining ? (this.animTime % 0.75) / 0.75 : 1 - this.digT / 0.35;
+    const c01 = (v: number): number => Math.max(0, Math.min(1, v));
+    const m1base = c01(base / 0.4); // Buildup (wind up)
+    const m2base = c01((base - 0.4) / 0.35); // Action (strike)
+    const m3base = c01((base - 0.75) / 0.25); // Recover
+    const pullback = 1 - m3base;
+    const m1 = m1base * pullback;
+    const m2 = m2base * pullback;
+    const ctrl = this.bones.control;
+    // control.rotate_x(m1*2.7); rotate_z(m1*1.4); pos += (-12,0,0)*m1; rotate_x(m1*-1.2)
+    ctrl.quaternion.multiply(this.rotX(m1 * 2.7)).multiply(this.rotZ(m1 * 1.4)).multiply(this.rotX(m1 * -1.2));
+    ctrl.position.x += -12 * m1;
+    // strike: rotate_x(m2*-1.9); rotate_z(m2*0.6)
+    ctrl.quaternion.multiply(this.rotX(m2 * -1.9)).multiply(this.rotZ(m2 * 0.6));
+    // twist_back(m1, 0.8,0.3,0.1,0.5) then twist_forward(m2, 1.4,0.5,0.3,1.0) — net rotate_z:
+    this.bones.chest.quaternion.multiply(this.rotZ(m1 * 0.8 + m2 * -1.4));
+    this.bones.head.quaternion.multiply(this.rotZ(m1 * -0.3 + m2 * 0.5));
+    this.bones.belt.quaternion.multiply(this.rotZ(m1 * -0.1 + m2 * 0.3));
+    this.bones.shorts.quaternion.multiply(this.rotZ(m1 * -0.5 + m2 * 1.0));
   }
 
   /** One-shot swing (block place / a single dig). */
