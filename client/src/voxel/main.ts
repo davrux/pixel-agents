@@ -1081,19 +1081,21 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
 })();
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
-// One biped per Veloren species/gender, driven by ported Veloren idle/run
-// animations. They line up near spawn and jog back and forth so both poses (and
-// every species) are visible; see velorenChar.ts.
-const velorenDemos = SPECIES_IDS.map((id, i) => {
-  const char = new VelorenCharacter(id, i); // seed = index → each a different outfit
-  scene.add(char.group);
-  return char;
-});
+// Off in normal play (pure overhead: 12 humanoids + a wolf animating near spawn);
+// open with ?demo=1 to show the species row + trotting wolf.
+const SHOW_DEMO = new URLSearchParams(window.location.search).has('demo');
+const velorenDemos = SHOW_DEMO
+  ? SPECIES_IDS.map((id, i) => {
+      const char = new VelorenCharacter(id, i); // seed = index → each a different outfit
+      scene.add(char.group);
+      return char;
+    })
+  : [];
 let velorenBase: { x: number; y: number; z: number } | null = null;
 let velorenPhase = 0; // patrol time (seconds)
 // #6 NPC/monster foundation: one quadruped (wolf) trotting in front of the row.
-const wolfDemo = new QuadrupedCharacter('wolf');
-scene.add(wolfDemo.group);
+const wolfDemo = SHOW_DEMO ? new QuadrupedCharacter('wolf') : null;
+if (wolfDemo) scene.add(wolfDemo.group);
 
 // ── Networking: server chunks + authoritative edits + remote players ──────────
 interface RemotePlayer {
@@ -1545,7 +1547,7 @@ function demoGroundY(x: number, z: number, startY: number): number {
  *  (run pose) and pausing at the ends (idle pose). Speed is derived from each
  *  one's own movement, like remote avatars. Purely client-side (no server). */
 function updateVelorenDemos(dt: number): void {
-  if (!ready) return;
+  if (!SHOW_DEMO || !ready) return;
   const n = velorenDemos.length;
   const rowZ = (i: number): number => velorenBase!.z + (i - (n - 1) / 2) * 1.8; // perpendicular to travel
   if (!velorenBase) {
@@ -1575,6 +1577,7 @@ function updateVelorenDemos(dt: number): void {
     char.animate(dt, speed);
   }
   // Wolf: trots along X in front of the row (a bit faster, longer line).
+  if (!wolfDemo) return;
   const wseg = (velorenPhase * 1.3) % 8;
   let wx = velorenBase.x - 6;
   if (wseg < 3) wx = velorenBase.x - 6 + (wseg / 3) * 12; // trot -6 → +6
