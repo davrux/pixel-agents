@@ -1,5 +1,5 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
-import { AccessToken } from 'livekit-server-sdk';
+import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
 import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -26,10 +26,11 @@ import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
-import { userStore, UserStore, isValidPassword, normalizeLoginId, MIN_PASSWORD_LEN } from '../userStore.js';
+import { userStore, UserStore, isValidPassword, normalizeLoginId } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
 import { controlBus, KICK_EVENT } from '../controlBus.js';
+import { runAccountCommand } from './accountCommands.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -414,24 +415,12 @@ export class SimRoom extends Room<RoomState> {
 
   /** Namespaced + sanitised LiveKit room name (prevents cross-deployment clashes). */
   private voiceRoom(suffix: string): string {
-    return `${this.voiceNs}-${suffix}`.replace(/[^A-Za-z0-9_-]/g, '-');
+    return voiceRoomName(this.voiceNs, suffix);
   }
 
-  /** Mint a LiveKit access token for player `id` in `room` (identity p<id>, so
-   *  the client can map a participant back to its avatar for proximity audio).
-   *  Returns null if LiveKit isn't configured. */
+  /** Mint a LiveKit access token for player `id` in `room` (see the shared helper). */
   private async mintVoiceToken(id: number, room: string): Promise<string | null> {
-    const apiKey = process.env.LIVEKIT_API_KEY;
-    const apiSecret = process.env.LIVEKIT_API_SECRET;
-    if (!apiKey || !apiSecret) return null;
-    const name = this.os.getCharacter(id)?.folderName || `Guest-${id}`;
-    // Short TTL: the client requests a fresh token per join, so a scoped token
-    // that leaks is only usable briefly (defense in depth).
-    const at = new AccessToken(apiKey, apiSecret, { identity: `p${id}`, name, ttl: '1h' });
-    // canUpdateOwnMetadata lets a participant publish its own attributes (we use
-    // a `deaf` attribute so others can see when someone has their sound off).
-    at.addGrant({ roomJoin: true, room, canPublish: true, canSubscribe: true, canUpdateOwnMetadata: true });
-    return at.toJwt();
+    return mintVoiceToken(`p${id}`, this.os.getCharacter(id)?.folderName || `Guest-${id}`, room);
   }
 
   /** Remove a player from one conference (by key) + broadcast the new roster. */
@@ -952,98 +941,21 @@ export class SimRoom extends Room<RoomState> {
     const args = argStr.trim() ? argStr.trim().split(/\s+/) : [];
     const me = authOf(client);
 
-    switch (spec.name) {
-      case 'afk': {
-        const id = this.players.get(client.sessionId);
-        if (id === undefined) return;
-        const now = this.os.setPlayerAfk(id);
-        sys(now ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
-        return;
-      }
-      case 'users': {
-        const mode = args[0]?.toLowerCase();
-        // Admin marker (★), shown for accounts; blank for anonymous/dev users.
-        const star = (userId: string): string => (userStore.get(userId)?.isAdmin ? ' ★' : '');
-        if (mode === 'all') {
-          // Every registered account, with its current zone or "offline".
-          const users = userStore.list();
-          sys(
-            users.length
-              ? `All users (${users.length}):\n` +
-                  users
-                    .map((u) => {
-                      const zone = presence.zoneOf(u.userId) ?? 'offline';
-                      return `• ${UserStore.displayName(u)} (${u.userId})${star(u.userId)} — ${zone}`;
-                    })
-                    .join('\n')
-              : 'No users registered.',
-          );
-        } else if (mode === 'online') {
-          // Everyone online across all zones.
-          const all = presence
-            .list()
-            .sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
-          sys(
-            all.length
-              ? `Online users (${all.length}):\n` +
-                  all.map((u) => `• ${u.name} (${u.userId})${star(u.userId)} — ${u.zone}`).join('\n')
-              : 'No users online.',
-          );
-        } else {
-          // Users in this zone.
-          const here = presence.list().filter((u) => u.zone === this.zone.id);
-          sys(
-            here.length
-              ? `Users in ${this.zone.label} (${here.length}):\n` +
-                  here.map((u) => `• ${u.name} (${u.userId})${star(u.userId)}`).join('\n')
-              : 'No users in this zone.',
-          );
-        }
-        return;
-      }
-      case 'add': {
-        const [loginId, password] = args;
-        if (!loginId || !password) return sys(`Usage: ${spec.usage}`);
-        if (!isValidPassword(password)) return sys(`Password must be at least ${MIN_PASSWORD_LEN} characters.`);
-        if (userStore.exists(loginId)) return sys(`User "${normalizeLoginId(loginId)}" already exists.`);
-        const u = userStore.createUser(loginId, password);
-        sys(`Created user "${u.userId}".`);
-        return;
-      }
-      case 'delete': {
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        if (loginId === me.userId) return sys(`You can't delete yourself.`);
-        if (!userStore.deleteUser(loginId)) return sys(`No such user: "${loginId}".`);
-        // Clean up the user's owned data + zone-admin grants.
-        appStore.deletePlayerAvatar(loginId);
-        appStore.clearCharPref(loginId);
-        appStore.clearPlayerPref(loginId);
-        this.zones.removeUserFromAllZones(loginId);
-        sys(`Deleted user "${loginId}" and its data.`);
-        return;
-      }
-      case 'set-admin':
-      case 'remove-admin': {
-        const on = spec.name === 'set-admin';
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        if (!on && loginId === me.userId) return sys(`You can't remove your own admin rights.`);
-        if (!userStore.exists(loginId)) return sys(`No such user: "${loginId}".`);
-        userStore.setAdmin(loginId, on);
-        sys(`${loginId} is ${on ? 'now a global admin' : 'no longer an admin'} (takes effect on their next login).`);
-        return;
-      }
-      case 'kick': {
-        const loginId = normalizeLoginId(args[0]);
-        if (!loginId) return sys(`Usage: ${spec.usage}`);
-        if (loginId === me.userId) return sys(`You can't kick yourself.`);
-        if (!presence.zoneOf(loginId)) return sys(`"${loginId}" is not online.`);
-        controlBus.emit(KICK_EVENT, loginId); // reaches the user in whatever zone
-        sys(`Kicked "${loginId}".`);
-        return;
-      }
+    if (spec.name === 'afk') {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const now = this.os.setPlayerAfk(id);
+      return void sys(now ? 'You are now afk — move or run /afk to clear it.' : 'afk cleared.');
     }
+    // Everything else is a global account/admin command — one shared backend, so
+    // the chat behaves identically here and in the voxel world (see accountCommands.ts).
+    runAccountCommand(spec, args, {
+      me: { userId: me.userId, isAdmin: me.isAdmin },
+      sys,
+      hereLabel: this.zone.label,
+      hereId: this.zone.id,
+      afterDeleteUser: (loginId) => this.zones.removeUserFromAllZones(loginId),
+    });
   }
 
   // ── Player-owned avatars ─────────────────────────────────────────

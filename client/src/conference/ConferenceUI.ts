@@ -34,6 +34,11 @@ const CSS = `
     border-radius:0.6rem;color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
     box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
   #pa-conf:fullscreen{width:100%;height:100%;left:0;top:0;transform:none;border:0;border-radius:0;max-width:none;}
+  /* Bottom-right drag grip — resize the window like the chat panel (hidden in fullscreen). */
+  #pa-conf .pa-conf-resize{position:absolute;right:0;bottom:0;width:1.2rem;height:1.2rem;cursor:se-resize;z-index:6;
+    background:linear-gradient(135deg,transparent 45%,#5a6076 45%,#5a6076 55%,transparent 55%,transparent 70%,#5a6076 70%,#5a6076 80%,transparent 80%);}
+  #pa-conf .pa-conf-resize:hover{filter:brightness(1.6);}
+  #pa-conf:fullscreen .pa-conf-resize{display:none;}
   #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#0f1220;
     border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
   #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#eef1fb;font-weight:600;letter-spacing:.3px;}
@@ -49,6 +54,8 @@ const CSS = `
     border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;
     box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #pa-conf .pa-conf-tile.speaking{border-color:#2f66b0;box-shadow:0 0 0 2px #5a92d6 inset;}
+  /* Camera off → a plain black screen (the placeholder avatar sits on top). */
+  #pa-conf .pa-conf-tile.camoff{background:#000;box-shadow:none;}
   /* Screen-share spotlight (hidden until a screen is shared). */
   #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#0a0d16;
     align-items:center;justify-content:center;}
@@ -181,7 +188,8 @@ export class ConferenceUI {
         <button data-full title="Fullscreen">⛶</button>
         <button data-leave class="leave">Leave</button>
         <div class="pa-conf-dev"></div>
-      </div>`;
+      </div>
+      <div class="pa-conf-resize" title="Drag to resize"></div>`;
     (document.getElementById('game') ?? document.body).appendChild(root);
     this.root = root;
     this.stageEl = root.querySelector('#pa-conf-stage')!;
@@ -195,6 +203,55 @@ export class ConferenceUI {
     this.bar = root.querySelector('.pa-conf-bar')!;
     this.devPop = root.querySelector('.pa-conf-dev')!;
     this.wire();
+    this.wireResize(root.querySelector('.pa-conf-resize')!);
+  }
+
+  /** Drag the bottom-right grip to resize the window. The window is centred via a
+   *  translate(-50%,-50%), so the grabbed corner moves at half the width delta — grow
+   *  the box by 2× the pointer delta so the corner tracks the cursor. Persisted. */
+  private wireResize(grip: HTMLElement): void {
+    const root = this.root;
+    const apply = (w: number, h: number): void => {
+      root.style.width = `${Math.round(w)}px`;
+      root.style.height = `${Math.round(h)}px`;
+      root.style.maxWidth = 'none';
+    };
+    try {
+      const w = Number(localStorage.getItem('pa-conf-w'));
+      const h = Number(localStorage.getItem('pa-conf-h'));
+      if (w && h) apply(w, h);
+    } catch {
+      /* ignore */
+    }
+    let sx = 0,
+      sy = 0,
+      sw = 0,
+      sh = 0;
+    const onMove = (e: PointerEvent): void => {
+      const w = Math.max(28 * 16, Math.min(window.innerWidth * 0.98, sw + (e.clientX - sx) * 2));
+      const h = Math.max(20 * 16, Math.min(window.innerHeight * 0.98, sh + (e.clientY - sy) * 2));
+      apply(w, h);
+    };
+    const end = (): void => {
+      grip.removeEventListener('pointermove', onMove);
+      try {
+        localStorage.setItem('pa-conf-w', String(parseInt(root.style.width, 10)));
+        localStorage.setItem('pa-conf-h', String(parseInt(root.style.height, 10)));
+      } catch {
+        /* ignore */
+      }
+    };
+    grip.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      sx = e.clientX;
+      sy = e.clientY;
+      const r = root.getBoundingClientRect();
+      sw = r.width;
+      sh = r.height;
+      grip.setPointerCapture(e.pointerId);
+      grip.addEventListener('pointermove', onMove);
+      grip.addEventListener('pointerup', end, { once: true });
+    });
   }
 
   /** The stage element LiveKitConference renders participant tiles into. */

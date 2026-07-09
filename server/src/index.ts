@@ -34,11 +34,12 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 
-import { WORLD_ROOM } from '@pixel/shared';
+import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
-import { registerAuth } from './auth.js';
+import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
+import { listWorlds } from './voxel/chunkStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -48,6 +49,7 @@ try {
   /* no .env present */
 }
 import { SimRoom } from './rooms/SimRoom.js';
+import { VoxelRoom } from './rooms/VoxelRoom.js';
 import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';
 
@@ -115,6 +117,16 @@ async function main(): Promise<void> {
   // routes so preflight and actual responses carry the contract.
   app.use(desktopCors());
   app.get('/health', (_req, res) => res.json({ ok: true }));
+  // Existing voxel world ids — the client validates a persisted "last world" against this
+  // before connecting, so an auto-reconnect never resurrects a world that was deleted.
+  // When login is enforced, require a valid session (same gate as the rest of the app) so
+  // world ids aren't enumerable by anonymous callers.
+  app.get('/voxel/worlds', (req, res) => {
+    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+      return void res.status(401).json({ error: 'unauthorized' });
+    }
+    res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] });
+  });
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
@@ -148,11 +160,18 @@ async function main(): Promise<void> {
   const version = serverVersion();
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: !!ADMIN_TOKEN, version }).filterBy(['zone']);
+  // No visitors anywhere: every room + the feed require a logged-in account (a valid
+  // session cookie / bearer). Login is served by registerAuth, which needs an admin
+  // token to be configured — without one nobody can join (there is no anonymous mode).
+  if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
+  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: true, version }).filterBy(['zone']);
+  // Voxel MMO world: one authoritative instance per world id (multiworld),
+  // matchmade by `world`. Persistent chunks + server-authoritative edits.
+  gameServer.define(VOXEL_ROOM, VoxelRoom, { authRequired: true, version }).filterBy(['world']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
-  attachFeedServer(httpServer, { authRequired: !!ADMIN_TOKEN });
+  attachFeedServer(httpServer, { authRequired: true });
 
   httpServer.listen(PORT, HOST, () => {
     const scheme = useTls ? 'https' : 'http';
