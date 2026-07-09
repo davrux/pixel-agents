@@ -71,7 +71,7 @@ interface VoxRef {
   o: Vec3;
   color?: Vec3 | null;
 }
-interface Sp {
+export interface Sp {
   id: string;
   sp: string;
   gender: string;
@@ -84,11 +84,57 @@ interface Pair {
   left: VoxRef;
   right: VoxRef;
 }
-interface Catalog {
+export interface Catalog {
   species: Sp[];
   hairColors: Record<string, Vec3[]>;
   armor: { chest: VoxRef[]; pants: VoxRef[]; belt: VoxRef[]; foot: VoxRef[]; back: VoxRef[]; hand: Pair[]; shoulder: Pair[] };
   weapons: VoxRef[];
+}
+
+// An explicit outfit: one index per slot (into the catalog arrays); -1 = none.
+export interface Outfit {
+  hair: number;
+  beard: number;
+  eyes: number;
+  hairColor: number;
+  chest: number;
+  pants: number;
+  belt: number;
+  foot: number;
+  back: number;
+  hand: number;
+  shoulder: number;
+  weapon: number;
+}
+const OUTFIT_FIELDS: (keyof Outfit)[] = ['hair', 'beard', 'eyes', 'hairColor', 'chest', 'pants', 'belt', 'foot', 'back', 'hand', 'shoulder', 'weapon'];
+
+/** The default outfit: the bare/first option per slot, no beard, no weapon. Used
+ *  as the deterministic fallback for a `veloren:<species>` skin that carries no
+ *  outfit code (so a player's look is stable, not random per session). */
+export function defaultOutfit(): Outfit {
+  return { hair: 0, beard: -1, eyes: 0, hairColor: 0, chest: 0, pants: 0, belt: 0, foot: 0, back: 0, hand: 0, shoulder: 0, weapon: -1 };
+}
+
+/** Encode a full character into a synced skin id: `veloren:<species>:<i-i-i-…>`.
+ *  Indices are stored +1 (so "none" = -1 → 0) — otherwise a negative index would
+ *  emit a "--" that split('-') turns into an empty field, shifting every field after it. */
+export function encodeVelorenSkin(species: string, o: Outfit): string {
+  return `veloren:${species}:` + OUTFIT_FIELDS.map((f) => o[f] + 1).join('-');
+}
+/** Parse a veloren skin id. `outfit` is null for the legacy `veloren:<species>`
+ *  form (no outfit code) — caller falls back to a seeded random outfit. */
+export function parseVelorenSkin(skin: string): { species: string; outfit: Outfit | null } | null {
+  if (!skin.startsWith('veloren:')) return null;
+  const rest = skin.slice('veloren:'.length);
+  const ci = rest.indexOf(':');
+  if (ci < 0) return { species: rest, outfit: null };
+  const nums = rest
+    .slice(ci + 1)
+    .split('-')
+    .map((n) => parseInt(n, 10));
+  const o = {} as Outfit;
+  OUTFIT_FIELDS.forEach((f, i) => (o[f] = (Number.isFinite(nums[i]) ? nums[i] : 0) - 1)); // stored +1
+  return { species: rest.slice(0, ci), outfit: o };
 }
 
 export const SPECIES_IDS: string[] = [
@@ -107,12 +153,36 @@ export const SPECIES_IDS: string[] = [
 ];
 
 let catalogPromise: Promise<Catalog> | null = null;
-function loadCatalog(): Promise<Catalog> {
+/** The parsed catalog (species + armor + weapons), loaded once. Exported so the
+ *  character editor can introspect slot counts. */
+export function velorenCatalog(): Promise<Catalog> {
   if (!catalogPromise) {
     const url = new URL('models/veloren/catalog.json', document.baseURI).href;
     catalogPromise = fetch(url).then((r) => r.json() as Promise<Catalog>);
   }
   return catalogPromise;
+}
+const loadCatalog = velorenCatalog;
+
+/** A deterministic random outfit for a species (used for the demo + remote players
+ *  that only carry `veloren:<species>` with no explicit outfit code). */
+function randomOutfit(sp: Sp, cat: Catalog, seed: number): Outfit {
+  const rnd = mulberry32(seed + 1);
+  const ri = (arr: unknown[]): number => (arr.length ? Math.floor(rnd() * arr.length) : -1);
+  return {
+    hair: ri(sp.hairs),
+    beard: sp.gender === 'male' ? ri(sp.beards) : -1,
+    eyes: ri(sp.eyes),
+    hairColor: ri(cat.hairColors[sp.sp] ?? []),
+    chest: ri(cat.armor.chest),
+    pants: ri(cat.armor.pants),
+    belt: ri(cat.armor.belt),
+    foot: ri(cat.armor.foot),
+    back: ri(cat.armor.back),
+    hand: ri(cat.armor.hand),
+    shoulder: ri(cat.armor.shoulder),
+    weapon: rnd() < 0.6 ? ri(cat.weapons) : -1,
+  };
 }
 
 const rgb = (c: Vec3): number => (c[0] << 16) | (c[1] << 8) | c[2];
@@ -139,7 +209,7 @@ export class VelorenCharacter {
   private readonly bones = {} as Record<BoneName, THREE.Group>;
   private readonly tinted: THREE.MeshBasicMaterial[] = [];
   private readonly speciesId: string;
-  private readonly seed: number;
+  private readonly outfit: Outfit | number; // explicit outfit, or a seed for a random one
 
   private animTime = 0;
   private stride = 0;
@@ -150,9 +220,10 @@ export class VelorenCharacter {
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
 
-  constructor(speciesId = 'human_male', seed = 0) {
+  /** @param outfit an explicit Outfit, or a number seed for a deterministic random one. */
+  constructor(speciesId = 'human_male', outfit: Outfit | number = 0) {
     this.speciesId = speciesId;
-    this.seed = seed;
+    this.outfit = outfit;
     for (const n of BONES) {
       this.idlePose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
       this.runPose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
@@ -208,8 +279,8 @@ export class VelorenCharacter {
     try {
       const cat = await loadCatalog();
       const sp = cat.species.find((s) => s.id === this.speciesId) ?? cat.species[0];
-      const rnd = mulberry32(this.seed + 1);
-      const pick = <T>(arr: T[]): T | null => (arr && arr.length ? arr[Math.floor(rnd() * arr.length)] : null);
+      const of = typeof this.outfit === 'number' ? randomOutfit(sp, cat, this.outfit) : this.outfit;
+      const at = <T>(arr: T[], i: number): T | null => (arr && i >= 0 && i < arr.length ? arr[i] : null);
 
       const headVox = await loadVox(base + sp.head.vox);
       const skin = dominantColor(headVox);
@@ -217,12 +288,12 @@ export class VelorenCharacter {
       this.attach('head', headMesh, headMesh.material as THREE.MeshBasicMaterial);
 
       const hcArr = cat.hairColors[sp.sp] ?? [[74, 53, 36]];
-      const hairCol = rgb(hcArr[Math.floor(rnd() * hcArr.length)]);
-      const hair = pick(sp.hairs);
+      const hairCol = rgb(hcArr[Math.max(0, Math.min(hcArr.length - 1, of.hairColor))] ?? [74, 53, 36]);
+      const hair = at(sp.hairs, of.hair);
       if (hair) await this.place(base, hair, 'head', hair.vox.includes('bald') ? skin : hairCol);
-      const beard = sp.gender === 'male' ? pick(sp.beards) : null;
+      const beard = at(sp.beards, of.beard);
       if (beard) await this.place(base, beard, 'head', hairCol);
-      const eyes = pick(sp.eyes);
+      const eyes = at(sp.eyes, of.eyes);
       if (eyes) await this.place(base, eyes, 'head');
 
       const a = cat.armor;
@@ -230,29 +301,27 @@ export class VelorenCharacter {
       const one = (ref: VoxRef | null, bone: BoneName): void => {
         if (ref) jobs.push(this.place(base, ref, bone, this.armorColor(ref, skin)));
       };
-      one(pick(a.chest), 'chest');
-      one(pick(a.pants), 'shorts');
-      one(pick(a.belt), 'belt');
-      one(pick(a.back), 'back');
-      const foot = pick(a.foot);
+      one(at(a.chest, of.chest), 'chest');
+      one(at(a.pants, of.pants), 'shorts');
+      one(at(a.belt, of.belt), 'belt');
+      one(at(a.back, of.back), 'back');
+      const foot = at(a.foot, of.foot);
       one(foot, 'foot_l');
       one(foot, 'foot_r');
-      const hand = pick(a.hand);
+      const hand = at(a.hand, of.hand);
       if (hand) {
         one(hand.left, 'hand_l');
         one(hand.right, 'hand_r');
       }
-      const sh = pick(a.shoulder);
+      const sh = at(a.shoulder, of.shoulder);
       if (sh) {
         one(sh.left, 'shoulder_l');
         one(sh.right, 'shoulder_r');
       }
-      // Held weapon in the right hand (~60% of characters). NOTE: grip transform is
-      // approximate (weapon offsets are in Veloren's `main` bone frame) — may need tuning.
-      if (rnd() < 0.6 && cat.weapons.length) {
-        const w = pick(cat.weapons);
-        if (w) jobs.push(this.placeWeapon(base, w));
-      }
+      // Held weapon in the right hand. NOTE: grip transform is approximate (weapon
+      // offsets are in Veloren's `main` bone frame) — may need tuning.
+      const w = at(cat.weapons, of.weapon);
+      if (w) jobs.push(this.placeWeapon(base, w));
       await Promise.all(jobs);
     } catch (e) {
       console.warn('[veloren] load failed:', this.speciesId, e);
@@ -409,6 +478,17 @@ export class VelorenCharacter {
   /** No-op: kept so the character satisfies the same interface as Avatar (the
    *  player-render code calls setSwimming); a swim pose isn't ported yet. */
   setSwimming(_on: boolean): void {}
+
+  /** Animation phase (anim time / stride / run blend). Carry it across a rebuild
+   *  so swapping outfit parts in the editor keeps the pose continuous. */
+  get animState(): { animTime: number; stride: number; runAmt: number } {
+    return { animTime: this.animTime, stride: this.stride, runAmt: this.runAmt };
+  }
+  set animState(s: { animTime: number; stride: number; runAmt: number }) {
+    this.animTime = s.animTime;
+    this.stride = s.stride;
+    this.runAmt = s.runAmt;
+  }
 
   /** Day/night tint — multiplies every (unlit, vertex-coloured) segment. */
   setTint(c: THREE.Color): void {

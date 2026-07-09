@@ -31,7 +31,7 @@ import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_IT
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
-import { VelorenCharacter, SPECIES_IDS } from './velorenChar.js';
+import { VelorenCharacter, SPECIES_IDS, parseVelorenSkin, encodeVelorenSkin, velorenCatalog, defaultOutfit, type Outfit, type Catalog } from './velorenChar.js';
 import { QuadrupedCharacter } from './quadrupedChar.js';
 import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
@@ -796,7 +796,8 @@ function applyPlayerSkin(skin: string): void {
         scene.remove(selfVeloren.group);
         selfVeloren.dispose();
       }
-      selfVeloren = new VelorenCharacter(skin.slice(VELO_PREFIX.length), hashSeed(net?.sessionId || 'me'));
+      const v = parseVelorenSkin(skin)!;
+      selfVeloren = new VelorenCharacter(v.species, v.outfit ?? defaultOutfit());
       selfVelorenSkin = skin;
       scene.add(selfVeloren.group);
     }
@@ -811,29 +812,273 @@ function applyPlayerSkin(skin: string): void {
   }
 }
 
-// #4 Character picker: choose a Veloren species (or the default glTF character).
-// Sets the synced skin so other players see the choice too. Minimal HUD dropdown.
-const speciesSel = document.createElement('select');
-speciesSel.className = 'pa-select';
-speciesSel.title = 'Character';
-speciesSel.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;font-size:0.8rem;';
-speciesSel.innerHTML =
-  '<option value="character_1">Standard</option>' +
-  SPECIES_IDS.map((id) => `<option value="${VELO_PREFIX}${id}">${id.replace('_', ' ')}</option>`).join('');
-speciesSel.value = playerSkin.startsWith(VELO_PREFIX) ? playerSkin : 'character_1';
-speciesSel.onchange = () => {
-  const v = speciesSel.value;
-  applyPlayerSkin(v);
-  try {
-    localStorage.setItem('voxSkin', v);
-  } catch {
-    /* ignore */
+// #4 Character editor: assemble species + per-slot outfit (hair/beard/eyes/hair
+// colour + every armor slot + weapon), shown in a dedicated rotatable preview with
+// an animation picker. "Save" encodes the whole outfit into the synced skin id
+// (veloren:<species>:<code>) so other players see it, and applies it to your body.
+// NOTE: no applyPlayerSkin() at module init — `net` is still in its TDZ here.
+let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; called from frameBody
+(function buildCharEditor(): void {
+  const SLOTS: { key: keyof Outfit; label: string; none: boolean }[] = [
+    { key: 'hair', label: 'Hair', none: false },
+    { key: 'beard', label: 'Beard', none: true },
+    { key: 'eyes', label: 'Eyes', none: false },
+    { key: 'hairColor', label: 'Hair colour', none: false },
+    { key: 'chest', label: 'Chest', none: false },
+    { key: 'pants', label: 'Legs', none: false },
+    { key: 'belt', label: 'Belt', none: false },
+    { key: 'foot', label: 'Feet', none: false },
+    { key: 'back', label: 'Back', none: false },
+    { key: 'hand', label: 'Hands', none: false },
+    { key: 'shoulder', label: 'Shoulders', none: false },
+    { key: 'weapon', label: 'Weapon', none: true },
+  ];
+  let cat: Catalog | null = null;
+  let edSpeciesIdx = 0;
+  let edOutfit: Outfit = defaultOutfit();
+  // Load the editor state from the currently-applied (saved) skin. Called on open
+  // too, so closing without Save discards edits (values only take effect on Save).
+  const resetFromSaved = (): void => {
+    edSpeciesIdx = 0;
+    edOutfit = defaultOutfit();
+    const p = parseVelorenSkin(playerSkin);
+    if (p) {
+      const i = SPECIES_IDS.indexOf(p.species);
+      if (i >= 0) edSpeciesIdx = i;
+      if (p.outfit) edOutfit = p.outfit;
+    }
+  };
+  resetFromSaved();
+  const species = (): string => SPECIES_IDS[edSpeciesIdx];
+  const edSp = () => cat!.species.find((s) => s.id === species()) ?? cat!.species[0];
+  const count = (key: keyof Outfit): number => {
+    const sp = edSp();
+    if (key === 'hair') return sp.hairs.length;
+    if (key === 'beard') return sp.beards.length;
+    if (key === 'eyes') return sp.eyes.length;
+    if (key === 'hairColor') return (cat!.hairColors[sp.sp] ?? []).length;
+    if (key === 'weapon') return cat!.weapons.length;
+    return (cat!.armor as Record<string, unknown[]>)[key].length; // armor slots
+  };
+
+  // DOM: a toggle button + a panel of stepper rows.
+  // Sits in the top-left toolbar to the RIGHT of the audio button (#vx-audio-btn is
+  // at left:10px, 30px wide); matches its icon-button look. Panel opens below.
+  const btn = document.createElement('button');
+  btn.textContent = '🧍';
+  btn.title = 'Character';
+  btn.style.cssText =
+    'position:fixed;left:48px;top:8px;width:30px;height:30px;z-index:120;cursor:pointer;display:flex;align-items:center;justify-content:center;' +
+    'font-size:1rem;background:#141826;border:2px solid #05060b;border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;';
+  const panel = document.createElement('div');
+  panel.className = 'pa-panel'; // shared pixel-menu popover (background/border/colour)
+  // Centred on screen; preview (left) + controls (right) side by side.
+  panel.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:120;display:none;padding:12px;width:480px;max-width:94vw;font-size:0.8rem;';
+  const cols = document.createElement('div');
+  cols.style.cssText = 'display:flex;gap:12px;align-items:flex-start;';
+  const previewCol = document.createElement('div');
+  const ctrlCol = document.createElement('div');
+  ctrlCol.style.cssText = 'flex:1;min-width:220px;';
+  cols.append(ctrlCol, previewCol); // values on the left, character preview on the right
+  const hd = document.createElement('div');
+  hd.className = 'pa-head';
+  hd.innerHTML = '<h4>Character</h4>';
+  const closeX = document.createElement('button');
+  closeX.className = 'pa-x';
+  closeX.type = 'button';
+  closeX.textContent = '✕';
+  closeX.onclick = () => (panel.style.display = 'none');
+  hd.appendChild(closeX);
+  panel.appendChild(hd);
+  panel.appendChild(cols);
+  document.body.append(btn, panel);
+  btn.onclick = () => {
+    const open = panel.style.display === 'none';
+    panel.style.display = open ? 'block' : 'none';
+    if (open) {
+      resetFromSaved(); // start from the applied character; unsaved edits are dropped
+      void ensureCat();
+    }
+  };
+
+  // ── Dedicated preview: own tiny renderer/scene, drag to rotate, pick animation ──
+  const PV_W = 200,
+    PV_H = 230;
+  const pv = document.createElement('canvas');
+  pv.style.cssText = `width:${PV_W}px;height:${PV_H}px;display:block;margin:0 0 6px;background:#0a0d16;border:2px solid #05060b;border-radius:.4rem;cursor:grab;touch-action:none;`;
+  previewCol.appendChild(pv);
+  const animSel = document.createElement('select');
+  animSel.className = 'pa-select';
+  animSel.style.cssText = `width:${PV_W}px;font-size:0.8rem;`;
+  animSel.innerHTML = '<option value="0">Idle</option><option value="3.5">Walk / Run</option>';
+  previewCol.appendChild(animSel);
+  let previewSpeed = 0;
+  animSel.onchange = () => (previewSpeed = parseFloat(animSel.value));
+
+  let pvRenderer: THREE.WebGLRenderer | null = null;
+  let pvScene: THREE.Scene | null = null;
+  let pvCam: THREE.PerspectiveCamera | null = null;
+  let previewChar: VelorenCharacter | null = null;
+  let pvYaw = 0; // preview facing (0 = front, toward the camera); drag rotates it
+  const setupPreview = (): void => {
+    if (pvRenderer) return;
+    pvRenderer = new THREE.WebGLRenderer({ canvas: pv, antialias: false, alpha: true });
+    pvRenderer.setPixelRatio(1);
+    pvRenderer.setSize(PV_W, PV_H, false);
+    pvScene = new THREE.Scene();
+    pvCam = new THREE.PerspectiveCamera(35, PV_W / PV_H, 0.1, 100);
+    pvCam.position.set(0, 1.05, 3.2);
+    pvCam.lookAt(0, 0.95, 0);
+  };
+  const rebuildPreview = (): void => {
+    if (!cat) return;
+    setupPreview();
+    const anim = previewChar ? previewChar.animState : null; // keep the pose across rebuilds
+    if (previewChar) {
+      pvScene!.remove(previewChar.group);
+      previewChar.dispose();
+    }
+    previewChar = new VelorenCharacter(species(), { ...edOutfit });
+    previewChar.group.rotation.y = pvYaw; // face per pvYaw (front unless dragged)
+    if (anim) previewChar.animState = anim;
+    pvScene!.add(previewChar.group);
+  };
+  // Drag to rotate the previewed character.
+  let dragging = false;
+  let lastX = 0;
+  pv.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    lastX = e.clientX;
+    pv.setPointerCapture(e.pointerId);
+    pv.style.cursor = 'grabbing';
+  });
+  pv.addEventListener('pointermove', (e) => {
+    if (!dragging || !previewChar) return;
+    pvYaw -= (e.clientX - lastX) * 0.01; // drag right → turns right
+    previewChar.group.rotation.y = pvYaw;
+    lastX = e.clientX;
+  });
+  pv.addEventListener('pointerup', (e) => {
+    dragging = false;
+    pv.releasePointerCapture(e.pointerId);
+    pv.style.cursor = 'grab';
+  });
+  updateCharPreview = (dt: number): void => {
+    if (panel.style.display === 'none' || !previewChar || !pvRenderer) return;
+    previewChar.animate(dt, previewSpeed);
+    pvRenderer.render(pvScene!, pvCam!);
+  };
+
+  const valEls = new Map<string, HTMLSpanElement>();
+  let speciesVal: HTMLSpanElement;
+  const row = (label: string, onPrev: () => void, onNext: () => void): HTMLSpanElement => {
+    const r = document.createElement('div');
+    r.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;margin:3px 0;';
+    const l = document.createElement('span');
+    l.textContent = label;
+    const ctl = document.createElement('span');
+    ctl.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    const prev = document.createElement('button');
+    prev.className = 'pa-b';
+    prev.textContent = '‹';
+    prev.onclick = onPrev;
+    const val = document.createElement('span');
+    val.style.cssText = 'min-width:56px;text-align:center;';
+    const next = document.createElement('button');
+    next.className = 'pa-b';
+    next.textContent = '›';
+    next.onclick = onNext;
+    ctl.append(prev, val, next);
+    r.append(l, ctl);
+    ctrlCol.appendChild(r);
+    return val;
+  };
+
+  const step = (key: keyof Outfit, dir: number): void => {
+    const c = count(key);
+    const min = SLOTS.find((s) => s.key === key)!.none ? -1 : 0;
+    if (c === 0) {
+      edOutfit[key] = -1;
+    } else {
+      let v = edOutfit[key] + dir;
+      if (v > c - 1) v = min;
+      else if (v < min) v = c - 1;
+      edOutfit[key] = v;
+    }
+    preview();
+    refresh();
+  };
+  const clampSpeciesDeps = (): void => {
+    for (const k of ['hair', 'beard', 'eyes', 'hairColor'] as (keyof Outfit)[]) {
+      const c = count(k);
+      const min = SLOTS.find((s) => s.key === k)!.none ? -1 : 0;
+      if (c === 0) edOutfit[k] = -1;
+      else edOutfit[k] = Math.max(min, Math.min(c - 1, edOutfit[k]));
+    }
+  };
+  const stepSpecies = (dir: number): void => {
+    edSpeciesIdx = (edSpeciesIdx + dir + SPECIES_IDS.length) % SPECIES_IDS.length;
+    clampSpeciesDeps();
+    pvYaw = 0; // re-face the front when switching species
+    preview();
+    refresh();
+  };
+
+  speciesVal = row('Species', () => stepSpecies(-1), () => stepSpecies(1));
+  for (const s of SLOTS) valEls.set(s.key, row(s.label, () => step(s.key, -1), () => step(s.key, 1)));
+
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'pa-b primary';
+  saveBtn.textContent = 'Save';
+  const stdBtn = document.createElement('button');
+  stdBtn.className = 'pa-b';
+  stdBtn.textContent = 'Standard';
+  actions.append(saveBtn, stdBtn);
+  ctrlCol.appendChild(actions);
+
+  const skin = (): string => encodeVelorenSkin(species(), edOutfit);
+  const preview = (): void => rebuildPreview(); // live preview in the editor's own window (not the world body)
+  const persist = (s: string): void => {
+    try {
+      localStorage.setItem('voxSkin', s);
+    } catch {
+      /* ignore */
+    }
+    net?.room.send('setSkin', s); // live-sync to other players
+    pushSettings(); // persist server-side (currentSettingsBlob() includes skin=playerSkin) so a reload keeps it
+  };
+  saveBtn.onclick = () => {
+    applyPlayerSkin(skin());
+    persist(skin());
+    showToast('✔ Charakter gespeichert');
+    panel.style.display = 'none';
+  };
+  stdBtn.onclick = () => {
+    applyPlayerSkin('character_1');
+    persist('character_1');
+  };
+
+  function refresh(): void {
+    if (!cat) return;
+    speciesVal.textContent = species().replace('_', ' ');
+    for (const s of SLOTS) {
+      const c = count(s.key);
+      const v = edOutfit[s.key];
+      valEls.get(s.key)!.textContent = c === 0 ? '—' : v < 0 ? 'none' : `${v + 1}/${c}`;
+    }
   }
-  net?.room.send('setSkin', v);
-};
-document.body.appendChild(speciesSel);
-// NOTE: don't build the local Veloren char here — `net` isn't declared yet at module
-// init (TDZ). It's created on connect (connectWorld re-seeds from the session id).
+  async function ensureCat(): Promise<void> {
+    if (!cat) {
+      cat = await velorenCatalog();
+      clampSpeciesDeps();
+    }
+    refresh();
+    pvYaw = 0; // face the front each time the editor opens
+    rebuildPreview(); // show the current character in the preview window
+  }
+})();
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
 // One biped per Veloren species/gender, driven by ported Veloren idle/run
@@ -900,16 +1145,12 @@ interface RemoteState {
 // A player avatar is either the glTF character or a Veloren voxel character (when
 // the player's synced skin is a `veloren:<species>` id). Both share the render API.
 type PlayerAvatar = Avatar | VelorenCharacter;
-/** Stable per-string seed so a player's Veloren outfit is the same for everyone. */
-function hashSeed(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
-  return h >>> 0;
-}
 /** Build the right avatar for a skin id: Veloren voxel char for `veloren:<id>`,
- *  else the glTF character. `key` (session id) seeds the Veloren outfit. */
-function makePlayerAvatar(skin: string, key: string): PlayerAvatar {
-  if (skin.startsWith(VELO_PREFIX)) return new VelorenCharacter(skin.slice(VELO_PREFIX.length), hashSeed(key));
+ *  else the glTF character. A veloren skin with no outfit code falls back to the
+ *  deterministic default outfit (same for everyone, stable across sessions). */
+function makePlayerAvatar(skin: string): PlayerAvatar {
+  const v = parseVelorenSkin(skin);
+  if (v) return new VelorenCharacter(v.species, v.outfit ?? defaultOutfit());
   return new Avatar(skin || 'character_1');
 }
 const remote = new Map<string, { avatar: PlayerAvatar; skin: string; afk?: THREE.Sprite; nameTag?: THREE.Sprite; nameText?: string }>();
@@ -1195,7 +1436,7 @@ function syncRemotePlayers(dt: number): void {
       if (r.afk) r.avatar.group.remove(r.afk);
       scene.remove(r.avatar.group);
       r.avatar.dispose();
-      r.avatar = makePlayerAvatar(skin, sid);
+      r.avatar = makePlayerAvatar(skin);
       r.avatar.group.position.set(p.x, p.y, p.z);
       scene.add(r.avatar.group);
       r.skin = skin;
@@ -1203,7 +1444,7 @@ function syncRemotePlayers(dt: number): void {
       r.afk = undefined;
     }
     if (!r) {
-      const a = makePlayerAvatar(skin, sid);
+      const a = makePlayerAvatar(skin);
       a.group.position.set(p.x, p.y, p.z); // spawn at the right spot, don't lerp from origin
       scene.add(a.group);
       r = { avatar: a, skin };
@@ -3906,6 +4147,7 @@ function frameBody(now: number): void {
   }
   syncRemotePlayers(dt);
   updateVelorenDemos(dt); // Veloren character spike
+  updateCharPreview(dt); // character-editor preview window
   // Own HP → bar (+ damage flash on decrease).
   if (net) {
     const me = (net.room.state as unknown as { players?: RemoteState['players'] }).players?.get(net.sessionId); // players may be unsynced on the first frames
