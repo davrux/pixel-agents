@@ -980,6 +980,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
   });
   updateCharPreview = (dt: number): void => {
     if (panel.style.display === 'none' || !previewChar || !pvRenderer) return;
+    previewChar.group.rotation.y = pvYaw; // enforce facing every frame — no rebuild/timing can flip it
     previewChar.animate(dt, previewSpeed);
     pvRenderer.render(pvScene!, pvCam!);
   };
@@ -1116,6 +1117,17 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
   if (params.get('chartest') === 'step') {
     panel.style.display = 'block';
     void ensureCat().then(() => window.setTimeout(() => stepSpecies(1), 900));
+  }
+  // ?chartest=weapon → open, then step the weapon slot a few times (repro weapon-change facing).
+  if (params.get('chartest') === 'weapon') {
+    panel.style.display = 'block';
+    void ensureCat().then(() => {
+      let n = 0;
+      const iv = window.setInterval(() => {
+        step('weapon', 1);
+        if (++n >= 3) window.clearInterval(iv);
+      }, 500);
+    });
   }
   // ?swingtest → equip a weapon + hold the mining swing, to eyeball the attack arc.
   if (params.get('swingtest') !== null) {
