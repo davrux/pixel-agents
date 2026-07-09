@@ -1451,9 +1451,14 @@ function syncRemotePlayers(dt: number): void {
       remote.set(sid, r);
     }
     const moving = smoothAvatar(r.avatar, p.x, p.y, p.z, p.yaw, dt);
-    r.avatar.setSwimming(p.state === 'swim');
-    r.avatar.setTint(dayColors.light);
-    r.avatar.animate(dt, moving ? 2 : 0, p.pitch);
+    const g = r.avatar.group;
+    const vis = avatarVisible(g.position.x, g.position.y, g.position.z);
+    g.visible = vis;
+    if (vis) {
+      r.avatar.setSwimming(p.state === 'swim');
+      r.avatar.setTint(dayColors.light);
+      r.avatar.animate(dt, moving ? 2 : 0, p.pitch);
+    }
     setAfkMarker(r, !!p.afk);
     setNameTag(r, p.name);
   });
@@ -1487,8 +1492,13 @@ function syncNpcs(dt: number, state: RemoteState): void {
       npcAvatars.set(id, r);
     }
     const moving = smoothAvatar(r.avatar, n.x, n.y, n.z, n.yaw, dt);
-    r.avatar.setTint(dayColors.light);
-    r.avatar.animate(dt, moving ? 2 : 0);
+    const g = r.avatar.group;
+    const vis = avatarVisible(g.position.x, g.position.y, g.position.z);
+    g.visible = vis;
+    if (vis) {
+      r.avatar.setTint(dayColors.light);
+      r.avatar.animate(dt, moving ? 2 : 0);
+    }
   });
   for (const [id, r] of npcAvatars) {
     if (!state.npcs.get(id)) {
@@ -1500,6 +1510,23 @@ function syncNpcs(dt: number, state: RemoteState): void {
   syncItemDrops(state);
   syncBoats(dt, state);
   syncCarts(dt, state);
+}
+
+// Cheap per-character cull: skip drawing (and animating) figures that are far away
+// or clearly behind the camera. frustumCulled is off on the voxel segments (avoids
+// limb pop-out), so we cull whole characters here instead.
+const _camP = new THREE.Vector3();
+const _camD = new THREE.Vector3();
+const AVATAR_CULL = 80; // world units
+function avatarVisible(x: number, y: number, z: number): boolean {
+  const cam = activeCam();
+  cam.getWorldPosition(_camP);
+  cam.getWorldDirection(_camD);
+  const dx = x - _camP.x,
+    dy = y - _camP.y,
+    dz = z - _camP.z;
+  if (dx * dx + dy * dy + dz * dz > AVATAR_CULL * AVATAR_CULL) return false; // too far
+  return dx * _camD.x + dy * _camD.y + dz * _camD.z > -2; // clearly behind the camera (2u margin)
 }
 
 /** Feet height at (x,z): one above the highest solid block near the spawn level,
@@ -1538,6 +1565,9 @@ function updateVelorenDemos(dt: number): void {
     const g = char.group;
     const prevX = g.position.x;
     g.position.set(tx, demoGroundY(tx, rowZ(i), velorenBase.y), rowZ(i));
+    const vis = avatarVisible(g.position.x, g.position.y, g.position.z);
+    g.visible = vis;
+    if (!vis) continue; // culled → keep position updated, skip facing/anim
     const dx = tx - prevX;
     const speed = Math.abs(dx) / Math.max(dt, 1e-4);
     if (Math.abs(dx) > 1e-4) g.rotation.y = dx > 0 ? -Math.PI / 2 : Math.PI / 2; // face the heading
@@ -1553,11 +1583,15 @@ function updateVelorenDemos(dt: number): void {
   const wg = wolfDemo.group;
   const wPrev = wg.position.x;
   wg.position.set(wx, demoGroundY(wx, velorenBase.z - 3, velorenBase.y), velorenBase.z - 3);
-  const wdx = wx - wPrev;
-  const wspeed = Math.abs(wdx) / Math.max(dt, 1e-4);
-  if (Math.abs(wdx) > 1e-4) wg.rotation.y = wdx > 0 ? -Math.PI / 2 : Math.PI / 2;
-  wolfDemo.setTint(dayColors.light);
-  wolfDemo.animate(dt, wspeed);
+  const wvis = avatarVisible(wg.position.x, wg.position.y, wg.position.z);
+  wg.visible = wvis;
+  if (wvis) {
+    const wdx = wx - wPrev;
+    const wspeed = Math.abs(wdx) / Math.max(dt, 1e-4);
+    if (Math.abs(wdx) > 1e-4) wg.rotation.y = wdx > 0 ? -Math.PI / 2 : Math.PI / 2;
+    wolfDemo.setTint(dayColors.light);
+    wolfDemo.animate(dt, wspeed);
+  }
 }
 
 /** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */
