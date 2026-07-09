@@ -45,6 +45,13 @@ const TEXT_IDLE_AFTER_MS = 4000;
  *  backlog that stopped mid-turn). Long enough to never trip on real thinking. */
 const ACTIVE_IDLE_AFTER_MS = 90_000;
 
+/** Session-closed despawn: once an agent has been quiet this long, treat its
+ *  Claude session as closed and remove it entirely (not just idle). Matches the
+ *  feeder's MAXAGE freshness window so a session stale past it (and thus not
+ *  re-replayed on feeder reconnect) is consistently gone. A session that resumes
+ *  re-creates a fresh agent on its next line. */
+const SESSION_CLOSED_AFTER_MS = Number(process.env.PIXEL_FEED_SESSION_TTL_MS ?? 600_000);
+
 interface FeedConn {
   user: string;
   /** session id → agent id */
@@ -170,12 +177,25 @@ export function attachFeedServer(httpServer: HttpServer, opts: { authRequired: b
   const idleTimer = setInterval(() => {
     const now = Date.now();
     for (const conn of conns) {
-      for (const agentId of conn.sessions.values()) {
-        if (conn.idled.has(agentId)) continue;
+      for (const [sessionId, agentId] of [...conn.sessions]) {
         const st = conn.parsers.get(agentId);
         if (st && st.activeToolNames.size > 0) continue; // a tool is still running
-        const idleAfter = st?.hadToolsInTurn ? ACTIVE_IDLE_AFTER_MS : TEXT_IDLE_AFTER_MS;
         const last = conn.lastActivity.get(agentId) ?? 0;
+
+        // Closed-session despawn: quiet past the grace window → remove entirely
+        // and forget the session so a resumed one mints a fresh agent. Runs even
+        // when already idled (a closed session is exactly the idled case).
+        if (now - last >= SESSION_CLOSED_AFTER_MS) {
+          director.apply({ t: 'removed', id: agentId });
+          conn.sessions.delete(sessionId);
+          conn.parsers.delete(agentId);
+          conn.lastActivity.delete(agentId);
+          conn.idled.delete(agentId);
+          continue;
+        }
+
+        if (conn.idled.has(agentId)) continue;
+        const idleAfter = st?.hadToolsInTurn ? ACTIVE_IDLE_AFTER_MS : TEXT_IDLE_AFTER_MS;
         if (now - last < idleAfter) continue;
         conn.idled.add(agentId);
         director.apply({ t: 'toolsClear', id: agentId });
