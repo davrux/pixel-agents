@@ -776,7 +776,9 @@ try {
   /* ignore */
 }
 const VELO_PREFIX = 'veloren:'; // skin ids of the form veloren:<species> render as voxel chars
-const avatar = new Avatar(playerSkin);
+// A veloren:<species> skin is a voxel char (built later), not a glTF texture — give
+// the (hidden) glTF avatar a real skin so it doesn't 404 fetching veloren:*.png.
+const avatar = new Avatar(playerSkin.startsWith(VELO_PREFIX) ? 'character_1' : playerSkin);
 scene.add(avatar.group);
 
 // Local player as a Veloren voxel character (skin = veloren:<id>). Additive overlay:
@@ -830,7 +832,8 @@ speciesSel.onchange = () => {
   net?.room.send('setSkin', v);
 };
 document.body.appendChild(speciesSel);
-if (playerSkin.startsWith(VELO_PREFIX)) applyPlayerSkin(playerSkin); // show the saved species now
+// NOTE: don't build the local Veloren char here — `net` isn't declared yet at module
+// init (TDZ). It's created on connect (connectWorld re-seeds from the session id).
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
 // One biped per Veloren species/gender, driven by ported Veloren idle/run
@@ -1352,13 +1355,14 @@ let isoPitch = 0.687; // iso camera tilt above the horizon (RMB-drag, free up/do
 let camYaw = 0; // third-person camera orbit (RMB-drag)
 let camPitch = 0.35;
 const camRay = new THREE.Raycaster(); // pulls the 3rd-person camera in past blocks
-// User settings (persisted). invertY + camera collision default on; auto-switch
-// tool default OFF (Minecraft is manual; auto-switch is the optional mod-like aid).
+// User settings (persisted). Camera collision default on; invertY default OFF
+// (drag down → look down, what most players expect). auto-switch tool default OFF
+// (Minecraft is manual; auto-switch is the optional mod-like aid).
 // renderScale = the WebGL pixelRatio (render pixels per CSS pixel). 1 = native CSS
 // resolution (crisp, the sensible default); <1 renders fewer pixels + upscales (much
 // faster when fill-rate bound, e.g. looking down from high up); 2 = full retina (sharp
 // but 4× the fragments). Adjustable on the Camera settings page — see applyRenderScale.
-const settings = { invertY: true, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, creativeInstantDig: true, hotbarSize: 8, renderScale: 1 };
+const settings = { invertY: false, camCollide: true, autoTool: false, dayNight: false, fly: false, peaceful: true, sound: true, creative: false, durability: true, hunger: true, keepInventory: true, creativeInstantDig: true, hotbarSize: 8, renderScale: 1 };
 try {
   Object.assign(settings, JSON.parse(localStorage.getItem('voxSettings') ?? '{}') as Partial<typeof settings>);
 } catch {
@@ -1427,8 +1431,7 @@ function placeCamera(): void {
   if (selfVeloren) {
     avatar.group.visible = false; // glTF body hidden; the voxel char is shown instead
     selfVeloren.group.visible = mode !== 'first'; // hide own body in first person
-    selfVeloren.group.position.set(player.pos.x, player.pos.y, player.pos.z);
-    selfVeloren.group.rotation.y = player.yaw;
+    // position + facing are driven in frameBody (needs dt for a smooth turn)
   } else {
     avatar.group.visible = true;
     avatar.setFirstPerson(mode === 'first');
@@ -1961,10 +1964,12 @@ canvas.addEventListener('mousemove', (e) => {
   }
   // RMB free-orbit: yaw (left/right) + pitch (up/down) in both iso and third.
   if (rotating) {
+    // Same pitch convention in both modes so invertY behaves identically:
+    // invertY off → drag down looks down (pitch up); on → drag down looks up.
     const invY = settings.invertY ? -1 : 1;
     if (mode === 'iso') {
       isoYaw -= e.movementX * 0.006;
-      isoPitch = clamp(isoPitch - e.movementY * 0.005 * invY, 0.2, 1.45);
+      isoPitch = clamp(isoPitch + e.movementY * 0.005 * invY, 0.2, 1.45);
     } else {
       camYaw -= e.movementX * 0.006;
       camPitch = clamp(camPitch + e.movementY * 0.005 * invY, -0.15, 1.25);
@@ -3877,6 +3882,16 @@ function frameBody(now: number): void {
   avatar.setSwimming(!mount && player.inWater); // riding a boat/cart → sit, don't keep the swim pose
   avatar.animate(dt, player.speed2d, player.pitch);
   if (selfVeloren) {
+    selfVeloren.group.position.set(player.pos.x, player.pos.y, player.pos.z);
+    // Face the actual movement direction (not the camera): the body turns to where
+    // it walks. Forward at yaw 0 is -Z, so heading = atan2(-vx, -vz). Smoothed.
+    if (player.speed2d > 0.1) {
+      const targetYaw = Math.atan2(-player.vel.x, -player.vel.z);
+      let d = targetYaw - selfVeloren.group.rotation.y;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      selfVeloren.group.rotation.y += d * Math.min(1, dt * 12);
+    }
     selfVeloren.setTint(dayColors.light);
     selfVeloren.animate(dt, player.speed2d);
   }
