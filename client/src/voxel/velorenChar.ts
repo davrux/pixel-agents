@@ -385,8 +385,13 @@ export class VelorenCharacter {
   private async placeWeapon(base: string, w: VoxRef): Promise<void> {
     const m = await loadVox(base + w.vox);
     const mesh = buildVoxMesh(m, w.o, w.color ? rgb(w.color) : undefined);
+    // Held in the RIGHT hand (our model has no arm meshes, so Veloren's two-handed
+    // control-grip looks armless/left-handed — keep it simple + right-handed).
+    const grip = new THREE.Group();
+    grip.rotation.set(-Math.PI / 2, 0, 0); // stand the weapon up out of the fist
+    grip.add(mesh);
     this.weaponMat = mesh.material as THREE.MeshBasicMaterial;
-    this.attach('main', mesh, this.weaponMat);
+    this.attach('hand_r', grip, this.weaponMat);
   }
 
   private normalise(): void {
@@ -572,7 +577,8 @@ export class VelorenCharacter {
         b.quaternion.slerp(j.q, this.jumpAmt);
       }
     }
-    if (this.weaponMat) this.applyWield(); // hold the weapon (overrides the arm bones)
+    // NOTE: applyWield() (Veloren's two-handed control-grip) is disabled — it needs
+    // arm meshes we don't have; without them it looks armless. Weapon sits in hand_r.
     this.applyDigSwing(dt); // place/dig arm swing, layered on top
     if (this.firstPerson) this.bones.head.scale.setScalar(0.0001); // hide head/hair/eyes in FP
   }
