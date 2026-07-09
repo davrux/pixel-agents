@@ -106,9 +106,22 @@ for (const slot of ['hand', 'shoulder']) {
   armor[slot] = out;
 }
 
-const catalog = { species, hairColors, armor };
+// ── Weapons (held in the main hand) ──────────────────────────────────────────
+// Curated to recognisable one-hand-ish types so held items look sensible; deduped
+// by vox path (many tiers reuse the same model).
+const WEAPON_TYPES = /weapon\/(sword|axe|hammer|dagger|bow|staff|sceptre|spear)\//;
+const seenW = new Set();
+const weapons = [];
+for (const p of pieces(read('biped_weapon_manifest.ron'))) {
+  if (!WEAPON_TYPES.test(p.vox) || seenW.has(p.vox)) continue;
+  seenW.add(p.vox);
+  weapons.push(p);
+}
+
+const catalog = { species, hairColors, armor, weapons };
 writeFileSync(join(ROOT, 'catalog.json'), JSON.stringify(catalog));
 console.log('species:', species.length);
 for (const s of species) console.log(' ', s.id, `hair=${s.hairs.length} beard=${s.beards.length} eyes=${s.eyes.length}`);
 console.log('hairColors:', Object.fromEntries(Object.entries(hairColors).map(([k, v]) => [k, v.length])));
 console.log('armor:', Object.fromEntries(Object.entries(armor).map(([k, v]) => [k, v.length])));
+console.log('weapons:', weapons.length);

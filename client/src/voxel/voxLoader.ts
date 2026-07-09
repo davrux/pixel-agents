@@ -74,12 +74,35 @@ export function parseVox(buf: ArrayBuffer): VoxModel {
   return { sx, sy, sz, voxels, palette: palette ?? fallbackPalette() };
 }
 
-/** Load and parse a .vox from a URL under the site root. */
-export async function loadVox(url: string): Promise<VoxModel> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`vox load failed: ${url} (${res.status})`);
-  return parseVox(await res.arrayBuffer());
+/** Load and parse a .vox from a URL under the site root. Cached per URL so the
+ *  many characters that share body/armor parts fetch + parse each file only once. */
+const voxCache = new Map<string, Promise<VoxModel>>();
+export function loadVox(url: string): Promise<VoxModel> {
+  let p = voxCache.get(url);
+  if (!p) {
+    p = fetch(url).then((res) => {
+      if (!res.ok) throw new Error(`vox load failed: ${url} (${res.status})`);
+      return res.arrayBuffer().then(parseVox);
+    });
+    voxCache.set(url, p);
+  }
+  return p;
 }
+
+// Fixed directional shade baked into vertex colours (the scene is unlit): faces
+// pointing up/toward the light are brighter, downward faces darker — gives the
+// figures depth + an ambient-occlusion feel without any scene lights. Per unit
+// face normal, precomputed for the 6 axes.
+const LIGHT_DIR = ((): [number, number, number] => {
+  const l: [number, number, number] = [0.35, 1, 0.25];
+  const m = Math.hypot(l[0], l[1], l[2]);
+  return [l[0] / m, l[1] / m, l[2] / m];
+})();
+const AMBIENT = 0.55;
+const shadeFor = (nx: number, ny: number, nz: number): number => {
+  const d = Math.max(0, nx * LIGHT_DIR[0] + ny * LIGHT_DIR[1] + nz * LIGHT_DIR[2]);
+  return AMBIENT + (1 - AMBIENT) * d;
+};
 
 /**
  * Build a merged, face-culled mesh from a VoxModel.
@@ -120,12 +143,16 @@ export function buildVoxMesh(model: VoxModel, offset: [number, number, number], 
         const cb = ((rgb & 255) / 255) * bMul;
         for (const f of FACES) {
           if (at(x + f.n[0], y + f.n[1], z + f.n[2]) !== 0) continue; // interior face — skip
+          const sh = shadeFor(f.n[0], f.n[1], f.n[2]); // bake directional shade into the colour
+          const sr = cr * sh,
+            sg = cg * sh,
+            sb = cb * sh;
           const [a, b, c, d] = f.c;
           const quad = [a, b, c, a, c, d]; // two triangles
           for (const [dx, dy, dz] of quad) {
             positions.push(ox + x + dx, oy + y + dy, oz + z + dz);
             normals.push(f.n[0], f.n[1], f.n[2]);
-            colors.push(cr, cg, cb);
+            colors.push(sr, sg, sb);
           }
         }
       }

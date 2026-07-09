@@ -774,8 +774,62 @@ try {
 } catch {
   /* ignore */
 }
+const VELO_PREFIX = 'veloren:'; // skin ids of the form veloren:<species> render as voxel chars
 const avatar = new Avatar(playerSkin);
 scene.add(avatar.group);
+
+// Local player as a Veloren voxel character (skin = veloren:<id>). Additive overlay:
+// the glTF `avatar` still drives wield/first-person/gameplay but is hidden, while
+// `selfVeloren` follows the player transform + animates. Seed = own session id so
+// the outfit matches what other clients render for us. Everything below is a no-op
+// when the skin isn't a veloren id (normal players are unaffected).
+let selfVeloren: VelorenCharacter | null = null;
+let selfVelorenSkin = '';
+function applyPlayerSkin(skin: string): void {
+  playerSkin = skin;
+  if (skin.startsWith(VELO_PREFIX)) {
+    if (!selfVeloren || selfVelorenSkin !== skin) {
+      if (selfVeloren) {
+        scene.remove(selfVeloren.group);
+        selfVeloren.dispose();
+      }
+      selfVeloren = new VelorenCharacter(skin.slice(VELO_PREFIX.length), hashSeed(net?.sessionId || 'me'));
+      selfVelorenSkin = skin;
+      scene.add(selfVeloren.group);
+    }
+  } else {
+    if (selfVeloren) {
+      scene.remove(selfVeloren.group);
+      selfVeloren.dispose();
+      selfVeloren = null;
+      selfVelorenSkin = '';
+    }
+    avatar.setSkin(skin);
+  }
+}
+
+// #4 Character picker: choose a Veloren species (or the default glTF character).
+// Sets the synced skin so other players see the choice too. Minimal HUD dropdown.
+const speciesSel = document.createElement('select');
+speciesSel.className = 'pa-select';
+speciesSel.title = 'Character';
+speciesSel.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;font-size:0.8rem;';
+speciesSel.innerHTML =
+  '<option value="character_1">Standard</option>' +
+  SPECIES_IDS.map((id) => `<option value="${VELO_PREFIX}${id}">${id.replace('_', ' ')}</option>`).join('');
+speciesSel.value = playerSkin.startsWith(VELO_PREFIX) ? playerSkin : 'character_1';
+speciesSel.onchange = () => {
+  const v = speciesSel.value;
+  applyPlayerSkin(v);
+  try {
+    localStorage.setItem('voxSkin', v);
+  } catch {
+    /* ignore */
+  }
+  net?.room.send('setSkin', v);
+};
+document.body.appendChild(speciesSel);
+if (playerSkin.startsWith(VELO_PREFIX)) applyPlayerSkin(playerSkin); // show the saved species now
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
 // One biped per Veloren species/gender, driven by ported Veloren idle/run
@@ -836,7 +890,22 @@ interface RemoteState {
   boats: { forEach(cb: (p: RemoteBoat, k: string) => void): void; get(k: string): RemoteBoat | undefined };
   carts: { forEach(cb: (p: RemoteCart, k: string) => void): void; get(k: string): RemoteCart | undefined };
 }
-const remote = new Map<string, { avatar: Avatar; afk?: THREE.Sprite; nameTag?: THREE.Sprite; nameText?: string }>();
+// A player avatar is either the glTF character or a Veloren voxel character (when
+// the player's synced skin is a `veloren:<species>` id). Both share the render API.
+type PlayerAvatar = Avatar | VelorenCharacter;
+/** Stable per-string seed so a player's Veloren outfit is the same for everyone. */
+function hashSeed(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+  return h >>> 0;
+}
+/** Build the right avatar for a skin id: Veloren voxel char for `veloren:<id>`,
+ *  else the glTF character. `key` (session id) seeds the Veloren outfit. */
+function makePlayerAvatar(skin: string, key: string): PlayerAvatar {
+  if (skin.startsWith(VELO_PREFIX)) return new VelorenCharacter(skin.slice(VELO_PREFIX.length), hashSeed(key));
+  return new Avatar(skin || 'character_1');
+}
+const remote = new Map<string, { avatar: PlayerAvatar; skin: string; afk?: THREE.Sprite; nameTag?: THREE.Sprite; nameText?: string }>();
 
 // A camera-facing name tag over each remote player's head (Sprite auto-billboards).
 // Sized to the text so short names don't get a wide bar. Texture is per-name (rebuilt
@@ -1112,11 +1181,25 @@ function syncRemotePlayers(dt: number): void {
   state.players.forEach((p, sid) => {
     if (sid === mySid) return;
     let r = remote.get(sid);
+    const skin = p.skin || 'character_1';
+    if (r && r.skin !== skin) {
+      // Skin changed (incl. switching to/from a Veloren species) → rebuild the avatar.
+      if (r.nameTag) r.avatar.group.remove(r.nameTag);
+      if (r.afk) r.avatar.group.remove(r.afk);
+      scene.remove(r.avatar.group);
+      r.avatar.dispose();
+      r.avatar = makePlayerAvatar(skin, sid);
+      r.avatar.group.position.set(p.x, p.y, p.z);
+      scene.add(r.avatar.group);
+      r.skin = skin;
+      r.nameTag = undefined; // re-attached below by setNameTag
+      r.afk = undefined;
+    }
     if (!r) {
-      const a = new Avatar(p.skin || 'character_1');
+      const a = makePlayerAvatar(skin, sid);
       a.group.position.set(p.x, p.y, p.z); // spawn at the right spot, don't lerp from origin
       scene.add(a.group);
-      r = { avatar: a };
+      r = { avatar: a, skin };
       remote.set(sid, r);
     }
     const moving = smoothAvatar(r.avatar, p.x, p.y, p.z, p.yaw, dt);
@@ -1311,14 +1394,21 @@ function placeCamera(): void {
   // Real 3D body in every view. First person sits the camera at the eye: hide the
   // head, and fade the body to see-through when looking down so it doesn't block
   // the view (positive pitch = up, negative = down).
-  avatar.group.visible = true;
-  avatar.setFirstPerson(mode === 'first');
-  if (mode === 'first') {
-    const down = Math.max(0, -player.pitch - 0.3); // grows once you look below ~-0.3
-    avatar.setOpacity(clamp(1 - down * 1.2, 0.15, 1));
-  } else avatar.setOpacity(1);
-  avatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
-  avatar.group.rotation.y = player.yaw;
+  if (selfVeloren) {
+    avatar.group.visible = false; // glTF body hidden; the voxel char is shown instead
+    selfVeloren.group.visible = mode !== 'first'; // hide own body in first person
+    selfVeloren.group.position.set(player.pos.x, player.pos.y, player.pos.z);
+    selfVeloren.group.rotation.y = player.yaw;
+  } else {
+    avatar.group.visible = true;
+    avatar.setFirstPerson(mode === 'first');
+    if (mode === 'first') {
+      const down = Math.max(0, -player.pitch - 0.3); // grows once you look below ~-0.3
+      avatar.setOpacity(clamp(1 - down * 1.2, 0.15, 1));
+    } else avatar.setOpacity(1);
+    avatar.group.position.set(player.pos.x, player.pos.y, player.pos.z);
+    avatar.group.rotation.y = player.yaw;
+  }
 }
 
 // ── Input ───────────────────────────────────────────────────────────────────
@@ -2492,8 +2582,7 @@ function openSkinPicker(): void {
       selected: name === playerSkin,
       onHover: () => skinPreview!.setSkin(name), // live 3D preview while hovering
       onPick: () => {
-        playerSkin = name;
-        avatar.setSkin(name);
+        applyPlayerSkin(name); // clears any Veloren overlay + sets the glTF skin
         try {
           localStorage.setItem('voxSkin', name);
         } catch {
@@ -2864,8 +2953,7 @@ function applyServerSettings(s: unknown): void {
   peacefulCb.checked = settings.peaceful;
   net?.setPeaceful(settings.peaceful); // tell the server the loaded preference
   if (typeof o.skin === 'string') {
-    playerSkin = o.skin;
-    avatar.setSkin(o.skin);
+    applyPlayerSkin(o.skin); // handles both glTF skins and veloren:<species>
     net?.room.send('setSkin', o.skin);
   }
   if (o.wield && typeof o.wield === 'object') {
@@ -3443,6 +3531,10 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   renderWorldList();
   leavingIntentionally = false; // old room already closed above; a drop from here on is unexpected
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
+  if (playerSkin.startsWith(VELO_PREFIX)) {
+    selfVelorenSkin = ''; // force re-seed of the local Veloren outfit from the real session id
+    applyPlayerSkin(playerSkin);
+  }
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
 }
@@ -3754,6 +3846,10 @@ function frameBody(now: number): void {
   updateWield();
   avatar.setSwimming(!mount && player.inWater); // riding a boat/cart → sit, don't keep the swim pose
   avatar.animate(dt, player.speed2d, player.pitch);
+  if (selfVeloren) {
+    selfVeloren.setTint(dayColors.light);
+    selfVeloren.animate(dt, player.speed2d);
+  }
   updateFootsteps(dt);
   updateAmbient(dt);
   // Report our transform to the server (throttled) so AOI + other players update.

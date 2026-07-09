@@ -9,38 +9,34 @@
  * uses the same footrot/short/foothor wave technique over an accumulated stride).
  *
  * Segments are Veloren's real .vox parts (CC-BY-SA 3.0; see ATTRIBUTION.md), driven
- * by catalog.json — generated from Veloren's humanoid_*_manifest.ron by
+ * by catalog.json — generated from Veloren's manifests by
  * scripts/gen-veloren-catalog.mjs. Each character = a species (head/hair/beard/eyes)
- * plus an outfit picking one piece per armor slot (chest/pants/belt/foot/hand/
- * shoulder/back). White "skin-slot" voxels are recoloured with the head's dominant
- * (skin) colour; grayscale hair with the species hair palette; armor with its
- * manifest colour. Because this derives from GPL-3.0 code + CC-BY-SA assets, THIS
- * FILE IS GPL-3.0.
+ * + an outfit (one piece per armor slot) + optionally a held weapon. White
+ * "skin-slot" voxels are recoloured with the head's dominant colour; grayscale hair
+ * with the species palette; armor with its manifest colour. Because this derives
+ * from GPL-3.0 code + CC-BY-SA assets, THIS FILE IS GPL-3.0.
  *
  * Animation is procedural: each frame we compute a full pose (bone position +
  * orientation + scale) from `anim_time`/stride and write it onto the bone groups,
- * exactly like Veloren's `update_skeleton_inner` returning a new skeleton.
+ * exactly like Veloren's `update_skeleton_inner` returning a new skeleton. Pose
+ * objects are preallocated and mutated in place (no per-frame allocation).
  *
  * Coordinate note: Veloren + MagicaVoxel are Z-up, +Y-forward. All bones live
  * inside a `space` group rotated -90° about X (Z-up → Three's Y-up) and uniformly
  * scaled to ~1.8 world units, so inside that group we use Veloren coordinates 1:1.
  *
  * Public API matches Avatar/NpcRender so it drops into main.ts:
- *   group, animate(dt, speed), setTint(color), dispose().
+ *   group, animate(dt, speed), setTint(color), setSwimming(bool), dispose().
  */
 import * as THREE from 'three';
 import { loadVox, buildVoxMesh, dominantColor } from './voxLoader.js';
 
-const TARGET_H = 1.8; // world-units tall (matches the player AABB, like Avatar)
-const MODEL_UNITS = 32; // rough figure height in voxels — initial scale before load
+const TARGET_H = 1.8;
+const MODEL_UNITS = 32;
 
 const XAXIS = new THREE.Vector3(1, 0, 0);
 const ZAXIS = new THREE.Vector3(0, 0, 1);
-const rotX = (a: number): THREE.Quaternion => new THREE.Quaternion().setFromAxisAngle(XAXIS, a);
-const rotZ = (a: number): THREE.Quaternion => new THREE.Quaternion().setFromAxisAngle(ZAXIS, a);
 
-// Human male SkeletonAttr offsets from Veloren mod.rs. Tuples follow the anim
-// crate's usage: `.0`→Y (forward), `.1`→Z (up); hand/foot/shoulder add `.0`→X.
 const S_A = {
   headScale: 0.9,
   head: [-2.3, 9.5] as const,
@@ -66,13 +62,14 @@ type BoneName =
   | 'hand_r'
   | 'foot_l'
   | 'foot_r';
+const BONES: BoneName[] = ['torso', 'chest', 'head', 'belt', 'back', 'shorts', 'shoulder_l', 'shoulder_r', 'hand_l', 'hand_r', 'foot_l', 'foot_r'];
 
 // ── catalog.json (generated from Veloren manifests) ──────────────────────────
 type Vec3 = [number, number, number];
 interface VoxRef {
-  vox: string; // path relative to models/veloren/
-  o: Vec3; // bone-local placement offset
-  color?: Vec3 | null; // armor tint (grayscale vox), if any
+  vox: string;
+  o: Vec3;
+  color?: Vec3 | null;
 }
 interface Sp {
   id: string;
@@ -91,9 +88,9 @@ interface Catalog {
   species: Sp[];
   hairColors: Record<string, Vec3[]>;
   armor: { chest: VoxRef[]; pants: VoxRef[]; belt: VoxRef[]; foot: VoxRef[]; back: VoxRef[]; hand: Pair[]; shoulder: Pair[] };
+  weapons: VoxRef[];
 }
 
-// The 12 species ids (stable) so main.ts can spawn the row without awaiting the catalog.
 export const SPECIES_IDS: string[] = [
   'human_male',
   'human_female',
@@ -119,7 +116,6 @@ function loadCatalog(): Promise<Catalog> {
 }
 
 const rgb = (c: Vec3): number => (c[0] << 16) | (c[1] << 8) | c[2];
-// Deterministic PRNG so a given seed always yields the same outfit.
 function mulberry32(a: number): () => number {
   return () => {
     a |= 0;
@@ -129,7 +125,6 @@ function mulberry32(a: number): () => number {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
-// The bare "skin slot" pieces (armor.misc.*.none) are white → tint with skin.
 const isSkinSlot = (vox: string): boolean => vox.includes('/misc/') && vox.includes('none');
 
 interface Pose {
@@ -137,7 +132,6 @@ interface Pose {
   q: THREE.Quaternion;
   s: number;
 }
-const pose = (p: THREE.Vector3, q: THREE.Quaternion, s = 1): Pose => ({ p, q, s });
 
 export class VelorenCharacter {
   readonly group = new THREE.Group();
@@ -150,15 +144,21 @@ export class VelorenCharacter {
   private animTime = 0;
   private stride = 0;
   private runAmt = 0;
+  // Preallocated poses + scratch quaternions (mutated in place — no per-frame GC).
   private readonly idlePose = {} as Record<BoneName, Pose>;
   private readonly runPose = {} as Record<BoneName, Pose>;
+  private readonly qa = new THREE.Quaternion();
+  private readonly qb = new THREE.Quaternion();
 
-  /** @param seed picks the (deterministic) outfit — armor/hair/beard/eyes variants. */
   constructor(speciesId = 'human_male', seed = 0) {
     this.speciesId = speciesId;
     this.seed = seed;
+    for (const n of BONES) {
+      this.idlePose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
+      this.runPose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
+    }
     this.space.rotation.x = -Math.PI / 2; // Veloren Z-up → Three Y-up
-    this.space.scale.setScalar(TARGET_H / MODEL_UNITS); // sane guess until parts load
+    this.space.scale.setScalar(TARGET_H / MODEL_UNITS);
     this.group.add(this.space);
     this.buildSkeleton();
     this.applyPose(this.computeIdle());
@@ -186,24 +186,23 @@ export class VelorenCharacter {
     mk('foot_r', torso);
   }
 
-  private attach(bone: BoneName, mesh: THREE.Mesh): void {
+  private attach(bone: BoneName, mesh: THREE.Object3D, mat?: THREE.MeshBasicMaterial): void {
     this.bones[bone].add(mesh);
-    this.tinted.push(mesh.material as THREE.MeshBasicMaterial);
+    if (mat) this.tinted.push(mat);
   }
 
   private async place(base: string, ref: VoxRef, bone: BoneName, recolor?: number): Promise<void> {
     const m = await loadVox(base + ref.vox);
-    this.attach(bone, buildVoxMesh(m, ref.o, recolor));
+    const mesh = buildVoxMesh(m, ref.o, recolor);
+    this.attach(bone, mesh, mesh.material as THREE.MeshBasicMaterial);
   }
 
-  /** Armor tint if the piece specifies one; skin for the bare skin-slot; else the vox palette. */
   private armorColor(ref: VoxRef, skin: number): number | undefined {
     if (ref.color) return rgb(ref.color);
     if (isSkinSlot(ref.vox)) return skin;
     return undefined;
   }
 
-  /** Assemble this species + a seeded outfit (one piece per slot), then fit height. */
   private async loadParts(): Promise<void> {
     const base = new URL('models/veloren/', document.baseURI).href;
     try {
@@ -212,12 +211,11 @@ export class VelorenCharacter {
       const rnd = mulberry32(this.seed + 1);
       const pick = <T>(arr: T[]): T | null => (arr && arr.length ? arr[Math.floor(rnd() * arr.length)] : null);
 
-      // Head first → derive skin tone for the white skin-slot parts.
       const headVox = await loadVox(base + sp.head.vox);
       const skin = dominantColor(headVox);
-      this.attach('head', buildVoxMesh(headVox, sp.head.o)); // baked colours
+      const headMesh = buildVoxMesh(headVox, sp.head.o);
+      this.attach('head', headMesh, headMesh.material as THREE.MeshBasicMaterial);
 
-      // Hair (+ beard for males): grayscale hair-slot → species hair colour.
       const hcArr = cat.hairColors[sp.sp] ?? [[74, 53, 36]];
       const hairCol = rgb(hcArr[Math.floor(rnd() * hcArr.length)]);
       const hair = pick(sp.hairs);
@@ -225,9 +223,8 @@ export class VelorenCharacter {
       const beard = sp.gender === 'male' ? pick(sp.beards) : null;
       if (beard) await this.place(base, beard, 'head', hairCol);
       const eyes = pick(sp.eyes);
-      if (eyes) await this.place(base, eyes, 'head'); // baked
+      if (eyes) await this.place(base, eyes, 'head');
 
-      // Outfit: one piece per slot (armor, or the bare skin-slot default).
       const a = cat.armor;
       const jobs: Promise<void>[] = [];
       const one = (ref: VoxRef | null, bone: BoneName): void => {
@@ -250,11 +247,29 @@ export class VelorenCharacter {
         one(sh.left, 'shoulder_l');
         one(sh.right, 'shoulder_r');
       }
+      // Held weapon in the right hand (~60% of characters). NOTE: grip transform is
+      // approximate (weapon offsets are in Veloren's `main` bone frame) — may need tuning.
+      if (rnd() < 0.6 && cat.weapons.length) {
+        const w = pick(cat.weapons);
+        if (w) jobs.push(this.placeWeapon(base, w));
+      }
       await Promise.all(jobs);
     } catch (e) {
       console.warn('[veloren] load failed:', this.speciesId, e);
     }
     this.normalise();
+  }
+
+  /** Weapon held in the right hand: wrapped in a grip group (tuning transform) so
+   *  the blade stands up along the arm and swings with the hand during the run. */
+  private async placeWeapon(base: string, w: VoxRef): Promise<void> {
+    const m = await loadVox(base + w.vox);
+    const mesh = buildVoxMesh(m, w.o, w.color ? rgb(w.color) : undefined);
+    const grip = new THREE.Group();
+    grip.rotation.set(-Math.PI / 2, 0, 0); // stand the blade up out of the fist
+    grip.position.set(0, 0, 0);
+    grip.add(mesh);
+    this.attach('hand_r', grip, mesh.material as THREE.MeshBasicMaterial);
   }
 
   private normalise(): void {
@@ -268,7 +283,20 @@ export class VelorenCharacter {
     this.space.position.y = -box.min.y * s;
   }
 
-  // ── Poses ───────────────────────────────────────────────────────────────────
+  // ── Poses (mutate preallocated objects) ───────────────────────────────────────
+
+  private put(P: Record<BoneName, Pose>, name: BoneName, x: number, y: number, z: number, q: THREE.Quaternion, s = 1): void {
+    const t = P[name];
+    t.p.set(x, y, z);
+    t.q.copy(q);
+    t.s = s;
+  }
+  private rotZ(a: number): THREE.Quaternion {
+    return this.qa.setFromAxisAngle(ZAXIS, a);
+  }
+  private rotX(a: number): THREE.Quaternion {
+    return this.qa.setFromAxisAngle(XAXIS, a);
+  }
 
   /** IdleAnimation, ported from Veloren idle.rs (breathing bob + idle head-look). */
   private computeIdle(): Record<BoneName, Pose> {
@@ -277,32 +305,33 @@ export class VelorenCharacter {
     const lookX = Math.sin(Math.floor(t / 12) * 7331.0) * 0.1;
     const lookY = Math.sin(Math.floor(t / 12) * 1337.0) * 0.05;
     const P = this.idlePose;
-    P.torso = pose(V(0, 0, 0), new THREE.Quaternion());
-    P.chest = pose(V(0, S_A.chest[0], S_A.chest[1] + slow * 0.3), rotZ(lookX * 0.6), 1.01);
-    P.head = pose(V(0, S_A.head[0], S_A.head[1] + slow * 0.3), rotZ(lookX).multiply(rotX(Math.abs(lookY))), S_A.headScale);
-    P.belt = pose(V(0, S_A.belt[0], S_A.belt[1]), rotZ(lookX * -0.1));
-    P.back = pose(V(0, S_A.back[0], S_A.back[1]), new THREE.Quaternion(), 1.02);
-    P.shorts = pose(V(0, S_A.shorts[0], S_A.shorts[1]), rotZ(lookX * -0.2));
-    P.shoulder_l = pose(V(-S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2]), new THREE.Quaternion(), 1.1);
-    P.shoulder_r = pose(V(S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2]), new THREE.Quaternion(), 1.1);
-    P.hand_l = pose(V(-S_A.hand[0], S_A.hand[1] + slow * 0.15, S_A.hand[2] + slow * 0.5), rotX(slow * -0.06), 1.04);
-    P.hand_r = pose(V(S_A.hand[0], S_A.hand[1] + slow * 0.15, S_A.hand[2] + slow * 0.5), rotX(slow * -0.06), 1.04);
-    P.foot_l = pose(V(-S_A.foot[0], S_A.foot[1], S_A.foot[2]), new THREE.Quaternion());
-    P.foot_r = pose(V(S_A.foot[0], S_A.foot[1], S_A.foot[2]), new THREE.Quaternion());
+    this.put(P, 'torso', 0, 0, 0, this.qa.identity());
+    this.put(P, 'chest', 0, S_A.chest[0], S_A.chest[1] + slow * 0.3, this.rotZ(lookX * 0.6), 1.01);
+    // head: rotZ(lookX) * rotX(|lookY|)
+    this.qb.setFromAxisAngle(XAXIS, Math.abs(lookY));
+    this.qa.setFromAxisAngle(ZAXIS, lookX).multiply(this.qb);
+    this.put(P, 'head', 0, S_A.head[0], S_A.head[1] + slow * 0.3, this.qa, S_A.headScale);
+    this.put(P, 'belt', 0, S_A.belt[0], S_A.belt[1], this.rotZ(lookX * -0.1));
+    this.put(P, 'back', 0, S_A.back[0], S_A.back[1], this.qa.identity(), 1.02);
+    this.put(P, 'shorts', 0, S_A.shorts[0], S_A.shorts[1], this.rotZ(lookX * -0.2));
+    this.put(P, 'shoulder_l', -S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.qa.identity(), 1.1);
+    this.put(P, 'shoulder_r', S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.qa.identity(), 1.1);
+    this.put(P, 'hand_l', -S_A.hand[0], S_A.hand[1] + slow * 0.15, S_A.hand[2] + slow * 0.5, this.rotX(slow * -0.06), 1.04);
+    this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] + slow * 0.15, S_A.hand[2] + slow * 0.5, this.rotX(slow * -0.06), 1.04);
+    this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1], S_A.foot[2], this.qa.identity());
+    this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1], S_A.foot[2], this.qa.identity());
     return P;
   }
 
   /** RunAnimation — reconstruction of Veloren's gait: legs swing in antiphase,
-   *  arms counter the legs, torso bobs at 2× stride, slight forward lean. All
-   *  amplitudes scale with `runAmt` so idle→run is a smooth blend. Driven by the
-   *  accumulated `stride` (Veloren's acc_vel) so footfalls track real movement. */
+   *  arms counter the legs, torso bobs at 2× stride, slight forward lean. */
   private computeRun(): Record<BoneName, Pose> {
     const ph = this.stride;
     const swingL = Math.sin(ph);
     const swingR = Math.sin(ph + Math.PI);
     // Lift during the SWING (return) half — foot off the ground while sweeping
-    // back→front (cos>0). During stance (cos<0) it stays planted and sweeps
-    // front→back, pushing the body forward. (Flipping this sign = moonwalk.)
+    // back→front (cos>0). During stance (cos<0) it stays planted and pushes the
+    // body forward. (Flipping this sign = moonwalk.)
     const liftL = Math.max(0, Math.cos(ph));
     const liftR = Math.max(0, Math.cos(ph + Math.PI));
     const bob = Math.abs(Math.sin(ph));
@@ -313,26 +342,30 @@ export class VelorenCharacter {
       ASTEP = 4.5,
       BOB = 1.6;
     const P = this.runPose;
-    P.torso = pose(V(0, 0, bob * BOB * sn), new THREE.Quaternion());
-    P.chest = pose(V(0, S_A.chest[0], S_A.chest[1]), rotX(0.12 * sn).multiply(rotZ(sway * 0.06 * sn)));
-    P.head = pose(V(0, S_A.head[0], S_A.head[1] + bob * 0.1 * sn), rotX(0.1 * sn).multiply(rotZ(-sway * 0.05 * sn)));
-    P.belt = pose(V(0, S_A.belt[0], S_A.belt[1]), rotZ(sway * -0.05 * sn));
-    P.back = pose(V(0, S_A.back[0], S_A.back[1]), new THREE.Quaternion());
-    P.shorts = pose(V(0, S_A.shorts[0], S_A.shorts[1]), rotZ(sway * -0.08 * sn));
-    P.shoulder_l = pose(V(-S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2]), rotX(-swingR * 0.2 * sn));
-    P.shoulder_r = pose(V(S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2]), rotX(-swingL * 0.2 * sn));
-    P.hand_l = pose(V(-S_A.hand[0], S_A.hand[1] + swingR * ASTEP * sn, S_A.hand[2]), rotX(swingR * 0.6 * sn));
-    P.hand_r = pose(V(S_A.hand[0], S_A.hand[1] + swingL * ASTEP * sn, S_A.hand[2]), rotX(swingL * 0.6 * sn));
-    P.foot_l = pose(V(-S_A.foot[0], S_A.foot[1] + swingL * FSTEP * sn, S_A.foot[2] + liftL * FLIFT * sn), rotX(swingL * 0.5 * sn));
-    P.foot_r = pose(V(S_A.foot[0], S_A.foot[1] + swingR * FSTEP * sn, S_A.foot[2] + liftR * FLIFT * sn), rotX(swingR * 0.5 * sn));
+    this.put(P, 'torso', 0, 0, bob * BOB * sn, this.qa.identity());
+    // chest: rotX(lean) * rotZ(sway)
+    this.qb.setFromAxisAngle(ZAXIS, sway * 0.06 * sn);
+    this.qa.setFromAxisAngle(XAXIS, 0.12 * sn).multiply(this.qb);
+    this.put(P, 'chest', 0, S_A.chest[0], S_A.chest[1], this.qa);
+    this.qb.setFromAxisAngle(ZAXIS, -sway * 0.05 * sn);
+    this.qa.setFromAxisAngle(XAXIS, 0.1 * sn).multiply(this.qb);
+    this.put(P, 'head', 0, S_A.head[0], S_A.head[1] + bob * 0.1 * sn, this.qa);
+    this.put(P, 'belt', 0, S_A.belt[0], S_A.belt[1], this.rotZ(sway * -0.05 * sn));
+    this.put(P, 'back', 0, S_A.back[0], S_A.back[1], this.qa.identity());
+    this.put(P, 'shorts', 0, S_A.shorts[0], S_A.shorts[1], this.rotZ(sway * -0.08 * sn));
+    this.put(P, 'shoulder_l', -S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(-swingR * 0.2 * sn));
+    this.put(P, 'shoulder_r', S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(-swingL * 0.2 * sn));
+    this.put(P, 'hand_l', -S_A.hand[0], S_A.hand[1] + swingR * ASTEP * sn, S_A.hand[2], this.rotX(swingR * 0.6 * sn));
+    this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] + swingL * ASTEP * sn, S_A.hand[2], this.rotX(swingL * 0.6 * sn));
+    this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] + swingL * FSTEP * sn, S_A.foot[2] + liftL * FLIFT * sn, this.rotX(swingL * 0.5 * sn));
+    this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + swingR * FSTEP * sn, S_A.foot[2] + liftR * FLIFT * sn, this.rotX(swingR * 0.5 * sn));
     return P;
   }
 
   private applyPose(p: Record<BoneName, Pose>): void {
-    for (const name of Object.keys(this.bones) as BoneName[]) {
+    for (const name of BONES) {
       const b = this.bones[name];
       const t = p[name];
-      if (!t) continue;
       b.position.copy(t.p);
       b.quaternion.copy(t.q);
       b.scale.setScalar(t.s);
@@ -341,7 +374,7 @@ export class VelorenCharacter {
 
   // ── Public API (matches Avatar/NpcRender) ─────────────────────────────────────
 
-  animate(dt: number, speed = 0): void {
+  animate(dt: number, speed = 0, _pitch = 0): void {
     this.animTime += dt;
     this.stride += speed * dt * 1.4;
     const wantRun = speed > 0.4 ? 1 : 0;
@@ -352,16 +385,19 @@ export class VelorenCharacter {
       return;
     }
     const run = this.computeRun();
-    for (const name of Object.keys(this.bones) as BoneName[]) {
+    for (const name of BONES) {
       const a = idle[name];
       const r = run[name];
-      if (!a || !r) continue;
       const b = this.bones[name];
       b.position.copy(a.p).lerp(r.p, this.runAmt);
       b.quaternion.copy(a.q).slerp(r.q, this.runAmt);
       b.scale.setScalar(a.s + (r.s - a.s) * this.runAmt);
     }
   }
+
+  /** No-op: kept so the character satisfies the same interface as Avatar (the
+   *  player-render code calls setSwimming); a swim pose isn't ported yet. */
+  setSwimming(_on: boolean): void {}
 
   /** Day/night tint — multiplies every (unlit, vertex-coloured) segment. */
   setTint(c: THREE.Color): void {
@@ -377,8 +413,4 @@ export class VelorenCharacter {
       }
     });
   }
-}
-
-function V(x: number, y: number, z: number): THREE.Vector3 {
-  return new THREE.Vector3(x, y, z);
 }
