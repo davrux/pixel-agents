@@ -1135,6 +1135,11 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
     panel.style.display = 'block';
     void ensureCat().then(() => window.setTimeout(() => previewChar?.setMining(true), 300));
   }
+  // ?runtest → drive the preview at running speed (eyeball the run gait).
+  if (params.get('runtest') !== null) {
+    panel.style.display = 'block';
+    void ensureCat().then(() => window.setTimeout(() => (previewSpeed = 5), 200));
+  }
   // ?weptest=N → equip weapon N and show the static wield hold (no swing).
   const wep = params.get('weptest');
   if (wep !== null) {

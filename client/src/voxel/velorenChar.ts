@@ -467,42 +467,64 @@ export class VelorenCharacter {
     return P;
   }
 
-  /** RunAnimation — reconstruction of Veloren's gait: legs swing in antiphase,
-   *  arms counter the legs, torso bobs at 2× stride, slight forward lean. */
+  /** RunAnimation — ported from Veloren character/run.rs. Forward-run case
+   *  (tilt/side/strafe/wall/impact = 0, which our movement doesn't drive). Driven by
+   *  acc_vel (this.stride) + the current speed, exactly like the original. */
   private computeRun(): Record<BoneName, Pose> {
-    const ph = this.stride;
-    const swingL = Math.sin(ph);
-    const swingR = Math.sin(ph + Math.PI);
-    // Lift during the SWING (return) half — foot off the ground while sweeping
-    // back→front (cos>0). During stance (cos<0) it stays planted and pushes the
-    // body forward. (Flipping this sign = moonwalk.)
-    const liftL = Math.max(0, Math.cos(ph));
-    const liftR = Math.max(0, Math.cos(ph + Math.PI));
-    const bob = Math.abs(Math.sin(ph));
-    const sway = Math.sin(ph);
-    const sn = this.runAmt;
-    const FSTEP = 5.0,
-      FLIFT = 3.5,
-      ASTEP = 4.5,
-      BOB = 1.6;
+    const av = this.stride; // acc_vel
+    const speed = this.jumpSpeed;
+    const lab = 0.6; // 0.6 / scaler^0.75, scaler≈1
+    const sp = Math.sqrt(Math.max(0, speed)) * 0.3; // speednorm
+    const sp2 = sp * sp;
+    const sin = Math.sin;
+    const norm = (a: number): number => (1 / Math.sqrt(0.5 + 0.5 * sin(a) ** 2)) * sin(a); // footrot normalisation
+    const footrotl = norm(av * 1.6 * lab + Math.PI * 1.4);
+    const footrotr = norm(av * 1.6 * lab + Math.PI * 0.4);
+    const noisea = sin(av * 11 + Math.PI / 6);
+    const noiseb = sin(av * 19 + Math.PI / 4);
+    const foothoril = sin(av * 1.6 * lab + Math.PI * 1.45);
+    const foothorir = sin(av * 1.6 * lab + Math.PI * 0.45);
+    const footvertl = sin(av * 1.6 * lab);
+    const footvertr = sin(av * 1.6 * lab + Math.PI);
+    const shortalt = sin(av * lab * 3.2 + Math.PI);
+    const shortalt2 = sin(av * lab * 3.2);
+    const short = Math.sqrt(5 / (1.5 + 3.5 * sin(av * lab * 1.6 + Math.PI * 0.5) ** 2)) * sin(av * lab * 1.6 + Math.PI * 0.5);
+    const X = XAXIS,
+      Y = YAXIS,
+      Z = ZAXIS;
+    // Compose rotations into qa (chain via qb): pairs of [axis, angle].
+    const rot = (parts: [THREE.Vector3, number][]): THREE.Quaternion => {
+      this.qa.setFromAxisAngle(parts[0][0], parts[0][1]);
+      for (let i = 1; i < parts.length; i++) this.qa.multiply(this.qb.setFromAxisAngle(parts[i][0], parts[i][1]));
+      return this.qa;
+    };
     const P = this.runPose;
-    this.put(P, 'torso', 0, 0, bob * BOB * sn, this.qa.identity());
-    // chest: rotX(lean) * rotZ(sway)
-    this.qb.setFromAxisAngle(ZAXIS, sway * 0.06 * sn);
-    this.qa.setFromAxisAngle(XAXIS, 0.12 * sn).multiply(this.qb);
-    this.put(P, 'chest', 0, S_A.chest[0], S_A.chest[1], this.qa);
-    this.qb.setFromAxisAngle(ZAXIS, -sway * 0.05 * sn);
-    this.qa.setFromAxisAngle(XAXIS, 0.1 * sn).multiply(this.qb);
-    this.put(P, 'head', 0, S_A.head[0], S_A.head[1] + bob * 0.1 * sn, this.qa);
-    this.put(P, 'belt', 0, S_A.belt[0], S_A.belt[1], this.rotZ(sway * -0.05 * sn));
-    this.put(P, 'back', 0, S_A.back[0], S_A.back[1], this.qa.identity());
-    this.put(P, 'shorts', 0, S_A.shorts[0], S_A.shorts[1], this.rotZ(sway * -0.08 * sn));
-    this.put(P, 'shoulder_l', -S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(-swingR * 0.2 * sn));
-    this.put(P, 'shoulder_r', S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(-swingL * 0.2 * sn));
-    this.put(P, 'hand_l', -S_A.hand[0], S_A.hand[1] + swingR * ASTEP * sn, S_A.hand[2], this.rotX(swingR * 0.6 * sn));
-    this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] + swingL * ASTEP * sn, S_A.hand[2], this.rotX(swingL * 0.6 * sn));
-    this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] + swingL * FSTEP * sn, S_A.foot[2] + liftL * FLIFT * sn, this.rotX(swingL * 0.5 * sn));
-    this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + swingR * FSTEP * sn, S_A.foot[2] + liftR * FLIFT * sn, this.rotX(swingR * 0.5 * sn));
+    this.put(P, 'torso', 0, 0, 0, this.qb.identity());
+    this.put(P, 'head', 0, S_A.head[0] * 1.5, S_A.head[1] + short * 0.1, rot([[Z, short * -0.3 * sp], [X, 0.45 * sp + shortalt2 * -0.05]]), S_A.headScale);
+    this.put(P, 'chest', 0, S_A.chest[0], S_A.chest[1] + 1 * sp + shortalt * 1.1, rot([[Z, short * 0.4 * sp], [Y, short * 0.2 * sp], [X, shortalt2 * 0.03 + sp * -0.5]]));
+    this.put(P, 'belt', 0, 0.25 + S_A.belt[0], 0.25 + S_A.belt[1], rot([[X, 0.1 * sp], [Z, short * -0.2]]));
+    this.put(P, 'back', 0, S_A.back[0], S_A.back[1], rot([[X, -0.05 + short * 0.02 + noisea * 0.02 + noiseb * 0.02], [Y, foothorir * 0.35 * sp2]]));
+    this.put(P, 'shorts', 0, 0.65 + S_A.shorts[0], 0.65 * sp + S_A.shorts[1], rot([[X, 0.2 * sp], [Z, short * -0.9 * sp], [Y, short * 0.08]]));
+    this.put(
+      P,
+      'hand_l',
+      -S_A.hand[0] * 1.2 - foothorir * 1.3 * sp + (foothoril ** 2 - 0.5) * sp * 4,
+      S_A.hand[1] * 1.3 + foothorir * -7 * sp2,
+      S_A.hand[2] - foothorir * 2.75 * sp + Math.abs(foothoril) ** 3 * sp2 * 8,
+      rot([[X, 0.6 * sp + (footrotr * -1.5 + 0.5) * sp2], [Y, footrotr * 0.4 * sp + Math.PI * 0.07]]),
+    );
+    this.put(
+      P,
+      'hand_r',
+      S_A.hand[0] * 1.2 + foothoril * 1.3 * sp - (foothorir ** 2 - 0.5) * sp * 4,
+      S_A.hand[1] * 1.3 + foothoril * -7 * sp2,
+      S_A.hand[2] - foothoril * 2.75 * sp + Math.abs(foothorir) ** 3 * sp2 * 8,
+      rot([[X, 0.6 * sp + (footrotl * -1.5 + 0.5) * sp2], [Y, footrotl * -0.4 * sp - Math.PI * 0.07]]),
+    );
+    this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] + (-1.5 * sp + foothoril * -10 * sp), S_A.foot[2] + (1.25 + Math.max(footvertl * -5, -1)) * sp, this.rotX((foothoril + 0.3) * -2 * sp));
+    this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + (-1.5 * sp + foothorir * -10 * sp), S_A.foot[2] + (1.25 + Math.max(footvertr * -5, -1)) * sp, this.rotX((foothorir + 0.3) * -2 * sp));
+    this.put(P, 'shoulder_l', -S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(short * 0.15 * sp + (footrotl * 0.5 + 0.5) * sp), 1.1);
+    this.put(P, 'shoulder_r', S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(short * -0.15 * sp + (footrotr * 0.5 + 0.5) * sp), 1.1);
     this.putArmsNeutral(P);
     return P;
   }
@@ -521,7 +543,7 @@ export class VelorenCharacter {
 
   animate(dt: number, speed = 0, _pitch = 0): void {
     this.animTime += dt;
-    this.stride += speed * dt * 1.4;
+    this.stride += speed * dt; // acc_vel (accumulated distance) for the ported run gait
     this.jumpSpeed = speed;
     const wantRun = speed > 0.4 ? 1 : 0;
     this.runAmt += (wantRun - this.runAmt) * Math.min(1, dt * 8);
