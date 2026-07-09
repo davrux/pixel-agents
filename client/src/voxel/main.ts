@@ -934,7 +934,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
   let pvScene: THREE.Scene | null = null;
   let pvCam: THREE.PerspectiveCamera | null = null;
   let previewChar: VelorenCharacter | null = null;
-  let pvYaw = 0; // preview facing (0 = front, toward the camera); drag rotates it
+  let pvYaw = Math.PI; // preview facing (turned to face the camera); drag rotates it
   const setupPreview = (): void => {
     if (pvRenderer) return;
     pvRenderer = new THREE.WebGLRenderer({ canvas: pv, antialias: false, alpha: true });
@@ -1021,7 +1021,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
       else if (v < min) v = c - 1;
       edOutfit[key] = v;
     }
-    pvYaw = 0; // re-face the front on any change (pose is kept; only the drag angle resets)
+    pvYaw = Math.PI; // re-face the camera on any change (pose is kept; only the drag angle resets)
     preview();
     refresh();
   };
@@ -1036,7 +1036,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
   const stepSpecies = (dir: number): void => {
     edSpeciesIdx = (edSpeciesIdx + dir + SPECIES_IDS.length) % SPECIES_IDS.length;
     clampSpeciesDeps();
-    pvYaw = 0; // re-face the front when switching species
+    pvYaw = Math.PI; // re-face the camera when switching species
     preview();
     refresh();
   };
@@ -1092,7 +1092,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
       clampSpeciesDeps();
     }
     refresh();
-    pvYaw = 0; // face the front each time the editor opens
+    pvYaw = Math.PI; // face the camera each time the editor opens
     rebuildPreview(); // show the current character in the preview window
   }
 
