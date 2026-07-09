@@ -141,12 +141,22 @@ export class QuadrupedCharacter {
   private normalise(): void {
     this.space.scale.setScalar(1);
     this.space.position.set(0, 0, 0);
+    // Measure in group-local space (the demo may already have positioned `group`
+    // in the world, and setFromObject uses world matrices) — neutralise the group
+    // transform while measuring, then restore it.
+    const savedPos = this.group.position.clone();
+    const savedQuat = this.group.quaternion.clone();
+    this.group.position.set(0, 0, 0);
+    this.group.quaternion.identity();
     this.group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.space);
     const h = box.max.y - box.min.y || 1;
     const s = TARGET_H / h;
     this.space.scale.setScalar(s);
     this.space.position.y = -box.min.y * s;
+    this.group.position.copy(savedPos);
+    this.group.quaternion.copy(savedQuat);
+    this.group.updateMatrixWorld(true);
   }
 
   private setBone(name: BoneName, x: number, y: number, z: number, rotXa = 0): void {

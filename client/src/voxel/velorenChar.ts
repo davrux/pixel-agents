@@ -275,12 +275,23 @@ export class VelorenCharacter {
   private normalise(): void {
     this.space.scale.setScalar(1);
     this.space.position.set(0, 0, 0);
+    // Measure in GROUP-LOCAL space: the demo may already have positioned/rotated
+    // `group` in the world, and setFromObject uses world matrices — so neutralise
+    // the group transform while measuring, then restore it. (Otherwise the world
+    // Y leaks into space.position.y and the figure sinks through the ground.)
+    const savedPos = this.group.position.clone();
+    const savedQuat = this.group.quaternion.clone();
+    this.group.position.set(0, 0, 0);
+    this.group.quaternion.identity();
     this.group.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(this.space);
     const h = box.max.y - box.min.y || 1;
     const s = TARGET_H / h;
     this.space.scale.setScalar(s);
     this.space.position.y = -box.min.y * s;
+    this.group.position.copy(savedPos);
+    this.group.quaternion.copy(savedQuat);
+    this.group.updateMatrixWorld(true);
   }
 
   // ── Poses (mutate preallocated objects) ───────────────────────────────────────

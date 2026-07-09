@@ -1258,6 +1258,18 @@ function syncNpcs(dt: number, state: RemoteState): void {
   syncCarts(dt, state);
 }
 
+/** Feet height at (x,z): one above the highest solid block near the spawn level,
+ *  so demo characters stand on the terrain instead of sinking through it as they
+ *  move over uneven ground. */
+function demoGroundY(x: number, z: number, startY: number): number {
+  const ix = Math.floor(x);
+  const iz = Math.floor(z);
+  for (let y = Math.ceil(startY) + 4; y >= Math.floor(startY) - 8; y--) {
+    if (world.solid(ix, y, iz)) return y + 1;
+  }
+  return startY;
+}
+
 /** Drive the Veloren demo characters: a row near spawn, each jogging left/right
  *  (run pose) and pausing at the ends (idle pose). Speed is derived from each
  *  one's own movement, like remote avatars. Purely client-side (no server). */
@@ -1268,7 +1280,7 @@ function updateVelorenDemos(dt: number): void {
   if (!velorenBase) {
     // Anchor once, a few blocks to the player's side, on the spawn ground level.
     velorenBase = { x: player.pos.x + 4, y: player.pos.y, z: player.pos.z };
-    for (let i = 0; i < n; i++) velorenDemos[i].group.position.set(velorenBase.x - 4, velorenBase.y, rowZ(i));
+    for (let i = 0; i < n; i++) velorenDemos[i].group.position.set(velorenBase.x - 4, demoGroundY(velorenBase.x - 4, rowZ(i), velorenBase.y), rowZ(i));
     return;
   }
   velorenPhase += dt;
@@ -1281,7 +1293,7 @@ function updateVelorenDemos(dt: number): void {
     else if (seg < 6) tx = velorenBase.x + 4 - ((seg - 4) / 2) * 8; // run +4 → -4
     const g = char.group;
     const prevX = g.position.x;
-    g.position.set(tx, velorenBase.y, rowZ(i));
+    g.position.set(tx, demoGroundY(tx, rowZ(i), velorenBase.y), rowZ(i));
     const dx = tx - prevX;
     const speed = Math.abs(dx) / Math.max(dt, 1e-4);
     if (Math.abs(dx) > 1e-4) g.rotation.y = dx > 0 ? -Math.PI / 2 : Math.PI / 2; // face the heading
@@ -1296,7 +1308,7 @@ function updateVelorenDemos(dt: number): void {
   else if (wseg < 7) wx = velorenBase.x + 6 - ((wseg - 4) / 3) * 12; // trot +6 → -6
   const wg = wolfDemo.group;
   const wPrev = wg.position.x;
-  wg.position.set(wx, velorenBase.y, velorenBase.z - 3);
+  wg.position.set(wx, demoGroundY(wx, velorenBase.z - 3, velorenBase.y), velorenBase.z - 3);
   const wdx = wx - wPrev;
   const wspeed = Math.abs(wdx) / Math.max(dt, 1e-4);
   if (Math.abs(wdx) > 1e-4) wg.rotation.y = wdx > 0 ? -Math.PI / 2 : Math.PI / 2;
