@@ -214,6 +214,9 @@ export class VelorenCharacter {
   private animTime = 0;
   private stride = 0;
   private runAmt = 0;
+  private digT = 0; // one-shot place/dig swing timer (seconds)
+  private mining = false; // held: keep swinging while breaking a block
+  private firstPerson = false; // hide the head (+hair/eyes) so it doesn't block the FP camera
   // Preallocated poses + scratch quaternions (mutated in place — no per-frame GC).
   private readonly idlePose = {} as Record<BoneName, Pose>;
   private readonly runPose = {} as Record<BoneName, Pose>;
@@ -462,17 +465,45 @@ export class VelorenCharacter {
     const idle = this.computeIdle();
     if (this.runAmt < 0.001) {
       this.applyPose(idle);
-      return;
+    } else {
+      const run = this.computeRun();
+      for (const name of BONES) {
+        const a = idle[name];
+        const r = run[name];
+        const b = this.bones[name];
+        b.position.copy(a.p).lerp(r.p, this.runAmt);
+        b.quaternion.copy(a.q).slerp(r.q, this.runAmt);
+        b.scale.setScalar(a.s + (r.s - a.s) * this.runAmt);
+      }
     }
-    const run = this.computeRun();
-    for (const name of BONES) {
-      const a = idle[name];
-      const r = run[name];
-      const b = this.bones[name];
-      b.position.copy(a.p).lerp(r.p, this.runAmt);
-      b.quaternion.copy(a.q).slerp(r.q, this.runAmt);
-      b.scale.setScalar(a.s + (r.s - a.s) * this.runAmt);
-    }
+    this.applyDigSwing(dt); // place/dig arm swing, layered on top of idle/run
+    if (this.firstPerson) this.bones.head.scale.setScalar(0.0001); // hide head/hair/eyes in FP
+  }
+
+  /** First person: hide the head so it doesn't fill the camera (body + weapon stay
+   *  visible, like Veloren's first-person view — it has no separate hands model). */
+  setFirstPerson(on: boolean): void {
+    this.firstPerson = on;
+  }
+
+  /** Overlay a right-arm chop when placing (one-shot) or mining (held). The held
+   *  weapon follows, being a child of hand_r. */
+  private applyDigSwing(dt: number): void {
+    if (this.digT > 0) this.digT -= dt;
+    if (!this.mining && this.digT <= 0) return;
+    const t = this.mining ? this.animTime * 9 : (1 - this.digT / 0.35) * Math.PI; // loop vs single chop
+    const chop = -Math.abs(Math.sin(t)) * 1.2; // forearm swings forward/down
+    this.bones.hand_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, chop));
+    this.bones.shoulder_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, chop * 0.3));
+  }
+
+  /** One-shot swing (block place / a single dig). */
+  playDig(): void {
+    this.digT = 0.35;
+  }
+  /** Held state: keep swinging while breaking a block. */
+  setMining(on: boolean): void {
+    this.mining = on;
   }
 
   /** No-op: kept so the character satisfies the same interface as Avatar (the

@@ -21,6 +21,14 @@ const exists = (p) => existsSync(join(ROOT, path2file(p)));
 const num = (s) => s.split(',').map((x) => parseFloat(x.trim()));
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
+// Per-asset offset tweaks: some Veloren offsets assume a slightly different
+// skeleton than ours. The cloth belts/sashes sit ~2 voxels too low → raise z.
+const OFFSET_FIX = {
+  'armor/misc/belt/cloth_turq.vox': [0, 0, 2],
+  'armor/misc/belt/cloth_blood.vox': [0, 0, 2],
+  'armor/misc/belt/cloth_black.vox': [0, 0, 2],
+};
+
 // One `( vox_spec: ("path", (x,y,z)), color: None|Some((r,g,b)) )` piece.
 const PIECE = /vox_spec:\s*\("([^"]+)",\s*\(([-\d.\s,]+)\)\)\s*,?\s*color:\s*(None|Some\(\(\s*([\d\s,]+)\)\))/g;
 function pieces(text) {
@@ -31,7 +39,11 @@ function pieces(text) {
     const path = m[1];
     if (path === 'armor.empty' || !exists(path)) continue; // skip the empty/no-op + missing files
     const color = m[3].startsWith('Some') ? num(m[4]).map(Math.round) : null;
-    out.push({ vox: path2file(path), o: num(m[2]), color });
+    const file = path2file(path);
+    const o = num(m[2]);
+    const fix = OFFSET_FIX[file];
+    if (fix) for (let i = 0; i < 3; i++) o[i] += fix[i];
+    out.push({ vox: file, o, color });
   }
   return out;
 }

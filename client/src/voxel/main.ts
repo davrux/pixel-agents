@@ -812,6 +812,17 @@ function applyPlayerSkin(skin: string): void {
   }
 }
 
+// Route place/dig feedback to whichever body is shown (glTF avatar always + the
+// Veloren voxel char when active) so the swing shows on both.
+function playerDig(): void {
+  avatar.playDig();
+  selfVeloren?.playDig();
+}
+function playerMine(on: boolean): void {
+  avatar.setMining(on);
+  selfVeloren?.setMining(on);
+}
+
 // #4 Character editor: assemble species + per-slot outfit (hair/beard/eyes/hair
 // colour + every armor slot + weapon), shown in a dedicated rotatable preview with
 // an animation picker. "Save" encodes the whole outfit into the synced skin id
@@ -1708,7 +1719,8 @@ function placeCamera(): void {
   // the view (positive pitch = up, negative = down).
   if (selfVeloren) {
     avatar.group.visible = false; // glTF body hidden; the voxel char is shown instead
-    selfVeloren.group.visible = mode !== 'first'; // hide own body in first person
+    selfVeloren.group.visible = true; // visible in first person too, so arms + weapon show
+    selfVeloren.setFirstPerson(mode === 'first'); // just hide the head (Veloren-style FP)
     // position + facing are driven in frameBody (needs dt for a smooth turn)
   } else {
     avatar.group.visible = true;
@@ -1923,7 +1935,7 @@ function attackNearestNpc(): void {
   }
   if (bestId) {
     net.sendAttack(bestId);
-    avatar.playDig(); // swing feedback
+    playerDig(); // swing feedback
   }
 }
 
@@ -2457,7 +2469,7 @@ function useHeldTool(): void {
     );
     if (m) {
       net?.boatPlace(m.hit.x, m.hit.y, m.hit.z);
-      avatar.playDig();
+      playerDig();
       sound.play('foot_water');
     }
     return;
@@ -2471,7 +2483,7 @@ function useHeldTool(): void {
     );
     if (m) {
       net?.cartPlace(m.hit.x, m.hit.y, m.hit.z);
-      avatar.playDig();
+      playerDig();
       sound.play('place');
     }
     return;
@@ -2488,14 +2500,14 @@ function useHeldTool(): void {
       if (m) {
         const lava = isLavaId(world.get(m.hit.x, m.hit.y, m.hit.z));
         net?.use(m.hit.x, m.hit.y, m.hit.z, heldId);
-        avatar.playDig(); // arm swing (the wielded bucket dips)
+        playerDig(); // arm swing (the wielded bucket dips)
         sound.play(lava ? 'cool_lava' : 'foot_water'); // sizzle / water splash
       }
     } else {
       const m = aimVoxel((id) => id !== 0);
       if (m) {
         net?.use(m.air.x, m.air.y, m.air.z, heldId);
-        avatar.playDig();
+        playerDig();
         sound.play('foot_water'); // pour splash
       }
     }
@@ -2512,7 +2524,7 @@ function useHeldTool(): void {
       oz = Math.floor(po.z);
     if (!world.solid(ox, oy, oz)) {
       net?.use(ox, oy, oz, heldId);
-      avatar.playDig();
+      playerDig();
       sound.play('flint'); // flint & steel strike
     }
     return;
@@ -2526,7 +2538,7 @@ function useHeldTool(): void {
     const b = world.get(x, y, z);
     if (b === 2 || b === 1 || b === 7 || b === 8) {
       net?.use(x, y, z, heldId);
-      avatar.playDig(); // hoe swing
+      playerDig(); // hoe swing
       sound.play('dug'); // soil turn
     }
   }
@@ -2596,7 +2608,7 @@ function placeBlock(): void {
     showToast(`Kein Vorrat: ${held().name}`);
     return;
   }
-  avatar.playDig();
+  playerDig();
   sound.play(placeSoundFor(block)); // material-specific place (hard/metal/soft)
   if (!blockUnlimited(block)) onInv({ block, total: (invCounts.get(block) ?? 0) - 1 }); // optimistic; server 'inv' corrects
   if (net) {
@@ -2643,7 +2655,7 @@ function updateBreaking(dt: number, want: boolean): void {
   if (!tgt || dur === null) {
     breaking = null;
     breakOverlay.visible = false;
-    avatar.setMining(false);
+    playerMine(false);
     return;
   }
   if (!breaking || breaking.x !== tgt.x || breaking.y !== tgt.y || breaking.z !== tgt.z) {
@@ -2651,7 +2663,7 @@ function updateBreaking(dt: number, want: boolean): void {
     digStage = -1; // new target → restart the dig-sound cadence
   }
   breaking.t += dt;
-  avatar.setMining(true);
+  playerMine(true);
   breakOverlay.position.set(tgt.x + 0.5, tgt.y + 0.5, tgt.z + 0.5);
   breakOverlay.visible = true;
   const stage = Math.min(crackStages.length - 1, Math.floor((breaking.t / breaking.dur) * crackStages.length));
@@ -2681,7 +2693,7 @@ function updateBreaking(dt: number, want: boolean): void {
     }
     breaking = null;
     breakOverlay.visible = false;
-    avatar.setMining(false);
+    playerMine(false);
   }
 }
 
