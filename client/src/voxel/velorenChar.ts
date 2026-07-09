@@ -59,11 +59,14 @@ type BoneName =
   | 'shorts'
   | 'shoulder_l'
   | 'shoulder_r'
+  | 'control' // arm assembly (Veloren rig): chest → control → control_l/control_r → hands
+  | 'control_l'
+  | 'control_r'
   | 'hand_l'
   | 'hand_r'
   | 'foot_l'
   | 'foot_r';
-const BONES: BoneName[] = ['torso', 'chest', 'head', 'belt', 'back', 'shorts', 'shoulder_l', 'shoulder_r', 'hand_l', 'hand_r', 'foot_l', 'foot_r'];
+const BONES: BoneName[] = ['torso', 'chest', 'head', 'belt', 'back', 'shorts', 'shoulder_l', 'shoulder_r', 'control', 'control_l', 'control_r', 'hand_l', 'hand_r', 'foot_l', 'foot_r'];
 
 // ── catalog.json (generated from Veloren manifests) ──────────────────────────
 type Vec3 = [number, number, number];
@@ -262,8 +265,14 @@ export class VelorenCharacter {
     mk('shorts', chest);
     mk('shoulder_l', chest);
     mk('shoulder_r', chest);
-    mk('hand_l', chest);
-    mk('hand_r', chest);
+    // Arm assembly (Veloren rig): chest → control → control_l/control_r → hands.
+    // control_* default to identity, so idle/run/jump hand positions are unchanged;
+    // rotating control_r arcs the whole right arm (+ held weapon) from the body.
+    const control = mk('control', chest);
+    const controlL = mk('control_l', control);
+    const controlR = mk('control_r', control);
+    mk('hand_l', controlL);
+    mk('hand_r', controlR);
     mk('foot_l', torso);
     mk('foot_r', torso);
   }
@@ -389,6 +398,13 @@ export class VelorenCharacter {
   private rotX(a: number): THREE.Quaternion {
     return this.qa.setFromAxisAngle(XAXIS, a);
   }
+  /** Neutral (identity) arm-assembly bones — idle/run/jump keep control_* at rest;
+   *  the dig swing then rotates control_r on top. */
+  private putArmsNeutral(P: Record<BoneName, Pose>): void {
+    this.put(P, 'control', 0, 0, 0, this.qa.identity());
+    this.put(P, 'control_l', 0, 0, 0, this.qa.identity());
+    this.put(P, 'control_r', 0, 0, 0, this.qa.identity());
+  }
 
   /** IdleAnimation, ported from Veloren idle.rs (breathing bob + idle head-look). */
   private computeIdle(): Record<BoneName, Pose> {
@@ -412,6 +428,7 @@ export class VelorenCharacter {
     this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] + slow * 0.15, S_A.hand[2] + slow * 0.5, this.rotX(slow * -0.06), 1.04);
     this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1], S_A.foot[2], this.qa.identity());
     this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1], S_A.foot[2], this.qa.identity());
+    this.putArmsNeutral(P);
     return P;
   }
 
@@ -451,6 +468,7 @@ export class VelorenCharacter {
     this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] + swingL * ASTEP * sn, S_A.hand[2], this.rotX(swingL * 0.6 * sn));
     this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] + swingL * FSTEP * sn, S_A.foot[2] + liftL * FLIFT * sn, this.rotX(swingL * 0.5 * sn));
     this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + swingR * FSTEP * sn, S_A.foot[2] + liftR * FLIFT * sn, this.rotX(swingR * 0.5 * sn));
+    this.putArmsNeutral(P);
     return P;
   }
 
@@ -532,6 +550,7 @@ export class VelorenCharacter {
     // feet tuck up (+ falling pulls them further up)
     this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] - 5, 2 + S_A.foot[2] + slow * 1.5 + falling * -2, this.rotX(-0.8));
     this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + 5, 2 + S_A.foot[2] + slow * 1.5 + falling * -2, this.rotX(0.8));
+    this.putArmsNeutral(P);
     return P;
   }
 
@@ -550,12 +569,15 @@ export class VelorenCharacter {
     // p: 0 = wound up (arm overhead) → π = struck (arm down/forward).
     const p = this.mining ? this.animTime * 7 : (1 - this.digT / 0.35) * Math.PI;
     const raised = 0.5 - 0.5 * Math.cos(p); // 0 at wind-up, 1 at strike
-    const armX = -2.2 * (1 - raised) + 0.4 * raised; // overhead(-2.2) → down/forward(+0.4)
-    this.bones.hand_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
-    this.bones.shoulder_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, armX * 0.45));
-    // Torso/chest lean forward into the strike (peaks at the bottom of the swing).
-    this.bones.chest.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, raised * 0.28));
-    this.bones.head.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.12));
+    const armX = -2.4 * (1 - raised) + 0.5 * raised; // overhead(-2.4) → down/forward(+0.5)
+    // Arc the whole right arm assembly (hand + weapon) from the body pivot via
+    // control_r — a wide weapon swing, not just a wrist flick.
+    this.bones.control_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
+    this.bones.hand_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.4)); // wrist snap at the strike
+    this.bones.shoulder_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX * 0.3));
+    // Torso/chest + head lean into the strike (peaks at the bottom of the swing).
+    this.bones.chest.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.28));
+    this.bones.head.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, raised * 0.12));
   }
 
   /** One-shot swing (block place / a single dig). */

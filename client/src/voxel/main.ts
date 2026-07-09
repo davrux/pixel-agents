@@ -1117,6 +1117,12 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
     panel.style.display = 'block';
     void ensureCat().then(() => window.setTimeout(() => stepSpecies(1), 900));
   }
+  // ?swingtest → equip a weapon + hold the mining swing, to eyeball the attack arc.
+  if (params.get('swingtest') !== null) {
+    edOutfit = { ...defaultOutfit(), weapon: 0 };
+    panel.style.display = 'block';
+    void ensureCat().then(() => window.setTimeout(() => previewChar?.setMining(true), 300));
+  }
 })();
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
