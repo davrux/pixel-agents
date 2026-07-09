@@ -32,6 +32,7 @@ import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
 import { VelorenCharacter, SPECIES_IDS } from './velorenChar.js';
+import { QuadrupedCharacter } from './quadrupedChar.js';
 import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
@@ -842,6 +843,9 @@ const velorenDemos = SPECIES_IDS.map((id, i) => {
 });
 let velorenBase: { x: number; y: number; z: number } | null = null;
 let velorenPhase = 0; // patrol time (seconds)
+// #6 NPC/monster foundation: one quadruped (wolf) trotting in front of the row.
+const wolfDemo = new QuadrupedCharacter('wolf');
+scene.add(wolfDemo.group);
 
 // ── Networking: server chunks + authoritative edits + remote players ──────────
 interface RemotePlayer {
@@ -1284,6 +1288,20 @@ function updateVelorenDemos(dt: number): void {
     char.setTint(dayColors.light);
     char.animate(dt, speed);
   }
+  // Wolf: trots along X in front of the row (a bit faster, longer line).
+  const wseg = (velorenPhase * 1.3) % 8;
+  let wx = velorenBase.x - 6;
+  if (wseg < 3) wx = velorenBase.x - 6 + (wseg / 3) * 12; // trot -6 → +6
+  else if (wseg < 4) wx = velorenBase.x + 6; // pause
+  else if (wseg < 7) wx = velorenBase.x + 6 - ((wseg - 4) / 3) * 12; // trot +6 → -6
+  const wg = wolfDemo.group;
+  const wPrev = wg.position.x;
+  wg.position.set(wx, velorenBase.y, velorenBase.z - 3);
+  const wdx = wx - wPrev;
+  const wspeed = Math.abs(wdx) / Math.max(dt, 1e-4);
+  if (Math.abs(wdx) > 1e-4) wg.rotation.y = wdx > 0 ? -Math.PI / 2 : Math.PI / 2;
+  wolfDemo.setTint(dayColors.light);
+  wolfDemo.animate(dt, wspeed);
 }
 
 /** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */

@@ -16,6 +16,7 @@ original directory layout (so a Veloren dot-path `armor.misc.chest.none` maps to
 | `weapon/`  | weapons (imported; not yet placed in-hand) | 781  |
 | `glider/`  | gliders (imported; not yet wired)          | 18   |
 | `lantern/` | lanterns (imported; not yet wired)         | 16   |
+| `npc/wolf/`| wolf parts — quadruped NPC foundation (#6)  | 11   |
 
 `manifests/` holds the 12 `humanoid_*_manifest.ron` files (part offsets, armor
 maps, hair colours) copied verbatim from Veloren.
