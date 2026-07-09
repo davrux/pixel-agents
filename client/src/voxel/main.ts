@@ -31,6 +31,7 @@ import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_IT
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
+import { VelorenCharacter, SPECIES_IDS } from './velorenChar.js';
 import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
@@ -776,6 +777,18 @@ try {
 const avatar = new Avatar(playerSkin);
 scene.add(avatar.group);
 
+// ── Veloren character spike (client-side demo) ────────────────────────────────
+// One biped per Veloren species/gender, driven by ported Veloren idle/run
+// animations. They line up near spawn and jog back and forth so both poses (and
+// every species) are visible; see velorenChar.ts.
+const velorenDemos = SPECIES_IDS.map((id, i) => {
+  const char = new VelorenCharacter(id, i); // seed = index → each a different outfit
+  scene.add(char.group);
+  return char;
+});
+let velorenBase: { x: number; y: number; z: number } | null = null;
+let velorenPhase = 0; // patrol time (seconds)
+
 // ── Networking: server chunks + authoritative edits + remote players ──────────
 interface RemotePlayer {
   id: number;
@@ -1156,6 +1169,38 @@ function syncNpcs(dt: number, state: RemoteState): void {
   syncItemDrops(state);
   syncBoats(dt, state);
   syncCarts(dt, state);
+}
+
+/** Drive the Veloren demo characters: a row near spawn, each jogging left/right
+ *  (run pose) and pausing at the ends (idle pose). Speed is derived from each
+ *  one's own movement, like remote avatars. Purely client-side (no server). */
+function updateVelorenDemos(dt: number): void {
+  if (!ready) return;
+  const n = velorenDemos.length;
+  const rowZ = (i: number): number => velorenBase!.z + (i - (n - 1) / 2) * 1.8; // perpendicular to travel
+  if (!velorenBase) {
+    // Anchor once, a few blocks to the player's side, on the spawn ground level.
+    velorenBase = { x: player.pos.x + 4, y: player.pos.y, z: player.pos.z };
+    for (let i = 0; i < n; i++) velorenDemos[i].group.position.set(velorenBase.x - 4, velorenBase.y, rowZ(i));
+    return;
+  }
+  velorenPhase += dt;
+  for (let i = 0; i < n; i++) {
+    const char = velorenDemos[i];
+    const seg = (velorenPhase + i * 0.35) % 8; // 2s run + 2s idle each way; staggered per char
+    let tx = velorenBase.x - 4;
+    if (seg < 2) tx = velorenBase.x - 4 + (seg / 2) * 8; // run -4 → +4  (~4 u/s)
+    else if (seg < 4) tx = velorenBase.x + 4; // idle at +4
+    else if (seg < 6) tx = velorenBase.x + 4 - ((seg - 4) / 2) * 8; // run +4 → -4
+    const g = char.group;
+    const prevX = g.position.x;
+    g.position.set(tx, velorenBase.y, rowZ(i));
+    const dx = tx - prevX;
+    const speed = Math.abs(dx) / Math.max(dt, 1e-4);
+    if (Math.abs(dx) > 1e-4) g.rotation.y = dx > 0 ? -Math.PI / 2 : Math.PI / 2; // face the heading
+    char.setTint(dayColors.light);
+    char.animate(dt, speed);
+  }
 }
 
 /** Reconcile dropped-item cubes from state.items — bob + spin; add/remove on AOI. */
@@ -3719,6 +3764,7 @@ function frameBody(now: number): void {
     net.sendMove(player.pos.x, player.pos.y, player.pos.z, player.yaw, player.pitch, moveState);
   }
   syncRemotePlayers(dt);
+  updateVelorenDemos(dt); // Veloren character spike
   // Own HP → bar (+ damage flash on decrease).
   if (net) {
     const me = (net.room.state as unknown as { players?: RemoteState['players'] }).players?.get(net.sessionId); // players may be unsynced on the first frames
