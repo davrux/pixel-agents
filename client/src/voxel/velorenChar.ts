@@ -50,6 +50,29 @@ const S_A = {
   shoulder: [5.0, 0.0, 5.0] as const,
 };
 
+// Weapon-hold offsets (Human) from mod.rs — 6-tuples [x, y, z, rotX, rotY, rotZ].
+// Used by the ported wield.rs hold poses. sc/shl = sword; hh*/hc = hammer & pick;
+// ah*/ac = axe; sth*/stc = staff/sceptre; bh*/bc = bow.
+const W = {
+  sc: [-6, 6, 0, -0.5, 0, 0],
+  shl: [-0.75, -1, 0.5, 1.47, -0.2, 0],
+  hhl: [0.1, 0, 11, 4.71, 0, Math.PI],
+  hhr: [0, 0, 0, 4.71, 0, Math.PI],
+  hc: [6, 7, 1, -0.3, -Math.PI / 2, 3.64],
+  ahl: [-0.5, -1.5, 5.25, 1.5, Math.PI, 0],
+  ahr: [0, -2, 1, 1.5, 0, Math.PI],
+  ac: [-8.5, 2, 0.5, 4.25, Math.PI, 0.2],
+  shl_staff: [0, 0, 6, 1.97, 0, 0],
+  bhl: [0, -4, 1, Math.PI / 2, 0, 0],
+  bhr: [1, 2, -2, Math.PI / 2, 0, 0],
+  bc: [-5, 9, 1, 0, 1.2, -0.6],
+};
+/** Tool kind from a weapon vox path (weapon/<kind>/…). */
+function toolKindOf(voxPath: string): string {
+  const m = voxPath.match(/weapon\/([a-z]+)\//);
+  return m ? m[1] : '';
+}
+
 type BoneName =
   | 'torso'
   | 'chest'
@@ -59,14 +82,15 @@ type BoneName =
   | 'shorts'
   | 'shoulder_l'
   | 'shoulder_r'
-  | 'control' // arm assembly (Veloren rig): chest → control → control_l/control_r → hands
+  | 'control' // arm assembly (Veloren rig): chest → control → control_l/control_r → hands + main
   | 'control_l'
   | 'control_r'
   | 'hand_l'
   | 'hand_r'
+  | 'main' // held main weapon (child of control_l)
   | 'foot_l'
   | 'foot_r';
-const BONES: BoneName[] = ['torso', 'chest', 'head', 'belt', 'back', 'shorts', 'shoulder_l', 'shoulder_r', 'control', 'control_l', 'control_r', 'hand_l', 'hand_r', 'foot_l', 'foot_r'];
+const BONES: BoneName[] = ['torso', 'chest', 'head', 'belt', 'back', 'shorts', 'shoulder_l', 'shoulder_r', 'control', 'control_l', 'control_r', 'hand_l', 'hand_r', 'main', 'foot_l', 'foot_r'];
 
 // ── catalog.json (generated from Veloren manifests) ──────────────────────────
 type Vec3 = [number, number, number];
@@ -232,6 +256,8 @@ export class VelorenCharacter {
   private readonly jumpPose = {} as Record<BoneName, Pose>;
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
+  private readonly qc = new THREE.Quaternion();
+  private toolKind = ''; // '' | 'sword' | 'axe' | 'hammer' | 'pick' | 'bow' | 'staff' | 'sceptre' | …
 
   /** @param outfit an explicit Outfit, or a number seed for a deterministic random one. */
   constructor(speciesId = 'human_male', outfit: Outfit | number = 0) {
@@ -273,6 +299,7 @@ export class VelorenCharacter {
     const controlR = mk('control_r', control);
     mk('hand_l', controlL);
     mk('hand_r', controlR);
+    mk('main', controlL); // held weapon
     mk('foot_l', torso);
     mk('foot_r', torso);
   }
@@ -338,10 +365,13 @@ export class VelorenCharacter {
         one(sh.left, 'shoulder_l');
         one(sh.right, 'shoulder_r');
       }
-      // Held weapon in the right hand. NOTE: grip transform is approximate (weapon
-      // offsets are in Veloren's `main` bone frame) — may need tuning.
+      // Held weapon on the `main` bone (Veloren's weapon offsets are in that frame);
+      // the tool kind (from the vox path) picks the wield hold pose.
       const w = at(cat.weapons, of.weapon);
-      if (w) jobs.push(this.placeWeapon(base, w));
+      if (w) {
+        this.toolKind = toolKindOf(w.vox);
+        jobs.push(this.placeWeapon(base, w));
+      }
       await Promise.all(jobs);
     } catch (e) {
       console.warn('[veloren] load failed:', this.speciesId, e);
@@ -349,17 +379,14 @@ export class VelorenCharacter {
     this.normalise();
   }
 
-  /** Weapon held in the right hand: wrapped in a grip group (tuning transform) so
-   *  the blade stands up along the arm and swings with the hand during the run. */
+  /** Weapon on the `main` bone with its Veloren manifest offset (that offset is in
+   *  the main-bone frame). The wield hold pose then positions control_l/main so it
+   *  sits in the hands. */
   private async placeWeapon(base: string, w: VoxRef): Promise<void> {
     const m = await loadVox(base + w.vox);
     const mesh = buildVoxMesh(m, w.o, w.color ? rgb(w.color) : undefined);
-    const grip = new THREE.Group();
-    grip.rotation.set(-Math.PI / 2, 0, 0); // stand the blade up out of the fist
-    grip.position.set(0, 0, 0);
-    grip.add(mesh);
     this.weaponMat = mesh.material as THREE.MeshBasicMaterial;
-    this.attach('hand_r', grip, this.weaponMat);
+    this.attach('main', mesh, this.weaponMat);
   }
 
   private normalise(): void {
@@ -404,6 +431,14 @@ export class VelorenCharacter {
     this.put(P, 'control', 0, 0, 0, this.qa.identity());
     this.put(P, 'control_l', 0, 0, 0, this.qa.identity());
     this.put(P, 'control_r', 0, 0, 0, this.qa.identity());
+    this.put(P, 'main', 0, 0, 0, this.qa.identity());
+  }
+  /** rotX(rx) * rotY(ry) * rotZ(rz) into qa (returned). */
+  private rotXYZ(rx: number, ry: number, rz: number): THREE.Quaternion {
+    this.qb.setFromAxisAngle(YAXIS, ry);
+    this.qc.setFromAxisAngle(ZAXIS, rz);
+    this.qb.multiply(this.qc);
+    return this.qa.setFromAxisAngle(XAXIS, rx).multiply(this.qb);
   }
 
   /** IdleAnimation, ported from Veloren idle.rs (breathing bob + idle head-look). */
@@ -515,8 +550,81 @@ export class VelorenCharacter {
         b.quaternion.slerp(j.q, this.jumpAmt);
       }
     }
-    this.applyDigSwing(dt); // place/dig arm swing, layered on top of idle/run
+    if (this.weaponMat) this.applyWield(); // hold the weapon (overrides the arm bones)
+    this.applyDigSwing(dt); // place/dig arm swing, layered on top
     if (this.firstPerson) this.bones.head.scale.setScalar(0.0001); // hide head/hair/eyes in FP
+  }
+
+  /** Wield hold pose, ported from Veloren wield.rs per tool kind: positions the
+   *  control/hand bones so the weapon (on `main`, child of control_l) sits in the
+   *  hands. Overrides the arm bones after the base idle/run pose. */
+  private applyWield(): void {
+    const b = this.bones;
+    const uSlow = Math.sin(this.animTime * 4.5 + Math.PI);
+    const uSlowAlt = Math.cos(this.animTime * 5 + Math.PI);
+    const slow = Math.sin(this.animTime * 7 + Math.PI);
+    const sn = Math.min(1, this.jumpSpeed / 9.5);
+    const twoHandGrip = (scDx: number, scDy: number, scDz: number): void => {
+      // control_l/_r = hand_l * 0.2 + sc offset (two-handed sword/staff hold)
+      const hl = S_A.hand;
+      b.control_l.position.set(-hl[0] * 0.2 + W.sc[0] + scDx, hl[1] * 0.2 + W.sc[1] - slow * 2 * sn + scDy, hl[2] * 0.2 + W.sc[2] - slow * 2 * sn + scDz);
+      b.control_r.position.copy(b.control_l.position);
+      this.qb.setFromAxisAngle(ZAXIS, uSlowAlt * 0.04);
+      b.control_l.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, W.sc[3] + uSlow * 0.05)).multiply(this.qb);
+      this.qb.setFromAxisAngle(ZAXIS, uSlowAlt * 0.08);
+      b.control_r.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, W.sc[3] + uSlow * 0.15)).multiply(this.qb);
+      this.qb.setFromAxisAngle(YAXIS, W.shl[4]);
+      b.hand_l.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, W.shl[3])).multiply(this.qb);
+      b.hand_r.quaternion.copy(b.hand_l.quaternion).multiply(this.qc.setFromAxisAngle(YAXIS, Math.PI * 0.3));
+    };
+    switch (this.toolKind) {
+      case 'hammer':
+      case 'pick': {
+        b.hand_l.position.set(W.hhl[0], W.hhl[1] + 3, W.hhl[2] - 1);
+        b.hand_l.quaternion.copy(this.rotXYZ(W.hhl[3], W.hhl[4], W.hhl[5]));
+        b.hand_r.position.set(W.hhr[0], W.hhr[1] + 3, W.hhr[2] + 1);
+        b.hand_r.quaternion.copy(this.rotXYZ(W.hhr[3], W.hhr[4], W.hhr[5]));
+        b.control.position.set(W.hc[0] - 1, W.hc[1], W.hc[2] - 3);
+        b.control.quaternion.copy(this.rotXYZ(W.hc[3] + uSlow * 0.15, W.hc[4], W.hc[5] + uSlowAlt * 0.07));
+        break;
+      }
+      case 'axe': {
+        b.hand_l.position.set(W.ahl[0], W.ahl[1], W.ahl[2]);
+        this.qb.setFromAxisAngle(YAXIS, W.ahl[4]);
+        b.hand_l.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, W.ahl[3])).multiply(this.qb);
+        b.hand_r.position.set(W.ahr[0], W.ahr[1], W.ahr[2]);
+        this.qb.setFromAxisAngle(ZAXIS, Math.PI);
+        b.hand_r.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, W.ahr[3])).multiply(this.qb);
+        b.control.position.set(W.ac[0], W.ac[1], W.ac[2]);
+        b.control.quaternion.copy(this.rotXYZ(W.ac[3], W.ac[4], W.ac[5]));
+        break;
+      }
+      case 'bow': {
+        b.hand_l.position.set(W.bhl[0], W.bhl[1], W.bhl[2]);
+        b.hand_l.quaternion.copy(this.rotX(W.bhl[3]));
+        b.hand_r.position.set(W.bhr[0], W.bhr[1], W.bhr[2]);
+        b.hand_r.quaternion.copy(this.rotX(W.bhr[3]));
+        b.control.position.set(W.bc[0], W.bc[1], W.bc[2]);
+        this.qb.setFromAxisAngle(YAXIS, W.bc[4]);
+        this.qc.setFromAxisAngle(ZAXIS, W.bc[5] + uSlowAlt * 0.1);
+        this.qb.multiply(this.qc);
+        b.control.quaternion.copy(this.qa.setFromAxisAngle(XAXIS, uSlow * 0.06)).multiply(this.qb);
+        break;
+      }
+      case 'staff':
+      case 'sceptre': {
+        twoHandGrip(1, -3, -3);
+        b.hand_l.position.set(W.shl[0] - 0.5, W.shl[1], W.shl[2]);
+        b.hand_r.position.set(0, 0, 8);
+        break;
+      }
+      default: {
+        // sword / dagger / spear / unknown → two-handed sword hold
+        twoHandGrip(0, 0, 0);
+        b.hand_l.position.set(W.shl[0] - 0.5, W.shl[1], W.shl[2]);
+        b.hand_r.position.set(0, 0, 0);
+      }
+    }
   }
 
   /** Jump/airborne state — drives the jump pose (velocity.z gives the falling tuck). */
@@ -570,10 +678,9 @@ export class VelorenCharacter {
     const p = this.mining ? this.animTime * 7 : (1 - this.digT / 0.35) * Math.PI;
     const raised = 0.5 - 0.5 * Math.cos(p); // 0 at wind-up, 1 at strike
     const armX = -2.4 * (1 - raised) + 0.5 * raised; // overhead(-2.4) → down/forward(+0.5)
-    // Arc the whole right arm assembly (hand + weapon) from the body pivot via
-    // control_r — a wide weapon swing, not just a wrist flick.
-    this.bones.control_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
-    this.bones.hand_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.4)); // wrist snap at the strike
+    // Arc the whole arm+weapon assembly from the body pivot via `control` (parent of
+    // both hands + the weapon on main) — a wide swing, not just a wrist flick.
+    this.bones.control.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
     this.bones.shoulder_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX * 0.3));
     // Torso/chest + head lean into the strike (peaks at the bottom of the swing).
     this.bones.chest.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.28));

@@ -1123,6 +1123,13 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
     panel.style.display = 'block';
     void ensureCat().then(() => window.setTimeout(() => previewChar?.setMining(true), 300));
   }
+  // ?weptest=N → equip weapon N and show the static wield hold (no swing).
+  const wep = params.get('weptest');
+  if (wep !== null) {
+    edOutfit = { ...defaultOutfit(), weapon: parseInt(wep, 10) || 0 };
+    panel.style.display = 'block';
+    void ensureCat();
+  }
 })();
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────
