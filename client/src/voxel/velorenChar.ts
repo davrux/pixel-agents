@@ -208,6 +208,7 @@ export class VelorenCharacter {
   private readonly space = new THREE.Group();
   private readonly bones = {} as Record<BoneName, THREE.Group>;
   private readonly tinted: THREE.MeshBasicMaterial[] = [];
+  private weaponMat: THREE.MeshBasicMaterial | null = null; // kept opaque while the body fades (FP look-down)
   private readonly speciesId: string;
   private readonly outfit: Outfit | number; // explicit outfit, or a seed for a random one
 
@@ -341,7 +342,8 @@ export class VelorenCharacter {
     grip.rotation.set(-Math.PI / 2, 0, 0); // stand the blade up out of the fist
     grip.position.set(0, 0, 0);
     grip.add(mesh);
-    this.attach('hand_r', grip, mesh.material as THREE.MeshBasicMaterial);
+    this.weaponMat = mesh.material as THREE.MeshBasicMaterial;
+    this.attach('hand_r', grip, this.weaponMat);
   }
 
   private normalise(): void {
@@ -524,6 +526,17 @@ export class VelorenCharacter {
   /** Day/night tint — multiplies every (unlit, vertex-coloured) segment. */
   setTint(c: THREE.Color): void {
     for (const mat of this.tinted) mat.color.copy(c);
+  }
+
+  /** Fade the body (not the held weapon) — used in first person when looking down
+   *  so the body doesn't block the view but the weapon stays visible. o=1 = solid. */
+  setOpacity(o: number): void {
+    for (const mat of this.tinted) {
+      if (mat === this.weaponMat) continue; // keep the weapon fully visible
+      mat.transparent = o < 0.999;
+      mat.opacity = o;
+      mat.depthWrite = o >= 0.999;
+    }
   }
 
   dispose(): void {

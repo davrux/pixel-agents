@@ -22,11 +22,12 @@ const num = (s) => s.split(',').map((x) => parseFloat(x.trim()));
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
 // Per-asset offset tweaks: some Veloren offsets assume a slightly different
-// skeleton than ours. The cloth belts/sashes sit ~2 voxels too low → raise z.
+// skeleton than ours. The cloth belts/sashes sit way too low (z=-6, down at the
+// thigh) → raise to z=2 to match the normal belts' waist height (+8).
 const OFFSET_FIX = {
-  'armor/misc/belt/cloth_turq.vox': [0, 0, 2],
-  'armor/misc/belt/cloth_blood.vox': [0, 0, 2],
-  'armor/misc/belt/cloth_black.vox': [0, 0, 2],
+  'armor/misc/belt/cloth_turq.vox': [0, 0, 8],
+  'armor/misc/belt/cloth_blood.vox': [0, 0, 8],
+  'armor/misc/belt/cloth_black.vox': [0, 0, 8],
 };
 
 // One `( vox_spec: ("path", (x,y,z)), color: None|Some((r,g,b)) )` piece.

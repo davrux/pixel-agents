@@ -1721,6 +1721,12 @@ function placeCamera(): void {
     avatar.group.visible = false; // glTF body hidden; the voxel char is shown instead
     selfVeloren.group.visible = true; // visible in first person too, so arms + weapon show
     selfVeloren.setFirstPerson(mode === 'first'); // just hide the head (Veloren-style FP)
+    // Looking down in first person: fade the body away (weapon stays) so it doesn't
+    // block the view — like the glTF avatar. Local only; other players are unaffected.
+    if (mode === 'first') {
+      const down = Math.max(0, -player.pitch - 0.3);
+      selfVeloren.setOpacity(clamp(1 - down * 1.6, 0, 1));
+    } else selfVeloren.setOpacity(1);
     // position + facing are driven in frameBody (needs dt for a smooth turn)
   } else {
     avatar.group.visible = true;
