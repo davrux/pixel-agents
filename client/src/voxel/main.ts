@@ -4181,6 +4181,7 @@ function frameBody(now: number): void {
       selfVeloren.group.rotation.y += d * Math.min(1, dt * 12);
     }
     selfVeloren.setTint(dayColors.light);
+    selfVeloren.setAirborne(!player.onGround && !player.inWater, player.vel.y); // jump pose in the air
     selfVeloren.animate(dt, player.speed2d);
   }
   updateFootsteps(dt);

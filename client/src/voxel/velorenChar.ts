@@ -35,6 +35,7 @@ const TARGET_H = 1.8;
 const MODEL_UNITS = 32;
 
 const XAXIS = new THREE.Vector3(1, 0, 0);
+const YAXIS = new THREE.Vector3(0, 1, 0);
 const ZAXIS = new THREE.Vector3(0, 0, 1);
 
 const S_A = {
@@ -218,9 +219,14 @@ export class VelorenCharacter {
   private digT = 0; // one-shot place/dig swing timer (seconds)
   private mining = false; // held: keep swinging while breaking a block
   private firstPerson = false; // hide the head (+hair/eyes) so it doesn't block the FP camera
+  private airborne = false; // in the air → jump pose
+  private vertVel = 0; // vertical velocity (drives the falling tuck)
+  private jumpAmt = 0; // 0 = grounded, 1 = jump pose (eased)
+  private jumpSpeed = 0; // horizontal speed, for the jump lean
   // Preallocated poses + scratch quaternions (mutated in place — no per-frame GC).
   private readonly idlePose = {} as Record<BoneName, Pose>;
   private readonly runPose = {} as Record<BoneName, Pose>;
+  private readonly jumpPose = {} as Record<BoneName, Pose>;
   private readonly qa = new THREE.Quaternion();
   private readonly qb = new THREE.Quaternion();
 
@@ -231,6 +237,7 @@ export class VelorenCharacter {
     for (const n of BONES) {
       this.idlePose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
       this.runPose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
+      this.jumpPose[n] = { p: new THREE.Vector3(), q: new THREE.Quaternion(), s: 1 };
     }
     this.space.rotation.x = -Math.PI / 2; // Veloren Z-up → Three Y-up
     this.space.scale.setScalar(TARGET_H / MODEL_UNITS);
@@ -462,8 +469,10 @@ export class VelorenCharacter {
   animate(dt: number, speed = 0, _pitch = 0): void {
     this.animTime += dt;
     this.stride += speed * dt * 1.4;
+    this.jumpSpeed = speed;
     const wantRun = speed > 0.4 ? 1 : 0;
     this.runAmt += (wantRun - this.runAmt) * Math.min(1, dt * 8);
+    this.jumpAmt += ((this.airborne ? 1 : 0) - this.jumpAmt) * Math.min(1, dt * 10);
     const idle = this.computeIdle();
     if (this.runAmt < 0.001) {
       this.applyPose(idle);
@@ -478,8 +487,52 @@ export class VelorenCharacter {
         b.scale.setScalar(a.s + (r.s - a.s) * this.runAmt);
       }
     }
+    // Blend toward the jump pose while airborne (on top of idle/run).
+    if (this.jumpAmt > 0.001) {
+      const jp = this.computeJump();
+      for (const name of BONES) {
+        const j = jp[name];
+        const b = this.bones[name];
+        b.position.lerp(j.p, this.jumpAmt);
+        b.quaternion.slerp(j.q, this.jumpAmt);
+      }
+    }
     this.applyDigSwing(dt); // place/dig arm swing, layered on top of idle/run
     if (this.firstPerson) this.bones.head.scale.setScalar(0.0001); // hide head/hair/eyes in FP
+  }
+
+  /** Jump/airborne state — drives the jump pose (velocity.z gives the falling tuck). */
+  setAirborne(on: boolean, vy = 0): void {
+    this.airborne = on;
+    this.vertVel = vy;
+  }
+
+  /** JumpAnimation, ported from Veloren jump.rs (tilt/switch alternation dropped;
+   *  a single tucked airborne pose). Falling (velocity.z) tucks the feet up. */
+  private computeJump(): Record<BoneName, Pose> {
+    const slow = Math.sin(this.animTime * 7);
+    const falling = Math.max(-1, Math.min(1, this.vertVel * 0.1));
+    const sn = Math.min(1, this.jumpSpeed / 10);
+    const P = this.jumpPose;
+    this.put(P, 'torso', 0, 0, 0, this.qa.identity());
+    this.put(P, 'chest', 0, S_A.chest[0], S_A.chest[1] + 1, this.rotX(sn * -0.3));
+    this.put(P, 'head', 0, S_A.head[0], S_A.head[1] - 1, this.rotX(0.25 + slow * 0.04), S_A.headScale);
+    this.put(P, 'belt', 0, S_A.belt[0] + sn * 1.2, S_A.belt[1] + sn * 1.0, this.rotX(sn * 0.3));
+    this.put(P, 'back', 0, S_A.back[0], S_A.back[1], this.qa.identity());
+    this.put(P, 'shorts', 0, S_A.shorts[0] + sn * 1.2, S_A.shorts[1] + sn * 1.0, this.rotX(sn * 0.5));
+    this.put(P, 'shoulder_l', -S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(0.4));
+    this.put(P, 'shoulder_r', S_A.shoulder[0], S_A.shoulder[1], S_A.shoulder[2], this.rotX(-0.4));
+    // hands: left raised, right low (jump.rs switch>0 branch), rotX * rotY
+    this.qb.setFromAxisAngle(YAXIS, 0.2);
+    this.qa.setFromAxisAngle(XAXIS, 1.9 + slow * 0.4).multiply(this.qb);
+    this.put(P, 'hand_l', -S_A.hand[0], 1 + S_A.hand[1] + 4, 2 + S_A.hand[2] + slow * 1.5, this.qa);
+    this.qb.setFromAxisAngle(YAXIS, -0.2);
+    this.qa.setFromAxisAngle(XAXIS, -0.5 + slow * -0.4).multiply(this.qb);
+    this.put(P, 'hand_r', S_A.hand[0], S_A.hand[1] - 3, S_A.hand[2] + slow * 1.5, this.qa);
+    // feet tuck up (+ falling pulls them further up)
+    this.put(P, 'foot_l', -S_A.foot[0], S_A.foot[1] - 5, 2 + S_A.foot[2] + slow * 1.5 + falling * -2, this.rotX(-0.8));
+    this.put(P, 'foot_r', S_A.foot[0], S_A.foot[1] + 5, 2 + S_A.foot[2] + slow * 1.5 + falling * -2, this.rotX(0.8));
+    return P;
   }
 
   /** First person: hide the head so it doesn't fill the camera (body + weapon stay
