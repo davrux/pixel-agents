@@ -1089,6 +1089,23 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
     pvYaw = 0; // face the front each time the editor opens
     rebuildPreview(); // show the current character in the preview window
   }
+
+  // Dev hook for automated screenshots (harmless in normal play): open the editor
+  // preview with a given species + partial outfit. `?belttest=N` shows human_male
+  // wearing belt N — used to eyeball armor offsets.
+  (window as unknown as { __charPreview?: (s: string, o: Partial<Outfit>) => void }).__charPreview = (speciesId, o) => {
+    const i = SPECIES_IDS.indexOf(speciesId);
+    if (i >= 0) edSpeciesIdx = i;
+    edOutfit = { ...defaultOutfit(), ...o };
+    panel.style.display = 'block';
+    void ensureCat();
+  };
+  const beltTest = new URLSearchParams(window.location.search).get('belttest');
+  if (beltTest !== null) {
+    edOutfit = { ...defaultOutfit(), belt: parseInt(beltTest, 10) || 0 };
+    panel.style.display = 'block';
+    void ensureCat();
+  }
 })();
 
 // ── Veloren character spike (client-side demo) ────────────────────────────────

@@ -21,13 +21,13 @@ const exists = (p) => existsSync(join(ROOT, path2file(p)));
 const num = (s) => s.split(',').map((x) => parseFloat(x.trim()));
 const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
-// Per-asset offset tweaks: some Veloren offsets assume a slightly different
-// skeleton than ours. The cloth belts/sashes sit way too low (z=-6, down at the
-// thigh) → raise to z=2 to match the normal belts' waist height (+8).
+// Per-asset offset tweaks: some Veloren offsets don't line up on our skeleton.
+// The cloth belts share manifest z=-6, but their vox geometry differs: turq/black
+// have a high z-centroid (~8.4) so -6 lands them at the waist (correct), while
+// cloth_blood's centroid is low (~2.4), leaving it at the thigh — raise it to z=0
+// (+6) so its centroid matches the reference `none` belt's waist height.
 const OFFSET_FIX = {
-  'armor/misc/belt/cloth_turq.vox': [0, 0, 8],
-  'armor/misc/belt/cloth_blood.vox': [0, 0, 8],
-  'armor/misc/belt/cloth_black.vox': [0, 0, 8],
+  'armor/misc/belt/cloth_blood.vox': [0, 0, 6],
 };
 
 // One `( vox_spec: ("path", (x,y,z)), color: None|Some((r,g,b)) )` piece.
