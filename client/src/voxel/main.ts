@@ -769,9 +769,12 @@ const player = new Player(world);
 player.yaw = -Math.PI / 4; // face into the iso view by default
 let spawn = { x: 0.5, y: 24, z: 0.5 };
 let ready = false; // don't simulate/fall until the spawn column is loaded
-let playerSkin = 'character_1';
+// New players default to a Veloren voxel character; the old glTF skins stay on ice
+// (still render for anyone whose saved skin is a character_N, and via the editor's
+// "Standard" button) but are no longer the default or offered in a skin picker.
+let playerSkin = 'veloren:human_male';
 try {
-  playerSkin = localStorage.getItem('voxSkin') || 'character_1';
+  playerSkin = localStorage.getItem('voxSkin') || 'veloren:human_male';
 } catch {
   /* ignore */
 }
@@ -876,8 +879,9 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
   // Sits in the top-left toolbar to the RIGHT of the audio button (#vx-audio-btn is
   // at left:10px, 30px wide); matches its icon-button look. Panel opens below.
   const btn = document.createElement('button');
+  btn.id = 'vx-char-btn';
   btn.textContent = '🧍';
-  btn.title = 'Character';
+  btn.title = 'Character (K)';
   btn.style.cssText =
     'position:fixed;left:48px;top:8px;width:30px;height:30px;z-index:120;cursor:pointer;display:flex;align-items:center;justify-content:center;' +
     'font-size:1rem;background:#141826;border:2px solid #05060b;border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;';
@@ -1016,6 +1020,7 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
       else if (v < min) v = c - 1;
       edOutfit[key] = v;
     }
+    pvYaw = 0; // re-face the front on any change (pose is kept; only the drag angle resets)
     preview();
     refresh();
   };
@@ -1100,11 +1105,17 @@ let updateCharPreview: (dt: number) => void = () => {}; // set by the editor; ca
     panel.style.display = 'block';
     void ensureCat();
   };
-  const beltTest = new URLSearchParams(window.location.search).get('belttest');
+  const params = new URLSearchParams(window.location.search);
+  const beltTest = params.get('belttest');
   if (beltTest !== null) {
     edOutfit = { ...defaultOutfit(), belt: parseInt(beltTest, 10) || 0 };
     panel.style.display = 'block';
     void ensureCat();
+  }
+  // ?chartest=step → open, then switch species after a beat (repro the species-switch facing).
+  if (params.get('chartest') === 'step') {
+    panel.style.display = 'block';
+    void ensureCat().then(() => window.setTimeout(() => stepSpecies(1), 900));
   }
 })();
 
@@ -1775,7 +1786,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && !pickerOpen() && !settingsOpen()) return craftToggle();
   if (e.code === 'KeyO') return settingsOpen() ? closeSettings() : openSettings();
   if (e.code === 'KeyV') return cycleMode();
-  if (e.code === 'KeyK') return pickerOpen() ? closePicker() : openSkinPicker();
+  if (e.code === 'KeyK') return void document.getElementById('vx-char-btn')?.click(); // open the character editor
   if (e.code === 'KeyE' && !pickerOpen()) return primaryUse(); // use/place the held item (Q holds to dig)
   // Q press: punch an empty boat/cart you look at → pick it up (else Q holds to dig).
   if (e.code === 'KeyQ' && !e.repeat && !menuOpen() && tryRemoveMount()) return;
@@ -2923,6 +2934,9 @@ function openSkinPicker(): void {
   );
   skinPreview.start(() => pickerOpen());
 }
+// The old glTF skin picker is deactivated (the Veloren character editor replaces it)
+// but kept on ice — reachable via the console for later use.
+(window as unknown as { __oldSkinPicker?: () => void }).__oldSkinPicker = openSkinPicker;
 
 // ── Settings menu ─────────────────────────────────────────────────────────────
 const settingsPanel = document.getElementById('settings') as HTMLElement;

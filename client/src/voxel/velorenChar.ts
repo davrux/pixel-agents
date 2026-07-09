@@ -488,15 +488,21 @@ export class VelorenCharacter {
     this.firstPerson = on;
   }
 
-  /** Overlay a right-arm chop when placing (one-shot) or mining (held). The held
-   *  weapon follows, being a child of hand_r. */
+  /** Overlay a proper overhead chop when placing (one-shot) or mining (held): the
+   *  arm winds up overhead then strikes down, the shoulder follows, and the torso
+   *  leans into the hit at the bottom. The held weapon follows (child of hand_r). */
   private applyDigSwing(dt: number): void {
     if (this.digT > 0) this.digT -= dt;
     if (!this.mining && this.digT <= 0) return;
-    const t = this.mining ? this.animTime * 9 : (1 - this.digT / 0.35) * Math.PI; // loop vs single chop
-    const chop = -Math.abs(Math.sin(t)) * 1.2; // forearm swings forward/down
-    this.bones.hand_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, chop));
-    this.bones.shoulder_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, chop * 0.3));
+    // p: 0 = wound up (arm overhead) → π = struck (arm down/forward).
+    const p = this.mining ? this.animTime * 7 : (1 - this.digT / 0.35) * Math.PI;
+    const raised = 0.5 - 0.5 * Math.cos(p); // 0 at wind-up, 1 at strike
+    const armX = -2.2 * (1 - raised) + 0.4 * raised; // overhead(-2.2) → down/forward(+0.4)
+    this.bones.hand_r.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, armX));
+    this.bones.shoulder_r.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, armX * 0.45));
+    // Torso/chest lean forward into the strike (peaks at the bottom of the swing).
+    this.bones.chest.quaternion.multiply(this.qa.setFromAxisAngle(XAXIS, raised * 0.28));
+    this.bones.head.quaternion.multiply(this.qb.setFromAxisAngle(XAXIS, raised * 0.12));
   }
 
   /** One-shot swing (block place / a single dig). */
