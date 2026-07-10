@@ -31,3 +31,6 @@ tmp/
 
 # Generated at release time (pnpm release / docker:build) — server logs it.
 server/version.txt
+
+# Vendored GPL reference (Veloren anim source) — not part of the build, pinned in client/src/voxel/velorenAnim/PORTING.md
+/vendor/

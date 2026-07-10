@@ -31,7 +31,11 @@ import { type Item, type ArmorSlot, TOOL_ITEMS, BLOCK_ITEMS, ARMOR_ITEMS, ALL_IT
 import { Inventory } from './inventory.js';
 import { loadBlockAtlas, SYNTHETIC, type Atlas } from './textures.js';
 import { Avatar, type Wield, DEFAULT_WIELD } from './avatar.js';
-import { VelorenCharacter, SPECIES_IDS, parseVelorenSkin, encodeVelorenSkin, velorenCatalog, defaultOutfit, type Outfit, type Catalog } from './velorenChar.js';
+import { SPECIES_IDS, parseVelorenSkin, encodeVelorenSkin, velorenCatalog, defaultOutfit, type Outfit, type Catalog } from './velorenChar.js';
+// The character renderer is the faithful Veloren port (velorenAnim/), verified in
+// isolation via veloren-test.html. Aliased to VelorenCharacter so call sites are
+// unchanged; the old scene-graph class stays in velorenChar.ts for A/B comparison.
+import { CharacterFigure as VelorenCharacter } from './velorenAnim/characterFigure.js';
 import { QuadrupedCharacter } from './quadrupedChar.js';
 import { makeMob } from './mob.js';
 import { makeCrackStages } from './crack.js';
