@@ -1217,12 +1217,6 @@ function saveSettings(): void {
   }
   pushSettings();
 }
-let moveTarget: THREE.Vector3 | null = null; // iso click-to-walk destination
-// Stuck-detection for click-to-walk: the best (smallest) distance reached so far and
-// when it last improved. If a placed block / wall stops progress, we abandon the walk
-// instead of shoving into it every frame forever (runaway CPU + a "stuck moving" char).
-let moveBestDist = Infinity;
-let moveStuckSince = 0;
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 
 function resize(): void {
@@ -1244,8 +1238,8 @@ function placeCamera(): void {
     persp.rotation.set(player.pitch, player.yaw, 0, 'YXZ');
   } else {
     // iso + third are both perspective orbits around the player. iso uses
-    // isoYaw/isoPitch + isoDist (map-rotate via RMB, click-to-walk, character
-    // faces its move direction); third uses camYaw/camPitch + thirdDist (faces
+    // isoYaw/isoPitch + isoDist (map-rotate via RMB, WASD moves relative to it);
+    // third uses camYaw/camPitch + thirdDist (faces
     // away from the camera). Both cast eye→camera and pull in past blocks, so the
     // camera never clips through terrain (handles zoom AND rotation).
     const yaw = mode === 'iso' ? isoYaw : camYaw;
@@ -1323,7 +1317,7 @@ document.addEventListener('pointerlockchange', () => {
   if (!locked()) releaseKeys();
 });
 
-const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q + click-to-walk
+const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q place/break
 const locked = (): boolean => document.pointerLockElement === canvas;
 const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen() || paDialogOpen() || inConference;
 // Bring a panel to the front when opened, so the last-opened window is always on top
@@ -1799,7 +1793,7 @@ canvas.addEventListener('mousemove', (e) => {
     const invY = settings.invertY ? -1 : 1;
     if (mode === 'iso') {
       isoYaw -= e.movementX * 0.006;
-      isoPitch = clamp(isoPitch - e.movementY * 0.005 * invY, 0.2, 1.45);
+      isoPitch = clamp(isoPitch + e.movementY * 0.005 * invY, 0.2, 1.45);
     } else {
       camYaw -= e.movementX * 0.006;
       camPitch = clamp(camPitch + e.movementY * 0.005 * invY, -0.15, 1.25);
@@ -1823,7 +1817,7 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
   // iso / third: RIGHT button orbits the camera (allowed even with a menu open,
-  // so you can view the wield while adjusting it). LEFT button (iso) walks.
+  // so you can view the wield while adjusting it).
   if (e.button === 1 && !menuOpen()) {
     e.preventDefault(); // middle-click: pick the aimed block (no browser autoscroll)
     pickBlock();
@@ -1835,10 +1829,6 @@ window.addEventListener('mouseup', (e) => {
     if (e.button === 0) firstBreakHeld = false;
     return;
   }
-  // Left-click walks — but only when it lands on the WORLD (canvas), not on UI
-  // (clicking the gear / dragging the settings window must not move the player),
-  // and not while a menu is open.
-  if (e.button === 0 && mode === 'iso' && e.target === canvas && !menuOpen()) clickToMove(ndc(e));
 });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 // A right-click that opens a dialog releases the pointer lock mid-handler, which lets the
@@ -1862,20 +1852,8 @@ canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
 });
 
-/** Raycast the ground under the cursor → an auto-walk destination (iso click). */
-function clickToMove(p: THREE.Vector2): void {
-  raycaster.setFromCamera(p, activeCam());
-  const hits = raycaster.intersectObjects(terrainGroup.children, false);
-  if (!hits.length) return;
-  const hit = hits[0].point.clone().addScaledVector(hits[0].face?.normal ?? new THREE.Vector3(0, 1, 0), -0.5);
-  moveTarget = new THREE.Vector3(Math.floor(hit.x) + 0.5, 0, Math.floor(hit.z) + 0.5);
-  moveBestDist = Infinity; // reset stuck-detection for the new destination
-  moveStuckSince = performance.now();
-}
-
 function cycleMode(): void {
   mode = mode === 'iso' ? 'third' : mode === 'third' ? 'first' : 'iso';
-  moveTarget = null;
   rotating = false;
   if (mode !== 'first') {
     if (locked()) document.exitPointerLock();
@@ -3387,7 +3365,6 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   ready = false;
   breaking = null;
   breakOverlay.visible = false;
-  moveTarget = null;
   currentWorld = worldId;
   try {
     localStorage.setItem('vx-last-world', worldId); // so an auto-reconnect reload returns here (like 2D's last-zone)
@@ -3591,7 +3568,7 @@ function frameBody(now: number): void {
   const down = !busy && (keys.has('ShiftLeft') || keys.has('ShiftRight')); // sneak / dive
   // Riding a boat: the server drives it — steer with WASD, ride along (camera follows the
   // player pos the server glues to the boat), Space to climb out. Local physics is skipped.
-  // Horizontal intent (WASD, or iso click-to-walk); jump/down always pass through so
+  // Horizontal intent (WASD); jump/down always pass through so
   // you can surface/dive while standing still in water.
   let fwd = false,
     bk = false,
@@ -3624,29 +3601,11 @@ function frameBody(now: number): void {
     if (jump && !boatDismountLatch) (boat ? net?.boatDismount() : net?.cartDismount());
     boatDismountLatch = jump;
   } else if (mode === 'iso') {
-    if (w || s || a || d) {
-      moveTarget = null; // manual movement cancels click-to-walk
-      player.yaw = isoYaw; // WASD moves relative to the current map rotation
-      fwd = w;
-      bk = s;
-      lt = a;
-      rt = d;
-    } else if (moveTarget && !busy) {
-      const dx = moveTarget.x - player.pos.x;
-      const dz = moveTarget.z - player.pos.z;
-      const d = Math.hypot(dx, dz);
-      if (d < 0.4) moveTarget = null; // arrived
-      else if (d < moveBestDist - 0.05) {
-        moveBestDist = d; // still making progress
-        moveStuckSince = now;
-      } else if (now - moveStuckSince > 1200) {
-        moveTarget = null; // no progress for >1.2s → blocked; stop walking (don't loop forever)
-      }
-      if (moveTarget) {
-        player.yaw = Math.atan2(-dx, -dz); // face + walk toward the destination
-        fwd = true;
-      }
-    }
+    if (w || s || a || d) player.yaw = isoYaw; // WASD moves relative to the current map rotation
+    fwd = w;
+    bk = s;
+    lt = a;
+    rt = d;
   } else {
     if (mode === 'third') player.yaw = camYaw; // face away from the orbiting camera
     fwd = w;
