@@ -31,3 +31,7 @@ tmp/
 
 # Generated at release time (pnpm release / docker:build) — server logs it.
 server/version.txt
+
+# Arcade game bundles — large (~80 MB) and reproducible via
+# scripts/build-arcade-bundles.mjs (Freedoom IWADs + a free DOS engine).
+client/public/jsdos/bundles/

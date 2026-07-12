@@ -19,9 +19,10 @@ import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
+import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { SkinPreview } from './skinPreview.js';
 import { Player, type MoveInput } from './player.js';
-import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, BEDROCK_ID, LIGHT_BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
+import { BLOCK_TEXTURES, BLOCKS, OVERLAY_TEXTURES, EXTRA_TEXTURES, SYNTHETIC_TILES, PORTAL_ID, WATER_ID, LAVA_ID, TORCH_ID, CHEST_ID, DOOR_CLOSED, DOOR_OPEN, FURNACE_ID, TNT_ID, SIGN_ID, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, BED_ID, FIRE_ID, RAIL_ID, MONITOR_ID, ARCADE_ID, BEDROCK_ID, LIGHT_BLOCKS, ALL_BLOCK_IDS } from './blocks.js';
 import type { SignMsg, ChatMsg } from './net.js';
 import { daySample, isNight } from './daylight.js';
 import { TravelMap } from './map.js';
@@ -1276,6 +1277,9 @@ window.addEventListener('keydown', (e) => {
   // While typing in chat, the input handles keys itself — suspend all game keybinds.
   // (ChatUI owns the Enter-to-focus binding + stopPropagation while typing.)
   if (chat.isFocused()) return;
+  // A running arcade game owns the keyboard — bail before any voxel keybind (M/I/…)
+  // fires. No preventDefault, so the key still reaches the js-dos canvas.
+  if (arcadeUI.isOpen) return;
   // Typing in any dialog/text field: let the field keep the key (WSAD/Q/E/F… are game
   // binds that would otherwise steal the char via preventDefault). Esc falls through so
   // the dialog can still close below.
@@ -1319,7 +1323,7 @@ document.addEventListener('pointerlockchange', () => {
 
 const pointerNDC = new THREE.Vector2(0, 0); // cursor pos (iso) → target for E/Q place/break
 const locked = (): boolean => document.pointerLockElement === canvas;
-const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen() || paDialogOpen() || inConference;
+const menuOpen = (): boolean => pickerOpen() || settingsOpen() || travelMap.isOpen() || inventory.isOpen() || craftOpen() || chestUiOpen() || furnaceOpen() || audioOpen() || paDialogOpen() || inConference || arcadeUI.isOpen;
 // Bring a panel to the front when opened, so the last-opened window is always on top
 // (all panels share a base z-index → without this, DOM order decided stacking).
 let panelZTop = 300;
@@ -2082,6 +2086,10 @@ function interactNode(): boolean {
     openConference(x, y, z);
     return true;
   }
+  if (b === ARCADE_ID) {
+    openArcade();
+    return true;
+  }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN || b === BED_ID) {
     net?.use(x, y, z, heldNum()); // chest → open; door/gate → toggle; furnace → smelt UI; TNT → ignite; bed → sleep
     // Door/gate toggle feedback (chest_open plays on the server's onChestOpen reply).
@@ -2269,6 +2277,9 @@ function updateAmbient(dt: number): void {
   ambAcc += dt;
   if (ambAcc < 0.35) return;
   ambAcc = 0;
+  // A running arcade game owns the audio — silence the world's water/lava/fire loops
+  // so they don't play under it (they resume on the next scan once the cabinet closes).
+  if (arcadeUI.isOpen) return void sound.stopAmbients();
   const R = 6;
   const px = Math.floor(player.pos.x),
     py = Math.floor(player.pos.y),
@@ -3187,6 +3198,17 @@ function promptSign(x: number, y: number, z: number): void {
 // ConferenceUI + LiveKitConference as the 2D office. Using a monitor asks the server
 // for a LiveKit token (per-monitor room); the reply opens the window + connects media.
 const confUI = new ConferenceUI();
+
+// Arcade cabinets (a shared overlay for both clients): using one opens a game picker;
+// choosing a game boots it in js-dos. The overlay captures the mouse itself.
+const arcadeUI = ArcadeUI.get();
+
+/** Use an arcade cabinet → the shared pixel-menu title picker (see ArcadeUI.openMenu). */
+function openArcade(): void {
+  if (arcadeUI.isOpen || paDialogOpen()) return;
+  if (locked()) document.exitPointerLock();
+  arcadeUI.openMenu({ onClose: () => { if (mode === 'first') canvas.requestPointerLock(); } });
+}
 let conf: LiveKitConference | null = null;
 let confCell: { x: number; y: number; z: number } | null = null; // the monitor we're calling on
 let inConference = false; // suppresses game movement while the call window is up
@@ -3305,6 +3327,7 @@ function goOffline(): void {
  *  state and reconnects. Voxel↔voxel is seamless (no page reload). */
 async function connectWorld(worldId: string, seed?: number, size?: number): Promise<void> {
   if (inConference) leaveConference(); // don't keep a call open across a world switch
+  if (arcadeUI.isOpen) arcadeUI.close(); // stop any running game on a world switch
   if (net) {
     leavingIntentionally = true; // our own teardown — the old room's onLeave isn't a drop
     try {
@@ -3377,7 +3400,34 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
+  // Arcade savegames arrive here as a reply to arcadeSaveGet (see arcade hooks below).
+  net?.room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
+    arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);
+  });
 }
+
+// Server-backed arcade savegames routed over the voxel room (one shared store on the
+// server, see arcadeSaveRoom). load() sends a request and resolves on the reply above.
+const arcadePendingLoads = new Map<string, (data: Uint8Array | null) => void>();
+arcadeUI.setSaveHooks({
+  load: (gameId) =>
+    new Promise<Uint8Array | null>((resolve) => {
+      if (!net) return resolve(null);
+      arcadePendingLoads.get(gameId)?.(null); // supersede any prior pending load for this game
+      let timer = 0;
+      const done = (d: Uint8Array | null): void => {
+        window.clearTimeout(timer);
+        if (arcadePendingLoads.get(gameId) === done) arcadePendingLoads.delete(gameId);
+        resolve(d);
+      };
+      arcadePendingLoads.set(gameId, done);
+      timer = window.setTimeout(() => done(null), 8000); // don't wedge boot if the reply is lost
+      net.room.send('arcadeSaveGet', { game: gameId });
+    }),
+  save: async (gameId, data) => {
+    net?.room.send('arcadeSavePut', { game: gameId, data });
+  },
+});
 // World tab: jump to another world by id (created on first visit).
 const worldInput = document.getElementById('world-input') as HTMLInputElement;
 const seedInput = document.getElementById('world-seed') as HTMLInputElement;

@@ -11,6 +11,7 @@ import { Direction, PetKind } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import {
   createBlankZoneLayout,
   createPlazaLayout,
@@ -224,6 +225,7 @@ export class SimRoom extends Room<RoomState> {
     this.zone = (options.zone && this.zones.get(options.zone)) || resolveZone(options.zone);
     this.setState(new RoomState());
     this.autoDispose = false;
+    registerArcadeSaves(this); // shared arcade-savegame handlers (same store as the voxel world)
 
     // Initialise the office engine from the decoded assets (templates + catalog
     // give it palette counts, seats, and furniture auto-on metadata).

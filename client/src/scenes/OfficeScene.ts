@@ -34,6 +34,7 @@ import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSe
 import { getActiveCategories, getCatalogByCategory, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
+import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
@@ -144,6 +145,10 @@ export class OfficeScene extends Phaser.Scene {
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
   private confUI!: ConferenceUI;
+  /** The shared arcade cabinet overlay (js-dos). Same instance as the voxel world. */
+  private arcadeUI!: ArcadeUI;
+  /** Pending arcade savegame loads, keyed by game id → resolver (see wireArcade). */
+  private readonly arcadePendingLoads = new Map<string, (data: Uint8Array | null) => void>();
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
@@ -295,6 +300,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createSettingsPanel();
     this.createChat();
     this.confUI = new ConferenceUI();
+    this.arcadeUI = ArcadeUI.get();
     this.charEditor = new CharacterEditor({
       categories: [
         {
@@ -436,6 +442,7 @@ export class OfficeScene extends Phaser.Scene {
         /* sessionStorage unavailable */
       }
       this.room = await connect(zone, arriving);
+      this.wireArcade(this.room); // server-backed arcade savegames over this room
       // Auto-reconnect: if the connection drops (e.g. a server restart), wait for
       // the server to come back and reload — so the player is back in the game
       // without a manual refresh. A consented leave / our own navigation is skipped.
@@ -695,6 +702,55 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
+  /** True if the tile is covered by an arcade cabinet (click → launch a DOS game). */
+  private isArcadeTile(col: number, row: number): boolean {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.arcade) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) return true;
+    }
+    return false;
+  }
+
+  /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
+   *  while it's up so the DOS game receives the keys (js-dos owns the mouse). */
+  private openArcade(): void {
+    if (this.arcadeUI.isOpen) return;
+    // Free the keyboard for the game (Phaser + chat give up their keys); restored on close.
+    if (this.input.keyboard) this.input.keyboard.enabled = false;
+    this.arcadeUI.openMenu({
+      onClose: () => {
+        if (this.input.keyboard) this.input.keyboard.enabled = true;
+      },
+    });
+  }
+
+  /** Wire server-backed arcade savegames over the office room (shared store; same
+   *  protocol as the voxel world). Called once the room is connected. */
+  private wireArcade(room: Room): void {
+    room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
+      this.arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);
+    });
+    this.arcadeUI.setSaveHooks({
+      load: (gameId) =>
+        new Promise<Uint8Array | null>((resolve) => {
+          this.arcadePendingLoads.get(gameId)?.(null); // supersede any prior pending load
+          let timer = 0;
+          const done = (d: Uint8Array | null): void => {
+            window.clearTimeout(timer);
+            if (this.arcadePendingLoads.get(gameId) === done) this.arcadePendingLoads.delete(gameId);
+            resolve(d);
+          };
+          this.arcadePendingLoads.set(gameId, done);
+          timer = window.setTimeout(() => done(null), 8000);
+          room.send('arcadeSaveGet', { game: gameId });
+        }),
+      save: async (gameId, data) => {
+        room.send('arcadeSavePut', { game: gameId, data });
+      },
+    });
+  }
+
   private onLayout(layout: OfficeLayout): void {
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
@@ -795,7 +851,8 @@ export class OfficeScene extends Phaser.Scene {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
-            if (conf) void this.toggleConference(conf);
+            if (this.isArcadeTile(col, row)) this.openArcade();
+            else if (conf) void this.toggleConference(conf);
             else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
@@ -2676,7 +2733,7 @@ export class OfficeScene extends Phaser.Scene {
       sendChat: (text) => void this.room?.send("chat", { text }),
       sendCommand: (name, args) => void this.room?.send("command", { name, args }),
       isAdmin: () => this.isAdmin,
-      canFocus: () => !this.editor.isEditing(),
+      canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen,
       clientCommand: (name, _args, sys) => {
         if (name === "voxel") {
           sys("Entering the voxel world…");

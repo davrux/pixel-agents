@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { CHUNK, toChunk } from '@pixel/shared';
-import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, LADDER_ID, BED_ID } from './blocks.js';
+import { TORCH_ID, DOOR_CLOSED, DOOR_OPEN, FENCE_GATE_CLOSED, FENCE_GATE_OPEN, PORTAL_ID, MONITOR_ID, ARCADE_ID, LADDER_ID, BED_ID } from './blocks.js';
 
 interface Grid {
   rawChunk(cx: number, cy: number, cz: number): Uint8Array | null;
@@ -48,6 +48,7 @@ const GATE_H = 1.0;
 const MODEL_NAMES = ['torch_floor', 'torch_wall', 'torch_ceiling', 'door_a', 'door_b', 'doors_fencegate_closed', 'doors_fencegate_open'];
 const MONITOR_H = 1.33; // total height of the built monitor (base + stand + screen head)
 const BED_H = 0.6; // total height of a bed half (legs + frame + mattress, head/footboard on top)
+const ARCADE_H = 1.9; // total height of the built arcade cabinet (body + marquee)
 
 interface Place {
   model: string;
@@ -74,6 +75,7 @@ export class NodeModels {
     await Promise.all([...MODEL_NAMES.map((n) => this.loadTemplate(n)), this.loadPortalTemplate(), this.loadLadderTemplate()]);
     this.buildMonitorTemplate(); // procedural (no asset) — build synchronously
     this.buildBedTemplates();
+    this.buildArcadeTemplate();
     this.ready = true;
     this.onReadyCb?.(); // let the app rescan already-loaded chunks
   }
@@ -142,6 +144,65 @@ export class NodeModels {
     screen.frustumCulled = false;
     g.add(base, pole, head, screen);
     this.templates.set('monitor', { obj: g, box: new THREE.Box3().setFromObject(g) });
+  }
+
+  /** Procedural arcade cabinet (no glTF asset): an upright body with a lit marquee, an
+   *  angled screen showing a game "attract" image, and a control panel with a joystick +
+   *  buttons. Authored with its FRONT (screen/controls) toward +Z so placement() can face
+   *  it away from an adjacent wall. Built at final size (~1.9 tall) ⇒ makeInstance scale ≈1. */
+  private buildArcadeTemplate(): void {
+    const box = (w: number, h: number, d: number, color: number): THREE.Mesh => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshBasicMaterial({ color }));
+      m.frustumCulled = false;
+      return m;
+    };
+    const g = new THREE.Group();
+    const CAB = 0x2b1e46; // cabinet body (deep arcade purple)
+    const TRIM = 0x14101f; // near-black trim/bezel
+    const body = box(0.82, 1.9, 0.66, CAB);
+    body.position.set(0, 0.95, 0);
+    const marquee = box(0.84, 0.26, 0.12, 0xf03a3a); // lit red marquee header
+    marquee.position.set(0, 1.8, 0.28);
+    const bezel = box(0.74, 0.56, 0.06, TRIM); // screen surround, upper front
+    bezel.position.set(0, 1.4, 0.33);
+    // Screen "attract" image (canvas): a dark scene with a red horizon + title bar.
+    const cv = document.createElement('canvas');
+    cv.width = 128;
+    cv.height = 96;
+    const c = cv.getContext('2d')!;
+    c.fillStyle = '#101018';
+    c.fillRect(0, 0, 128, 96);
+    c.fillStyle = '#7a1414'; // hellish red floor
+    c.fillRect(0, 60, 128, 36);
+    c.fillStyle = '#c23a2a';
+    c.fillRect(0, 58, 128, 4);
+    c.fillStyle = '#e8e0d0'; // marquee-ish title band
+    c.fillRect(14, 12, 100, 20);
+    c.fillStyle = '#101018';
+    c.font = 'bold 16px monospace';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText('ARCADE', 64, 23);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.66, 0.48), new THREE.MeshBasicMaterial({ map: tex }));
+    screen.position.set(0, 1.4, 0.361);
+    screen.frustumCulled = false;
+    const panel = box(0.8, 0.14, 0.36, TRIM); // control deck jutting out at waist height
+    panel.position.set(0, 0.98, 0.42);
+    const stick = box(0.05, 0.16, 0.05, 0x111111); // joystick shaft
+    stick.position.set(-0.18, 1.1, 0.44);
+    const knob = box(0.09, 0.09, 0.09, 0xd83030); // joystick ball
+    knob.position.set(-0.18, 1.2, 0.44);
+    const btnA = box(0.08, 0.05, 0.08, 0xf0c020); // buttons
+    btnA.position.set(0.08, 1.06, 0.46);
+    const btnB = box(0.08, 0.05, 0.08, 0x30c0f0);
+    btnB.position.set(0.22, 1.06, 0.46);
+    g.add(body, marquee, bezel, screen, panel, stick, knob, btnA, btnB);
+    this.templates.set('arcade', { obj: g, box: new THREE.Box3().setFromObject(g) });
   }
 
   /** Procedural two-cell bed (no glTF asset). A bed spans two adjacent cells that both
@@ -314,6 +375,18 @@ export class NodeModels {
     if (id === FENCE_GATE_OPEN) return { model: 'doors_fencegate_open', targetH: GATE_H, rotY: 0 };
     if (id === PORTAL_ID) return { model: 'portal', targetH: DOOR_H, rotY: 0 }; // a 2-tall blue "P" archway
     if (id === MONITOR_ID) return { model: 'monitor', targetH: MONITOR_H, rotY: 0 }; // standing conference screen
+    if (id === ARCADE_ID) {
+      // Face the cabinet's front (+Z) AWAY from the first solid horizontal neighbour so
+      // its screen points into the room (same wall table as the ladder). No wall → +Z.
+      const dirs: [number, number, number, number][] = [
+        [0, 0, -1, 0], // wall at -Z → face +Z
+        [0, 0, 1, Math.PI], // wall at +Z → face -Z
+        [-1, 0, 0, Math.PI / 2], // wall at -X → face +X
+        [1, 0, 0, -Math.PI / 2], // wall at +X → face -X
+      ];
+      for (const [dx, , dz, rotY] of dirs) if (w.solid(x + dx, y, z + dz)) return { model: 'arcade', targetH: ARCADE_H, rotY };
+      return { model: 'arcade', targetH: ARCADE_H, rotY: 0 };
+    }
     return null;
   }
 
@@ -365,7 +438,7 @@ export class NodeModels {
     const AREA = CHUNK * CHUNK;
     for (let i = 0; i < cells.length; i++) {
       const id = cells[i];
-      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID && id !== LADDER_ID && id !== BED_ID) continue;
+      if (id !== TORCH_ID && id !== DOOR_CLOSED && id !== DOOR_OPEN && id !== FENCE_GATE_CLOSED && id !== FENCE_GATE_OPEN && id !== PORTAL_ID && id !== MONITOR_ID && id !== ARCADE_ID && id !== LADDER_ID && id !== BED_ID) continue;
       const ly = (i / AREA) | 0,
         rem = i % AREA,
         lz = (rem / CHUNK) | 0,

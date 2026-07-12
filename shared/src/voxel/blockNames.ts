@@ -104,6 +104,7 @@ export const BLOCK_NAMES: Record<number, string> = {
   97: 'carts:rail',
   98: 'pa:monitor',
   99: 'pa:bedrock',
+  100: 'pa:arcade',
 };
 
 /** Reverse map (canonical name → id), built from BLOCK_NAMES. */

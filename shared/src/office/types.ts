@@ -214,6 +214,8 @@ export interface FurnitureCatalogEntry {
   /** Whether this furniture is a conference monitor: clicking it joins a
    *  per-monitor video call (WebRTC). */
   conference?: boolean;
+  /** Whether this furniture is an arcade cabinet: clicking it launches a DOS game. */
+  arcade?: boolean;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
