@@ -84,9 +84,12 @@ export const fluidFlowId = (f: FluidDef, level: number): number => (level <= 0 ?
 // Placeable blocks are 1..MAX_BLOCK_ID. NOTE ids 40..50 are the fluid FLOW levels
 // (WATER_FLOW/LAVA_FLOW) — content blocks resume at 51 (see blocks.ts). Bump this when
 // blocks.ts grows so the server place guard admits the new ids.
-export const MAX_BLOCK_ID = 99;
+// Placeable block band is 1..MAX_BLOCK_ID; ids 101..199 are reserved headroom for
+// future blocks (bump MAX_BLOCK_ID as blocks.ts grows). Materials/tools live above.
+export const MAX_BLOCK_ID = 100;
 export const MONITOR_ID = 98; // conference screen (standing multi-cube monitor); use-action opens a video call
 export const BEDROCK_ID = 99; // unbreakable world floor (below y=0); can't be dug or placed by players
+export const ARCADE_ID = 100; // arcade cabinet (node model); use-action launches a DOS game (js-dos)
 export const FIRE_ID = 80; // Luanti fire: non-solid light source, spreads to flammables, burns out
 export const SIGN_ID = 81; // placeable sign; use-action edits its text (stored per position)
 export const SIGN_MAX_LEN = 120; // max characters of sign text
@@ -136,36 +139,40 @@ export const DOOR_OPEN = 36; // door (open): non-solid, not rendered
 export const COPPER_ORE = 37;
 export const TIN_ORE = 38;
 export const GOLD_ORE = 39;
-export const MATERIAL_BASE = 100;
-export const TOOL_BASE = 200;
+// Item-id bands (see MAX_BLOCK_ID above): blocks 1..100, MATERIALS 200..299,
+// TOOLS 300..399. Bumped from 100/200 to 200/300 to free block ids 101..199;
+// persisted inventories are migrated once (see server migrateItemIds). Item
+// constants are defined relative to the bases so the bands move together.
+export const MATERIAL_BASE = 200;
+export const TOOL_BASE = 300;
 export const isMaterialId = (id: number): boolean => id >= MATERIAL_BASE && id < TOOL_BASE;
 export const isToolId = (id: number): boolean => id >= TOOL_BASE;
-export const COAL_LUMP = 100;
-export const IRON_LUMP = 101;
-export const STEEL_INGOT = 102;
-export const STICK = 103;
-export const COPPER_LUMP = 104;
-export const TIN_LUMP = 105;
-export const GOLD_LUMP = 106;
-export const COPPER_INGOT = 107;
-export const TIN_INGOT = 108;
-export const GOLD_INGOT = 109;
-export const BRONZE_INGOT = 110;
-export const WHEAT = 111; // harvested from mature wheat
-export const BREAD = 112; // 3 wheat → bread; eaten to restore hunger
-export const CHARCOAL = 113; // Luanti: cook wood → charcoal; a coal-equivalent fuel + torch fuel
-export const FLINT = 114; // knapped from gravel; + steel ingot → flint & steel (fire lighter)
-export const APPLE = 115; // drops from leaves; edible (restores a little hunger)
+export const COAL_LUMP = MATERIAL_BASE + 0;
+export const IRON_LUMP = MATERIAL_BASE + 1;
+export const STEEL_INGOT = MATERIAL_BASE + 2;
+export const STICK = MATERIAL_BASE + 3;
+export const COPPER_LUMP = MATERIAL_BASE + 4;
+export const TIN_LUMP = MATERIAL_BASE + 5;
+export const GOLD_LUMP = MATERIAL_BASE + 6;
+export const COPPER_INGOT = MATERIAL_BASE + 7;
+export const TIN_INGOT = MATERIAL_BASE + 8;
+export const GOLD_INGOT = MATERIAL_BASE + 9;
+export const BRONZE_INGOT = MATERIAL_BASE + 10;
+export const WHEAT = MATERIAL_BASE + 11; // harvested from mature wheat
+export const BREAD = MATERIAL_BASE + 12; // 3 wheat → bread; eaten to restore hunger
+export const CHARCOAL = MATERIAL_BASE + 13; // Luanti: cook wood → charcoal; a coal-equivalent fuel + torch fuel
+export const FLINT = MATERIAL_BASE + 14; // knapped from gravel; + steel ingot → flint & steel (fire lighter)
+export const APPLE = MATERIAL_BASE + 15; // drops from leaves; edible (restores a little hunger)
 // Dyes (materials): ground from flowers / coal / cactus, used to colour wool.
-export const DYE_RED = 116;
-export const DYE_ORANGE = 117;
-export const DYE_YELLOW = 118;
-export const DYE_GREEN = 119;
-export const DYE_BLUE = 120;
-export const DYE_VIOLET = 121;
-export const DYE_BLACK = 122;
-export const DIAMOND = 123; // mined from diamond ore; crafts the diamond pickaxe + block
-export const MESE_CRYSTAL = 124; // mined from mese ore; crafts the mese pickaxe + block
+export const DYE_RED = MATERIAL_BASE + 16;
+export const DYE_ORANGE = MATERIAL_BASE + 17;
+export const DYE_YELLOW = MATERIAL_BASE + 18;
+export const DYE_GREEN = MATERIAL_BASE + 19;
+export const DYE_BLUE = MATERIAL_BASE + 20;
+export const DYE_VIOLET = MATERIAL_BASE + 21;
+export const DYE_BLACK = MATERIAL_BASE + 22;
+export const DIAMOND = MATERIAL_BASE + 23; // mined from diamond ore; crafts the diamond pickaxe + block
+export const MESE_CRYSTAL = MATERIAL_BASE + 24; // mined from mese ore; crafts the mese pickaxe + block
 
 /** Edible items → hunger restored, in eat-priority order (snacks before staples). The
  *  eat action consumes the first food the player holds. */
@@ -183,22 +190,24 @@ export const isFlammable = (id: number): boolean =>
 // Craftable tool item ids (each maps to a luanti tool_capabilities key on the client).
 // Owning one (count ≥1 in the inventory) unlocks its dig speed; unowned tools fall back
 // to bare-hand digging. Tiers: wood (start) → stone → steel.
+// Offsets from TOOL_BASE keep the tens = tool kind, ones = tier (id%10: 0 wood,
+// 1 stone, 2 steel, 3 diamond, 4 mese) layout that toolMaxUses() relies on.
 export const TOOL_IDS: Record<string, number> = {
-  pick_wood: 200, pick_stone: 201, pick_steel: 202, pick_diamond: 203, pick_mese: 204,
-  axe_wood: 210, axe_stone: 211, axe_steel: 212, axe_diamond: 213, axe_mese: 214,
-  shovel_wood: 220, shovel_stone: 221, shovel_steel: 222, shovel_diamond: 223, shovel_mese: 224,
-  sword_wood: 230, sword_stone: 231, sword_steel: 232, sword_diamond: 233, sword_mese: 234,
-  hoe_wood: 240, hoe_stone: 241, hoe_steel: 242,
-  flint_steel: 243,
+  pick_wood: TOOL_BASE + 0, pick_stone: TOOL_BASE + 1, pick_steel: TOOL_BASE + 2, pick_diamond: TOOL_BASE + 3, pick_mese: TOOL_BASE + 4,
+  axe_wood: TOOL_BASE + 10, axe_stone: TOOL_BASE + 11, axe_steel: TOOL_BASE + 12, axe_diamond: TOOL_BASE + 13, axe_mese: TOOL_BASE + 14,
+  shovel_wood: TOOL_BASE + 20, shovel_stone: TOOL_BASE + 21, shovel_steel: TOOL_BASE + 22, shovel_diamond: TOOL_BASE + 23, shovel_mese: TOOL_BASE + 24,
+  sword_wood: TOOL_BASE + 30, sword_stone: TOOL_BASE + 31, sword_steel: TOOL_BASE + 32, sword_diamond: TOOL_BASE + 33, sword_mese: TOOL_BASE + 34,
+  hoe_wood: TOOL_BASE + 40, hoe_stone: TOOL_BASE + 41, hoe_steel: TOOL_BASE + 42,
+  flint_steel: TOOL_BASE + 43,
 };
 /** Flint & steel: a tool-track item (no dig caps) used via the use-action to light fire. */
-export const FLINT_STEEL = 243;
+export const FLINT_STEEL = TOOL_BASE + 43;
 export const isFlintSteel = (id: number): boolean => id === FLINT_STEEL;
 /** Boat: a tool-track item; use-action on water spawns a rideable boat (Luanti boats). */
-export const BOAT_ITEM = 244;
+export const BOAT_ITEM = TOOL_BASE + 44;
 export const isBoat = (id: number): boolean => id === BOAT_ITEM;
 /** Minecart: a tool-track item; use-action on a rail spawns a rideable cart (Luanti carts). */
-export const CART_ITEM = 245;
+export const CART_ITEM = TOOL_BASE + 45;
 export const isCart = (id: number): boolean => id === CART_ITEM;
 /** The tool every player starts with so they can bootstrap (hand→wood→pick→stone). */
 export const STARTER_TOOL = TOOL_IDS.pick_wood;
@@ -211,9 +220,9 @@ export const isHoe = (id: number): boolean => id === TOOL_IDS.hoe_wood || id ===
 // Buckets (tool-track items, don't dig): empty ↔ water/lava. Filling scoops a source
 // (removes it); emptying places a source. In survival this is the ONLY way to move
 // water/lava (direct placement is creative-only).
-export const BUCKET_EMPTY = 250;
-export const BUCKET_WATER = 251;
-export const BUCKET_LAVA = 252;
+export const BUCKET_EMPTY = TOOL_BASE + 50;
+export const BUCKET_WATER = TOOL_BASE + 51;
+export const BUCKET_LAVA = TOOL_BASE + 52;
 export const isBucket = (id: number): boolean => id === BUCKET_EMPTY || id === BUCKET_WATER || id === BUCKET_LAVA;
 
 // Ore block → the item it drops when mined (Luanti: ore drops a lump, not the ore

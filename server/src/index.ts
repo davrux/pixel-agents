@@ -40,6 +40,7 @@ import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { listWorlds } from './voxel/chunkStore.js';
+import { migrateItemIds } from './voxel/migrateItemIds.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -106,6 +107,9 @@ export function desktopCors(): RequestHandler {
 }
 
 async function main(): Promise<void> {
+  // One-time persistence migration: shift voxel item-id bands +100 (frees block
+  // ids for the arcade cabinet). Idempotent; runs before any player can join.
+  migrateItemIds();
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
