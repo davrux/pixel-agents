@@ -749,6 +749,9 @@ export class OfficeScene extends Phaser.Scene {
       save: async (gameId, data) => {
         room.send('arcadeSavePut', { game: gameId, data });
       },
+      reset: (gameId) => {
+        room.send('arcadeSaveReset', { game: gameId });
+      },
     });
   }
 

@@ -3427,6 +3427,9 @@ arcadeUI.setSaveHooks({
   save: async (gameId, data) => {
     net?.room.send('arcadeSavePut', { game: gameId, data });
   },
+  reset: (gameId) => {
+    net?.room.send('arcadeSaveReset', { game: gameId });
+  },
 });
 // World tab: jump to another world by id (created on first visit).
 const worldInput = document.getElementById('world-input') as HTMLInputElement;

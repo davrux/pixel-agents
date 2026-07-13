@@ -28,6 +28,8 @@ export interface ArcadeOpenOpts {
 export interface ArcadeSaveHooks {
   load(gameId: string): Promise<Uint8Array | null>;
   save(gameId: string, data: Uint8Array): Promise<void>;
+  /** Delete the player's stored save for a game (reset to the bundle's defaults). */
+  reset(gameId: string): void;
 }
 
 export interface ArcadeMenuOpts {
@@ -160,9 +162,11 @@ export class ArcadeUI {
     const body = document.createElement('div');
     let launched = false;
     for (const game of games) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:0.35rem;align-items:stretch;margin:0 0 0.45rem;';
       const btn = document.createElement('button');
       btn.className = 'pa-btn';
-      btn.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 0.45rem;';
+      btn.style.cssText = 'flex:1;text-align:left;margin:0;';
       btn.innerHTML =
         `<b>${esc(game.title)}</b><br><span style="opacity:.7;font-size:.85em">` +
         `${esc(game.blurb)}${game.multiplayer ? ` · up to ${game.maxPlayers}P` : ''}</span>`;
@@ -171,7 +175,33 @@ export class ArcadeUI {
         closePaDialog();
         void this.open(game, { onClose: opts.onClose });
       };
-      body.appendChild(btn);
+      row.appendChild(btn);
+      // Delete-save (↺): two-click armed to avoid wiping progress by accident.
+      if (this.saveHooks) {
+        const hooks = this.saveHooks;
+        const rm = document.createElement('button');
+        rm.className = 'pa-btn';
+        rm.style.cssText = 'flex:0 0 auto;margin:0;';
+        rm.title = 'Delete this game’s saved data';
+        rm.textContent = '↺';
+        let armed = 0;
+        rm.onclick = (e) => {
+          e.stopPropagation();
+          if (!armed) {
+            armed = window.setTimeout(() => { armed = 0; rm.textContent = '↺'; rm.style.color = ''; }, 2500);
+            rm.textContent = '⚠';
+            rm.style.color = '#f0a0a0';
+            return;
+          }
+          window.clearTimeout(armed);
+          armed = 0;
+          hooks.reset(game.id);
+          rm.textContent = '✓';
+          rm.style.color = '#7fd08a';
+        };
+        row.appendChild(rm);
+      }
+      body.appendChild(row);
     }
     if (opts.canUpload) {
       const up = document.createElement('button');

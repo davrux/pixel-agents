@@ -9,6 +9,7 @@ import { db } from './db.js';
 
 db.exec('CREATE TABLE IF NOT EXISTS arcade_saves (user_id TEXT, game TEXT, data BLOB NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (user_id, game))');
 const getStmt = db.prepare('SELECT data FROM arcade_saves WHERE user_id = ? AND game = ?');
+const delStmt = db.prepare('DELETE FROM arcade_saves WHERE user_id = ? AND game = ?');
 const setStmt = db.prepare(
   'INSERT INTO arcade_saves (user_id, game, data, updated) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, game) DO UPDATE SET data = excluded.data, updated = excluded.updated',
 );
@@ -27,5 +28,9 @@ export const arcadeSaves = {
   set(userId: string, game: string, data: Uint8Array): void {
     if (!userId || !game || !data?.length || data.length > ARCADE_SAVE_MAX_BYTES) return;
     setStmt.run(userId, game, data, Date.now());
+  },
+  /** Delete a user's save for a game (reset to the bundle's fresh defaults). */
+  remove(userId: string, game: string): void {
+    if (userId && game) delStmt.run(userId, game);
   },
 };

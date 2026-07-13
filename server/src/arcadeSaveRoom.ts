@@ -34,4 +34,7 @@ export function registerArcadeSaves(room: Room): void {
     const bytes = raw instanceof Uint8Array ? raw : ArrayBuffer.isView(raw) ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength) : null;
     if (bytes) arcadeSaves.set(userIdOf(client), game!, bytes);
   });
+  room.onMessage('arcadeSaveReset', (client: Client, m: { game?: string }) => {
+    if (validGame(m?.game)) arcadeSaves.remove(userIdOf(client), m.game!);
+  });
 }
