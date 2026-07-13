@@ -16,19 +16,22 @@ import { arcadeSaves } from './arcadeSaveStore.js';
 
 const userIdOf = (client: Client): string => (client.auth as { userId?: string } | undefined)?.userId ?? '';
 
+/** A valid save key: a known bundled game, or a "bring your own WAD" id (wad:<slug>). */
+const validGame = (g?: string): boolean => !!g && (!!getArcadeGame(g) || /^wad:[a-z0-9-]{1,32}$/.test(g));
+
 export function registerArcadeSaves(room: Room): void {
   room.onMessage('arcadeSaveGet', (client: Client, m: { game?: string }) => {
     const game = m?.game;
-    if (!game || !getArcadeGame(game)) return;
-    const data = arcadeSaves.get(userIdOf(client), game);
+    if (!validGame(game)) return;
+    const data = arcadeSaves.get(userIdOf(client), game!);
     client.send('arcadeSaveData', { game, data });
   });
   room.onMessage('arcadeSavePut', (client: Client, m: { game?: string; data?: unknown }) => {
     const game = m?.game;
-    if (!game || !getArcadeGame(game)) return;
+    if (!validGame(game)) return;
     const raw = m.data;
     // Colyseus decodes a sent Uint8Array/Buffer as binary; accept either.
     const bytes = raw instanceof Uint8Array ? raw : ArrayBuffer.isView(raw) ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength) : null;
-    if (bytes) arcadeSaves.set(userIdOf(client), game, bytes);
+    if (bytes) arcadeSaves.set(userIdOf(client), game!, bytes);
   });
 }

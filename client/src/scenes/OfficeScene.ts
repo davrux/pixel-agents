@@ -718,10 +718,11 @@ export class OfficeScene extends Phaser.Scene {
     if (this.arcadeUI.isOpen) return;
     // Free the keyboard for the game (Phaser + chat give up their keys); restored on close.
     if (this.input.keyboard) this.input.keyboard.enabled = false;
-    this.arcadeUI.openMenu({
+    void this.arcadeUI.openMenu({
       onClose: () => {
         if (this.input.keyboard) this.input.keyboard.enabled = true;
       },
+      canUpload: this.isAdmin,
     });
   }
 

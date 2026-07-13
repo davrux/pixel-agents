@@ -8,9 +8,10 @@
  * button closes the cabinet. Multiplayer is wired via the optional net params on
  * `open()` (host runs an IPX server; joiners connect to the host's peer id).
  */
-import { loadJsDos, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface } from './jsdos.js';
-import { ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
+import { loadJsDos, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface, type InitFsEntry } from './jsdos.js';
+import { ARCADE_GAMES, ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
+import { listWads, fetchWadByUrl, wadUrl, uploadWad } from './wadClient.js';
 
 export interface ArcadeOpenOpts {
   /** Multiplayer: start as the IPX host. */
@@ -33,6 +34,8 @@ export interface ArcadeMenuOpts {
   /** Called when the arcade session fully ends (picker cancelled or game closed) —
    *  the host restores its input (re-lock the pointer / re-enable keyboard). */
   onClose?: () => void;
+  /** Show the admin-only "Upload WAD" control (host passes its known admin flag). */
+  canUpload?: boolean;
 }
 
 const CSS = `
@@ -132,23 +135,55 @@ export class ArcadeUI {
   /** Show the game picker (shared pixel-menu look); choosing a title boots it. This
    *  is the entry point both worlds use so the cabinet always offers a title menu.
    *  opts.onClose fires when the session fully ends (picker cancelled or game closed). */
-  openMenu(opts: ArcadeMenuOpts = {}): void {
+  async openMenu(opts: ArcadeMenuOpts = {}): Promise<void> {
     if (this.isOpen || paDialogOpen()) return;
+    // Bundled titles + any admin-uploaded WADs (server-wide "bring your own WAD"),
+    // which play on the vanilla DOOM.EXE engine bundle with the WAD injected at boot.
+    const uploaded = await listWads();
+    if (this.isOpen || paDialogOpen()) return;
+    const games: ArcadeGame[] = [
+      ...ARCADE_GAME_LIST,
+      ...uploaded.map(
+        (w): ArcadeGame => ({
+          id: `wad:${w.name}`,
+          title: w.title,
+          blurb: `your WAD · ${w.iwad}`,
+          bundleUrl: ARCADE_GAMES.doom.bundleUrl, // vanilla DOOM.EXE carrier
+          multiplayer: false,
+          maxPlayers: 1,
+          license: 'user-provided (server operator owns the copy)',
+          iwadUrl: wadUrl(w.name),
+          iwadName: w.iwad,
+        }),
+      ),
+    ];
     const body = document.createElement('div');
     let launched = false;
-    for (const game of ARCADE_GAME_LIST) {
+    for (const game of games) {
       const btn = document.createElement('button');
       btn.className = 'pa-btn';
       btn.style.cssText = 'display:block;width:100%;text-align:left;margin:0 0 0.45rem;';
       btn.innerHTML =
-        `<b>${game.title}</b><br><span style="opacity:.7;font-size:.85em">` +
-        `${game.blurb}${game.multiplayer ? ` · up to ${game.maxPlayers}P` : ''}</span>`;
+        `<b>${esc(game.title)}</b><br><span style="opacity:.7;font-size:.85em">` +
+        `${esc(game.blurb)}${game.multiplayer ? ` · up to ${game.maxPlayers}P` : ''}</span>`;
       btn.onclick = () => {
         launched = true;
         closePaDialog();
         void this.open(game, { onClose: opts.onClose });
       };
       body.appendChild(btn);
+    }
+    if (opts.canUpload) {
+      const up = document.createElement('button');
+      up.className = 'pa-btn';
+      up.style.cssText = 'display:block;width:100%;text-align:left;margin:0.3rem 0 0;opacity:.85;';
+      up.textContent = '⬆ Upload WAD (admin)';
+      up.onclick = () => {
+        launched = true; // reopening the menu ourselves; don't let this close restore input
+        closePaDialog();
+        this.promptUploadWad(opts);
+      };
+      body.appendChild(up);
     }
     openPaDialog({
       title: '🕹 Arcade',
@@ -157,6 +192,58 @@ export class ArcadeUI {
         if (!launched) opts.onClose?.(); // cancelled without picking → restore input now
       },
       buttons: [],
+    });
+  }
+
+  /** Admin-only: upload a WAD you own; it becomes a server-wide title. The server
+   *  enforces admin + validates the file. On success the arcade closes (input is
+   *  restored); reopen the cabinet to see + play the new title. */
+  private promptUploadWad(menuOpts: ArcadeMenuOpts): void {
+    const body = document.createElement('div');
+    body.innerHTML =
+      '<div class="fld"><label>Title</label><input class="pa-input" data-f="title" maxlength="48" placeholder="e.g. DOOM (full)"></div>' +
+      '<div class="fld"><label>Id (a-z, 0-9, -)</label><input class="pa-input" data-f="name" maxlength="32" placeholder="doom-full"></div>' +
+      '<div class="fld"><label>IWAD filename</label><input class="pa-input" data-f="iwad" maxlength="20" value="DOOM.WAD"></div>' +
+      '<div class="fld"><label>WAD file (your own copy)</label><input type="file" data-f="file" accept=".wad"></div>' +
+      '<div data-f="status" style="color:#9aa3b2;font-size:.85rem;min-height:1.1em;"></div>';
+    const q = <T extends HTMLElement>(f: string): T => body.querySelector<T>(`[data-f="${f}"]`)!;
+    const status = q<HTMLDivElement>('status');
+    openPaDialog({
+      title: '⬆ Upload WAD',
+      body,
+      onCancel: () => menuOpts.onClose?.(), // closing the form ends the session → restore input
+      buttons: [
+        {
+          label: 'Upload',
+          kind: 'green',
+          onClick: () => {
+            const name = q<HTMLInputElement>('name').value.trim().toLowerCase();
+            const title = q<HTMLInputElement>('title').value.trim();
+            const iwad = q<HTMLInputElement>('iwad').value.trim() || 'DOOM.WAD';
+            const file = q<HTMLInputElement>('file').files?.[0];
+            if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(name)) {
+              status.textContent = 'Id must be a-z, 0-9, dashes (start alphanumeric).';
+              return false;
+            }
+            if (!file) {
+              status.textContent = 'Choose a .wad file.';
+              return false;
+            }
+            status.textContent = 'Uploading…';
+            void (async () => {
+              const buf = new Uint8Array(await file.arrayBuffer());
+              const res = await uploadWad(name, title || name, iwad, buf);
+              if (res.ok) {
+                status.textContent = 'Uploaded ✓ — reopen the cabinet to play it.';
+                closePaDialog(); // fires onCancel → restores host input
+              } else {
+                status.textContent = `Upload failed: ${res.error}`; // stay open to retry
+              }
+            })();
+            return false; // keep the dialog open until the async upload resolves
+          },
+        },
+      ],
     });
   }
 
@@ -197,12 +284,18 @@ export class ArcadeUI {
         this.msgEl.textContent = `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
         return;
       }
-      // Restore the player's server-stored savegame (if any) by seeding the FS.
-      let initFs: Uint8Array[] | undefined;
+      // Seed the FS via initFs: an uploaded IWAD (bring-your-own-WAD) first, then the
+      // player's server-stored savegame — both overlay the engine bundle.
+      const initFs: InitFsEntry[] = [];
+      if (game.iwadUrl) {
+        const wad = await fetchWadByUrl(game.iwadUrl).catch(() => null);
+        if (!this.isOpen) return;
+        if (wad && wad.length) initFs.push({ path: (game.iwadName || 'DOOM.WAD').toUpperCase(), contents: wad });
+      }
       if (this.saveHooks) {
         const saved = await this.saveHooks.load(game.id).catch(() => null);
         if (!this.isOpen) return;
-        if (saved && saved.length) initFs = [saved];
+        if (saved && saved.length) initFs.push(saved);
       }
       const Dos = await loadJsDos();
       // If the user bailed while js-dos was loading, don't boot.
@@ -212,7 +305,7 @@ export class ArcadeUI {
         url: bundleUrl,
         pathPrefix: JSDOS_PATH_PREFIX,
         backend: 'dosbox',
-        initFs,
+        initFs: initFs.length ? initFs : undefined,
         autoStart: true,
         kiosk: true,
         mouseCapture: true,
@@ -288,4 +381,9 @@ export class ArcadeUI {
       if (inst) await inst.stop().catch(() => undefined);
     }
   }
+}
+
+/** Escape text for safe innerHTML (dynamic WAD titles come from admin input). */
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 }

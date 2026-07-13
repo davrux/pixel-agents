@@ -38,7 +38,10 @@ import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
-import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
+import { registerAuth, hasValidSession, hasValidBearerSession, userIdFromCookie, userIdFromBearer } from './auth.js';
+import { userStore } from './userStore.js';
+import { arcadeWads } from './arcadeWadStore.js';
+import { createHash } from 'node:crypto';
 import { listWorlds } from './voxel/chunkStore.js';
 import { migrateItemIds } from './voxel/migrateItemIds.js';
 
@@ -131,6 +134,65 @@ async function main(): Promise<void> {
     }
     res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] });
   });
+
+  // ── Arcade "bring your own WAD" ────────────────────────────────────────────
+  // An admin uploads an IWAD they legally own (e.g. the full DOOM.WAD); every
+  // logged-in player can then play it. Stored as a BLOB in pixel.db (no filesystem
+  // path from user input → no traversal); the bytes are pure data, fed only to the
+  // sandboxed js-dos WASM in the browser and never executed server-side.
+  const reqUserId = (req: Request): string | undefined =>
+    userIdFromCookie(req.headers.cookie) ?? userIdFromBearer(req.headers.authorization);
+  const isAuthed = (req: Request): boolean =>
+    !ADMIN_TOKEN || hasValidSession(req.headers.cookie) || hasValidBearerSession(req.headers.authorization);
+  const isAdmin = (req: Request): boolean => {
+    const uid = reqUserId(req);
+    return !!uid && !!userStore.get(uid)?.isAdmin;
+  };
+  const wadSlug = (s: string): string | null => (/^[a-z0-9][a-z0-9-]{0,31}$/.test(s) ? s : null);
+
+  // List available WADs (any logged-in player) → merged into the client's title picker.
+  app.get('/arcade/wads', (req, res) => {
+    if (!isAuthed(req)) return void res.status(401).json({ error: 'unauthorized' });
+    res.json({ wads: arcadeWads.list() });
+  });
+
+  // Download a WAD's bytes (any logged-in player) → injected into js-dos via initFs.
+  app.get('/arcade/wad/:name', (req, res) => {
+    if (!isAuthed(req)) return void res.status(401).json({ error: 'unauthorized' });
+    const name = wadSlug(req.params.name);
+    const rec = name ? arcadeWads.get(name) : null;
+    if (!rec) return void res.status(404).json({ error: 'not found' });
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.send(Buffer.from(rec.data));
+  });
+
+  // Upload a WAD (ADMIN ONLY). Raw body, 32 MB cap; must be a real WAD (IWAD/PWAD magic).
+  app.put('/arcade/wad/:name', express.raw({ type: () => true, limit: '32mb' }), (req, res) => {
+    if (!isAdmin(req)) return void res.status(403).json({ error: 'forbidden' });
+    const name = wadSlug(req.params.name);
+    if (!name) return void res.status(400).json({ error: 'bad name' });
+    const body = req.body as Buffer;
+    if (!Buffer.isBuffer(body) || body.length < 12) return void res.status(400).json({ error: 'empty' });
+    const magic = body.subarray(0, 4).toString('ascii');
+    if (magic !== 'IWAD' && magic !== 'PWAD') return void res.status(400).json({ error: 'not a WAD file' });
+    const iwadRaw = typeof req.query.iwad === 'string' ? req.query.iwad : 'DOOM.WAD';
+    const iwad = (iwadRaw.toUpperCase().match(/[A-Z0-9._-]+/)?.[0] ?? 'DOOM.WAD').slice(0, 20);
+    const titleRaw = typeof req.query.title === 'string' ? req.query.title : name;
+    const title = titleRaw.replace(/[<>]/g, '').trim().slice(0, 48) || name;
+    const data = new Uint8Array(body);
+    const sha1 = createHash('sha1').update(data).digest('hex').slice(0, 12);
+    arcadeWads.put({ name, title, iwad, data, sha1, uploadedBy: reqUserId(req) ?? '' });
+    res.json({ ok: true, name, title, iwad, size: data.length });
+  });
+
+  // Delete a WAD (ADMIN ONLY).
+  app.delete('/arcade/wad/:name', (req, res) => {
+    if (!isAdmin(req)) return void res.status(403).json({ error: 'forbidden' });
+    const name = wadSlug(req.params.name);
+    if (name) arcadeWads.remove(name);
+    res.json({ ok: true });
+  });
+
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);

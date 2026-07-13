@@ -13,8 +13,8 @@
 export type ArcadeGameId = 'doom';
 
 export interface ArcadeGame {
-  /** Stable id, used in furniture/block state and lobby keys. */
-  id: ArcadeGameId;
+  /** Stable id (a bundled ArcadeGameId, or a dynamic `wad:<slug>` for uploaded WADs). */
+  id: string;
   /** Marquee title shown on the machine + in the launcher. */
   title: string;
   /** Short flavour line under the title. */
@@ -27,6 +27,11 @@ export interface ArcadeGame {
   maxPlayers: number;
   /** License note for the bundled WAD (all shipped content is free/libre). */
   license: string;
+  /** "Bring your own WAD" games: an uploaded IWAD to fetch + inject over the engine
+   *  bundle at boot (`iwadUrl`), and its filename inside the DOS filesystem
+   *  (`iwadName`, e.g. DOOM.WAD). Undefined for self-contained bundled games. */
+  iwadUrl?: string;
+  iwadName?: string;
 }
 
 export const ARCADE_GAMES: Record<ArcadeGameId, ArcadeGame> = {

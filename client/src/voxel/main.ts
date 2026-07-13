@@ -3207,7 +3207,7 @@ const arcadeUI = ArcadeUI.get();
 function openArcade(): void {
   if (arcadeUI.isOpen || paDialogOpen()) return;
   if (locked()) document.exitPointerLock();
-  arcadeUI.openMenu({ onClose: () => { if (mode === 'first') canvas.requestPointerLock(); } });
+  void arcadeUI.openMenu({ onClose: () => { if (mode === 'first') canvas.requestPointerLock(); }, canUpload: playerIsAdmin });
 }
 let conf: LiveKitConference | null = null;
 let confCell: { x: number; y: number; z: number } | null = null; // the monitor we're calling on
