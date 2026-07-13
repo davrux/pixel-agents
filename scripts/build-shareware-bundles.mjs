@@ -33,12 +33,15 @@ const MIRROR = 'https://image.dosgamesarchive.com/games';
 // (an array = a split archive whose volumes are concatenated); exe: the autoexec
 // program. All are freely-distributable shareware first episodes.
 const GAMES = [
+  // DOOM shareware (Episode 1) from the idgames mirror; ships DEICE-packed (split
+  // volumes) but sometimes loose — the extractor auto-detects both.
+  { id: 'doom', title: 'DOOM', zip: 'doom19s.zip', zipUrl: 'https://www.gamers.org/pub/idgames/idstuff/doom/doom19s.zip', data: ['DOOMS_19.1', 'DOOMS_19.2'], exe: 'DOOM.EXE', extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }] },
   { id: 'wolf3d', title: 'Wolfenstein 3D', zip: '1wolf14.zip', data: 'W3D1_BBS._1', exe: 'WOLF3D.EXE' },
   { id: 'keen', title: 'Commander Keen', zip: '1keen.zip', data: 'KEEN.1', exe: 'KEEN1.EXE' },
   { id: 'duke', title: 'Duke Nukem', zip: '1duke.zip', data: 'DUKE.1', exe: 'DN1.EXE' },
   // Duke3D refuses to launch without a DUKE3D.CFG ("run setup.exe"); ship a default
   // one (from scripts/assets, screen forced to fast 320x200) so it boots straight in.
-  { id: 'duke3d', title: 'Duke Nukem 3D', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: ['duke3d.cfg'] },
+  { id: 'duke3d', title: 'Duke Nukem 3D', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
 function dosboxConf(exe) {
@@ -47,6 +50,11 @@ function dosboxConf(exe) {
     '[dosbox]', 'machine=svga_s3', 'memsize=16',
     '[cpu]', 'core=auto', 'cputype=auto', 'cycles=auto',
     '[mixer]', 'nosound=false', 'rate=44100', 'blocksize=1024', 'prebuffer=20',
+    // Sound card emulation — DOSBox sets the BLASTER env from this so DOS games
+    // (Doom, Wolf3D, …) find the Sound Blaster; OPL gives their music.
+    '[midi]', 'mpu401=intelligent', 'mididevice=default',
+    '[sblaster]', 'sbtype=sb16', 'irq=7', 'dma=1', 'hdma=5', 'oplmode=auto', 'oplrate=44100',
+    '[speaker]', 'pcspeaker=true', 'pcrate=44100',
     '[render]', 'frameskip=0', 'aspect=false', 'scaler=none',
     '[ipx]', 'ipx=true',
     '[autoexec]', 'echo off', 'mount c .', 'c:', exe, '',
@@ -99,30 +107,49 @@ async function main() {
 
   for (const g of GAMES) {
     const zipPath = resolve(CACHE, g.zip);
-    await download(`${MIRROR}/${g.zip}`, zipPath);
-    // Pull the DEICE-packed data member out of the shareware zip…
+    await download(g.zipUrl ?? `${MIRROR}/${g.zip}`, zipPath);
     const work = await mkdtemp(resolve(tmpdir(), `sw-${g.id}-`));
-    // Pull the DEICE-packed member(s) and concatenate split volumes into one archive.
-    const parts = Array.isArray(g.data) ? g.data : [g.data];
-    await execFileP('python3', [
-      '-c',
-      "import sys,zipfile\nz=zipfile.ZipFile(sys.argv[1])\nopen(sys.argv[-1],'wb').write(b''.join(z.read(m) for m in sys.argv[2:-1]))",
-      zipPath,
-      ...parts,
-      resolve(work, 'data'),
-    ]);
-    // …and unpack it → loose game files. Use `unzip`, NOT 7z: 7z mis-restores old DOS
-    // file attributes as bogus symlinks (unreadable); unzip extracts them as regular
-    // files and tolerates a prefixed self-extractor stub (Wolf3D) with just a warning.
     const dir = resolve(work, 'game');
     await mkdir(dir, { recursive: true });
-    await execFileP('unzip', ['-o', '-q', resolve(work, 'data'), '-d', dir]).catch(() => {}); // exit 1 on prefix warning
+    // Mirrors ship these two ways: files loose in the zip, or wrapped in an Apogee
+    // DEICE self-extractor (INSTALL.EXE + a packed data member, split into volumes
+    // for the bigger games). Detect which: if the exe is already in the outer zip,
+    // extract that directly; else concatenate the DEICE data member(s) and unpack.
+    // (gamers.org's doom19s.zip flips between the two, so we must handle both.)
+    const outerHasExe = await execFileP('python3', [
+      '-c',
+      'import sys,zipfile\nns=[n.upper() for n in zipfile.ZipFile(sys.argv[1]).namelist()]\nsys.exit(0 if sys.argv[2].upper() in ns else 1)',
+      zipPath,
+      g.exe,
+    ]).then(() => true, () => false);
+    // Use `unzip`, NOT 7z: 7z mis-restores old DOS file attributes as bogus symlinks
+    // (unreadable); unzip extracts them as regular files and tolerates a prefixed
+    // self-extractor stub with just a warning.
+    if (outerHasExe) {
+      await execFileP('unzip', ['-o', '-q', zipPath, '-d', dir]).catch(() => {});
+    } else {
+      const parts = Array.isArray(g.data) ? g.data : [g.data];
+      await execFileP('python3', [
+        '-c',
+        "import sys,zipfile\nz=zipfile.ZipFile(sys.argv[1])\nopen(sys.argv[-1],'wb').write(b''.join(z.read(m) for m in sys.argv[2:-1]))",
+        zipPath,
+        ...parts,
+        resolve(work, 'data'),
+      ]);
+      await execFileP('unzip', ['-o', '-q', resolve(work, 'data'), '-d', dir]).catch(() => {});
+    }
     const files = await readdir(dir);
     if (!files.length) throw new Error(`extraction produced no files for ${g.id}`);
+    // Fail loudly on an incomplete download/extract so we never ship a bundle whose
+    // autoexec hits "<exe> not found".
+    if (!files.some((f) => f.toUpperCase() === g.exe.toUpperCase())) {
+      throw new Error(`${g.exe} missing after extract for ${g.id} (got: ${files.join(', ')}) — bad download?`);
+    }
     const entries = await Promise.all(files.map(async (f) => ({ name: f.toUpperCase(), data: await readFile(resolve(dir, f)) })));
-    // Inject shipped extras (e.g. a default DUKE3D.CFG) from scripts/assets/.
+    // Inject shipped extras from scripts/assets/ ({file} → bundled as {as}), e.g. a
+    // default DUKE3D.CFG or Doom's DEFAULT.CFG (so sound/controls are preconfigured).
     for (const ex of g.extras ?? []) {
-      entries.push({ name: ex.toUpperCase(), data: await readFile(resolve(REPO, 'scripts/assets', ex)) });
+      entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'scripts/assets', ex.file)) });
     }
     entries.push({ name: '.jsdos/dosbox.conf', data: Buffer.from(dosboxConf(g.exe), 'utf8') });
     entries.push({ name: '.jsdos/jsdos.json', data: Buffer.from(JSON.stringify({ version: 8 }), 'utf8') });

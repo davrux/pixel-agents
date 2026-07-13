@@ -23,14 +23,22 @@
 # a tsconfig path-map to @pixel/shared, so it runs directly from source via tsx
 # (no fragile bundling step). The frontend is a normal static vite build.
 
-# ── Build: install workspace deps + build the Phaser client (client/dist) ────
+# ── Build: workspace deps + DOS game bundles + the Phaser client (client/dist) ─
 FROM node:24-slim AS build
 WORKDIR /app
 RUN corepack enable
+# The arcade bundle builders (scripts/build-*shareware*.mjs, run by build:all)
+# need python3 (read zip members) + unzip (unpack the Apogee DEICE self-extractors).
+RUN apt-get update && apt-get install -y --no-install-recommends python3 unzip \
+    && rm -rf /var/lib/apt/lists/*
 COPY . .
 # pnpm-workspace.yaml's allowBuilds gates dependency build scripts explicitly.
 RUN pnpm install --frozen-lockfile
-RUN pnpm run build
+# build:all = fetch + package the DOS-game .jsdos bundles (freely-distributable
+# shareware, downloaded from the game mirrors — needs network egress at build
+# time), then build the client (vite copies public/, incl. jsdos/bundles, to
+# client/dist so the server serves them).
+RUN pnpm run build:all
 
 # ── Runtime: node + the whole workspace tree (source, deps, client/dist, assets)
 # tsx (a server devDependency) runs the TypeScript server in place.
