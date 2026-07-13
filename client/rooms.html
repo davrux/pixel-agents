@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Rooms</title>
+    <style>
+      /* Professional (non-pixel) shell. The shared voice/chat/conference widgets
+         bring their own pixel-menu skin; this is the surrounding app chrome. */
+      :root {
+        --bg: #0f1729;
+        --panel: #16213a;
+        --panel2: #1e2c4a;
+        --line: #26365c;
+        --text: #e8edf7;
+        --muted: #93a1c0;
+        --accent: #3b82f6;
+        --accent2: #2f7d3f;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        overflow: hidden;
+      }
+      #app { display: flex; flex-direction: column; height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/rooms/main.ts"></script>
+  </body>
+</html>

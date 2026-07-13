@@ -35,10 +35,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Multi-page: the 2D game (index.html) + the isolated 3D voxel spike.
+      // Multi-page: the 2D game (index.html), the 3D voxel spike, and the
+      // professional customer rooms portal (non-pixel view on the same backend).
       input: {
         main: resolve(__dirname, 'index.html'),
         voxel: resolve(__dirname, 'voxel.html'),
+        rooms: resolve(__dirname, 'rooms.html'),
       },
     },
   },

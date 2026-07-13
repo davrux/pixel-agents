@@ -586,6 +586,22 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
+    // Direct conference join (no walking) — for non-spatial clients like the
+    // customer rooms portal, which has no avatar to walk. Adds the player to the
+    // monitor's membership so the conferenceToken gate below admits them.
+    this.onMessage('conferenceJoin', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
+      const key = `${col},${row}`;
+      let set = this.conferences.get(key);
+      if (!set) this.conferences.set(key, (set = new Set<number>()));
+      set.add(id);
+      this.broadcast('m', this.conferenceMembersMsg(key));
+    });
+
     this.onMessage('conferenceLeave', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
