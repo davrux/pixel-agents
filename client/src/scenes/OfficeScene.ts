@@ -141,6 +141,8 @@ export class OfficeScene extends Phaser.Scene {
   private myConference: { col: number; row: number; name?: string } | null = null;
   /** A monitor we clicked and are walking toward (join finalizes on arrival). */
   private pendingConference: { col: number; row: number; name?: string } | null = null;
+  /** An arcade cabinet we clicked and are walking toward (opens on arrival). */
+  private pendingArcade: { col: number; row: number; fpW: number; fpH: number } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -702,14 +704,27 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
-  /** True if the tile is covered by an arcade cabinet (click → launch a DOS game). */
-  private isArcadeTile(col: number, row: number): boolean {
+  /** If the tile is covered by an arcade cabinet, its footprint (anchor + size), else null. */
+  private arcadeAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
       if (!entry?.arcade) continue;
-      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) return true;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row, fpW: entry.footprintW, fpH: entry.footprintH };
+      }
     }
-    return false;
+    return null;
+  }
+
+  /** Whether this viewer's avatar is standing next to (touching) a cabinet footprint. */
+  private nearArcade(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
+    const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
+    if (!me) return false;
+    const pc = Math.floor(me.tx / TILE_SIZE);
+    const pr = Math.floor(me.ty / TILE_SIZE);
+    const dx = pc < cab.col ? cab.col - pc : pc >= cab.col + cab.fpW ? pc - (cab.col + cab.fpW - 1) : 0;
+    const dy = pr < cab.row ? cab.row - pr : pr >= cab.row + cab.fpH ? pr - (cab.row + cab.fpH - 1) : 0;
+    return Math.max(dx, dy) <= 1;
   }
 
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
@@ -855,10 +870,22 @@ export class OfficeScene extends Phaser.Scene {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
-            if (this.isArcadeTile(col, row)) this.openArcade();
-            else if (conf) void this.toggleConference(conf);
+            const cab = this.arcadeAt(col, row);
+            if (cab) {
+              // Must stand at the cabinet to use it: open if already next to it,
+              // else walk to a tile in front of it and open on arrival (see update()).
+              this.pendingConference = null;
+              if (this.nearArcade(cab)) {
+                this.pendingArcade = null;
+                this.openArcade();
+              } else {
+                this.pendingArcade = cab;
+                this.room?.send('playerMove', { col: cab.col, row: cab.row + cab.fpH });
+              }
+            } else if (conf) void this.toggleConference(conf);
             else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
+              this.pendingArcade = null; // …and a walk-to-cabinet
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
             }
           }
@@ -1065,6 +1092,11 @@ export class OfficeScene extends Phaser.Scene {
         document.getElementById('pa-portal')?.remove();
         this.portalPickerTile = null;
       }
+    }
+    // Walked up to a clicked arcade cabinet → open it (see the click handler).
+    if (this.pendingArcade && this.nearArcade(this.pendingArcade)) {
+      this.pendingArcade = null;
+      this.openArcade();
     }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
