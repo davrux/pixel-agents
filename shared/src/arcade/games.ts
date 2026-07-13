@@ -10,7 +10,7 @@
  * the lobby (who hosts, peer ids).
  */
 
-export type ArcadeGameId = 'doom';
+export type ArcadeGameId = 'doom' | 'wolf3d' | 'keen' | 'duke' | 'duke3d';
 
 export interface ArcadeGame {
   /** Stable id (a bundled ArcadeGameId, or a dynamic `wad:<slug>` for uploaded WADs). */
@@ -46,6 +46,42 @@ export const ARCADE_GAMES: Record<ArcadeGameId, ArcadeGame> = {
     multiplayer: true,
     maxPlayers: 4,
     license: 'id Software shareware (freely distributable)',
+  },
+  wolf3d: {
+    id: 'wolf3d',
+    title: 'Wolfenstein 3D',
+    blurb: 'Escape from Castle Wolfenstein — shareware',
+    bundleUrl: '/jsdos/bundles/wolf3d.jsdos',
+    multiplayer: false,
+    maxPlayers: 1,
+    license: 'id Software shareware (freely distributable)',
+  },
+  keen: {
+    id: 'keen',
+    title: 'Commander Keen',
+    blurb: 'Marooned on Mars — shareware',
+    bundleUrl: '/jsdos/bundles/keen.jsdos',
+    multiplayer: false,
+    maxPlayers: 1,
+    license: 'Apogee shareware (freely distributable)',
+  },
+  duke: {
+    id: 'duke',
+    title: 'Duke Nukem',
+    blurb: 'Episode 1 — shareware',
+    bundleUrl: '/jsdos/bundles/duke.jsdos',
+    multiplayer: false,
+    maxPlayers: 1,
+    license: 'Apogee shareware (freely distributable)',
+  },
+  duke3d: {
+    id: 'duke3d',
+    title: 'Duke Nukem 3D',
+    blurb: 'L.A. Meltdown — shareware',
+    bundleUrl: '/jsdos/bundles/duke3d.jsdos',
+    multiplayer: false,
+    maxPlayers: 1,
+    license: '3D Realms shareware (freely distributable)',
   },
 };
 
