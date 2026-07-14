@@ -31,6 +31,9 @@ files:
     to: client/dist
     filter:
       - '**/*'
+      # Game bundles are fetched from the connected server at runtime (see
+      # ArcadeUI.resolveArcadeUrl); don't ship ~80 MB in the asar.
+      - '!jsdos/bundles/**'
   - package.json
 
 # Electron main entry inside the packaged app (the compiled desktop/dist/main.js).

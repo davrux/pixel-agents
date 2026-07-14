@@ -12,6 +12,16 @@ import { loadJsDos, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type
 import { ARCADE_GAMES, ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { listWads, fetchWadByUrl, wadUrl, uploadWad } from './wadClient.js';
+import { isDesktop } from '../desktop/bridge.js';
+import { serverHttpOrigin } from '../net/room.js';
+
+/** Site-root-relative bundle/manifest URLs must resolve against the connected
+ *  server in the desktop app: the app:// bundle doesn't ship the gitignored
+ *  ~80 MB game bundles — the server builds and serves them (see .dockerignore).
+ *  Emulator assets (JSDOS_BASE) stay same-origin: js-dos blob-Workers them. */
+function resolveArcadeUrl(url: string): string {
+  return isDesktop() && url.startsWith('/') ? `${serverHttpOrigin()}${url}` : url;
+}
 
 export interface ArcadeOpenOpts {
   /** Multiplayer: start as the IPX host. */
@@ -293,13 +303,14 @@ export class ArcadeUI {
     try {
       // Resolve a content-versioned URL from the bundles manifest so a rebuilt bundle
       // never serves stale from an HTTP cache (?v=<hash> changes when content changes).
-      let bundleUrl = game.bundleUrl;
+      const baseUrl = resolveArcadeUrl(game.bundleUrl);
+      let bundleUrl = baseUrl;
       try {
-        const manUrl = game.bundleUrl.replace(/[^/]+$/, 'manifest.json');
+        const manUrl = baseUrl.replace(/[^/]+$/, 'manifest.json');
         const mres = await fetch(manUrl, { cache: 'no-store' });
         if (mres.ok) {
           const man = (await mres.json()) as Record<string, string>;
-          if (man?.[game.id]) bundleUrl = `${game.bundleUrl}?v=${man[game.id]}`;
+          if (man?.[game.id]) bundleUrl = `${baseUrl}?v=${man[game.id]}`;
         }
       } catch {
         /* no manifest → use the plain url */

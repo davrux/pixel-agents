@@ -54,6 +54,9 @@ const MIME_TYPES: Record<string, string> = {
   '.woff2': 'font/woff2',
   '.ttf': 'font/ttf',
   '.map': 'application/json',
+  // application/wasm enables WebAssembly.instantiateStreaming for the js-dos emulator.
+  '.wasm': 'application/wasm',
+  '.jsdos': 'application/octet-stream',
 };
 
 function contentType(filePath: string): string {
