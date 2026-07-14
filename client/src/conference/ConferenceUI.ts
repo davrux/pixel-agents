@@ -21,8 +21,21 @@ export interface ConferenceUIHandlers {
   switchCamera: (id: string) => void;
   switchMic: (id: string) => void;
   switchSpeaker: (id: string) => void;
+  setVolume: (identity: string, v: number) => void; // 0..1
+  setMuted: (identity: string, muted: boolean) => void;
   sendChat: (text: string) => void;
   leave: () => void;
+}
+
+/** One People-panel row's live elements (reused across re-renders so an active
+ *  slider drag isn't destroyed). Volume controls exist for remote rows only. */
+interface PartRow {
+  row: HTMLElement;
+  nm: HTMLElement;
+  icons: HTMLElement;
+  mute?: HTMLButtonElement;
+  vol?: HTMLInputElement;
+  pct?: HTMLElement;
 }
 
 // Shared pixel-menu look (matches #pa-menubar / .pa-btn / .pa-panel in OfficeScene):
@@ -101,10 +114,18 @@ const CSS = `
   #pa-conf .pa-conf-chatin{border:0;border-top:2px solid #05060b;background:#171b2b;color:#e9ecf7;
     font:1rem 'FS Pixel Sans',monospace;padding:0.55rem 0.6rem;box-shadow:inset 0 2px 0 #2b3252;}
   #pa-conf .pa-conf-parts{padding:0.4rem 0.2rem;overflow-y:auto;}
-  #pa-conf .pa-conf-parts .p{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.5rem;font-size:0.95rem;
-    border-bottom:1px solid #1b2138;}
+  #pa-conf .pa-conf-parts .p{display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.4rem 0.5rem;
+    font-size:0.95rem;border-bottom:1px solid #1b2138;}
   #pa-conf .pa-conf-parts .p .n{flex:1;}
   #pa-conf .pa-conf-parts .p .i{opacity:0.85;}
+  #pa-conf .pa-conf-parts .p .vol-row{display:flex;align-items:center;gap:0.4rem;width:100%;}
+  #pa-conf .pa-conf-parts .p .vol-row button{cursor:pointer;background:#171b2b;border:2px solid #05060b;
+    color:#e9ecf7;border-radius:0.35rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.2rem 0.4rem;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #pa-conf .pa-conf-parts .p .vol-row button:hover{background:#1a2032;}
+  #pa-conf .pa-conf-parts .p .vol-row button.muted{color:#f2a1a1;border-color:#7c2634;}
+  #pa-conf .pa-conf-parts .p .vol-row input[type=range]{flex:1;min-width:0;accent-color:#2f66b0;}
+  #pa-conf .pa-conf-parts .p .vol-row .pct{font-size:0.8rem;color:#9aa0b8;min-width:2.6rem;text-align:right;}
   #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
     padding:0.6rem;background:#0f1220;border-top:2px solid #05060b;box-shadow:inset 0 1px 0 #1b2138;position:relative;}
   #pa-conf .pa-conf-bar button{cursor:pointer;background:#141826;border:2px solid #05060b;color:#e9ecf7;
@@ -139,6 +160,7 @@ export class ConferenceUI {
   private readonly bar: HTMLDivElement;
   private readonly devPop: HTMLDivElement;
   private handlers: ConferenceUIHandlers | null = null;
+  private readonly partRows = new Map<string, PartRow>();
   private devices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
   private state: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
 
@@ -324,6 +346,7 @@ export class ConferenceUI {
     this.titleEl.textContent = `📹 ${title}`;
     this.chatLog.innerHTML = '';
     this.partsEl.innerHTML = '';
+    this.partRows.clear();
     this.devPop.classList.remove('open');
     this.root.style.display = 'flex';
   }
@@ -335,6 +358,7 @@ export class ConferenceUI {
     this.handlers = null;
     this.chatLog.innerHTML = '';
     this.partsEl.innerHTML = '';
+    this.partRows.clear();
   }
 
   setState(s: ConferenceState): void {
@@ -389,13 +413,68 @@ export class ConferenceUI {
 
   setParticipants(list: ConferenceParticipant[]): void {
     this.subEl.textContent = `· ${list.length} ${list.length === 1 ? 'person' : 'people'}`;
-    this.partsEl.innerHTML = '';
+    const seen = new Set<string>();
     for (const p of list) {
-      const row = document.createElement('div');
-      row.className = 'p';
-      row.innerHTML = `<span class="n">${esc(p.name)}</span><span class="i">${p.micOn ? '🎙' : '🔇'} ${p.camOn ? '📷' : '🚫'}</span>`;
-      this.partsEl.appendChild(row);
+      seen.add(p.identity);
+      let e = this.partRows.get(p.identity);
+      if (!e) {
+        e = this.createPartRow(p.identity, p.local);
+        this.partRows.set(p.identity, e);
+        this.partsEl.appendChild(e.row);
+      }
+      e.nm.textContent = p.name;
+      e.icons.textContent = `${p.micOn ? '🎙' : '🔇'} ${p.camOn ? '📷' : '🚫'}`;
+      if (e.mute) {
+        e.mute.textContent = p.mutedLocally ? '🔇' : '🔊';
+        e.mute.classList.toggle('muted', p.mutedLocally);
+        e.mute.title = p.mutedLocally ? 'Unmute for me' : 'Mute for me';
+      }
+      // Don't stomp a slider the user is actively dragging (its input handler
+      // keeps the value + % readout current). Refresh others from state.
+      if (e.vol && e.pct && document.activeElement !== e.vol) {
+        const pct = Math.round(p.volume * 100);
+        e.vol.value = String(pct);
+        e.pct.textContent = `${pct}%`;
+      }
     }
+    for (const [id, e] of this.partRows) {
+      if (!seen.has(id)) {
+        e.row.remove();
+        this.partRows.delete(id);
+      }
+    }
+  }
+
+  /** One People row: name + mic/cam status, plus (remote only) a local
+   *  mute-for-me button and a 0–100% playback volume slider. */
+  private createPartRow(identity: string, local: boolean): PartRow {
+    const row = document.createElement('div');
+    row.className = 'p';
+    const nm = document.createElement('span');
+    nm.className = 'n';
+    const icons = document.createElement('span');
+    icons.className = 'i';
+    row.append(nm, icons);
+    if (local) return { row, nm, icons };
+
+    const volRow = document.createElement('div');
+    volRow.className = 'vol-row';
+    const mute = document.createElement('button');
+    mute.onclick = () => this.handlers?.setMuted(identity, !mute.classList.contains('muted'));
+    const vol = document.createElement('input');
+    vol.type = 'range';
+    vol.min = '0';
+    vol.max = '100';
+    vol.title = 'Volume';
+    const pct = document.createElement('span');
+    pct.className = 'pct';
+    vol.oninput = () => {
+      this.handlers?.setVolume(identity, Number(vol.value) / 100);
+      pct.textContent = `${vol.value}%`;
+    };
+    volRow.append(mute, vol, pct);
+    row.appendChild(volRow);
+    return { row, nm, icons, mute, vol, pct };
   }
 
   addChat(m: ConferenceChatMsg): void {

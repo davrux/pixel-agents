@@ -3286,6 +3286,8 @@ function conferenceHandlers(): import('../conference/ConferenceUI.js').Conferenc
     switchCamera: (id) => void conf?.switchCamera(id),
     switchMic: (id) => void conf?.switchMic(id),
     switchSpeaker: (id) => void conf?.switchSpeaker(id),
+    setVolume: (identity, v) => conf?.setParticipantVolume(identity, v),
+    setMuted: (identity, muted) => conf?.setParticipantMuted(identity, muted),
     sendChat: (text) => conf?.sendChat(text),
     leave: () => leaveConference(),
   };

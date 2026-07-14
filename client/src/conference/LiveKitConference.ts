@@ -43,6 +43,10 @@ export interface ConferenceParticipant {
   local: boolean;
   micOn: boolean;
   camOn: boolean;
+  /** Playback volume this viewer set for the member (0..1; local is always 1). */
+  volume: number;
+  /** Whether this viewer muted the member locally (never true for local). */
+  mutedLocally: boolean;
 }
 
 export interface ConferenceChatMsg {
@@ -78,7 +82,13 @@ export class LiveKitConference {
   /** Screen-share spotlight tiles, keyed by track sid. */
   private readonly screens = new Map<string, HTMLElement>();
   /** Hidden remote audio elements, keyed by track sid. */
-  private readonly audios = new Map<string, HTMLMediaElement>();
+  private readonly audios = new Map<string, { el: HTMLMediaElement; identity: string }>();
+  /** Per-member playback volume this viewer chose (identity → 0..1). */
+  private readonly peerVolumes = new Map<string, number>();
+  /** Members this viewer muted locally (identity). */
+  private readonly peerMuted = new Set<string>();
+  /** Persisted volumes, keyed by display name (else identity) — survives reloads. */
+  private readonly savedVolumes = new Map<string, number>();
   private camOn = true;
   private micOn = true;
   private screenOn = false;
@@ -88,7 +98,9 @@ export class LiveKitConference {
     private readonly stage: HTMLElement,
     private readonly screensEl: HTMLElement,
     private readonly cb: ConferenceCallbacks,
-  ) {}
+  ) {
+    this.loadSavedVolumes();
+  }
 
   async connect(url: string, token: string): Promise<void> {
     const room = new Room({ adaptiveStream: true, dynacast: true });
@@ -134,6 +146,10 @@ export class LiveKitConference {
   // ── Tiles ──────────────────────────────────────────────────────────
 
   private ensureTile(p: Participant, local: boolean): PTile {
+    if (!local && !this.peerVolumes.has(p.identity)) {
+      const saved = this.savedVolumes.get(volKey(p.name, p.identity));
+      if (saved !== undefined) this.peerVolumes.set(p.identity, saved);
+    }
     let t = this.tiles.get(p.identity);
     if (t) return t;
     const root = document.createElement('div');
@@ -184,8 +200,9 @@ export class LiveKitConference {
       const audio = track.attach();
       audio.style.display = 'none';
       if (this.speakerId) void setSinkId(audio, this.speakerId);
-      this.audios.set(track.sid || `${p.identity}-audio`, audio);
+      this.audios.set(track.sid || `${p.identity}-audio`, { el: audio, identity: p.identity });
       this.stage.appendChild(audio);
+      this.applyVolume(p.identity);
     }
     this.emitParticipants();
   }
@@ -215,7 +232,7 @@ export class LiveKitConference {
     } else if (sid) {
       const a = this.audios.get(sid);
       if (a) {
-        a.remove();
+        a.el.remove();
         this.audios.delete(sid);
       }
     }
@@ -294,11 +311,57 @@ export class LiveKitConference {
         local,
         micOn: p.isMicrophoneEnabled,
         camOn: p.isCameraEnabled,
+        volume: local ? 1 : (this.peerVolumes.get(p.identity) ?? 1),
+        mutedLocally: !local && this.peerMuted.has(p.identity),
       });
     };
     add(room.localParticipant, true);
     for (const p of room.remoteParticipants.values()) add(p, false);
     this.cb.onParticipants(list);
+  }
+
+  // ── Per-member playback volume (local to this viewer) ─────────────
+
+  /** Apply effective volume (0 if locally muted) to all of a member's audio elements. */
+  private applyVolume(identity: string): void {
+    const v = this.peerMuted.has(identity) ? 0 : (this.peerVolumes.get(identity) ?? 1);
+    for (const a of this.audios.values()) if (a.identity === identity) a.el.volume = v;
+  }
+
+  setParticipantVolume(identity: string, v: number): void {
+    const vol = clamp01(v);
+    this.peerVolumes.set(identity, vol);
+    this.applyVolume(identity);
+    const name = this.room?.remoteParticipants.get(identity)?.name;
+    this.savedVolumes.set(volKey(name, identity), vol);
+    this.persistSavedVolumes();
+    this.emitParticipants();
+  }
+
+  setParticipantMuted(identity: string, muted: boolean): void {
+    if (muted) this.peerMuted.add(identity);
+    else this.peerMuted.delete(identity);
+    this.applyVolume(identity);
+    this.emitParticipants();
+  }
+
+  private loadSavedVolumes(): void {
+    try {
+      const raw = localStorage.getItem('pa-conf-peervol');
+      if (!raw) return;
+      const obj = JSON.parse(raw) as Record<string, unknown>;
+      for (const [k, v] of Object.entries(obj)) if (typeof v === 'number' && Number.isFinite(v)) this.savedVolumes.set(k, clamp01(v));
+    } catch {
+      /* corrupt/unavailable — start fresh */
+    }
+  }
+
+  private persistSavedVolumes(): void {
+    try {
+      localStorage.setItem('pa-conf-peervol', JSON.stringify(Object.fromEntries(this.savedVolumes)));
+    } catch {
+      /* localStorage unavailable */
+    }
   }
 
   // ── Controls ───────────────────────────────────────────────────────
@@ -359,7 +422,7 @@ export class LiveKitConference {
   async switchSpeaker(deviceId: string): Promise<void> {
     this.speakerId = deviceId;
     await this.room?.switchActiveDevice('audiooutput', deviceId).catch(() => undefined);
-    for (const a of this.audios.values()) void setSinkId(a, deviceId);
+    for (const a of this.audios.values()) void setSinkId(a.el, deviceId);
     await this.emitDevices();
   }
 
@@ -388,8 +451,10 @@ export class LiveKitConference {
     this.tiles.clear();
     for (const el of this.screens.values()) el.remove();
     this.screens.clear();
-    for (const a of this.audios.values()) a.remove();
+    for (const a of this.audios.values()) a.el.remove();
     this.audios.clear();
+    this.peerVolumes.clear();
+    this.peerMuted.clear();
   }
 
   private notify(error?: string): void {
@@ -401,6 +466,17 @@ export class LiveKitConference {
 async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
   const sinkable = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
   if (typeof sinkable.setSinkId === 'function') await sinkable.setSinkId(deviceId).catch(() => undefined);
+}
+
+/** Stable-ish persistence key for a member: prefer the display name (survives
+ *  reconnects/reloads that rotate the ephemeral identity). */
+function volKey(name: string | undefined, identity: string): string {
+  return name && name.trim() ? name : identity;
+}
+
+function clamp01(v: number): number {
+  if (!Number.isFinite(v)) return 1;
+  return Math.max(0, Math.min(1, v));
 }
 
 /** Up-to-two-letter initials for a name (camera-off placeholder). */

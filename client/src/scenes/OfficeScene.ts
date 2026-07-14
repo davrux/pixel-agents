@@ -2031,6 +2031,8 @@ export class OfficeScene extends Phaser.Scene {
       switchCamera: (id) => void this.conf?.switchCamera(id),
       switchMic: (id) => void this.conf?.switchMic(id),
       switchSpeaker: (id) => void this.conf?.switchSpeaker(id),
+      setVolume: (identity, v) => this.conf?.setParticipantVolume(identity, v),
+      setMuted: (identity, muted) => this.conf?.setParticipantMuted(identity, muted),
       sendChat: (text) => this.conf?.sendChat(text),
       leave: () => {
         if (this.myConference) void this.toggleConference(this.myConference);
