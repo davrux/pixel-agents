@@ -47,11 +47,26 @@ export async function fetchVoxelWorlds(): Promise<string[] | null> {
   }
 }
 
+function errMsg(err: unknown): string {
+  return ((err as { message?: string } | undefined)?.message ?? '').toLowerCase();
+}
+
+/** A password-locked zone rejected the join (needs the room password). */
+export function isZoneLockedError(err: unknown): boolean {
+  return errMsg(err).includes('zone-locked');
+}
+/** The account may not enter this room at all (e.g. a customer, not assigned). */
+export function isForbiddenError(err: unknown): boolean {
+  return errMsg(err).includes('forbidden');
+}
+
 /** Did the room reject the join because the session cookie is missing/invalid?
- *  Colyseus 0.16 maps an onAuth throw to ErrorCode.AUTH_FAILED (4215). */
+ *  Colyseus 0.16 maps ANY onAuth throw to ErrorCode.AUTH_FAILED (4215), so the
+ *  more specific room-entry rejections (locked / forbidden) are excluded here. */
 export function isAuthError(err: unknown): boolean {
   const e = err as { code?: number; message?: string } | undefined;
-  const msg = (e?.message ?? '').toLowerCase();
+  const msg = errMsg(err);
+  if (isZoneLockedError(err) || isForbiddenError(err)) return false;
   return e?.code === 4215 || e?.code === 401 || msg.includes('unauthorized') || msg.includes('onauth');
 }
 
@@ -65,7 +80,11 @@ export function gotoLogout(): void {
   window.location.href = `${serverHttpOrigin()}/logout`;
 }
 
-export async function connect(zone: string = DEFAULT_ZONE, arrive = false): Promise<Room> {
+export async function connect(
+  zone: string = DEFAULT_ZONE,
+  arrive = false,
+  opts: { zonePassword?: string; spectator?: boolean } = {},
+): Promise<Room> {
   const client = new Client(endpoint());
   // Desktop only: attach the server-issued bearer token so colyseus.js adds
   // `Authorization: Bearer <sid>` to the matchmake POST (and `_authToken` to the
@@ -79,5 +98,9 @@ export async function connect(zone: string = DEFAULT_ZONE, arrive = false): Prom
   // `arrive` = the player actively entered this zone (menu switch or portal), so
   // the server should land them at the zone's arrival tile rather than where they
   // last stood. Resolved per-client in onJoin.
-  return client.joinOrCreate(WORLD_ROOM, { zone, arrive });
+  // `zonePassword` is checked in onAuth for password-locked zones (ignored for
+  // unlocked ones); admins / zone admins / assigned customers don't need it.
+  // `spectator` = a non-spatial viewer (rooms portal): present for chat/voice/
+  // meetings but not drawn as an avatar in the 2D/3D world.
+  return client.joinOrCreate(WORLD_ROOM, { zone, arrive, zonePassword: opts.zonePassword, spectator: opts.spectator });
 }
