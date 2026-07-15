@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>Administration</title>
+    <style>
+      :root {
+        --bg: #1b1a26;
+        --panel: #24232f;
+        --panel2: #2f2e3d;
+        --line: #3a3948;
+        --text: #ecebf2;
+        --muted: #a6a4b8;
+        --accent: #6264a7;
+        --accent2: #3aa675;
+        --danger: #b4453f;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      #app { display: flex; flex-direction: column; min-height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/admin/main.ts"></script>
+  </body>
+</html>

@@ -41,6 +41,7 @@ export default defineConfig({
         main: resolve(__dirname, 'index.html'),
         voxel: resolve(__dirname, 'voxel.html'),
         rooms: resolve(__dirname, 'rooms.html'),
+        admin: resolve(__dirname, 'admin.html'),
       },
     },
   },
