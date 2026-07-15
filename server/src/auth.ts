@@ -223,7 +223,14 @@ export function registerAuth(app: Express, adminToken: string): void {
     const isApi = p === '/health' || p === '/login' || p.startsWith('/matchmake');
     const needsAuth = req.method === 'GET' && !isAsset && !isApi;
     if (needsAuth && !hasValidSession(req.headers.cookie)) {
-      res.status(200).type('html').send(loginHtml());
+      // Login page only for navigations; programmatic fetches get an honest 401 so a
+      // gate miss can never hand HTML-as-200 to a client that will cache it as data
+      // (js-dos persists any 200 body as bundle bytes).
+      if (req.headers.accept?.includes('text/html')) {
+        res.status(200).type('html').send(loginHtml());
+      } else {
+        res.status(401).json({ error: 'unauthorized' });
+      }
       return;
     }
     next();

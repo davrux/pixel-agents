@@ -66,6 +66,32 @@ declare global {
 const JSDOS_BASE = '/jsdos/';
 export const JSDOS_PATH_PREFIX = `${JSDOS_BASE}emulators/`;
 
+/** js-dos caches downloaded bundles in OPFS (jsdos/caches/bundles) keyed by URL and
+ *  replays them before any network fetch. A non-zip 200 (e.g. a login page served by
+ *  a stale server) gets cached forever and crashes the emulator on every boot — so
+ *  drop any cached entry that doesn't start with the zip magic ("PK"). */
+export async function pruneCorruptBundleCache(): Promise<void> {
+  try {
+    const root = await navigator.storage.getDirectory();
+    const jsdos = await root.getDirectoryHandle('jsdos');
+    const caches = await jsdos.getDirectoryHandle('caches');
+    const bundles = await caches.getDirectoryHandle('bundles');
+    const names: string[] = [];
+    for await (const [name, handle] of bundles as unknown as AsyncIterable<
+      [string, FileSystemHandle]
+    >) {
+      if (handle.kind !== 'file') continue;
+      const head = new Uint8Array(
+        await (await (handle as FileSystemFileHandle).getFile()).slice(0, 2).arrayBuffer(),
+      );
+      if (head.length < 2 || head[0] !== 0x50 || head[1] !== 0x4b) names.push(name);
+    }
+    for (const name of names) await bundles.removeEntry(name);
+  } catch {
+    /* OPFS unavailable or cache dirs missing — nothing to prune */
+  }
+}
+
 let loading: Promise<DosFn> | null = null;
 
 /** Load the js-dos player script once and resolve the `Dos` global. */

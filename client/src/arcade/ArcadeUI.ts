@@ -8,7 +8,7 @@
  * button closes the cabinet. Multiplayer is wired via the optional net params on
  * `open()` (host runs an IPX server; joiners connect to the host's peer id).
  */
-import { loadJsDos, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface, type InitFsEntry } from './jsdos.js';
+import { loadJsDos, pruneCorruptBundleCache, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface, type InitFsEntry } from './jsdos.js';
 import { ARCADE_GAMES, ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { listWads, fetchWadByUrl, wadUrl, uploadWad } from './wadClient.js';
@@ -21,6 +21,23 @@ import { serverHttpOrigin } from '../net/room.js';
  *  Emulator assets (JSDOS_BASE) stay same-origin: js-dos blob-Workers them. */
 function resolveArcadeUrl(url: string): string {
   return isDesktop() && url.startsWith('/') ? `${serverHttpOrigin()}${url}` : url;
+}
+
+/** Read at most `n` leading bytes of a response body, then cancel the stream. */
+async function readLeadingBytes(res: Response, n: number): Promise<Uint8Array> {
+  const reader = res.body?.getReader();
+  if (!reader) return new Uint8Array(await res.arrayBuffer()).slice(0, n);
+  const out: number[] = [];
+  while (out.length < n) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const b of value) {
+      out.push(b);
+      if (out.length >= n) break;
+    }
+  }
+  void reader.cancel().catch(() => undefined);
+  return new Uint8Array(out);
 }
 
 export interface ArcadeOpenOpts {
@@ -316,15 +333,30 @@ export class ArcadeUI {
         /* no manifest → use the plain url */
       }
       if (!this.isOpen) return;
-      // Fail cleanly when a game's bundle isn't installed yet (e.g. the Doom 2 /
-      // Deathmatch Freedoom bundles before they're built) — no raw 404.
-      const head = await fetch(bundleUrl, { method: 'HEAD' }).catch(() => null);
+      // Probe the first two bytes with a ranged GET: a HEAD-only check can pass while
+      // the actual GET returns a login page with status 200 (e.g. a server whose auth
+      // gate predates the .jsdos asset whitelist) — js-dos would cache those bytes in
+      // OPFS and crash on every boot ("Not a zip archive").
+      const probe = await fetch(bundleUrl, {
+        headers: { Range: 'bytes=0-1' },
+        cache: 'no-store',
+      }).catch(() => null);
+      const magic = probe && probe.ok ? await readLeadingBytes(probe, 2).catch(() => null) : null;
       if (!this.isOpen) return;
-      if (!head || !head.ok) {
+      if (!probe || !probe.ok) {
         this.setStatus('not installed', true);
         this.msgEl.textContent = `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
         return;
       }
+      if (!magic || magic.length < 2 || magic[0] !== 0x50 || magic[1] !== 0x4b) {
+        this.setStatus('server outdated', true);
+        this.msgEl.textContent = `“${game.title}” can't start: the server returned something that isn't a game bundle.\nUpdate/redeploy the server, then try again.`;
+        return;
+      }
+      // A previous launch may have cached a bad response (login page, error body) in
+      // js-dos' OPFS bundle cache — it replays before any refetch, so scrub it now.
+      await pruneCorruptBundleCache();
+      if (!this.isOpen) return;
       // Seed the FS via initFs: an uploaded IWAD (bring-your-own-WAD) first, then the
       // player's server-stored savegame — both overlay the engine bundle.
       const initFs: InitFsEntry[] = [];
