@@ -1642,6 +1642,11 @@ const chat = new ChatUI({
   extraCommands: VOXEL_COMMANDS,
   clientCommand: (name, args, sys) => {
     if (name === 'voxel') return sys('You are already in the voxel world.'), true;
+    if (name === 'admin-site') {
+      if (!playerIsAdmin) sys('/admin-site is for admins only.');
+      else { sys('Opening the administration page…'); window.location.href = './admin.html'; }
+      return true;
+    }
     if (name === 'pos') return handlePos(args, sys), true;
     if (name === 'goto') return handleGoto(args, sys), true;
     if (name === 'pos1') return handleWeSel(1), true;

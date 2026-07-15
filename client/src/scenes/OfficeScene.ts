@@ -45,7 +45,7 @@ import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
+import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { showSignInScreen } from '../screens/signin.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
@@ -64,6 +64,10 @@ type RenderChar = Partial<Character> & {
   /** Client-side animation clock (frame phase is cosmetic, not synced). */
   animTimer?: number;
   animPose?: string;
+  /** Joined via the rooms portal → name shows a "(Rooms)" suffix. */
+  spectator?: boolean;
+  /** Account is a customer → labelled "Customer" instead of "Player". */
+  isCustomer?: boolean;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
@@ -79,6 +83,13 @@ const POSE_FRAME_MS: Record<string, number> = {
   coffee: COFFEE_FRAME_DURATION_SEC * 1000,
   sit: TYPE_FRAME_DURATION_SEC * 1000, // static placeholder; animates if a sit track is authored
 };
+
+// Idle-throttle tuning (see update()): DOM overlays run at ~20 Hz; after a short
+// grace with a fully static scene the per-frame work is skipped, and after ~2 s
+// the whole render loop is put to sleep (woken by input/state/voice/tab focus).
+const OVERLAY_INTERVAL_MS = 50;
+const IDLE_GRACE_FRAMES = 6;
+const SLEEP_AFTER_IDLE_FRAMES = 120;
 
 /** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
  *  derived from the agent id so all viewers render an identical sweep. */
@@ -135,6 +146,14 @@ export class OfficeScene extends Phaser.Scene {
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
   private tip!: HTMLDivElement;
+  // Idle-throttle + perf-overlay bookkeeping (see update()/sceneBusy()).
+  private idleFrames = 0;
+  private wasBusy = true;
+  private loopAsleep = false;
+  private lastOverlayAt = 0;
+  private perfEnabled = false;
+  private perfEl: HTMLDivElement | null = null;
+  private updateMsAvg = 0;
   /** Shared chat panel (client/src/ui/chatUI.ts) — same component as the voxel client. */
   private chat?: ChatUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
@@ -224,6 +243,8 @@ export class OfficeScene extends Phaser.Scene {
    *  (empty in open dev mode / anonymous). */
   private myUserId = '';
   private isAdmin = false;
+  /** Account role — customers are external guests with no agents/editing. */
+  private myRole: 'admin' | 'user' | 'customer' = 'user';
   /** Whether this viewer is a designated admin of the CURRENT zone (may layout
    *  it even without being a global admin). */
   private myZoneAdmin = false;
@@ -273,6 +294,7 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#14161c');
     this.os = new OfficeState();
     this.view = new PhaserRenderer(this, this.renderSource());
+    this.setupIdleWaking();
     this.editor = new LayoutEditor(this, {
       getLayout: () => this.os.getLayout(),
       onChange: () => (this.furnitureDirty = true),
@@ -395,9 +417,11 @@ export class OfficeScene extends Phaser.Scene {
         positionOf: (id) => this.playerPosition(id),
         onSpeakers: (ids) => {
           this.voiceSpeakers = ids;
+          this.wake(); // talking indicators changed → redraw
         },
         onVoiceStatus: (status) => {
           this.voiceStatus = status;
+          this.wake();
         },
         // Reflect live voice state on the Audio dot + quick-access bar buttons.
         onStateChange: (s) => this.updateVoiceBarButtons(s),
@@ -456,7 +480,11 @@ export class OfficeScene extends Phaser.Scene {
         }
         if (!this.leavingIntentionally && code !== 1000) this.handleDisconnect();
       });
+      // Any authoritative state change (someone moved, an agent updated, a bubble
+      // appeared) must wake an idled/slept render loop so it redraws.
+      this.room.onStateChange(() => this.wake());
       this.room.onMessage('m', (m: Record<string, unknown>) => {
+        this.wake();
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
@@ -480,6 +508,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           this.myUserId = (m.userId as string) ?? '';
           this.isAdmin = !!m.isAdmin;
+          this.myRole = (m.role as typeof this.myRole) ?? 'user';
           this.myZoneAdmin = !!m.zoneAdmin;
           this.agentToken = (m.agentToken as string) ?? '';
           // Logged-in users: display name is server-owned. Anonymous (open dev):
@@ -554,6 +583,12 @@ export class OfficeScene extends Phaser.Scene {
         }
         setStatus('session expired — redirecting to login…');
         redirectToLogin();
+        return;
+      }
+      // A customer without Pixels access → send them to the rooms portal instead.
+      if (isForbiddenError(err) && !isDesktop()) {
+        setStatus('This account uses the rooms portal — redirecting…');
+        window.location.href = './rooms.html';
         return;
       }
       setStatus(`connection failed: ${(err as Error).message}`);
@@ -646,6 +681,8 @@ export class OfficeScene extends Phaser.Scene {
     rc.isSubagent = cs.isSubagent as boolean;
     rc.isPlayer = cs.isPlayer as boolean;
     rc.afk = cs.afk as boolean;
+    rc.spectator = cs.spectator as boolean;
+    rc.isCustomer = cs.isCustomer as boolean;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;
@@ -1081,6 +1118,7 @@ export class OfficeScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.room) return;
+    const t0 = this.perfEnabled ? performance.now() : 0;
     // Close the destination picker once the avatar moves off the portal tile.
     if (this.portalPickerTile) {
       const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
@@ -1104,6 +1142,20 @@ export class OfficeScene extends Phaser.Scene {
       this.rebuildFurniture();
       this.furnitureDirty = false;
     }
+    // Idle throttle: when nothing is moving/animating, skip the per-frame entity
+    // sync + DOM overlays (the bulk of the CPU) and, after a short grace, sleep the
+    // whole render loop — woken again by input, state patches, voice or tab focus.
+    const busy = this.sceneBusy(_time);
+    if (busy) this.idleFrames = 0;
+    else this.idleFrames++;
+    const justStopped = !busy && this.wasBusy;
+    this.wasBusy = busy;
+    if (!busy && this.idleFrames > IDLE_GRACE_FRAMES) {
+      if (this.idleFrames >= SLEEP_AFTER_IDLE_FRAMES) this.sleepLoop();
+      if (this.perfEnabled) this.recordPerf(performance.now() - t0);
+      return; // static scene → nothing to redraw
+    }
+
     // Smooth interpolation toward the latest authoritative positions.
     const k = 1 - Math.exp(-18 * Math.min(delta / 1000, 0.1));
     const dt = delta / 1000;
@@ -1144,11 +1196,109 @@ export class OfficeScene extends Phaser.Scene {
     this.view.hideEntities = this.editor.isEditing();
     this.view.update();
     this.editor.tickUI();
-    this.updateTooltip();
-    this.updateNameLabels();
-    this.updateChatBubbles();
-    this.updateVoiceBubbles();
-    this.updateAfkLabels();
+    // DOM overlays (labels/bubbles/tooltip) don't need 60 Hz — cap to ~20 Hz, but
+    // always run once when movement just stopped so labels settle at their final
+    // position (avoids a 50 ms trailing lag freezing in the wrong spot).
+    if (justStopped || _time - this.lastOverlayAt >= OVERLAY_INTERVAL_MS) {
+      this.lastOverlayAt = _time;
+      this.updateTooltip();
+      this.updateNameLabels();
+      this.updateChatBubbles();
+      this.updateVoiceBubbles();
+      this.updateAfkLabels();
+    }
+    if (this.perfEnabled) this.recordPerf(performance.now() - t0);
+  }
+
+  /** Whether anything needs redrawing this frame: a moving/animating entity, an
+   *  active bubble/tooltip, or an interactive mode. When false for a while the
+   *  loop idles (skips work, then sleeps) until something wakes it. */
+  private sceneBusy(now: number): boolean {
+    if (this.editor.isEditing() || this.furnitureDirty) return true;
+    if (this.portalPickerTile || this.pendingArcade) return true;
+    if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
+    if (this.voiceBubbles.size > 0) return true; // animated "talking" indicator
+    for (const b of this.chatBubbles.values()) if (b.until > now) return true;
+    for (const ch of this.characters.values()) {
+      if (Math.abs((ch.x ?? ch.tx) - ch.tx) > 0.4 || Math.abs((ch.y ?? ch.ty) - ch.ty) > 0.4) return true;
+      if (ch.matrixEffect || ch.bubbleType) return true;
+      if ((POSE_FRAME_MS[(ch.pose ?? 'idle') as CharacterPose] ?? 0) > 0) return true; // animating pose
+    }
+    for (const p of this.pets.values()) {
+      if (Math.abs((p.x ?? p.tx) - p.tx) > 0.4 || Math.abs((p.y ?? p.ty) - p.ty) > 0.4) return true;
+    }
+    return false;
+  }
+
+  /** Wire everything that must wake the idle/slept render loop: any input, tab
+   *  focus, window resize. (State patches + voice wake it from their callbacks.)
+   *  Also the perf-overlay toggle (F8, or `?perf=1` on load). */
+  private setupIdleWaking(): void {
+    const input = (): void => this.wake(true); // real user action → stay responsive
+    // DOM-level listeners: a slept Phaser loop stops processing its own input, so
+    // `this.input.*` can't wake it — native events must. Pointer-move only over the
+    // canvas (so mousing over side panels doesn't keep the world spinning); keys,
+    // clicks and wheel from anywhere.
+    this.game.canvas?.addEventListener('pointermove', input, { passive: true });
+    window.addEventListener('pointerdown', input, { passive: true });
+    window.addEventListener('wheel', input, { passive: true });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'F8') this.togglePerf();
+      input();
+    });
+    window.addEventListener('resize', input);
+    // Tab hidden → sleep the loop entirely; visible/focused → wake.
+    document.addEventListener('visibilitychange', () => (document.hidden ? this.sleepLoop() : this.wake()));
+    window.addEventListener('focus', () => this.wake());
+    if (new URLSearchParams(window.location.search).get('perf')) this.togglePerf();
+  }
+
+  /** Re-run the render loop after it was idled/slept. `userInput` = a real user
+   *  action (mouse/keys) → keep the scene responsive (reset the idle counter).
+   *  State/voice patches pass false: they only wake a SLEPT loop; while already
+   *  awake, whether to stay active is decided by sceneBusy() (actual on-screen
+   *  motion), so idle bookkeeping patches don't peg the loop active. */
+  private wake(userInput = false): void {
+    if (this.loopAsleep) {
+      this.loopAsleep = false;
+      this.idleFrames = 0;
+      this.game.loop.wake();
+      return;
+    }
+    if (userInput) this.idleFrames = 0;
+  }
+
+  private sleepLoop(): void {
+    if (this.loopAsleep) return;
+    this.loopAsleep = true;
+    this.game.loop.sleep();
+  }
+
+  /** Rolling average of the per-frame update() cost, shown in the perf overlay. */
+  private recordPerf(frameMs: number): void {
+    this.updateMsAvg += (frameMs - this.updateMsAvg) * 0.1;
+    const el = this.perfEl;
+    if (!el) return;
+    // Fixed-width fields (padded + tabular-nums) so the centred box doesn't wobble.
+    const fps = String(Math.round(this.game.loop.actualFps)).padStart(3);
+    const ms = this.updateMsAvg.toFixed(2).padStart(5);
+    const chars = String(this.characters.size).padStart(2);
+    const stateTxt = (this.loopAsleep ? 'asleep' : this.idleFrames > IDLE_GRACE_FRAMES ? 'idle' : 'active').padEnd(6);
+    el.textContent = `${fps} fps · ${ms} ms · ${chars} chars · ${stateTxt}`;
+  }
+
+  private togglePerf(): void {
+    this.perfEnabled = !this.perfEnabled;
+    if (this.perfEnabled && !this.perfEl) {
+      const el = document.createElement('div');
+      el.style.cssText =
+        'position:fixed;left:50%;bottom:6px;transform:translateX(-50%);z-index:300;padding:.25rem .5rem;' +
+        'border-radius:.35rem;pointer-events:none;background:rgba(10,12,18,.8);color:#8fe;' +
+        "font:0.72rem ui-monospace,monospace;font-variant-numeric:tabular-nums;white-space:pre;";
+      (document.getElementById('game') ?? document.body).appendChild(el);
+      this.perfEl = el;
+    }
+    if (this.perfEl) this.perfEl.style.display = this.perfEnabled ? '' : 'none';
   }
 
   // ── Menus (grouped top bar + one shared popover style) ───────────
@@ -1515,6 +1665,7 @@ export class OfficeScene extends Phaser.Scene {
       ['Drag (empty space)', 'Pan the camera'],
       ['🌐 Space → Zones', 'Create / edit / delete zones, set arrival, NPCs'],
       ['🌐 Space → Layouts', 'Edit this zone’s layout'],
+      ['F8', 'Toggle the performance overlay (FPS / frame time)'],
     ];
     body.innerHTML = rows
       .map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`)
@@ -2197,9 +2348,11 @@ export class OfficeScene extends Phaser.Scene {
       <div id="pa-account">
         <div class="row"><label for="pa-pw">New password</label><input id="pa-pw" type="password" maxlength="64" placeholder="min 6 chars" autocomplete="new-password"></div>
         <div class="row"><button id="pa-pw-set">Change password</button></div>
-        <div class="row"><label for="pa-token">Agent token</label><input id="pa-token" type="text" readonly></div>
-        <div class="row"><button id="pa-token-copy">Copy</button><button id="pa-token-new">Regenerate</button></div>
-        <div class="hint">Your agents authenticate with this token (<code>--token</code>); keep it secret.</div>
+        <div id="pa-agent-token">
+          <div class="row"><label for="pa-token">Agent token</label><input id="pa-token" type="text" readonly></div>
+          <div class="row"><button id="pa-token-copy">Copy</button><button id="pa-token-new">Regenerate</button></div>
+          <div class="hint">Your agents authenticate with this token (<code>--token</code>); keep it secret.</div>
+        </div>
       </div>
       <div class="row"><label>Your avatar</label></div>
       <div id="pa-avatar">
@@ -2213,9 +2366,11 @@ export class OfficeScene extends Phaser.Scene {
       <div class="hint">Your avatar is your own copy — editing or deleting a template never changes it.</div>
       <div class="row"><label>Start from a template</label></div>
       <div id="pa-pchar"></div>
-      <div class="row"><label>Agents' avatar</label></div>
-      <div id="pa-char"></div>
-      <div class="hint">Pick a skin to keep your agents' look consistent.</div>
+      <div id="pa-agent-skin">
+        <div class="row"><label>Agents' avatar</label></div>
+        <div id="pa-char"></div>
+        <div class="hint">Pick a skin to keep your agents' look consistent.</div>
+      </div>
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
@@ -2684,6 +2839,12 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zoneEditAdmin && this.spaceTab === 'layouts') this.spaceTab = 'zones';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
     if (save) save.style.display = this.assetsAdmin ? '' : 'none';
+    // Customers have no agents: hide the agent token + agents'-avatar settings.
+    const isCustomer = this.myRole === 'customer';
+    for (const sel of ['#pa-agent-token', '#pa-agent-skin']) {
+      const el = this.settingsPanel?.querySelector<HTMLElement>(sel);
+      if (el) el.style.display = isCustomer ? 'none' : '';
+    }
     // The zones panel stays available for travel; admin controls reflect the role.
     this.renderZonesPanel?.();
   }
@@ -2711,6 +2872,7 @@ export class OfficeScene extends Phaser.Scene {
       let name: string;
       if (ch.isPlayer) {
         name = ch.folderName || ch.agentName || '';
+        if (name && ch.spectator) name += ' (Rooms)'; // present via the portal, not walking
       } else if (ch.isSubagent) {
         name = ch.agentName || ch.folderName || '';
       } else {
@@ -2776,6 +2938,11 @@ export class OfficeScene extends Phaser.Scene {
         if (name === "voxel") {
           sys("Entering the voxel world…");
           window.location.href = "./voxel.html";
+          return true;
+        }
+        if (name === "admin-site") {
+          if (!this.isAdmin) sys("/admin-site is for admins only.");
+          else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }
           return true;
         }
         return false;
@@ -2962,7 +3129,7 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.top = `${Math.round(sy)}px`;
 
     const act = ch.isPlayer
-      ? 'Player'
+      ? (ch.isCustomer ? 'Customer' : 'Player') + (ch.spectator ? ' (Rooms)' : '')
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
