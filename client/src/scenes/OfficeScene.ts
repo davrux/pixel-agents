@@ -2940,6 +2940,11 @@ export class OfficeScene extends Phaser.Scene {
           window.location.href = "./voxel.html";
           return true;
         }
+        if (name === "rooms") {
+          sys("Opening the rooms portal…");
+          window.location.href = `./rooms.html?zone=${encodeURIComponent(currentZone())}`;
+          return true;
+        }
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
           else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }

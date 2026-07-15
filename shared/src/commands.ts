@@ -49,6 +49,12 @@ export const COMMANDS: CommandSpec[] = [
     summary: 'Enter the 3D voxel world (your session carries over).',
   },
   {
+    name: 'rooms',
+    group: 'user',
+    usage: '/rooms',
+    summary: 'Open the rooms portal (chat / voice / meetings view of this room).',
+  },
+  {
     name: 'users',
     group: 'user',
     usage: '/users [all|online]',

@@ -255,6 +255,18 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   connection (sessions, users, settings, assets, layouts, zones); a one-time
   migration imports the old split `layouts.db` + `zones.db`.
 - **Default layout is read-only** and must never be overwritten.
+- **Slash-commands for navigation & quick actions.** The chat slash-command
+  framework (`shared/src/commands.ts`, `user`/`admin` groups, gated by
+  `mayRunCommand`) is the canonical way to reach other views/destinations and
+  trigger quick actions. **When you add a new destination (page, world, portal)
+  or a chat-triggerable feature, add a matching command** in `commands.ts` and
+  handle it — client-side via the shared `ChatUI` `clientCommand` hook for
+  navigation (e.g. `/voxel`, `/rooms`, `/admin-site` set `window.location`;
+  carry the current zone as `?zone=` where relevant), or server-side in
+  `accountCommands.ts` for account/admin actions. Wire it in **both** the Pixels
+  (`OfficeScene`) and Voxel (`voxel/main.ts`) clients since they share `ChatUI`,
+  and it then shows up in `/help` automatically. Current set: `/help /afk /users
+  /voxel /rooms /admin-site /add /delete /set-admin /remove-admin /kick`.
 - **Commits:** imperative, no `Co-Authored-By`/AI trailer. Don't commit or push
   without being asked.
 

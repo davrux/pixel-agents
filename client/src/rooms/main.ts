@@ -684,4 +684,7 @@ function esc(s: string): string {
 }
 
 buildShell();
-void joinZone();
+// Open the room named by ?zone= (e.g. arriving from the Pixels "/rooms" command),
+// else the default zone. An unassigned zone is simply rejected server-side.
+const startZone = new URLSearchParams(window.location.search).get('zone') || undefined;
+void joinZone(startZone);
