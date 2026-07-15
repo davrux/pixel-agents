@@ -9,16 +9,36 @@
 import * as crypto from 'node:crypto';
 
 import { db } from './db.js';
+import { hashPassword, verifyHash } from './pwhash.js';
 
 export const MIN_PASSWORD_LEN = 6;
 /** Upper bound so a huge password can't turn scrypt into a CPU DoS. */
 export const MAX_PASSWORD_LEN = 128;
 
+/**
+ * Account role, which decides what a user may do:
+ * - `admin`    — full control (user management, any zone, any monitor).
+ * - `user`     — internal member: may create + edit their OWN Pixels rooms.
+ * - `customer` — external guest: only the rooms portal, only assigned rooms,
+ *                never creates or edits rooms.
+ */
+export type Role = 'admin' | 'user' | 'customer';
+export const ROLES: readonly Role[] = ['admin', 'user', 'customer'];
+export function isRole(v: unknown): v is Role {
+  return typeof v === 'string' && (ROLES as readonly string[]).includes(v);
+}
+
 export interface User {
   userId: string;
   /** Free display name; empty → display falls back to the login id. */
   username: string;
+  role: Role;
+  /** Convenience mirror of `role === 'admin'` (kept in sync in the DB). */
   isAdmin: boolean;
+  /** Customers only: may also enter the internal Pixels 2D world (not just the
+   *  rooms portal). Ignored for admins/users (who may always use Pixels). Voxel
+   *  worlds stay off-limits to customers regardless. */
+  allowPixels: boolean;
   agentToken: string;
   hasPassword: boolean;
 }
@@ -29,37 +49,10 @@ interface UserRow {
   pw_hash: string | null;
   pw_algo: string | null;
   is_admin: number;
+  role: string | null;
+  allow_pixels: number;
   agent_token: string;
   created_at: number;
-}
-
-// scrypt cost parameters (memory ≈ 128·N·r ≈ 16 MB, well within the default cap).
-const SCRYPT = { N: 16384, r: 8, p: 1, keylen: 32 } as const;
-
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, SCRYPT.keylen, { N: SCRYPT.N, r: SCRYPT.r, p: SCRYPT.p });
-  return `scrypt$${SCRYPT.N}$${SCRYPT.r}$${SCRYPT.p}$${salt.toString('base64')}$${hash.toString('base64')}`;
-}
-
-/** Verify a password against a self-describing `scrypt$N$r$p$salt$hash` string. */
-function verifyHash(stored: string | null, password: string): boolean {
-  if (!stored) return false;
-  const parts = stored.split('$');
-  if (parts[0] !== 'scrypt' || parts.length !== 6) return false;
-  const [, n, r, p, saltB64, hashB64] = parts;
-  const expected = Buffer.from(hashB64, 'base64');
-  let actual: Buffer;
-  try {
-    actual = crypto.scryptSync(password, Buffer.from(saltB64, 'base64'), expected.length, {
-      N: Number(n),
-      r: Number(r),
-      p: Number(p),
-    });
-  } catch {
-    return false;
-  }
-  return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
 }
 
 /** Normalise a raw login id to its canonical key: lowercase, printable ASCII,
@@ -93,16 +86,35 @@ class UserStore {
       );
       CREATE INDEX IF NOT EXISTS users_agent_token ON users(agent_token);
     `);
+    // Migration: add the role column and backfill from the legacy is_admin flag
+    // (admins → 'admin', everyone else → 'user'; customers are created explicitly).
+    const cols = this.db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === 'role')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN role TEXT');
+      this.db.exec("UPDATE users SET role = CASE WHEN is_admin != 0 THEN 'admin' ELSE 'user' END WHERE role IS NULL");
+    }
+    if (!cols.some((c) => c.name === 'allow_pixels')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN allow_pixels INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   private toUser(r: UserRow): User {
+    const role: Role = isRole(r.role) ? r.role : r.is_admin !== 0 ? 'admin' : 'user';
     return {
       userId: r.user_id,
       username: r.username ?? '',
-      isAdmin: r.is_admin !== 0,
+      role,
+      isAdmin: role === 'admin',
+      allowPixels: r.allow_pixels !== 0,
       agentToken: r.agent_token,
       hasPassword: !!r.pw_hash,
     };
+  }
+
+  /** Number of admin accounts — used to protect the last admin from deletion/demotion. */
+  adminCount(): number {
+    const r = this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' OR is_admin != 0").get() as { n: number };
+    return Number(r.n);
   }
 
   /** Display name for a user (free username, else the login id). */
@@ -137,17 +149,28 @@ class UserStore {
 
   /** Create a user (factored so a future register page can reuse it). The
    *  caller must have validated the password; throws on a duplicate login id. */
-  createUser(loginId: string, password: string, opts: { isAdmin?: boolean } = {}): User {
+  createUser(
+    loginId: string,
+    password: string,
+    opts: { isAdmin?: boolean; role?: Role; allowPixels?: boolean } = {},
+  ): User {
     const id = normalizeLoginId(loginId);
     if (!id) throw new Error('invalid login id');
     if (this.row(id)) throw new Error('user exists');
+    const role: Role = opts.role ?? (opts.isAdmin ? 'admin' : 'user');
     const token = crypto.randomBytes(24).toString('base64url');
     this.db
       .prepare(
-        'INSERT INTO users(user_id, username, pw_hash, pw_algo, is_admin, agent_token, created_at) VALUES(?,?,?,?,?,?,?)',
+        'INSERT INTO users(user_id, username, pw_hash, pw_algo, is_admin, role, allow_pixels, agent_token, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
       )
-      .run(id, null, hashPassword(password), 'scrypt', opts.isAdmin ? 1 : 0, token, Date.now());
+      .run(id, null, hashPassword(password), 'scrypt', role === 'admin' ? 1 : 0, role, opts.allowPixels ? 1 : 0, token, Date.now());
     return this.toUser(this.row(id)!);
+  }
+
+  /** Customers only: allow/deny the internal Pixels 2D world (rooms portal always
+   *  works). No effect on admins/users. */
+  setAllowPixels(userId: string, on: boolean): void {
+    this.db.prepare('UPDATE users SET allow_pixels = ? WHERE user_id = ?').run(on ? 1 : 0, userId);
   }
 
   verifyPassword(loginId: string, password: string): boolean {
@@ -176,7 +199,13 @@ class UserStore {
     this.setAdmin(userId, true);
   }
   setAdmin(userId: string, on: boolean): void {
-    this.db.prepare('UPDATE users SET is_admin = ? WHERE user_id = ?').run(on ? 1 : 0, userId);
+    this.setRole(userId, on ? 'admin' : 'user');
+  }
+
+  /** Set a user's role (keeps the legacy is_admin flag in sync). Takes effect on
+   *  the user's next login for anything resolved at join time. */
+  setRole(userId: string, role: Role): void {
+    this.db.prepare('UPDATE users SET role = ?, is_admin = ? WHERE user_id = ?').run(role, role === 'admin' ? 1 : 0, userId);
   }
 
   /** Delete a user row. Returns true if it existed. (Caller cleans up the user's

@@ -51,6 +51,10 @@ export interface ZoneConfig {
    *  Absent/null = all active variants (the office default); an array (possibly
    *  empty) = exactly those. New zones default to none. */
   npc?: string[] | null;
+  /** True if the zone is password-protected (a hash is stored server-side). The
+   *  actual password never leaves the server; clients only learn it's locked so
+   *  they can prompt. */
+  locked?: boolean;
 }
 
 /** Builtin zones, used to seed the persistent zone registry on first run. After

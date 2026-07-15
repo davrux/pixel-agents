@@ -84,6 +84,12 @@ export const COMMANDS: CommandSpec[] = [
     usage: '/kick <loginid>',
     summary: 'Disconnect an online user (they can log back in).',
   },
+  {
+    name: 'admin-site',
+    group: 'admin',
+    usage: '/admin-site',
+    summary: 'Open the administration page (users, roles, room passwords).',
+  },
 ];
 
 /** Look up a command by name (case-insensitive, leading slash tolerated). */

@@ -297,7 +297,7 @@ async function postToken(body: Record<string, unknown>): Promise<Response> {
 // `this.authRequired` from the room. We invoke it directly with a crafted
 // AuthContext (Colyseus transport mocked) and a minimal `this` — no full
 // Colyseus room/transport is spun up (per the @mock-boundary decision).
-type AuthInfo = { userId: string; username: string; isAdmin: boolean };
+type AuthInfo = { userId: string; username: string; isAdmin: boolean; role?: string };
 
 function callOnAuth(
   authRequired: boolean,
@@ -308,9 +308,20 @@ function callOnAuth(
     headers: context.cookie === undefined ? {} : { cookie: context.cookie },
     ip: '127.0.0.1',
   };
+  // Minimal `this` (mock boundary): the room-entry gate (gateEntry) needs the
+  // hosted zone + a zone store; stub it to an unlocked, unrestricted room so the
+  // test exercises identity resolution, not the password/customer policy.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onAuth = SimRoom.prototype.onAuth as (...a: any[]) => AuthInfo;
-  return onAuth.call({ authRequired }, undefined, undefined, authContext);
+  const proto = SimRoom.prototype as any;
+  const self = {
+    authRequired,
+    zone: { id: 'office' },
+    zones: { isZoneAdmin: () => false, isCustomerAssigned: () => false, zoneHasPassword: () => false },
+    gateEntry: proto.gateEntry,
+  };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const onAuth = proto.onAuth as (...a: any[]) => AuthInfo;
+  return onAuth.call(self, undefined, undefined, authContext);
 }
 
 // --- TEST 1: cookie-path non-regression (VP1-VP4) ---
@@ -322,7 +333,7 @@ test('TEST 1 VP1/VP2: valid cookie, no token -> seeded user AuthInfo (cookie bra
 
   // Baseline expected values computed independently of the code under test:
   // no free display name was set, so displayName falls back to the login id.
-  const expected: AuthInfo = { userId: loginId, username: loginId, isAdmin: false };
+  const expected: AuthInfo = { userId: loginId, username: loginId, isAdmin: false, role: 'user' };
 
   const info = callOnAuth(true, { cookie: `pixel_stream_sid=${sid}` });
   assert.deepEqual(info, expected);
@@ -336,7 +347,7 @@ test('TEST 1 VP1/VP2: valid cookie, no token -> seeded user AuthInfo (cookie bra
 test('TEST 1 VP3: authRequired=false -> anonymous AuthInfo, no throw (short-circuit unchanged)', () => {
   // Even with a bogus cookie AND a bogus token, the anonymous short-circuit wins.
   const info = callOnAuth(false, { cookie: 'pixel_stream_sid=bogus', token: 'bogus' });
-  assert.deepEqual(info, { userId: '', username: '', isAdmin: false });
+  assert.deepEqual(info, { userId: '', username: '', isAdmin: false, role: 'user' });
 });
 
 test('TEST 1 VP4: unknown/absent cookie with authRequired=true -> throws unauthorized', () => {
@@ -358,7 +369,7 @@ test('TEST 2 VP2: onAuth(bearer token) AuthInfo is field-identical to onAuth(coo
     const viaBearer = callOnAuth(true, { token: sid });
 
     assert.deepEqual(viaBearer, viaCookie, 'bearer AuthInfo must equal cookie AuthInfo');
-    assert.deepEqual(viaBearer, { userId: loginId, username: 'Display Name', isAdmin });
+    assert.deepEqual(viaBearer, { userId: loginId, username: 'Display Name', isAdmin, role: isAdmin ? 'admin' : 'user' });
 
     appStore.deleteSession(sid);
     userStore.deleteUser(loginId);

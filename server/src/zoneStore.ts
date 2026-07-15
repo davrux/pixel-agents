@@ -14,6 +14,7 @@ import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { ZONES, DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
 
 import { db } from './db.js';
+import { hashPassword, verifyHash } from './pwhash.js';
 
 const MIN_SIZE = 6;
 const LABEL_RE = new RegExp(`^[\\x20-\\x7e]{1,${MAX_NAME_LEN}}$`);
@@ -28,6 +29,7 @@ interface ZoneRow {
   read_only: number;
   created_at: number;
   npc: string | null;
+  pw_hash: string | null;
 }
 
 export class ZoneStore {
@@ -49,9 +51,93 @@ export class ZoneStore {
       CREATE TABLE IF NOT EXISTS zone_admins (
         zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
       );
+      -- Which customers may enter which rooms (a customer sees/joins only these).
+      CREATE TABLE IF NOT EXISTS zone_customers (
+        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
+      );
+      -- Password-locked conference monitors, keyed by their anchor tile "col,row".
+      CREATE TABLE IF NOT EXISTS monitor_locks (
+        zone_id TEXT NOT NULL, monitor_key TEXT NOT NULL, pw_hash TEXT NOT NULL,
+        PRIMARY KEY (zone_id, monitor_key)
+      );
     `);
     this.migrateColumns();
     this.seed();
+  }
+
+  // ── Zone passwords ───────────────────────────────────────────────
+  // A locked zone requires the password to enter (hash stored like an account
+  // password). Admins, the zone's admins, and assigned customers bypass it.
+  zoneHasPassword(id: string): boolean {
+    const r = this.db.prepare('SELECT pw_hash FROM zones WHERE id = ?').get(id) as { pw_hash: string | null } | undefined;
+    return !!r?.pw_hash;
+  }
+  /** Set or clear a zone's password. Empty/null clears the lock. */
+  setZonePassword(id: string, password: string | null): boolean {
+    if (!this.has(id)) return false;
+    this.db.prepare('UPDATE zones SET pw_hash = ? WHERE id = ?').run(password ? hashPassword(password) : null, id);
+    return true;
+  }
+  checkZonePassword(id: string, password: string): boolean {
+    const r = this.db.prepare('SELECT pw_hash FROM zones WHERE id = ?').get(id) as { pw_hash: string | null } | undefined;
+    if (!r) return false;
+    if (!r.pw_hash) return true; // not locked
+    return verifyHash(r.pw_hash, password);
+  }
+
+  // ── Customer room assignments ────────────────────────────────────
+  assignCustomer(zoneId: string, userId: string, on: boolean): void {
+    if (!zoneId || !userId) return;
+    if (on) this.db.prepare('INSERT OR IGNORE INTO zone_customers(zone_id, user_id) VALUES(?, ?)').run(zoneId, userId);
+    else this.db.prepare('DELETE FROM zone_customers WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
+  }
+  isCustomerAssigned(zoneId: string, userId: string): boolean {
+    if (!zoneId || !userId) return false;
+    return this.db.prepare('SELECT 1 FROM zone_customers WHERE zone_id = ? AND user_id = ?').get(zoneId, userId) !== undefined;
+  }
+  /** Zone ids a customer is assigned to. */
+  listCustomerZones(userId: string): string[] {
+    const rows = this.db.prepare('SELECT zone_id FROM zone_customers WHERE user_id = ?').all(userId) as Array<{ zone_id: string }>;
+    return rows.map((r) => r.zone_id);
+  }
+  listZoneCustomers(zoneId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT user_id FROM zone_customers WHERE zone_id = ? ORDER BY user_id')
+      .all(zoneId) as Array<{ user_id: string }>;
+    return rows.map((r) => r.user_id);
+  }
+
+  // ── Monitor passwords ────────────────────────────────────────────
+  // Conference monitors can be locked independently of the zone, keyed by their
+  // anchor tile ("col,row"). Joining the call requires the monitor password.
+  monitorHasPassword(zoneId: string, monitorKey: string): boolean {
+    return this.db.prepare('SELECT 1 FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?').get(zoneId, monitorKey) !== undefined;
+  }
+  setMonitorPassword(zoneId: string, monitorKey: string, password: string | null): void {
+    if (!zoneId || !monitorKey) return;
+    if (password) {
+      this.db
+        .prepare(
+          'INSERT INTO monitor_locks(zone_id, monitor_key, pw_hash) VALUES(?,?,?) ON CONFLICT(zone_id, monitor_key) DO UPDATE SET pw_hash=excluded.pw_hash',
+        )
+        .run(zoneId, monitorKey, hashPassword(password));
+    } else {
+      this.db.prepare('DELETE FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?').run(zoneId, monitorKey);
+    }
+  }
+  checkMonitorPassword(zoneId: string, monitorKey: string, password: string): boolean {
+    const r = this.db
+      .prepare('SELECT pw_hash FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?')
+      .get(zoneId, monitorKey) as { pw_hash: string } | undefined;
+    if (!r) return true; // not locked
+    return verifyHash(r.pw_hash, password);
+  }
+  /** Monitor keys ("col,row") that are locked in a zone. */
+  lockedMonitors(zoneId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT monitor_key FROM monitor_locks WHERE zone_id = ?')
+      .all(zoneId) as Array<{ monitor_key: string }>;
+    return rows.map((r) => r.monitor_key);
   }
 
   // ── Per-zone admins ──────────────────────────────────────────────
@@ -74,9 +160,11 @@ export class ZoneStore {
       this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
     }
   }
-  /** Drop all zone-admin grants for a user (e.g. when the account is deleted). */
+  /** Drop all per-user grants (zone-admin + customer assignments) — e.g. when the
+   *  account is deleted. */
   removeUserFromAllZones(userId: string): void {
     this.db.prepare('DELETE FROM zone_admins WHERE user_id = ?').run(userId);
+    this.db.prepare('DELETE FROM zone_customers WHERE user_id = ?').run(userId);
   }
   listZoneAdmins(zoneId: string): string[] {
     const rows = this.db
@@ -94,6 +182,9 @@ export class ZoneStore {
     if (!cols.some((c) => c.name === 'npc')) {
       this.db.exec('ALTER TABLE zones ADD COLUMN npc TEXT');
       this.db.prepare('UPDATE zones SET npc = ? WHERE id != ?').run('[]', DEFAULT_ZONE);
+    }
+    if (!cols.some((c) => c.name === 'pw_hash')) {
+      this.db.exec('ALTER TABLE zones ADD COLUMN pw_hash TEXT');
     }
   }
 
@@ -195,6 +286,7 @@ export class ZoneStore {
       rows: r.rows ?? undefined,
       readOnly: !!r.read_only,
       npc,
+      locked: !!r.pw_hash,
     };
   }
 

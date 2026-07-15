@@ -110,6 +110,12 @@ export function attachFeedServer(httpServer: HttpServer, opts: { authRequired: b
       ws.close(4001, 'unauthorized');
       return;
     }
+    // Customers are external guests and never run agents — reject their feed even
+    // if they somehow obtained a token (defence in depth; the UI hides tokens too).
+    if (owner?.role === 'customer') {
+      ws.close(4003, 'forbidden');
+      return;
+    }
     const conn: FeedConn = {
       // Authenticated: the token's user. Open dev mode: fall back to --user.
       user: owner?.userId ?? (creds.user || 'agent').slice(0, 16),

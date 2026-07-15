@@ -177,7 +177,10 @@ export function registerAuth(app: Express, adminToken: string): void {
       'Set-Cookie',
       `${VIEWER_COOKIE}=${sid}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Lax`,
     );
-    res.redirect(303, '/');
+    // Land customers in the rooms portal (they can't use the internal Pixels world);
+    // everyone else goes to the Pixels client at the root.
+    const dest = userStore.get(userId)?.role === 'customer' ? '/rooms.html' : '/';
+    res.redirect(303, dest);
   };
 
   app.post('/login', (req: Request, res: Response) => {

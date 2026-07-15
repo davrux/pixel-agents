@@ -39,6 +39,7 @@ import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession, userIdFromCookie, userIdFromBearer } from './auth.js';
+import { registerAdminApi } from './adminApi.js';
 import { userStore } from './userStore.js';
 import { arcadeWads } from './arcadeWadStore.js';
 import { createHash } from 'node:crypto';
@@ -148,17 +149,24 @@ async function main(): Promise<void> {
     const uid = reqUserId(req);
     return !!uid && !!userStore.get(uid)?.isAdmin;
   };
+  // Customers are external guests — no access to the arcade WAD library.
+  const isCustomer = (req: Request): boolean => {
+    const uid = reqUserId(req);
+    return !!uid && userStore.get(uid)?.role === 'customer';
+  };
   const wadSlug = (s: string): string | null => (/^[a-z0-9][a-z0-9-]{0,31}$/.test(s) ? s : null);
 
-  // List available WADs (any logged-in player) → merged into the client's title picker.
+  // List available WADs (any logged-in non-customer) → merged into the client's title picker.
   app.get('/arcade/wads', (req, res) => {
     if (!isAuthed(req)) return void res.status(401).json({ error: 'unauthorized' });
+    if (isCustomer(req)) return void res.status(403).json({ error: 'forbidden' });
     res.json({ wads: arcadeWads.list() });
   });
 
-  // Download a WAD's bytes (any logged-in player) → injected into js-dos via initFs.
+  // Download a WAD's bytes (any logged-in non-customer) → injected into js-dos via initFs.
   app.get('/arcade/wad/:name', (req, res) => {
     if (!isAuthed(req)) return void res.status(401).json({ error: 'unauthorized' });
+    if (isCustomer(req)) return void res.status(403).json({ error: 'forbidden' });
     const name = wadSlug(req.params.name);
     const rec = name ? arcadeWads.get(name) : null;
     if (!rec) return void res.status(404).json({ error: 'not found' });
@@ -196,6 +204,7 @@ async function main(): Promise<void> {
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
+    registerAdminApi(app); // admin-only user/room management REST API (admin.html)
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   if (existsSync(clientDist)) {
