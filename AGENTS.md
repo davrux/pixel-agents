@@ -188,6 +188,30 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
      the built-in TLS (drop `cert.pem`/`key.pem` in the data dir, or set
      `PIXEL_TLS_CERT`/`PIXEL_TLS_KEY`) or a TLS-terminating reverse proxy. Media
      (getUserMedia/WebRTC) also requires a secure context. Plain `http` is dev-only.
+10. **Every client change must also work in the Electron desktop app.** The same
+    client bundle runs in two environments: a browser served by the server, and
+    the Electron shell (`desktop/`), where the page is loaded from a local
+    `app://` origin and talks to a *remote* server. Whenever you touch the
+    client, consider both; the desktop-specific traps are:
+    - **No relative URLs to the server.** In the desktop shell,
+      `fetch('/api/...')` hits the `app://` origin, not the server. Resolve
+      server URLs through the existing helpers (`isDesktop()` +
+      `serverHttpOrigin()` in `net/room.ts`; see `resolveArcadeUrl` in
+      `arcade/ArcadeUI.ts` and `arcade/wadClient.ts` for the pattern).
+    - **Don't derive the server from `window.location`.** On desktop the
+      configured server origin comes from `desktop/bridge.ts`
+      (`getConfiguredServerOrigin()`); the `window.location`-shaped helpers in
+      `room.ts` already handle this — go through them.
+    - **Auth differs:** the browser uses the session cookie; the desktop sends
+      `Authorization: Bearer <sid>`. New server endpoints and client fetches
+      must work with both (and cross-origin requests from `app://` mean CORS
+      and cookies behave differently than same-origin browser requests).
+    - **`window.location.reload()` is silently dropped** in the `app://` shell —
+      use `reloadApp()` from `desktop/bridge.ts`.
+    - Desktop-only capabilities (token storage, screen-source picking, window
+      controls) go through the typed `PixelDesktopApi` preload bridge, with a
+      graceful browser fallback — `isDesktop()` is the discriminator; never
+      bake desktop-specific behavior into the public web bundle unguarded.
 
 ## Conventions
 
@@ -299,4 +323,6 @@ identifies the owner; copy it from in-app Settings).
 - `pnpm build` must succeed.
 - For engine changes, prefer a small headless test driving `OfficeState`
   directly (see how stations/poses were verified) plus a quick run with `MOCK=N`.
+- For client changes, sanity-check the Electron desktop app too (rule 10) —
+  especially anything touching URLs, fetches, auth, or navigation/reload.
 - Keep the client a renderer; keep logic in `shared` on the server.
