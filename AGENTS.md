@@ -291,8 +291,15 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   (`OfficeScene`) and Voxel (`voxel/main.ts`) clients since they share `ChatUI`,
   and it then shows up in `/help` automatically. Current set: `/help /afk /users
   /voxel /rooms /admin-site /add /delete /set-admin /remove-admin /kick`.
+- **Measuring performance:** judge render/mesher perf by **frame / CPU time**,
+  not proxies like triangle count (greedy meshing once measured *slower* despite
+  −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +
+  update() self-time) — and idles/sleeps its render loop when nothing moves.
 - **Commits:** imperative, no `Co-Authored-By`/AI trailer. Don't commit or push
-  without being asked.
+  without being asked. Prefer a few meaningful commits over micro-commits, and
+  never leave debug scaffolding (e.g. temporary URL hooks) in the code.
+- **Pushing to Codeberg:** `origin` (codeberg.org) hangs over IPv6 — always push
+  with `GIT_SSH_COMMAND="ssh -4" git push …`.
 
 ## Build / run / deploy
 
