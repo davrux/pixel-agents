@@ -219,9 +219,10 @@ export function registerAuth(app: Express, adminToken: string): void {
   // through (the room validates the session cookie itself via onAuth).
   app.use((req: Request, res: Response, next: NextFunction) => {
     const p = req.path;
-    // .jsdos bundles are freely-distributable shareware served like any other
-    // static asset (the desktop app fetches them cross-origin, cookie-less);
-    // uploaded full-game WADs stay auth-gated under /arcade/wad/.
+    // .jsdos bundles are served like any other static asset (the desktop app
+    // fetches them cross-origin, cookie-less). NOTE: doom/doom2 now bundle the
+    // operator's LICENSED IWADs — if public exposure of those bytes matters, gate
+    // these two bundle URLs behind auth (see docs/dev-notes.md).
     const isAsset = p.startsWith('/assets/') || /\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|wasm|jsdos)$/i.test(p);
     const isApi = p === '/health' || p === '/login' || p.startsWith('/matchmake');
     const needsAuth = req.method === 'GET' && !isAsset && !isApi;

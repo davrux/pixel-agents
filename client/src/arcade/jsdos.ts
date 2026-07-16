@@ -14,7 +14,9 @@ export interface DosNetConfig {
   peerServer?: string;
   token?: string;
   secret?: string;
-  iceServers?: RTCIceServer[];
+  /** js-dos calls this as a function (optionally async) to get the ICE servers —
+   *  NOT a plain array (it does `net.iceServers.call(net)` then awaits). */
+  iceServers?: () => RTCIceServer[] | Promise<RTCIceServer[]>;
 }
 
 /** The subset of the js-dos CommandInterface we use (handed to onEvent on 'ci-ready'). */

@@ -78,11 +78,15 @@ const conns = new Set<FeedConn>();
  * `upgrade` event, so we route `/feed` upgrades to our own (noServer) wss and
  * delegate everything else back to Colyseus's original upgrade listeners.
  */
-export function attachFeedServer(httpServer: HttpServer, opts: { authRequired: boolean }): WebSocketServer {
+export function attachFeedServer(
+  httpServer: HttpServer,
+  opts: { authRequired: boolean },
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   // Colyseus' ws-transport has already registered its upgrade listener(s) by
-  // the time we get here; capture and replace them with a path dispatcher.
+  // the time we get here; capture and replace them with a path dispatcher that
+  // routes /feed (agent feed) to our own ws server and everything else to Colyseus.
   const colyseusUpgrade = httpServer.listeners('upgrade') as Array<
     (req: IncomingMessage, socket: Duplex, head: Buffer) => void
   >;

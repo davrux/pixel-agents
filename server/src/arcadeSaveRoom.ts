@@ -16,8 +16,8 @@ import { arcadeSaves } from './arcadeSaveStore.js';
 
 const userIdOf = (client: Client): string => (client.auth as { userId?: string } | undefined)?.userId ?? '';
 
-/** A valid save key: a known bundled game, or a "bring your own WAD" id (wad:<slug>). */
-const validGame = (g?: string): boolean => !!g && (!!getArcadeGame(g) || /^wad:[a-z0-9-]{1,32}$/.test(g));
+/** A valid save key: a known bundled game. */
+const validGame = (g?: string): boolean => !!g && !!getArcadeGame(g);
 
 export function registerArcadeSaves(room: Room): void {
   room.onMessage('arcadeSaveGet', (client: Client, m: { game?: string }) => {

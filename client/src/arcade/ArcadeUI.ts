@@ -9,9 +9,9 @@
  * `open()` (host runs an IPX server; joiners connect to the host's peer id).
  */
 import { loadJsDos, pruneCorruptBundleCache, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface, type InitFsEntry } from './jsdos.js';
-import { ARCADE_GAMES, ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
+import { storeZip } from './zip.js';
+import { ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
-import { listWads, fetchWadByUrl, wadUrl, uploadWad } from './wadClient.js';
 import { isDesktop } from '../desktop/bridge.js';
 import { serverHttpOrigin } from '../net/room.js';
 
@@ -45,9 +45,27 @@ export interface ArcadeOpenOpts {
   startIpxServer?: boolean;
   /** Multiplayer: join the host at this peer id / alias. */
   connectIpxAddress?: string;
+  /** Multiplayer host: advertise this match alias once js-dos' net layer is up
+   *  (js-dos does NOT auto-register, so joiners' connectIpxAddress can't resolve
+   *  without it). Host only — never combine with connectIpxAddress. */
+  registerAlias?: string;
   net?: DosNetConfig;
+  /** NET.BAT contents to re-assert LAST (after the restored save) for a networked
+   *  launch. For multiplayer-capable games open() also defaults this to the
+   *  single-player command when absent, so a stale IPXSETUP NET.BAT persisted into
+   *  a prior match's savegame can never force IPX on a later launch. */
+  netBat?: string;
+  /** Extra FS seeds layered on the bundle at boot. */
+  initFs?: InitFsEntry[];
   /** Called when the player leaves / closes the cabinet. */
   onClose?: () => void;
+}
+
+/** Multiplayer lobby transport, injected per client (wired to its Colyseus room).
+ *  ArcadeUI drives the lobby UI + launch; the host forwards server messages in. */
+export interface ArcadeLobbyHooks {
+  /** Send a lobby command to the room (arcadeLobbyJoin/Leave/Mode/Start). */
+  send(type: string, payload: Record<string, unknown>): void;
 }
 
 /** Server-backed savegame transport, injected per client (each wires it to its room).
@@ -63,8 +81,8 @@ export interface ArcadeMenuOpts {
   /** Called when the arcade session fully ends (picker cancelled or game closed) —
    *  the host restores its input (re-lock the pointer / re-enable keyboard). */
   onClose?: () => void;
-  /** Show the admin-only "Upload WAD" control (host passes its known admin flag). */
-  canUpload?: boolean;
+  /** The cabinet's tile key "col,row" — needed to broker a multiplayer match. */
+  cabinet?: string;
 }
 
 const CSS = `
@@ -113,12 +131,30 @@ export class ArcadeUI {
   private ci: DosCommandInterface | null = null; // set on 'ci-ready' — used to persist saves
   private game: ArcadeGame | null = null; // the game currently booted (for save keying)
   private saveHooks: ArcadeSaveHooks | null = null;
+  private lobbyHooks: ArcadeLobbyHooks | null = null;
   private onClose: (() => void) | null = null;
   private opening = false;
+  // Active multiplayer lobby (while the lobby modal is open, before launch).
+  private lobby: { game: ArcadeGame; cabinet: string; onClose?: () => void } | null = null;
+  // Cabinet of a launched MP match — so closing the cabinet tells the server we
+  // left (the server keeps a `started` match until its members leave; without this
+  // a stale match blocks the next MP start with a silent "connecting to lobby").
+  private mpCabinet: string | null = null;
+  // The launched match's alias + whether we host it — so close() can cleanly tear
+  // down js-dos' HumbleNet layer (unregister the alias, shut the net down). Without
+  // this, the dead session lingers on net.dos.zone and every later match hangs at
+  // "looking up address".
+  private mpAlias: string | null = null;
+  private mpHost = false;
 
   /** Wire server-backed savegames (called once per client with its room transport). */
   setSaveHooks(hooks: ArcadeSaveHooks | null): void {
     this.saveHooks = hooks;
+  }
+
+  /** Wire the multiplayer lobby transport (called once per client with its room). */
+  setLobbyHooks(hooks: ArcadeLobbyHooks | null): void {
+    this.lobbyHooks = hooks;
   }
 
   private constructor() {
@@ -166,26 +202,7 @@ export class ArcadeUI {
    *  opts.onClose fires when the session fully ends (picker cancelled or game closed). */
   async openMenu(opts: ArcadeMenuOpts = {}): Promise<void> {
     if (this.isOpen || paDialogOpen()) return;
-    // Bundled titles + any admin-uploaded WADs (server-wide "bring your own WAD"),
-    // which play on the vanilla DOOM.EXE engine bundle with the WAD injected at boot.
-    const uploaded = await listWads();
-    if (this.isOpen || paDialogOpen()) return;
-    const games: ArcadeGame[] = [
-      ...ARCADE_GAME_LIST,
-      ...uploaded.map(
-        (w): ArcadeGame => ({
-          id: `wad:${w.name}`,
-          title: w.title,
-          blurb: `your WAD · ${w.iwad}`,
-          bundleUrl: ARCADE_GAMES.doom.bundleUrl, // vanilla DOOM.EXE carrier
-          multiplayer: false,
-          maxPlayers: 1,
-          license: 'user-provided (server operator owns the copy)',
-          iwadUrl: wadUrl(w.name),
-          iwadName: w.iwad,
-        }),
-      ),
-    ];
+    const games: ArcadeGame[] = ARCADE_GAME_LIST;
     const body = document.createElement('div');
     let launched = false;
     for (const game of games) {
@@ -203,6 +220,22 @@ export class ArcadeUI {
         void this.open(game, { onClose: opts.onClose });
       };
       row.appendChild(btn);
+      // Multiplayer (👥): open a lobby at this cabinet (needs the room transport).
+      if (game.multiplayer && this.lobbyHooks && opts.cabinet) {
+        const cabinet = opts.cabinet;
+        const mp = document.createElement('button');
+        mp.className = 'pa-btn';
+        mp.style.cssText = 'flex:0 0 auto;margin:0;';
+        mp.title = `Multiplayer — up to ${game.maxPlayers} players`;
+        mp.textContent = '👥';
+        mp.onclick = (e) => {
+          e.stopPropagation();
+          launched = true;
+          closePaDialog();
+          this.openLobby(game, cabinet, opts.onClose);
+        };
+        row.appendChild(mp);
+      }
       // Delete-save (↺): two-click armed to avoid wiping progress by accident.
       if (this.saveHooks) {
         const hooks = this.saveHooks;
@@ -230,18 +263,6 @@ export class ArcadeUI {
       }
       body.appendChild(row);
     }
-    if (opts.canUpload) {
-      const up = document.createElement('button');
-      up.className = 'pa-btn';
-      up.style.cssText = 'display:block;width:100%;text-align:left;margin:0.3rem 0 0;opacity:.85;';
-      up.textContent = '⬆ Upload WAD (admin)';
-      up.onclick = () => {
-        launched = true; // reopening the menu ourselves; don't let this close restore input
-        closePaDialog();
-        this.promptUploadWad(opts);
-      };
-      body.appendChild(up);
-    }
     openPaDialog({
       title: '🕹 Arcade',
       body,
@@ -252,55 +273,180 @@ export class ArcadeUI {
     });
   }
 
-  /** Admin-only: upload a WAD you own; it becomes a server-wide title. The server
-   *  enforces admin + validates the file. On success the arcade closes (input is
-   *  restored); reopen the cabinet to see + play the new title. */
-  private promptUploadWad(menuOpts: ArcadeMenuOpts): void {
-    const body = document.createElement('div');
-    body.innerHTML =
-      '<div class="fld"><label>Title</label><input class="pa-input" data-f="title" maxlength="48" placeholder="e.g. DOOM (full)"></div>' +
-      '<div class="fld"><label>Id (a-z, 0-9, -)</label><input class="pa-input" data-f="name" maxlength="32" placeholder="doom-full"></div>' +
-      '<div class="fld"><label>IWAD filename</label><input class="pa-input" data-f="iwad" maxlength="20" value="DOOM.WAD"></div>' +
-      '<div class="fld"><label>WAD file (your own copy)</label><input type="file" data-f="file" accept=".wad"></div>' +
-      '<div data-f="status" style="color:#9aa3b2;font-size:.85rem;min-height:1.1em;"></div>';
-    const q = <T extends HTMLElement>(f: string): T => body.querySelector<T>(`[data-f="${f}"]`)!;
-    const status = q<HTMLDivElement>('status');
+  // ── Multiplayer lobby ────────────────────────────────────────────
+  private lobbyBody: HTMLDivElement | null = null;
+
+  /** Open a multiplayer lobby at this cabinet for `game` (join or host). */
+  private openLobby(game: ArcadeGame, cabinet: string, onClose?: () => void): void {
+    if (!this.lobbyHooks || this.isOpen || paDialogOpen()) return;
+    this.lobby = { game, cabinet, onClose };
+    this.lobbyBody = document.createElement('div');
+    this.renderLobby({ connecting: true });
+    this.lobbyHooks.send('arcadeLobbyJoin', { game: game.id, cabinet });
     openPaDialog({
-      title: '⬆ Upload WAD',
-      body,
-      onCancel: () => menuOpts.onClose?.(), // closing the form ends the session → restore input
-      buttons: [
-        {
-          label: 'Upload',
-          kind: 'green',
-          onClick: () => {
-            const name = q<HTMLInputElement>('name').value.trim().toLowerCase();
-            const title = q<HTMLInputElement>('title').value.trim();
-            const iwad = q<HTMLInputElement>('iwad').value.trim() || 'DOOM.WAD';
-            const file = q<HTMLInputElement>('file').files?.[0];
-            if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(name)) {
-              status.textContent = 'Id must be a-z, 0-9, dashes (start alphanumeric).';
-              return false;
-            }
-            if (!file) {
-              status.textContent = 'Choose a .wad file.';
-              return false;
-            }
-            status.textContent = 'Uploading…';
-            void (async () => {
-              const buf = new Uint8Array(await file.arrayBuffer());
-              const res = await uploadWad(name, title || name, iwad, buf);
-              if (res.ok) {
-                status.textContent = 'Uploaded ✓ — reopen the cabinet to play it.';
-                closePaDialog(); // fires onCancel → restores host input
-              } else {
-                status.textContent = `Upload failed: ${res.error}`; // stay open to retry
-              }
-            })();
-            return false; // keep the dialog open until the async upload resolves
-          },
-        },
-      ],
+      title: `👥 ${game.title} — Multiplayer`,
+      body: this.lobbyBody,
+      onClose: () => {
+        // Left the lobby (unless we launched): tell the server + restore input.
+        if (this.lobby) {
+          this.lobbyHooks?.send('arcadeLobbyLeave', { cabinet });
+          const cb = this.lobby.onClose;
+          this.lobby = null;
+          cb?.();
+        }
+      },
+      buttons: [],
+    });
+  }
+
+  /** Host forwards the room's `arcadeLobby` state message here. */
+  onLobbyMsg(m: Record<string, unknown>): void {
+    if (!this.lobby || m.cabinet !== this.lobby.cabinet) return;
+    if (m.closed) { this.lobby = null; closePaDialog(); return; } // host left / dissolved
+    if (m.busy) { this.renderLobbyBusy(m.reason === 'running' ? 'running' : 'othergame'); return; }
+    this.renderLobby(m);
+  }
+
+  /** Host forwards the room's `arcadeLaunch` message here → boot the networked game. */
+  onLaunchMsg(m: Record<string, unknown>): void {
+    if (!this.lobby || m.cabinet !== this.lobby.cabinet) return;
+    const { game, onClose } = this.lobby;
+    this.lobby = null;
+    this.mpCabinet = typeof m.cabinet === 'string' ? m.cabinet : null;
+    this.mpAlias = typeof m.alias === 'string' ? m.alias : null;
+    this.mpHost = !!m.host;
+    closePaDialog();
+    const nodes = Number(m.nodes) || 2;
+    // NET.BAT so the bundle's autoexec runs IPXSETUP (→ networked DOOM). Passed via
+    // opts.netBat, which open() re-asserts LAST (after the restored save) — a prior
+    // networked match persists this NET.BAT into the savegame, so it must always be
+    // overridden per-launch or single-player / re-matches keep running IPX.
+    const netBat = `@echo off\r\nIPXSETUP -nodes ${nodes}${m.mode === 'dm' ? ' -deathmatch' : ''}\r\n`;
+    // NOTE: js-dos uses its own signaling (HumbleNet, default broker net.dos.zone),
+    // NOT standard PeerJS — so we can't self-host with the `peer` package.
+    // Rendezvous is by alias: the HOST starts the IPX server and must advertise the
+    // match alias itself (js-dos does NOT auto-register — see registerHostAlias);
+    // JOINERS pass connectIpxAddress=alias, which polls queryAliases until the host
+    // has registered. The host must NOT set connectIpxAddress or it would wait on
+    // its own (never-registered) alias and hang at "Creating server".
+    const isHost = !!m.host;
+    const alias = typeof m.alias === 'string' ? m.alias : undefined;
+    // TURN/STUN relay for NAT-to-NAT play (server-minted, see arcadeTurn.ts). Absent
+    // → js-dos falls back to its built-in public STUN (LAN/same-machine only).
+    const iceServers = Array.isArray(m.iceServers) ? (m.iceServers as RTCIceServer[]) : undefined;
+    void this.open(game, {
+      startIpxServer: isHost,
+      connectIpxAddress: isHost ? undefined : alias,
+      registerAlias: isHost ? alias : undefined,
+      net: iceServers && iceServers.length ? { iceServers: () => iceServers } : undefined,
+      netBat,
+      onClose,
+    });
+  }
+
+  /** Host side: once js-dos' HumbleNet layer is up (window.net with a real peerId),
+   *  publish our match alias so joiners (connectIpxAddress=alias) can resolve it.
+   *  js-dos boots the emulator without ever registering an alias, so we do it.
+   *  Called from open() right after this.dos is assigned, so the instance guard is
+   *  valid (bails only if the cabinet is closed/reopened while we wait for net). */
+  private registerHostAlias(alias: string): void {
+    const instance = this.dos;
+    // Capture the previous net so we don't register on a stale (already-stopped)
+    // window.net from an earlier match — js-dos replaces window.net with a fresh
+    // instance once this game's net layer comes up. Registering on the old one
+    // leaves joiners of a *second* match stuck at "looking up address".
+    const staleNet = (window as unknown as { net?: unknown }).net;
+    let tries = 0;
+    const tick = (): void => {
+      if (this.dos !== instance) return; // cabinet changed → stop
+      const net = (window as unknown as { net?: { peerId?: number; registerAlias?: (a: string) => Promise<void> } }).net;
+      if (net && net !== staleNet && net.peerId && net.registerAlias) {
+        console.log('[arcade] host registering IPX alias', alias, 'peerId', net.peerId);
+        void Promise.resolve(net.registerAlias(alias))
+          .then(() => console.log('[arcade] IPX alias registered', alias))
+          .catch((e) => console.warn('[arcade] IPX alias register failed', alias, e));
+        return;
+      }
+      if (tries++ < 600) window.setTimeout(tick, 100); // wait up to ~60s for net to come up
+      else console.warn('[arcade] IPX net never came up — alias not registered', alias);
+    };
+    window.setTimeout(tick, 200);
+  }
+
+  /** Tear down js-dos' HumbleNet layer when the cabinet closes. js-dos never shuts
+   *  the net down itself, so its WebSocket to net.dos.zone (and the host's registered
+   *  alias) linger — and every later match then hangs at "looking up address".
+   *  Unregister our alias (host), shut the net down, and drop window.net so the next
+   *  launch builds a fresh one. */
+  private teardownNet(): void {
+    const w = window as unknown as {
+      net?: { unregisterAlias?: (a: string) => void; shutdown?: () => void };
+    };
+    const net = w.net;
+    if (net) {
+      try {
+        if (this.mpHost && this.mpAlias) net.unregisterAlias?.(this.mpAlias);
+        net.shutdown?.();
+        console.log('[arcade] IPX net torn down', this.mpAlias ?? '');
+      } catch (e) {
+        console.warn('[arcade] IPX net teardown failed', e);
+      }
+      w.net = undefined;
+    }
+    this.mpAlias = null;
+    this.mpHost = false;
+  }
+
+  /** This cabinet is occupied by a running match (or a different game) — show a
+   *  clear notice with a Close button instead of hanging on "connecting". */
+  private renderLobbyBusy(reason: 'running' | 'othergame'): void {
+    const body = this.lobbyBody;
+    if (!body) return;
+    const text =
+      reason === 'running'
+        ? 'A match is already running at this cabinet.\nWait for it to finish, then try again.'
+        : 'This cabinet is busy with another game.';
+    body.innerHTML = `<div style="opacity:.85;white-space:pre-line;margin:0 0 .7rem">${esc(text)}</div>`;
+    const close = document.createElement('button');
+    close.className = 'pa-btn';
+    close.textContent = 'Close';
+    close.style.width = '100%';
+    close.onclick = () => closePaDialog();
+    body.appendChild(close);
+  }
+
+  private renderLobby(m: Record<string, unknown>): void {
+    const body = this.lobbyBody;
+    if (!body) return;
+    if (m.connecting) { body.innerHTML = '<div style="opacity:.8">Connecting to the lobby…</div>'; return; }
+    const members = Array.isArray(m.members) ? (m.members as string[]) : [];
+    const max = Number(m.max) || 4;
+    const youAreHost = !!m.youAreHost;
+    const mode = m.mode === 'coop' ? 'coop' : 'dm';
+    const cabinet = String(m.cabinet ?? '');
+    body.innerHTML =
+      `<div style="margin:0 0 .5rem">Players (${members.length}/${max}):</div>` +
+      `<div style="margin:0 0 .7rem">${members.map((n) => `• ${esc(n)}`).join('<br>') || '—'}</div>` +
+      (youAreHost
+        ? `<div class="row" style="display:flex;gap:.4rem;margin:0 0 .6rem">
+             <button class="pa-btn" data-mode="dm" ${mode === 'dm' ? 'style="border-color:#5a92d6"' : ''}>Deathmatch</button>
+             <button class="pa-btn" data-mode="coop" ${mode === 'coop' ? 'style="border-color:#56b566"' : ''}>Co-op</button>
+           </div>`
+        : `<div style="opacity:.8;margin:0 0 .6rem">Mode: ${mode === 'dm' ? 'Deathmatch' : 'Co-op'} — waiting for the host to start…</div>`);
+    const controls = document.createElement('div');
+    controls.style.cssText = 'display:flex;gap:.4rem';
+    if (youAreHost) {
+      const start = document.createElement('button');
+      start.className = 'pa-btn';
+      start.textContent = members.length >= 2 ? `Start (${members.length}P)` : 'Waiting for players…';
+      start.style.flex = '1';
+      (start as HTMLButtonElement).disabled = members.length < 2;
+      start.onclick = () => this.lobbyHooks?.send('arcadeLobbyStart', { cabinet });
+      controls.appendChild(start);
+    }
+    body.appendChild(controls);
+    body.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach((b) => {
+      b.onclick = () => this.lobbyHooks?.send('arcadeLobbyMode', { cabinet, mode: b.dataset.mode });
     });
   }
 
@@ -357,19 +503,21 @@ export class ArcadeUI {
       // js-dos' OPFS bundle cache — it replays before any refetch, so scrub it now.
       await pruneCorruptBundleCache();
       if (!this.isOpen) return;
-      // Seed the FS via initFs: an uploaded IWAD (bring-your-own-WAD) first, then the
-      // player's server-stored savegame — both overlay the engine bundle.
-      const initFs: InitFsEntry[] = [];
-      if (game.iwadUrl) {
-        const wad = await fetchWadByUrl(game.iwadUrl).catch(() => null);
-        if (!this.isOpen) return;
-        if (wad && wad.length) initFs.push({ path: (game.iwadName || 'DOOM.WAD').toUpperCase(), contents: wad });
-      }
+      // Seed the FS via initFs: caller-supplied files first (e.g. NET.BAT for a
+      // multiplayer launch), then the player's server-stored savegame — both
+      // overlay the self-contained engine+WAD bundle.
+      const initFs: InitFsEntry[] = [...(opts.initFs ?? [])];
       if (this.saveHooks) {
         const saved = await this.saveHooks.load(game.id).catch(() => null);
         if (!this.isOpen) return;
         if (saved && saved.length) initFs.push(saved);
       }
+      // Re-assert NET.BAT LAST (overrides bundle AND the restored save). A networked
+      // match persists NET.BAT=IPXSETUP into the save, so without this a later
+      // single-player or re-match keeps running IPX. MP → the IPXSETUP command;
+      // otherwise a multiplayer-capable game resets to single-player DOOM.EXE.
+      const netBat = opts.netBat ?? (game.multiplayer ? '@echo off\r\nDOOM.EXE\r\n' : null);
+      if (netBat) initFs.push(storeZip([{ name: 'NET.BAT', data: new TextEncoder().encode(netBat) }]));
       const Dos = await loadJsDos();
       // If the user bailed while js-dos was loading, don't boot.
       if (!this.isOpen) return;
@@ -387,6 +535,8 @@ export class ArcadeUI {
         net: opts.net,
         onEvent: (event, ci) => this.onDosEvent(String(event), ci),
       });
+      // Host: now that this.dos points at the live instance, advertise the alias.
+      if (opts.registerAlias) this.registerHostAlias(opts.registerAlias);
     } catch (err) {
       this.setStatus('failed to load', true);
       this.msgEl.textContent = `Could not start the game.\n${err instanceof Error ? err.message : String(err)}`;
@@ -425,6 +575,12 @@ export class ArcadeUI {
     this.dos = null;
     this.ci = null;
     this.game = null;
+    // Leave a launched MP match so the server frees the (started) match for reuse.
+    if (this.mpCabinet) {
+      this.lobbyHooks?.send('arcadeLobbyLeave', { cabinet: this.mpCabinet });
+      this.mpCabinet = null;
+    }
+    this.teardownNet();
     // Hide immediately for responsiveness; snapshot the save then tear down the worker.
     this.msgEl.style.display = 'none';
     this.root.style.display = 'none';

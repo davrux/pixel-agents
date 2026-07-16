@@ -8,7 +8,10 @@ client/dist
 client/public/jsdos/bundles
 **/*.log
 data
-tmp
+# Keep tmp out of the build context — EXCEPT the licensed Doom WADs, which the
+# arcade bundle builder packages at build time (see build-shareware-bundles.mjs).
+tmp/*
+!tmp/doom-wads
 
 # VCS + tooling
 .git

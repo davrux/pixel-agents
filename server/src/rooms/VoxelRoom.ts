@@ -89,6 +89,7 @@ import { MOB_DEFS_LIST, type MobDef } from '../voxel/mobs.js';
 
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
+import { registerArcadeLobby } from '../arcadeLobby.js';
 import { userStore, UserStore } from '../userStore.js';
 import { VoxelServerWorld } from '../voxel/world.js';
 import { listWorlds, deleteWorld } from '../voxel/chunkStore.js';
@@ -186,6 +187,8 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   private static readonly byWorld = new Map<string, Set<VoxelRoom>>();
   private authRequired = false;
   private world!: VoxelServerWorld;
+  /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
+  private arcadeLobby?: { onLeave: (sessionId: string) => void };
   private readonly views = new Map<string, ClientView>();
   private readonly npcs = new Map<string, NpcBrain>(); // npc id → brain (AI state is server-only)
   private npcSeq = 0;
@@ -262,6 +265,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
     set.add(this); // register so a world-delete can evict this room's players
     controlBus.on(KICK_EVENT, this.onKick); // admin /kick reaches players in any world/zone
     registerArcadeSaves(this); // shared arcade-savegame handlers (same store as the 2D world)
+    this.arcadeLobby = registerArcadeLobby(this); // shared arcade IPX-multiplayer lobby
 
     this.onMessage('move', (client, m: { x: number; y: number; z: number; yaw?: number; pitch?: number; state?: string }) =>
       this.onMove(client, m),
@@ -1768,6 +1772,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
   }
 
   onLeave(client: Client): void {
+    this.arcadeLobby?.onLeave(client.sessionId); // drop from any arcade match
     // Remember where the player left off (logged-in), so they respawn there.
     const auth = client.auth as AuthInfo | undefined;
     if (auth?.userId) presence.leave(auth.userId);

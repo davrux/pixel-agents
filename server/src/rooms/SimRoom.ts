@@ -12,6 +12,7 @@ import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
+import { registerArcadeLobby } from '../arcadeLobby.js';
 import {
   createBlankZoneLayout,
   createPlazaLayout,
@@ -90,6 +91,8 @@ export class SimRoom extends Room<RoomState> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
+  /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
+  private arcadeLobby?: { onLeave: (sessionId: string) => void };
   /** Player ids that joined as non-spatial viewers (the rooms portal): present for
    *  chat/voice/meetings but not drawn as an avatar (so they don't duplicate the
    *  user's real Pixels avatar). */
@@ -263,6 +266,7 @@ export class SimRoom extends Room<RoomState> {
     this.setState(new RoomState());
     this.autoDispose = false;
     registerArcadeSaves(this); // shared arcade-savegame handlers (same store as the voxel world)
+    this.arcadeLobby = registerArcadeLobby(this); // shared arcade IPX-multiplayer lobby
 
     // Initialise the office engine from the decoded assets (templates + catalog
     // give it palette counts, seats, and furniture auto-on metadata).
@@ -418,6 +422,7 @@ export class SimRoom extends Room<RoomState> {
   }
 
   onLeave(client: Client): void {
+    this.arcadeLobby?.onLeave(client.sessionId); // drop from any arcade match
     const { userId } = authOf(client);
     if (userId) presence.leave(userId);
     const playerId = this.players.get(client.sessionId);

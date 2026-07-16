@@ -2097,7 +2097,7 @@ function interactNode(): boolean {
     return true;
   }
   if (b === ARCADE_ID) {
-    openArcade();
+    openArcade(x, y, z);
     return true;
   }
   if (b === CHEST_ID || b === DOOR_CLOSED || b === DOOR_OPEN || b === FURNACE_ID || b === TNT_ID || b === FENCE_GATE_CLOSED || b === FENCE_GATE_OPEN || b === BED_ID) {
@@ -3212,12 +3212,21 @@ const confUI = new ConferenceUI();
 // Arcade cabinets (a shared overlay for both clients): using one opens a game picker;
 // choosing a game boots it in js-dos. The overlay captures the mouse itself.
 const arcadeUI = ArcadeUI.get();
+// Arcade multiplayer lobby over the voxel room. The transport closures are lazy
+// (net is null until connected); the room message routing is wired post-connect.
+arcadeUI.setLobbyHooks({
+  send: (type, payload) => net?.room.send(type, payload),
+});
 
-/** Use an arcade cabinet → the shared pixel-menu title picker (see ArcadeUI.openMenu). */
-function openArcade(): void {
+/** Use an arcade cabinet → the shared pixel-menu title picker (see ArcadeUI.openMenu).
+ *  The cabinet's block position keys any multiplayer match at this machine. */
+function openArcade(x: number, y: number, z: number): void {
   if (arcadeUI.isOpen || paDialogOpen()) return;
   if (locked()) document.exitPointerLock();
-  void arcadeUI.openMenu({ onClose: () => { if (mode === 'first') canvas.requestPointerLock(); }, canUpload: playerIsAdmin });
+  void arcadeUI.openMenu({
+    cabinet: `${x},${y},${z}`,
+    onClose: () => { if (mode === 'first') canvas.requestPointerLock(); },
+  });
 }
 let conf: LiveKitConference | null = null;
 let confCell: { x: number; y: number; z: number } | null = null; // the monitor we're calling on
@@ -3412,6 +3421,9 @@ async function connectWorld(worldId: string, seed?: number, size?: number): Prom
   net = await connectVoxel(worldId, worldHandlers, { skin: playerSkin, seed, size });
   setOnline(!!net); // connected → online dot; null (offline dev) → offline
   if (!net) goOffline(); // offline dev / unreachable → local terrain
+  // Arcade multiplayer lobby messages over the (re)connected room.
+  net?.room.onMessage('arcadeLobby', (m: Record<string, unknown>) => arcadeUI.onLobbyMsg(m));
+  net?.room.onMessage('arcadeLaunch', (m: Record<string, unknown>) => arcadeUI.onLaunchMsg(m));
   // Arcade savegames arrive here as a reply to arcadeSaveGet (see arcade hooks below).
   net?.room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
     arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);

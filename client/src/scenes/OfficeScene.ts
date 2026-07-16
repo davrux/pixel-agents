@@ -766,15 +766,15 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
    *  while it's up so the DOS game receives the keys (js-dos owns the mouse). */
-  private openArcade(): void {
+  private openArcade(cab: { col: number; row: number }): void {
     if (this.arcadeUI.isOpen) return;
     // Free the keyboard for the game (Phaser + chat give up their keys); restored on close.
     if (this.input.keyboard) this.input.keyboard.enabled = false;
     void this.arcadeUI.openMenu({
+      cabinet: `${cab.col},${cab.row}`, // brokers a multiplayer match at this cabinet
       onClose: () => {
         if (this.input.keyboard) this.input.keyboard.enabled = true;
       },
-      canUpload: this.isAdmin,
     });
   }
 
@@ -784,6 +784,12 @@ export class OfficeScene extends Phaser.Scene {
     room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
       this.arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);
     });
+    // Multiplayer lobby: relay commands to the room + feed its state/launch back.
+    this.arcadeUI.setLobbyHooks({
+      send: (type, payload) => room.send(type, payload),
+    });
+    room.onMessage('arcadeLobby', (m: Record<string, unknown>) => this.arcadeUI.onLobbyMsg(m));
+    room.onMessage('arcadeLaunch', (m: Record<string, unknown>) => this.arcadeUI.onLaunchMsg(m));
     this.arcadeUI.setSaveHooks({
       load: (gameId) =>
         new Promise<Uint8Array | null>((resolve) => {
@@ -914,7 +920,7 @@ export class OfficeScene extends Phaser.Scene {
               this.pendingConference = null;
               if (this.nearArcade(cab)) {
                 this.pendingArcade = null;
-                this.openArcade();
+                this.openArcade(cab);
               } else {
                 this.pendingArcade = cab;
                 this.room?.send('playerMove', { col: cab.col, row: cab.row + cab.fpH });
@@ -1133,8 +1139,9 @@ export class OfficeScene extends Phaser.Scene {
     }
     // Walked up to a clicked arcade cabinet → open it (see the click handler).
     if (this.pendingArcade && this.nearArcade(this.pendingArcade)) {
+      const cab = this.pendingArcade;
       this.pendingArcade = null;
-      this.openArcade();
+      this.openArcade(cab);
     }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.

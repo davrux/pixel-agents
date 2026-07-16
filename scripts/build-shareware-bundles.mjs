@@ -28,14 +28,27 @@ const REPO = resolve(__dirname, '..');
 const CACHE = resolve(REPO, 'tmp/arcade-assets');
 const OUT = resolve(REPO, 'client/public/jsdos/bundles');
 const MIRROR = 'https://image.dosgamesarchive.com/games';
+// DOOM + DOOM II are LICENSED (not shareware): their DOS engine + IWADs come from
+// the operator's own GOG copy, extracted (innoextract) into tmp/doom-wads/ — never
+// committed, but shipped into the image via .dockerignore's tmp/doom-wads allow.
+// If the folder is absent, those two bundles are skipped (the shareware ones build).
+const DOOM_SRC = resolve(REPO, 'tmp/doom-wads');
 
+// `local`: package these files straight from DOOM_SRC (no download). Otherwise
 // zip: shareware archive on the mirror; data: the DEICE-packed member(s) inside it
 // (an array = a split archive whose volumes are concatenated); exe: the autoexec
-// program. All are freely-distributable shareware first episodes.
+// program. The shareware entries are freely-distributable first episodes.
 const GAMES = [
-  // DOOM shareware (Episode 1) from the idgames mirror; ships DEICE-packed (split
-  // volumes) but sometimes loose — the extractor auto-detects both.
-  { id: 'doom', title: 'DOOM', zip: 'doom19s.zip', zipUrl: 'https://www.gamers.org/pub/idgames/idstuff/doom/doom19s.zip', data: ['DOOMS_19.1', 'DOOMS_19.2'], exe: 'DOOM.EXE', extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }] },
+  // Full DOOM + DOOM II + Final Doom from the operator's licensed copy. The engine
+  // is always packaged as DOOM.EXE so the (Doom1) IPXSETUP.EXE launches it for
+  // multiplayer regardless of variant — the exe finds its IWAD by wad name, not by
+  // its own filename. `net:true` → IPX-ready autoexec (runs NET.BAT if a session
+  // injected one, else single-player DOOM.EXE). DEFAULT.CFG is our WASD binding.
+  // IPXSETUP.EXE is id's freely-distributable net launcher (from shareware doom19s).
+  { id: 'doom', title: 'DOOM', local: ['DOOM.EXE', 'DOOM.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'doom2', title: 'DOOM II', local: [{ from: 'DOOM2.EXE', as: 'DOOM.EXE' }, 'DOOM2.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'tnt', title: 'Final DOOM: TNT', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'TNT.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'plutonia', title: 'Final DOOM: Plutonia', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'PLUTONIA.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
   { id: 'wolf3d', title: 'Wolfenstein 3D', zip: '1wolf14.zip', data: 'W3D1_BBS._1', exe: 'WOLF3D.EXE' },
   { id: 'keen', title: 'Commander Keen', zip: '1keen.zip', data: 'KEEN.1', exe: 'KEEN1.EXE' },
   { id: 'duke', title: 'Duke Nukem', zip: '1duke.zip', data: 'DUKE.1', exe: 'DN1.EXE' },
@@ -44,7 +57,14 @@ const GAMES = [
   { id: 'duke3d', title: 'Duke Nukem 3D', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
-function dosboxConf(exe) {
+function dosboxConf(exe, net = false) {
+  // net games always run NET.BAT (no fragile `if exist` in [autoexec], which
+  // js-dos' DOSBox doesn't honour). The bundle ships a NET.BAT that just launches
+  // the game (single-player); a multiplayer session overlays NET.BAT via initFs
+  // with the IPXSETUP command, which then launches the game networked.
+  const autoexec = net
+    ? ['@echo off', 'mount c .', 'c:', 'NET.BAT', '']
+    : ['echo off', 'mount c .', 'c:', exe, ''];
   return [
     '[sdl]', 'autolock=true', 'usescancodes=true',
     '[dosbox]', 'machine=svga_s3', 'memsize=16',
@@ -57,7 +77,7 @@ function dosboxConf(exe) {
     '[speaker]', 'pcspeaker=true', 'pcrate=44100',
     '[render]', 'frameskip=0', 'aspect=false', 'scaler=none',
     '[ipx]', 'ipx=true',
-    '[autoexec]', 'echo off', 'mount c .', 'c:', exe, '',
+    '[autoexec]', ...autoexec,
   ].join('\n');
 }
 
@@ -106,6 +126,36 @@ async function main() {
   if (existsSync(manPath)) try { man = JSON.parse(await readFile(manPath, 'utf8')); } catch { /* rebuild */ }
 
   for (const g of GAMES) {
+    // Locally-sourced (licensed) games: package the files straight from DOOM_SRC.
+    // Missing folder → skip (so a checkout without the WADs still builds shareware).
+    if (g.local) {
+      // Each item is a filename (from == as) or { from, as } to rename in-bundle.
+      const items = g.local.map((f) => (typeof f === 'string' ? { from: f, as: f } : f));
+      const missing = items.filter((f) => !existsSync(resolve(DOOM_SRC, f.from)));
+      if (missing.length) {
+        console.warn(`  skip    ${g.id} — missing ${missing.map((m) => m.from).join(', ')} in ${DOOM_SRC} (licensed WADs not present)`);
+        continue;
+      }
+      const entries = await Promise.all(items.map(async (f) => ({ name: f.as.toUpperCase(), data: await readFile(resolve(DOOM_SRC, f.from)) })));
+      // Shipped extras from scripts/assets (e.g. the WASD DEFAULT.CFG) — committable.
+      for (const ex of g.extras ?? []) {
+        entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'scripts/assets', ex.file)) });
+      }
+      // net games: default single-player NET.BAT (multiplayer overlays it at launch).
+      if (g.net) entries.push({ name: 'NET.BAT', data: Buffer.from(`@echo off\r\n${g.exe}\r\n`, 'ascii') });
+      entries.push({ name: '.jsdos/dosbox.conf', data: Buffer.from(dosboxConf(g.exe, g.net), 'utf8') });
+      entries.push({ name: '.jsdos/jsdos.json', data: Buffer.from(JSON.stringify({ version: 8 }), 'utf8') });
+      const zip = makeZip(entries);
+      man[g.id] = createHash('sha1').update(zip).digest('hex').slice(0, 10);
+      const dest = resolve(OUT, `${g.id}.jsdos`);
+      await new Promise((res, rej) => {
+        const ws = createWriteStream(dest);
+        ws.on('error', rej).on('finish', res);
+        ws.end(zip);
+      });
+      console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${man[g.id]}, exe=${g.exe}, local)`);
+      continue;
+    }
     const zipPath = resolve(CACHE, g.zip);
     await download(g.zipUrl ?? `${MIRROR}/${g.zip}`, zipPath);
     const work = await mkdtemp(resolve(tmpdir(), `sw-${g.id}-`));
@@ -166,7 +216,7 @@ async function main() {
   }
   await writeFile(manPath, JSON.stringify(man));
   console.log(`  wrote   ${manPath}  ${JSON.stringify(man)}`);
-  console.log('done. (Apogee/id shareware — freely distributable)');
+  console.log('done. (DOOM/DOOM II from the licensed local copy; the rest is freely-distributable shareware)');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

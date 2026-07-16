@@ -52,8 +52,55 @@ the shared ChatUI `clientCommand` hook, wired in both Pixels + Voxel. Add a matc
 command for any new destination (see AGENTS.md convention).
 
 ## Other subsystems (brief)
-- **Arcade** cabinets (Pixels + Voxel) run DOS shareware via js-dos; server-wide
-  savegames + admin "bring your own WAD"; bundles built by `scripts/build-shareware-bundles.mjs`.
+- **Arcade** cabinets (Pixels + Voxel) run DOS games via js-dos; server-wide
+  savegames. Bundles built by `scripts/build-shareware-bundles.mjs`:
+  wolf3d/keen/duke/duke3d = freely-distributable shareware (downloaded); **DOOM +
+  DOOM II = full, LICENSED** — the GOG DOS engine + IWAD, extracted (innoextract)
+  into **`tmp/doom-wads/`** (never committed; `.dockerignore` allows just that path
+  into the image; missing → those two bundles are skipped). "Bring your own WAD"
+  upload was **removed**. ⚠ `.jsdos` bundles are served as cookie-less static
+  assets — the licensed doom/doom2 bytes are therefore publicly fetchable by URL;
+  gate those two bundle URLs behind auth if that matters.
+- **Arcade IPX multiplayer (up to 4P)** for doom/doom2/tnt/plutonia. DOS side:
+  bundles carry `IPXSETUP.EXE` (from shareware doom19s) + engine packaged as
+  `DOOM.EXE` so IPXSETUP launches any variant; the bundle's autoexec always runs
+  `NET.BAT` (single-player `DOOM.EXE` by default; a networked launch overlays it).
+  Lobby: `server/src/arcadeLobby.ts` `registerArcadeLobby(room)` (per-room,
+  per-cabinet match; host/join/mode/start; onLeave hook wired in SimRoom+VoxelRoom;
+  sends `arcadeLobby` + `arcadeLaunch`). Client: ArcadeUI 👥 button → lobby modal →
+  on `arcadeLaunch` boot the game. Wired in Pixels + Voxel.
+  - **Transport is HumbleNet, NOT PeerJS.** js-dos v8 does IPX-over-WebRTC via its
+    bundled HumbleNet (`emulators/webrtcnet.wasm`); the "peerServer" is a HumbleNet
+    signaling server (default `https://net.dos.zone`), which the standard `peer`
+    npm package is **incompatible** with. We therefore use the **public net.dos.zone
+    broker** for signaling (metadata only; game data is P2P/WebRTC). The old
+    self-hosted `/peerjs` `ExpressPeerServer` in `index.ts` is **dead code** to be
+    removed. Self-hosting signaling would require running HumbleNet's own
+    `peer-server`, not PeerJS.
+  - **Rendezvous (alias):** host launches `{startIpxServer:true, registerAlias:alias}`
+    and — because js-dos never auto-registers — ArcadeUI calls
+    `window.net.registerAlias(alias)` once the net layer is up (polls for a *fresh*
+    `window.net`, not a stale one from a prior match). Joiners launch
+    `{connectIpxAddress:alias}` → js-dos polls `queryAliases` until the host
+    registers. Host must NOT also set connectIpxAddress (it would wait on its own
+    alias → hang at "Creating server").
+  - **NET.BAT overlay must be a real ZIP.** js-dos `initFs` only accepts ZIP byte
+    arrays, NOT `{path,contents}` — a `{path,contents}` overlay is silently dropped
+    (→ launches fell back to solo `DOOM.EXE`, showing the main menu instead of a
+    netgame). `client/src/arcade/zip.ts` (`storeZip`) wraps `NET.BAT`
+    (`@echo off / IPXSETUP -nodes N [-deathmatch]`) in a STORED zip.
+  - **Teardown on close is required.** js-dos does not shut its net down; ArcadeUI
+    `teardownNet()` (in `close()`) unregisters the alias (host), calls
+    `net.shutdown()`, and drops `window.net` — else the dead session lingers on
+    net.dos.zone and every later match hangs at "looking up address".
+  - **NAT/TURN for internet play:** peers are all behind NAT (only the server is
+    public), so P2P needs a TURN relay. `server/src/arcadeTurn.ts` `arcadeIceServers()`
+    mints ephemeral coturn credentials (REST/`use-auth-secret`) and the lobby sends
+    them in `arcadeLaunch.iceServers`; the client passes them to js-dos as
+    `net:{iceServers: () => [...]}` (js-dos **calls** iceServers as a function, not an
+    array). Env: `ARCADE_TURN_URLS` (comma list), `ARCADE_TURN_SECRET`,
+    `ARCADE_TURN_TTL` (default 12h), optional `ARCADE_STUN_URLS`. Unset → STUN-only
+    (LAN/same-machine only). Operator must run coturn on the public host.
 - **Voxel** is a large survival sandbox (see git history / `voxel/`); heaviest client.
 - **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit); per-member
   volume/mute. **Zone voice** = per-zone WebRTC + proximity.

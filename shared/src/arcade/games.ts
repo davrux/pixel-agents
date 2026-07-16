@@ -10,11 +10,11 @@
  * the lobby (who hosts, peer ids).
  */
 
-export type ArcadeGameId = 'doom' | 'wolf3d' | 'keen' | 'duke' | 'duke3d';
+export type ArcadeGameId = 'doom' | 'doom2' | 'tnt' | 'plutonia' | 'wolf3d' | 'keen' | 'duke' | 'duke3d';
 
 export interface ArcadeGame {
-  /** Stable id (a bundled ArcadeGameId, or a dynamic `wad:<slug>` for uploaded WADs). */
-  id: string;
+  /** Stable bundled game id. */
+  id: ArcadeGameId;
   /** Marquee title shown on the machine + in the launcher. */
   title: string;
   /** Short flavour line under the title. */
@@ -25,27 +25,50 @@ export interface ArcadeGame {
   multiplayer: boolean;
   /** Max simultaneous IPX players (Doom's engine caps at 4). */
   maxPlayers: number;
-  /** License note for the bundled WAD (all shipped content is free/libre). */
+  /** License note (display only). */
   license: string;
-  /** "Bring your own WAD" games: an uploaded IWAD to fetch + inject over the engine
-   *  bundle at boot (`iwadUrl`), and its filename inside the DOS filesystem
-   *  (`iwadName`, e.g. DOOM.WAD). Undefined for self-contained bundled games. */
-  iwadUrl?: string;
-  iwadName?: string;
 }
 
 export const ARCADE_GAMES: Record<ArcadeGameId, ArcadeGame> = {
-  // Shareware DOOM (id Software): the vanilla v1.9 engine (DOOM.EXE) + Episode 1
-  // (DOOM1.WAD), freely distributable. Used instead of Freedoom+MBF386 because the
-  // GPL MBF386 build's mouse only turned one way; vanilla Doom's mouse is correct.
+  // Full DOOM + DOOM II (id Software): the vanilla DOS engine (DOOM.EXE/DOOM2.EXE)
+  // + IWAD from the operator's own licensed copy, packaged at build time from
+  // tmp/doom-wads (never committed; see scripts/build-shareware-bundles.mjs).
   doom: {
     id: 'doom',
     title: 'DOOM',
-    blurb: 'Knee-Deep in the Dead — shareware',
+    blurb: 'The Ultimate DOOM',
     bundleUrl: '/jsdos/bundles/doom.jsdos',
     multiplayer: true,
     maxPlayers: 4,
-    license: 'id Software shareware (freely distributable)',
+    license: 'id Software — from the operator’s licensed copy',
+  },
+  doom2: {
+    id: 'doom2',
+    title: 'DOOM II',
+    blurb: 'Hell on Earth',
+    bundleUrl: '/jsdos/bundles/doom2.jsdos',
+    multiplayer: true,
+    maxPlayers: 4,
+    license: 'id Software — from the operator’s licensed copy',
+  },
+  // Final Doom (id Software) — standalone megawads on the Final Doom DOS engine.
+  tnt: {
+    id: 'tnt',
+    title: 'Final DOOM: TNT',
+    blurb: 'TNT: Evilution',
+    bundleUrl: '/jsdos/bundles/tnt.jsdos',
+    multiplayer: true,
+    maxPlayers: 4,
+    license: 'id Software — from the operator’s licensed copy',
+  },
+  plutonia: {
+    id: 'plutonia',
+    title: 'Final DOOM: Plutonia',
+    blurb: 'The Plutonia Experiment',
+    bundleUrl: '/jsdos/bundles/plutonia.jsdos',
+    multiplayer: true,
+    maxPlayers: 4,
+    license: 'id Software — from the operator’s licensed copy',
   },
   wolf3d: {
     id: 'wolf3d',
