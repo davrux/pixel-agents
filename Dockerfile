@@ -62,8 +62,10 @@ EXPOSE 6161
 
 USER node
 
-# /health on the viewer port (no auth) — used as the container healthcheck.
+# /health on the viewer port (no auth) — used as the container healthcheck. The
+# server serves HTTPS when a cert is present (self-signed in first-step prod), so
+# try https (accepting the self-signed cert) first, then fall back to http.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
-  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PIXEL_STREAM_PORT||6161)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "const p=process.env.PIXEL_STREAM_PORT||6161;const g=(m)=>new Promise(r=>{const q=require('node:'+m).get(m+'://127.0.0.1:'+p+'/health',{rejectUnauthorized:false},x=>r(x.statusCode===200));q.on('error',()=>r(false));q.setTimeout(4000,()=>{q.destroy();r(false)})});(async()=>process.exit((await g('https'))||(await g('http'))?0:1))()"
 
 CMD ["pnpm", "start"]
