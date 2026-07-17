@@ -37,7 +37,10 @@ RUN pnpm install --frozen-lockfile
 # build:all = fetch + package the DOS-game .jsdos bundles (freely-distributable
 # shareware, downloaded from the game mirrors — needs network egress at build
 # time), then build the client (vite copies public/, incl. jsdos/bundles, to
-# client/dist so the server serves them).
+# client/dist so the server serves them). The LICENSED doom/doom2/tnt/plutonia
+# bundles are deliberately NOT built here (tmp is excluded from the build context)
+# — provide them at runtime via ARCADE_BUNDLE_DIR (bind-mount), so this image stays
+# free of copyrighted WAD bytes and is safe to publish.
 RUN pnpm run build:all
 
 # ── Runtime: node + the whole workspace tree (source, deps, client/dist, assets)

@@ -56,8 +56,11 @@ command for any new destination (see AGENTS.md convention).
   savegames. Bundles built by `scripts/build-shareware-bundles.mjs`:
   wolf3d/keen/duke/duke3d = freely-distributable shareware (downloaded); **DOOM +
   DOOM II = full, LICENSED** — the GOG DOS engine + IWAD, extracted (innoextract)
-  into **`tmp/doom-wads/`** (never committed; `.dockerignore` allows just that path
-  into the image; missing → those bundles are skipped). "Bring your own WAD"
+  into **`tmp/doom-wads/`** (never committed). The licensed bundles are **NOT baked
+  into the image** (`.dockerignore` excludes `tmp`, so the build skips them and the
+  image stays publishable). Build them once on a host with the WADs (`pnpm
+  build:arcade`) and serve them at **runtime via `ARCADE_BUNDLE_DIR`** (a bind-mount
+  overlaid on `/jsdos/bundles/`; see `tmp/docker-compose.yml`). "Bring your own WAD"
   upload was **removed**. The **licensed** bundles (`/jsdos/bundles/{doom,doom2,tnt,
   plutonia}.jsdos`) are **auth-gated** in `auth.ts` (require a valid session/bearer;
   the browser sends the cookie same-origin, so logged-in play is unaffected — only

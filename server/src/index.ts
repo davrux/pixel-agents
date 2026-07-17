@@ -140,6 +140,18 @@ async function main(): Promise<void> {
     registerAdminApi(app); // admin-only user/room management REST API (admin.html)
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
+  // Licensed arcade bundles (doom/doom2/tnt/plutonia) are kept OUT of the image and
+  // provided at runtime from ARCADE_BUNDLE_DIR (a bind-mount). Overlaid on
+  // /jsdos/bundles/ ahead of the client build so those files win; the auth gate
+  // (registerAuth above) still runs first, so they stay session-gated. Shareware
+  // bundles + everything else fall through to the client build below.
+  const arcadeBundleDir = process.env.ARCADE_BUNDLE_DIR?.trim();
+  if (arcadeBundleDir && existsSync(arcadeBundleDir)) {
+    app.use('/jsdos/bundles', express.static(arcadeBundleDir));
+    console.log(`[server] arcade: serving runtime bundles from ${arcadeBundleDir}`);
+  } else if (arcadeBundleDir) {
+    console.warn(`[server] arcade: ARCADE_BUNDLE_DIR=${arcadeBundleDir} does not exist — licensed bundles unavailable`);
+  }
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));
     console.log(`[server] serving client build from ${clientDist}`);
