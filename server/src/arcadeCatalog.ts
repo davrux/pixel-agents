@@ -8,11 +8,19 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { type ArcadeGame, parseArcadeCatalog } from '@pixel/shared';
 
-/** The mounted content directory, or undefined when none is configured. */
+/** The content directory: ARCADE_CONTENT_DIR when set (production bind-mount), else
+ *  a dev fallback to the repo's tmp/arcade-content (what `pnpm build:arcade` writes)
+ *  so `pnpm build:arcade && pnpm dev` just works without env fiddling. The fallback
+ *  is repo-relative (not CWD-relative, which would differ under `pnpm --filter`), and
+ *  simply won't exist in the image, so production still needs the env set. */
 export function arcadeContentDir(): string | undefined {
-  return process.env.ARCADE_CONTENT_DIR?.trim() || undefined;
+  const env = process.env.ARCADE_CONTENT_DIR?.trim();
+  if (env) return env;
+  const devDefault = fileURLToPath(new URL('../../tmp/arcade-content', import.meta.url));
+  return existsSync(devDefault) ? devDefault : undefined;
 }
 
 let cache: { games: ArcadeGame[]; mtimeMs: number } | null = null;
