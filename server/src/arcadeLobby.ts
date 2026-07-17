@@ -19,7 +19,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { Client, Room } from '@colyseus/core';
-import { getArcadeGame } from '@pixel/shared';
+import { getArcadeGame } from './arcadeCatalog.js';
 import { arcadeIceServers } from './arcadeTurn.js';
 
 type Mode = 'dm' | 'coop';
@@ -114,7 +114,7 @@ export function registerArcadeLobby(room: Room): { onLeave: (sessionId: string) 
         alias: `ar-${randomBytes(6).toString('hex')}`,
         hostSession: client.sessionId,
         members: [],
-        maxPlayers: game.maxPlayers,
+        maxPlayers: game.maxPlayers ?? 4,
         started: false,
       };
       matches.set(cabinet, m);

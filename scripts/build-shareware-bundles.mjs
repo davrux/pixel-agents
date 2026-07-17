@@ -7,10 +7,15 @@
  * zip, pull out the data file, unpack it (7z — handles the prefixed case), and
  * repackage the ready-to-run files into a js-dos bundle that boots the game exe.
  *
- * Output (gitignored, regenerable): client/public/jsdos/bundles/<id>.jsdos + the
- * cache-bust entries in manifest.json. Cache in tmp/arcade-assets. Requires `unzip`.
+ * Output: an arcade CONTENT DIRECTORY holding <id>.jsdos bundles + a catalog.json
+ * (the ArcadeGame[] the server serves at /arcade/catalog). Nothing is baked into the
+ * image — the operator bind-mounts this dir as the server's ARCADE_CONTENT_DIR. The
+ * DOOM titles are only included when the licensed WADs are present in tmp/doom-wads.
  *
- *   node scripts/build-shareware-bundles.mjs
+ * Output dir: $ARCADE_CONTENT_DIR, else the first CLI arg, else tmp/arcade-content.
+ * Cache in tmp/arcade-assets. Requires `unzip` + `python3`.
+ *
+ *   node scripts/build-shareware-bundles.mjs [outDir]
  */
 import { createWriteStream, existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, readdir, mkdtemp } from 'node:fs/promises';
@@ -26,7 +31,8 @@ const execFileP = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
 const CACHE = resolve(REPO, 'tmp/arcade-assets');
-const OUT = resolve(REPO, 'client/public/jsdos/bundles');
+// Content dir the server bind-mounts (ARCADE_CONTENT_DIR): bundles + catalog.json.
+const OUT = resolve(REPO, process.env.ARCADE_CONTENT_DIR?.trim() || process.argv[2] || 'tmp/arcade-content');
 const MIRROR = 'https://image.dosgamesarchive.com/games';
 // DOOM + DOOM II are LICENSED (not shareware): their DOS engine + IWADs come from
 // the operator's own GOG copy, extracted (innoextract) into tmp/doom-wads/ — never
@@ -45,16 +51,16 @@ const GAMES = [
   // its own filename. `net:true` → IPX-ready autoexec (runs NET.BAT if a session
   // injected one, else single-player DOOM.EXE). DEFAULT.CFG is our WASD binding.
   // IPXSETUP.EXE is id's freely-distributable net launcher (from shareware doom19s).
-  { id: 'doom', title: 'DOOM', local: ['DOOM.EXE', 'DOOM.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
-  { id: 'doom2', title: 'DOOM II', local: [{ from: 'DOOM2.EXE', as: 'DOOM.EXE' }, 'DOOM2.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
-  { id: 'tnt', title: 'Final DOOM: TNT', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'TNT.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
-  { id: 'plutonia', title: 'Final DOOM: Plutonia', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'PLUTONIA.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
-  { id: 'wolf3d', title: 'Wolfenstein 3D', zip: '1wolf14.zip', data: 'W3D1_BBS._1', exe: 'WOLF3D.EXE' },
-  { id: 'keen', title: 'Commander Keen', zip: '1keen.zip', data: 'KEEN.1', exe: 'KEEN1.EXE' },
-  { id: 'duke', title: 'Duke Nukem', zip: '1duke.zip', data: 'DUKE.1', exe: 'DN1.EXE' },
+  { id: 'doom', title: 'DOOM', blurb: 'The Ultimate DOOM', local: ['DOOM.EXE', 'DOOM.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'doom2', title: 'DOOM II', blurb: 'Hell on Earth', local: [{ from: 'DOOM2.EXE', as: 'DOOM.EXE' }, 'DOOM2.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'tnt', title: 'Final DOOM: TNT', blurb: 'TNT: Evilution', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'TNT.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'plutonia', title: 'Final DOOM: Plutonia', blurb: 'The Plutonia Experiment', local: [{ from: 'FINAL.EXE', as: 'DOOM.EXE' }, 'PLUTONIA.WAD', 'IPXSETUP.EXE'], extras: [{ file: 'doom-default.cfg', as: 'DEFAULT.CFG' }], exe: 'DOOM.EXE', net: true },
+  { id: 'wolf3d', title: 'Wolfenstein 3D', blurb: 'Escape from Castle Wolfenstein — shareware', zip: '1wolf14.zip', data: 'W3D1_BBS._1', exe: 'WOLF3D.EXE' },
+  { id: 'keen', title: 'Commander Keen', blurb: 'Marooned on Mars — shareware', zip: '1keen.zip', data: 'KEEN.1', exe: 'KEEN1.EXE' },
+  { id: 'duke', title: 'Duke Nukem', blurb: 'Episode 1 — shareware', zip: '1duke.zip', data: 'DUKE.1', exe: 'DN1.EXE' },
   // Duke3D refuses to launch without a DUKE3D.CFG ("run setup.exe"); ship a default
   // one (from scripts/assets, screen forced to fast 320x200) so it boots straight in.
-  { id: 'duke3d', title: 'Duke Nukem 3D', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
+  { id: 'duke3d', title: 'Duke Nukem 3D', blurb: 'L.A. Meltdown — shareware', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
 function dosboxConf(exe, net = false) {
@@ -121,9 +127,19 @@ async function download(url, dest) {
 async function main() {
   await mkdir(CACHE, { recursive: true });
   await mkdir(OUT, { recursive: true });
-  const manPath = resolve(OUT, 'manifest.json');
-  let man = {};
-  if (existsSync(manPath)) try { man = JSON.parse(await readFile(manPath, 'utf8')); } catch { /* rebuild */ }
+  // Built fresh each run so the catalog reflects exactly what's present (a skipped
+  // title — e.g. DOOM without the licensed WADs — is simply absent).
+  const catalog = [];
+  const catalogEntry = (g, zip) => ({
+    id: g.id,
+    title: g.title,
+    blurb: g.blurb ?? '',
+    emulator: 'jsdos',
+    file: `${g.id}.jsdos`,
+    version: createHash('sha1').update(zip).digest('hex').slice(0, 10),
+    multiplayer: !!g.net,
+    maxPlayers: g.net ? 4 : 1,
+  });
 
   for (const g of GAMES) {
     // Locally-sourced (licensed) games: package the files straight from DOOM_SRC.
@@ -146,14 +162,15 @@ async function main() {
       entries.push({ name: '.jsdos/dosbox.conf', data: Buffer.from(dosboxConf(g.exe, g.net), 'utf8') });
       entries.push({ name: '.jsdos/jsdos.json', data: Buffer.from(JSON.stringify({ version: 8 }), 'utf8') });
       const zip = makeZip(entries);
-      man[g.id] = createHash('sha1').update(zip).digest('hex').slice(0, 10);
+      const entry = catalogEntry(g, zip);
+      catalog.push(entry);
       const dest = resolve(OUT, `${g.id}.jsdos`);
       await new Promise((res, rej) => {
         const ws = createWriteStream(dest);
         ws.on('error', rej).on('finish', res);
         ws.end(zip);
       });
-      console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${man[g.id]}, exe=${g.exe}, local)`);
+      console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${entry.version}, exe=${g.exe}, local)`);
       continue;
     }
     const zipPath = resolve(CACHE, g.zip);
@@ -205,18 +222,20 @@ async function main() {
     entries.push({ name: '.jsdos/jsdos.json', data: Buffer.from(JSON.stringify({ version: 8 }), 'utf8') });
 
     const zip = makeZip(entries);
-    man[g.id] = createHash('sha1').update(zip).digest('hex').slice(0, 10);
+    const entry = catalogEntry(g, zip);
+    catalog.push(entry);
     const dest = resolve(OUT, `${g.id}.jsdos`);
     await new Promise((res, rej) => {
       const ws = createWriteStream(dest);
       ws.on('error', rej).on('finish', res);
       ws.end(zip);
     });
-    console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${man[g.id]}, exe=${g.exe})`);
+    console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${entry.version}, exe=${g.exe})`);
   }
-  await writeFile(manPath, JSON.stringify(man));
-  console.log(`  wrote   ${manPath}  ${JSON.stringify(man)}`);
-  console.log('done. (DOOM/DOOM II from the licensed local copy; the rest is freely-distributable shareware)');
+  const catPath = resolve(OUT, 'catalog.json');
+  await writeFile(catPath, JSON.stringify(catalog, null, 2));
+  console.log(`  wrote   ${catPath}  (${catalog.length} games: ${catalog.map((c) => c.id).join(', ')})`);
+  console.log(`done. Point the server's ARCADE_CONTENT_DIR at ${OUT}`);
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });

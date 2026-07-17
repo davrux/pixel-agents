@@ -10,7 +10,7 @@
  */
 import { loadJsDos, pruneCorruptBundleCache, JSDOS_PATH_PREFIX, type DosInstance, type DosNetConfig, type DosCommandInterface, type InitFsEntry } from './jsdos.js';
 import { storeZip } from './zip.js';
-import { ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
+import { parseArcadeCatalog, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { isDesktop, desktop } from '../desktop/bridge.js';
 import { serverHttpOrigin } from '../net/room.js';
@@ -149,6 +149,8 @@ export class ArcadeUI {
   // Blob URL of a bundle fetched with credentials (desktop path, see open()) — held
   // so close() can revoke it.
   private bundleObjectUrl: string | null = null;
+  // Cached runtime catalog (fetched from /arcade/catalog).
+  private catalog: ArcadeGame[] | null = null;
 
   /** Wire server-backed savegames (called once per client with its room transport). */
   setSaveHooks(hooks: ArcadeSaveHooks | null): void {
@@ -200,13 +202,36 @@ export class ArcadeUI {
     return this.root.style.display === 'flex';
   }
 
+  /** Fetch the runtime game catalog from the server (public metadata endpoint).
+   *  Cached after the first success; validated with the shared parser so a bad
+   *  entry can't break the launcher. Works on browser (same-origin) + desktop. */
+  private async loadCatalog(): Promise<ArcadeGame[]> {
+    if (this.catalog) return this.catalog;
+    try {
+      const res = await fetch(`${serverHttpOrigin()}/arcade/catalog`, { cache: 'no-store' });
+      const body = res.ok ? ((await res.json()) as { games?: unknown }) : null;
+      this.catalog = parseArcadeCatalog(body?.games);
+    } catch {
+      this.catalog = [];
+    }
+    return this.catalog;
+  }
+
   /** Show the game picker (shared pixel-menu look); choosing a title boots it. This
    *  is the entry point both worlds use so the cabinet always offers a title menu.
    *  opts.onClose fires when the session fully ends (picker cancelled or game closed). */
   async openMenu(opts: ArcadeMenuOpts = {}): Promise<void> {
     if (this.isOpen || paDialogOpen()) return;
-    const games: ArcadeGame[] = ARCADE_GAME_LIST;
+    const games = await this.loadCatalog();
+    if (paDialogOpen() || this.isOpen) return; // a dialog/game opened while we fetched
     const body = document.createElement('div');
+    if (!games.length) {
+      body.innerHTML =
+        '<div style="opacity:.8">No games are installed.<br>' +
+        'Add content to the server\'s ARCADE_CONTENT_DIR (see docs/dev-notes.md).</div>';
+      openPaDialog({ title: '🕹 Arcade', body, onClose: () => opts.onClose?.(), buttons: [] });
+      return;
+    }
     let launched = false;
     for (const game of games) {
       const row = document.createElement('div');
@@ -467,20 +492,17 @@ export class ArcadeUI {
     this.msgEl.style.display = 'flex';
     this.root.style.display = 'flex';
     try {
-      // Resolve a content-versioned URL from the bundles manifest so a rebuilt bundle
-      // never serves stale from an HTTP cache (?v=<hash> changes when content changes).
-      const baseUrl = resolveArcadeUrl(game.bundleUrl);
-      let bundleUrl = baseUrl;
-      try {
-        const manUrl = baseUrl.replace(/[^/]+$/, 'manifest.json');
-        const mres = await fetch(manUrl, { cache: 'no-store' });
-        if (mres.ok) {
-          const man = (await mres.json()) as Record<string, string>;
-          if (man?.[game.id]) bundleUrl = `${baseUrl}?v=${man[game.id]}`;
-        }
-      } catch {
-        /* no manifest → use the plain url */
+      // Only js-dos (DOS) is wired up so far; other emulators (e.g. emulatorjs for
+      // NES/SNES) are catalog-ready but need their loader before they can boot.
+      if (game.emulator !== 'jsdos') {
+        this.setStatus('unsupported', true);
+        this.msgEl.textContent = `“${game.title}” needs the ${game.emulator} emulator, which isn't available yet.`;
+        return;
       }
+      // The bundle lives in the server's content dir, served at /arcade/content/<file>.
+      // ?v=<version> busts the HTTP/OPFS cache when the operator swaps the file.
+      const v = game.version ? `?v=${encodeURIComponent(game.version)}` : '';
+      let bundleUrl = resolveArcadeUrl(`/arcade/content/${encodeURIComponent(game.file)}${v}`);
       if (!this.isOpen) return;
       if (isDesktop()) {
         // The desktop renderer is a cross-origin, cookie-less app:// shell, so js-dos'

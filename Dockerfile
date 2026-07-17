@@ -23,25 +23,19 @@
 # a tsconfig path-map to @pixel/shared, so it runs directly from source via tsx
 # (no fragile bundling step). The frontend is a normal static vite build.
 
-# ── Build: workspace deps + DOS game bundles + the Phaser client (client/dist) ─
+# ── Build: workspace deps + the Phaser client (client/dist) ─
 FROM node:24-slim AS build
 WORKDIR /app
 RUN corepack enable
-# The arcade bundle builders (scripts/build-*shareware*.mjs, run by build:all)
-# need python3 (read zip members) + unzip (unpack the Apogee DEICE self-extractors).
-RUN apt-get update && apt-get install -y --no-install-recommends python3 unzip \
-    && rm -rf /var/lib/apt/lists/*
 COPY . .
 # pnpm-workspace.yaml's allowBuilds gates dependency build scripts explicitly.
 RUN pnpm install --frozen-lockfile
-# build:all = fetch + package the DOS-game .jsdos bundles (freely-distributable
-# shareware, downloaded from the game mirrors — needs network egress at build
-# time), then build the client (vite copies public/, incl. jsdos/bundles, to
-# client/dist so the server serves them). The LICENSED doom/doom2/tnt/plutonia
-# bundles are deliberately NOT built here (tmp is excluded from the build context)
-# — provide them at runtime via ARCADE_BUNDLE_DIR (bind-mount), so this image stays
-# free of copyrighted WAD bytes and is safe to publish.
-RUN pnpm run build:all
+# Build the client only. NO game bundles are baked into the image — all arcade
+# content (shareware + licensed WADs + future emulator ROMs) is provided at RUNTIME
+# from ARCADE_CONTENT_DIR (a bind-mount), so the image stays pure code and safe to
+# publish. Build the content once with `pnpm build:arcade` and mount it (see
+# docs/dev-notes.md + tmp/docker-compose.yml).
+RUN pnpm run build
 
 # ── Runtime: node + the whole workspace tree (source, deps, client/dist, assets)
 # tsx (a server devDependency) runs the TypeScript server in place.

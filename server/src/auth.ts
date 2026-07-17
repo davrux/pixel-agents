@@ -219,16 +219,16 @@ export function registerAuth(app: Express, adminToken: string): void {
   // through (the room validates the session cookie itself via onAuth).
   app.use((req: Request, res: Response, next: NextFunction) => {
     const p = req.path;
-    // The licensed arcade bundles (operator's Doom IWADs, packaged from tmp/doom-wads
-    // by scripts/build-shareware-bundles.mjs) must NOT be publicly fetchable — require
-    // a valid session. In the browser js-dos fetches these same-origin, so the cookie
-    // rides along automatically; only anonymous direct-URL access is blocked. The
-    // freely-distributable shareware bundles stay open (below).
-    const isLicensedBundle = /^\/jsdos\/bundles\/(doom|doom2|tnt|plutonia)\.jsdos$/i.test(p);
-    // Other .jsdos bundles + static assets are served like any other asset (the
-    // desktop app fetches them cross-origin, cookie-less).
+    // Arcade content (operator-provided bundles/ROMs served from ARCADE_CONTENT_DIR)
+    // must NOT be publicly fetchable — require a valid session. In the browser the
+    // launcher fetches these same-origin so the cookie rides along; the desktop app
+    // sends the bearer (see ArcadeUI). Only anonymous direct-URL access is blocked.
+    const isArcadeContent = p.startsWith('/arcade/content/');
+    // Static assets are served openly (the desktop app fetches them cross-origin,
+    // cookie-less). NOTE the .jsdos here is only for any bundles that might live in
+    // the client build; runtime content lives under /arcade/content (gated above).
     const isAsset =
-      !isLicensedBundle &&
+      !isArcadeContent &&
       (p.startsWith('/assets/') ||
         /\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|wasm|jsdos)$/i.test(p));
     const isApi = p === '/health' || p === '/login' || p.startsWith('/matchmake');

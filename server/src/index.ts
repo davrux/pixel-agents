@@ -43,6 +43,7 @@ import { registerAdminApi } from './adminApi.js';
 import { listWorlds } from './voxel/chunkStore.js';
 import { migrateItemIds } from './voxel/migrateItemIds.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
+import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -134,23 +135,29 @@ async function main(): Promise<void> {
     res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] });
   });
 
+  // Arcade catalog — metadata only (titles/emulator/flags), so it's public (the
+  // content files at /arcade/content are auth-gated). Registered before the auth
+  // gate so the launcher can populate itself on both browser + desktop.
+  app.get('/arcade/catalog', (_req, res) => res.json({ games: getArcadeCatalog() }));
+
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (admin.html)
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
-  // Licensed arcade bundles (doom/doom2/tnt/plutonia) are kept OUT of the image and
-  // provided at runtime from ARCADE_BUNDLE_DIR (a bind-mount). Overlaid on
-  // /jsdos/bundles/ ahead of the client build so those files win; the auth gate
-  // (registerAuth above) still runs first, so they stay session-gated. Shareware
-  // bundles + everything else fall through to the client build below.
-  const arcadeBundleDir = process.env.ARCADE_BUNDLE_DIR?.trim();
-  if (arcadeBundleDir && existsSync(arcadeBundleDir)) {
-    app.use('/jsdos/bundles', express.static(arcadeBundleDir));
-    console.log(`[server] arcade: serving runtime bundles from ${arcadeBundleDir}`);
-  } else if (arcadeBundleDir) {
-    console.warn(`[server] arcade: ARCADE_BUNDLE_DIR=${arcadeBundleDir} does not exist — licensed bundles unavailable`);
+  // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in
+  // the image — the operator bind-mounts ARCADE_CONTENT_DIR at runtime. The catalog
+  // (metadata only) is public; the files are auth-gated (see auth.ts: /arcade/content
+  // is not treated as a public asset). Served BEFORE the client build.
+  const contentDir = arcadeContentDir();
+  if (contentDir && existsSync(contentDir)) {
+    app.use('/arcade/content', express.static(contentDir));
+    console.log(`[server] arcade: content dir ${contentDir} (${getArcadeCatalog().length} games in catalog)`);
+  } else if (contentDir) {
+    console.warn(`[server] arcade: ARCADE_CONTENT_DIR=${contentDir} does not exist — no games available`);
+  } else {
+    console.log('[server] arcade: no ARCADE_CONTENT_DIR set — no games available');
   }
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));

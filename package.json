@@ -15,7 +15,6 @@
     "dev:client": "pnpm --filter @pixel/client run dev",
     "build": "pnpm --filter @pixel/client run build",
     "build:arcade": "node scripts/build-shareware-bundles.mjs",
-    "build:all": "pnpm run build:arcade && pnpm run build",
     "build:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build",
     "dev:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build && pnpm --filter @pixel/desktop run dev",
     "dist:desktop": "pnpm run build:desktop && pnpm --filter @pixel/desktop run dist",

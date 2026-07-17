@@ -11,7 +11,7 @@
  * already-authenticated user (client.auth.userId).
  */
 import type { Client, Room } from '@colyseus/core';
-import { getArcadeGame } from '@pixel/shared';
+import { getArcadeGame } from './arcadeCatalog.js';
 import { arcadeSaves } from './arcadeSaveStore.js';
 
 const userIdOf = (client: Client): string => (client.auth as { userId?: string } | undefined)?.userId ?? '';

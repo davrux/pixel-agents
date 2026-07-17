@@ -52,21 +52,27 @@ the shared ChatUI `clientCommand` hook, wired in both Pixels + Voxel. Add a matc
 command for any new destination (see AGENTS.md convention).
 
 ## Other subsystems (brief)
-- **Arcade** cabinets (Pixels + Voxel) run DOS games via js-dos; server-wide
-  savegames. Bundles built by `scripts/build-shareware-bundles.mjs`:
-  wolf3d/keen/duke/duke3d = freely-distributable shareware (downloaded); **DOOM +
-  DOOM II = full, LICENSED** — the GOG DOS engine + IWAD, extracted (innoextract)
-  into **`tmp/doom-wads/`** (never committed). The licensed bundles are **NOT baked
-  into the image** (`.dockerignore` excludes `tmp`, so the build skips them and the
-  image stays publishable). Build them once on a host with the WADs (`pnpm
-  build:arcade`) and serve them at **runtime via `ARCADE_BUNDLE_DIR`** (a bind-mount
-  overlaid on `/jsdos/bundles/`; see `tmp/docker-compose.yml`). "Bring your own WAD"
-  upload was **removed**. The **licensed** bundles (`/jsdos/bundles/{doom,doom2,tnt,
-  plutonia}.jsdos`) are **auth-gated** in `auth.ts` (require a valid session/bearer;
-  the browser sends the cookie same-origin, so logged-in play is unaffected — only
-  anonymous direct-URL access is blocked). Shareware/freedoom bundles stay open.
-  Caveat: the desktop app fetches bundles cross-origin cookie-less, so licensed
-  titles won't load there unless it can present the session (shareware still works).
+- **Arcade** cabinets (Pixels + Voxel) run games via js-dos (DOS); server-wide
+  savegames. **Fully content-driven — NO games are baked into the image.** The
+  operator bind-mounts a content dir (`ARCADE_CONTENT_DIR`) holding the game files
+  + a **`catalog.json`** (`ArcadeGame[]`); the server serves the catalog at
+  `GET /arcade/catalog` (public metadata) and the files at `/arcade/content/<file>`
+  (**auth-gated** — `auth.ts` treats `/arcade/content/` as non-asset). The client
+  (`ArcadeUI`) fetches the catalog and renders the launcher from it; the `emulator`
+  field selects the loader (`jsdos` now; `emulatorjs` for NES/SNES/… later — just a
+  new loader + files, no code per title). Shared `arcade/games.ts` is now only the
+  `ArcadeGame` type + `parseArcadeCatalog` validator; the server catalog lives in
+  `arcadeCatalog.ts` (cached, reloads on catalog.json mtime change).
+  - **Populate the content dir:** `pnpm build:arcade` (→ `scripts/build-shareware-
+    bundles.mjs`, output dir = `$ARCADE_CONTENT_DIR` | argv | `tmp/arcade-content`).
+    Downloads wolf3d/keen/duke/duke3d shareware; **DOOM/DOOM II/TNT/Plutonia** are
+    added only when the LICENSED GOG WADs are present in `tmp/doom-wads` (extracted
+    via innoextract, never committed). Writes each `<id>.jsdos` + `catalog.json`.
+    Then mount that dir (see `tmp/docker-compose.yml`). "Bring your own WAD" upload
+    was removed.
+  - **Desktop:** the app is a cross-origin cookie-less `app://` shell, so the
+    launcher fetches the (gated) content bytes with the stored **bearer** and hands
+    js-dos a blob URL (`ArcadeUI.open`); the browser stays same-origin (cookie).
 - **Arcade IPX multiplayer (up to 4P)** for doom/doom2/tnt/plutonia. DOS side:
   bundles carry `IPXSETUP.EXE` (from shareware doom19s) + engine packaged as
   `DOOM.EXE` so IPXSETUP launches any variant; the bundle's autoexec always runs
