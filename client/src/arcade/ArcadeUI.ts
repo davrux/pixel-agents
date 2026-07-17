@@ -15,12 +15,14 @@ import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { isDesktop, desktop } from '../desktop/bridge.js';
 import { serverHttpOrigin } from '../net/room.js';
 
-/** Site-root-relative bundle/manifest URLs must resolve against the connected
- *  server in the desktop app: the app:// bundle doesn't ship the gitignored
- *  ~80 MB game bundles — the server builds and serves them (see .dockerignore).
- *  Emulator assets (JSDOS_BASE) stay same-origin: js-dos blob-Workers them. */
+/** Resolve a `/arcade/content/...` URL against the connected SERVER origin. Content
+ *  lives only on the server (not the page origin): on the Vite dev server the page is
+ *  :5173 but content is on :2567, and the desktop app:// shell serves no content at
+ *  all — so a root-relative URL would 404 / "network error". Engine assets
+ *  (`/emulatorjs/`, `/jsdos/`) are NOT routed here: they're shipped in the client
+ *  build / public dir and stay same-origin. */
 function resolveArcadeUrl(url: string): string {
-  return isDesktop() && url.startsWith('/') ? `${serverHttpOrigin()}${url}` : url;
+  return url.startsWith('/') ? `${serverHttpOrigin()}${url}` : url;
 }
 
 /** Read at most `n` leading bytes of a response body, then cancel the stream. */
