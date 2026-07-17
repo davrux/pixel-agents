@@ -11,7 +11,10 @@
  * still open in the shared ConferenceUI modal.
  */
 import { connect, isAuthError, isZoneLockedError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout } from '../net/room.js';
+import { isDesktop, reloadApp } from '../desktop/bridge.js';
+import { runDesktopBootFlow, desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { injectPaSkin } from '../ui/paSkin.js';
+import { promptDialog } from '../ui/dialog.js';
 import { ZoneVoice, type ZoneVoiceState } from '../voice/ZoneVoice.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
@@ -177,7 +180,10 @@ function buildShell(): void {
         </div>
       </section>
     </div>`;
-  app.querySelector<HTMLButtonElement>('[data-logout]')!.onclick = () => gotoLogout();
+  app.querySelector<HTMLButtonElement>('[data-logout]')!.onclick = () => {
+    if (isDesktop()) void desktopSignOut();
+    else gotoLogout();
+  };
   // Switch to the Pixels 2D world at the current room (shown only if allowed).
   app.querySelector<HTMLButtonElement>('#rp-pixels')!.onclick = () => {
     window.location.href = currentZone ? `./?zone=${encodeURIComponent(currentZone)}` : './';
@@ -231,7 +237,7 @@ function showKicked(): void {
     'background:rgba(15,14,25,.88);color:var(--text);font-size:1.1rem;text-align:center;';
   o.innerHTML = 'You were disconnected by an administrator.<br><br>' +
     '<button style="cursor:pointer;background:var(--accent);color:#fff;border:0;border-radius:.5rem;padding:.5rem 1rem;font:inherit">Reload</button>';
-  o.querySelector('button')!.addEventListener('click', () => window.location.reload());
+  o.querySelector('button')!.addEventListener('click', () => reloadApp());
   app.appendChild(o);
 }
 
@@ -518,10 +524,11 @@ function onConfToken(m: Record<string, unknown>): void {
   if (!c || `${c.col},${c.row}` !== `${m.col},${m.row}`) return;
   // Locked monitor → prompt for its password and retry the token request.
   if (m.error === 'locked') {
-    const pw = prompt('This meeting is password-protected. Enter the meeting password:');
-    if (pw == null) { leaveMeeting(); return; }
-    monitorPasswords.set(`${c.col},${c.row}`, pw);
-    requestConfToken(c);
+    void promptDialog('This meeting is password-protected. Enter the meeting password:').then((pw) => {
+      if (pw == null) { leaveMeeting(); return; }
+      monitorPasswords.set(`${c.col},${c.row}`, pw);
+      requestConfToken(c);
+    });
     return;
   }
   const title = (c.name || '').trim() || `Meeting (${c.col}, ${c.row})`;
@@ -656,12 +663,17 @@ async function joinZone(zone?: string): Promise<void> {
         return;
       }
       if (isZoneLockedError(e) && zone) {
-        const pw = prompt('This room is password-protected. Enter the room password:');
+        const pw = await promptDialog('This room is password-protected. Enter the room password:');
         if (pw == null) return; // cancelled
         zonePasswords.set(zone, pw);
         continue; // retry with the password
       }
-      if (isAuthError(e)) return redirectToLogin();
+      if (isAuthError(e)) {
+        // Desktop has no server login page — clear the rejected token, sign in
+        // in-app, then reload (reloadApp keeps the current rooms.html?zone= URL).
+        if (isDesktop()) { void desktopReauth(); return; }
+        return redirectToLogin();
+      }
       document.getElementById('rp-main')!.innerHTML = `<div class="rp-empty">Could not join the room. ${esc(String(e))}</div>`;
       return;
     }
@@ -687,4 +699,11 @@ buildShell();
 // Open the room named by ?zone= (e.g. arriving from the Pixels "/rooms" command),
 // else the default zone. An unassigned zone is simply rejected server-side.
 const startZone = new URLSearchParams(window.location.search).get('zone') || undefined;
-void joinZone(startZone);
+void (async () => {
+  // Desktop: this page is a separate bundle reached by full-page navigation, so the
+  // module-level server origin starts null (see voxel/main.ts) — rehydrate the
+  // configured origin + stored token (showing Connection/Sign-in if either is
+  // missing) before any network call. Browser: no-op.
+  if (isDesktop()) await runDesktopBootFlow();
+  await joinZone(startZone);
+})();

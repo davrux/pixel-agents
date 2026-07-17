@@ -37,6 +37,7 @@ import { makeCrackStages } from './crack.js';
 import { connectVoxel, type VoxelNet } from './net.js';
 import { gotoLogout, isServerUp, fetchVoxelWorlds } from '../net/room';
 import { reloadApp, isDesktop, desktop, setConfiguredServerOrigin } from '../desktop/bridge';
+import { desktopSignOut } from '../desktop/boot';
 import { KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
 import { digTime } from './luanti.js';
 import { openPicker, closePicker, pickerOpen } from './picker.js';
@@ -3556,7 +3557,8 @@ function onWorlds(list: unknown): void {
 // Log out (clears the session on the server, redirects to login).
 document.getElementById('settings-logout')!.onclick = () => {
   leavingIntentionally = true; // logging out — not a dropped connection
-  gotoLogout();
+  if (isDesktop()) void desktopSignOut();
+  else gotoLogout();
 };
 
 renderWorldList();

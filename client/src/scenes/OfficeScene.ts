@@ -47,7 +47,7 @@ import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
-import { showSignInScreen } from '../screens/signin.js';
+import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
@@ -578,7 +578,8 @@ export class OfficeScene extends Phaser.Scene {
           // token so it can never be reused (AC-009 / DD Error Handling), show the
           // in-app sign-in screen, then reload so the boot flow rehydrates the
           // freshly-stored token straight into the world — never a loop or blank.
-          void this.desktopReauth();
+          setStatus('session expired — signing in…');
+          void desktopReauth();
           return;
         }
         setStatus('session expired — redirecting to login…');
@@ -586,7 +587,7 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       // A customer without Pixels access → send them to the rooms portal instead.
-      if (isForbiddenError(err) && !isDesktop()) {
+      if (isForbiddenError(err)) {
         setStatus('This account uses the rooms portal — redirecting…');
         window.location.href = './rooms.html';
         return;
@@ -594,16 +595,6 @@ export class OfficeScene extends Phaser.Scene {
       setStatus(`connection failed: ${(err as Error).message}`);
       console.error(err);
     }
-  }
-
-  /** Desktop auth recovery (AC-009): drop the rejected token, sign in again in-app,
-   *  then reload so `runDesktopBootFlow` reads the new token from safeStorage and
-   *  lands in the world — a rejected token deterministically returns to SignIn. */
-  private async desktopReauth(): Promise<void> {
-    setStatus('session expired — signing in…');
-    await desktop().clearToken();
-    await showSignInScreen();
-    reloadApp();
   }
 
   // ── Colyseus schema → local render maps ──────────────────────────
@@ -2499,7 +2490,7 @@ export class OfficeScene extends Phaser.Scene {
     logoutBtn.style.display = 'none'; // shown only when a login session is active
     logoutBtn.onclick = () => {
       if (isDesktop()) {
-        void this.desktopSignOut();
+        void desktopSignOut();
         return;
       }
       gotoLogout();
@@ -2540,30 +2531,6 @@ export class OfficeScene extends Phaser.Scene {
     }
     await desktop().clearToken();
     await desktop().clearServerUrl();
-    reloadApp();
-  }
-
-  /** Desktop sign-out (AC-008): revoke the server session via `POST /desktop/signout`
-   *  (idempotent, best-effort), clear the stored bearer token so `getToken()` returns
-   *  null (never a stale reuse), then re-run the in-app sign-in flow. There is no
-   *  server logout page to navigate to on desktop, so this replaces `gotoLogout()`. */
-  private async desktopSignOut(): Promise<void> {
-    try {
-      const token = await desktop().getToken();
-      if (token) {
-        await fetch(`${serverHttpOrigin()}/desktop/signout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-          cache: 'no-store',
-        });
-      }
-    } catch {
-      // Best-effort server revocation: even if the request fails, still clear the
-      // local token below so the client cannot reuse it (the session also expires
-      // server-side). The token is never logged.
-    }
-    await desktop().clearToken();
-    await showSignInScreen();
     reloadApp();
   }
 
