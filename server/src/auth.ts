@@ -219,14 +219,21 @@ export function registerAuth(app: Express, adminToken: string): void {
   // through (the room validates the session cookie itself via onAuth).
   app.use((req: Request, res: Response, next: NextFunction) => {
     const p = req.path;
-    // .jsdos bundles are served like any other static asset (the desktop app
-    // fetches them cross-origin, cookie-less). NOTE: doom/doom2 now bundle the
-    // operator's LICENSED IWADs — if public exposure of those bytes matters, gate
-    // these two bundle URLs behind auth (see docs/dev-notes.md).
-    const isAsset = p.startsWith('/assets/') || /\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|wasm|jsdos)$/i.test(p);
+    // The licensed arcade bundles (operator's Doom IWADs, packaged from tmp/doom-wads
+    // by scripts/build-shareware-bundles.mjs) must NOT be publicly fetchable — require
+    // a valid session. In the browser js-dos fetches these same-origin, so the cookie
+    // rides along automatically; only anonymous direct-URL access is blocked. The
+    // freely-distributable shareware bundles stay open (below).
+    const isLicensedBundle = /^\/jsdos\/bundles\/(doom|doom2|tnt|plutonia)\.jsdos$/i.test(p);
+    // Other .jsdos bundles + static assets are served like any other asset (the
+    // desktop app fetches them cross-origin, cookie-less).
+    const isAsset =
+      !isLicensedBundle &&
+      (p.startsWith('/assets/') ||
+        /\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|wasm|jsdos)$/i.test(p));
     const isApi = p === '/health' || p === '/login' || p.startsWith('/matchmake');
     const needsAuth = req.method === 'GET' && !isAsset && !isApi;
-    if (needsAuth && !hasValidSession(req.headers.cookie)) {
+    if (needsAuth && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
       // Login page only for navigations; programmatic fetches get an honest 401 so a
       // gate miss can never hand HTML-as-200 to a client that will cache it as data
       // (js-dos persists any 200 body as bundle bytes).

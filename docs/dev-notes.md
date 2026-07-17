@@ -57,10 +57,13 @@ command for any new destination (see AGENTS.md convention).
   wolf3d/keen/duke/duke3d = freely-distributable shareware (downloaded); **DOOM +
   DOOM II = full, LICENSED** — the GOG DOS engine + IWAD, extracted (innoextract)
   into **`tmp/doom-wads/`** (never committed; `.dockerignore` allows just that path
-  into the image; missing → those two bundles are skipped). "Bring your own WAD"
-  upload was **removed**. ⚠ `.jsdos` bundles are served as cookie-less static
-  assets — the licensed doom/doom2 bytes are therefore publicly fetchable by URL;
-  gate those two bundle URLs behind auth if that matters.
+  into the image; missing → those bundles are skipped). "Bring your own WAD"
+  upload was **removed**. The **licensed** bundles (`/jsdos/bundles/{doom,doom2,tnt,
+  plutonia}.jsdos`) are **auth-gated** in `auth.ts` (require a valid session/bearer;
+  the browser sends the cookie same-origin, so logged-in play is unaffected — only
+  anonymous direct-URL access is blocked). Shareware/freedoom bundles stay open.
+  Caveat: the desktop app fetches bundles cross-origin cookie-less, so licensed
+  titles won't load there unless it can present the session (shareware still works).
 - **Arcade IPX multiplayer (up to 4P)** for doom/doom2/tnt/plutonia. DOS side:
   bundles carry `IPXSETUP.EXE` (from shareware doom19s) + engine packaged as
   `DOOM.EXE` so IPXSETUP launches any variant; the bundle's autoexec always runs
