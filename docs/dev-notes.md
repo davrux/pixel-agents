@@ -73,6 +73,18 @@ command for any new destination (see AGENTS.md convention).
   - **Desktop:** the app is a cross-origin cookie-less `app://` shell, so the
     launcher fetches the (gated) content bytes with the stored **bearer** and hands
     js-dos a blob URL (`ArcadeUI.open`); the browser stays same-origin (cookie).
+  - **Add a GAME** (existing emulator): drop its file into the content dir + add a
+    `catalog.json` entry (`{id,title,blurb,emulator,file,version?,multiplayer?,`
+    `maxPlayers?,core?}`). For a js-dos title, extend the `GAMES` array in
+    `build-shareware-bundles.mjs` so the builder packages + catalogs it. No code.
+  - **Add a NEW emulator** (e.g. EmulatorJS for NES/SNES): (1) add the value to
+    `ArcadeEmulator` + the `EMULATORS` allow-list in `shared/arcade/games.ts`;
+    (2) add a loader (like `client/src/arcade/jsdos.ts`); (3) branch on
+    `game.emulator` in `ArcadeUI.open()` to boot it (use `game.core` for the
+    libretro core, `game.file` served at `/arcade/content/<file>`); (4) have a
+    builder emit its catalog entries (or the operator hand-writes them). One loader
+    per emulator, never code per title. Runtime files ship via the content mount,
+    self-hosted emulator assets go under `client/public/` like `/jsdos/`.
 - **Arcade IPX multiplayer (up to 4P)** for doom/doom2/tnt/plutonia. DOS side:
   bundles carry `IPXSETUP.EXE` (from shareware doom19s) + engine packaged as
   `DOOM.EXE` so IPXSETUP launches any variant; the bundle's autoexec always runs
