@@ -264,7 +264,13 @@ export class SimRoom extends Room<RoomState> {
     this.zones = new ZoneStore();
     this.zone = (options.zone && this.zones.get(options.zone)) || resolveZone(options.zone);
     this.setState(new RoomState());
-    this.autoDispose = false;
+    // Dispose the room when the last client leaves (Colyseus default; VoxelRoom does
+    // the same). Frees this zone's per-room heap — the merged asset bundle, OfficeState,
+    // SQLite handles (onDispose closes them) and director listeners — instead of keeping
+    // one live copy per zone ever visited. Agents re-seed from director.snapshot() when a
+    // viewer reopens the zone, so nothing is lost. (autoDispose defaults to true; set it
+    // explicitly to document the intent.)
+    this.autoDispose = true;
     registerArcadeSaves(this); // shared arcade-savegame handlers (same store as the voxel world)
     this.arcadeLobby = registerArcadeLobby(this); // shared arcade IPX-multiplayer lobby
 
@@ -1270,13 +1276,13 @@ export class SimRoom extends Room<RoomState> {
   // ── Simulation → schema ──────────────────────────────────────────
 
   private tick(dt: number): void {
-    // Don't simulate a zone no human is watching. Zone rooms never auto-dispose
-    // (autoDispose = false), so this 20 Hz loop would otherwise run forever for
-    // every zone ever visited — spawning/pathfinding NPCs and churning GC for
-    // nobody. Agents' *logical* state is driven by feed events (applyEvent, called
-    // from onEvent — independent of this tick), so with no client connected we only
-    // skip movement/animation + the client syncs; a joining client gets the full
-    // state on its first tick. This is what keeps idle/background zones cheap.
+    // Don't simulate a zone no human is watching. The room disposes when empty
+    // (autoDispose), so this normally won't fire with zero clients — but guard the
+    // transient tick as the last client leaves so we never spawn/pathfind NPCs or
+    // run syncs for nobody. Agents' *logical* state is driven by feed events
+    // (applyEvent, via onEvent — independent of this tick), so skipping only drops
+    // movement/animation + client syncs; a joining client gets the full state on
+    // its first tick.
     if (this.clients.length === 0) return;
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
