@@ -92,6 +92,25 @@ const EMU_GAMES = [
     file: 'phoenix.zip',
     local: 'phoenix.zip',
   },
+  // Arkanoid (Taito 1986). FBNeo keys the romset off the ZIP name, so `file` must be
+  // the romset id — here the bootleg set `arkgcbla`. Paddle game → mouse is ideal.
+  {
+    id: 'arkanoid',
+    title: 'Arkanoid',
+    blurb: 'Taito 1986 — paddle (use the mouse)',
+    core: 'arcade',
+    file: 'arkgcbla.zip',
+    local: 'arkgcbla.zip',
+  },
+  // Pac-Man (Namco 1980, parent set). 4-way joystick, digital → keyboard is fine.
+  {
+    id: 'pacman',
+    title: 'Pac-Man',
+    blurb: 'Namco 1980',
+    core: 'arcade',
+    file: 'pacman.zip',
+    local: 'pacman.zip',
+  },
 ];
 
 function dosboxConf(exe, net = false) {
