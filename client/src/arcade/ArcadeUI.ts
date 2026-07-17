@@ -12,7 +12,7 @@ import { loadJsDos, pruneCorruptBundleCache, JSDOS_PATH_PREFIX, type DosInstance
 import { storeZip } from './zip.js';
 import { ARCADE_GAME_LIST, type ArcadeGame } from '@pixel/shared';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
-import { isDesktop } from '../desktop/bridge.js';
+import { isDesktop, desktop } from '../desktop/bridge.js';
 import { serverHttpOrigin } from '../net/room.js';
 
 /** Site-root-relative bundle/manifest URLs must resolve against the connected
@@ -146,6 +146,9 @@ export class ArcadeUI {
   // "looking up address".
   private mpAlias: string | null = null;
   private mpHost = false;
+  // Blob URL of a bundle fetched with credentials (desktop path, see open()) — held
+  // so close() can revoke it.
+  private bundleObjectUrl: string | null = null;
 
   /** Wire server-backed savegames (called once per client with its room transport). */
   setSaveHooks(hooks: ArcadeSaveHooks | null): void {
@@ -479,25 +482,51 @@ export class ArcadeUI {
         /* no manifest → use the plain url */
       }
       if (!this.isOpen) return;
-      // Probe the first two bytes with a ranged GET: a HEAD-only check can pass while
-      // the actual GET returns a login page with status 200 (e.g. a server whose auth
-      // gate predates the .jsdos asset whitelist) — js-dos would cache those bytes in
-      // OPFS and crash on every boot ("Not a zip archive").
-      const probe = await fetch(bundleUrl, {
-        headers: { Range: 'bytes=0-1' },
-        cache: 'no-store',
-      }).catch(() => null);
-      const magic = probe && probe.ok ? await readLeadingBytes(probe, 2).catch(() => null) : null;
-      if (!this.isOpen) return;
-      if (!probe || !probe.ok) {
-        this.setStatus('not installed', true);
-        this.msgEl.textContent = `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
-        return;
-      }
-      if (!magic || magic.length < 2 || magic[0] !== 0x50 || magic[1] !== 0x4b) {
-        this.setStatus('server outdated', true);
-        this.msgEl.textContent = `“${game.title}” can't start: the server returned something that isn't a game bundle.\nUpdate/redeploy the server, then try again.`;
-        return;
+      if (isDesktop()) {
+        // The desktop renderer is a cross-origin, cookie-less app:// shell, so js-dos'
+        // own bundle fetch can't carry the session — and licensed bundles are auth-gated
+        // (auth.ts). Fetch the bytes here with the desktop bearer, validate the zip magic,
+        // and hand js-dos a blob: URL instead of the remote one (browser stays same-origin
+        // below, cookie rides along). Bytes stay in memory, so no network re-fetch.
+        const token = await desktop().getToken().catch(() => null);
+        const res = await fetch(bundleUrl, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          cache: 'no-store',
+        }).catch(() => null);
+        if (!this.isOpen) return;
+        const buf = res && res.ok ? await res.arrayBuffer().catch(() => null) : null;
+        const ok = !!buf && buf.byteLength >= 2 && new Uint8Array(buf, 0, 2)[0] === 0x50 && new Uint8Array(buf, 0, 2)[1] === 0x4b;
+        if (!ok) {
+          const unauth = res?.status === 401;
+          this.setStatus(unauth ? 'sign in required' : 'not installed', true);
+          this.msgEl.textContent = unauth
+            ? `“${game.title}” needs you to be signed in on this server.`
+            : `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
+          return;
+        }
+        this.bundleObjectUrl = URL.createObjectURL(new Blob([buf!]));
+        bundleUrl = this.bundleObjectUrl;
+      } else {
+        // Browser: probe the first two bytes with a ranged GET. A HEAD-only check can pass
+        // while the actual GET returns a login page with status 200 (stale auth gate) —
+        // js-dos would cache those bytes in OPFS and crash on every boot ("Not a zip
+        // archive"). Same-origin, so the session cookie authorises gated bundles.
+        const probe = await fetch(bundleUrl, {
+          headers: { Range: 'bytes=0-1' },
+          cache: 'no-store',
+        }).catch(() => null);
+        const magic = probe && probe.ok ? await readLeadingBytes(probe, 2).catch(() => null) : null;
+        if (!this.isOpen) return;
+        if (!probe || !probe.ok) {
+          this.setStatus('not installed', true);
+          this.msgEl.textContent = `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
+          return;
+        }
+        if (!magic || magic.length < 2 || magic[0] !== 0x50 || magic[1] !== 0x4b) {
+          this.setStatus('server outdated', true);
+          this.msgEl.textContent = `“${game.title}” can't start: the server returned something that isn't a game bundle.\nUpdate/redeploy the server, then try again.`;
+          return;
+        }
       }
       // A previous launch may have cached a bad response (login page, error body) in
       // js-dos' OPFS bundle cache — it replays before any refetch, so scrub it now.
@@ -581,6 +610,11 @@ export class ArcadeUI {
       this.mpCabinet = null;
     }
     this.teardownNet();
+    // Free a credential-fetched bundle blob (desktop path).
+    if (this.bundleObjectUrl) {
+      URL.revokeObjectURL(this.bundleObjectUrl);
+      this.bundleObjectUrl = null;
+    }
     // Hide immediately for responsiveness; snapshot the save then tear down the worker.
     this.msgEl.style.display = 'none';
     this.root.style.display = 'none';
