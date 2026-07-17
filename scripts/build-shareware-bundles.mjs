@@ -63,6 +63,23 @@ const GAMES = [
   { id: 'duke3d', title: 'Duke Nukem 3D', blurb: 'L.A. Meltdown — shareware', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
+// EmulatorJS (libretro) titles: the ROM is downloaded straight into the content dir
+// (raw, no packaging) + catalogued with emulator:'emulatorjs'. The engine is vendored
+// separately (scripts/vendor-emulatorjs.mjs). Add your own copyrighted ROMs by hand;
+// this only ships a freely-distributable homebrew demo. NOTE: Nova the Squirrel is
+// GPLv3 code + CC BY-NC-SA assets — fine for testing / non-commercial; swap it for a
+// commercial deployment.
+const EMU_GAMES = [
+  {
+    id: 'nova',
+    title: 'Nova the Squirrel',
+    blurb: 'Free homebrew NES platformer',
+    core: 'nes',
+    file: 'nova.nes',
+    url: 'https://github.com/NovaSquirrel/NovaTheSquirrel/releases/download/v1.0.6a/nova.nes',
+  },
+];
+
 function dosboxConf(exe, net = false) {
   // net games always run NET.BAT (no fragile `if exist` in [autoexec], which
   // js-dos' DOSBox doesn't honour). The bundle ships a NET.BAT that just launches
@@ -232,6 +249,25 @@ async function main() {
     });
     console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${entry.version}, exe=${g.exe})`);
   }
+  // EmulatorJS ROMs: download raw into the content dir + catalogue (no packaging).
+  for (const g of EMU_GAMES) {
+    const dest = resolve(OUT, g.file);
+    await download(g.url, dest);
+    const data = await readFile(dest);
+    catalog.push({
+      id: g.id,
+      title: g.title,
+      blurb: g.blurb ?? '',
+      emulator: 'emulatorjs',
+      file: g.file,
+      core: g.core,
+      version: createHash('sha1').update(data).digest('hex').slice(0, 10),
+      multiplayer: false,
+      maxPlayers: 1,
+    });
+    console.log(`  wrote   ${dest}  (emulatorjs, core=${g.core})`);
+  }
+
   const catPath = resolve(OUT, 'catalog.json');
   await writeFile(catPath, JSON.stringify(catalog, null, 2));
   console.log(`  wrote   ${catPath}  (${catalog.length} games: ${catalog.map((c) => c.id).join(', ')})`);

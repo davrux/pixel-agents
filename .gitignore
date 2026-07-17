@@ -35,3 +35,7 @@ server/version.txt
 # Arcade game bundles — large (~80 MB) and reproducible via
 # scripts/build-arcade-bundles.mjs (Freedoom IWADs + a free DOS engine).
 client/public/jsdos/bundles/
+
+# Self-hosted EmulatorJS engine + cores — large, vendored via
+# scripts/vendor-emulatorjs.mjs (not committed).
+client/public/emulatorjs/

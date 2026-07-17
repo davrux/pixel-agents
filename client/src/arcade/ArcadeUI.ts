@@ -492,24 +492,17 @@ export class ArcadeUI {
     this.msgEl.style.display = 'flex';
     this.root.style.display = 'flex';
     try {
-      // Only js-dos (DOS) is wired up so far; other emulators (e.g. emulatorjs for
-      // NES/SNES) are catalog-ready but need their loader before they can boot.
-      if (game.emulator !== 'jsdos') {
-        this.setStatus('unsupported', true);
-        this.msgEl.textContent = `“${game.title}” needs the ${game.emulator} emulator, which isn't available yet.`;
-        return;
-      }
-      // The bundle lives in the server's content dir, served at /arcade/content/<file>.
-      // ?v=<version> busts the HTTP/OPFS cache when the operator swaps the file.
+      // The game file lives in the server's content dir, served at
+      // /arcade/content/<file>; ?v=<version> busts the HTTP/OPFS cache on a swap.
       const v = game.version ? `?v=${encodeURIComponent(game.version)}` : '';
       let bundleUrl = resolveArcadeUrl(`/arcade/content/${encodeURIComponent(game.file)}${v}`);
       if (!this.isOpen) return;
+      const expectZip = game.emulator === 'jsdos'; // js-dos bundles are ZIPs (PK magic); ROMs aren't.
       if (isDesktop()) {
-        // The desktop renderer is a cross-origin, cookie-less app:// shell, so js-dos'
-        // own bundle fetch can't carry the session — and licensed bundles are auth-gated
-        // (auth.ts). Fetch the bytes here with the desktop bearer, validate the zip magic,
-        // and hand js-dos a blob: URL instead of the remote one (browser stays same-origin
-        // below, cookie rides along). Bytes stay in memory, so no network re-fetch.
+        // The desktop renderer is a cross-origin, cookie-less app:// shell, so the
+        // emulator's own fetch can't carry the (auth-gated) session. Fetch the bytes
+        // here with the desktop bearer and hand the emulator a blob: URL. Bytes stay
+        // in memory, so no network re-fetch. (Browser stays same-origin below.)
         const token = await desktop().getToken().catch(() => null);
         const res = await fetch(bundleUrl, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -517,41 +510,54 @@ export class ArcadeUI {
         }).catch(() => null);
         if (!this.isOpen) return;
         const buf = res && res.ok ? await res.arrayBuffer().catch(() => null) : null;
-        const ok = !!buf && buf.byteLength >= 2 && new Uint8Array(buf, 0, 2)[0] === 0x50 && new Uint8Array(buf, 0, 2)[1] === 0x4b;
-        if (!ok) {
+        const okZip = !expectZip || (!!buf && buf.byteLength >= 2 && new Uint8Array(buf, 0, 2)[0] === 0x50 && new Uint8Array(buf, 0, 2)[1] === 0x4b);
+        if (!buf || !okZip) {
           const unauth = res?.status === 401;
           this.setStatus(unauth ? 'sign in required' : 'not installed', true);
           this.msgEl.textContent = unauth
             ? `“${game.title}” needs you to be signed in on this server.`
-            : `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
+            : `“${game.title}” isn't installed on the server.`;
           return;
         }
-        this.bundleObjectUrl = URL.createObjectURL(new Blob([buf!]));
+        this.bundleObjectUrl = URL.createObjectURL(new Blob([buf]));
         bundleUrl = this.bundleObjectUrl;
       } else {
-        // Browser: probe the first two bytes with a ranged GET. A HEAD-only check can pass
-        // while the actual GET returns a login page with status 200 (stale auth gate) —
-        // js-dos would cache those bytes in OPFS and crash on every boot ("Not a zip
-        // archive"). Same-origin, so the session cookie authorises gated bundles.
-        const probe = await fetch(bundleUrl, {
-          headers: { Range: 'bytes=0-1' },
-          cache: 'no-store',
-        }).catch(() => null);
+        // Browser: ranged GET probe. A stale auth gate can 200 a login page; js-dos
+        // would cache those bytes in OPFS and crash ("Not a zip archive"), so for DOS
+        // bundles we verify the PK magic. Same-origin → the cookie authorises the file.
+        const probe = await fetch(bundleUrl, { headers: { Range: 'bytes=0-1' }, cache: 'no-store' }).catch(() => null);
         const magic = probe && probe.ok ? await readLeadingBytes(probe, 2).catch(() => null) : null;
         if (!this.isOpen) return;
         if (!probe || !probe.ok) {
           this.setStatus('not installed', true);
-          this.msgEl.textContent = `“${game.title}” isn't installed yet.\nBuild its bundle with scripts/build-arcade-bundles.mjs.`;
+          this.msgEl.textContent = `“${game.title}” isn't installed on the server.`;
           return;
         }
-        if (!magic || magic.length < 2 || magic[0] !== 0x50 || magic[1] !== 0x4b) {
+        if (expectZip && (!magic || magic.length < 2 || magic[0] !== 0x50 || magic[1] !== 0x4b)) {
           this.setStatus('server outdated', true);
-          this.msgEl.textContent = `“${game.title}” can't start: the server returned something that isn't a game bundle.\nUpdate/redeploy the server, then try again.`;
+          this.msgEl.textContent = `“${game.title}” can't start: the server returned something that isn't a game bundle.`;
           return;
         }
       }
-      // A previous launch may have cached a bad response (login page, error body) in
-      // js-dos' OPFS bundle cache — it replays before any refetch, so scrub it now.
+
+      // EmulatorJS (libretro: NES/SNES/GB/arcade/…) — boot the ROM and we're done
+      // (no DOS FS/savegame/IPX plumbing). Loaded lazily so the engine only downloads
+      // when a non-DOS game is actually played.
+      if (game.emulator === 'emulatorjs') {
+        this.dosEl.innerHTML = '';
+        const { loadEmulatorJs } = await import('./emulatorjs.js');
+        if (!this.isOpen) return;
+        this.dos = await loadEmulatorJs(this.dosEl, {
+          core: game.core || 'nes',
+          gameUrl: bundleUrl,
+          gameName: game.title,
+          onStart: () => { this.setStatus('● running', false); this.msgEl.style.display = 'none'; },
+        });
+        return;
+      }
+
+      // js-dos (DOS). A previous launch may have cached a bad response in js-dos' OPFS
+      // bundle cache — it replays before any refetch, so scrub it now.
       await pruneCorruptBundleCache();
       if (!this.isOpen) return;
       // Seed the FS via initFs: caller-supplied files first (e.g. NET.BAT for a
