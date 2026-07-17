@@ -1270,13 +1270,14 @@ export class SimRoom extends Room<RoomState> {
   // ── Simulation → schema ──────────────────────────────────────────
 
   private tick(dt: number): void {
-    // Zone rooms never auto-dispose (autoDispose = false), so this 20 Hz loop runs
-    // forever for every zone ever visited. When nobody is here there is nothing to
-    // simulate — no human clients, and agents are only hosted while their owner is
-    // present (so hostedAgents is empty too). Skip the office sim + syncs so idle
-    // zombie rooms don't spawn/pathfind NPCs and churn GC; many idle zones otherwise
-    // compound into event-loop lag over hours (choppy movement once someone rejoins).
-    if (this.clients.length === 0 && this.hostedAgents.size === 0) return;
+    // Don't simulate a zone no human is watching. Zone rooms never auto-dispose
+    // (autoDispose = false), so this 20 Hz loop would otherwise run forever for
+    // every zone ever visited — spawning/pathfinding NPCs and churning GC for
+    // nobody. Agents' *logical* state is driven by feed events (applyEvent, called
+    // from onEvent — independent of this tick), so with no client connected we only
+    // skip movement/animation + the client syncs; a joining client gets the full
+    // state on its first tick. This is what keeps idle/background zones cheap.
+    if (this.clients.length === 0) return;
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
     this.handleConferenceArrivals();
