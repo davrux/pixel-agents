@@ -9,6 +9,17 @@ import { extractToolName, isSubagentToolName } from '@pixel/shared/office/toolUt
  * agent/sub-agent id (synced to clients for the hover tooltip).
  */
 export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number, string>): void {
+  // Drop the activity entries of `parentId`'s sub-agents (keyed by their unique,
+  // never-reused negative sub-agent ids). MUST run before removeSubagent(s) clears
+  // subagentMeta, or the ids are gone. Without this, `activity` leaks one entry per
+  // sub-agent forever — the one monotonic, agent-driven growth that slows a single
+  // long-running room over hours (GC pressure). Only subagentStart writes sub-agent
+  // entries (line below), and no delete ever used a sub-agent id.
+  const pruneSubagentActivity = (parentId: number): void => {
+    for (const [subId, meta] of os.subagentMeta) {
+      if (meta.parentAgentId === parentId) activity.delete(subId);
+    }
+  };
   switch (ev.t) {
     case 'created':
       os.addAgent(ev.id, undefined, undefined, undefined, false, ev.label);
@@ -16,6 +27,7 @@ export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number
 
     case 'removed':
       activity.delete(ev.id);
+      pruneSubagentActivity(ev.id);
       os.removeAllSubagents(ev.id);
       os.removeAgent(ev.id);
       break;
@@ -49,7 +61,10 @@ export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number
       activity.delete(ev.id);
       const ch = os.characters.get(ev.id);
       const inlineTeam = ch?.teamName && ch?.isTeamLead && !ch?.teamUsesTmux;
-      if (!inlineTeam) os.removeAllSubagents(ev.id);
+      if (!inlineTeam) {
+        pruneSubagentActivity(ev.id);
+        os.removeAllSubagents(ev.id);
+      }
       os.setAgentTool(ev.id, null);
       os.clearPermissionBubble(ev.id);
       break;
@@ -80,9 +95,12 @@ export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number
     case 'subagentDone':
       break;
 
-    case 'subagentClear':
+    case 'subagentClear': {
+      const subId = os.getSubagentId(ev.id, ev.parentToolId);
+      if (subId !== null) activity.delete(subId);
       os.removeSubagent(ev.id, ev.parentToolId);
       break;
+    }
 
     case 'team':
       os.setTeamInfo(ev.id, ev.teamName, ev.agentName, ev.isTeamLead, ev.leadAgentId);
