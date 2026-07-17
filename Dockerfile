@@ -30,12 +30,14 @@ RUN corepack enable
 COPY . .
 # pnpm-workspace.yaml's allowBuilds gates dependency build scripts explicitly.
 RUN pnpm install --frozen-lockfile
-# Build the client only. NO game bundles are baked into the image — all arcade
-# content (shareware + licensed WADs + future emulator ROMs) is provided at RUNTIME
-# from ARCADE_CONTENT_DIR (a bind-mount), so the image stays pure code and safe to
-# publish. Build the content once with `pnpm build:arcade` and mount it (see
-# docs/dev-notes.md + tmp/docker-compose.yml).
-RUN pnpm run build
+# Vendor the self-hosted EmulatorJS engine (free engine code, NOT game content —
+# like js-dos, it belongs in the image; needs network egress at build), then build
+# the client. NO game bundles/ROMs are baked in: all arcade *content* (shareware +
+# licensed WADs + emulator ROMs) is provided at RUNTIME from ARCADE_CONTENT_DIR (a
+# bind-mount), so the image stays free of copyrighted bytes and safe to publish.
+# Build the content once with `pnpm build:arcade` and mount it (see docs/dev-notes.md
+# + tmp/docker-compose.yml).
+RUN pnpm run vendor:emulatorjs && pnpm run build
 
 # ── Runtime: node + the whole workspace tree (source, deps, client/dist, assets)
 # tsx (a server devDependency) runs the TypeScript server in place.
