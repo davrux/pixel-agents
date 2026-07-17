@@ -42,6 +42,7 @@ export async function loadEmulatorJs(mount: HTMLElement, opts: EmuJsOptions): Pr
   w.EJS_gameUrl = opts.gameUrl;
   w.EJS_gameName = opts.gameName ?? 'game';
   w.EJS_startOnLoaded = true;
+  w.EJS_language = 'en-US'; // pin the vendored localization (avoids other-lang 404s)
   w.EJS_disableDatabases = true; // no external ROM/BIOS database lookups
   w.EJS_onGameStart = () => opts.onStart?.();
   // Re-inject loader.js each open so it re-initialises against the new globals.

@@ -39,6 +39,9 @@ const MIRROR = 'https://image.dosgamesarchive.com/games';
 // committed, but shipped into the image via .dockerignore's tmp/doom-wads allow.
 // If the folder is absent, those two bundles are skipped (the shareware ones build).
 const DOOM_SRC = resolve(REPO, 'tmp/doom-wads');
+// Operator-provided emulator ROMs (never committed) — e.g. legally-obtained arcade
+// romsets for the fbneo core. Missing files are simply skipped.
+const ARCADE_ROMS = resolve(REPO, 'tmp/arcade-roms');
 
 // `local`: package these files straight from DOOM_SRC (no download). Otherwise
 // zip: shareware archive on the mirror; data: the DEICE-packed member(s) inside it
@@ -63,12 +66,12 @@ const GAMES = [
   { id: 'duke3d', title: 'Duke Nukem 3D', blurb: 'L.A. Meltdown — shareware', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
-// EmulatorJS (libretro) titles: the ROM is downloaded straight into the content dir
-// (raw, no packaging) + catalogued with emulator:'emulatorjs'. The engine is vendored
-// separately (scripts/vendor-emulatorjs.mjs). Add your own copyrighted ROMs by hand;
-// this only ships a freely-distributable homebrew demo. NOTE: Nova the Squirrel is
-// GPLv3 code + CC BY-NC-SA assets — fine for testing / non-commercial; swap it for a
-// commercial deployment.
+// EmulatorJS (libretro) titles → catalogued with emulator:'emulatorjs' + a core.
+// `url`: fetch a freely-distributable ROM. `local`: copy an operator-provided ROM
+// from tmp/arcade-roms/ (never committed — like the licensed Doom WADs; skipped when
+// absent). Either way the ROM is placed raw in the content dir (no packaging). The
+// engine is vendored separately (scripts/vendor-emulatorjs.mjs).
+// NOTE: Nova the Squirrel is GPLv3 code + CC BY-NC-SA assets (free, non-commercial).
 const EMU_GAMES = [
   {
     id: 'nova',
@@ -77,6 +80,17 @@ const EMU_GAMES = [
     core: 'nes',
     file: 'nova.nes',
     url: 'https://github.com/NovaSquirrel/NovaTheSquirrel/releases/download/v1.0.6a/nova.nes',
+  },
+  // Classic arcade shooter (Amstar/Centuri 1980). ROM is operator-provided: drop a
+  // legally-obtained FBNeo `phoenix.zip` (matching the vendored fbneo core) into
+  // tmp/arcade-roms/ and it's included; otherwise skipped. Keyboard-friendly.
+  {
+    id: 'phoenix',
+    title: 'Phoenix',
+    blurb: 'Amstar/Centuri 1980 — arcade shooter',
+    core: 'arcade',
+    file: 'phoenix.zip',
+    local: 'phoenix.zip',
   },
 ];
 
@@ -249,10 +263,19 @@ async function main() {
     });
     console.log(`  wrote   ${dest}  (${(zip.length / 1e6).toFixed(1)} MB, v=${entry.version}, exe=${g.exe})`);
   }
-  // EmulatorJS ROMs: download raw into the content dir + catalogue (no packaging).
+  // EmulatorJS ROMs: place raw into the content dir + catalogue (no packaging).
   for (const g of EMU_GAMES) {
     const dest = resolve(OUT, g.file);
-    await download(g.url, dest);
+    if (g.local) {
+      const src = resolve(ARCADE_ROMS, g.local);
+      if (!existsSync(src)) {
+        console.warn(`  skip    ${g.id} — missing ${g.local} in ${ARCADE_ROMS} (operator ROM not present)`);
+        continue;
+      }
+      await writeFile(dest, await readFile(src));
+    } else {
+      await download(g.url, dest);
+    }
     const data = await readFile(dest);
     catalog.push({
       id: g.id,

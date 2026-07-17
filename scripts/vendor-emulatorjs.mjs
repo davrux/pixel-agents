@@ -20,7 +20,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, '..');
 const BASE = 'https://cdn.emulatorjs.org/stable/data';
 const OUT = resolve(REPO, 'client/public/emulatorjs/data');
-const FILES = ['loader.js', 'emulator.min.js', 'emulator.min.css', 'version.json'];
+const FILES = [
+  'loader.js',
+  'emulator.min.js',
+  'emulator.min.css',
+  'version.json',
+  // Decompressors (loaded for zipped ROMs / the legacy core path) + the pinned
+  // localization (emulatorjs.ts sets EJS_language='en-US', so only this is needed).
+  'compression/extract7z.js',
+  'compression/extractzip.js',
+  'compression/libunrar.js',
+  'compression/libunrar.wasm',
+  'localization/en-US.json',
+];
 const CORES = (process.env.ARCADE_EJS_CORES || 'fceumm,fbneo').split(',').map((s) => s.trim()).filter(Boolean);
 
 async function get(url, dest) {
@@ -33,9 +45,15 @@ async function get(url, dest) {
 }
 
 async function main() {
-  await mkdir(resolve(OUT, 'cores'), { recursive: true });
+  await mkdir(resolve(OUT, 'cores/reports'), { recursive: true });
   for (const f of FILES) await get(`${BASE}/${f}`, resolve(OUT, f));
-  for (const c of CORES) await get(`${BASE}/cores/${c}-wasm.data`, resolve(OUT, 'cores', `${c}-wasm.data`));
+  // Per core EmulatorJS needs the threaded build, the legacy (non-threaded) build it
+  // falls back to without cross-origin isolation, and the report json.
+  for (const c of CORES) {
+    for (const rel of [`cores/${c}-wasm.data`, `cores/${c}-legacy-wasm.data`, `cores/reports/${c}.json`]) {
+      await get(`${BASE}/${rel}`, resolve(OUT, rel));
+    }
+  }
   console.log(`done. EmulatorJS vendored to ${OUT} (cores: ${CORES.join(', ')})`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });
