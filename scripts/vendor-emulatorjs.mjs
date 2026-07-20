@@ -11,7 +11,7 @@
  * Core file names are libretro core ids (EmulatorJS maps a system name → a core:
  * nes→fceumm, snes→snes9x, gb→gambatte, arcade→fbneo, mame→mame2003_plus, …).
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,9 +44,30 @@ async function get(url, dest) {
   console.log(`  wrote  ${dest}  (${((await r.headers.get('content-length')) / 1e6 || 0).toFixed?.(1) ?? '?'} MB)`);
 }
 
+/** Patch loader.js so emulator.min.js is only loaded once per page session.
+ *  emulator.min.js uses top-level let/const (EJS_STORAGE etc.) that cannot be
+ *  re-declared — re-loading it on a second game launch throws a SyntaxError.
+ *  Skipping the load when EmulatorJS is already defined is safe: loader.js
+ *  re-reads all EJS_* globals fresh each run and instantiates a new EmulatorJS. */
+async function patchLoaderJs(path) {
+  let src = await readFile(path, 'utf8');
+  const NEEDLE = '        await loadScript("emulator.min.js");\n        await loadStyle("emulator.min.css");';
+  const PATCHED = `// Skip re-loading emulator.min.js if EmulatorJS is already defined (top-level
+        // let/const cannot be re-declared — would throw SyntaxError on second launch).
+        if (typeof EmulatorJS === "undefined") {
+            await loadScript("emulator.min.js");
+            await loadStyle("emulator.min.css");
+        }`;
+  if (src.includes(PATCHED)) { console.log('  patch  loader.js (already applied)'); return; }
+  if (!src.includes(NEEDLE)) { console.warn('  warn   loader.js patch needle not found — skipping patch (check upstream changes)'); return; }
+  await writeFile(path, src.replace(NEEDLE, PATCHED));
+  console.log('  patch  loader.js (EmulatorJS re-load guard applied)');
+}
+
 async function main() {
   await mkdir(resolve(OUT, 'cores/reports'), { recursive: true });
   for (const f of FILES) await get(`${BASE}/${f}`, resolve(OUT, f));
+  await patchLoaderJs(resolve(OUT, 'loader.js'));
   // Per core EmulatorJS needs the threaded build, the legacy (non-threaded) build it
   // falls back to without cross-origin isolation, and the report json.
   for (const c of CORES) {

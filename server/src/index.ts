@@ -180,7 +180,7 @@ async function main(): Promise<void> {
   // character is ~100 KB of SpriteData). Editor ops are authenticated, so allow
   // up to 8 MB.
   const gameServer = new Server({
-    transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
+    transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024, pingInterval: 2000, pingMaxRetries: 2 }),
   });
   // Resolve the version once: logged at startup and handed to each room so the
   // client can show it next to the connection status.

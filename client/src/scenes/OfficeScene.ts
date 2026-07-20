@@ -978,7 +978,7 @@ export class OfficeScene extends Phaser.Scene {
     let sent: Direction | null = null;
 
     const blocked = (): boolean => {
-      if (this.myPlayerId === null || this.editor.isEditing()) return true;
+      if (this.myPlayerId === null || this.editor.isEditing() || this.arcadeUI.isOpen) return true;
       const el = document.activeElement;
       const tag = el?.tagName;
       return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement)?.isContentEditable === true;

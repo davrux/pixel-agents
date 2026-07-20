@@ -3,12 +3,9 @@
  * the arcade for non-DOS games (NES/SNES/GB/arcade/…). Assets live under
  * /emulatorjs/data/ (vendored by scripts/vendor-emulatorjs.mjs — NOT a CDN, same
  * self-hosting stance as js-dos). EmulatorJS is driven entirely by `window.EJS_*`
- * globals + its loader.js, so we set the globals, (re)inject the loader per launch,
- * and hand back a { stop } matching js-dos' DosInstance so ArcadeUI can treat both
- * emulators the same.
- *
- * Teardown is best-effort: EmulatorJS has no clean dispose API (it normally assumes a
- * page reload), so stop() removes its DOM + loader script and clears the globals.
+ * globals + its loader.js, so we set the globals and (re)inject the loader per launch.
+ * emulator.min.js is only loaded once (the vendored loader.js skips it when EmulatorJS
+ * is already defined), so top-level let/const re-declaration errors can't occur.
  */
 import type { DosInstance } from './jsdos.js';
 
@@ -29,12 +26,11 @@ interface EjsWindow {
   [k: string]: unknown;
 }
 
-let scriptEl: HTMLScriptElement | null = null;
+let loaderEl: HTMLScriptElement | null = null;
 
 /** Boot one game into `mount`. Returns a DosInstance-shaped handle for close(). */
 export async function loadEmulatorJs(mount: HTMLElement, opts: EmuJsOptions): Promise<DosInstance> {
   const w = window as unknown as EjsWindow & Record<string, unknown>;
-  // Fresh child the engine renders into (EmulatorJS replaces the target's contents).
   mount.innerHTML = '<div id="ejs-mount" style="width:100%;height:100%"></div>';
   w.EJS_player = '#ejs-mount';
   w.EJS_pathtodata = EJS_BASE;
@@ -42,21 +38,23 @@ export async function loadEmulatorJs(mount: HTMLElement, opts: EmuJsOptions): Pr
   w.EJS_gameUrl = opts.gameUrl;
   w.EJS_gameName = opts.gameName ?? 'game';
   w.EJS_startOnLoaded = true;
-  w.EJS_language = 'en-US'; // pin the vendored localization (avoids other-lang 404s)
-  w.EJS_disableDatabases = true; // no external ROM/BIOS database lookups
+  w.EJS_language = 'en-US';
+  w.EJS_disableDatabases = true;
   w.EJS_onGameStart = () => opts.onStart?.();
-  // Re-inject loader.js each open so it re-initialises against the new globals.
-  scriptEl?.remove();
-  scriptEl = document.createElement('script');
-  scriptEl.src = `${EJS_BASE}loader.js`;
-  document.body.appendChild(scriptEl);
+  // Re-inject loader.js each open so it re-reads the new EJS_* globals and
+  // instantiates a fresh EmulatorJS. emulator.min.js itself is only loaded once
+  // (the patched loader.js skips it when EmulatorJS is already defined).
+  loaderEl?.remove();
+  loaderEl = document.createElement('script');
+  loaderEl.src = `${EJS_BASE}loader.js`;
+  document.body.appendChild(loaderEl);
 
   return {
     stop: async () => {
       try { w.EJS_emulator?.callEvent?.('exit'); } catch { /* best effort */ }
       try { w.EJS_emulator?.elements?.parent?.remove(); } catch { /* best effort */ }
-      scriptEl?.remove();
-      scriptEl = null;
+      loaderEl?.remove();
+      loaderEl = null;
       w.EJS_emulator = undefined;
       mount.innerHTML = '';
     },

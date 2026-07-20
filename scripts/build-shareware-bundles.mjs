@@ -129,6 +129,15 @@ const EMU_GAMES = [
     file: 'tetris.zip',
     local: 'tetris.zip',
   },
+  // Donkey Kong (Nintendo 1981 — dkongj = Japan/US set). Digital.
+  {
+    id: 'dkongj',
+    title: 'Donkey Kong',
+    blurb: 'Nintendo 1981',
+    core: 'arcade',
+    file: 'dkongj.zip',
+    local: 'dkongj.zip',
+  },
 ];
 
 function dosboxConf(exe, net = false) {
