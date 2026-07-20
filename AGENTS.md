@@ -344,3 +344,18 @@ identifies the owner; copy it from in-app Settings).
 - For client changes, sanity-check the Electron desktop app too (rule 10) —
   especially anything touching URLs, fetches, auth, or navigation/reload.
 - Keep the client a renderer; keep logic in `shared` on the server.
+
+---
+
+## Claude Code — persistent memory
+
+Conversation memory lives in **`.claude/memory/`** inside this repo (gitignored).
+The Claude Code harness reads it from `~/.claude/projects/<path>/memory/`; that
+directory should be a symlink into the repo so memory survives container rebuilds:
+
+```bash
+ln -sfn "$(pwd)/.claude/memory" \
+  ~/.claude/projects/-home-meik-program-gitlab-paar-it-de-ups-codeberg-pixel-agents/memory
+```
+
+Run this once after cloning / after a dev-container rebuild.

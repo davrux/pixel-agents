@@ -39,3 +39,6 @@ client/public/jsdos/bundles/
 # Self-hosted EmulatorJS engine + cores — large, vendored via
 # scripts/vendor-emulatorjs.mjs (not committed).
 client/public/emulatorjs/
+
+# Claude Code auto-memory (local only, not for version control)
+.claude/memory/
