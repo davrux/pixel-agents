@@ -33,6 +33,7 @@ import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
 import { controlBus, KICK_EVENT } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
+import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -251,9 +252,14 @@ export class SimRoom extends Room<RoomState> {
     // Customers may only reach zones they're assigned to.
     if (user.role === 'customer' && !assigned) throw new Error('forbidden');
     if (this.zones.zoneHasPassword(zoneId) && !user.isAdmin && !isZoneAdmin && !assigned) {
+      // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
+      const tkey = `zone:${zoneId}:${user.userId}`;
+      if (isThrottled(tkey)) throw new Error('zone-locked');
       if (!opts.zonePassword || !this.zones.checkZonePassword(zoneId, opts.zonePassword)) {
+        noteFail(tkey);
         throw new Error('zone-locked');
       }
+      clearFails(tkey);
     }
     // Spatial presence (a walking avatar) requires `allowPixels` for customers;
     // without it they are a non-spatial portal viewer (still visible as presence).
@@ -708,10 +714,14 @@ export class SimRoom extends Room<RoomState> {
       // Admins and the zone's admins bypass; everyone else must supply it.
       const me = authOf(client);
       if (this.zones.monitorHasPassword(this.zone.id, key) && !me.isAdmin && !this.zones.isZoneAdmin(this.zone.id, me.userId)) {
-        if (typeof msg?.password !== 'string' || !this.zones.checkMonitorPassword(this.zone.id, key, msg.password)) {
+        // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
+        const tkey = `monitor:${this.zone.id}:${key}:${me.userId}`;
+        if (isThrottled(tkey) || typeof msg?.password !== 'string' || !this.zones.checkMonitorPassword(this.zone.id, key, msg.password)) {
+          if (typeof msg?.password === 'string') noteFail(tkey);
           client.send('m', { type: 'conferenceToken', col, row, error: 'locked' });
           return;
         }
+        clearFails(tkey);
       }
       const url = process.env.LIVEKIT_URL;
       const apiKey = process.env.LIVEKIT_API_KEY;
