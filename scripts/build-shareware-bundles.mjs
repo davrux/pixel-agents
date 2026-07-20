@@ -111,6 +111,24 @@ const EMU_GAMES = [
     file: 'pacman.zip',
     local: 'pacman.zip',
   },
+  // Galaga (Namco 1981 — galagao set). Digital → keyboard is fine.
+  {
+    id: 'galaga',
+    title: 'Galaga',
+    blurb: 'Namco 1981',
+    core: 'arcade',
+    file: 'galagao.zip',
+    local: 'galagao.zip',
+  },
+  // Tetris (Sega 1988, System 16B, FD1094 317-0093 — key bundled in the zip). Digital.
+  {
+    id: 'tetris',
+    title: 'Tetris',
+    blurb: 'Sega 1988 (System 16)',
+    core: 'arcade',
+    file: 'tetris.zip',
+    local: 'tetris.zip',
+  },
 ];
 
 function dosboxConf(exe, net = false) {
