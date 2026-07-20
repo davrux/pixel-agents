@@ -171,11 +171,15 @@ function verifyCredentials(
 export function registerAuth(app: Express, adminToken: string): void {
   app.use(express.urlencoded({ extended: false }));
 
-  const setSession = (res: Response, userId: string): void => {
+  const setSession = (req: Request, res: Response, userId: string): void => {
     const sid = appStore.createSession(userId);
+    // Add Secure on HTTPS (direct TLS or behind a TLS-terminating proxy) so the
+    // session cookie can never ride an accidental plain-http request. Omitted on
+    // plain-http (local dev) so login still works there.
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
     res.setHeader(
       'Set-Cookie',
-      `${VIEWER_COOKIE}=${sid}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Lax`,
+      `${VIEWER_COOKIE}=${sid}; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`,
     );
     // Land customers in the rooms portal (they can't use the internal Pixels world);
     // everyone else goes to the Pixels client at the root.
@@ -186,7 +190,7 @@ export function registerAuth(app: Express, adminToken: string): void {
   app.post('/login', (req: Request, res: Response) => {
     const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
     if ('error' in result) return void res.status(result.status ?? 401).type('html').send(loginHtml(result.error));
-    return setSession(res, result.userId);
+    return setSession(req, res, result.userId);
   });
 
   // Desktop token issuance: same credentials as /login, but returns the opaque

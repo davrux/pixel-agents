@@ -297,7 +297,7 @@ async function postToken(body: Record<string, unknown>): Promise<Response> {
 // `this.authRequired` from the room. We invoke it directly with a crafted
 // AuthContext (Colyseus transport mocked) and a minimal `this` — no full
 // Colyseus room/transport is spun up (per the @mock-boundary decision).
-type AuthInfo = { userId: string; username: string; isAdmin: boolean; role?: string };
+type AuthInfo = { userId: string; username: string; isAdmin: boolean; role?: string; spectator?: boolean };
 
 function callOnAuth(
   authRequired: boolean,
@@ -333,7 +333,7 @@ test('TEST 1 VP1/VP2: valid cookie, no token -> seeded user AuthInfo (cookie bra
 
   // Baseline expected values computed independently of the code under test:
   // no free display name was set, so displayName falls back to the login id.
-  const expected: AuthInfo = { userId: loginId, username: loginId, isAdmin: false, role: 'user' };
+  const expected: AuthInfo = { userId: loginId, username: loginId, isAdmin: false, role: 'user', spectator: false };
 
   const info = callOnAuth(true, { cookie: `pixel_stream_sid=${sid}` });
   assert.deepEqual(info, expected);
@@ -347,7 +347,7 @@ test('TEST 1 VP1/VP2: valid cookie, no token -> seeded user AuthInfo (cookie bra
 test('TEST 1 VP3: authRequired=false -> anonymous AuthInfo, no throw (short-circuit unchanged)', () => {
   // Even with a bogus cookie AND a bogus token, the anonymous short-circuit wins.
   const info = callOnAuth(false, { cookie: 'pixel_stream_sid=bogus', token: 'bogus' });
-  assert.deepEqual(info, { userId: '', username: '', isAdmin: false, role: 'user' });
+  assert.deepEqual(info, { userId: '', username: '', isAdmin: false, role: 'user', spectator: false });
 });
 
 test('TEST 1 VP4: unknown/absent cookie with authRequired=true -> throws unauthorized', () => {
@@ -369,7 +369,7 @@ test('TEST 2 VP2: onAuth(bearer token) AuthInfo is field-identical to onAuth(coo
     const viaBearer = callOnAuth(true, { token: sid });
 
     assert.deepEqual(viaBearer, viaCookie, 'bearer AuthInfo must equal cookie AuthInfo');
-    assert.deepEqual(viaBearer, { userId: loginId, username: 'Display Name', isAdmin, role: isAdmin ? 'admin' : 'user' });
+    assert.deepEqual(viaBearer, { userId: loginId, username: 'Display Name', isAdmin, role: isAdmin ? 'admin' : 'user', spectator: false });
 
     appStore.deleteSession(sid);
     userStore.deleteUser(loginId);

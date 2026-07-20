@@ -163,6 +163,17 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
    browser functional.
 9. **Authorization & data isolation are a first-class requirement.** Security is
    not an afterthought — every change must preserve these boundaries:
+   - **Assume the client is fully compromised.** This is a deliberate threat-model
+     decision: treat *every* byte from a client (join options, message payloads,
+     headers) as attacker-controlled. **Every** access-control decision — identity,
+     `role`, `isAdmin`, `allowPixels`, zone assignment, spectator/spatial status,
+     capabilities — is resolved **server-side from the account/session**, never from
+     a value the client sent. A client can *never* grant itself a setting: e.g.
+     `allowPixels` (spatial Pixels avatar) and spectator status are derived in
+     `SimRoom.onAuth`/`gateEntry` from the stored `User`, and a client join flag must
+     never flip an authorization outcome (a client flag may at most affect a
+     self-only, privilege-free presentation choice). If a decision can be influenced
+     by client input, it is a bug.
    - **Personal data is keyed by the authenticated `userId`** (from `onAuth`),
      **never** a client-supplied id/name. A user can only read/mutate *their own*
      avatar, prefs, viewer settings, password and agent token. Handlers like

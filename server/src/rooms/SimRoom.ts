@@ -69,6 +69,10 @@ interface AuthInfo {
   username: string;
   isAdmin: boolean;
   role: Role;
+  /** Server-decided non-spatial presence (portal view): forced true for customers
+   *  who lack `allowPixels`. Decided in onAuth from the account only — NEVER from a
+   *  client flag (the client is assumed compromised). */
+  spectator: boolean;
 }
 
 function authOf(client: Client): AuthInfo {
@@ -78,6 +82,7 @@ function authOf(client: Client): AuthInfo {
     username: a?.username ?? '',
     isAdmin: !!a?.isAdmin,
     role: a?.role ?? (a?.isAdmin ? 'admin' : 'user'),
+    spectator: !!a?.spectator,
   };
 }
 
@@ -208,9 +213,11 @@ export class SimRoom extends Room<RoomState> {
    *  by Colyseus from `Authorization: Bearer`) is an additive, equivalent path
    *  resolved through the SAME session store + identity resolution as the cookie. */
   onAuth(_client: Client, options: unknown, context: AuthContext): AuthInfo {
-    if (!this.authRequired) return { userId: '', username: '', isAdmin: false, role: 'user' };
+    if (!this.authRequired) return { userId: '', username: '', isAdmin: false, role: 'user', spectator: false };
     const cookie = (context?.headers as Record<string, string | undefined> | undefined)?.cookie;
-    const opts = (options ?? {}) as { zonePassword?: string; spectator?: boolean };
+    // NB: only the zone password is read from client options. Identity, role,
+    // allowPixels and spectator status are resolved server-side (client is untrusted).
+    const opts = (options ?? {}) as { zonePassword?: string };
     if (hasValidSession(cookie)) {
       const userId = userIdFromCookie(cookie) ?? '';
       const user = userId ? userStore.get(userId) : undefined;
@@ -237,21 +244,23 @@ export class SimRoom extends Room<RoomState> {
    *  requires the password (admins, the zone's admins, and assigned customers
    *  bypass it). Distinct error strings ('forbidden' / 'zone-locked') let the
    *  client react (deny vs prompt). */
-  private gateEntry(user: User, opts: { zonePassword?: string; spectator?: boolean }): AuthInfo {
+  private gateEntry(user: User, opts: { zonePassword?: string }): AuthInfo {
     const zoneId = this.zone.id;
     const isZoneAdmin = this.zones.isZoneAdmin(zoneId, user.userId);
     const assigned = this.zones.isCustomerAssigned(zoneId, user.userId);
-    if (user.role === 'customer') {
-      if (!assigned) throw new Error('forbidden');
-      // Non-spectator = the graphical Pixels client; gated behind allowPixels.
-      if (!opts.spectator && !user.allowPixels) throw new Error('forbidden');
-    }
+    // Customers may only reach zones they're assigned to.
+    if (user.role === 'customer' && !assigned) throw new Error('forbidden');
     if (this.zones.zoneHasPassword(zoneId) && !user.isAdmin && !isZoneAdmin && !assigned) {
       if (!opts.zonePassword || !this.zones.checkZonePassword(zoneId, opts.zonePassword)) {
         throw new Error('zone-locked');
       }
     }
-    return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin, role: user.role };
+    // Spatial presence (a walking avatar) requires `allowPixels` for customers;
+    // without it they are a non-spatial portal viewer (still visible as presence).
+    // Decided here from the ACCOUNT only — never from a client flag, so a
+    // compromised client cannot grant itself a spatial Pixels avatar.
+    const spectator = user.role === 'customer' && !user.allowPixels;
+    return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin, role: user.role, spectator };
   }
 
   onCreate(options: { bundle: AssetBundle; authRequired?: boolean; zone?: string; version?: string }): void {
@@ -383,9 +392,12 @@ export class SimRoom extends Room<RoomState> {
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
-    // Rooms-portal viewers are non-spatial: track them so their avatar is flagged
-    // spectator (not rendered) and they don't announce a walk-in.
-    const spectator = !!options?.spectator;
+    // Non-spatial (portal) presence: forced server-side for customers without
+    // allowPixels (authz — never client-decided); the client `spectator` option is
+    // only an additional self-dedup hint (a user viewing via the portal hides their
+    // own avatar) and grants no privilege. Flagged so the avatar isn't rendered and
+    // no walk-in is announced.
+    const spectator = authOf(client).spectator || !!options?.spectator;
     if (spectator) this.spectatorPlayers.add(playerId);
     if (role === 'customer') this.customerPlayers.add(playerId);
     // Announce a real user's arrival to everyone in the zone. Agents/NPCs are

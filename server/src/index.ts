@@ -206,10 +206,19 @@ async function main(): Promise<void> {
       : '[server] arcade IPX: no TURN configured — set ARCADE_TURN_URLS + ARCADE_TURN_SECRET for internet play behind NAT (STUN-only otherwise)',
   );
 
-  httpServer.listen(PORT, HOST, () => {
+  // Fail safe: with no admin token there is no login and no gate — the whole HTTP
+  // surface would be public. Refuse to expose that beyond loopback (a forgotten
+  // PIXEL_ADMIN_TOKEN in production must not silently open the app to the network).
+  const isLoopback = (h: string): boolean => h === '127.0.0.1' || h === 'localhost' || h === '::1';
+  const bindHost = ADMIN_TOKEN || isLoopback(HOST) ? HOST : '127.0.0.1';
+  if (!ADMIN_TOKEN && bindHost !== HOST) {
+    console.warn(`[server] SECURITY: no PIXEL_ADMIN_TOKEN → no login/gate; binding to 127.0.0.1 instead of ${HOST} so the open app is not network-reachable. Set a token to serve publicly.`);
+  }
+
+  httpServer.listen(PORT, bindHost, () => {
     const scheme = useTls ? 'https' : 'http';
     console.log(`[server] pixel-agents ${version}`);
-    console.log(`[server] listening on ${scheme}://${HOST}:${PORT} (viewer + Colyseus + /feed)`);
+    console.log(`[server] listening on ${scheme}://${bindHost}:${PORT} (viewer + Colyseus + /feed)`);
     if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
   });
 

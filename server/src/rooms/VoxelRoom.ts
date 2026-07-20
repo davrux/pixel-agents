@@ -285,7 +285,14 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       if (this.peaceful) for (const [key, b] of this.npcs) if (b.def.type === 'monster') this.removeMob(key);
     });
     this.onMessage('setCreative', (client, m: { on?: boolean }) => {
-      if (m?.on) this.creative.add(client.sessionId); // unlimited-block placing for this client
+      // Admin-only: creative grants invincibility + free/unlimited placement + bulk
+      // WorldEdit — a capability, so it must be server-gated (a compromised client
+      // must not self-grant it). Non-admins are always non-creative.
+      if (!(client.auth as AuthInfo | undefined)?.isAdmin) {
+        this.creative.delete(client.sessionId);
+        return void client.send('m', { type: 'system', text: 'Creative mode is admin-only.' });
+      }
+      if (m?.on) this.creative.add(client.sessionId);
       else this.creative.delete(client.sessionId);
     });
     this.onMessage('setDurability', (client, m: { on?: boolean }) => {
