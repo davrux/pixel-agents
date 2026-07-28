@@ -1,0 +1,70 @@
+# pixel-agents – Deployment auf dem Zielserver (siehe .github/workflows/deploy.yml).
+#
+# Zieht das FERTIGE, öffentliche Image aus der GitHub Container Registry (ghcr.io)
+# und startet es zusammen mit coturn (TURN-Relay für Arcade-IPX-Multiplayer) via
+# podman compose (rootless) auf dem Zielserver.
+#
+#   podman compose -f docker-compose.prod.yml pull
+#   podman compose -f docker-compose.prod.yml up -d
+#
+# Diese Datei ist eingecheckt – HIER KEINE SECRETS ABLEGEN. Alle Werte unten
+# kommen aus einer .env im selben Verzeichnis (podman compose lädt sie
+# automatisch). Der Deploy-Workflow schreibt diese .env bei jedem Deploy frisch
+# aus GitHub Secrets (chmod 600, nie eingecheckt, nie im Repo).
+#
+# Erwartete Variablen in .env:
+#   PIXEL_ADMIN_TOKEN     Admin-Login-Token
+#   LIVEKIT_API_KEY       LiveKit API Key
+#   LIVEKIT_API_SECRET    LiveKit API Secret
+#   ARCADE_TURN_SECRET    TURN shared secret (muss zwischen pixel-agents und
+#                         coturn identisch sein)
+#   TURN_EXTERNAL_IP      öffentliche IP des Servers (auch als coturn --realm)
+
+services:
+  pixel-agents:
+    image: ${GHCR_IMAGE:-ghcr.io/davrux/pixel-agents:latest}
+    container_name: pixel-agents
+    restart: unless-stopped
+    environment:
+      # Safety net on a 1 GB box: cap V8's heap below physical RAM so a runaway
+      # leak triggers a clean OOM + auto-restart instead of GC-thrash/swap.
+      NODE_OPTIONS: --max-old-space-size=768
+      PIXEL_ADMIN_TOKEN: ${PIXEL_ADMIN_TOKEN}
+      LIVEKIT_URL: wss://livekit.meik.info
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      ARCADE_TURN_URLS: turn:${TURN_EXTERNAL_IP}:3478
+      ARCADE_TURN_SECRET: ${ARCADE_TURN_SECRET}
+      # ALL arcade content is provided here at runtime (nothing is in the image).
+      ARCADE_CONTENT_DIR: /games
+    ports:
+      - "6161:6161"
+    volumes:
+      - pixel-data:/data
+      # Arcade content (.jsdos bundles / ROMs + catalog.json) is built and placed
+      # on the host separately (pnpm build:arcade) — NOT managed by this pipeline,
+      # since it can include licensed WADs that must never enter the repo/image.
+      - ./arcade-content:/games:ro
+
+  coturn:
+    image: coturn/coturn
+    container_name: coturn
+    restart: unless-stopped
+    # Host networking so the relay port range works without mapping each UDP port.
+    network_mode: host
+    command:
+      - -n
+      - --no-cli
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${ARCADE_TURN_SECRET}
+      - --realm=${TURN_EXTERNAL_IP}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --external-ip=${TURN_EXTERNAL_IP}
+
+volumes:
+  # Reuse the existing named volume (keeps the SQLite DB across deploys).
+  pixel-data:
+    name: pixel-data
