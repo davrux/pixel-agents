@@ -1,14 +1,13 @@
 # pixel-agents – Deployment auf dem Zielserver (siehe .github/workflows/deploy.yml).
 #
 # Zieht das FERTIGE, öffentliche Image aus der GitHub Container Registry (ghcr.io)
-# und startet es zusammen mit coturn (TURN-Relay für Arcade-IPX-Multiplayer) via
-# podman compose (rootless) auf dem Zielserver.
+# und startet es zusammen mit coturn (TURN-Relay für Arcade-IPX-Multiplayer).
 #
-#   podman compose -f docker-compose.prod.yml pull
-#   podman compose -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.prod.yml up -d
 #
 # Diese Datei ist eingecheckt – HIER KEINE SECRETS ABLEGEN. Alle Werte unten
-# kommen aus einer .env im selben Verzeichnis (podman compose lädt sie
+# kommen aus einer .env im selben Verzeichnis (docker compose lädt sie
 # automatisch). Der Deploy-Workflow schreibt diese .env bei jedem Deploy frisch
 # aus GitHub Secrets (chmod 600, nie eingecheckt, nie im Repo).
 #
@@ -25,6 +24,7 @@ services:
     image: ${GHCR_IMAGE:-ghcr.io/davrux/pixel-agents:latest}
     container_name: pixel-agents
     restart: unless-stopped
+    pull_policy: always
     environment:
       # Safety net on a 1 GB box: cap V8's heap below physical RAM so a runaway
       # leak triggers a clean OOM + auto-restart instead of GC-thrash/swap.
@@ -50,6 +50,7 @@ services:
     image: coturn/coturn
     container_name: coturn
     restart: unless-stopped
+    pull_policy: always
     # Host networking so the relay port range works without mapping each UDP port.
     network_mode: host
     command:

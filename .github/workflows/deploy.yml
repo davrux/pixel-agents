@@ -5,19 +5,20 @@ name: Build, Push & Deploy
 #      Runtime auf dem Zielserver) und PUBLIC nach ghcr.io pushen (eingebauter
 #      GITHUB_TOKEN, kein PAT nötig).
 #   2) deploy:     per SSH auf den Zielserver, Compose-Datei kopieren, .env aus
-#      GitHub Secrets schreiben, Image aus ghcr pullen und mit podman compose
-#      (rootless) starten.
+#      GitHub Secrets schreiben, Image aus ghcr pullen und mit docker compose starten.
 #
 # Benötigte Repository-Secrets (Settings → Secrets and variables → Actions):
 #   SERVER_HOST          Hostname/IP des Zielservers (auch coturn --realm/--external-ip)
-#   SERVER_USER           SSH-Benutzer, unter dem podman rootless läuft (Deploy landet in ~/pixel-agents)
+#   SERVER_USER           SSH-Benutzer (Deploy landet in ~/pixel-agents)
 #   SSH_PRIVATE_KEY       privater SSH-Schlüssel für diesen Benutzer
 #   PIXEL_ADMIN_TOKEN     Admin-Login-Token der App
 #   LIVEKIT_API_KEY       LiveKit API Key
 #   LIVEKIT_API_SECRET    LiveKit API Secret
 #   ARCADE_TURN_SECRET    TURN shared secret (identisch für pixel-agents + coturn)
-# (podman compose (Podman ≥ 4.x eingebaut, oder podman-compose als Provider) muss auf dem Server verfügbar sein. Das Verzeichnis
-#  ~/pixel-agents mit dem bereits befüllten arcade-content/ muss existieren.)
+# (Der SERVER_USER muss Docker ohne sudo ausführen dürfen, z. B. Mitglied der
+#  Gruppe 'docker' sein, und 'docker compose' v2 verfügbar haben. Das
+#  Verzeichnis ~/pixel-agents mit dem bereits befüllten arcade-content/ muss
+#  auf dem Server existieren.)
 #
 # Package-Sichtbarkeit: Ein frisch gepushtes ghcr-Package ist per Default
 # PRIVATE, unabhängig von der Repo-Sichtbarkeit. Einmalig nach dem ersten
@@ -124,6 +125,6 @@ jobs:
             TURN_EXTERNAL_IP=$TURN_EXTERNAL_IP
             EOF
             chmod 600 .env
-            podman compose -f docker-compose.prod.yml pull
-            podman compose -f docker-compose.prod.yml up -d
-            podman image prune -f
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+            docker image prune -f
