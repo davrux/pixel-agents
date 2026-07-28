@@ -96,9 +96,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: |
-            deploy/docker-compose.prod.yml
-            deploy/Caddyfile
+          source: "deploy/docker-compose.prod.yml,deploy/Caddyfile"
           target: "pixel-agents"
           strip_components: 1 # legt die Dateien als ~/pixel-agents/{docker-compose.prod.yml,Caddyfile} ab
 
