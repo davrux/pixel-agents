@@ -1,0 +1,7 @@
+# TLS-Terminierung für pixel-agents. Caddy holt/erneuert das Let's-Encrypt-
+# Zertifikat automatisch (HTTP-01 auf Port 80) und leitet http:// auf https://
+# um. WebSocket-Upgrades (Colyseus, Voxel-Welt, /feed) laufen transparent
+# durch reverse_proxy — keine Extra-Konfiguration nötig.
+pixels.meik.info {
+	reverse_proxy 127.0.0.1:6161
+}

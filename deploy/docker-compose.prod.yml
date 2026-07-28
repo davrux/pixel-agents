@@ -1,7 +1,8 @@
 # pixel-agents – Deployment auf dem Zielserver (siehe .github/workflows/deploy.yml).
 #
 # Zieht das FERTIGE, öffentliche Image aus der GitHub Container Registry (ghcr.io)
-# und startet es zusammen mit coturn (TURN-Relay für Arcade-IPX-Multiplayer).
+# und startet es hinter Caddy (TLS-Terminierung für pixels.meik.info auf 443)
+# zusammen mit coturn (TURN-Relay für Arcade-IPX-Multiplayer).
 #
 #   docker compose -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.prod.yml up -d
@@ -18,8 +19,32 @@
 #   ARCADE_TURN_SECRET    TURN shared secret (muss zwischen pixel-agents und
 #                         coturn identisch sein)
 #   TURN_EXTERNAL_IP      öffentliche IP des Servers (auch als coturn --realm)
+#
+# pixel-agents bekommt hier absichtlich kein cert.pem/key.pem in /data — der
+# Server erkennt das (siehe server/src/index.ts) und serviert automatisch
+# plain HTTP, genau der Fall "behind a TLS-terminating reverse proxy". Caddy
+# braucht dafür Port 80+443 auf BEIDEN Stacks (v4+v6) — das geht über Docker
+# Port-Publishing nur zuverlässig mit aktiviertem IPv6 im Docker-Daemon, daher
+# läuft caddy hier wie coturn mit network_mode: host.
 
 services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    pull_policy: always
+    # Host networking, damit 80/443 direkt auf den echten Host-Interfaces
+    # (IPv4 + IPv6) gebunden werden, ohne auf Docker-seitiges IPv6-Publishing
+    # angewiesen zu sein. pixel-agents ist dafür nur auf 127.0.0.1 gebunden
+    # (siehe unten) und über localhost erreichbar.
+    network_mode: host
+    depends_on:
+      - pixel-agents
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
   pixel-agents:
     image: ${GHCR_IMAGE:-ghcr.io/davrux/pixel-agents:latest}
     container_name: pixel-agents
@@ -38,7 +63,9 @@ services:
       # ALL arcade content is provided here at runtime (nothing is in the image).
       ARCADE_CONTENT_DIR: /games
     ports:
-      - "6161:6161"
+      # Nur noch lokal erreichbar — die einzige öffentliche Tür ist jetzt Caddy
+      # auf 443 (siehe oben). Direkter Zugriff auf :6161 von außen ist zu.
+      - "127.0.0.1:6161:6161"
     volumes:
       - pixel-data:/data
       # Arcade content (.jsdos bundles / ROMs + catalog.json) is built and placed
@@ -69,3 +96,9 @@ volumes:
   # Reuse the existing named volume (keeps the SQLite DB across deploys).
   pixel-data:
     name: pixel-data
+  # Persist the ACME account + issued certs (avoid Let's Encrypt re-issuance /
+  # rate limits on every redeploy) and Caddy's autosaved runtime config.
+  caddy-data:
+    name: caddy-data
+  caddy-config:
+    name: caddy-config

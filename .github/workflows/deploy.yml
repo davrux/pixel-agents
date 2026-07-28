@@ -18,7 +18,9 @@ name: Build, Push & Deploy
 # (Der SERVER_USER muss Docker ohne sudo ausführen dürfen, z. B. Mitglied der
 #  Gruppe 'docker' sein, und 'docker compose' v2 verfügbar haben. Das
 #  Verzeichnis ~/pixel-agents mit dem bereits befüllten arcade-content/ muss
-#  auf dem Server existieren.)
+#  auf dem Server existieren. Port 80+443 (tcp, für QUIC/HTTP3 auch udp) müssen
+#  frei/offen sein — Caddy terminiert dort TLS für pixels.meik.info (DNS A +
+#  AAAA müssen auf den Server zeigen, siehe deploy/Caddyfile).)
 #
 # Package-Sichtbarkeit: Ein frisch gepushtes ghcr-Package ist per Default
 # PRIVATE, unabhängig von der Repo-Sichtbarkeit. Einmalig nach dem ersten
@@ -88,15 +90,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Compose-Datei auf den Server kopieren
+      - name: Compose-Datei + Caddyfile auf den Server kopieren
         uses: appleboy/scp-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "deploy/docker-compose.prod.yml"
+          source: |
+            deploy/docker-compose.prod.yml
+            deploy/Caddyfile
           target: "pixel-agents"
-          strip_components: 1 # legt die Datei als ~/pixel-agents/docker-compose.prod.yml ab
+          strip_components: 1 # legt die Dateien als ~/pixel-agents/{docker-compose.prod.yml,Caddyfile} ab
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1
