@@ -204,6 +204,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Quick-access voice controls in the bar (shown only while connected). */
   private micBarBtn?: HTMLButtonElement;
   private deafBarBtn?: HTMLButtonElement;
+  private micBarEqEl?: HTMLElement;
   private zoneBtn?: HTMLButtonElement;
   private zoneLabelEl?: HTMLElement;
   private spaceBtn?: HTMLButtonElement;
@@ -425,6 +426,11 @@ export class OfficeScene extends Phaser.Scene {
         },
         // Reflect live voice state on the Audio dot + quick-access bar buttons.
         onStateChange: (s) => this.updateVoiceBarButtons(s),
+        onMicLevel: (level) => {
+          if (!this.micBarEqEl) return;
+          const st = this.zoneVoice?.voice.state;
+          this.micBarEqEl.style.setProperty('--l', (st?.connected && st.micOn) ? String(level) : '0');
+        },
       });
     }
 
@@ -1378,10 +1384,11 @@ export class OfficeScene extends Phaser.Scene {
   private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean; deafened: boolean }): void {
     this.audioDot?.classList.toggle('live', s.connected);
     if (this.micBarBtn) {
-      // Keep the mic glyph; a red slash (CSS) marks the muted state.
+      // Keep the mic glyph; a red ⊘ (CSS) marks the muted state.
       this.micBarBtn.style.display = s.connected ? '' : 'none';
-      this.micBarBtn.classList.toggle('warn', !s.micOn);
+      this.micBarBtn.classList.toggle('danger', !s.micOn);
       this.micBarBtn.title = s.micOn ? 'Mute your mic' : 'Unmute your mic';
+      if (this.micBarEqEl && !s.connected) this.micBarEqEl.style.setProperty('--l', '0');
     }
     if (this.deafBarBtn) {
       // Keep the speaker glyph; a red slash (CSS) marks the silenced state.
@@ -1416,6 +1423,11 @@ export class OfficeScene extends Phaser.Scene {
     mic.style.display = 'none';
     mic.onclick = () => this.zoneVoice?.voice.toggleMic();
     this.micBarBtn = mic;
+    const eq = document.createElement('span');
+    eq.className = 'pa-eq';
+    eq.innerHTML = '<span></span><span></span><span></span><span></span><span></span>';
+    mic.appendChild(eq);
+    this.micBarEqEl = eq;
     const deaf = this.mkBarBtn('🔊', '');
     deaf.title = 'Silence / un-silence everyone';
     deaf.style.display = 'none';
@@ -2893,13 +2905,16 @@ export class OfficeScene extends Phaser.Scene {
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
         .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
-          font-size:0.6rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
-        .pa-vstat.crossed::after{content:'';position:absolute;left:-12%;top:45%;width:124%;height:0.1rem;
+          display:flex;gap:0.2em;font-size:0.62rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
+        .pa-vic{position:relative;display:inline-block;line-height:1;}
+        .pa-vic.crossed::before{content:'';position:absolute;inset:-22%;border-radius:50%;
+          border:0.1rem solid #f0696e;box-shadow:0 0 1px #000;}
+        .pa-vic.crossed::after{content:'';position:absolute;left:-12%;top:45%;width:124%;height:0.1rem;
           background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
         .pa-afk{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           font:0.72rem 'FS Pixel Sans',monospace;color:#ffd98a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;}
-        .pa-vstat.spk{animation:pa-voice 0.9s infinite ease-in-out;}
-        @keyframes pa-voice{0%,100%{transform:translate(-50%,-100%) scale(0.92);opacity:.75;}50%{transform:translate(-50%,-100%) scale(1.1);opacity:1;}}
+        .pa-vic.spk{animation:pa-voice 0.9s infinite ease-in-out;}
+        @keyframes pa-voice{0%,100%{transform:scale(0.92);opacity:.75;}50%{transform:scale(1.1);opacity:1;}}
       `;
       document.head.appendChild(s);
     }
@@ -3014,16 +3029,21 @@ export class OfficeScene extends Phaser.Scene {
         (document.getElementById('game') ?? document.body).appendChild(el);
         this.voiceBubbles.set(id, el);
       }
-      // Sound off → crossed speaker; mic muted → crossed mic; speaking → pulsing
-      // mic; otherwise (in voice, listening) → plain mic. Priority: deaf > muted
-      // > speaking > listening.
-      const speaking = this.voiceSpeakUntil.has(id);
-      el.textContent = st.deaf ? '🔊' : '🎤';
-      el.classList.toggle('crossed', st.deaf || st.muted);
-      el.classList.toggle('spk', !st.deaf && !st.muted && speaking);
+      // Only show icons when deactivated: 🎤⊘ when muted, 🔊⊘ when deafened.
+      // Hide the whole bubble when neither is deactivated (clean look during normal voice).
+      let micEl = el.querySelector<HTMLElement>('.pa-vic-mic');
+      let spkEl = el.querySelector<HTMLElement>('.pa-vic-spk');
+      if (!micEl || !spkEl) {
+        el.innerHTML = '<span class="pa-vic pa-vic-mic crossed">🎤</span><span class="pa-vic pa-vic-spk crossed">🔊</span>';
+        micEl = el.querySelector('.pa-vic-mic')!;
+        spkEl = el.querySelector('.pa-vic-spk')!;
+      }
+      micEl.style.display = st.muted ? '' : 'none';
+      spkEl.style.display = st.deaf ? '' : 'none';
+      el.style.display = (st.muted || st.deaf) ? '' : 'none';
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      // Just above the head (a touch higher than the name label at 20).
-      const headOff = (24 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
+      // Higher above the head so the larger two-icon row stays clear of the name label.
+      const headOff = (30 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
       el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }

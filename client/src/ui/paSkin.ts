@@ -22,9 +22,18 @@ export function injectPaSkin(): void {
       .pa-btn.warn{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
       .pa-btn.danger{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-btn .ico{position:relative;display:inline-block;line-height:1;}
+      .pa-btn.warn .ico::before,.pa-btn.danger .ico::before{content:'';position:absolute;inset:-22%;border-radius:50%;
+        border:0.12em solid #ff5b6b;box-shadow:0 0 0 1px rgba(0,0,0,.5);}
       .pa-btn.warn .ico::after,.pa-btn.danger .ico::after{content:'';position:absolute;left:-12%;top:44%;
         width:124%;height:0.16em;background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);
         box-shadow:0 0 0 1px rgba(0,0,0,.55);}
+      .pa-eq{display:flex;gap:2px;align-items:flex-end;height:1.1em;margin-left:0.12em;--l:0;}
+      .pa-eq span{width:3px;background:#7fd08a;border-radius:1px;transition:height 0.06s ease-out;}
+      .pa-eq span:nth-child(5){height:calc(15% + var(--l) * 85%);}
+      .pa-eq span:nth-child(4){height:max(15%,calc(15% + (var(--l) - 0.2) * 106%));}
+      .pa-eq span:nth-child(3){height:max(15%,calc(15% + (var(--l) - 0.4) * 142%));}
+      .pa-eq span:nth-child(2){height:max(15%,calc(15% + (var(--l) - 0.6) * 213%));}
+      .pa-eq span:nth-child(1){height:max(15%,calc(15% + (var(--l) - 0.8) * 425%));}
       .pa-btn .caret{color:#7f859c;font-size:0.8rem;}
       #pa-menubar .pa-dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#5a6076;}
       #pa-menubar .pa-dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}

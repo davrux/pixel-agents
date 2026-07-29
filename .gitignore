@@ -16,6 +16,7 @@ data/
 
 .agent-shell/
 # Local agent config stays out of the repo, but shared skills are versioned.
+# Memory lives in .claude/memory/ (gitignored — local only, not committed).
 .claude/*
 !.claude/skills/
 
@@ -40,5 +41,3 @@ client/public/jsdos/bundles/
 # scripts/vendor-emulatorjs.mjs (not committed).
 client/public/emulatorjs/
 
-# Claude Code auto-memory (local only, not for version control)
-.claude/memory/

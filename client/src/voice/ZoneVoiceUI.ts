@@ -9,7 +9,11 @@ import {
 /** ZoneVoiceUI hooks = the ZoneVoice hooks plus a UI-only callback the scene
  *  uses to reflect live state on the Audio top-bar button. */
 type VoiceBarState = { connected: boolean; micOn: boolean; deafened: boolean };
-type ZoneVoiceUIHooks = ZoneVoiceHooks & { onStateChange?: (s: VoiceBarState) => void };
+type ZoneVoiceUIHooks = ZoneVoiceHooks & {
+  onStateChange?: (s: VoiceBarState) => void;
+  /** Called at ~20 Hz with the live mic input level (0..1). Zero when disconnected. */
+  onMicLevel?: (level: number) => void;
+};
 
 /**
  * Audio panel for zone voice (rendered into the shared menu popover the scene
@@ -46,15 +50,17 @@ export class ZoneVoiceUI {
     { row: HTMLElement; nm: HTMLElement; pct: HTMLElement; vol: HTMLInputElement; mute: HTMLButtonElement }
   >();
   private readonly onStateChange?: (s: VoiceBarState) => void;
+  private readonly onMicLevelCb?: (level: number) => void;
 
   constructor(mount: HTMLElement, hooks: ZoneVoiceUIHooks) {
     this.onStateChange = hooks.onStateChange;
+    this.onMicLevelCb = hooks.onMicLevel;
     this.voice = new ZoneVoice(
       hooks,
       (s) => this.renderState(s),
       (peers) => this.renderPeers(peers),
       (devices) => this.renderDevices(devices),
-      (level) => this.renderMicLevel(level),
+      (level) => { this.renderMicLevel(level); this.onMicLevelCb?.(level); },
     );
     this.lastState = this.voice.state;
     this.injectStyles();

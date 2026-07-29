@@ -349,13 +349,7 @@ identifies the owner; copy it from in-app Settings).
 
 ## Claude Code — persistent memory
 
-Conversation memory lives in **`.claude/memory/`** inside this repo (gitignored).
-The Claude Code harness reads it from `~/.claude/projects/<path>/memory/`; that
-directory should be a symlink into the repo so memory survives container rebuilds:
-
-```bash
-ln -sfn "$(pwd)/.claude/memory" \
-  ~/.claude/projects/-home-meik-program-gitlab-paar-it-de-ups-codeberg-pixel-agents/memory
-```
-
-Run this once after cloning / after a dev-container rebuild.
+Conversation memory lives in **`.claude/memory/`** inside this repo (gitignored —
+not committed). The home directory (`~/.claude/`) is ephemeral and may be wiped
+on rebuild; the repo directory is persistent. Read memory from `.claude/memory/`
+in the repo at the start of each session.
