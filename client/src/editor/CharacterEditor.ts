@@ -1,4 +1,6 @@
 import {
+  DEFAULT_CHARACTER_SPEC,
+  resolveCharacterSpec,
   resolveNpcConfig,
   specFrameCount,
   type CharacterSpec,
@@ -46,6 +48,10 @@ const CELL = 13; // baseline on-screen pixels per sprite pixel (scaled down for 
 const MAX_DIM = 64;
 /** UI cap on frames per track (the server allows up to 64). */
 const MAX_TRACK_FRAMES = 12;
+/** Server-side cap on stored frames per direction (mirrors the save validator). */
+const MAX_FRAMES = 64;
+/** Direction rows in an exported sheet, in order (left is mirrored from right). */
+const SHEET_ROWS: Dir[] = ['down', 'up', 'right'];
 const DIRS: Dir[] = ['down', 'up', 'right', 'left'];
 const DIR_LABEL: Record<Dir, string> = { down: 'Front', up: 'Back', right: 'Right', left: 'Left' };
 
@@ -166,6 +172,56 @@ function cloneFrame(f: SpriteData): SpriteData {
 /** Mirror a frame horizontally (for deriving left from right). */
 function flipH(f: SpriteData): SpriteData {
   return f.map((row) => row.slice().reverse());
+}
+
+/** Read a w×h region of decoded pixels into engine-native SpriteData (`#rrggbb`,
+ *  `#rrggbbaa` when partially transparent, '' when fully transparent). Reads
+ *  outside the image yield transparent, so a short sheet can't throw. */
+function gridFromImageData(px: ImageData, sx: number, sy: number, w: number, h: number): SpriteData {
+  const hx = (n: number): string => n.toString(16).padStart(2, '0');
+  const grid: SpriteData = [];
+  for (let y = 0; y < h; y++) {
+    const row: string[] = [];
+    for (let x = 0; x < w; x++) {
+      if (sx + x >= px.width || sy + y >= px.height) {
+        row.push('');
+        continue;
+      }
+      const i = ((sy + y) * px.width + (sx + x)) * 4;
+      const a = px.data[i + 3];
+      row.push(a === 0 ? '' : `#${hx(px.data[i])}${hx(px.data[i + 1])}${hx(px.data[i + 2])}${a < 255 ? hx(a) : ''}`);
+    }
+    grid.push(row);
+  }
+  return grid;
+}
+
+/** Decode a picked image file. Rejects on anything the browser can't decode. */
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('decode failed'));
+    };
+    img.src = url;
+  });
+}
+
+/** Decode an image into a full-size ImageData buffer (nearest-neighbour, no smoothing). */
+function imagePixels(img: HTMLImageElement): ImageData {
+  const cv = document.createElement('canvas');
+  cv.width = img.naturalWidth;
+  cv.height = img.naturalHeight;
+  const ctx = cv.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(img, 0, 0);
+  return ctx.getImageData(0, 0, cv.width, cv.height);
 }
 
 /** Display label for a skin: its name, or the stable id when unnamed. The id is
@@ -474,7 +530,10 @@ export class CharacterEditor {
         <div id="pa-c-tracks"></div>
         <div class="row"><button id="pa-c-clear">Clear current frame</button></div>
         <div class="row">
-          <button id="pa-c-import-btn" title="Pick frames from a PNG sprite sheet">⇪ Import from PNG…</button>
+          <button id="pa-c-import-btn" title="Pick individual frames out of a PNG sprite sheet">⇪ Import frames…</button>
+          <button id="pa-c-importchar"
+            title="Replace this character from an Export: select the .png and its .json manifest together">⇩ Import character…</button>
+          <input id="pa-c-impchar-file" type="file" accept=".png,.json,image/png,application/json" multiple hidden>
         </div>
         <div class="row" style="justify-content:flex-end;min-height:16px;margin:0;"><span id="pa-c-status">​</span></div>
         <div class="foot">
@@ -637,6 +696,13 @@ export class CharacterEditor {
     panel.querySelector<HTMLButtonElement>('#pa-c-save')!.onclick = () => this.doSave();
     panel.querySelector<HTMLButtonElement>('#pa-c-export')!.onclick = () => this.doExport();
     panel.querySelector<HTMLButtonElement>('#pa-c-import-btn')!.onclick = () => this.toggleImport();
+    const charFile = panel.querySelector<HTMLInputElement>('#pa-c-impchar-file')!;
+    panel.querySelector<HTMLButtonElement>('#pa-c-importchar')!.onclick = () => charFile.click();
+    charFile.onchange = () => {
+      const picked = Array.from(charFile.files ?? []);
+      charFile.value = ''; // allow re-picking the same files
+      if (picked.length) void this.importCharacterFiles(picked);
+    };
 
     this.bindPaint();
   }
@@ -1149,6 +1215,83 @@ export class CharacterEditor {
     this.showStatus('Exported PNG + manifest (rename both to char_N.*)');
   }
 
+  /** Inverse of doExport: rebuild this character from an exported sheet
+   *  (`<name>.png`) plus its optional sibling manifest (`<name>.json`). The
+   *  manifest supplies the frame size + track layout; without one the export
+   *  contract implies the default layout, which is all a bare PNG can encode.
+   *  `left` is dropped so it re-mirrors from `right`, matching what export wrote. */
+  private async importCharacterFiles(files: File[]): Promise<void> {
+    const isJson = (f: File): boolean => /\.json$/i.test(f.name) || f.type === 'application/json';
+    const png = files.find((f) => !isJson(f));
+    const manifest = files.find(isJson);
+    if (!png) {
+      this.showStatus('Pick the exported .png (plus its .json)');
+      return;
+    }
+    let spec: CharacterSpec | null = null;
+    if (manifest) {
+      try {
+        spec = resolveCharacterSpec(JSON.parse(await manifest.text()));
+      } catch {
+        this.showStatus(`${manifest.name} is not valid JSON`);
+        return;
+      }
+    }
+    let img: HTMLImageElement;
+    try {
+      img = await loadImage(png);
+    } catch {
+      this.showStatus('Could not load image');
+      return;
+    }
+    if (!spec) {
+      // No manifest ⇒ the default 16×32 layout; only the frame count is free,
+      // and it follows from the sheet width. Any other geometry is ambiguous.
+      const { w, h } = DEFAULT_CHARACTER_SPEC.frame;
+      if (img.naturalHeight !== SHEET_ROWS.length * h || img.naturalWidth % w !== 0 || img.naturalWidth === 0) {
+        this.showStatus('Frame size unknown — include the exported .json');
+        return;
+      }
+      spec = { frame: { w, h }, tracks: deriveSpecTracks(img.naturalWidth / w, this.trackDefs()) };
+    }
+    const { w, h } = spec.frame;
+    const frames = specFrameCount(spec);
+    if (frames > MAX_FRAMES) {
+      this.showStatus(`Too many frames (${frames}, max ${MAX_FRAMES})`);
+      return;
+    }
+    if (img.naturalWidth < frames * w || img.naturalHeight < SHEET_ROWS.length * h) {
+      this.showStatus(`Sheet too small — need ${frames * w}×${SHEET_ROWS.length * h}px`);
+      return;
+    }
+    if (
+      !(await confirmDialog(`Replace ${this.displayName()} with ${png.name}?`, {
+        danger: true,
+        confirmLabel: 'Replace',
+      }))
+    )
+      return;
+
+    const px = imagePixels(img);
+    this.W = w;
+    this.H = h;
+    SHEET_ROWS.forEach((dir, row) => {
+      this.work[dir] = Array.from({ length: frames }, (_, f) => gridFromImageData(px, f * w, row * h, w, h));
+    });
+    delete this.work.left;
+    this.work.spec = spec;
+    this.ensureSpec(); // re-derives if the manifest names tracks this category doesn't know
+    this.frame = Math.min(this.frame, frames - 1);
+    this.selection = null;
+    this.syncSizeInputs();
+    this.dirty = true;
+    this.render();
+    this.startPreview();
+    this.showStatus(
+      manifest ? `Imported ${frames} frames · ${w}×${h} ✓` : `Imported ${frames} frames · default layout ✓`,
+    );
+  }
+
   /** True when the spec equals the historical default (16×32, walk3/type2/read2,
    *  no coffee) — such a character needs no sibling manifest. */
   private isDefaultLayout(): boolean {
@@ -1442,29 +1585,23 @@ export class CharacterEditor {
   }
 
   private loadImportFile(f: File): void {
-    const url = URL.createObjectURL(f);
-    const img = new Image();
-    img.onload = () => {
-      this.importImg = img;
-      // Default the cell to the character frame size; reset offset/gap so a
-      // grid-aligned sheet at the same size grabs 1:1.
-      this.imp.cw = this.W;
-      this.imp.ch = this.H;
-      this.imp.ox = 0;
-      this.imp.oy = 0;
-      this.imp.gx = 0;
-      this.imp.gy = 0;
-      this.imp.scale = Math.max(1, Math.min(8, Math.floor(360 / img.naturalWidth) || 1));
-      this.impHover = null;
-      this.syncImportInputs();
-      this.renderImportCanvas();
-      URL.revokeObjectURL(url);
-    };
-    img.onerror = () => {
-      this.showStatus('Could not load image');
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    loadImage(f)
+      .then((img) => {
+        this.importImg = img;
+        // Default the cell to the character frame size; reset offset/gap so a
+        // grid-aligned sheet at the same size grabs 1:1.
+        this.imp.cw = this.W;
+        this.imp.ch = this.H;
+        this.imp.ox = 0;
+        this.imp.oy = 0;
+        this.imp.gx = 0;
+        this.imp.gy = 0;
+        this.imp.scale = Math.max(1, Math.min(8, Math.floor(360 / img.naturalWidth) || 1));
+        this.impHover = null;
+        this.syncImportInputs();
+        this.renderImportCanvas();
+      })
+      .catch(() => this.showStatus('Could not load image'));
   }
 
   private syncImportInputs(): void {
@@ -1557,18 +1694,7 @@ export class CharacterEditor {
     tctx.imageSmoothingEnabled = false;
     tctx.clearRect(0, 0, this.W, this.H);
     tctx.drawImage(img, sx, sy, cw, ch, 0, 0, this.W, this.H);
-    const data = tctx.getImageData(0, 0, this.W, this.H).data;
-    const hx = (n: number): string => n.toString(16).padStart(2, '0');
-    const grid: SpriteData = [];
-    for (let y = 0; y < this.H; y++) {
-      const rowArr: string[] = [];
-      for (let x = 0; x < this.W; x++) {
-        const i = (y * this.W + x) * 4;
-        const a = data[i + 3];
-        rowArr.push(a === 0 ? '' : `#${hx(data[i])}${hx(data[i + 1])}${hx(data[i + 2])}${a < 255 ? hx(a) : ''}`);
-      }
-      grid.push(rowArr);
-    }
+    const grid = gridFromImageData(tctx.getImageData(0, 0, this.W, this.H), 0, 0, this.W, this.H);
     const frames = this.dir === 'left' ? this.ensureLeft() : this.work[this.dir];
     frames[this.frame] = grid;
     this.dirty = true;
