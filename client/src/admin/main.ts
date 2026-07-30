@@ -16,21 +16,21 @@ let tab: 'users' | 'rooms' = 'users';
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User', customer: 'Customer' };
 
 const STYLE = `
-  #ad-head{display:flex;align-items:center;gap:.8rem;padding:.7rem 1.1rem;background:var(--panel);
+  #pa-adm-head{display:flex;align-items:center;gap:.8rem;padding:.7rem 1.1rem;background:var(--panel);
     border-bottom:1px solid var(--line);}
-  #ad-head .brand{font-weight:650;font-size:1.05rem;}
-  #ad-head .spacer{flex:1;}
-  #ad-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:1px solid var(--line);
+  #pa-adm-head .brand{font-weight:650;font-size:1.05rem;}
+  #pa-adm-head .spacer{flex:1;}
+  #pa-adm-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:1px solid var(--line);
     border-radius:.5rem;padding:.4rem .7rem;font:inherit;font-size:.85rem;}
-  #ad-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);}
-  #ad-tabs button{cursor:pointer;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
+  #pa-adm-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);}
+  #pa-adm-tabs button{cursor:pointer;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
     padding:.5rem .8rem;font:inherit;font-size:.95rem;}
-  #ad-tabs button.on{color:var(--text);border-bottom-color:var(--accent);}
-  #ad-toast{min-height:1.2rem;padding:.3rem 1.1rem;color:var(--muted);font-size:.85rem;}
-  #ad-toast.err{color:#f0a6a2;}
-  #ad-view{padding:.4rem 1.1rem 2rem;max-width:60rem;}
-  .ad-card{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;padding:1rem 1.1rem;margin-bottom:1rem;}
-  .ad-card h2{margin:0 0 .8rem;font-size:1rem;}
+  #pa-adm-tabs button.on{color:var(--text);border-bottom-color:var(--accent);}
+  #pa-adm-toast{min-height:1.2rem;padding:.3rem 1.1rem;color:var(--muted);font-size:.85rem;}
+  #pa-adm-toast.err{color:#f0a6a2;}
+  #pa-adm-view{padding:.4rem 1.1rem 2rem;max-width:60rem;}
+  .pa-adm-card{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;padding:1rem 1.1rem;margin-bottom:1rem;}
+  .pa-adm-card h2{margin:0 0 .8rem;font-size:1rem;}
   table{width:100%;border-collapse:collapse;}
   th,td{text-align:left;padding:.5rem .5rem;border-bottom:1px solid var(--line);font-size:.92rem;vertical-align:middle;}
   th{color:var(--muted);font-weight:600;font-size:.72rem;letter-spacing:.6px;text-transform:uppercase;}
@@ -58,7 +58,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return e;
 }
 function toast(msg: string, err = false): void {
-  const t = document.getElementById('ad-toast');
+  const t = document.getElementById('pa-adm-toast');
   if (!t) return;
   t.textContent = msg;
   t.classList.toggle('err', err);
@@ -82,24 +82,24 @@ function buildShell(): void {
   document.head.appendChild(s);
   const app = document.getElementById('app')!;
   app.innerHTML = `
-    <div id="ad-head"><span class="brand">🛡 Administration</span><span class="spacer"></span>
+    <div id="pa-adm-head"><span class="brand">🛡 Administration</span><span class="spacer"></span>
       <button data-pixels>← Pixels</button>
       <button data-logout>Sign out</button></div>
-    <div id="ad-tabs">
+    <div id="pa-adm-tabs">
       <button data-tab="users">Users</button>
       <button data-tab="rooms">Rooms</button>
     </div>
-    <div id="ad-toast"></div>
-    <div id="ad-view"></div>`;
+    <div id="pa-adm-toast"></div>
+    <div id="pa-adm-view"></div>`;
   app.querySelector<HTMLButtonElement>('[data-pixels]')!.onclick = () => { window.location.href = './'; };
   app.querySelector<HTMLButtonElement>('[data-logout]')!.onclick = () => gotoLogout();
-  app.querySelectorAll<HTMLButtonElement>('#ad-tabs button').forEach((b) => {
+  app.querySelectorAll<HTMLButtonElement>('#pa-adm-tabs button').forEach((b) => {
     b.onclick = () => { tab = b.dataset.tab as typeof tab; render(); };
   });
 }
 
 function render(): void {
-  document.querySelectorAll<HTMLButtonElement>('#ad-tabs button').forEach((b) =>
+  document.querySelectorAll<HTMLButtonElement>('#pa-adm-tabs button').forEach((b) =>
     b.classList.toggle('on', b.dataset.tab === tab),
   );
   if (tab === 'users') void renderUsers();
@@ -111,7 +111,7 @@ async function refreshUsers(): Promise<boolean> {
   const r = await adminApi.listUsers();
   if (r.status === 401) return redirectToLogin(), false;
   if (r.status === 403) {
-    document.getElementById('ad-view')!.innerHTML = '<div class="ad-card">This page is for administrators only.</div>';
+    document.getElementById('pa-adm-view')!.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
     return false;
   }
   users = r.data?.users ?? [];
@@ -120,11 +120,11 @@ async function refreshUsers(): Promise<boolean> {
 
 async function renderUsers(): Promise<void> {
   if (!(await refreshUsers())) return;
-  const view = document.getElementById('ad-view')!;
+  const view = document.getElementById('pa-adm-view')!;
   view.innerHTML = '';
 
   // Create form
-  const create = el('div', 'ad-card');
+  const create = el('div', 'pa-adm-card');
   create.innerHTML = '<h2>Create account</h2>';
   const form = el('div', 'row');
   const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16;
@@ -142,7 +142,7 @@ async function renderUsers(): Promise<void> {
   view.appendChild(create);
 
   // User table
-  const card = el('div', 'ad-card');
+  const card = el('div', 'pa-adm-card');
   card.innerHTML = `<h2>Accounts · ${users.length}</h2>`;
   const table = el('table');
   table.innerHTML =
@@ -252,13 +252,13 @@ async function renderRooms(): Promise<void> {
   const r = await adminApi.listZones();
   if (r.status === 401) return redirectToLogin();
   if (r.status === 403) {
-    document.getElementById('ad-view')!.innerHTML = '<div class="ad-card">This page is for administrators only.</div>';
+    document.getElementById('pa-adm-view')!.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
     return;
   }
   zones = r.data?.zones ?? [];
-  const view = document.getElementById('ad-view')!;
+  const view = document.getElementById('pa-adm-view')!;
   view.innerHTML = '';
-  const intro = el('div', 'ad-card');
+  const intro = el('div', 'pa-adm-card');
   intro.innerHTML =
     '<h2>Rooms</h2><div class="muted">A password locks the room — anyone but admins, the room\'s admins ' +
     'and assigned customers must enter it to join. Monitors can be locked separately.</div>';
@@ -268,7 +268,7 @@ async function renderRooms(): Promise<void> {
 }
 
 function zoneCard(z: AdminZone): HTMLElement {
-  const card = el('div', 'ad-card');
+  const card = el('div', 'pa-adm-card');
   const title = el('div', 'row');
   const h = el('h2', undefined, z.label);
   h.style.margin = '0';
