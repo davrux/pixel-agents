@@ -1526,9 +1526,11 @@ export class OfficeScene extends Phaser.Scene {
       devtools.title = 'Toggle developer tools';
       devtools.onclick = () => void desktop().toggleDevTools();
 
+      // Plain ✕ — no `.danger`, whose red circle-and-slash overlay reads as a
+      // "muted/blocked" state badge (mic, deafen) rather than a close control.
       const closeApp = this.mkBarBtn('✕', '');
       closeApp.title = 'Close app';
-      closeApp.classList.add('danger');
+      closeApp.classList.add('pa-close');
       closeApp.onclick = () => void desktop().closeWindow();
 
       bar.append(devtools, closeApp);

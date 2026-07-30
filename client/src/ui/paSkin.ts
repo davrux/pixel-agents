@@ -21,6 +21,8 @@ export function injectPaSkin(): void {
       .pa-btn.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-3px;height:3px;background:#7fd08a;border-radius:2px;}
       .pa-btn.warn{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
       .pa-btn.danger{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+      /* Window close: a plain ✕ that only reddens on hover (no state overlay). */
+      .pa-btn.pa-close:hover{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-btn .ico{position:relative;display:inline-block;line-height:1;}
       .pa-btn.warn .ico::before,.pa-btn.danger .ico::before{content:'';position:absolute;inset:-22%;border-radius:50%;
         border:0.12em solid #ff5b6b;box-shadow:0 0 0 1px rgba(0,0,0,.5);}
