@@ -15,6 +15,88 @@
  * in `desktop/src/ipc.ts` (authored in T4.2); this consuming shape is
  * reconciled with it there.
  */
+export interface MumbleChannelInfo {
+  id: number;
+  parent: number;
+  name: string;
+  description?: string;
+  position?: number;
+}
+
+export interface MumbleUserInfo {
+  session: number;
+  name: string;
+  channel: number;
+  selfMute: boolean;
+  selfDeaf: boolean;
+  mute: boolean;
+  deaf: boolean;
+  suppress: boolean;
+  /** Present once the server reports a registered account for this user. */
+  userId?: number;
+}
+
+export type MumbleEvent =
+  | { t: 'status'; state: 'connecting' | 'connected' | 'error' | 'closed'; error?: string }
+  | {
+      t: 'sync';
+      session: number;
+      welcome?: string;
+      channels: MumbleChannelInfo[];
+      users: MumbleUserInfo[];
+    }
+  | { t: 'channel'; channel: MumbleChannelInfo }
+  | { t: 'channelRemove'; id: number }
+  | { t: 'user'; user: MumbleUserInfo }
+  | { t: 'userRemove'; session: number }
+  | { t: 'text'; actor: number; message: string }
+  | { t: 'permission'; reason: string };
+
+export interface MumbleAudioIn {
+  session: number;
+  terminator: boolean;
+  opus: Uint8Array;
+}
+
+export interface MumbleSettings {
+  host: string;
+  port: number;
+  username: string;
+  channel: string;
+  certPath: string | null;
+  autoConnect: boolean;
+}
+
+export interface MumbleSettingsView extends MumbleSettings {
+  hasPassword: boolean;
+  hasPassphrase: boolean;
+  keychainAvailable: boolean;
+}
+
+export type MumbleSettingsPatch = Partial<MumbleSettings> & {
+  /** '' clears the stored value; undefined leaves it untouched. */
+  password?: string;
+  passphrase?: string;
+};
+
+/** Mumble voice: the protocol and TLS socket live in the Electron main process;
+ *  this renderer only captures, encodes, decodes and plays Opus. */
+export interface MumbleApi {
+  connect(): Promise<{ ok: boolean; error?: string }>;
+  disconnect(): Promise<void>;
+  joinChannel(id: number): Promise<void>;
+  selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
+  sendText(message: string): Promise<void>;
+  selfRegister(): Promise<void>;
+  getSettings(): Promise<MumbleSettingsView>;
+  setSettings(patch: MumbleSettingsPatch): Promise<MumbleSettingsView>;
+  pickCertFile(): Promise<string | null>;
+  /** [flags, ...opus] — flag bit 0 marks the end of a talk spurt. */
+  sendAudio(frame: Uint8Array): void;
+  onEvent(cb: (event: MumbleEvent) => void): () => void;
+  onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
+}
+
 export interface PixelDesktopApi {
   /** Presence of a `true` value marks the desktop build. */
   isDesktop: true;
@@ -37,6 +119,8 @@ export interface PixelDesktopApi {
   toggleDevTools(): Promise<void>;
   /** Reloads the calling window from the main process (reliable under app://). */
   reload(): Promise<void>;
+  /** Mumble voice client (desktop only). */
+  mumble: MumbleApi;
 }
 
 declare global {
@@ -57,6 +141,13 @@ export function desktop(): PixelDesktopApi {
     throw new Error('desktop() called in a non-desktop environment');
   }
   return api;
+}
+
+/** The Mumble client, or null in the browser (where there is no Electron main
+ *  process to hold the TLS socket). One guarded accessor so renderer code never
+ *  has to branch on `isDesktop()` itself. */
+export function mumbleApi(): MumbleApi | null {
+  return isDesktop() ? (window.pixelDesktop?.mumble ?? null) : null;
 }
 
 /**

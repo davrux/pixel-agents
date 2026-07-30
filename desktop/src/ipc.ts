@@ -26,10 +26,114 @@ export const PIXEL_DESKTOP_CHANNELS = {
   closeWindow: 'pixelDesktop:closeWindow',
   toggleDevTools: 'pixelDesktop:toggleDevTools',
   reload: 'pixelDesktop:reload',
+  // Mumble voice. Control is invoke/handle like everything above; audio is
+  // fire-and-forget in both directions because a promise per 20 ms frame would
+  // be pure overhead at 50 packets/s.
+  mumbleConnect: 'pixelDesktop:mumbleConnect',
+  mumbleDisconnect: 'pixelDesktop:mumbleDisconnect',
+  mumbleJoinChannel: 'pixelDesktop:mumbleJoinChannel',
+  mumbleSelfState: 'pixelDesktop:mumbleSelfState',
+  mumbleSendText: 'pixelDesktop:mumbleSendText',
+  mumbleSelfRegister: 'pixelDesktop:mumbleSelfRegister',
+  mumbleGetSettings: 'pixelDesktop:mumbleGetSettings',
+  mumbleSetSettings: 'pixelDesktop:mumbleSetSettings',
+  mumblePickCertFile: 'pixelDesktop:mumblePickCertFile',
+  mumbleSendAudio: 'pixelDesktop:mumbleSendAudio', // renderer -> main, send
+  mumbleEvent: 'pixelDesktop:mumbleEvent', // main -> renderer
+  mumbleAudio: 'pixelDesktop:mumbleAudio', // main -> renderer
 } as const;
 
 export type PixelDesktopChannel =
   (typeof PIXEL_DESKTOP_CHANNELS)[keyof typeof PIXEL_DESKTOP_CHANNELS];
+
+// ── Mumble voice ─────────────────────────────────────────────────────────────
+
+export interface MumbleChannelInfo {
+  id: number;
+  parent: number;
+  name: string;
+  description?: string;
+  position?: number;
+}
+
+export interface MumbleUserInfo {
+  session: number;
+  name: string;
+  channel: number;
+  selfMute: boolean;
+  selfDeaf: boolean;
+  mute: boolean;
+  deaf: boolean;
+  suppress: boolean;
+  /** Present once the server reports a registered account for this user. */
+  userId?: number;
+}
+
+/** Pushed from main on the `mumbleEvent` channel. */
+export type MumbleEvent =
+  | { t: 'status'; state: 'connecting' | 'connected' | 'error' | 'closed'; error?: string }
+  | {
+      t: 'sync';
+      session: number;
+      welcome?: string;
+      channels: MumbleChannelInfo[];
+      users: MumbleUserInfo[];
+    }
+  | { t: 'channel'; channel: MumbleChannelInfo }
+  | { t: 'channelRemove'; id: number }
+  | { t: 'user'; user: MumbleUserInfo }
+  | { t: 'userRemove'; session: number }
+  | { t: 'text'; actor: number; message: string }
+  | { t: 'permission'; reason: string };
+
+/** Pushed from main on the `mumbleAudio` channel: one Opus packet. */
+export interface MumbleAudioIn {
+  session: number;
+  terminator: boolean;
+  opus: Uint8Array;
+}
+
+export interface MumbleSettings {
+  host: string;
+  port: number;
+  username: string;
+  /** Optional channel to join on connect. */
+  channel: string;
+  /** Path to the user's PKCS#12 identity, or null to connect as a guest. */
+  certPath: string | null;
+  autoConnect: boolean;
+}
+
+/** Settings as shown to the renderer: the secrets themselves never cross. */
+export interface MumbleSettingsView extends MumbleSettings {
+  hasPassword: boolean;
+  hasPassphrase: boolean;
+  keychainAvailable: boolean;
+}
+
+export type MumbleSettingsPatch = Partial<MumbleSettings> & {
+  /** '' clears the stored value; undefined leaves it untouched. */
+  password?: string;
+  passphrase?: string;
+};
+
+export interface MumbleApi {
+  connect(): Promise<{ ok: boolean; error?: string }>;
+  disconnect(): Promise<void>;
+  joinChannel(id: number): Promise<void>;
+  selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
+  sendText(message: string): Promise<void>;
+  selfRegister(): Promise<void>;
+  getSettings(): Promise<MumbleSettingsView>;
+  setSettings(patch: MumbleSettingsPatch): Promise<MumbleSettingsView>;
+  /** Native file picker for a .p12/.pfx identity; null when cancelled. */
+  pickCertFile(): Promise<string | null>;
+  /** [flags, ...opus] — flag bit 0 marks the end of a talk spurt. */
+  sendAudio(frame: Uint8Array): void;
+  /** Both subscriptions return an unsubscribe function. */
+  onEvent(cb: (event: MumbleEvent) => void): () => void;
+  onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
+}
 
 /**
  * The typed API injected as `window.pixelDesktop` in the desktop renderer.
@@ -58,4 +162,6 @@ export interface PixelDesktopApi {
   /** Reloads the calling window from the main process. Renderer-initiated
    *  `location.reload()` is unreliable in the app:// shell; this always works. */
   reload(): Promise<void>;
+  /** Mumble voice client (protocol + TLS live in main; audio lives here). */
+  mumble: MumbleApi;
 }

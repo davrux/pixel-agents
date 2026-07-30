@@ -95,7 +95,10 @@ export class ZoneVoice {
   private readonly savedPeerVolumes = new Map<string, number>();
 
   private enabled = false; // user intent (Join/Leave)
-  private suspended = false; // temporarily off (e.g. while in a conference) — keeps intent
+  // Temporarily off while something else owns the mic (a conference, Mumble) —
+  // keeps the user's intent. A set, not a flag: two reasons can overlap, and
+  // whoever ends first must not resurrect the call for the other.
+  private readonly suspendReasons = new Set<string>();
   private connecting = false;
   private micOn = false; // start muted: joining a zone shouldn't open a hot mic
   private proximity: boolean;
@@ -174,17 +177,16 @@ export class ZoneVoice {
 
   /** Temporarily disconnect without losing the user's intent (e.g. while in a
    *  conference monitor — you can't be in two voice calls at once). */
-  suspend(): void {
-    if (this.suspended) return;
-    this.suspended = true;
-    void this.disconnect();
+  suspend(reason: string): void {
+    const wasEmpty = this.suspendReasons.size === 0;
+    this.suspendReasons.add(reason);
+    if (wasEmpty) void this.disconnect();
   }
 
-  /** Undo {@link suspend}: reconnect to the zone if still enabled. */
-  resume(): void {
-    if (!this.suspended) return;
-    this.suspended = false;
-    if (this.enabled) this.connect();
+  /** Undo one {@link suspend}: reconnect only once every reason has cleared. */
+  resume(reason: string): void {
+    if (!this.suspendReasons.delete(reason)) return;
+    if (this.suspendReasons.size === 0 && this.enabled) this.connect();
   }
 
   /** Called on startup: if previously enabled, auto-connect to this zone. */
@@ -198,7 +200,7 @@ export class ZoneVoice {
   }
 
   private connect(): void {
-    if (!this.enabled || this.suspended || this.connecting || this.room) return;
+    if (!this.enabled || this.suspendReasons.size > 0 || this.connecting || this.room) return;
     this.connecting = true;
     this.emitState();
     this.hooks.requestToken(); // server replies → onToken()
@@ -206,7 +208,7 @@ export class ZoneVoice {
 
   /** Server delivered a token (or an error). */
   async onToken(msg: { url?: string; token?: string; error?: string }): Promise<void> {
-    if (!this.enabled || this.suspended) return;
+    if (!this.enabled || this.suspendReasons.size > 0) return;
     if (msg.error || !msg.url || !msg.token) {
       this.connecting = false;
       this.emitState(msg.error === 'not-configured' ? 'voice not configured on server' : msg.error);

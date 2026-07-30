@@ -141,6 +141,32 @@ pnpm dist:desktop     # → desktop/release/Pixel Agents-<version>-<arch>.AppIma
 main/preload) without packaging. Both require `electron`'s postinstall to have
 fetched its Chromium binary (allowed in `pnpm-workspace.yaml`).
 
+#### Mumble voice (desktop only)
+
+The desktop app is also a **Mumble client**. Set a server, name and (optionally)
+a certificate under *Settings → Mumble voice*, then open the **🎧 Mumble** panel
+from the top bar and flip its switch: you get the server's channel tree, its
+users, push-to-talk with a threshold gate, and per-user volume — alongside, but
+independent of, the built-in zone voice. The 📌 pin keeps the panel open while
+you play instead of closing when you open another menu. You can only be in one
+call at a time, so turning Mumble on parks zone voice (and a conference parks
+both).
+
+It connects **straight from your machine** to the voice server: the pixel-agents
+server never relays it and holds none of your credentials. Connection details
+live in Electron's `userData`; the server password and certificate passphrase go
+to the OS keychain. On first connect you are asked to trust the voice server's
+certificate by fingerprint, the same prompt the app uses for self-signed servers.
+
+Certificates are Mumble's notion of an account. Point *Identity* at the `.p12`
+your Mumble client exports (Configure → Certificate Wizard → Export) to appear as
+your existing registered user; without one you connect as an unregistered guest.
+Once connected, **Register me** asks the server to register you, if it allows it.
+
+Browsers can't open the raw TLS socket Mumble needs, so this is desktop-only. An
+operator can set `MUMBLE_HOST`/`MUMBLE_PORT`/`MUMBLE_CHANNEL` (see
+`.env.example`) purely so the app can *suggest* the community's address.
+
 ### Accounts & login
 
 Set **`PIXEL_ADMIN_TOKEN`** (or `--token`) to enable accounts. Players sign in

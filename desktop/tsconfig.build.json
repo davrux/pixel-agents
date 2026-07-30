@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": "Emit config: same as tsconfig.json but without the tests, so no test code lands in dist/ (and therefore in the packaged asar). check-types still uses tsconfig.json, which does include them.",
+  "exclude": ["src/**/*.test.ts"]
+}

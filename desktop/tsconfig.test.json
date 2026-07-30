@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.json",
+  "comment": "Test config: compiles src (tests included) to a throwaway dist/test-build so `node --test` can run plain JS. The repo's imports carry .js extensions, which Node's native TS support does not map back to .ts — and adding a TS loader as a dependency is not worth it when tsc is already here.",
+  "compilerOptions": {
+    "outDir": "dist/test-build"
+  }
+}

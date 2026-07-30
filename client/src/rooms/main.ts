@@ -555,7 +555,7 @@ function onConfToken(m: Record<string, unknown>): void {
     onParticipants: (list) => confUI.setParticipants(list),
     onScreens: (n) => confUI.setSharing(n > 0),
   });
-  voice?.suspend(); // can't be in two calls at once
+  voice?.suspend('conference'); // can't be in two calls at once
   void conf.connect(m.url as string, m.token as string).catch(() => undefined);
 }
 
@@ -565,7 +565,7 @@ function leaveMeeting(): void {
   confUI.close();
   void conf?.disconnect?.();
   conf = null;
-  voice?.resume();
+  voice?.resume('conference');
   renderMeetings();
 }
 
@@ -687,8 +687,8 @@ async function joinZone(zone?: string): Promise<void> {
   renderRoomList();
   renderRoom();
   // If voice was on, reconnect it to the new zone's token.
-  voice?.suspend();
-  voice?.resume();
+  voice?.suspend('zone-switch');
+  voice?.resume('zone-switch');
 }
 
 function esc(s: string): string {

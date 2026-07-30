@@ -36,6 +36,9 @@ import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
+import { MumbleUI } from '../voice/MumbleUI.js';
+import { MumbleVoice } from '../voice/MumbleVoice.js';
+import { MumbleSettingsUI } from '../voice/MumbleSettingsUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -72,7 +75,7 @@ type RenderChar = Partial<Character> & {
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
 /** Which grouped top-bar popover is open (null = none). */
-type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
+type MenuId = 'audio' | 'mumble' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
 
 /** Per-pose animation frame duration (ms), mirroring the engine's constants.
  *  Poses not listed (idle) are static. Drives the client-side animation clock. */
@@ -174,6 +177,9 @@ export class OfficeScene extends Phaser.Scene {
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
+  private mumble?: MumbleUI;
+  private mumblePanel?: HTMLDivElement;
+  private mumbleBtn?: HTMLButtonElement;
   private zoneVoiceStarted = false;
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
@@ -432,6 +438,19 @@ export class OfficeScene extends Phaser.Scene {
           this.micBarEqEl.style.setProperty('--l', (st?.connected && st.micOn) ? String(level) : '0');
         },
       });
+    }
+    // Mumble owns its own panel. Desktop-only: in the browser MumbleUI renders
+    // nothing, so the panel and its bar button simply stay hidden.
+    const mumbleBody = this.mumblePanel?.querySelector<HTMLElement>('.pa-body');
+    if (mumbleBody) {
+      this.mumble = new MumbleUI(mumbleBody, {
+        onJoin: () => this.zoneVoice?.voice.suspend('mumble'),
+        onLeave: () => this.zoneVoice?.voice.resume('mumble'),
+        onOpenSettings: () => void this.setMenu('settings'),
+        onPinChange: () => this.applyMumblePin(),
+      });
+      this.mumble.start();
+      this.applyMumblePin();
     }
 
     this.setupInput();
@@ -1325,6 +1344,12 @@ export class OfficeScene extends Phaser.Scene {
       if (el) el.style.display = menu === id ? 'block' : 'none';
     };
     show(this.audioPanel, 'audio');
+    // A pinned Mumble panel opts out of the one-panel-at-a-time rule.
+    if (this.mumble?.isPinned) {
+      if (this.mumblePanel) this.mumblePanel.style.display = 'block';
+    } else {
+      show(this.mumblePanel, 'mumble');
+    }
     show(this.zonePanel, 'zone');
     show(this.spacePanel, 'space');
     show(this.assetsPanel, 'assets');
@@ -1333,6 +1358,7 @@ export class OfficeScene extends Phaser.Scene {
     show(this.helpPanel, 'help');
 
     this.audioBtn?.classList.toggle('active', menu === 'audio');
+    this.mumbleBtn?.classList.toggle('active', menu === 'mumble' || this.mumble?.isPinned === true);
     this.zoneBtn?.classList.toggle('active', menu === 'zone');
     this.spaceBtn?.classList.toggle('active', menu === 'space');
     this.assetsBtn?.classList.toggle('active', menu === 'assets');
@@ -1351,6 +1377,19 @@ export class OfficeScene extends Phaser.Scene {
       this.renderCharSwatches();
       this.syncSettingsInputs();
     }
+  }
+
+  /**
+   * Reflect the Mumble pin: a pinned panel stays visible regardless of the
+   * current menu, and the body class shifts the other right-hand popovers left
+   * so they don't land on top of it.
+   */
+  private applyMumblePin(): void {
+    const pinned = this.mumble?.isPinned === true;
+    document.body.classList.toggle('pa-mumble-pinned', pinned);
+    if (this.mumblePanel && pinned) this.mumblePanel.style.display = 'block';
+    else if (this.mumblePanel && this.currentMenu !== 'mumble') this.mumblePanel.style.display = 'none';
+    this.mumbleBtn?.classList.toggle('active', pinned || this.currentMenu === 'mumble');
   }
 
   /** Edit mode owns the screen: close the menu + hide the whole top bar (it would
@@ -1434,6 +1473,12 @@ export class OfficeScene extends Phaser.Scene {
     deaf.onclick = () => this.zoneVoice?.voice.toggleDeafen();
     this.deafBarBtn = deaf;
 
+    // Mumble — its own top-level entry, shown only on the desktop build.
+    const mumbleBtn = this.mkBarBtn('🎧', 'Mumble');
+    mumbleBtn.onclick = () => void this.setMenu(this.currentMenu === 'mumble' ? null : 'mumble');
+    mumbleBtn.style.display = MumbleVoice.supported ? '' : 'none';
+    this.mumbleBtn = mumbleBtn;
+
     const divider = document.createElement('span');
     divider.className = 'pa-div';
 
@@ -1471,7 +1516,7 @@ export class OfficeScene extends Phaser.Scene {
       );
     this.moreBtn = more;
 
-    bar.append(audio, mic, deaf, divider, zone, space, assets, spacer, more);
+    bar.append(audio, mic, deaf, mumbleBtn, divider, zone, space, assets, spacer, more);
 
     // Desktop-only window controls. The Electron shell hides the native menu bar
     // and title-bar menus, so the HUD carries its own chrome: a DevTools toggle
@@ -1506,6 +1551,23 @@ export class OfficeScene extends Phaser.Scene {
 
     // Audio panel — ZoneVoiceUI renders its controls into this body (in create()).
     this.audioPanel = this.mkPanel('Audio', 'left').panel;
+
+    // Mumble gets its own panel rather than living under Audio: it is a whole
+    // second client (channel tree, roster, its own devices) and it is the one
+    // panel people want kept open while they play. Docked on the right so a
+    // pinned roster doesn't sit on top of the left-hand menus.
+    const mb = this.mkPanel('Mumble', 'right');
+    this.mumblePanel = mb.panel;
+    mb.panel.id = 'pa-mumble-panel';
+    // ✕ on a pinned panel has to release the pin, or it would look broken:
+    // setMenu(null) alone leaves a pinned panel on screen by design.
+    const mbClose = mb.panel.querySelector<HTMLElement>('.pa-x');
+    if (mbClose) {
+      mbClose.onclick = () => {
+        this.mumble?.unpin();
+        void this.setMenu(null);
+      };
+    }
 
     // Zone travel panel.
     this.zonePanel = this.mkPanel('Travel', 'left').panel;
@@ -2118,7 +2180,8 @@ export class OfficeScene extends Phaser.Scene {
     this.conf = undefined;
     this.confUI.close();
     // Back out of the meeting → rejoin zone voice if the user had it on.
-    this.zoneVoice?.voice.resume();
+    this.zoneVoice?.voice.resume('conference');
+    this.mumble?.voice?.resume('conference');
   }
 
   private onConferenceMembers(m: Record<string, unknown>): void {
@@ -2177,7 +2240,8 @@ export class OfficeScene extends Phaser.Scene {
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
-    this.zoneVoice?.voice.suspend();
+    this.zoneVoice?.voice.suspend('conference');
+    this.mumble?.voice?.suspend('conference');
     void this.conf.connect(m.url as string, m.token as string).catch(() => {
       /* connect() reports via the state callback */
     });
@@ -2398,6 +2462,7 @@ export class OfficeScene extends Phaser.Scene {
       // PNG-import panel, the zone-NPC editor, or an in-game dialog keep the menu.
       const panels = [
         this.audioPanel,
+        this.mumblePanel,
         this.zonePanel,
         this.spacePanel,
         this.assetsPanel,
@@ -2513,6 +2578,15 @@ export class OfficeScene extends Phaser.Scene {
     const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
     changeServerBtn.style.display = isDesktop() ? '' : 'none';
     changeServerBtn.onclick = () => void this.desktopChangeServer();
+
+    // Mumble connection settings sit with the account controls. Desktop-only:
+    // MumbleSettingsUI renders nothing in the browser.
+    const account = panel.querySelector<HTMLElement>('#pa-account');
+    if (account) {
+      const mount = document.createElement('div');
+      account.insertAdjacentElement('afterend', mount);
+      new MumbleSettingsUI(mount, () => this.mumble?.settingsChanged());
+    }
 
     this.syncSettingsInputs();
   }

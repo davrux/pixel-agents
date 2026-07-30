@@ -2,7 +2,6 @@ import {
   app,
   BrowserWindow,
   desktopCapturer,
-  dialog,
   ipcMain,
   Menu,
   protocol,
@@ -10,12 +9,13 @@ import {
   session,
   shell,
 } from 'electron';
-import type { Certificate } from 'electron';
 import type { DesktopCapturerSource } from 'electron';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
+import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS } from './ipc.js';
+import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -154,80 +154,10 @@ async function clearStoredServerUrl(): Promise<void> {
 // explicitly trust THIS host's THIS certificate (shown by fingerprint). Accepted
 // fingerprints are remembered per host so later launches connect silently. Certs
 // Chromium already trusts are deferred to Chromium unchanged.
-const TRUSTED_CERTS_FILE = 'trusted-certs.json';
-
-function trustedCertsPath(): string {
-  return join(app.getPath('userData'), TRUSTED_CERTS_FILE);
-}
-
-// host -> set of accepted certificate fingerprints (e.g. "sha256/AbC...").
-const trustedCerts = new Map<string, Set<string>>();
-// host|fingerprint -> in-flight decision, so concurrent requests for the same
-// untrusted cert share one dialog instead of stacking prompts.
-const pendingTrust = new Map<string, Promise<boolean>>();
-
-async function loadTrustedCerts(): Promise<void> {
-  let raw: string;
-  try {
-    raw = await readFile(trustedCertsPath(), 'utf8');
-  } catch {
-    return; // none stored yet
-  }
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object') {
-      for (const [host, fps] of Object.entries(parsed as Record<string, unknown>)) {
-        if (Array.isArray(fps)) trustedCerts.set(host, new Set(fps.filter((f): f is string => typeof f === 'string')));
-      }
-    }
-  } catch {
-    // corrupt store — start fresh (a rejected cert will simply re-prompt)
-  }
-}
-
-async function saveTrustedCerts(): Promise<void> {
-  const obj: Record<string, string[]> = {};
-  for (const [host, fps] of trustedCerts) obj[host] = [...fps];
-  try {
-    await writeFile(trustedCertsPath(), JSON.stringify(obj), 'utf8');
-  } catch {
-    // best-effort persistence; trust still holds for this session
-  }
-}
-
-// Ask the user whether to trust an untrusted certificate for a specific host.
-// Default button is Cancel, so an accidental Enter/close does NOT trust.
-async function promptTrustCertificate(
-  window: BrowserWindow | null,
-  hostname: string,
-  certificate: Certificate,
-  verificationResult: string,
-): Promise<boolean> {
-  const detail =
-    `${hostname} presented a certificate that is not trusted by the system ` +
-    `(${verificationResult}).\n\n` +
-    `Subject: ${certificate.subjectName}\n` +
-    `Issuer:  ${certificate.issuerName}\n` +
-    `Fingerprint: ${certificate.fingerprint}\n\n` +
-    `Only trust this if you recognize the server. The certificate will be ` +
-    `remembered for this host.`;
-  const opts = {
-    type: 'warning' as const,
-    buttons: ['Cancel', 'Trust and Connect'],
-    defaultId: 0,
-    cancelId: 0,
-    title: 'Untrusted server certificate',
-    message: `Trust the certificate for ${hostname}?`,
-    detail,
-  };
-  const { response } = window
-    ? await dialog.showMessageBox(window, opts)
-    : await dialog.showMessageBox(opts);
-  return response === 1;
-}
-
-// Intercept TLS verification for the default session (covers fetch, XHR and the
-// Colyseus WebSocket — certificate-error does not fire reliably for those).
+//
+// The store + dialog live in ./certTrust.ts because the Mumble client's Node
+// `tls` socket needs the same trust decisions, and this verify proc only covers
+// Chromium's own network stack.
 function registerCertificateTrust(getWindow: () => BrowserWindow | null): void {
   session.defaultSession.setCertificateVerifyProc((request, callback) => {
     const { hostname, certificate, verificationResult } = request;
@@ -235,28 +165,19 @@ function registerCertificateTrust(getWindow: () => BrowserWindow | null): void {
       callback(-3); // already valid — defer to Chromium's own result
       return;
     }
-    const fingerprint = certificate.fingerprint;
-    if (trustedCerts.get(hostname)?.has(fingerprint)) {
+    if (isTrusted(hostname, certificate.fingerprint)) {
       callback(0); // user previously trusted this exact cert for this host
       return;
     }
-    const key = `${hostname}|${fingerprint}`;
-    let decision = pendingTrust.get(key);
-    if (!decision) {
-      decision = promptTrustCertificate(getWindow(), hostname, certificate, verificationResult);
-      pendingTrust.set(key, decision);
-      void decision.finally(() => pendingTrust.delete(key));
-    }
-    void decision.then(async (accepted) => {
-      if (accepted) {
-        const set = trustedCerts.get(hostname) ?? new Set<string>();
-        set.add(fingerprint);
-        trustedCerts.set(hostname, set);
-        await saveTrustedCerts();
-        callback(0); // trust — the in-flight request proceeds, no reload needed
-      } else {
-        callback(-2); // reject
-      }
+    void ensureTrusted(getWindow(), {
+      host: hostname,
+      subject: certificate.subjectName,
+      issuer: certificate.issuerName,
+      fingerprint: certificate.fingerprint,
+      because: verificationResult,
+    }).then((accepted) => {
+      // trust -> the in-flight request proceeds, no reload needed
+      callback(accepted ? 0 : -2);
     });
   });
 }
@@ -388,8 +309,9 @@ function selectScreenSource(sources: DesktopCapturerSource[]): DesktopCapturerSo
   return screen ?? sources[0];
 }
 
-function registerIpcHandlers(): void {
+function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
+  registerMumbleIpc(getWindow);
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
   ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
   ipcMain.handle(channels.clearServerUrl, (): Promise<void> => clearStoredServerUrl());
@@ -500,7 +422,7 @@ if (!gotLock) {
     Menu.setApplicationMenu(null);
 
     protocol.handle(APP_SCHEME, serveBundle);
-    registerIpcHandlers();
+    registerIpcHandlers(() => mainWindow);
     registerDisplayMediaHandler();
     // Load remembered cert trust and install the verify proc BEFORE the window
     // loads, so the first connection attempt is already intercepted.
@@ -512,6 +434,10 @@ if (!gotLock) {
       if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
     });
   });
+
+  // Close the Mumble socket before quitting so the voice server sees a clean
+  // leave rather than a half-open connection lingering until its ping timeout.
+  app.on('before-quit', () => shutdownMumble());
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

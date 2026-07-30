@@ -27,6 +27,9 @@ files:
     to: desktop/dist
     filter:
       - '**/*'
+      # `pnpm test` compiles the suite (tests included) to dist/test-build so it
+      # can run as plain JS; that output must never reach the packaged app.
+      - '!test-build/**'
   - from: ../client/dist
     to: client/dist
     filter:

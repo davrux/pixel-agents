@@ -139,6 +139,31 @@ command for any new destination (see AGENTS.md convention).
 - **Voxel** is a large survival sandbox (see git history / `voxel/`); heaviest client.
 - **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit); per-member
   volume/mute. **Zone voice** = per-zone WebRTC + proximity.
+- **Mumble (desktop only)** — a real Mumble client, split across the two processes:
+  - `desktop/src/mumble/` is main-process: `varint.ts` (Mumble's own big-endian
+    varint — **not** protobuf's LEB128, which is in `protobuf.ts`), `protocol.ts`
+    (framing `[u16 type][u32 len]`, the ~10 messages we use, `FrameReader`, and the
+    legacy voice packet), `session.ts` (TLS + state machine), `settings.ts` (config
+    in `userData/mumble.json`, secrets via `safeStorage`, TOFU cert check),
+    `service.ts` (owns one session, validates every IPC payload).
+  - `client/src/voice/Mumble*.ts` is renderer: WebCodecs Opus encode/decode, an
+    80 ms jitter buffer, per-user mixing, the panel and the settings block. The
+    panel is its own top-bar entry (not inside Audio) and can be pinned open;
+    in the office that means it opts out of setMenu's one-panel-at-a-time rule
+    (`body.pa-mumble-pinned` shifts the other right-hand popovers aside).
+  - **Why the split:** browsers can't open a raw TLS socket, but an Electron
+    renderer *is* Chromium and has WebCodecs — so protocol lives in main, all audio
+    in the renderer, and Opus packets cross IPC opaque. Audio uses `send`, not
+    `invoke` (a promise per 20 ms frame is waste); control stays on `invoke`.
+  - Voice rides Mumble's `UDPTunnel` over TCP — no UDP, no `CryptSetup`, no OCB2.
+    We announce version 1.3.0 and deliberately **not** `version_v2`, or Murmur
+    switches to the 1.5 protobuf voice format we don't parse.
+  - Node's `tls` does **not** go through Chromium's `setCertificateVerifyProc`, so
+    `verifyMumblePeer` checks the shared `certTrust.ts` store itself — and converts
+    Node's `AA:BB:` hex to Chromium's `sha256/<base64>` so one trust decision covers
+    both paths.
+  - The pixel-agents server is uninvolved apart from an optional
+    `GET /mumble/config` address suggestion (`MUMBLE_HOST`/`_PORT`/`_CHANNEL`).
 
 ## Ops gotchas
 - **Push:** `GIT_SSH_COMMAND="ssh -4" git push …` (Codeberg hangs over IPv6).

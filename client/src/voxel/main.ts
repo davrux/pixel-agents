@@ -17,6 +17,7 @@ import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
 import { openPaDialog, paDialogOpen, closePaDialog } from '../ui/paDialog.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
+import { MumbleUI } from '../voice/MumbleUI.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -1683,7 +1684,23 @@ audioStyle.textContent = `
   #vx-audio .hd{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;border-bottom:2px solid #05060b;}
   #vx-audio .hd h3{margin:0;font-size:1rem;} #vx-audio .hd .x{margin-left:auto;cursor:pointer;padding:.1rem .5rem;
     background:#141826;border:2px solid #05060b;border-radius:.4rem;}
-  #vx-audio .pa-body{padding:.7rem .8rem;max-height:70vh;overflow-y:auto;}`;
+  #vx-audio .pa-body{padding:.7rem .8rem;max-height:70vh;overflow-y:auto;}
+  /* Mumble is a second, independent client, so it gets its own panel + button
+     rather than sharing Audio. Voxel panels are already free-floating, so
+     "stay open" needs nothing extra here beyond not auto-closing. */
+  #vx-mumble-btn{position:fixed;left:46px;top:8px;width:30px;height:30px;z-index:120;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;font-size:1rem;background:#141826;border:2px solid #05060b;
+    border-radius:.4rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #vx-mumble-btn.on{border-color:#4ad06a;color:#9fe6b0;}
+  #vx-mumble{position:fixed;right:0.75rem;top:3.7rem;width:24rem;max-width:94vw;z-index:120;display:none;
+    background:#0f1220;border:2px solid #05060b;border-radius:.6rem;color:#eef1fb;
+    box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);
+    font-family:'FS Pixel Sans',ui-monospace,monospace;}
+  #vx-mumble.open{display:block;}
+  #vx-mumble .hd{display:flex;align-items:center;gap:.6rem;padding:.6rem .8rem;border-bottom:2px solid #05060b;}
+  #vx-mumble .hd h3{margin:0;font-size:1rem;} #vx-mumble .hd .x{margin-left:auto;cursor:pointer;padding:.1rem .5rem;
+    background:#141826;border:2px solid #05060b;border-radius:.4rem;}
+  #vx-mumble .pa-body{padding:.7rem .8rem;max-height:70vh;overflow-y:auto;}`;
 document.head.appendChild(audioStyle);
 const audioPanelEl = document.createElement('div');
 audioPanelEl.id = 'vx-audio';
@@ -1724,6 +1741,35 @@ const zoneVoice = new ZoneVoiceUI(audioPanelEl.querySelector<HTMLElement>('.pa-b
   onVoiceStatus: () => {},
   onStateChange: (s) => audioBtn.classList.toggle('on', !!(s.connected || s.micOn)),
 });
+// Mumble gets its own panel + launcher. Desktop-only: in the browser MumbleUI
+// renders nothing, so the button stays hidden and the panel is never opened.
+const mumblePanelEl = document.createElement('div');
+mumblePanelEl.id = 'vx-mumble';
+mumblePanelEl.innerHTML =
+  '<div class="hd"><h3>Mumble</h3><div class="x" title="Close">✕</div></div><div class="pa-body"></div>';
+(document.getElementById('game') ?? document.body).appendChild(mumblePanelEl);
+const mumbleBtn = document.createElement('div');
+mumbleBtn.id = 'vx-mumble-btn';
+mumbleBtn.textContent = '🎧';
+mumbleBtn.title = 'Mumble';
+(document.getElementById('game') ?? document.body).appendChild(mumbleBtn);
+const mumble = new MumbleUI(mumblePanelEl.querySelector<HTMLElement>('.pa-body')!, {
+  onJoin: () => zoneVoice.voice.suspend('mumble'),
+  onLeave: () => zoneVoice.voice.resume('mumble'),
+});
+mumbleBtn.style.display = mumble.voice ? '' : 'none';
+mumbleBtn.onclick = () => {
+  const open = !mumblePanelEl.classList.contains('open');
+  mumblePanelEl.classList.toggle('open', open);
+  if (open) {
+    frontPanel(mumblePanelEl);
+    if (locked()) document.exitPointerLock();
+  }
+};
+mumblePanelEl.querySelector<HTMLElement>('.x')!.onclick = () => mumblePanelEl.classList.remove('open');
+mumble.start();
+// Pinned means "open on launch" here — voxel panels never auto-close anyway.
+if (mumble.isPinned) mumblePanelEl.classList.add('open');
 function updateArmorHud(): void {
   armorHud.innerHTML = '';
   for (const slot of ['head', 'torso', 'legs', 'feet'] as ArmorSlot[]) {
@@ -3291,7 +3337,8 @@ function onConfToken(m: { url?: string; token?: string; error?: string; x?: numb
     onParticipants: (list) => confUI.setParticipants(list),
     onScreens: (n) => confUI.setSharing(n > 0),
   });
-  zoneVoice.voice.suspend(); // can't be in two calls — pause zone voice during the meeting
+  zoneVoice.voice.suspend('conference'); // can't be in two calls — pause zone voice during the meeting
+  mumble.voice?.suspend('conference');
   void conf.connect(m.url, m.token).catch(() => {
     /* connect() reports via the state callback */
   });
@@ -3320,7 +3367,8 @@ function leaveConference(): void {
   confUI.close();
   confCell = null;
   inConference = false;
-  zoneVoice.voice.resume();
+  zoneVoice.voice.resume('conference');
+  mumble.voice?.resume('conference');
   if (mode === 'first') canvas.requestPointerLock();
 }
 

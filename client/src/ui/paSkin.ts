@@ -47,6 +47,12 @@ export function injectPaSkin(): void {
         box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
       .pa-panel.left{left:0.75rem;}
       .pa-panel.right{right:0.75rem;}
+      /* A pinned Mumble panel stays docked on the right, so the other right-hand
+         popovers step aside for it. Only where there is room — on a narrow
+         window they overlap as before rather than being pushed off-screen. */
+      @media (min-width: 56rem) {
+        body.pa-mumble-pinned .pa-panel.right:not(#pa-mumble-panel){right:25.5rem;}
+      }
       .pa-panel .pa-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
         padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;
         position:sticky;top:0;background:#0f1220;z-index:2;}

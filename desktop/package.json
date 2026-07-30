@@ -9,10 +9,11 @@
   "main": "./src/main.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "build": "tsc && pnpm run build:preload",
+    "build": "tsc -p tsconfig.build.json && pnpm run build:preload",
     "build:preload": "esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs",
     "dev": "electron dist/main.js",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "test": "tsc -p tsconfig.test.json && node --test \"dist/test-build/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

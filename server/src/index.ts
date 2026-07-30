@@ -140,6 +140,23 @@ async function main(): Promise<void> {
   // gate so the launcher can populate itself on both browser + desktop.
   app.get('/arcade/catalog', (_req, res) => res.json({ games: getArcadeCatalog() }));
 
+  // Suggested Mumble address, so the desktop app can offer the community's voice
+  // server instead of making everyone type it. Suggestion only: the desktop app
+  // connects to Mumble directly and keeps its own credentials and certificate —
+  // the server holds nothing here beyond these three env vars.
+  // Registered before registerAuth installs its gate, so — like /voxel/worlds —
+  // it has to check the session itself rather than inherit the gate.
+  app.get('/mumble/config', (req, res) => {
+    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+      return void res.status(401).json({ error: 'unauthorized' });
+    }
+    res.json({
+      host: process.env.MUMBLE_HOST?.trim() || null,
+      port: Number(process.env.MUMBLE_PORT ?? 64738),
+      channel: process.env.MUMBLE_CHANNEL?.trim() || null,
+    });
+  });
+
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
