@@ -104,6 +104,8 @@ export class MumbleVoice {
   private micId: string | undefined;
   private speakerId: string | undefined;
   private joinAlerts: boolean;
+  /** Mic state to put back when the user un-deafens (see toggleDeafen). */
+  private micOnBeforeDeafen: boolean;
   private host = '';
   private error: string | undefined;
   private notice: string | undefined;
@@ -158,6 +160,10 @@ export class MumbleVoice {
     this.micThreshold = clamp01(Number(localStorage.getItem('pa-mb-micthresh') ?? '0'));
     this.micOn = localStorage.getItem('pa-mb-micon') === '1';
     this.deafened = localStorage.getItem('pa-mb-deaf') === '1';
+    // Restoring a live mic into a deafened session would recreate the state the
+    // server refuses; remember it instead and hand it back on un-deafen.
+    this.micOnBeforeDeafen = this.micOn;
+    if (this.deafened) this.micOn = false;
     // Join/leave alerts default on — an unattended window is exactly when you
     // want to know someone walked into your channel.
     this.joinAlerts = localStorage.getItem('pa-mb-joinalerts') !== '0';
@@ -711,21 +717,48 @@ export class MumbleVoice {
 
   // ── controls ───────────────────────────────────────────────────────────────
 
+  /**
+   * Mic and sound are coupled the way Mumble itself couples them: self-deaf
+   * implies self-mute on the server, so a "deafened but transmitting" client is
+   * a state that cannot exist. Turning the mic on therefore lifts the deafen
+   * rather than asking for something the server will refuse.
+   */
   toggleMic(): void {
-    this.micOn = !this.micOn;
-    localStorage.setItem('pa-mb-micon', this.micOn ? '1' : '0');
-    if (this.micOn) void this.startMic();
-    else this.stopMic();
+    const on = !this.micOn;
+    if (on) this.setDeafened(false);
+    this.setMicOn(on);
     void this.pushSelfState();
     this.emitState();
   }
 
+  /** Deafening mutes the mic; un-deafening restores whatever it was before, so
+   *  a mic you had deliberately muted stays muted. */
   toggleDeafen(): void {
-    this.deafened = !this.deafened;
-    localStorage.setItem('pa-mb-deaf', this.deafened ? '1' : '0');
-    this.applyMasterGain();
+    if (this.deafened) {
+      this.setDeafened(false);
+      this.setMicOn(this.micOnBeforeDeafen);
+    } else {
+      this.micOnBeforeDeafen = this.micOn;
+      this.setDeafened(true);
+      this.setMicOn(false);
+    }
     void this.pushSelfState();
     this.emitState();
+  }
+
+  private setMicOn(on: boolean): void {
+    if (this.micOn === on) return;
+    this.micOn = on;
+    localStorage.setItem('pa-mb-micon', on ? '1' : '0');
+    if (on) void this.startMic();
+    else this.stopMic();
+  }
+
+  private setDeafened(deafened: boolean): void {
+    if (this.deafened === deafened) return;
+    this.deafened = deafened;
+    localStorage.setItem('pa-mb-deaf', deafened ? '1' : '0');
+    this.applyMasterGain();
   }
 
   joinChannel(id: number): void {

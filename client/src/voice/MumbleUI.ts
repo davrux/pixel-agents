@@ -285,9 +285,17 @@ export class MumbleUI {
 
     this.sub!.classList.toggle('off', !s.connected);
     this.micBtn!.classList.toggle('on', !s.micOn);
-    this.micBtn!.title = s.micOn ? 'Mute your microphone' : 'Your microphone is muted';
+    // Mumble ties self-deaf to self-mute, so say so on both buttons rather than
+    // letting the mic appear to switch the sound back on out of nowhere.
+    this.micBtn!.title = s.micOn
+      ? 'Mute your microphone'
+      : s.deafened
+        ? 'Unmute — this also un-silences everyone'
+        : 'Your microphone is muted';
     this.deafBtn!.classList.toggle('on', s.deafened);
-    this.deafBtn!.title = s.deafened ? 'Everyone is silenced' : 'Silence everyone';
+    this.deafBtn!.title = s.deafened
+      ? 'Everyone is silenced, and your mic with them'
+      : 'Silence everyone — this also mutes your mic';
     this.regBtn!.hidden = s.registered;
 
     this.micGainEl!.value = String(Math.round(s.micGain * 100));
