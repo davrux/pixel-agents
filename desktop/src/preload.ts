@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
   PIXEL_DESKTOP_CHANNELS,
+  type DesktopNotification,
   type MumbleAudioIn,
   type MumbleEvent,
   type MumbleSettingsPatch,
@@ -39,6 +40,8 @@ const api: PixelDesktopApi = {
   closeWindow: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.closeWindow),
   toggleDevTools: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.toggleDevTools),
   reload: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.reload),
+  notify: (notification: DesktopNotification) =>
+    ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.notify, notification),
   mumble: {
     connect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleConnect),
     disconnect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleDisconnect),

@@ -26,6 +26,7 @@ export const PIXEL_DESKTOP_CHANNELS = {
   closeWindow: 'pixelDesktop:closeWindow',
   toggleDevTools: 'pixelDesktop:toggleDevTools',
   reload: 'pixelDesktop:reload',
+  notify: 'pixelDesktop:notify',
   // Mumble voice. Control is invoke/handle like everything above; audio is
   // fire-and-forget in both directions because a promise per 20 ms frame would
   // be pure overhead at 50 packets/s.
@@ -45,6 +46,15 @@ export const PIXEL_DESKTOP_CHANNELS = {
 
 export type PixelDesktopChannel =
   (typeof PIXEL_DESKTOP_CHANNELS)[keyof typeof PIXEL_DESKTOP_CHANNELS];
+
+/** An OS-level notification, shown by the main process via Electron's
+ *  `Notification` (native notification centre / libnotify / toast). */
+export interface DesktopNotification {
+  title: string;
+  body: string;
+  /** True to suppress the OS notification sound. */
+  silent?: boolean;
+}
 
 // ── Mumble voice ─────────────────────────────────────────────────────────────
 
@@ -162,6 +172,9 @@ export interface PixelDesktopApi {
   /** Reloads the calling window from the main process. Renderer-initiated
    *  `location.reload()` is unreliable in the app:// shell; this always works. */
   reload(): Promise<void>;
+  /** Shows an OS notification. Resolves whether or not the platform showed one
+   *  — a notification is an aside, never something the caller must handle. */
+  notify(notification: DesktopNotification): Promise<void>;
   /** Mumble voice client (protocol + TLS live in main; audio lives here). */
   mumble: MumbleApi;
 }

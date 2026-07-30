@@ -4,6 +4,7 @@ import {
   desktopCapturer,
   ipcMain,
   Menu,
+  Notification,
   protocol,
   safeStorage,
   session,
@@ -14,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize, sep } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
-import { PIXEL_DESKTOP_CHANNELS } from './ipc.js';
+import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
@@ -309,6 +310,28 @@ function selectScreenSource(sources: DesktopCapturerSource[]): DesktopCapturerSo
   return screen ?? sources[0];
 }
 
+/**
+ * Show an OS notification for the renderer. The renderer's own `Notification`
+ * constructor is not used: under the custom app:// scheme its permission state
+ * is unreliable, and going through main means one place owns the click-to-focus
+ * behaviour. A platform without a notification service is not an error — the
+ * message is an aside, so we simply skip it.
+ */
+function showNotification(window: BrowserWindow | null, options: DesktopNotification): void {
+  if (!Notification.isSupported()) return;
+  const title = String(options?.title ?? '').slice(0, 120);
+  const body = String(options?.body ?? '').slice(0, 500);
+  if (!title && !body) return;
+  const notification = new Notification({ title, body, silent: options?.silent === true });
+  notification.on('click', () => {
+    if (!window || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
+  notification.show();
+}
+
 function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   registerMumbleIpc(getWindow);
@@ -331,6 +354,9 @@ function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
     // driven from the main process because renderer-side location.reload() is
     // unreliable under the app:// scheme.
     event.sender.reload();
+  });
+  ipcMain.handle(channels.notify, (event, options: DesktopNotification): void => {
+    showNotification(BrowserWindow.fromWebContents(event.sender) ?? getWindow(), options);
   });
 }
 
@@ -420,6 +446,11 @@ if (!gotLock) {
     // Window controls (close app, toggle DevTools) are exposed to the renderer
     // via the window-control IPC channels instead.
     Menu.setApplicationMenu(null);
+
+    // Windows attributes toast notifications to an AppUserModelID; without one
+    // they are credited to electron.exe or dropped outright. Match the
+    // electron-builder `appId` so our toasts and the installed shortcut agree.
+    if (process.platform === 'win32') app.setAppUserModelId('org.pixelagents.desktop');
 
     protocol.handle(APP_SCHEME, serveBundle);
     registerIpcHandlers(() => mainWindow);

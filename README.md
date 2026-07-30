@@ -152,6 +152,13 @@ you play instead of closing when you open another menu. You can only be in one
 call at a time, so turning Mumble on parks zone voice (and a conference parks
 both).
 
+**Join/leave alerts** (on by default, toggled in the same panel) raise a normal
+OS notification when someone enters or leaves *your* channel — so an unattended
+window still tells you a colleague dropped in. Moves that don't touch your
+channel stay silent, your own channel switch never announces the people already
+there, and a burst (a server restart, a group move) is coalesced into one
+notification. Clicking it focuses the app window.
+
 It connects **straight from your machine** to the voice server: the pixel-agents
 server never relays it and holds none of your credentials. Connection details
 live in Electron's `userData`; the server password and certificate passphrase go

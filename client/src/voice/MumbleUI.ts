@@ -54,6 +54,7 @@ export class MumbleUI {
   private micSel?: HTMLSelectElement;
   private spkSel?: HTMLSelectElement;
   private treeEl?: HTMLElement;
+  private alertsEl?: HTMLInputElement;
   private pinBtn?: HTMLButtonElement;
   private pinned = localStorage.getItem('pa-mb-pinned') === '1';
   private lastState?: MumbleVoiceState;
@@ -129,6 +130,11 @@ export class MumbleUI {
       #pa-mb-sub select{flex:1;min-width:0;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
         border-radius:0.35rem;padding:0.4rem;font:0.85rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252;}
       #pa-mb-sub select:disabled{opacity:0.5;}
+      /* Outside #pa-mb-sub on purpose: a preference stays settable while the
+         connection is off, when the rest of the sub-panel is disabled. */
+      #pa-mb .chk{display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0;font-size:0.88rem;color:#9aa0b8;
+        cursor:pointer;}
+      #pa-mb .chk input{accent-color:#3f9d54;width:0.95rem;height:0.95rem;cursor:pointer;}
       #pa-mb-btns{display:flex;gap:0.4rem;margin:0.5rem 0;}
       #pa-mb button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#cdd3dd;border-radius:0.3rem;
         font:0.85rem 'FS Pixel Sans',monospace;padding:0.3rem 0.55rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
@@ -200,6 +206,7 @@ export class MumbleUI {
         <div class="row"><label>Level</label><div id="pa-mb-meter"><div class="lvl"></div><div class="thr"></div></div></div>
         <div id="pa-mb-tree"></div>
       </div>
+      <label class="chk" title="System notification when someone joins or leaves your channel"><input id="pa-mb-alerts" type="checkbox"> Join/leave alerts</label>
       <div id="pa-mb-note" hidden></div>
       <div id="pa-mb-cfg">Server and identity live in <a>Settings</a>.</div>`;
 
@@ -219,6 +226,7 @@ export class MumbleUI {
     this.meterLvl = root.querySelector('#pa-mb-meter .lvl')!;
     this.meterThr = root.querySelector('#pa-mb-meter .thr')!;
     this.treeEl = root.querySelector('#pa-mb-tree')!;
+    this.alertsEl = root.querySelector('#pa-mb-alerts')!;
     this.pinBtn = root.querySelector('#pa-mb-pin')!;
 
     const voice = this.voice!;
@@ -239,6 +247,7 @@ export class MumbleUI {
     this.micGainEl.addEventListener('input', () => voice.setMicSensitivity(Number(this.micGainEl!.value) / 100));
     this.threshEl.addEventListener('input', () => voice.setMicThreshold(Number(this.threshEl!.value) / 100));
     this.masterEl.addEventListener('input', () => voice.setMaster(Number(this.masterEl!.value) / 100));
+    this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
     root.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.hooks.onOpenSettings?.());
@@ -286,6 +295,7 @@ export class MumbleUI {
     this.threshEl!.value = String(Math.round(s.micThreshold * 100));
     this.meterThr!.style.left = `${Math.round(s.micThreshold * 100)}%`;
     this.masterEl!.value = String(Math.round(s.master * 100));
+    this.alertsEl!.checked = s.joinAlerts;
 
     const note = document.getElementById('pa-mb-note');
     if (note) {

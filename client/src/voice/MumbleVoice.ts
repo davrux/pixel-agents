@@ -11,6 +11,7 @@
  */
 import {
   mumbleApi,
+  notifyDesktop,
   type MumbleAudioIn,
   type MumbleChannelInfo,
   type MumbleEvent,
@@ -32,6 +33,11 @@ const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30_000;
 /** Don't queue audio behind a stalled IPC channel — drop it instead. */
 const MAX_OPUS_BYTES = 1024;
+/** Gather channel join/leave moves this long before notifying, so a server
+ *  restart or a group move raises one notification instead of a dozen. */
+const ALERT_COALESCE_MS = 600;
+/** Above this, the notification counts instead of naming everyone. */
+const ALERT_MAX_NAMES = 4;
 /** Default input gain. Unity is far too quiet next to the official Mumble
  *  client, whose own amplification defaults well above 1x — a browser mic
  *  captured with AGC off simply arrives quieter than Mumble's. */
@@ -52,6 +58,8 @@ export interface MumbleVoiceState {
   channel: number;
   /** True once the server reports a registered account for us. */
   registered: boolean;
+  /** OS notifications when someone joins or leaves our channel. */
+  joinAlerts: boolean;
   host: string;
   error?: string;
   notice?: string;
@@ -95,6 +103,7 @@ export class MumbleVoice {
   private micThreshold: number;
   private micId: string | undefined;
   private speakerId: string | undefined;
+  private joinAlerts: boolean;
   private host = '';
   private error: string | undefined;
   private notice: string | undefined;
@@ -113,6 +122,10 @@ export class MumbleVoice {
   private reconnectTimer: number | null = null;
   private reconnectDelay = RECONNECT_MIN_MS;
   private talkTimer: number | null = null;
+
+  /** Pending channel join/leave moves, flushed as one OS notification. */
+  private readonly alerts: { name: string; joined: boolean }[] = [];
+  private alertTimer: number | null = null;
 
   // Capture: MicGraph → worklet → 20 ms buffers → AudioEncoder → IPC.
   private mic: MicGraph | null = null;
@@ -145,6 +158,9 @@ export class MumbleVoice {
     this.micThreshold = clamp01(Number(localStorage.getItem('pa-mb-micthresh') ?? '0'));
     this.micOn = localStorage.getItem('pa-mb-micon') === '1';
     this.deafened = localStorage.getItem('pa-mb-deaf') === '1';
+    // Join/leave alerts default on — an unattended window is exactly when you
+    // want to know someone walked into your channel.
+    this.joinAlerts = localStorage.getItem('pa-mb-joinalerts') !== '0';
     // Device choices are shared with zone voice: one mic, one pair of speakers.
     this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
     this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
@@ -173,6 +189,7 @@ export class MumbleVoice {
       master: this.master,
       channel: this.myChannel,
       registered: this.registered,
+      joinAlerts: this.joinAlerts,
       host: this.host,
       error: this.error,
       notice: this.notice,
@@ -249,6 +266,7 @@ export class MumbleVoice {
     this.unsubscribe();
     await this.api?.disconnect().catch(() => undefined);
     this.teardownAudio();
+    this.clearAlerts();
     this.connected = false;
     this.connecting = false;
     this.mySession = 0;
@@ -310,6 +328,7 @@ export class MumbleVoice {
         this.error = undefined;
         this.reconnectDelay = RECONNECT_MIN_MS;
         this.mySession = e.session;
+        this.clearAlerts(); // the whole roster arrives here; that isn't news
         this.channels.clear();
         this.users.clear();
         for (const c of e.channels) this.channels.set(c.id, c);
@@ -335,18 +354,32 @@ export class MumbleVoice {
         this.emitTree();
         return;
       case 'user': {
+        const before = this.users.get(e.user.session);
         this.users.set(e.user.session, e.user);
         if (e.user.session === this.mySession) {
+          // We moved: everyone around us changed at once, and we already know
+          // where we went — announcing that as arrivals would be noise.
+          const moved = this.myChannel !== e.user.channel;
           this.myChannel = e.user.channel;
           this.registered = e.user.userId !== undefined;
+          if (moved) this.clearAlerts();
           this.emitState();
+        } else if (before?.channel !== e.user.channel) {
+          // A new session (no `before`) or a channel move. Only the two edges
+          // that cross our own channel are worth a notification.
+          if (e.user.channel === this.myChannel) this.queueAlert(e.user.name, true);
+          else if (before && before.channel === this.myChannel) this.queueAlert(e.user.name, false);
         }
         this.emitTree();
         return;
       }
       case 'userRemove': {
+        const gone = this.users.get(e.session);
         this.users.delete(e.session);
         this.dropPeer(e.session);
+        if (gone && gone.channel === this.myChannel && e.session !== this.mySession) {
+          this.queueAlert(gone.name, false);
+        }
         this.emitTree();
         return;
       }
@@ -377,6 +410,7 @@ export class MumbleVoice {
       this.connected = false;
       this.connecting = false;
       this.teardownAudio();
+      this.clearAlerts(); // nothing to announce about a channel we just left
       this.mySession = 0;
       this.channels.clear();
       this.users.clear();
@@ -724,6 +758,13 @@ export class MumbleVoice {
     this.emitState();
   }
 
+  setJoinAlerts(on: boolean): void {
+    this.joinAlerts = on;
+    localStorage.setItem('pa-mb-joinalerts', on ? '1' : '0');
+    if (!on) this.clearAlerts();
+    this.emitState();
+  }
+
   setUserVolume(name: string, v: number): void {
     this.userVolumes.set(name, clampVol(v));
     this.persistUserVolumes();
@@ -820,6 +861,43 @@ export class MumbleVoice {
     if (this.talkTimer !== null) {
       clearInterval(this.talkTimer);
       this.talkTimer = null;
+    }
+  }
+
+  // ── channel join/leave alerts ──────────────────────────────────────────────
+
+  /** Remember one arrival/departure in our channel; the timer does the telling. */
+  private queueAlert(name: string, joined: boolean): void {
+    if (!this.joinAlerts) return;
+    this.alerts.push({ name: name || 'Someone', joined });
+    if (this.alertTimer !== null) return;
+    this.alertTimer = window.setTimeout(() => {
+      this.alertTimer = null;
+      this.flushAlerts();
+    }, ALERT_COALESCE_MS);
+  }
+
+  private flushAlerts(): void {
+    const moves = this.alerts.splice(0);
+    if (moves.length === 0 || !this.joinAlerts || !this.connected) return;
+    const channel = this.channels.get(this.myChannel)?.name;
+    const title = channel ? `Mumble · ${channel}` : 'Mumble';
+    if (moves.length <= ALERT_MAX_NAMES) {
+      notifyDesktop(title, moves.map((m) => `${m.name} ${m.joined ? 'joined' : 'left'}`).join('\n'));
+      return;
+    }
+    const joined = moves.filter((m) => m.joined).length;
+    const parts: string[] = [];
+    if (joined > 0) parts.push(`${joined} joined`);
+    if (moves.length - joined > 0) parts.push(`${moves.length - joined} left`);
+    notifyDesktop(title, parts.join(', '));
+  }
+
+  private clearAlerts(): void {
+    this.alerts.length = 0;
+    if (this.alertTimer !== null) {
+      clearTimeout(this.alertTimer);
+      this.alertTimer = null;
     }
   }
 

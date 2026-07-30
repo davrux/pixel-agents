@@ -97,6 +97,14 @@ export interface MumbleApi {
   onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
 }
 
+/** An OS-level notification, shown by the Electron main process. */
+export interface DesktopNotification {
+  title: string;
+  body: string;
+  /** True to suppress the OS notification sound. */
+  silent?: boolean;
+}
+
 export interface PixelDesktopApi {
   /** Presence of a `true` value marks the desktop build. */
   isDesktop: true;
@@ -119,6 +127,8 @@ export interface PixelDesktopApi {
   toggleDevTools(): Promise<void>;
   /** Reloads the calling window from the main process (reliable under app://). */
   reload(): Promise<void>;
+  /** Shows an OS notification via the main process. */
+  notify(notification: DesktopNotification): Promise<void>;
   /** Mumble voice client (desktop only). */
   mumble: MumbleApi;
 }
@@ -160,6 +170,19 @@ export function mumbleApi(): MumbleApi | null {
 export function reloadApp(): void {
   if (isDesktop()) void desktop().reload();
   else window.location.reload();
+}
+
+/**
+ * Raise an OS notification, or do nothing in the browser build (which has no
+ * permission-free path to one — the web Notification API would prompt, and a
+ * background tab prompt is worse than no notification). Never throws and never
+ * needs awaiting: a notification is an aside to whatever the caller is doing.
+ */
+export function notifyDesktop(title: string, body: string, silent = false): void {
+  if (!isDesktop()) return;
+  void desktop()
+    .notify({ title, body, silent })
+    .catch(() => undefined);
 }
 
 /**
