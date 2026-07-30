@@ -56,5 +56,7 @@ linux:
   syncDesktopName: true
 
 # No signing: unsigned build (no certs available in this environment / CI).
-# artifact: e.g. "Pixel Agents-0.1.0-x86_64.AppImage"
-artifactName: ${productName}-${version}-${arch}.AppImage
+# Hardcoded literal prefix (not ${productName}, which contains a space, and
+# ${executableName} isn't a supported artifactName macro) keeps the artifact
+# filename shell-friendly, e.g. "pixel-agents-0.1.0-x86_64.AppImage".
+artifactName: pixel-agents-${version}-${arch}.AppImage
