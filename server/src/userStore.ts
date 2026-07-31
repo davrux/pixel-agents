@@ -8,6 +8,8 @@
  */
 import * as crypto from 'node:crypto';
 
+import { cleanName } from '@pixel/shared';
+
 import { db } from './db.js';
 import { hashPassword, verifyHash } from './pwhash.js';
 
@@ -179,14 +181,14 @@ class UserStore {
       .run(hashPassword(password), 'scrypt', userId);
   }
 
-  /** Set the free display name: control characters stripped (Unicode letters +
-   *  spaces kept), trimmed, ≤32 chars; empty clears it (display falls back to
-   *  the login id). Server-side — never trust the client. */
+  /** Set the free display name: non-whitespace control characters stripped,
+   *  any remaining whitespace run (tabs, newlines, non-breaking spaces, …)
+   *  collapsed to one plain space (cleanName — same rule as zone labels),
+   *  trimmed, ≤32 chars; empty clears it (display falls back to the login id).
+   *  Server-side — never trust the client. */
   setUsername(userId: string, username: string): void {
-    const name = String(username ?? '')
-      .replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
-      .trim()
-      .slice(0, 32);
+    const stripped = String(username ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '');
+    const name = cleanName(stripped, 32);
     this.db.prepare('UPDATE users SET username = ? WHERE user_id = ?').run(name || null, userId);
   }
 

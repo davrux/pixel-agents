@@ -155,14 +155,35 @@ export function registerAdminApi(app: Express): void {
     res.json({ ok: true, private: zones.isPrivate(id) });
   });
 
-  // Private-zone allow-list — same admin-override rationale as the password
-  // above: an admin can see/edit any zone's ACL, not just their own.
-  app.get('/admin/zone/:id/acl', (req, res) => {
+  // Take/transfer/revoke ownership — the migration path for zones that predate
+  // this feature, or lost their owner when that account was deleted (they stay
+  // ownerless, not gone — see zoneStore.ts removeUserFromAllZones).
+  app.put('/admin/zone/:id/owner', json, (req, res) => {
     if (!admin(req, res)) return;
     const id = req.params.id;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
-    const members = zones.listAcl(id).map((uid) => ({ userId: uid, name: userStore.get(uid)?.username || uid }));
-    res.json({ members });
+    const raw = (req.body as { ownerId?: unknown } | undefined)?.ownerId;
+    const ownerId = raw == null || raw === '' ? null : normalizeLoginId(raw);
+    if (ownerId && !userStore.get(ownerId)) return void res.status(400).json({ error: 'no such user' });
+    zones.setOwner(id, ownerId);
+    const owner = ownerId ? userStore.get(ownerId) : undefined;
+    res.json({ ok: true, ownerId, ownerName: owner ? UserStore.displayName(owner) : ownerId });
+  });
+
+  // Everyone with a stake in a zone's access, together — same shape as the
+  // in-game zoneMembers message, so the admin UI can show the full picture
+  // (owner + zone-admins + ACL) instead of the ACL alone.
+  const zoneMemberView = (uid: string) => ({ userId: uid, name: userStore.get(uid)?.username || uid });
+  app.get('/admin/zone/:id/members', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const ownerId = zones.zoneOwner(id);
+    res.json({
+      owner: ownerId ? zoneMemberView(ownerId) : null,
+      admins: zones.listZoneAdmins(id).map(zoneMemberView),
+      acl: zones.listAcl(id).map(zoneMemberView),
+    });
   });
 
   app.post('/admin/zone/:id/acl', json, (req, res) => {

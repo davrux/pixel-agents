@@ -14,6 +14,8 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import express, { type Express, type Request } from 'express';
 
+import { cleanName } from '@pixel/shared';
+
 import { hasValidBearerSession, hasValidSession, userIdFromBearer, userIdFromCookie } from './auth.js';
 import { userStore, UserStore } from './userStore.js';
 import { meetingRoomStore, type MeetingRoom } from './meetingRoomStore.js';
@@ -68,7 +70,7 @@ export function registerMeetingRoomApi(app: Express, clientDist: string): void {
     const room = meetingRoomStore.get(slug);
     if (!room || !roomUsable(room)) return void res.status(404).json({ error: 'not found' });
     const body = (req.body ?? {}) as { name?: unknown; password?: unknown };
-    const name = authedDisplayName(req) ?? (typeof body.name === 'string' ? body.name.trim().slice(0, 32) : '');
+    const name = authedDisplayName(req) ?? cleanName(typeof body.name === 'string' ? body.name : '', 32);
     if (!name) return void res.status(400).json({ error: 'name required' });
     if (room.hasPassword) {
       // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.

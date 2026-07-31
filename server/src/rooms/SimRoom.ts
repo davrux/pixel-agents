@@ -869,6 +869,21 @@ export class SimRoom extends Room<RoomState> {
       this.broadcast('m', { type: 'system', text });
     });
 
+    // Lightweight user directory for autocomplete (ACL add / invite / owner
+    // pickers) — any signed-in user, not just admins (they need to search for
+    // *other* users to add to their own zone). Disabled accounts are excluded:
+    // adding one to an ACL or inviting them would never do anything, since a
+    // disabled account can't hold a session at all.
+    this.onMessage('requestUserList', (client) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      const users = userStore
+        .list()
+        .filter((u) => !u.disabled)
+        .map((u) => ({ userId: u.userId, name: UserStore.displayName(u) }));
+      client.send('m', { type: 'userList', users });
+    });
+
     // ── Zone registry (any user may create/own one; edit/delete needs zone-admin
     // or global-admin; privacy/ACL/invite is owner-only; office is protected) ──
     this.onMessage('requestZones', (client) => client.send('m', this.zoneListMessage()));
@@ -907,12 +922,23 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    const zoneAclMembers = (id: string) => this.zones.listAcl(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) }));
+    // Everyone with a stake in a zone's access, together: the owner, its
+    // zone-admins (co-editors — read-only here, granted via setZoneAdmin which
+    // stays admin-only), and the ACL. Lets the owner actually see who can do
+    // what instead of just the ACL in isolation.
+    const zoneMembersPayload = (id: string) => {
+      const ownerId = this.zones.zoneOwner(id);
+      return {
+        owner: ownerId ? { userId: ownerId, name: this.zoneMemberName(ownerId) } : null,
+        admins: this.zones.listZoneAdmins(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) })),
+        acl: this.zones.listAcl(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) })),
+      };
+    };
 
-    this.onMessage('zoneAclList', (client, msg: { id?: string }) => {
+    this.onMessage('zoneMembers', (client, msg: { id?: string }) => {
       const id = typeof msg?.id === 'string' ? msg.id : '';
       if (!id || !this.may(client, 'zone.managePrivacy', id)) return;
-      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+      client.send('m', { type: 'zoneMembers', id, ...zoneMembersPayload(id) });
     });
 
     this.onMessage('zoneAclAdd', (client, msg: { id?: string; userId?: string }) => {
@@ -920,7 +946,7 @@ export class SimRoom extends Room<RoomState> {
       const targetId = normalizeLoginId(msg?.userId);
       if (!id || !targetId || !this.may(client, 'zone.managePrivacy', id) || !userStore.get(targetId)) return;
       this.zones.aclAdd(id, targetId);
-      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+      client.send('m', { type: 'zoneMembers', id, ...zoneMembersPayload(id) });
     });
 
     this.onMessage('zoneAclRemove', (client, msg: { id?: string; userId?: string }) => {
@@ -928,7 +954,7 @@ export class SimRoom extends Room<RoomState> {
       const targetId = normalizeLoginId(msg?.userId);
       if (!id || !targetId || !this.may(client, 'zone.managePrivacy', id)) return;
       this.zones.aclRemove(id, targetId);
-      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+      client.send('m', { type: 'zoneMembers', id, ...zoneMembersPayload(id) });
     });
 
     // Real-time "pull someone in": reaches the target wherever they are (a
@@ -1191,9 +1217,7 @@ export class SimRoom extends Room<RoomState> {
     // an anonymous viewer (open dev) may pass a chosen name.
     this.onMessage('setPlayerName', (client, msg: { name?: string }) => {
       const { userId, username } = authOf(client);
-      const name = userId
-        ? username || userId
-        : (typeof msg?.name === 'string' ? msg.name : '').trim().slice(0, 16);
+      const name = userId ? username || userId : cleanName(typeof msg?.name === 'string' ? msg.name : '', 16);
       const id = this.players.get(client.sessionId);
       if (id !== undefined) this.os.setCharacterName(id, name);
     });

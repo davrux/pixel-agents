@@ -172,6 +172,14 @@ export class ZoneStore {
       | undefined;
     return r?.owner_id ?? null;
   }
+  /** Admin-only override (see adminApi.ts): take/transfer/revoke ownership —
+   *  the migration path for zones that predate this feature or lost their
+   *  owner when that account was deleted. `null` clears it (ownerless again). */
+  setOwner(zoneId: string, ownerId: string | null): boolean {
+    if (!this.has(zoneId)) return false;
+    this.db.prepare('UPDATE zones SET owner_id = ? WHERE id = ?').run(ownerId, zoneId);
+    return true;
+  }
   isPrivate(zoneId: string): boolean {
     const r = this.db.prepare('SELECT is_private FROM zones WHERE id = ?').get(zoneId) as
       | { is_private: number }

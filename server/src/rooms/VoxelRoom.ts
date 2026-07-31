@@ -81,6 +81,7 @@ import {
   mayRunCommand,
   KICK_CLOSE_CODE,
   needsGround,
+  cleanName,
 } from '@pixel/shared';
 import { VoxelPlayerSync, VoxelNpcSync, VoxelItemSync, VoxelBoatSync, VoxelCartSync, VoxelRoomState } from '@pixel/shared/schema';
 import { findPath } from '../voxel/pathfind.js';
@@ -1702,7 +1703,7 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       p.y = this.world.columnTop(0, 0) + 1;
       p.z = 0.5;
     }
-    p.name = auth?.username || options?.name || 'player';
+    p.name = auth?.username || cleanName(typeof options?.name === 'string' ? options.name : '', 16) || 'player';
     p.hp = PLAYER_HP;
     p.hpMax = PLAYER_HP;
     if (typeof options?.skin === 'string') p.skin = options.skin.slice(0, 40);

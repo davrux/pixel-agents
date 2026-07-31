@@ -52,7 +52,7 @@ import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
-import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
@@ -168,9 +168,13 @@ export class OfficeScene extends Phaser.Scene {
    *  for — remembered so the "+ New room" button in that dialog knows which
    *  kiosk tile to validate the create against once the list response arrives. */
   private pendingMeetingKioskForCreate: { col: number; row: number } | null = null;
-  /** The zone a "Zone settings" request (zoneAclList) was sent for, so
-   *  onZoneAcl knows which zone's dialog to (re)build once the response arrives. */
+  /** The zone a "Zone settings" request (zoneMembers) was sent for, so
+   *  onZoneMembers knows which zone's dialog to (re)build once the response arrives. */
   private pendingZoneSettings: ZoneConfig | null = null;
+  /** Every user, for the ACL-add / invite autocomplete — fetched once per zone
+   *  settings dialog open (requestUserList → userList) and reused across its
+   *  add/remove/invite round trips until the dialog is closed and reopened. */
+  private userListCache: Array<{ userId: string; name: string }> | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -519,7 +523,8 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneCreated') void this.onZoneCreated(m);
-        else if (m.type === 'zoneAcl') this.onZoneAcl(m);
+        else if (m.type === 'zoneMembers') this.onZoneMembers(m);
+        else if (m.type === 'userList') this.onUserList(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
         else if (m.type === 'zoneInvitePrompt') this.onZoneInvitePrompt(m);
         else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
@@ -2354,15 +2359,7 @@ export class OfficeScene extends Phaser.Scene {
 
     const footParts: string[] = [];
     if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
-    if (canCreateZone)
-      footParts.push(
-        `<input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
-         <div class="sz">
-           <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
-           <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
-         </div>
-         <button data-new class="new">＋ Create zone</button>`,
-      );
+    if (canCreateZone) footParts.push(`<button data-new class="new">＋ Create zone</button>`);
     const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
     // No heading here — the Space panel header + the Layouts/Zones tab label it.
     this.zonesPanel.innerHTML = `${rows}${foot}`;
@@ -2410,17 +2407,46 @@ export class OfficeScene extends Phaser.Scene {
         setStatus('Click a floor tile to set where players arrive in this zone.');
       };
     const newBtn = this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]');
-    if (newBtn)
-      newBtn.onclick = () => {
-        const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
-        const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
-        const rows = Number((this.zonesPanel.querySelector('#pa-z-rows') as HTMLInputElement)?.value);
-        if (!label) {
-          setStatus('Enter a name for the new zone.');
-          return;
-        }
-        send('createZone', { label, cols, rows });
-      };
+    if (newBtn) newBtn.onclick = () => this.openCreateZoneDialog();
+  }
+
+  /** "+ Create zone" — a proper dialog (matching Rename's promptDialog), not
+   *  inputs embedded in the popover: keeps focus/keyboard handling simple and
+   *  gives room for the size fields too. */
+  private openCreateZoneDialog(): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Zone name</label>
+        <input class="pa-input" type="text" maxlength="32" placeholder="e.g. Design Team">
+      </div>
+      <div class="fld"><label>Size (tiles)</label>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+          <input class="pa-input" type="number" min="6" max="64" value="20" title="Width" style="flex:1;min-width:0;">
+          <span class="muted">×</span>
+          <input class="pa-input" type="number" min="6" max="64" value="14" title="Height" style="flex:1;min-width:0;">
+        </div>
+      </div>`;
+    const nameIn = body.querySelector<HTMLInputElement>('input[type=text]')!;
+    const [colsIn, rowsIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
+    openPaDialog({
+      title: 'Create a zone',
+      body,
+      buttons: [
+        {
+          label: 'Create',
+          kind: 'green',
+          onClick: () => {
+            const label = cleanName(nameIn.value);
+            if (!label) {
+              nameIn.focus();
+              return false;
+            }
+            this.room?.send('createZone', { label, cols: Number(colsIn.value), rows: Number(rowsIn.value) });
+          },
+        },
+      ],
+    });
+    setTimeout(() => nameIn.focus(), 0);
   }
 
   /** Edit a zone's label (and arrival tile via "col,row"). */
@@ -2449,22 +2475,50 @@ export class OfficeScene extends Phaser.Scene {
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
   }
 
-  /** Zone owner: open "Zone settings" — privacy toggle, access list, invite
-   *  someone in right now. Fetches the ACL first (response arrives via
-   *  'zoneAcl' → onZoneAcl, which actually builds the dialog). */
+  /** Zone owner: open "Zone settings" — privacy toggle, who-has-access (owner +
+   *  zone-admins + ACL together), and inviting someone in right now. Fetches
+   *  the member list + the user directory (for autocomplete) in parallel;
+   *  onZoneMembers actually builds the dialog once the members arrive. */
   private openZoneSettingsDialog(zone: ZoneConfig): void {
     this.pendingZoneSettings = zone;
-    this.room?.send('zoneAclList', { id: zone.id });
+    this.room?.send('zoneMembers', { id: zone.id });
+    this.room?.send('requestUserList');
   }
 
-  /** The server's answer to zoneAclList — also arrives after zoneAclAdd/Remove,
+  /** One shared <datalist> of every user, for the ACL-add / invite inputs'
+   *  native autocomplete (search-as-you-type across login id + display name). */
+  private ensureUserDatalist(): HTMLDataListElement {
+    let dl = document.getElementById('pa-user-list') as HTMLDataListElement | null;
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = 'pa-user-list';
+      document.body.appendChild(dl);
+    }
+    return dl;
+  }
+
+  /** The server's answer to requestUserList — (re)fills the shared autocomplete
+   *  datalist, live-updating it even while a zone-settings dialog is open. */
+  private onUserList(m: Record<string, unknown>): void {
+    if (!Array.isArray(m.users)) return;
+    this.userListCache = m.users as Array<{ userId: string; name: string }>;
+    const dl = this.ensureUserDatalist();
+    dl.innerHTML = this.userListCache
+      .map((u) => `<option value="${esc(u.userId)}">${esc(u.name)} (${esc(u.userId)})</option>`)
+      .join('');
+  }
+
+  /** The server's answer to zoneMembers — also arrives after zoneAclAdd/Remove,
    *  so this both opens the dialog the first time and refreshes it in place. */
-  private onZoneAcl(m: Record<string, unknown>): void {
+  private onZoneMembers(m: Record<string, unknown>): void {
     const id = typeof m.id === 'string' ? m.id : '';
     const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;
     this.pendingZoneSettings = null;
-    if (!zone || !Array.isArray(m.members)) return;
-    const members = m.members as Array<{ userId: string; name: string }>;
+    if (!zone) return;
+    const owner = (m.owner ?? null) as { userId: string; name: string } | null;
+    const admins = Array.isArray(m.admins) ? (m.admins as Array<{ userId: string; name: string }>) : [];
+    const acl = Array.isArray(m.acl) ? (m.acl as Array<{ userId: string; name: string }>) : [];
+    this.ensureUserDatalist();
 
     const body = document.createElement('div');
     body.innerHTML = `
@@ -2474,39 +2528,46 @@ export class OfficeScene extends Phaser.Scene {
           <span class="muted" data-priv-hint style="font-size:.82rem;"></span>
         </div>
       </div>
-      <div class="fld"><label>Access list</label>
-        <div data-acl-list style="max-height:9rem;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;"></div>
+      <div class="fld"><label>Who has access</label>
+        <div data-members style="max-height:11rem;overflow-y:auto;display:flex;flex-direction:column;gap:.35rem;"></div>
         <div style="display:flex;gap:.35rem;margin-top:.5rem;">
-          <input class="pa-input" data-acl-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
-          <button type="button" class="pa-b" data-acl-add-btn>Add</button>
+          <input class="pa-input" data-acl-add list="pa-user-list" placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b" data-acl-add-btn>Add to access list</button>
         </div>
       </div>
       <div class="fld"><label>Invite someone now</label>
         <div style="display:flex;gap:.35rem;">
-          <input class="pa-input" data-invite placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <input class="pa-input" data-invite list="pa-user-list" placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
           <button type="button" class="pa-b green" data-invite-btn>Invite</button>
         </div>
         <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
       </div>`;
 
-    const listEl = body.querySelector<HTMLDivElement>('[data-acl-list]')!;
-    if (!members.length) {
-      listEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No one on the list yet.</div>';
+    const membersEl = body.querySelector<HTMLDivElement>('[data-members]')!;
+    if (!owner && !admins.length && !acl.length) {
+      membersEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No one has special access yet.</div>';
     }
-    for (const mem of members) {
+    const memberRow = (name: string, sub: string, onRemove?: () => void): void => {
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;font-size:.85rem;';
+      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;';
       const nm = document.createElement('span');
       nm.style.flex = '1';
-      nm.textContent = mem.name;
-      const rm = document.createElement('button');
-      rm.type = 'button';
-      rm.className = 'pa-b';
-      rm.textContent = 'Remove';
-      rm.onclick = () => this.room?.send('zoneAclRemove', { id: zone.id, userId: mem.userId });
-      row.append(nm, rm);
-      listEl.appendChild(row);
-    }
+      nm.style.fontSize = '.85rem';
+      nm.innerHTML = `${esc(name)} <span class="muted" style="font-size:.76rem;">${esc(sub)}</span>`;
+      row.appendChild(nm);
+      if (onRemove) {
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'pa-b';
+        rm.textContent = 'Remove';
+        rm.onclick = onRemove;
+        row.appendChild(rm);
+      }
+      membersEl.appendChild(row);
+    };
+    if (owner) memberRow(owner.name, '👑 owner');
+    for (const a of admins) memberRow(a.name, '🛠 zone-admin (edits the layout)');
+    for (const a of acl) memberRow(a.name, '✓ access list', () => this.room?.send('zoneAclRemove', { id: zone.id, userId: a.userId }));
 
     // Optimistic local toggle — no need to wait on the server round trip for
     // something this simple (it still persists via zoneSetPrivate below).
@@ -2517,7 +2578,7 @@ export class OfficeScene extends Phaser.Scene {
       privBtn.textContent = priv ? '🔐 Private' : '🔓 Public';
       privBtn.classList.toggle('primary', priv);
       privHint.textContent = priv
-        ? 'Only the access list below (plus you, its zone-admins and global admins) may enter.'
+        ? 'Only the access list above (plus the owner, zone-admins and global admins) may enter.'
         : 'Anyone can enter.';
     };
     renderPriv();
@@ -2529,14 +2590,14 @@ export class OfficeScene extends Phaser.Scene {
 
     const addIn = body.querySelector<HTMLInputElement>('[data-acl-add]')!;
     body.querySelector<HTMLButtonElement>('[data-acl-add-btn]')!.onclick = () => {
-      const uid = addIn.value.trim();
+      const uid = cleanName(addIn.value);
       if (uid) this.room?.send('zoneAclAdd', { id: zone.id, userId: uid });
     };
 
     const inviteIn = body.querySelector<HTMLInputElement>('[data-invite]')!;
     const inviteMsg = body.querySelector<HTMLDivElement>('[data-invite-msg]')!;
     body.querySelector<HTMLButtonElement>('[data-invite-btn]')!.onclick = () => {
-      const uid = inviteIn.value.trim();
+      const uid = cleanName(inviteIn.value);
       if (!uid) return;
       this.room?.send('zoneInvite', { id: zone.id, userId: uid });
       inviteMsg.textContent = `Inviting ${uid}…`;
