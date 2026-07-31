@@ -40,6 +40,7 @@ import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
+import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { listWorlds } from './voxel/chunkStore.js';
 import { migrateItemIds } from './voxel/migrateItemIds.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
@@ -156,6 +157,11 @@ async function main(): Promise<void> {
       channel: process.env.MUMBLE_CHANNEL?.trim() || null,
     });
   });
+
+  // Ad-hoc meeting rooms (/meet/<slug>) are reachable by anyone with the link —
+  // no pixel-agents account required — so they're registered here, before the
+  // login gate, same as /arcade/catalog and /voxel/worlds above.
+  registerMeetingRoomApi(app, clientDist);
 
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {

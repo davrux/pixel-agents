@@ -47,8 +47,9 @@ import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
+import { openPaDialog } from '../ui/paDialog.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
+import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
@@ -67,10 +68,6 @@ type RenderChar = Partial<Character> & {
   /** Client-side animation clock (frame phase is cosmetic, not synced). */
   animTimer?: number;
   animPose?: string;
-  /** Joined via the rooms portal → name shows a "(Rooms)" suffix. */
-  spectator?: boolean;
-  /** Account is a customer → labelled "Customer" instead of "Player". */
-  isCustomer?: boolean;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
@@ -165,6 +162,8 @@ export class OfficeScene extends Phaser.Scene {
   private pendingConference: { col: number; row: number; name?: string } | null = null;
   /** An arcade cabinet we clicked and are walking toward (opens on arrival). */
   private pendingArcade: { col: number; row: number; fpW: number; fpH: number } | null = null;
+  /** A meeting-room kiosk we clicked and are walking toward (opens on arrival). */
+  private pendingMeetingKiosk: { col: number; row: number; fpW: number; fpH: number } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -250,8 +249,8 @@ export class OfficeScene extends Phaser.Scene {
    *  (empty in open dev mode / anonymous). */
   private myUserId = '';
   private isAdmin = false;
-  /** Account role — customers are external guests with no agents/editing. */
-  private myRole: 'admin' | 'user' | 'customer' = 'user';
+  /** Account role. */
+  private myRole: 'admin' | 'user' = 'user';
   /** Whether this viewer is a designated admin of the CURRENT zone (may layout
    *  it even without being a global admin). */
   private myZoneAdmin = false;
@@ -519,6 +518,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
+        else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our name onto the fresh avatar (the owned
@@ -611,12 +611,6 @@ export class OfficeScene extends Phaser.Scene {
         redirectToLogin();
         return;
       }
-      // A customer without Pixels access → send them to the rooms portal instead.
-      if (isForbiddenError(err)) {
-        setStatus('This account uses the rooms portal — redirecting…');
-        window.location.href = './rooms.html';
-        return;
-      }
       setStatus(`connection failed: ${(err as Error).message}`);
       console.error(err);
     }
@@ -697,8 +691,6 @@ export class OfficeScene extends Phaser.Scene {
     rc.isSubagent = cs.isSubagent as boolean;
     rc.isPlayer = cs.isPlayer as boolean;
     rc.afk = cs.afk as boolean;
-    rc.spectator = cs.spectator as boolean;
-    rc.isCustomer = cs.isCustomer as boolean;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;
@@ -769,8 +761,9 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
-  /** Whether this viewer's avatar is standing next to (touching) a cabinet footprint. */
-  private nearArcade(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
+  /** Whether this viewer's avatar is standing next to (touching) a footprint
+   *  (an arcade cabinet, a meeting-room kiosk, …). */
+  private nearFootprint(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
     const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
     if (!me) return false;
     const pc = Math.floor(me.tx / TILE_SIZE);
@@ -778,6 +771,18 @@ export class OfficeScene extends Phaser.Scene {
     const dx = pc < cab.col ? cab.col - pc : pc >= cab.col + cab.fpW ? pc - (cab.col + cab.fpW - 1) : 0;
     const dy = pr < cab.row ? cab.row - pr : pr >= cab.row + cab.fpH ? pr - (cab.row + cab.fpH - 1) : 0;
     return Math.max(dx, dy) <= 1;
+  }
+
+  /** If the tile is covered by a meeting-room kiosk, its footprint (anchor + size), else null. */
+  private meetingKioskAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.meetingRoom) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row, fpW: entry.footprintW, fpH: entry.footprintH };
+      }
+    }
+    return null;
   }
 
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
@@ -792,6 +797,113 @@ export class OfficeScene extends Phaser.Scene {
         if (this.input.keyboard) this.input.keyboard.enabled = true;
       },
     });
+  }
+
+  /** Meeting-room kiosk, clicked/arrived-at: ask for an expiry + optional
+   *  password, then ask the server to mint a fresh room (meetingRoomCreate).
+   *  The result (link or error) arrives async via 'meetingRoomCreated'. */
+  private openMeetingRoomDialog(kiosk: { col: number; row: number }): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Expires after</label>
+        <select class="pa-select">
+          <option value="1">1 day</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+          <option value="90">3 months</option>
+          <option value="180">6 months</option>
+        </select>
+      </div>
+      <div class="fld"><label>Password (optional)</label>
+        <div style="display:flex;gap:.35rem;align-items:center">
+          <input class="pa-input" type="password" placeholder="leave empty for no password" maxlength="128" style="flex:1;min-width:0">
+          <button type="button" class="pa-b" data-showpw title="Show password">👁</button>
+          <button type="button" class="pa-b" data-genpw title="Generate a password">🎲 Generate</button>
+        </div>
+        <div data-pwerr style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;color:#f1b0ba;"></div>
+      </div>`;
+    const ttlSel = body.querySelector<HTMLSelectElement>('select')!;
+    const pwIn = body.querySelector<HTMLInputElement>('input')!;
+    const pwErr = body.querySelector<HTMLDivElement>('[data-pwerr]')!;
+    const showBtn = body.querySelector<HTMLButtonElement>('[data-showpw]')!;
+    const genBtn = body.querySelector<HTMLButtonElement>('[data-genpw]')!;
+    pwIn.oninput = () => { pwErr.textContent = ''; };
+    const setShown = (shown: boolean): void => {
+      pwIn.type = shown ? 'text' : 'password';
+      showBtn.classList.toggle('primary', shown);
+      showBtn.textContent = shown ? '🙈' : '👁';
+      showBtn.title = shown ? 'Hide password' : 'Show password';
+    };
+    showBtn.onclick = () => setShown(pwIn.type === 'password');
+    genBtn.onclick = () => {
+      pwIn.value = generatePassword();
+      pwErr.textContent = '';
+      setShown(true); // just generated it — showing it masked would be pointless
+    };
+    openPaDialog({
+      title: 'Create a meeting room',
+      body,
+      buttons: [
+        {
+          label: 'Create',
+          kind: 'green',
+          onClick: () => {
+            const pw = pwIn.value;
+            if (pw && pw.length < 6) {
+              // Inline, right under the field — a second modal on top of this one
+              // would stack behind it (dialog-over-dialog isn't a supported layer).
+              pwErr.textContent = 'Password must be at least 6 characters (or leave it empty).';
+              pwIn.focus();
+              return false; // keep the dialog open so they can fix it
+            }
+            this.room?.send('meetingRoomCreate', {
+              col: kiosk.col,
+              row: kiosk.row,
+              ttlDays: Number(ttlSel.value) || 7,
+              password: pw || undefined,
+            });
+          },
+        },
+      ],
+    });
+  }
+
+  /** The server minted (or refused) a meeting room — show the shareable link
+   *  (copy-to-clipboard) or the error. */
+  private onMeetingRoomCreated(m: Record<string, unknown>): void {
+    if (typeof m.error === 'string') {
+      void alertDialog(`Could not create the meeting room: ${m.error}.`);
+      return;
+    }
+    const slug = typeof m.slug === 'string' ? m.slug : '';
+    if (!slug) return;
+    const link = `${location.origin}/meet/${encodeURIComponent(slug)}`;
+    const body = document.createElement('div');
+    body.innerHTML = '<div class="fld"><label>Share this link</label><input class="pa-input" readonly></div><div></div>';
+    const inp = body.querySelector<HTMLInputElement>('input')!;
+    const feedback = body.querySelector<HTMLDivElement>('div:last-child')!;
+    feedback.style.cssText = 'min-height:1.1rem;margin-top:.5rem;font-size:.85rem;';
+    inp.value = link;
+    openPaDialog({
+      title: 'Meeting room ready',
+      body,
+      buttons: [
+        {
+          label: 'Copy link',
+          kind: 'green',
+          onClick: () => {
+            inp.select();
+            navigator.clipboard?.writeText(link).then(
+              () => { feedback.textContent = '✓ Copied to clipboard.'; feedback.style.color = '#7fd08a'; },
+              () => { feedback.textContent = 'Could not copy automatically — the text above is selected, copy it manually.'; feedback.style.color = '#f0a6a2'; },
+            );
+            return false; // keep the dialog open — they can copy again or read it
+          },
+        },
+      ],
+    });
+    setTimeout(() => { inp.focus(); inp.select(); }, 0);
   }
 
   /** Wire server-backed arcade savegames over the office room (shared store; same
@@ -930,21 +1042,35 @@ export class OfficeScene extends Phaser.Scene {
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
             const cab = this.arcadeAt(col, row);
+            const kiosk = this.meetingKioskAt(col, row);
             if (cab) {
               // Must stand at the cabinet to use it: open if already next to it,
               // else walk to a tile in front of it and open on arrival (see update()).
               this.pendingConference = null;
-              if (this.nearArcade(cab)) {
+              this.pendingMeetingKiosk = null;
+              if (this.nearFootprint(cab)) {
                 this.pendingArcade = null;
                 this.openArcade(cab);
               } else {
                 this.pendingArcade = cab;
                 this.room?.send('playerMove', { col: cab.col, row: cab.row + cab.fpH });
               }
+            } else if (kiosk) {
+              // Same walk-up-then-open pattern as the arcade cabinet.
+              this.pendingConference = null;
+              this.pendingArcade = null;
+              if (this.nearFootprint(kiosk)) {
+                this.pendingMeetingKiosk = null;
+                this.openMeetingRoomDialog(kiosk);
+              } else {
+                this.pendingMeetingKiosk = kiosk;
+                this.room?.send('playerMove', { col: kiosk.col, row: kiosk.row + kiosk.fpH });
+              }
             } else if (conf) void this.toggleConference(conf);
             else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.pendingArcade = null; // …and a walk-to-cabinet
+              this.pendingMeetingKiosk = null; // …and a walk-to-kiosk
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
             }
           }
@@ -1154,10 +1280,16 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
     // Walked up to a clicked arcade cabinet → open it (see the click handler).
-    if (this.pendingArcade && this.nearArcade(this.pendingArcade)) {
+    if (this.pendingArcade && this.nearFootprint(this.pendingArcade)) {
       const cab = this.pendingArcade;
       this.pendingArcade = null;
       this.openArcade(cab);
+    }
+    // Walked up to a clicked meeting-room kiosk → open the creation dialog.
+    if (this.pendingMeetingKiosk && this.nearFootprint(this.pendingMeetingKiosk)) {
+      const kiosk = this.pendingMeetingKiosk;
+      this.pendingMeetingKiosk = null;
+      this.openMeetingRoomDialog(kiosk);
     }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
@@ -1238,7 +1370,7 @@ export class OfficeScene extends Phaser.Scene {
    *  loop idles (skips work, then sleeps) until something wakes it. */
   private sceneBusy(now: number): boolean {
     if (this.editor.isEditing() || this.furnitureDirty) return true;
-    if (this.portalPickerTile || this.pendingArcade) return true;
+    if (this.portalPickerTile || this.pendingArcade || this.pendingMeetingKiosk) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     if (this.voiceBubbles.size > 0) return true; // animated "talking" indicator
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
@@ -2901,12 +3033,6 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zoneEditAdmin && this.spaceTab === 'layouts') this.spaceTab = 'zones';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
     if (save) save.style.display = this.assetsAdmin ? '' : 'none';
-    // Customers have no agents: hide the agent token + agents'-avatar settings.
-    const isCustomer = this.myRole === 'customer';
-    for (const sel of ['#pa-agent-token', '#pa-agent-skin']) {
-      const el = this.settingsPanel?.querySelector<HTMLElement>(sel);
-      if (el) el.style.display = isCustomer ? 'none' : '';
-    }
     // The zones panel stays available for travel; admin controls reflect the role.
     this.renderZonesPanel?.();
   }
@@ -2934,7 +3060,6 @@ export class OfficeScene extends Phaser.Scene {
       let name: string;
       if (ch.isPlayer) {
         name = ch.folderName || ch.agentName || '';
-        if (name && ch.spectator) name += ' (Rooms)'; // present via the portal, not walking
       } else if (ch.isSubagent) {
         name = ch.agentName || ch.folderName || '';
       } else {
@@ -3204,7 +3329,7 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.top = `${Math.round(sy)}px`;
 
     const act = ch.isPlayer
-      ? (ch.isCustomer ? 'Customer' : 'Player') + (ch.spectator ? ' (Rooms)' : '')
+      ? 'Player'
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
@@ -3223,6 +3348,14 @@ export class OfficeScene extends Phaser.Scene {
         : '');
     this.tip.style.display = 'flex';
   }
+}
+
+/** Cryptographically random password, avoiding visually ambiguous characters (0/O/1/l/I). */
+function generatePassword(length = 12): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
 }
 
 function fuelColor(ratio: number): string {

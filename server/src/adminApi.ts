@@ -5,8 +5,8 @@
  * effect on the game rooms too (entry/password gates read the DB live).
  *
  * Covers: user CRUD + role + password reset (the last admin can't be deleted or
- * demoted), per-customer room assignments, per-zone entry passwords, and per-
- * monitor call passwords. Passwords are stored hashed (scrypt) — never returned.
+ * demoted), per-zone entry passwords, and per-monitor call passwords. Passwords
+ * are stored hashed (scrypt) — never returned.
  */
 import express, { type Express, type Request, type Response } from 'express';
 
@@ -43,12 +43,11 @@ export function registerAdminApi(app: Express): void {
     return { userId: uid };
   };
 
-  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean; allowPixels: boolean }) => ({
+  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean }) => ({
     userId: u.userId,
     username: u.username,
     role: u.role,
     hasPassword: u.hasPassword,
-    allowPixels: u.allowPixels,
   });
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -59,13 +58,13 @@ export function registerAdminApi(app: Express): void {
 
   app.post('/admin/users', json, (req, res) => {
     if (!admin(req, res)) return;
-    const body = (req.body ?? {}) as { loginId?: unknown; password?: unknown; role?: unknown; allowPixels?: unknown };
+    const body = (req.body ?? {}) as { loginId?: unknown; password?: unknown; role?: unknown };
     const loginId = normalizeLoginId(body.loginId);
     if (!loginId) return void res.status(400).json({ error: 'invalid login id' });
     if (userStore.exists(loginId)) return void res.status(409).json({ error: 'user exists' });
     if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
     const role: Role = isRole(body.role) ? body.role : 'user';
-    const user = userStore.createUser(loginId, body.password, { role, allowPixels: !!body.allowPixels });
+    const user = userStore.createUser(loginId, body.password, { role });
     res.json({ ok: true, user: userView(user) });
   });
 
@@ -75,7 +74,7 @@ export function registerAdminApi(app: Express): void {
     const id = normalizeLoginId(req.params.id);
     const target = userStore.get(id);
     if (!target) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; allowPixels?: unknown };
+    const body = (req.body ?? {}) as { role?: unknown; password?: unknown };
 
     if (body.role !== undefined) {
       if (!isRole(body.role)) return void res.status(400).json({ error: 'invalid role' });
@@ -89,7 +88,6 @@ export function registerAdminApi(app: Express): void {
       if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
       userStore.setPassword(id, body.password);
     }
-    if (body.allowPixels !== undefined) userStore.setAllowPixels(id, !!body.allowPixels);
     res.json({ ok: true, user: userView(userStore.get(id)!) });
   });
 
@@ -118,7 +116,6 @@ export function registerAdminApi(app: Express): void {
       label: z.label,
       readOnly: !!z.readOnly,
       locked: !!z.locked,
-      customers: zones.listZoneCustomers(z.id).length,
     }));
     res.json({ zones: list });
   });
@@ -133,25 +130,6 @@ export function registerAdminApi(app: Express): void {
     if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
     zones.setZonePassword(id, password || null);
     res.json({ ok: true, locked: zones.zoneHasPassword(id) });
-  });
-
-  // ── Customer ↔ room assignments ───────────────────────────────────────────
-  app.get('/admin/users/:id/rooms', (req, res) => {
-    if (!admin(req, res)) return;
-    const id = normalizeLoginId(req.params.id);
-    if (!userStore.get(id)) return void res.status(404).json({ error: 'not found' });
-    res.json({ assigned: zones.listCustomerZones(id) });
-  });
-
-  app.put('/admin/users/:id/rooms', json, (req, res) => {
-    if (!admin(req, res)) return;
-    const id = normalizeLoginId(req.params.id);
-    if (!userStore.get(id)) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { zoneId?: unknown; on?: unknown };
-    const zoneId = typeof body.zoneId === 'string' ? body.zoneId : '';
-    if (!zones.has(zoneId)) return void res.status(400).json({ error: 'no such zone' });
-    zones.assignCustomer(zoneId, id, !!body.on);
-    res.json({ ok: true, assigned: zones.listCustomerZones(id) });
   });
 
   // ── Conference monitors (per zone) ────────────────────────────────────────

@@ -51,10 +51,6 @@ export class ZoneStore {
       CREATE TABLE IF NOT EXISTS zone_admins (
         zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
       );
-      -- Which customers may enter which rooms (a customer sees/joins only these).
-      CREATE TABLE IF NOT EXISTS zone_customers (
-        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
-      );
       -- Password-locked conference monitors, keyed by their anchor tile "col,row".
       CREATE TABLE IF NOT EXISTS monitor_locks (
         zone_id TEXT NOT NULL, monitor_key TEXT NOT NULL, pw_hash TEXT NOT NULL,
@@ -67,7 +63,7 @@ export class ZoneStore {
 
   // ── Zone passwords ───────────────────────────────────────────────
   // A locked zone requires the password to enter (hash stored like an account
-  // password). Admins, the zone's admins, and assigned customers bypass it.
+  // password). Admins and the zone's admins bypass it.
   zoneHasPassword(id: string): boolean {
     const r = this.db.prepare('SELECT pw_hash FROM zones WHERE id = ?').get(id) as { pw_hash: string | null } | undefined;
     return !!r?.pw_hash;
@@ -83,28 +79,6 @@ export class ZoneStore {
     if (!r) return false;
     if (!r.pw_hash) return true; // not locked
     return verifyHash(r.pw_hash, password);
-  }
-
-  // ── Customer room assignments ────────────────────────────────────
-  assignCustomer(zoneId: string, userId: string, on: boolean): void {
-    if (!zoneId || !userId) return;
-    if (on) this.db.prepare('INSERT OR IGNORE INTO zone_customers(zone_id, user_id) VALUES(?, ?)').run(zoneId, userId);
-    else this.db.prepare('DELETE FROM zone_customers WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
-  }
-  isCustomerAssigned(zoneId: string, userId: string): boolean {
-    if (!zoneId || !userId) return false;
-    return this.db.prepare('SELECT 1 FROM zone_customers WHERE zone_id = ? AND user_id = ?').get(zoneId, userId) !== undefined;
-  }
-  /** Zone ids a customer is assigned to. */
-  listCustomerZones(userId: string): string[] {
-    const rows = this.db.prepare('SELECT zone_id FROM zone_customers WHERE user_id = ?').all(userId) as Array<{ zone_id: string }>;
-    return rows.map((r) => r.zone_id);
-  }
-  listZoneCustomers(zoneId: string): string[] {
-    const rows = this.db
-      .prepare('SELECT user_id FROM zone_customers WHERE zone_id = ? ORDER BY user_id')
-      .all(zoneId) as Array<{ user_id: string }>;
-    return rows.map((r) => r.user_id);
   }
 
   // ── Monitor passwords ────────────────────────────────────────────
@@ -160,11 +134,9 @@ export class ZoneStore {
       this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
     }
   }
-  /** Drop all per-user grants (zone-admin + customer assignments) — e.g. when the
-   *  account is deleted. */
+  /** Drop all per-user grants (zone-admin) — e.g. when the account is deleted. */
   removeUserFromAllZones(userId: string): void {
     this.db.prepare('DELETE FROM zone_admins WHERE user_id = ?').run(userId);
-    this.db.prepare('DELETE FROM zone_customers WHERE user_id = ?').run(userId);
   }
   listZoneAdmins(zoneId: string): string[] {
     const rows = this.db

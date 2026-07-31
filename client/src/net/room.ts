@@ -55,7 +55,7 @@ function errMsg(err: unknown): string {
 export function isZoneLockedError(err: unknown): boolean {
   return errMsg(err).includes('zone-locked');
 }
-/** The account may not enter this room at all (e.g. a customer, not assigned). */
+/** The account may not enter this room at all. */
 export function isForbiddenError(err: unknown): boolean {
   return errMsg(err).includes('forbidden');
 }
@@ -83,7 +83,7 @@ export function gotoLogout(): void {
 export async function connect(
   zone: string = DEFAULT_ZONE,
   arrive = false,
-  opts: { zonePassword?: string; spectator?: boolean } = {},
+  opts: { zonePassword?: string } = {},
 ): Promise<Room> {
   const client = new Client(endpoint());
   // Desktop only: attach the server-issued bearer token so colyseus.js adds
@@ -99,8 +99,6 @@ export async function connect(
   // the server should land them at the zone's arrival tile rather than where they
   // last stood. Resolved per-client in onJoin.
   // `zonePassword` is checked in onAuth for password-locked zones (ignored for
-  // unlocked ones); admins / zone admins / assigned customers don't need it.
-  // `spectator` = a non-spatial viewer (rooms portal): present for chat/voice/
-  // meetings but not drawn as an avatar in the 2D/3D world.
-  return client.joinOrCreate(WORLD_ROOM, { zone, arrive, zonePassword: opts.zonePassword, spectator: opts.spectator });
+  // unlocked ones); admins / zone admins don't need it.
+  return client.joinOrCreate(WORLD_ROOM, { zone, arrive, zonePassword: opts.zonePassword });
 }

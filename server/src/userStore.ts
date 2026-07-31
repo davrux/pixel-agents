@@ -17,13 +17,11 @@ export const MAX_PASSWORD_LEN = 128;
 
 /**
  * Account role, which decides what a user may do:
- * - `admin`    — full control (user management, any zone, any monitor).
- * - `user`     — internal member: may create + edit their OWN Pixels rooms.
- * - `customer` — external guest: only the rooms portal, only assigned rooms,
- *                never creates or edits rooms.
+ * - `admin` — full control (user management, any zone, any monitor).
+ * - `user`  — may create + edit their OWN Pixels rooms.
  */
-export type Role = 'admin' | 'user' | 'customer';
-export const ROLES: readonly Role[] = ['admin', 'user', 'customer'];
+export type Role = 'admin' | 'user';
+export const ROLES: readonly Role[] = ['admin', 'user'];
 export function isRole(v: unknown): v is Role {
   return typeof v === 'string' && (ROLES as readonly string[]).includes(v);
 }
@@ -35,10 +33,6 @@ export interface User {
   role: Role;
   /** Convenience mirror of `role === 'admin'` (kept in sync in the DB). */
   isAdmin: boolean;
-  /** Customers only: may also enter the internal Pixels 2D world (not just the
-   *  rooms portal). Ignored for admins/users (who may always use Pixels). Voxel
-   *  worlds stay off-limits to customers regardless. */
-  allowPixels: boolean;
   agentToken: string;
   hasPassword: boolean;
 }
@@ -50,7 +44,6 @@ interface UserRow {
   pw_algo: string | null;
   is_admin: number;
   role: string | null;
-  allow_pixels: number;
   agent_token: string;
   created_at: number;
 }
@@ -87,14 +80,11 @@ class UserStore {
       CREATE INDEX IF NOT EXISTS users_agent_token ON users(agent_token);
     `);
     // Migration: add the role column and backfill from the legacy is_admin flag
-    // (admins → 'admin', everyone else → 'user'; customers are created explicitly).
+    // (admins → 'admin', everyone else → 'user').
     const cols = this.db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === 'role')) {
       this.db.exec('ALTER TABLE users ADD COLUMN role TEXT');
       this.db.exec("UPDATE users SET role = CASE WHEN is_admin != 0 THEN 'admin' ELSE 'user' END WHERE role IS NULL");
-    }
-    if (!cols.some((c) => c.name === 'allow_pixels')) {
-      this.db.exec('ALTER TABLE users ADD COLUMN allow_pixels INTEGER NOT NULL DEFAULT 0');
     }
   }
 
@@ -105,7 +95,6 @@ class UserStore {
       username: r.username ?? '',
       role,
       isAdmin: role === 'admin',
-      allowPixels: r.allow_pixels !== 0,
       agentToken: r.agent_token,
       hasPassword: !!r.pw_hash,
     };
@@ -149,28 +138,16 @@ class UserStore {
 
   /** Create a user (factored so a future register page can reuse it). The
    *  caller must have validated the password; throws on a duplicate login id. */
-  createUser(
-    loginId: string,
-    password: string,
-    opts: { isAdmin?: boolean; role?: Role; allowPixels?: boolean } = {},
-  ): User {
+  createUser(loginId: string, password: string, opts: { isAdmin?: boolean; role?: Role } = {}): User {
     const id = normalizeLoginId(loginId);
     if (!id) throw new Error('invalid login id');
     if (this.row(id)) throw new Error('user exists');
     const role: Role = opts.role ?? (opts.isAdmin ? 'admin' : 'user');
     const token = crypto.randomBytes(24).toString('base64url');
     this.db
-      .prepare(
-        'INSERT INTO users(user_id, username, pw_hash, pw_algo, is_admin, role, allow_pixels, agent_token, created_at) VALUES(?,?,?,?,?,?,?,?,?)',
-      )
-      .run(id, null, hashPassword(password), 'scrypt', role === 'admin' ? 1 : 0, role, opts.allowPixels ? 1 : 0, token, Date.now());
+      .prepare('INSERT INTO users(user_id, username, pw_hash, pw_algo, is_admin, role, agent_token, created_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run(id, null, hashPassword(password), 'scrypt', role === 'admin' ? 1 : 0, role, token, Date.now());
     return this.toUser(this.row(id)!);
-  }
-
-  /** Customers only: allow/deny the internal Pixels 2D world (rooms portal always
-   *  works). No effect on admins/users. */
-  setAllowPixels(userId: string, on: boolean): void {
-    this.db.prepare('UPDATE users SET allow_pixels = ? WHERE user_id = ?').run(on ? 1 : 0, userId);
   }
 
   verifyPassword(loginId: string, password: string): boolean {

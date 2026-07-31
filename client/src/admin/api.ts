@@ -6,20 +6,18 @@
 import { serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop } from '../desktop/bridge.js';
 
-export type Role = 'admin' | 'user' | 'customer';
+export type Role = 'admin' | 'user';
 export interface AdminUser {
   userId: string;
   username: string;
   role: Role;
   hasPassword: boolean;
-  allowPixels: boolean;
 }
 export interface AdminZone {
   id: string;
   label: string;
   readOnly: boolean;
   locked: boolean;
-  customers: number;
 }
 export interface AdminMonitor {
   key: string;
@@ -62,19 +60,15 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<Api
 
 export const adminApi = {
   listUsers: () => req<{ users: AdminUser[] }>('GET', '/admin/users'),
-  createUser: (loginId: string, password: string, role: Role, allowPixels = false) =>
-    req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role, allowPixels }),
-  updateUser: (id: string, patch: { role?: Role; password?: string; allowPixels?: boolean }) =>
+  createUser: (loginId: string, password: string, role: Role) =>
+    req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role }),
+  updateUser: (id: string, patch: { role?: Role; password?: string }) =>
     req<{ user: AdminUser }>('PATCH', `/admin/users/${encodeURIComponent(id)}`, patch),
   deleteUser: (id: string) => req<{ ok: true }>('DELETE', `/admin/users/${encodeURIComponent(id)}`),
 
   listZones: () => req<{ zones: AdminZone[] }>('GET', '/admin/zones'),
   setZonePassword: (id: string, password: string) =>
     req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(id)}/password`, { password }),
-
-  userRooms: (id: string) => req<{ assigned: string[] }>('GET', `/admin/users/${encodeURIComponent(id)}/rooms`),
-  assignRoom: (id: string, zoneId: string, on: boolean) =>
-    req<{ assigned: string[] }>('PUT', `/admin/users/${encodeURIComponent(id)}/rooms`, { zoneId, on }),
 
   listMonitors: (zoneId: string) =>
     req<{ monitors: AdminMonitor[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/monitors`),

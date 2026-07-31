@@ -3,9 +3,9 @@
  * A thin SPA over the admin REST API (server/src/adminApi.ts); the server enforces
  * admin access, so this page just presents the data and issues the calls.
  *
- * Users: create / delete / change role / reset password, and assign customers to
- * rooms. Rooms: set or clear a room's entry password and each monitor's call
- * password (stored hashed server-side). The last admin can't be deleted/demoted.
+ * Users: create / delete / change role / reset password. Rooms: set or clear a
+ * room's entry password and each monitor's call password (stored hashed
+ * server-side). The last admin can't be deleted/demoted.
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
 import { adminApi, type AdminUser, type AdminZone, type Role } from './api.js';
@@ -13,7 +13,7 @@ import { adminApi, type AdminUser, type AdminZone, type Role } from './api.js';
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
 let tab: 'users' | 'rooms' = 'users';
-const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User', customer: 'Customer' };
+const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
 
 const STYLE = `
   #pa-adm-head{display:flex;align-items:center;gap:.8rem;padding:.7rem 1.1rem;background:var(--panel);
@@ -130,7 +130,7 @@ async function renderUsers(): Promise<void> {
   const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16;
   const pwIn = el('input'); pwIn.placeholder = 'password'; pwIn.type = 'password';
   const roleSel = el('select');
-  for (const r of ['user', 'customer', 'admin'] as Role[]) roleSel.appendChild(new Option(ROLE_LABEL[r], r));
+  for (const r of ['user', 'admin'] as Role[]) roleSel.appendChild(new Option(ROLE_LABEL[r], r));
   const addBtn = el('button', 'act primary', 'Create');
   addBtn.onclick = async () => {
     const res = await adminApi.createUser(idIn.value.trim(), pwIn.value, roleSel.value as Role);
@@ -145,8 +145,7 @@ async function renderUsers(): Promise<void> {
   const card = el('div', 'pa-adm-card');
   card.innerHTML = `<h2>Accounts · ${users.length}</h2>`;
   const table = el('table');
-  table.innerHTML =
-    '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Pixels</th><th>Actions</th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Actions</th></tr></thead>';
   const tbody = el('tbody');
   for (const u of users) tbody.appendChild(userRow(u));
   table.appendChild(tbody);
@@ -160,7 +159,7 @@ function userRow(u: AdminUser): HTMLTableRowElement {
 
   const roleTd = el('td');
   const sel = el('select');
-  for (const r of ['admin', 'user', 'customer'] as Role[]) sel.appendChild(new Option(ROLE_LABEL[r], r));
+  for (const r of ['admin', 'user'] as Role[]) sel.appendChild(new Option(ROLE_LABEL[r], r));
   sel.value = u.role;
   sel.onchange = async () => {
     const res = await adminApi.updateUser(u.userId, { role: sel.value as Role });
@@ -172,26 +171,6 @@ function userRow(u: AdminUser): HTMLTableRowElement {
 
   tr.appendChild(el('td', 'muted', u.hasPassword ? 'set' : '—'));
 
-  // Pixels access: only meaningful for customers (admins/users always may). A
-  // checkbox toggles allowPixels; for non-customers show a muted "always".
-  const pixTd = el('td');
-  if (u.role === 'customer') {
-    const pcb = el('input');
-    pcb.type = 'checkbox';
-    pcb.checked = u.allowPixels;
-    pcb.title = 'May enter the Pixels 2D world (not just the rooms portal)';
-    pcb.onchange = async () => {
-      const res = await adminApi.updateUser(u.userId, { allowPixels: pcb.checked });
-      if (res.ok) toast(`"${u.userId}" ${pcb.checked ? 'may' : 'may not'} use Pixels.`);
-      else { pcb.checked = !pcb.checked; fail('Set Pixels access', res.error); }
-    };
-    pixTd.appendChild(pcb);
-  } else {
-    pixTd.className = 'muted';
-    pixTd.textContent = 'always';
-  }
-  tr.appendChild(pixTd);
-
   const actTd = el('td');
   const pwBtn = el('button', 'act', 'Reset password');
   pwBtn.onclick = async () => {
@@ -200,51 +179,15 @@ function userRow(u: AdminUser): HTMLTableRowElement {
     const res = await adminApi.updateUser(u.userId, { password: pw });
     if (res.ok) toast(`Password reset for "${u.userId}".`); else fail('Reset password', res.error);
   };
-  const roomsBtn = el('button', 'act', 'Rooms');
-  roomsBtn.onclick = () => toggleRoomsPanel(tr, u);
   const delBtn = el('button', 'act danger', 'Delete');
   delBtn.onclick = async () => {
     if (!confirm(`Delete account "${u.userId}"? This removes its avatar and room assignments.`)) return;
     const res = await adminApi.deleteUser(u.userId);
     if (res.ok) { toast(`Deleted "${u.userId}".`); void renderUsers(); } else fail('Delete', res.error);
   };
-  actTd.append(pwBtn, roomsBtn, delBtn);
+  actTd.append(pwBtn, delBtn);
   tr.appendChild(actTd);
   return tr;
-}
-
-/** Toggle an inline room-assignment panel under a customer's row. */
-async function toggleRoomsPanel(afterRow: HTMLTableRowElement, u: AdminUser): Promise<void> {
-  const existing = afterRow.nextElementSibling;
-  if (existing?.classList.contains('rooms-row')) { existing.remove(); return; }
-  // Close any other open panel.
-  afterRow.parentElement?.querySelectorAll('.rooms-row').forEach((r) => r.remove());
-
-  const [zr, ur] = await Promise.all([adminApi.listZones(), adminApi.userRooms(u.userId)]);
-  const zoneList = zr.data?.zones ?? [];
-  const assigned = new Set(ur.data?.assigned ?? []);
-
-  const row = el('tr', 'rooms-row');
-  const td = el('td'); td.colSpan = 5;
-  const panel = el('div', 'rooms-panel');
-  const note = u.role === 'customer'
-    ? 'Rooms this customer may enter in the portal:'
-    : 'Room assignments only apply to customers (this account is a ' + ROLE_LABEL[u.role] + ').';
-  panel.appendChild(el('div', 'muted', note));
-  for (const z of zoneList) {
-    const lab = el('label');
-    const cb = el('input'); cb.type = 'checkbox'; cb.checked = assigned.has(z.id);
-    cb.onchange = async () => {
-      const res = await adminApi.assignRoom(u.userId, z.id, cb.checked);
-      if (res.ok) toast(`${cb.checked ? 'Assigned' : 'Removed'} "${u.userId}" ${cb.checked ? 'to' : 'from'} ${z.label}.`);
-      else { cb.checked = !cb.checked; fail('Assign room', res.error); }
-    };
-    lab.append(cb, document.createTextNode(z.label));
-    panel.appendChild(lab);
-  }
-  td.appendChild(panel);
-  row.appendChild(td);
-  afterRow.after(row);
 }
 
 // ── Rooms ────────────────────────────────────────────────────────────────────
@@ -260,8 +203,8 @@ async function renderRooms(): Promise<void> {
   view.innerHTML = '';
   const intro = el('div', 'pa-adm-card');
   intro.innerHTML =
-    '<h2>Rooms</h2><div class="muted">A password locks the room — anyone but admins, the room\'s admins ' +
-    'and assigned customers must enter it to join. Monitors can be locked separately.</div>';
+    '<h2>Rooms</h2><div class="muted">A password locks the room — anyone but admins and the room\'s admins ' +
+    'must enter it to join. Monitors can be locked separately.</div>';
   view.appendChild(intro);
 
   for (const z of zones) view.appendChild(zoneCard(z));
@@ -274,7 +217,6 @@ function zoneCard(z: AdminZone): HTMLElement {
   h.style.margin = '0';
   title.append(h);
   if (z.locked) title.append(el('span', 'lock', '🔒 locked'));
-  if (z.customers) title.append(el('span', 'muted', `· ${z.customers} customer${z.customers === 1 ? '' : 's'}`));
   card.appendChild(title);
 
   // Zone password control

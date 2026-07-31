@@ -10,7 +10,12 @@ function ensureStyles(): void {
   stylesInjected = true;
   const style = document.createElement('style');
   style.textContent = `
-    #pa-modal{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
+    /* Above #pa-dialog-back (paDialog.ts, z-index 1000) — confirm/alert/prompt
+       must be able to interrupt an already-open form dialog (e.g. a validation
+       error while "Create a meeting room" is still up), not hide behind it.
+       Below the voxel disconnect/kick overlay (z-index 1200), which should win
+       over everything when the connection itself is gone. */
+    #pa-modal{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
       background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;}
     #pa-modal .box{background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;padding:1.1rem 1.2rem;
       max-width:24rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}

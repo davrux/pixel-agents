@@ -237,9 +237,6 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const userId = userIdFromCookie(cookie) ?? '';
       const user = userId ? userStore.get(userId) : undefined;
       if (!user) throw new Error('unauthorized');
-      // Customers are external guests confined to the rooms portal — never the
-      // internal voxel world.
-      if (user.role === 'customer') throw new Error('forbidden');
       return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
     }
     const authHeader = context?.token ? `Bearer ${context.token}` : undefined;
@@ -247,7 +244,6 @@ export class VoxelRoom extends Room<VoxelRoomState> {
       const userId = userIdFromBearer(authHeader) ?? '';
       const user = userId ? userStore.get(userId) : undefined;
       if (!user) throw new Error('unauthorized');
-      if (user.role === 'customer') throw new Error('forbidden');
       return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin };
     }
     throw new Error('unauthorized');
