@@ -291,6 +291,7 @@ export class MumbleSession extends EventEmitter {
     }
     this.emit('audio', {
       session: packet.session,
+      sequence: packet.sequence,
       terminator: packet.terminator,
       // Copy out of the socket buffer: the subarray aliases memory that is
       // reused for the next chunk, and this crosses an async IPC boundary.

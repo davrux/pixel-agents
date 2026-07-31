@@ -54,6 +54,8 @@ export type MumbleEvent =
 
 export interface MumbleAudioIn {
   session: number;
+  /** Sender's sequence number, in 10 ms units. */
+  sequence: number;
   terminator: boolean;
   opus: Uint8Array;
 }

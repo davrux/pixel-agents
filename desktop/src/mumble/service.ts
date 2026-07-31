@@ -11,6 +11,7 @@ import { BrowserWindow, app, dialog, ipcMain, type WebContents } from 'electron'
 
 import {
   PIXEL_DESKTOP_CHANNELS,
+  type MumbleAudioIn,
   type MumbleEvent,
   type MumbleSettingsPatch,
   type MumbleSettingsView,
@@ -119,7 +120,7 @@ async function startSession(
     forward({ t: 'status', state: 'closed' });
     if (active?.session === session) active = null;
   });
-  session.on('audio', (audio: { session: number; terminator: boolean; opus: Uint8Array }) => {
+  session.on('audio', (audio: MumbleAudioIn) => {
     if (active?.session !== session || wc.isDestroyed()) return;
     wc.send(PIXEL_DESKTOP_CHANNELS.mumbleAudio, audio);
   });

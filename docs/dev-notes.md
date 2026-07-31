@@ -151,6 +151,26 @@ command for any new destination (see AGENTS.md convention).
     panel is its own top-bar entry (not inside Audio) and can be pinned open;
     in the office that means it opts out of setMenu's one-panel-at-a-time rule
     (`body.pa-mumble-pinned` shifts the other right-hand popovers aside).
+  - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
+    both were once broken, which made voices drift low and slow:
+    1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on
+       the AudioContext**. Routing through `MediaStreamAudioDestinationNode` into an
+       `<audio srcObject>` — the old way to get `setSinkId` — hands audio to
+       Chromium's WebRTC renderer, which has its own playout clock and time-stretches
+       when it thinks it has drifted. Kept only as a fallback for an engine that
+       won't take a sink on the context.
+    2. The jitter buffer is the `pa-voice-playout` worklet: a per-user ring read at
+       exactly one sample per output sample, so arrival timing can never affect
+       pitch. It emits silence when starved and drops the oldest audio above 250 ms,
+       but never stretches. Scheduling each frame as its own
+       `AudioBufferSourceNode` (the old approach) had no ceiling, so every TCP stall
+       permanently added its own duration to that peer's latency.
+    Set `localStorage.pa-mb-audiodebug = '1'` for per-peer depth/underrun/drop/loss
+    lines. Depth should sit near 80 ms and return there after a stall.
+  - Remote frame sizes are **not** the 20 ms we transmit — official Mumble also
+    sends 10/40/60 ms, so `opusDurationUs` reads the real duration off the packet's
+    TOC byte. The terminator bit likewise rides the last frame that still *carries*
+    audio, so it must be decoded before the end-of-spurt reset.
   - **Why the split:** browsers can't open a raw TLS socket, but an Electron
     renderer *is* Chromium and has WebCodecs — so protocol lives in main, all audio
     in the renderer, and Opus packets cross IPC opaque. Audio uses `send`, not

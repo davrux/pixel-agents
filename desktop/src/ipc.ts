@@ -99,6 +99,9 @@ export type MumbleEvent =
 /** Pushed from main on the `mumbleAudio` channel: one Opus packet. */
 export interface MumbleAudioIn {
   session: number;
+  /** Sender's sequence number, in 10 ms units. Lets the renderer tell a gap in
+   *  the stream apart from a talker who simply stopped. */
+  sequence: number;
   terminator: boolean;
   opus: Uint8Array;
 }

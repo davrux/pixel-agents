@@ -92,6 +92,11 @@ export class MicGraph {
     });
     const ctx = new AudioContext({ sampleRate: 48000 });
     await ctx.resume().catch(() => undefined);
+    // Callers encode at a hardcoded 48 kHz, so a denied request would time-warp
+    // everything we transmit. Report the granted rate rather than assume it.
+    if (ctx.sampleRate !== 48000) {
+      console.warn(`[mic] asked for 48000 Hz, got ${ctx.sampleRate} Hz`);
+    }
     return new MicGraph(ctx, raw, opts.onLevel, opts.onGate, opts.gain, opts.threshold);
   }
 

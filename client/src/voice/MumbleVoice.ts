@@ -26,6 +26,12 @@ const FRAME_US = FRAME_MS * 1000;
 const OPUS_BITRATE = 32000;
 /** Jitter buffer depth. Audio rides TCP, so a little slack beats stuttering. */
 const JITTER_S = 0.08;
+/** Hard ceiling on jitter buffer depth. A TCP head-of-line stall releases its
+ *  backlog in one burst; without a ceiling that backlog becomes permanent added
+ *  latency, since nothing ever drains it back down. */
+const JITTER_MAX_S = 0.25;
+/** Ring capacity, comfortably above JITTER_MAX_S so a burst can never wrap. */
+const JITTER_CAP_S = 0.5;
 /** A user counts as talking until this long after their last voice packet. */
 const TALK_HOLD_MS = 300;
 const TALK_TICK_MS = 200;
@@ -83,10 +89,15 @@ export interface MumbleDevices {
 
 interface PeerAudio {
   decoder: AudioDecoder;
+  /** Jitter buffer; reads at exactly the context rate, so pitch can't drift. */
+  playout: AudioWorkletNode;
   gain: GainNode;
-  nextTime: number;
   tsUs: number;
   talkingUntil: number;
+  /** Last sequence number seen, for gap counting. -1 before the first packet. */
+  lastSeq: number;
+  /** Packets the sender numbered but we never saw, in 10 ms units. */
+  lost: number;
 }
 
 export class MumbleVoice {
@@ -133,7 +144,6 @@ export class MumbleVoice {
   private mic: MicGraph | null = null;
   private capture: AudioWorkletNode | null = null;
   private captureSink: GainNode | null = null;
-  private workletUrl: string | null = null;
   private encoder: AudioEncoder | null = null;
   /** Resolves once the last endSpurt() flush has been sent; stopMic waits on it. */
   private encoderFlush: Promise<void> = Promise.resolve();
@@ -143,11 +153,22 @@ export class MumbleVoice {
   private spurtOpen = false;
   private startingMic = false;
 
-  // Playback: one output graph, one gain per remote user.
+  // Playback: one output graph, one jitter buffer + gain per remote user.
   private outCtx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  /** Only set on the fallback path, where the sink is chosen on an element
+   *  because this engine can't take a sinkId on the context itself. */
   private outEl: HTMLAudioElement | null = null;
   private readonly peers = new Map<number, PeerAudio>();
+
+  /** Shared worklet module, added once per AudioContext that needs it. */
+  private workletUrl: string | null = null;
+  private readonly workletReady = new WeakSet<BaseAudioContext>();
+  /** One-shot warning latches, so a rate mismatch is reported but not spammed. */
+  private warnedRate = false;
+  private warnedChannels = false;
+  /** Per-peer jitter buffer logging. Off unless pa-mb-audiodebug is set. */
+  private readonly audioDebug = localStorage.getItem('pa-mb-audiodebug') === '1';
 
   constructor(
     private readonly onState: (s: MumbleVoiceState) => void,
@@ -428,25 +449,71 @@ export class MumbleVoice {
 
   // ── playback ───────────────────────────────────────────────────────────────
 
+  /**
+   * Build the output graph.
+   *
+   * Prefer a sinkId on the AudioContext itself and connect straight to
+   * ctx.destination. The obvious-looking alternative — masterGain into a
+   * MediaStreamAudioDestinationNode played through an <audio> element — is how
+   * this used to work, purely so setSinkId could pick the speaker, but it hands
+   * the audio to Chromium's WebRTC renderer, which owns a second playout clock
+   * and time-stretches whenever it thinks it has drifted from ours. That stretch
+   * is what made voices go low and slow, so we only take that path on an engine
+   * that can't set a sink on the context.
+   *
+   * outCtx is published last, on purpose: onAudio() bails while it's null, so
+   * nothing can build a peer before the worklet module is registered.
+   */
   private async startPlayback(): Promise<void> {
     if (this.outCtx) return;
     const ctx = new AudioContext({ sampleRate: 48000 });
+    // With no device pinned, ctx.destination already plays to the system default,
+    // so the element is only ever needed to honour an explicit speaker choice that
+    // the context itself won't take.
+    let el: HTMLAudioElement | null = null;
+    if (this.speakerId && !(await setContextSink(ctx, this.speakerId))) {
+      el = new Audio();
+      el.style.display = 'none';
+      document.body.appendChild(el);
+    }
     await ctx.resume().catch(() => undefined);
     const master = ctx.createGain();
-    const dest = ctx.createMediaStreamDestination();
-    master.connect(dest);
-    // Play through an element rather than ctx.destination so setSinkId can pick
-    // the output device (works in Chromium and Firefox alike).
-    const el = new Audio();
-    el.srcObject = dest.stream;
-    el.style.display = 'none';
-    document.body.appendChild(el);
-    if (this.speakerId) await setSinkId(el, this.speakerId);
-    void el.play().catch(() => undefined);
-    this.outCtx = ctx;
-    this.masterGain = master;
+    if (el) {
+      const dest = ctx.createMediaStreamDestination();
+      master.connect(dest);
+      el.srcObject = dest.stream;
+      if (this.speakerId) await setSinkId(el, this.speakerId);
+      void el.play().catch(() => undefined);
+    } else {
+      master.connect(ctx.destination);
+    }
+    try {
+      await this.addWorklet(ctx);
+    } catch (e) {
+      console.warn('[mumble] playout worklet failed to load; no audio', e);
+      el?.remove();
+      void ctx.close().catch(() => undefined);
+      return;
+    }
+    // We ask for 48 kHz and assume it everywhere downstream; say so once, since a
+    // denied request would otherwise be an invisible cause of wrong-pitch audio.
+    console.info(
+      `[mumble] output ${ctx.sampleRate} Hz, sink via ${el ? 'element (fallback)' : 'context'}`,
+    );
     this.outEl = el;
+    this.masterGain = master;
+    this.outCtx = ctx;
     this.applyMasterGain();
+  }
+
+  /** Register the shared worklet module on a context, at most once each. */
+  private async addWorklet(ctx: BaseAudioContext): Promise<void> {
+    if (this.workletReady.has(ctx)) return;
+    if (!this.workletUrl) {
+      this.workletUrl = URL.createObjectURL(new Blob([VOICE_WORKLET], { type: 'application/javascript' }));
+    }
+    await ctx.audioWorklet.addModule(this.workletUrl);
+    this.workletReady.add(ctx);
   }
 
   private onAudio(a: MumbleAudioIn): void {
@@ -460,19 +527,33 @@ export class MumbleVoice {
     }
     const peer = this.ensurePeer(a.session);
     if (!peer) return;
-    if (a.terminator || a.opus.length === 0) {
-      peer.talkingUntil = 0;
-      peer.nextTime = 0; // re-prime the jitter buffer on the next talk spurt
-      return;
+    if (a.opus.length > 0) {
+      peer.talkingUntil = performance.now() + TALK_HOLD_MS;
+      // Sequence numbers count 10 ms units, so they jump by the frame size rather
+      // than by 1, and reset on each spurt. Only a gap inside a spurt is loss.
+      const expected = peer.lastSeq + opusDurationUs(a.opus) / 10_000;
+      if (peer.lastSeq >= 0 && a.sequence > expected) peer.lost += a.sequence - expected;
+      peer.lastSeq = a.sequence;
+      try {
+        peer.decoder.decode(
+          new EncodedAudioChunk({ type: 'key', timestamp: peer.tsUs, data: a.opus }),
+        );
+        // Read the real duration off the packet rather than assuming the 20 ms we
+        // happen to transmit: official Mumble also sends 10/40/60 ms.
+        peer.tsUs += opusDurationUs(a.opus);
+      } catch {
+        // A codec that has given up throws on every future packet, so rebuild it
+        // rather than leaving this user silent for the rest of the call.
+        if (peer.decoder.state !== 'configured') this.dropPeer(a.session);
+      }
     }
-    peer.talkingUntil = performance.now() + TALK_HOLD_MS;
-    try {
-      peer.decoder.decode(
-        new EncodedAudioChunk({ type: 'key', timestamp: peer.tsUs, data: a.opus }),
-      );
-      peer.tsUs += FRAME_US;
-    } catch {
-      /* a corrupt packet must not kill the stream */
+    // Official Mumble sets the terminator on the last frame that still carries
+    // audio, while our own endSpurt() sends it on an empty payload. Handling it
+    // after the decode above covers both; returning early on it, as this used to,
+    // clipped the final syllable off every phrase from an official client.
+    if (a.terminator) {
+      peer.talkingUntil = 0;
+      peer.lastSeq = -1; // the next spurt restarts numbering
     }
   }
 
@@ -480,15 +561,43 @@ export class MumbleVoice {
     const ctx = this.outCtx;
     if (!ctx || !this.masterGain) return null;
     const existing = this.peers.get(session);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.decoder.state === 'configured') return existing;
+      this.dropPeer(session); // errored out; fall through and build a fresh one
+    }
     const gain = ctx.createGain();
+    let playout: AudioWorkletNode;
+    try {
+      playout = new AudioWorkletNode(ctx, 'pa-voice-playout', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: {
+          capacity: Math.round(JITTER_CAP_S * ctx.sampleRate),
+          target: Math.round(JITTER_S * ctx.sampleRate),
+          max: Math.round(JITTER_MAX_S * ctx.sampleRate),
+        },
+      });
+    } catch {
+      gain.disconnect();
+      return null;
+    }
+    playout.connect(gain);
     gain.connect(this.masterGain);
-    const peer: PeerAudio = { decoder: null as unknown as AudioDecoder, gain, nextTime: 0, tsUs: 0, talkingUntil: 0 };
+    const peer: PeerAudio = {
+      decoder: null as unknown as AudioDecoder,
+      playout,
+      gain,
+      tsUs: 0,
+      talkingUntil: 0,
+      lastSeq: -1,
+      lost: 0,
+    };
     peer.decoder = new AudioDecoder({
       output: (data) => this.playChunk(peer, data),
-      error: () => {
-        /* decoder gave up on this stream; the next talk spurt re-primes it */
-      },
+      // ensurePeer rebuilds the peer once the state check sees this, so a bad
+      // stream costs one talk spurt instead of the whole call.
+      error: () => this.dropPeer(session),
     });
     try {
       peer.decoder.configure({
@@ -498,8 +607,22 @@ export class MumbleVoice {
         description: OPUS_HEAD,
       });
     } catch {
+      playout.disconnect();
       gain.disconnect();
       return null;
+    }
+    if (this.audioDebug) {
+      playout.port.onmessage = (ev: MessageEvent<PlayoutStats>) => {
+        const name = this.users.get(session)?.name ?? session;
+        const ms = (n: number) => Math.round((n / ctx.sampleRate) * 1000);
+        // depth should hover near JITTER_S and come back to it after a stall.
+        // Steadily climbing depth, or dropped climbing without lost, means the
+        // sender is outrunning us; lost without dropped means the network is.
+        console.info(
+          `[mumble] ${name}: depth ${ms(ev.data.depth)}ms, underruns ${ev.data.underruns},` +
+            ` dropped ${ms(ev.data.dropped)}ms, lost ${Math.round(peer.lost * 10)}ms`,
+        );
+      };
     }
     this.peers.set(session, peer);
     this.applyPeerGain(session);
@@ -512,7 +635,12 @@ export class MumbleVoice {
       data.close();
       return;
     }
-    const samples = new Float32Array(data.numberOfFrames);
+    const rate = data.sampleRate;
+    if (data.numberOfChannels !== 1 && !this.warnedChannels) {
+      this.warnedChannels = true;
+      console.warn(`[mumble] decoder produced ${data.numberOfChannels} channels; using the first`);
+    }
+    let samples = new Float32Array(data.numberOfFrames);
     try {
       data.copyTo(samples, { planeIndex: 0, format: 'f32-planar' });
     } catch {
@@ -520,14 +648,18 @@ export class MumbleVoice {
       return;
     }
     data.close();
-    const buffer = ctx.createBuffer(1, samples.length, 48000);
-    buffer.copyToChannel(samples, 0);
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    src.connect(peer.gain);
-    if (peer.nextTime < ctx.currentTime + 0.02) peer.nextTime = ctx.currentTime + JITTER_S;
-    src.start(peer.nextTime);
-    peer.nextTime += buffer.duration;
+    // The ring buffer is read one sample per output sample, so unlike an
+    // AudioBufferSourceNode it does no resampling of its own. Rates should always
+    // match — we pin both — but a mismatch here is exactly the wrong-pitch bug,
+    // so convert rather than let it through silently.
+    if (rate !== ctx.sampleRate) {
+      if (!this.warnedRate) {
+        this.warnedRate = true;
+        console.warn(`[mumble] decoded ${rate} Hz into a ${ctx.sampleRate} Hz context; resampling`);
+      }
+      samples = resampleLinear(samples, rate, ctx.sampleRate);
+    }
+    peer.playout.port.postMessage(samples, [samples.buffer]);
   }
 
   private dropPeer(session: number): void {
@@ -536,6 +668,8 @@ export class MumbleVoice {
     this.peers.delete(session);
     try {
       if (peer.decoder.state !== 'closed') peer.decoder.close();
+      peer.playout.port.onmessage = null;
+      peer.playout.disconnect();
       peer.gain.disconnect();
     } catch {
       /* best-effort teardown */
@@ -558,9 +692,7 @@ export class MumbleVoice {
         },
       });
       this.mic = mic;
-      const url = URL.createObjectURL(new Blob([CAPTURE_WORKLET], { type: 'application/javascript' }));
-      this.workletUrl = url;
-      await mic.ctx.audioWorklet.addModule(url);
+      await this.addWorklet(mic.ctx);
       const node = new AudioWorkletNode(mic.ctx, 'pa-mic-capture', {
         numberOfInputs: 1,
         numberOfOutputs: 1,
@@ -693,10 +825,6 @@ export class MumbleVoice {
     this.pendingLen = 0;
     this.mic?.stop();
     this.mic = null;
-    if (this.workletUrl) {
-      URL.revokeObjectURL(this.workletUrl);
-      this.workletUrl = null;
-    }
     this.onMicLevel(0);
   }
 
@@ -713,6 +841,12 @@ export class MumbleVoice {
     this.masterGain = null;
     void this.outCtx?.close().catch(() => undefined);
     this.outCtx = null;
+    // Both contexts are gone, so the shared module blob can go too; startPlayback
+    // and startMic recreate it on demand.
+    if (this.workletUrl) {
+      URL.revokeObjectURL(this.workletUrl);
+      this.workletUrl = null;
+    }
   }
 
   // ── controls ───────────────────────────────────────────────────────────────
@@ -830,7 +964,13 @@ export class MumbleVoice {
   async switchSpeaker(deviceId: string): Promise<void> {
     this.speakerId = deviceId;
     localStorage.setItem('pa-zv-speaker', deviceId);
+    // outEl is only set on the fallback path; normally the sink lives on the context.
     if (this.outEl) await setSinkId(this.outEl, deviceId);
+    else if (this.outCtx && !(await setContextSink(this.outCtx, deviceId))) {
+      // Rare — the device would have to have vanished. Say so, since otherwise the
+      // setting looks applied while audio keeps coming out of the old speaker.
+      console.warn('[mumble] could not switch output device; reconnect to retry');
+    }
     await this.emitDevices();
   }
 
@@ -966,9 +1106,21 @@ export class MumbleVoice {
   }
 }
 
-/** Posts each 128-sample render quantum to the main thread, where frames are
- *  assembled into the 20 ms buffers the encoder wants. */
-const CAPTURE_WORKLET = `
+/**
+ * Both worklet processors, in one module so a context needs a single addModule.
+ *
+ * pa-mic-capture posts each 128-sample render quantum to the main thread, where
+ * frames are assembled into the 20 ms buffers the encoder wants.
+ *
+ * pa-voice-playout is the receive jitter buffer: one per remote user, fed decoded
+ * PCM from the main thread. It exists because scheduling each decoded frame as its
+ * own AudioBufferSourceNode gave us no way to bound or drain the buffer — depth
+ * only ever grew. A ring buffer read at exactly one sample per output sample keeps
+ * playback at the true rate no matter how packets arrive: it emits silence when
+ * starved and discards the oldest audio when overfull, but never stretches or
+ * resamples, which is what made voices drift low and slow.
+ */
+const VOICE_WORKLET = `
 class PaMicCapture extends AudioWorkletProcessor {
   process(inputs) {
     const c = inputs[0] && inputs[0][0];
@@ -977,6 +1129,87 @@ class PaMicCapture extends AudioWorkletProcessor {
   }
 }
 registerProcessor('pa-mic-capture', PaMicCapture);
+
+class PaVoicePlayout extends AudioWorkletProcessor {
+  constructor(options) {
+    super();
+    const o = (options && options.processorOptions) || {};
+    this.ring = new Float32Array(o.capacity);
+    this.target = o.target;
+    this.max = o.max;
+    this.read = 0;
+    this.write = 0;
+    this.depth = 0;
+    // Output stays silent until the ring first reaches target depth, so a talk
+    // spurt doesn't begin by immediately starving.
+    this.primed = false;
+    this.underruns = 0;
+    this.dropped = 0;
+    this.ticks = 0;
+    this.port.onmessage = (e) => this.push(e.data);
+  }
+
+  /** Discard the n oldest samples. Bounded latency beats complete audio. */
+  drop(n) {
+    if (n > this.depth) n = this.depth;
+    if (n <= 0) return;
+    this.read = (this.read + n) % this.ring.length;
+    this.depth -= n;
+    this.dropped += n;
+  }
+
+  push(samples) {
+    const cap = this.ring.length;
+    const n = samples.length;
+    if (n <= 0 || n > cap) return;
+    // Trim back to target first, so the write below can never outrun the ring.
+    if (this.depth + n > this.max) this.drop(this.depth + n - this.target);
+    for (let i = 0; i < n; i++) {
+      this.ring[this.write] = samples[i];
+      this.write = this.write + 1 === cap ? 0 : this.write + 1;
+    }
+    this.depth += n;
+  }
+
+  process(_inputs, outputs) {
+    const out = outputs[0] && outputs[0][0];
+    if (!out) return true;
+    const n = out.length;
+    const cap = this.ring.length;
+    if (!this.primed) {
+      if (this.depth >= this.target) this.primed = true;
+      else return this.silence(out);
+    }
+    if (this.depth < n) {
+      this.underruns++;
+      // Re-prime rather than dribbling out one quantum per arriving packet.
+      this.primed = false;
+      return this.silence(out);
+    }
+    for (let i = 0; i < n; i++) {
+      out[i] = this.ring[this.read];
+      this.read = this.read + 1 === cap ? 0 : this.read + 1;
+    }
+    this.depth -= n;
+    return this.report();
+  }
+
+  silence(out) {
+    out.fill(0);
+    return this.report();
+  }
+
+  report() {
+    // ~100 quanta is ~270 ms at 48 kHz: often enough to watch depth move,
+    // rare enough to not matter.
+    if (++this.ticks >= 100) {
+      this.ticks = 0;
+      this.port.postMessage({ depth: this.depth, underruns: this.underruns, dropped: this.dropped });
+    }
+    return true;
+  }
+}
+registerProcessor('pa-voice-playout', PaVoicePlayout);
 `;
 
 function buildOpusHead(): Uint8Array {
@@ -985,7 +1218,10 @@ function buildOpusHead(): Uint8Array {
   const view = new DataView(head.buffer);
   view.setUint8(8, 1); // version
   view.setUint8(9, 1); // channel count
-  view.setUint16(10, 3840, true); // pre-skip
+  // Pre-skip 0: we don't author these streams, so there is no encoder delay for us
+  // to declare, and anything non-zero makes the decoder silently discard that much
+  // audio from the start of every stream.
+  view.setUint16(10, 0, true); // pre-skip
   view.setUint32(12, 48000, true); // original sample rate
   view.setInt16(16, 0, true); // output gain
   view.setUint8(18, 0); // channel mapping family
@@ -995,6 +1231,89 @@ function buildOpusHead(): Uint8Array {
 async function setSinkId(el: HTMLMediaElement, deviceId: string): Promise<void> {
   const sinkable = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
   if (typeof sinkable.setSinkId === 'function') await sinkable.setSinkId(deviceId).catch(() => undefined);
+}
+
+interface SinkableContext extends AudioContext {
+  setSinkId?: (id: string) => Promise<void>;
+}
+
+/**
+ * Point a context at an output device. Returns false if this engine can't, or
+ * refuses the device, so the caller can fall back to an <audio> element.
+ */
+async function setContextSink(ctx: AudioContext, deviceId: string): Promise<boolean> {
+  const sinkable = ctx as SinkableContext;
+  if (typeof sinkable.setSinkId !== 'function') return false;
+  try {
+    await sinkable.setSinkId(deviceId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Depth/underrun/drop counters the playout worklet reports back, in samples. */
+interface PlayoutStats {
+  depth: number;
+  underruns: number;
+  dropped: number;
+}
+
+/** Frame duration in microseconds for each of the 32 Opus TOC configurations. */
+const OPUS_CONFIG_US = [
+  // SILK NB / MB / WB: 10, 20, 40, 60 ms
+  10000, 20000, 40000, 60000, 10000, 20000, 40000, 60000, 10000, 20000, 40000, 60000,
+  // Hybrid SWB / FB: 10, 20 ms
+  10000, 20000, 10000, 20000,
+  // CELT NB / WB / SWB / FB: 2.5, 5, 10, 20 ms
+  2500, 5000, 10000, 20000, 2500, 5000, 10000, 20000, 2500, 5000, 10000, 20000, 2500, 5000,
+  10000, 20000,
+];
+
+/**
+ * Duration of an Opus packet, read from its TOC byte (RFC 6716 §3.1). Mumble
+ * doesn't tell us the frame size, and it varies by client and by bitrate, so the
+ * packet itself is the only honest source. Falls back to our own 20 ms on anything
+ * malformed — the decoder will reject such a packet anyway.
+ */
+function opusDurationUs(packet: Uint8Array): number {
+  if (packet.length < 1) return FRAME_US;
+  const toc = packet[0];
+  const perFrame = OPUS_CONFIG_US[toc >> 3];
+  switch (toc & 3) {
+    case 0:
+      return perFrame; // one frame
+    case 1:
+    case 2:
+      return perFrame * 2; // two frames, equal or variable length
+    default: {
+      if (packet.length < 2) return FRAME_US;
+      const count = packet[1] & 0x3f; // arbitrary frame count
+      return count > 0 ? perFrame * count : FRAME_US;
+    }
+  }
+}
+
+/**
+ * Linear resample. Only reached if the decoder and the output context disagree on
+ * rate, which shouldn't happen since we pin both to 48 kHz — quality matters less
+ * here than not shifting pitch.
+ */
+function resampleLinear(
+  src: Float32Array,
+  from: number,
+  to: number,
+): Float32Array<ArrayBuffer> {
+  const ratio = to / from;
+  const out = new Float32Array(Math.max(1, Math.round(src.length * ratio)));
+  const last = src.length - 1;
+  for (let i = 0; i < out.length; i++) {
+    const pos = i / ratio;
+    const j = Math.min(last, Math.floor(pos));
+    const next = Math.min(last, j + 1);
+    out[i] = src[j] + (src[next] - src[j]) * (pos - j);
+  }
+  return out;
 }
 
 /**
