@@ -1,7 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
-import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, type CommandSpec } from '@pixel/shared';
+import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, DEFAULT_ZONE, type CommandSpec } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -31,7 +31,7 @@ import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBea
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
-import { controlBus, KICK_EVENT, ZONE_INVITE_EVENT, ZONE_INVITE_RESULT_EVENT } from '../controlBus.js';
+import { controlBus, KICK_EVENT, ZONE_INVITE_EVENT, ZONE_INVITE_RESULT_EVENT, ZONE_DELETED_EVENT } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
@@ -216,6 +216,22 @@ export class SimRoom extends Room<RoomState> {
     return userStore.get(userId)?.username || userId;
   }
 
+  /** Same, plus whether they're a global admin — so the client can badge them
+   *  (a global admin always has access regardless of the ACL). */
+  private zoneMemberView(userId: string): { userId: string; name: string; isAdmin: boolean } {
+    return { userId, name: this.zoneMemberName(userId), isAdmin: !!userStore.get(userId)?.isAdmin };
+  }
+
+  /** A zone was deleted (possibly from a client sitting in a completely
+   *  different zone) — if it was THIS room's zone, everyone standing in it
+   *  has nowhere left to be; reroute them all to the office via the same
+   *  'zoneTransition' message a portal walk-in already sends (no new client
+   *  handling needed). The now-empty room then auto-disposes as usual. */
+  private readonly onZoneDeleted = (deletedZoneId: string): void => {
+    if (this.zone.id !== deletedZoneId) return;
+    this.broadcast('m', { type: 'zoneTransition', zone: DEFAULT_ZONE });
+  };
+
   /** Replay the full current state of one registry agent into this room (used
    *  both when seeding a freshly-created room and when an owner switches in).
    *  Status 'waiting' is left implicit so seeding never fires a "done" chime. */
@@ -366,6 +382,7 @@ export class SimRoom extends Room<RoomState> {
     controlBus.on(KICK_EVENT, this.onKick);
     controlBus.on(ZONE_INVITE_EVENT, this.onZoneInvite);
     controlBus.on(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
+    controlBus.on(ZONE_DELETED_EVENT, this.onZoneDeleted);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -377,6 +394,7 @@ export class SimRoom extends Room<RoomState> {
     controlBus.off(KICK_EVENT, this.onKick);
     controlBus.off(ZONE_INVITE_EVENT, this.onZoneInvite);
     controlBus.off(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
+    controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
     this.store?.close();
     this.zones?.close();
   }
@@ -880,7 +898,7 @@ export class SimRoom extends Room<RoomState> {
       const users = userStore
         .list()
         .filter((u) => !u.disabled)
-        .map((u) => ({ userId: u.userId, name: UserStore.displayName(u) }));
+        .map((u) => ({ userId: u.userId, name: UserStore.displayName(u), isAdmin: u.isAdmin }));
       client.send('m', { type: 'userList', users });
     });
 
@@ -922,6 +940,19 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
+    // Global-admin-only: take, transfer, or clear a zone's ownership — the
+    // in-game equivalent of the admin site's owner control, for zones that
+    // predate ownership or lost their owner when that account was deleted.
+    // Even the current owner can't do this to themselves via this message —
+    // that's deliberate (see permissions.ts zone.setOwner).
+    this.onMessage('zoneSetOwner', (client, msg: { id?: string; ownerId?: string | null }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      if (!id || !this.may(client, 'zone.setOwner')) return;
+      const targetId = msg?.ownerId == null || msg.ownerId === '' ? null : normalizeLoginId(msg.ownerId);
+      if (targetId && !userStore.get(targetId)) return;
+      if (this.zones.setOwner(id, targetId)) this.broadcastZoneList();
+    });
+
     // Everyone with a stake in a zone's access, together: the owner, its
     // zone-admins (co-editors — read-only here, granted via setZoneAdmin which
     // stays admin-only), and the ACL. Lets the owner actually see who can do
@@ -929,9 +960,9 @@ export class SimRoom extends Room<RoomState> {
     const zoneMembersPayload = (id: string) => {
       const ownerId = this.zones.zoneOwner(id);
       return {
-        owner: ownerId ? { userId: ownerId, name: this.zoneMemberName(ownerId) } : null,
-        admins: this.zones.listZoneAdmins(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) })),
-        acl: this.zones.listAcl(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) })),
+        owner: ownerId ? this.zoneMemberView(ownerId) : null,
+        admins: this.zones.listZoneAdmins(id).map((uid) => this.zoneMemberView(uid)),
+        acl: this.zones.listAcl(id).map((uid) => this.zoneMemberView(uid)),
       };
     };
 
@@ -1018,6 +1049,10 @@ export class SimRoom extends Room<RoomState> {
       if (this.zones.delete(msg.id)) {
         this.store.deleteZoneLayouts(msg.id); // drop the zone's saved layouts too
         this.broadcastZoneList();
+        // The deleted zone might be a DIFFERENT room instance than this one
+        // (deleting doesn't require being there) — reach it the same way
+        // /kick reaches a user in any room.
+        controlBus.emit(ZONE_DELETED_EVENT, msg.id);
       }
     });
 
@@ -1030,7 +1065,9 @@ export class SimRoom extends Room<RoomState> {
       if (!zoneId || !this.zones.get(zoneId) || !targetId || !userStore.get(targetId)) return;
       const on = typeof msg?.admin === 'boolean' ? msg.admin : !this.zones.isZoneAdmin(zoneId, targetId);
       this.zones.setZoneAdmin(zoneId, targetId, on);
-      client.send('m', { type: 'zoneAdmins', zoneId, admins: this.zones.listZoneAdmins(zoneId) });
+      // Same response shape as zoneAclAdd/Remove — lets the "Zone admins"
+      // dialog refresh itself in place after a grant/revoke.
+      client.send('m', { type: 'zoneMembers', id: zoneId, ...zoneMembersPayload(zoneId) });
     });
 
     // Per-zone NPC spawn set: which variants appear in a zone (null = all).

@@ -97,8 +97,11 @@ export function injectPaSkin(): void {
         padding-right:1.7rem;background-repeat:no-repeat;background-position:right 0.55rem center;
         background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath fill='%239aa0b8' d='M0 0h10L5 7z'/%3E%3C/svg%3E");}
       .pa-select option{background:#171b2b;color:#e9ecf7;}
+      /* Dimmed helper text — used across dialogs (meeting rooms, zone settings, …). */
+      .muted{color:#8a90a8;}
       /* Space (Layouts / Zones) — kept close to the originals, restyled. */
       #pa-layouts h4,#pa-zones h4{margin:0 0 0.5rem;font-size:0.95rem;color:#8a90a8;font-weight:400;}
+      #pa-zones .who-am-i{font-size:0.82rem;margin:0 0 0.6rem;padding-bottom:0.5rem;border-bottom:1px solid #1b2138;}
       #pa-layouts .item,#pa-zones .item{display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.1rem;
         font-size:1rem;border-bottom:1px solid #1b2138;}
       #pa-layouts .item .nm,#pa-zones .item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;}

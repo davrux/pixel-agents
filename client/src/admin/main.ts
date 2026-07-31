@@ -13,44 +13,61 @@ import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type R
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
 let meetingRooms: AdminMeetingRoom[] = [];
-let tab: 'users' | 'rooms' | 'meetings' = 'users';
+let tab: 'users' | 'zones' | 'meetings' = 'users';
+/** Who's signed in — fetched once at startup; backs the "Take ownership" self-button. */
+let me: { userId: string; name: string } | null = null;
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
 
 const STYLE = `
+  *,*::before,*::after{box-sizing:border-box;}
+  html,body{max-width:100%;}
   #pa-adm-head{display:flex;align-items:center;gap:.8rem;padding:.7rem 1.1rem;background:var(--panel);
-    border-bottom:1px solid var(--line);}
+    border-bottom:1px solid var(--line);flex-wrap:wrap;}
   #pa-adm-head .brand{font-weight:650;font-size:1.05rem;}
   #pa-adm-head .spacer{flex:1;}
   #pa-adm-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:1px solid var(--line);
-    border-radius:.5rem;padding:.4rem .7rem;font:inherit;font-size:.85rem;}
-  #pa-adm-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);}
+    border-radius:.5rem;padding:.5rem .8rem;font:inherit;font-size:.85rem;}
+  #pa-adm-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);overflow-x:auto;}
   #pa-adm-tabs button{cursor:pointer;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
-    padding:.5rem .8rem;font:inherit;font-size:.95rem;}
+    padding:.5rem .8rem;font:inherit;font-size:.95rem;white-space:nowrap;}
   #pa-adm-tabs button.on{color:var(--text);border-bottom-color:var(--accent);}
   #pa-adm-toast{min-height:1.2rem;padding:.3rem 1.1rem;color:var(--muted);font-size:.85rem;}
   #pa-adm-toast.err{color:#f0a6a2;}
-  #pa-adm-view{padding:.4rem 1.1rem 2rem;max-width:60rem;}
+  #pa-adm-view{padding:.4rem 1.1rem 2rem;max-width:64rem;margin:0 auto;width:100%;}
   .pa-adm-card{background:var(--panel);border:1px solid var(--line);border-radius:.7rem;padding:1rem 1.1rem;margin-bottom:1rem;}
   .pa-adm-card h2{margin:0 0 .8rem;font-size:1rem;}
-  table{width:100%;border-collapse:collapse;}
-  th,td{text-align:left;padding:.5rem .5rem;border-bottom:1px solid var(--line);font-size:.92rem;vertical-align:middle;}
+  .section-title{margin:1.1rem 0 .4rem;font-size:.75rem;font-weight:600;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--muted);}
+  .table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  table{width:100%;border-collapse:collapse;min-width:30rem;}
+  th,td{text-align:left;padding:.5rem .5rem;border-bottom:1px solid var(--line);font-size:.92rem;vertical-align:middle;
+    white-space:nowrap;}
   th{color:var(--muted);font-weight:600;font-size:.72rem;letter-spacing:.6px;text-transform:uppercase;}
+  td.wrap{white-space:normal;}
   input,select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:.45rem;
-    padding:.4rem .5rem;font:inherit;font-size:.9rem;}
+    padding:.4rem .5rem;font:inherit;font-size:.9rem;max-width:100%;}
   input:focus,select:focus{outline:none;border-color:var(--accent);}
   button.act{cursor:pointer;font:inherit;font-size:.85rem;border-radius:.45rem;border:1px solid var(--line);
-    padding:.35rem .6rem;background:var(--panel2);color:var(--text);margin-right:.3rem;}
+    padding:.4rem .65rem;background:var(--panel2);color:var(--text);margin-right:.3rem;}
   button.act:hover{border-color:var(--accent);}
+  button.act:disabled{opacity:.45;cursor:default;}
   button.primary{background:var(--accent);border-color:transparent;color:#fff;}
   button.danger{background:var(--danger);border-color:transparent;color:#fff;}
   .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
   .lock{color:var(--accent2);}
   .muted{color:var(--muted);}
   .status-off{color:var(--danger);}
-  .rooms-panel{padding:.5rem 0 .2rem;}
-  .rooms-panel label{display:inline-flex;align-items:center;gap:.35rem;margin:.15rem .8rem .15rem 0;font-size:.9rem;}
-  .mon-list{margin:.4rem 0 0;padding:.5rem .6rem;background:var(--panel2);border-radius:.5rem;}
-  .mon-list .row{margin:.3rem 0;}
+  .badge-admin{color:#f2c14e;}
+  @media (max-width: 640px){
+    #pa-adm-head{padding:.6rem .7rem;gap:.5rem;}
+    #pa-adm-head .brand{font-size:.95rem;}
+    #pa-adm-tabs{padding:.6rem .7rem 0;}
+    #pa-adm-view{padding:.4rem .7rem 2rem;}
+    .pa-adm-card{padding:.8rem .85rem;}
+    .row{gap:.4rem;}
+    input,select{width:100%;}
+    th,td{padding:.45rem .4rem;font-size:.85rem;}
+  }
 `;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
@@ -90,7 +107,7 @@ function buildShell(): void {
       <button data-logout>Sign out</button></div>
     <div id="pa-adm-tabs">
       <button data-tab="users">Users</button>
-      <button data-tab="rooms">Rooms</button>
+      <button data-tab="zones">Zones</button>
       <button data-tab="meetings">Meetings</button>
     </div>
     <div id="pa-adm-toast"></div>
@@ -100,6 +117,7 @@ function buildShell(): void {
   app.querySelectorAll<HTMLButtonElement>('#pa-adm-tabs button').forEach((b) => {
     b.onclick = () => { tab = b.dataset.tab as typeof tab; render(); };
   });
+  void adminApi.whoami().then((r) => { if (r.ok && r.data) me = r.data; });
 }
 
 function render(): void {
@@ -107,7 +125,7 @@ function render(): void {
     b.classList.toggle('on', b.dataset.tab === tab),
   );
   if (tab === 'users') void renderUsers();
-  else if (tab === 'rooms') void renderRooms();
+  else if (tab === 'zones') void renderZones();
   else void renderMeetings();
 }
 
@@ -149,12 +167,14 @@ async function renderUsers(): Promise<void> {
   // User table
   const card = el('div', 'pa-adm-card');
   card.innerHTML = `<h2>Accounts · ${users.length}</h2>`;
+  const wrap = el('div', 'table-wrap');
   const table = el('table');
   table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead>';
   const tbody = el('tbody');
   for (const u of users) tbody.appendChild(userRow(u));
   table.appendChild(tbody);
-  card.appendChild(table);
+  wrap.appendChild(table);
+  card.appendChild(wrap);
   view.appendChild(card);
 }
 
@@ -204,19 +224,40 @@ function userRow(u: AdminUser): HTMLTableRowElement {
   return tr;
 }
 
-// ── Rooms ────────────────────────────────────────────────────────────────────
-/** Shared <datalist> of every account, for the owner/ACL autocomplete inputs. */
-function ensureUserDatalist(): void {
+// ── Zones ────────────────────────────────────────────────────────────────────
+const AUTOCOMPLETE_MAX = 20; // a full unfiltered list gets unwieldy once there are many accounts
+
+/** Shared <datalist> of account matches, for the owner/ACL autocomplete inputs.
+ *  Rebuilt per keystroke (filterUserDatalist), capped at AUTOCOMPLETE_MAX. */
+function ensureUserDatalist(): HTMLDataListElement {
   let dl = document.getElementById('pa-adm-userlist') as HTMLDataListElement | null;
   if (!dl) {
     dl = document.createElement('datalist');
     dl.id = 'pa-adm-userlist';
     document.body.appendChild(dl);
   }
-  dl.innerHTML = users.map((u) => `<option value="${u.userId}">${u.username || u.userId} (${u.userId})</option>`).join('');
+  return dl;
 }
 
-async function renderRooms(): Promise<void> {
+function filterUserDatalist(query: string): void {
+  const dl = ensureUserDatalist();
+  const q = query.trim().toLowerCase();
+  const matches = (
+    q ? users.filter((u) => u.userId.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)) : users
+  ).slice(0, AUTOCOMPLETE_MAX);
+  dl.innerHTML = matches
+    .map((u) => `<option value="${u.userId}">${u.role === 'admin' ? '★ ' : ''}${u.username || u.userId} (${u.userId})</option>`)
+    .join('');
+}
+
+/** Wire a login-id input to the shared autocomplete: filters as you type. */
+function wireUserAutocomplete(input: HTMLInputElement): void {
+  input.setAttribute('list', 'pa-adm-userlist');
+  input.addEventListener('input', () => filterUserDatalist(input.value));
+  input.addEventListener('focus', () => filterUserDatalist(input.value));
+}
+
+async function renderZones(): Promise<void> {
   const [zr, ur] = await Promise.all([adminApi.listZones(), adminApi.listUsers()]);
   if (zr.status === 401) return redirectToLogin();
   if (zr.status === 403) {
@@ -225,14 +266,15 @@ async function renderRooms(): Promise<void> {
   }
   zones = zr.data?.zones ?? [];
   if (ur.ok) users = ur.data?.users ?? [];
-  ensureUserDatalist();
+  filterUserDatalist('');
   const view = document.getElementById('pa-adm-view')!;
   view.innerHTML = '';
   const intro = el('div', 'pa-adm-card');
   intro.innerHTML =
-    '<h2>Rooms</h2><div class="muted">A password locks the room — anyone but admins and the room\'s admins ' +
-    'must enter it to join. Monitors can be locked separately. Ownership can be taken, transferred or cleared ' +
-    'by an admin at any time — useful for zones that predate ownership or lost their owner.</div>';
+    '<h2>Zones</h2><div class="muted">A password locks a zone — anyone but admins and its zone-admins must enter ' +
+    "it to join; making it private is a stronger, identity-based lock (an access list instead of a shared secret). " +
+    'Ownership can be taken, transferred or cleared by an admin at any time — useful for zones that predate ' +
+    'ownership or lost their owner.</div>';
   view.appendChild(intro);
 
   for (const z of zones) view.appendChild(zoneCard(z));
@@ -248,26 +290,33 @@ function zoneCard(z: AdminZone): HTMLElement {
   if (z.private) title.append(el('span', 'status-off', '🔐 private'));
   card.appendChild(title);
 
-  // Owner: take / transfer / clear.
+  // Owner: take (self) / transfer / clear.
   const ownRow = el('div', 'row');
   ownRow.style.marginTop = '.3rem';
   const ownIn = el('input');
   ownIn.placeholder = 'login id';
   ownIn.size = 16;
-  ownIn.setAttribute('list', 'pa-adm-userlist');
+  wireUserAutocomplete(ownIn);
   const setOwnBtn = el('button', 'act primary', 'Set owner');
   setOwnBtn.onclick = async () => {
     if (!ownIn.value.trim()) return;
     const res = await adminApi.setZoneOwner(z.id, ownIn.value.trim());
-    if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void renderRooms(); } else fail('Set owner', res.error);
+    if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void renderZones(); } else fail('Set owner', res.error);
+  };
+  const takeBtn = el('button', 'act', '👑 Take ownership');
+  takeBtn.disabled = !me || z.ownerId === me.userId;
+  takeBtn.onclick = async () => {
+    if (!me) return;
+    const res = await adminApi.setZoneOwner(z.id, me.userId);
+    if (res.ok) { toast(`You now own ${z.label}.`); void renderZones(); } else fail('Take ownership', res.error);
   };
   const clearOwnBtn = el('button', 'act', 'Clear owner');
   clearOwnBtn.disabled = !z.ownerId;
   clearOwnBtn.onclick = async () => {
     const res = await adminApi.setZoneOwner(z.id, null);
-    if (res.ok) { toast(`${z.label} is now ownerless.`); void renderRooms(); } else fail('Clear owner', res.error);
+    if (res.ok) { toast(`${z.label} is now ownerless.`); void renderZones(); } else fail('Clear owner', res.error);
   };
-  ownRow.append(el('span', 'muted', `Owner: ${z.ownerName ?? '(none)'}`), ownIn, setOwnBtn, clearOwnBtn);
+  ownRow.append(el('span', 'muted', `Owner: ${z.ownerName ?? '(none)'}`), takeBtn, ownIn, setOwnBtn, clearOwnBtn);
   card.appendChild(ownRow);
 
   // Zone password control
@@ -277,16 +326,16 @@ function zoneCard(z: AdminZone): HTMLElement {
   const setBtn = el('button', 'act primary', 'Set');
   setBtn.onclick = async () => {
     const res = await adminApi.setZonePassword(z.id, pw.value);
-    if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void renderRooms(); }
+    if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void renderZones(); }
     else fail('Set password', res.error);
   };
   const clrBtn = el('button', 'act', 'Clear lock');
   clrBtn.disabled = !z.locked;
   clrBtn.onclick = async () => {
     const res = await adminApi.setZonePassword(z.id, '');
-    if (res.ok) { toast(`Lock cleared for ${z.label}.`); void renderRooms(); } else fail('Clear', res.error);
+    if (res.ok) { toast(`Lock cleared for ${z.label}.`); void renderZones(); } else fail('Clear', res.error);
   };
-  pwRow.append(el('span', 'muted', 'Room password:'), pw, setBtn, clrBtn);
+  pwRow.append(el('span', 'muted', 'Password:'), pw, setBtn, clrBtn);
   card.appendChild(pwRow);
 
   // Private toggle (admin override — works regardless of who, if anyone, owns
@@ -296,111 +345,128 @@ function zoneCard(z: AdminZone): HTMLElement {
   const privBtn = el('button', 'act' + (z.private ? '' : ' primary'), z.private ? 'Make public' : 'Make private');
   privBtn.onclick = async () => {
     const res = await adminApi.setZonePrivate(z.id, !z.private);
-    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void renderRooms(); }
+    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void renderZones(); }
     else fail('Set private', res.error);
   };
   privRow.append(el('span', 'muted', 'Privacy:'), privBtn);
   card.appendChild(privRow);
 
-  // Monitors + access-list expanders
-  const btnRow = el('div', 'row');
-  btnRow.style.marginTop = '.6rem';
-  const monBtn = el('button', 'act', 'Monitors ▾');
-  monBtn.onclick = () => toggleMonitors(card, z, monBtn);
-  const membersBtn = el('button', 'act', 'Who has access ▾');
-  membersBtn.onclick = () => toggleMembers(card, z, membersBtn);
-  btnRow.append(monBtn, membersBtn);
-  card.appendChild(btnRow);
+  card.appendChild(el('div', 'section-title', 'Who has access'));
+  const membersWrap = el('div', 'table-wrap');
+  card.appendChild(membersWrap);
+  void renderMembersTable(membersWrap, z);
+
+  card.appendChild(el('div', 'section-title', 'Monitors'));
+  const monitorsWrap = el('div', 'table-wrap');
+  card.appendChild(monitorsWrap);
+  void renderMonitorsTable(monitorsWrap, z);
+
   return card;
 }
 
-function toggleMonitors(card: HTMLElement, z: AdminZone, btn: HTMLButtonElement): void {
-  const existing = card.querySelector('.mon-list');
-  if (existing) { existing.remove(); btn.textContent = 'Monitors ▾'; return; }
-  btn.textContent = 'Monitors ▴';
-  void openMonitors(card, z);
-}
-
-function toggleMembers(card: HTMLElement, z: AdminZone, btn: HTMLButtonElement): void {
-  const existing = card.querySelector('.acl-list');
-  if (existing) { existing.remove(); btn.textContent = 'Who has access ▾'; return; }
-  btn.textContent = 'Who has access ▴';
-  void openMembers(card, z);
-}
-
-/** (Re)build "who has access" under a zone card — owner + zone-admins
- *  (read-only here; granted via the Users tab's account role, not per-zone)
- *  + the private-zone access list (removable), plus an autocomplete add. */
-async function openMembers(card: HTMLElement, z: AdminZone): Promise<void> {
-  card.querySelector('.acl-list')?.remove();
+/** Always-visible "who has access" table — owner + zone-admins (read-only
+ *  here; granted via the in-game Zones panel or a future admin route, not
+ *  this one) + the private-zone access list (removable), plus an
+ *  autocomplete-backed add row. */
+async function renderMembersTable(wrap: HTMLElement, z: AdminZone): Promise<void> {
   const r = await adminApi.zoneMembers(z.id);
-  const list = el('div', 'mon-list acl-list');
   const owner = r.data?.owner ?? null;
   const admins = r.data?.admins ?? [];
   const acl = r.data?.acl ?? [];
-  if (!owner && !admins.length && !acl.length) list.appendChild(el('div', 'muted', 'No one has special access yet.'));
-  const memberRow = (name: string, sub: string, onRemove?: () => void): void => {
-    const row = el('div', 'row');
-    row.append(el('span', undefined, name), el('span', 'muted', sub));
+
+  const table = el('table');
+  table.innerHTML = '<thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead>';
+  const tbody = el('tbody');
+  const row = (name: string, isAdmin: boolean, role: string, onRemove?: () => void): void => {
+    const tr = el('tr');
+    tr.appendChild(el('td', undefined, (isAdmin ? '★ ' : '') + name));
+    tr.appendChild(el('td', 'muted', role));
+    const actTd = el('td');
     if (onRemove) {
       const rm = el('button', 'act danger', 'Remove');
       rm.onclick = onRemove;
-      row.append(rm);
+      actTd.appendChild(rm);
     }
-    list.appendChild(row);
+    tr.appendChild(actTd);
+    tbody.appendChild(tr);
   };
-  if (owner) memberRow(owner.name, '👑 owner');
-  for (const a of admins) memberRow(a.name, '🛠 zone-admin');
+  if (owner) row(owner.name, owner.isAdmin, '👑 Owner');
+  for (const a of admins) row(a.name, a.isAdmin, '🛠 Zone-admin');
   for (const a of acl) {
-    memberRow(a.name, '✓ access list', async () => {
+    row(a.name, a.isAdmin, '✓ Access list', async () => {
       const res = await adminApi.removeZoneAcl(z.id, a.userId);
-      if (res.ok) void openMembers(card, z); else fail('Remove', res.error);
+      if (res.ok) void renderMembersTable(wrap, z); else fail('Remove', res.error);
     });
   }
+  if (!owner && !admins.length && !acl.length) {
+    const tr = el('tr');
+    const td = el('td', 'muted wrap', 'No one has special access yet.');
+    td.colSpan = 3;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+
   const addRow = el('div', 'row');
-  addRow.style.marginTop = '.4rem';
-  const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16; idIn.setAttribute('list', 'pa-adm-userlist');
+  addRow.style.marginTop = '.5rem';
+  const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16; wireUserAutocomplete(idIn);
   const addBtn = el('button', 'act primary', 'Add to access list');
   addBtn.onclick = async () => {
     if (!idIn.value.trim()) return;
     const res = await adminApi.addZoneAcl(z.id, idIn.value.trim());
-    if (res.ok) { idIn.value = ''; void openMembers(card, z); } else fail('Add', res.error);
+    if (res.ok) { idIn.value = ''; void renderMembersTable(wrap, z); } else fail('Add', res.error);
   };
   addRow.append(idIn, addBtn);
-  list.appendChild(addRow);
-  card.appendChild(list);
+
+  wrap.innerHTML = '';
+  wrap.append(table, addRow);
 }
 
-/** (Re)build the monitor list under a zone card from the server. */
-async function openMonitors(card: HTMLElement, z: AdminZone): Promise<void> {
-  card.querySelector('.mon-list')?.remove();
+/** Always-visible monitors table for a zone's saved layout. */
+async function renderMonitorsTable(wrap: HTMLElement, z: AdminZone): Promise<void> {
   const r = await adminApi.listMonitors(z.id);
-  const list = el('div', 'mon-list');
   const monitors = r.data?.monitors ?? [];
-  if (!monitors.length) list.appendChild(el('div', 'muted', "No monitors in this room's saved layout."));
+
+  const table = el('table');
+  table.innerHTML = '<thead><tr><th>Monitor</th><th>Status</th><th>Password</th><th>Actions</th></tr></thead>';
+  const tbody = el('tbody');
+  if (!monitors.length) {
+    const tr = el('tr');
+    const td = el('td', 'muted wrap', "No monitors in this zone's saved layout.");
+    td.colSpan = 4;
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
   for (const m of monitors) {
-    const row = el('div', 'row');
     const label = m.name || `Screen ${m.key}`;
-    row.append(el('span', undefined, `📹 ${label}`));
-    if (m.locked) row.append(el('span', 'lock', '🔒'));
+    const tr = el('tr');
+    tr.appendChild(el('td', undefined, `📹 ${label}`));
+    tr.appendChild(el('td', m.locked ? 'lock' : 'muted', m.locked ? '🔒 locked' : '—'));
+    const pwTd = el('td');
     const pw = el('input'); pw.type = 'password'; pw.placeholder = m.locked ? 'set new' : 'set password'; pw.size = 14;
+    pwTd.appendChild(pw);
+    tr.appendChild(pwTd);
+    const actTd = el('td');
     const set = el('button', 'act primary', 'Set');
     set.onclick = async () => {
       const res = await adminApi.setMonitorPassword(z.id, m.key, pw.value);
-      if (res.ok) { toast(`Monitor "${label}" ${res.data?.locked ? 'locked' : 'unlocked'}.`); void openMonitors(card, z); }
+      if (res.ok) { toast(`Monitor "${label}" ${res.data?.locked ? 'locked' : 'unlocked'}.`); void renderMonitorsTable(wrap, z); }
       else fail('Set monitor password', res.error);
     };
     const clr = el('button', 'act', 'Clear');
     clr.disabled = !m.locked;
     clr.onclick = async () => {
       const res = await adminApi.setMonitorPassword(z.id, m.key, '');
-      if (res.ok) { toast(`Monitor "${label}" unlocked.`); void openMonitors(card, z); }
+      if (res.ok) { toast(`Monitor "${label}" unlocked.`); void renderMonitorsTable(wrap, z); }
       else fail('Clear', res.error);
     };
-    row.append(pw, set, clr);
-    list.appendChild(row);
+    actTd.append(set, clr);
+    tr.appendChild(actTd);
+    tbody.appendChild(tr);
   }
-  card.appendChild(list);
+  table.appendChild(tbody);
+  wrap.innerHTML = '';
+  wrap.appendChild(table);
 }
 
 // ── Meeting rooms (ad-hoc /meet/<slug> calls) ─────────────────────────────────
@@ -433,12 +499,14 @@ async function renderMeetings(): Promise<void> {
   if (!meetingRooms.length) {
     card.appendChild(el('div', 'muted', 'No meeting rooms have been created yet.'));
   } else {
+    const wrap = el('div', 'table-wrap');
     const table = el('table');
     table.innerHTML = '<thead><tr><th>Owner</th><th>Label</th><th>Created</th><th>Expires</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead>';
     const tbody = el('tbody');
     for (const m of meetingRooms) tbody.appendChild(meetingRow(m));
     table.appendChild(tbody);
-    card.appendChild(table);
+    wrap.appendChild(table);
+    card.appendChild(wrap);
   }
   view.appendChild(card);
 }

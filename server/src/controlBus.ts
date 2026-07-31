@@ -22,3 +22,9 @@ export const ZONE_INVITE_EVENT = 'zoneInvite';
 /** The invitee's accept/decline, routed back to the inviter (who may since have
  *  moved to yet another zone). Payload: { toUserId, accepted, byName, zoneLabel }. */
 export const ZONE_INVITE_RESULT_EVENT = 'zoneInviteResult';
+
+/** A zone was deleted — emitted with its id. The room instance that actually
+ *  hosts that zone (if any; the delete may have been issued from elsewhere)
+ *  reroutes every one of its clients to the office, since their zone no
+ *  longer exists. */
+export const ZONE_DELETED_EVENT = 'zoneDeleted';

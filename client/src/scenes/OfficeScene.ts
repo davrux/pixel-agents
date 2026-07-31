@@ -171,10 +171,14 @@ export class OfficeScene extends Phaser.Scene {
   /** The zone a "Zone settings" request (zoneMembers) was sent for, so
    *  onZoneMembers knows which zone's dialog to (re)build once the response arrives. */
   private pendingZoneSettings: ZoneConfig | null = null;
+  /** The zone id a "Zone admins" request (also zoneMembers, admin-only path) was
+   *  sent for — kept separate from pendingZoneSettings since it's a different
+   *  dialog (co-editor grants, not privacy/ACL/invite). */
+  private pendingZoneAdmins: string | null = null;
   /** Every user, for the ACL-add / invite autocomplete — fetched once per zone
    *  settings dialog open (requestUserList → userList) and reused across its
    *  add/remove/invite round trips until the dialog is closed and reopened. */
-  private userListCache: Array<{ userId: string; name: string }> | null = null;
+  private userListCache: Array<{ userId: string; name: string; isAdmin: boolean }> | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -590,10 +594,6 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'agentToken') {
           this.agentToken = (m.token as string) ?? '';
           this.syncSettingsInputs();
-        }
-        else if (m.type === 'zoneAdmins') {
-          const admins = (m.admins as string[]) ?? [];
-          void alertDialog(`Zone admins for “${m.zoneId}”:\n${admins.length ? admins.join(', ') : '(none)'}`);
         }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
@@ -2353,6 +2353,10 @@ export class OfficeScene extends Phaser.Scene {
         if (rowDelete && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
         if (assetsAdmin) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
         if (isOwner) ctrls += `<button data-settings="${esc(z.id)}" title="Privacy &amp; access">⚙</button>`;
+        // Global-admin quick action for an ownerless zone (predates ownership,
+        // or lost its owner when that account was deleted) — no need to leave
+        // the game for the admin site just to claim it.
+        if (assetsAdmin && !z.ownerId) ctrls += `<button data-take="${esc(z.id)}" title="Take ownership">👑</button>`;
         return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${ctrls}</div>`;
       })
       .join('');
@@ -2361,8 +2365,14 @@ export class OfficeScene extends Phaser.Scene {
     if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
     if (canCreateZone) footParts.push(`<button data-new class="new">＋ Create zone</button>`);
     const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
-    // No heading here — the Space panel header + the Layouts/Zones tab label it.
-    this.zonesPanel.innerHTML = `${rows}${foot}`;
+    // "You are" line — who you're signed in as, and whether that's a global
+    // admin (relevant here: admins bypass privacy/passwords and can take
+    // ownership of any ownerless zone).
+    const meLabel = this.myUserId
+      ? `${this.isAdmin ? '★ ' : ''}${esc(this.viewerUsername || this.myUserId)}${this.isAdmin ? ' (admin)' : ''}`
+      : 'anonymous viewer';
+    const meLine = `<div class="who-am-i muted">You: ${meLabel}</div>`;
+    this.zonesPanel.innerHTML = `${meLine}${rows}${foot}`;
 
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
       b.onclick = () => this.goToZone(b.dataset.go!);
@@ -2380,23 +2390,22 @@ export class OfficeScene extends Phaser.Scene {
           send('deleteZone', { id: b.dataset.del });
       };
     });
-    // Grant/revoke a per-zone admin (global admin): prompt for a login id; the
-    // server toggles it and replies with the current admin list.
+    // Grant/revoke a per-zone admin (global admin only): a proper list + add,
+    // not a blind login-id prompt.
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-admins]').forEach((b) => {
-      b.onclick = async () => {
-        const id = b.dataset.admins!;
-        const uid = await promptDialog(`Toggle a zone admin for “${id}” — enter a user login id:`, '', {
-          maxLength: 32,
-          confirmLabel: 'Toggle',
-        });
-        if (uid && uid.trim()) send('setZoneAdmin', { zoneId: id, userId: uid.trim() });
-      };
+      b.onclick = () => this.openZoneAdminsDialog(b.dataset.admins!);
     });
     // Owner-only: privacy + access list + real-time invite for a zone they own.
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-settings]').forEach((b) => {
       b.onclick = () => {
         const z = this.zoneList.find((x) => x.id === b.dataset.settings);
         if (z) this.openZoneSettingsDialog(z);
+      };
+    });
+    // Global-admin quick action: claim an ownerless zone as its owner.
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-take]').forEach((b) => {
+      b.onclick = () => {
+        if (this.myUserId) send('zoneSetOwner', { id: b.dataset.take, ownerId: this.myUserId });
       };
     });
     const arrive = this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]');
@@ -2485,8 +2494,14 @@ export class OfficeScene extends Phaser.Scene {
     this.room?.send('requestUserList');
   }
 
-  /** One shared <datalist> of every user, for the ACL-add / invite inputs'
-   *  native autocomplete (search-as-you-type across login id + display name). */
+  /** Above this many matches, a native <datalist> gets unwieldy (and some
+   *  browsers cap/slow down anyway) — same limit used admin-side. */
+  private static readonly AUTOCOMPLETE_MAX = 20;
+
+  /** One shared <datalist> of user matches, for the ACL-add / invite / zone-admin
+   *  inputs' native autocomplete (search-as-you-type across login id + display
+   *  name). Rebuilt per keystroke (filterUserDatalist) rather than dumped once
+   *  in full, so a large user base doesn't turn it into an unusable dropdown. */
   private ensureUserDatalist(): HTMLDataListElement {
     let dl = document.getElementById('pa-user-list') as HTMLDataListElement | null;
     if (!dl) {
@@ -2497,28 +2512,109 @@ export class OfficeScene extends Phaser.Scene {
     return dl;
   }
 
-  /** The server's answer to requestUserList — (re)fills the shared autocomplete
-   *  datalist, live-updating it even while a zone-settings dialog is open. */
+  /** Rebuild the shared datalist to at most AUTOCOMPLETE_MAX matches of `query`
+   *  (case-insensitive substring on login id or display name; empty query =
+   *  first AUTOCOMPLETE_MAX accounts, so something shows before typing). */
+  private filterUserDatalist(query: string): void {
+    const dl = this.ensureUserDatalist();
+    const q = query.trim().toLowerCase();
+    const all = this.userListCache ?? [];
+    const matches = (q ? all.filter((u) => u.userId.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)) : all).slice(
+      0,
+      OfficeScene.AUTOCOMPLETE_MAX,
+    );
+    dl.innerHTML = matches
+      .map((u) => `<option value="${esc(u.userId)}">${u.isAdmin ? '★ ' : ''}${esc(u.name)} (${esc(u.userId)})</option>`)
+      .join('');
+  }
+
+  /** Wire a login-id input to the shared user autocomplete: filters as you
+   *  type instead of relying on the browser to filter a giant static list. */
+  private wireUserAutocomplete(input: HTMLInputElement): void {
+    input.setAttribute('list', 'pa-user-list');
+    input.addEventListener('input', () => this.filterUserDatalist(input.value));
+    input.addEventListener('focus', () => this.filterUserDatalist(input.value));
+  }
+
+  /** The server's answer to requestUserList — caches the full list (used by
+   *  filterUserDatalist) and refreshes the datalist for whichever input (if
+   *  any) is currently focused, even while a dialog is already open. */
   private onUserList(m: Record<string, unknown>): void {
     if (!Array.isArray(m.users)) return;
-    this.userListCache = m.users as Array<{ userId: string; name: string }>;
-    const dl = this.ensureUserDatalist();
-    dl.innerHTML = this.userListCache
-      .map((u) => `<option value="${esc(u.userId)}">${esc(u.name)} (${esc(u.userId)})</option>`)
-      .join('');
+    this.userListCache = m.users as Array<{ userId: string; name: string; isAdmin: boolean }>;
+    const active = document.activeElement;
+    this.filterUserDatalist(active instanceof HTMLInputElement && active.list?.id === 'pa-user-list' ? active.value : '');
+  }
+
+  /** Global admin: open "Zone admins" — who may edit this zone's layout, with
+   *  add-by-autocomplete instead of a blind login-id prompt. Reuses zoneMembers
+   *  (an admin's call bypasses its owner-only gate) but routes to a different
+   *  dialog than openZoneSettingsDialog (see pendingZoneAdmins). */
+  private openZoneAdminsDialog(zoneId: string): void {
+    this.pendingZoneAdmins = zoneId;
+    this.room?.send('zoneMembers', { id: zoneId });
+    this.room?.send('requestUserList');
+  }
+
+  /** (Re)builds the "Zone admins" dialog from a zoneMembers response. */
+  private buildZoneAdminsDialog(id: string, m: Record<string, unknown>): void {
+    const label = this.zoneList.find((z) => z.id === id)?.label ?? id;
+    const admins = Array.isArray(m.admins) ? (m.admins as Array<{ userId: string; name: string; isAdmin: boolean }>) : [];
+
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Zone admins may edit this zone's layout</label>
+        <div data-admins-list style="max-height:11rem;overflow-y:auto;display:flex;flex-direction:column;gap:.35rem;"></div>
+        <div style="display:flex;gap:.35rem;margin-top:.5rem;">
+          <input class="pa-input" data-admins-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b" data-admins-add-btn>Grant</button>
+        </div>
+      </div>`;
+
+    const listEl = body.querySelector<HTMLDivElement>('[data-admins-list]')!;
+    if (!admins.length) listEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No zone-admins yet.</div>';
+    for (const a of admins) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;';
+      const nm = document.createElement('span');
+      nm.style.cssText = 'flex:1;font-size:.85rem;';
+      nm.textContent = `${a.isAdmin ? '★ ' : ''}${a.name}`;
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'pa-b';
+      rm.textContent = 'Revoke';
+      rm.onclick = () => this.room?.send('setZoneAdmin', { zoneId: id, userId: a.userId, admin: false });
+      row.append(nm, rm);
+      listEl.appendChild(row);
+    }
+
+    const addIn = body.querySelector<HTMLInputElement>('[data-admins-add]')!;
+    this.wireUserAutocomplete(addIn);
+    body.querySelector<HTMLButtonElement>('[data-admins-add-btn]')!.onclick = () => {
+      const uid = cleanName(addIn.value);
+      if (uid) this.room?.send('setZoneAdmin', { zoneId: id, userId: uid, admin: true });
+    };
+
+    openPaDialog({ title: `Zone admins — ${label}`, body, buttons: [] });
   }
 
   /** The server's answer to zoneMembers — also arrives after zoneAclAdd/Remove,
    *  so this both opens the dialog the first time and refreshes it in place. */
   private onZoneMembers(m: Record<string, unknown>): void {
     const id = typeof m.id === 'string' ? m.id : '';
+    if (this.pendingZoneAdmins === id) {
+      this.pendingZoneAdmins = null;
+      this.buildZoneAdminsDialog(id, m);
+      return;
+    }
     const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;
     this.pendingZoneSettings = null;
     if (!zone) return;
-    const owner = (m.owner ?? null) as { userId: string; name: string } | null;
-    const admins = Array.isArray(m.admins) ? (m.admins as Array<{ userId: string; name: string }>) : [];
-    const acl = Array.isArray(m.acl) ? (m.acl as Array<{ userId: string; name: string }>) : [];
-    this.ensureUserDatalist();
+    type Member = { userId: string; name: string; isAdmin: boolean };
+    const owner = (m.owner ?? null) as Member | null;
+    const admins = Array.isArray(m.admins) ? (m.admins as Member[]) : [];
+    const acl = Array.isArray(m.acl) ? (m.acl as Member[]) : [];
+    this.filterUserDatalist('');
 
     const body = document.createElement('div');
     body.innerHTML = `
@@ -2531,13 +2627,13 @@ export class OfficeScene extends Phaser.Scene {
       <div class="fld"><label>Who has access</label>
         <div data-members style="max-height:11rem;overflow-y:auto;display:flex;flex-direction:column;gap:.35rem;"></div>
         <div style="display:flex;gap:.35rem;margin-top:.5rem;">
-          <input class="pa-input" data-acl-add list="pa-user-list" placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <input class="pa-input" data-acl-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
           <button type="button" class="pa-b" data-acl-add-btn>Add to access list</button>
         </div>
       </div>
       <div class="fld"><label>Invite someone now</label>
         <div style="display:flex;gap:.35rem;">
-          <input class="pa-input" data-invite list="pa-user-list" placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <input class="pa-input" data-invite placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
           <button type="button" class="pa-b green" data-invite-btn>Invite</button>
         </div>
         <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
@@ -2547,13 +2643,13 @@ export class OfficeScene extends Phaser.Scene {
     if (!owner && !admins.length && !acl.length) {
       membersEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No one has special access yet.</div>';
     }
-    const memberRow = (name: string, sub: string, onRemove?: () => void): void => {
+    const memberRow = (m2: Member, sub: string, onRemove?: () => void): void => {
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:.5rem;';
       const nm = document.createElement('span');
       nm.style.flex = '1';
       nm.style.fontSize = '.85rem';
-      nm.innerHTML = `${esc(name)} <span class="muted" style="font-size:.76rem;">${esc(sub)}</span>`;
+      nm.innerHTML = `${m2.isAdmin ? '★ ' : ''}${esc(m2.name)} <span class="muted" style="font-size:.76rem;">${esc(sub)}</span>`;
       row.appendChild(nm);
       if (onRemove) {
         const rm = document.createElement('button');
@@ -2565,9 +2661,9 @@ export class OfficeScene extends Phaser.Scene {
       }
       membersEl.appendChild(row);
     };
-    if (owner) memberRow(owner.name, '👑 owner');
-    for (const a of admins) memberRow(a.name, '🛠 zone-admin (edits the layout)');
-    for (const a of acl) memberRow(a.name, '✓ access list', () => this.room?.send('zoneAclRemove', { id: zone.id, userId: a.userId }));
+    if (owner) memberRow(owner, '👑 owner');
+    for (const a of admins) memberRow(a, '🛠 zone-admin (edits the layout)');
+    for (const a of acl) memberRow(a, '✓ access list', () => this.room?.send('zoneAclRemove', { id: zone.id, userId: a.userId }));
 
     // Optimistic local toggle — no need to wait on the server round trip for
     // something this simple (it still persists via zoneSetPrivate below).
@@ -2589,12 +2685,14 @@ export class OfficeScene extends Phaser.Scene {
     };
 
     const addIn = body.querySelector<HTMLInputElement>('[data-acl-add]')!;
+    this.wireUserAutocomplete(addIn);
     body.querySelector<HTMLButtonElement>('[data-acl-add-btn]')!.onclick = () => {
       const uid = cleanName(addIn.value);
       if (uid) this.room?.send('zoneAclAdd', { id: zone.id, userId: uid });
     };
 
     const inviteIn = body.querySelector<HTMLInputElement>('[data-invite]')!;
+    this.wireUserAutocomplete(inviteIn);
     const inviteMsg = body.querySelector<HTMLDivElement>('[data-invite-msg]')!;
     body.querySelector<HTMLButtonElement>('[data-invite-btn]')!.onclick = () => {
       const uid = cleanName(inviteIn.value);

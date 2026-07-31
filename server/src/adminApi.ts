@@ -52,6 +52,16 @@ export function registerAdminApi(app: Express): void {
     disabled: u.disabled,
   });
 
+  // Who the caller is — the admin site has no other way to know its own
+  // identity (it's a plain REST client, not a Colyseus connection with a
+  // viewerIdentity message); backs the "Take ownership" quick action.
+  app.get('/admin/whoami', (req, res) => {
+    const me = admin(req, res);
+    if (!me) return;
+    const user = userStore.get(me.userId);
+    res.json({ userId: me.userId, name: user ? UserStore.displayName(user) : me.userId });
+  });
+
   // ── Users ──────────────────────────────────────────────────────────────────
   app.get('/admin/users', (req, res) => {
     if (!admin(req, res)) return;
@@ -173,7 +183,10 @@ export function registerAdminApi(app: Express): void {
   // Everyone with a stake in a zone's access, together — same shape as the
   // in-game zoneMembers message, so the admin UI can show the full picture
   // (owner + zone-admins + ACL) instead of the ACL alone.
-  const zoneMemberView = (uid: string) => ({ userId: uid, name: userStore.get(uid)?.username || uid });
+  const zoneMemberView = (uid: string) => {
+    const u = userStore.get(uid);
+    return { userId: uid, name: u?.username || uid, isAdmin: !!u?.isAdmin };
+  };
   app.get('/admin/zone/:id/members', (req, res) => {
     if (!admin(req, res)) return;
     const id = req.params.id;

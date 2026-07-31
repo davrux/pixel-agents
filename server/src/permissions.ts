@@ -28,7 +28,8 @@ export type Capability =
   | 'zone.delete'
   | 'zone.grantAdmin' // assign per-zone admins
   | 'zone.edit' // layout / arrival / rename / NPC spawn set of one zone
-  | 'zone.managePrivacy'; // toggle private + manage its ACL/invites — OWNER only, not zone-admins
+  | 'zone.managePrivacy' // toggle private + manage its ACL/invites — OWNER only, not zone-admins
+  | 'zone.setOwner'; // take/transfer/clear ownership — GLOBAL ADMIN only, not even the current owner
 
 export interface PolicyEnv {
   /** Whether login is enforced. False = open dev mode (no accounts → full access). */

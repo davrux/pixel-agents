@@ -26,6 +26,7 @@ export interface AdminZone {
 export interface AdminZoneAclMember {
   userId: string;
   name: string;
+  isAdmin: boolean;
 }
 export interface AdminZoneMembers {
   owner: AdminZoneAclMember | null;
@@ -83,6 +84,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<Api
 }
 
 export const adminApi = {
+  whoami: () => req<{ userId: string; name: string }>('GET', '/admin/whoami'),
   listUsers: () => req<{ users: AdminUser[] }>('GET', '/admin/users'),
   createUser: (loginId: string, password: string, role: Role) =>
     req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role }),
