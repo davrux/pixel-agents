@@ -699,6 +699,38 @@ export class SimRoom extends Room<RoomState> {
       },
     );
 
+    // Self-service: any signed-in user can see and end their OWN meeting rooms
+    // (not just admins — see adminApi.ts for the admin-wide view). No kiosk tile
+    // needed for this one; it's just "list/delete rooms I own".
+    this.onMessage('meetingRoomList', (client) => {
+      const { userId } = authOf(client);
+      if (!userId) return;
+      const rooms = meetingRoomStore.listByOwner(userId).map((r) => ({
+        slug: r.slug,
+        label: r.label,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        hasPassword: r.hasPassword,
+        expired: meetingRoomStore.isExpired(r),
+      }));
+      client.send('m', { type: 'meetingRoomList', rooms });
+    });
+
+    this.onMessage('meetingRoomDelete', (client, msg: { slug?: string }) => {
+      const { userId } = authOf(client);
+      const slug = typeof msg?.slug === 'string' ? msg.slug : '';
+      if (!userId || !slug) return;
+      const room = meetingRoomStore.get(slug);
+      // Ownership check — a user may only end their own rooms this way (admins
+      // use the dedicated admin-only route in adminApi.ts, which can delete any).
+      if (!room || room.ownerId !== userId) {
+        client.send('m', { type: 'meetingRoomDeleted', slug, error: 'not found' });
+        return;
+      }
+      meetingRoomStore.delete(slug);
+      client.send('m', { type: 'meetingRoomDeleted', slug });
+    });
+
     // Mint a LiveKit access token for a monitor's call — only for a player who
     // has actually joined that monitor (server-authoritative gate). The room name
     // is shared by everyone at the same monitor in this zone.

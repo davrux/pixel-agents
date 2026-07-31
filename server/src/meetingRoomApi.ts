@@ -16,7 +16,7 @@ import express, { type Express, type Request } from 'express';
 
 import { hasValidBearerSession, hasValidSession, userIdFromBearer, userIdFromCookie } from './auth.js';
 import { userStore, UserStore } from './userStore.js';
-import { meetingRoomStore } from './meetingRoomStore.js';
+import { meetingRoomStore, type MeetingRoom } from './meetingRoomStore.js';
 import { mintVoiceToken, voiceConfigured, voiceRoomName, voiceUrl } from './voice/livekit.js';
 import { appStore } from './appStore.js';
 import { isThrottled, noteFail, clearFails } from './throttle.js';
@@ -41,6 +41,16 @@ function authedDisplayName(req: Request): string | null {
   return null;
 }
 
+/** A room is usable only while it hasn't expired AND its owner isn't disabled —
+ *  suspending an account suspends its meeting rooms too (computed live from the
+ *  owner's current status, not a separate flag that could drift out of sync).
+ *  Guests see this exactly like an expired/nonexistent room: no need to expose
+ *  *why* the link stopped working. */
+function roomUsable(room: MeetingRoom): boolean {
+  if (meetingRoomStore.isExpired(room)) return false;
+  return !userStore.get(room.ownerId)?.disabled;
+}
+
 export function registerMeetingRoomApi(app: Express, clientDist: string): void {
   const json = express.json({ limit: '4kb' });
 
@@ -49,14 +59,14 @@ export function registerMeetingRoomApi(app: Express, clientDist: string): void {
   // before the guest types anything.
   app.get('/meet/:slug/info', (req, res) => {
     const room = meetingRoomStore.get(req.params.slug);
-    if (!room || meetingRoomStore.isExpired(room)) return void res.json({ exists: false });
+    if (!room || !roomUsable(room)) return void res.json({ exists: false });
     res.json({ exists: true, needsPassword: room.hasPassword, authenticatedAs: authedDisplayName(req) });
   });
 
   app.post('/meet/:slug/join', json, (req, res) => {
     const slug = req.params.slug;
     const room = meetingRoomStore.get(slug);
-    if (!room || meetingRoomStore.isExpired(room)) return void res.status(404).json({ error: 'not found' });
+    if (!room || !roomUsable(room)) return void res.status(404).json({ error: 'not found' });
     const body = (req.body ?? {}) as { name?: unknown; password?: unknown };
     const name = authedDisplayName(req) ?? (typeof body.name === 'string' ? body.name.trim().slice(0, 32) : '');
     if (!name) return void res.status(400).json({ error: 'name required' });

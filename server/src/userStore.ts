@@ -35,6 +35,10 @@ export interface User {
   isAdmin: boolean;
   agentToken: string;
   hasPassword: boolean;
+  /** Suspended by an admin: can't log in and any existing session dies
+   *  immediately (see auth.ts). A softer alternative to deleting the account —
+   *  their data (avatar, meeting rooms, …) stays put and comes back on re-enable. */
+  disabled: boolean;
 }
 
 interface UserRow {
@@ -46,6 +50,7 @@ interface UserRow {
   role: string | null;
   agent_token: string;
   created_at: number;
+  disabled: number;
 }
 
 /** Normalise a raw login id to its canonical key: lowercase, printable ASCII,
@@ -86,6 +91,9 @@ class UserStore {
       this.db.exec('ALTER TABLE users ADD COLUMN role TEXT');
       this.db.exec("UPDATE users SET role = CASE WHEN is_admin != 0 THEN 'admin' ELSE 'user' END WHERE role IS NULL");
     }
+    if (!cols.some((c) => c.name === 'disabled')) {
+      this.db.exec('ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   private toUser(r: UserRow): User {
@@ -97,12 +105,22 @@ class UserStore {
       isAdmin: role === 'admin',
       agentToken: r.agent_token,
       hasPassword: !!r.pw_hash,
+      disabled: !!r.disabled,
     };
   }
 
   /** Number of admin accounts — used to protect the last admin from deletion/demotion. */
   adminCount(): number {
     const r = this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' OR is_admin != 0").get() as { n: number };
+    return Number(r.n);
+  }
+
+  /** Admins who aren't disabled — used to protect the last *usable* admin from
+   *  being suspended (unlike adminCount(), a disabled admin doesn't count). */
+  enabledAdminCount(): number {
+    const r = this.db
+      .prepare("SELECT COUNT(*) AS n FROM users WHERE (role = 'admin' OR is_admin != 0) AND disabled = 0")
+      .get() as { n: number };
     return Number(r.n);
   }
 
@@ -183,6 +201,12 @@ class UserStore {
    *  the user's next login for anything resolved at join time. */
   setRole(userId: string, role: Role): void {
     this.db.prepare('UPDATE users SET role = ?, is_admin = ? WHERE user_id = ?').run(role, role === 'admin' ? 1 : 0, userId);
+  }
+
+  /** Suspend/restore an account (see User.disabled). Takes effect immediately —
+   *  auth.ts checks this on every session resolution, not just at login. */
+  setDisabled(userId: string, on: boolean): void {
+    this.db.prepare('UPDATE users SET disabled = ? WHERE user_id = ?').run(on ? 1 : 0, userId);
   }
 
   /** Delete a user row. Returns true if it existed. (Caller cleans up the user's

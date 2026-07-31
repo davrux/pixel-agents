@@ -46,6 +46,7 @@ const STYLE = `
   .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
   .lock{color:var(--accent2);}
   .muted{color:var(--muted);}
+  .status-off{color:var(--danger);}
   .rooms-panel{padding:.5rem 0 .2rem;}
   .rooms-panel label{display:inline-flex;align-items:center;gap:.35rem;margin:.15rem .8rem .15rem 0;font-size:.9rem;}
   .mon-list{margin:.4rem 0 0;padding:.5rem .6rem;background:var(--panel2);border-radius:.5rem;}
@@ -72,6 +73,7 @@ function fail(prefix: string, error?: string): void {
     'user exists': 'a user with that login id already exists',
     'invalid login id': 'invalid login id',
     'cannot delete yourself': 'you cannot delete your own account',
+    'cannot disable yourself': 'you cannot disable your own account',
     forbidden: 'not allowed',
   };
   toast(`${prefix}: ${error ? (map[error] ?? error) : 'failed'}`, true);
@@ -148,7 +150,7 @@ async function renderUsers(): Promise<void> {
   const card = el('div', 'pa-adm-card');
   card.innerHTML = `<h2>Accounts · ${users.length}</h2>`;
   const table = el('table');
-  table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Actions</th></tr></thead>';
+  table.innerHTML = '<thead><tr><th>Login</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead>';
   const tbody = el('tbody');
   for (const u of users) tbody.appendChild(userRow(u));
   table.appendChild(tbody);
@@ -173,6 +175,7 @@ function userRow(u: AdminUser): HTMLTableRowElement {
   tr.appendChild(roleTd);
 
   tr.appendChild(el('td', 'muted', u.hasPassword ? 'set' : '—'));
+  tr.appendChild(el('td', u.disabled ? 'status-off' : 'muted', u.disabled ? '⛔ disabled' : 'active'));
 
   const actTd = el('td');
   const pwBtn = el('button', 'act', 'Reset password');
@@ -182,13 +185,21 @@ function userRow(u: AdminUser): HTMLTableRowElement {
     const res = await adminApi.updateUser(u.userId, { password: pw });
     if (res.ok) toast(`Password reset for "${u.userId}".`); else fail('Reset password', res.error);
   };
+  const toggleBtn = el('button', 'act' + (u.disabled ? '' : ' danger'), u.disabled ? 'Enable' : 'Disable');
+  toggleBtn.onclick = async () => {
+    const disabling = !u.disabled;
+    if (disabling && !confirm(`Disable account "${u.userId}"? They'll be signed out and can't log in — their meeting rooms stop working too, until re-enabled.`)) return;
+    const res = await adminApi.updateUser(u.userId, { disabled: disabling });
+    if (res.ok) { toast(`"${u.userId}" ${disabling ? 'disabled' : 're-enabled'}.`); void renderUsers(); }
+    else fail(disabling ? 'Disable' : 'Enable', res.error);
+  };
   const delBtn = el('button', 'act danger', 'Delete');
   delBtn.onclick = async () => {
-    if (!confirm(`Delete account "${u.userId}"? This removes its avatar and room assignments.`)) return;
+    if (!confirm(`Delete account "${u.userId}"? This removes its avatar, meeting rooms and room assignments.`)) return;
     const res = await adminApi.deleteUser(u.userId);
     if (res.ok) { toast(`Deleted "${u.userId}".`); void renderUsers(); } else fail('Delete', res.error);
   };
-  actTd.append(pwBtn, delBtn);
+  actTd.append(pwBtn, toggleBtn, delBtn);
   tr.appendChild(actTd);
   return tr;
 }
@@ -330,12 +341,14 @@ async function renderMeetings(): Promise<void> {
 
 function meetingRow(m: AdminMeetingRoom): HTMLTableRowElement {
   const tr = el('tr');
-  tr.appendChild(el('td', undefined, m.ownerName));
+  tr.appendChild(el('td', undefined, m.ownerName + (m.ownerDisabled ? ' ⛔' : '')));
   tr.appendChild(el('td', 'muted', m.label || '—'));
   tr.appendChild(el('td', undefined, fmtDate(m.createdAt)));
   tr.appendChild(el('td', undefined, fmtDate(m.expiresAt)));
   tr.appendChild(el('td', m.hasPassword ? 'lock' : 'muted', m.hasPassword ? '🔒 set' : '—'));
-  tr.appendChild(el('td', m.expired ? 'muted' : undefined, m.expired ? 'expired' : 'active'));
+  const status = m.ownerDisabled ? 'owner disabled' : m.expired ? 'expired' : 'active';
+  const statusCls = status === 'active' ? undefined : m.ownerDisabled ? 'status-off' : 'muted';
+  tr.appendChild(el('td', statusCls, status));
 
   const actTd = el('td');
   const copyBtn = el('button', 'act', 'Copy link');

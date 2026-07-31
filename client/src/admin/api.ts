@@ -12,6 +12,7 @@ export interface AdminUser {
   username: string;
   role: Role;
   hasPassword: boolean;
+  disabled: boolean;
 }
 export interface AdminZone {
   id: string;
@@ -33,6 +34,7 @@ export interface AdminMeetingRoom {
   expiresAt: number;
   hasPassword: boolean;
   expired: boolean;
+  ownerDisabled: boolean;
 }
 
 export interface ApiResult<T> {
@@ -72,7 +74,7 @@ export const adminApi = {
   listUsers: () => req<{ users: AdminUser[] }>('GET', '/admin/users'),
   createUser: (loginId: string, password: string, role: Role) =>
     req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role }),
-  updateUser: (id: string, patch: { role?: Role; password?: string }) =>
+  updateUser: (id: string, patch: { role?: Role; password?: string; disabled?: boolean }) =>
     req<{ user: AdminUser }>('PATCH', `/admin/users/${encodeURIComponent(id)}`, patch),
   deleteUser: (id: string) => req<{ ok: true }>('DELETE', `/admin/users/${encodeURIComponent(id)}`),
 

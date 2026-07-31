@@ -33,7 +33,7 @@ interface MeetingRoomRow {
 /** How many non-expired rooms one owner may have outstanding at once — bounds
  *  unbounded table growth from a single (compromised or scripted) account, on
  *  top of the periodic prune sweep below. */
-export const MAX_ACTIVE_ROOMS_PER_OWNER = 20;
+export const MAX_ACTIVE_ROOMS_PER_OWNER = 100;
 
 /** Meeting-room passwords get a higher floor than the generic account password
  *  (userStore.ts MIN_PASSWORD_LEN=6): the link + password pair is typically
@@ -133,11 +133,31 @@ export class MeetingRoomStore {
     return rows.map((r) => this.toRoom(r));
   }
 
-  /** Delete one room by slug (admin action — end a room early instead of waiting
-   *  out its natural expiry). Idempotent: true only if a row actually existed. */
+  /** Every room owned by `ownerId`, newest first — the self-service "your meeting
+   *  rooms" list any signed-in user gets from the kiosk (see SimRoom.ts's
+   *  meetingRoomList handler), not just admins. */
+  listByOwner(ownerId: string): MeetingRoom[] {
+    const rows = this.db
+      .prepare('SELECT * FROM meeting_rooms WHERE owner_id = ? ORDER BY created_at DESC')
+      .all(ownerId) as unknown as MeetingRoomRow[];
+    return rows.map((r) => this.toRoom(r));
+  }
+
+  /** Delete one room by slug (self-service or admin action — end a room early
+   *  instead of waiting out its natural expiry). Idempotent: true only if a row
+   *  actually existed. Callers must check ownership themselves for self-service
+   *  deletes (see SimRoom.ts's meetingRoomDelete handler); admins may delete any. */
   delete(slug: string): boolean {
     const r = this.db.prepare('DELETE FROM meeting_rooms WHERE slug = ?').run(slug);
     return Number(r.changes) > 0;
+  }
+
+  /** Delete every room owned by `ownerId` — called when an account is deleted
+   *  (see adminApi.ts's DELETE /admin/users/:id) so no orphaned rooms are left
+   *  pointing at a userId that no longer exists. Returns how many were removed. */
+  deleteAllByOwner(ownerId: string): number {
+    const r = this.db.prepare('DELETE FROM meeting_rooms WHERE owner_id = ?').run(ownerId);
+    return Number(r.changes);
   }
 
   /** Cleanup of long-expired rooms — called on startup and hourly (see the

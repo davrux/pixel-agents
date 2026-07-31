@@ -34,15 +34,19 @@ function parseCookies(header: string | undefined): Record<string, string> {
   return out;
 }
 
-/** Resolve the logged-in user id for a request's cookie (or undefined). */
+/** Resolve the logged-in user id for a request's cookie (or undefined). A
+ *  disabled account resolves to undefined here — the single choke point this
+ *  and userIdFromBearer share means a suspension takes effect immediately for
+ *  every caller (login gate, room onAuth, admin API, /meet authedDisplayName),
+ *  not just on the next login. */
 export function userIdFromCookie(cookieHeader: string | undefined): string | undefined {
   const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
-  return appStore.getSession(sid)?.userId || undefined;
+  const userId = appStore.getSession(sid)?.userId;
+  return userId && !userStore.get(userId)?.disabled ? userId : undefined;
 }
 
 export function hasValidSession(cookieHeader: string | undefined): boolean {
-  const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
-  return appStore.getSession(sid) !== undefined;
+  return userIdFromCookie(cookieHeader) !== undefined;
 }
 
 /** Extract the opaque session sid from an `Authorization: Bearer <sid>` header.
@@ -54,13 +58,15 @@ function bearerToken(authHeader: string | undefined): string | undefined {
 }
 
 /** Resolve the logged-in user id for a bearer `Authorization` header (or undefined).
- *  The desktop counterpart to `userIdFromCookie` — same session store/TTL. */
+ *  The desktop counterpart to `userIdFromCookie` — same session store/TTL, same
+ *  immediate-disabled-check behaviour. */
 export function userIdFromBearer(authHeader: string | undefined): string | undefined {
-  return appStore.getSession(bearerToken(authHeader))?.userId || undefined;
+  const userId = appStore.getSession(bearerToken(authHeader))?.userId;
+  return userId && !userStore.get(userId)?.disabled ? userId : undefined;
 }
 
 export function hasValidBearerSession(authHeader: string | undefined): boolean {
-  return appStore.getSession(bearerToken(authHeader)) !== undefined;
+  return userIdFromBearer(authHeader) !== undefined;
 }
 
 function loginHtml(err = ''): string {
@@ -144,6 +150,11 @@ function verifyCredentials(
     }
     const existing = userStore.get(loginId);
     if (existing) {
+      // Presenting the admin token doesn't override a suspension — re-enabling
+      // is a deliberate admin-panel action, not something the login form does
+      // implicitly (that would let a disabled account escape it by knowing the
+      // master token, same as promoting themselves to admin would).
+      if (existing.disabled) return { error: 'This account has been disabled.', status: 403 };
       userStore.markAdmin(existing.userId);
       loginFails.delete(loginId);
       return { userId: existing.userId };
@@ -162,6 +173,9 @@ function verifyCredentials(
     noteLoginFail(loginId);
     return { error: 'Invalid login id or password.' };
   }
+  // Checked after the password (not before): a wrong-password guess against a
+  // disabled account must not reveal that the account exists/is disabled.
+  if (userStore.get(loginId)?.disabled) return { error: 'This account has been disabled.', status: 403 };
   loginFails.delete(loginId);
   return { userId: loginId };
 }

@@ -44,11 +44,12 @@ export function registerAdminApi(app: Express): void {
     return { userId: uid };
   };
 
-  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean }) => ({
+  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean; disabled: boolean }) => ({
     userId: u.userId,
     username: u.username,
     role: u.role,
     hasPassword: u.hasPassword,
+    disabled: u.disabled,
   });
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -75,7 +76,7 @@ export function registerAdminApi(app: Express): void {
     const id = normalizeLoginId(req.params.id);
     const target = userStore.get(id);
     if (!target) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { role?: unknown; password?: unknown };
+    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; disabled?: unknown };
 
     if (body.role !== undefined) {
       if (!isRole(body.role)) return void res.status(400).json({ error: 'invalid role' });
@@ -89,6 +90,18 @@ export function registerAdminApi(app: Express): void {
       if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
       userStore.setPassword(id, body.password);
     }
+    if (body.disabled !== undefined) {
+      const disabled = !!body.disabled;
+      if (disabled) {
+        if (id === me.userId) return void res.status(409).json({ error: 'cannot disable yourself' });
+        // Never leave the system without a usable admin (unlike adminCount(), a
+        // disabled admin doesn't count as usable).
+        if (target.isAdmin && userStore.enabledAdminCount() <= 1) {
+          return void res.status(409).json({ error: 'last admin' });
+        }
+      }
+      userStore.setDisabled(id, disabled);
+    }
     res.json({ ok: true, user: userView(userStore.get(id)!) });
   });
 
@@ -101,11 +114,15 @@ export function registerAdminApi(app: Express): void {
     if (id === me.userId) return void res.status(409).json({ error: 'cannot delete yourself' });
     if (target.isAdmin && userStore.adminCount() <= 1) return void res.status(409).json({ error: 'last admin' });
     userStore.deleteUser(id);
-    // Clean up the user's global + per-zone data (mirrors the /delete command).
+    // Clean up the user's global data (mirrors the /delete command). Zones are
+    // deliberately left untouched — they aren't user-owned, only zone-admin
+    // *grants* are (removeUserFromAllZones), so deleting an account never
+    // deletes a zone.
     appStore.deletePlayerAvatar(id);
     appStore.clearCharPref(id);
     appStore.clearPlayerPref(id);
     zones.removeUserFromAllZones(id);
+    meetingRoomStore.deleteAllByOwner(id);
     res.json({ ok: true });
   });
 
@@ -175,6 +192,7 @@ export function registerAdminApi(app: Express): void {
         slug: r.slug,
         ownerId: r.ownerId,
         ownerName: owner ? UserStore.displayName(owner) : r.ownerId, // owner account may since be deleted
+        ownerDisabled: !!owner?.disabled,
         label: r.label,
         createdAt: r.createdAt,
         expiresAt: r.expiresAt,

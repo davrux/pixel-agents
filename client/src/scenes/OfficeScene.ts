@@ -164,6 +164,10 @@ export class OfficeScene extends Phaser.Scene {
   private pendingArcade: { col: number; row: number; fpW: number; fpH: number } | null = null;
   /** A meeting-room kiosk we clicked and are walking toward (opens on arrival). */
   private pendingMeetingKiosk: { col: number; row: number; fpW: number; fpH: number } | null = null;
+  /** The kiosk a "manage your meeting rooms" request (meetingRoomList) was sent
+   *  for — remembered so the "+ New room" button in that dialog knows which
+   *  kiosk tile to validate the create against once the list response arrives. */
+  private pendingMeetingKioskForCreate: { col: number; row: number } | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -519,6 +523,8 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
+        else if (m.type === 'meetingRoomList') this.onMeetingRoomList(m);
+        else if (m.type === 'meetingRoomDeleted') this.onMeetingRoomDeleted(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our name onto the fresh avatar (the owned
@@ -799,6 +805,118 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
+  /** Meeting-room kiosk, clicked/arrived-at: fetch the caller's OWN rooms first
+   *  (not just admins — every signed-in user manages their own) so they see
+   *  what they already have before minting another one. The response arrives
+   *  async via 'meetingRoomList' → onMeetingRoomList, which remembers `kiosk`
+   *  here so its "+ New room" button can still validate against the right tile. */
+  private openMeetingRoomManageDialog(kiosk: { col: number; row: number }): void {
+    this.pendingMeetingKioskForCreate = kiosk;
+    this.room?.send('meetingRoomList');
+  }
+
+  /** The server's answer to meetingRoomList — "Your meeting rooms": each owned
+   *  room with copy-link + click-to-arm delete, plus a button to create a new
+   *  one at the kiosk that triggered this. */
+  private onMeetingRoomList(m: Record<string, unknown>): void {
+    const kiosk = this.pendingMeetingKioskForCreate;
+    this.pendingMeetingKioskForCreate = null;
+    if (!kiosk) return; // stale response (e.g. the scene moved on) — nothing to attach it to
+    const rooms = Array.isArray(m.rooms) ? (m.rooms as Array<Record<string, unknown>>) : [];
+
+    const body = document.createElement('div');
+    if (!rooms.length) {
+      body.innerHTML = '<div class="muted" style="margin-bottom:.8rem;">You have no meeting rooms yet.</div>';
+    } else {
+      const list = document.createElement('div');
+      list.style.cssText =
+        'max-height:16rem;overflow-y:auto;margin-bottom:.8rem;display:flex;flex-direction:column;gap:.5rem;';
+      for (const r of rooms) list.appendChild(this.meetingRoomManageRow(r));
+      body.appendChild(list);
+    }
+
+    openPaDialog({
+      title: `Your meeting rooms${rooms.length ? ` (${rooms.length})` : ''}`,
+      body,
+      buttons: [{ label: '+ New room', kind: 'green', onClick: () => this.openMeetingRoomDialog(kiosk) }],
+    });
+  }
+
+  /** One row in the manage-rooms list. Delete is click-to-arm (first click
+   *  turns it into "Confirm?") instead of a second stacked confirm dialog — a
+   *  dialog-over-dialog doesn't reliably render on top in this UI (same reason
+   *  the create dialog's password error is shown inline, not in a second modal). */
+  private meetingRoomManageRow(r: Record<string, unknown>): HTMLDivElement {
+    const slug = typeof r.slug === 'string' ? r.slug : '';
+    const label = typeof r.label === 'string' && r.label ? r.label : slug.slice(0, 8);
+    const expiresAt = typeof r.expiresAt === 'number' ? r.expiresAt : 0;
+    const hasPassword = !!r.hasPassword;
+    const expired = !!r.expired;
+
+    const row = document.createElement('div');
+    row.dataset.slug = slug;
+    row.style.cssText =
+      'display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:#171b2b;border-radius:.4rem;';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;font-size:.85rem;';
+    const expiryText = expired ? 'expired' : `expires ${new Date(expiresAt).toLocaleDateString()}`;
+    info.innerHTML =
+      `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(label)}${hasPassword ? ' 🔒' : ''}</div>` +
+      `<div class="muted" style="font-size:.78rem;">${expiryText}</div>`;
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'pa-b';
+    copyBtn.textContent = 'Copy link';
+    copyBtn.onclick = () => {
+      const link = `${location.origin}/meet/${encodeURIComponent(slug)}`;
+      navigator.clipboard?.writeText(link).then(
+        () => {
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 1500);
+        },
+        () => {},
+      );
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'pa-b';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => {
+      if (delBtn.dataset.armed !== '1') {
+        delBtn.dataset.armed = '1';
+        delBtn.textContent = 'Confirm?';
+        delBtn.classList.add('danger');
+        return;
+      }
+      delBtn.disabled = true;
+      this.room?.send('meetingRoomDelete', { slug });
+    };
+
+    row.append(info, copyBtn, delBtn);
+    return row;
+  }
+
+  /** The server's answer to meetingRoomDelete — drop the row from the still-open
+   *  manage dialog, or reset its armed state on failure. A no-op if the dialog
+   *  isn't open anymore (e.g. the player closed it before the response arrived). */
+  private onMeetingRoomDeleted(m: Record<string, unknown>): void {
+    const slug = typeof m.slug === 'string' ? m.slug : '';
+    if (!slug) return;
+    const row = document.querySelector<HTMLDivElement>(`#pa-dialog-back [data-slug="${CSS.escape(slug)}"]`);
+    if (!row) return;
+    if (typeof m.error === 'string') {
+      const delBtn = row.querySelector<HTMLButtonElement>('button:last-child')!;
+      delBtn.disabled = false;
+      delBtn.dataset.armed = '';
+      delBtn.textContent = 'Delete';
+      delBtn.classList.remove('danger');
+      return;
+    }
+    row.remove();
+  }
+
   /** Meeting-room kiosk, clicked/arrived-at: ask for an expiry + optional
    *  password, then ask the server to mint a fresh room (meetingRoomCreate).
    *  The result (link or error) arrives async via 'meetingRoomCreated'. */
@@ -1061,7 +1179,7 @@ export class OfficeScene extends Phaser.Scene {
               this.pendingArcade = null;
               if (this.nearFootprint(kiosk)) {
                 this.pendingMeetingKiosk = null;
-                this.openMeetingRoomDialog(kiosk);
+                this.openMeetingRoomManageDialog(kiosk);
               } else {
                 this.pendingMeetingKiosk = kiosk;
                 this.room?.send('playerMove', { col: kiosk.col, row: kiosk.row + kiosk.fpH });
@@ -1285,11 +1403,11 @@ export class OfficeScene extends Phaser.Scene {
       this.pendingArcade = null;
       this.openArcade(cab);
     }
-    // Walked up to a clicked meeting-room kiosk → open the creation dialog.
+    // Walked up to a clicked meeting-room kiosk → open the manage dialog.
     if (this.pendingMeetingKiosk && this.nearFootprint(this.pendingMeetingKiosk)) {
       const kiosk = this.pendingMeetingKiosk;
       this.pendingMeetingKiosk = null;
-      this.openMeetingRoomDialog(kiosk);
+      this.openMeetingRoomManageDialog(kiosk);
     }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
