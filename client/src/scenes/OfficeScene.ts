@@ -815,7 +815,7 @@ export class OfficeScene extends Phaser.Scene {
           <option value="180">6 months</option>
         </select>
       </div>
-      <div class="fld"><label>Password (optional)</label>
+      <div class="fld"><label>Password (optional, min ${MIN_MEETING_ROOM_PASSWORD_LEN} chars)</label>
         <div style="display:flex;gap:.35rem;align-items:center">
           <input class="pa-input" type="password" placeholder="leave empty for no password" maxlength="128" style="flex:1;min-width:0">
           <button type="button" class="pa-b" data-showpw title="Show password">👁</button>
@@ -850,10 +850,10 @@ export class OfficeScene extends Phaser.Scene {
           kind: 'green',
           onClick: () => {
             const pw = pwIn.value;
-            if (pw && pw.length < 6) {
+            if (pw && pw.length < MIN_MEETING_ROOM_PASSWORD_LEN) {
               // Inline, right under the field — a second modal on top of this one
               // would stack behind it (dialog-over-dialog isn't a supported layer).
-              pwErr.textContent = 'Password must be at least 6 characters (or leave it empty).';
+              pwErr.textContent = `Password must be at least ${MIN_MEETING_ROOM_PASSWORD_LEN} characters (or leave it empty).`;
               pwIn.focus();
               return false; // keep the dialog open so they can fix it
             }
@@ -3130,11 +3130,6 @@ export class OfficeScene extends Phaser.Scene {
           window.location.href = "./voxel.html";
           return true;
         }
-        if (name === "rooms") {
-          sys("Opening the rooms portal…");
-          window.location.href = `./rooms.html?zone=${encodeURIComponent(currentZone())}`;
-          return true;
-        }
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
           else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }
@@ -3349,6 +3344,11 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.display = 'flex';
   }
 }
+
+/** Meeting-room passwords get a higher floor than account passwords (server-enforced
+ *  too, see MIN_MEETING_ROOM_PASSWORD_LEN in meetingRoomStore.ts) — the link+password
+ *  pair is typically handed out over email, a less trusted channel than a login. */
+const MIN_MEETING_ROOM_PASSWORD_LEN = 8;
 
 /** Cryptographically random password, avoiding visually ambiguous characters (0/O/1/l/I). */
 function generatePassword(length = 12): string {

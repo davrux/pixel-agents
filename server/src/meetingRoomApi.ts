@@ -11,6 +11,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import express, { type Express, type Request } from 'express';
 
 import { hasValidBearerSession, hasValidSession, userIdFromBearer, userIdFromCookie } from './auth.js';
@@ -74,8 +75,11 @@ export function registerMeetingRoomApi(app: Express, clientDist: string): void {
     if (!voiceConfigured()) return void res.status(503).json({ error: 'not-configured' });
     const roomName = voiceRoomName(voiceNs, `meet-${slug}`);
     // A random per-connection identity — guests have no stable userId, and two
-    // tabs of the "same" guest are just two participants.
-    const identity = `meet-${Math.random().toString(36).slice(2, 10)}`;
+    // tabs of the "same" guest are just two participants. Crypto-random (not
+    // Math.random): LiveKit disconnects the older connection when a second
+    // participant joins with the same identity, so a guessable id would let an
+    // attacker hijack another guest's connection mid-call.
+    const identity = `meet-${randomUUID()}`;
     mintVoiceToken(identity, name, roomName)
       .then((token) => {
         if (!token) return void res.status(503).json({ error: 'not-configured' });

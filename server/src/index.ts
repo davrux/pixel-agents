@@ -110,6 +110,29 @@ export function desktopCors(): RequestHandler {
   };
 }
 
+// Baseline response headers, applied to every request. Scoped deliberately narrow:
+// frame-ancestors/X-Frame-Options block clickjacking (the app — including the
+// public /meet/<slug> guest page — is never meant to be framed by another site);
+// nosniff + Referrer-Policy are cheap, safe-by-default hardening. HSTS only fires
+// over an actual HTTPS connection (direct TLS or behind the TLS-terminating Caddy
+// proxy — see `trust proxy` above), never over plain http (would be wrong advice
+// for local dev). Deliberately NOT a full page CSP (script-src/connect-src/etc.):
+// Phaser, LiveKit and the voxel worker rely on blob: workers, wss:// connections and
+// canvas/data: images that a hand-rolled CSP could break without careful auditing —
+// left for a follow-up if a full CSP is wanted.
+export function securityHeaders(): RequestHandler {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+      res.setHeader('Strict-Transport-Security', 'max-age=15552000');
+    }
+    next();
+  };
+}
+
 async function main(): Promise<void> {
   // One-time persistence migration: shift voxel item-id bands +100 (frees block
   // ids for the arcade cabinet). Idempotent; runs before any player can join.
@@ -119,6 +142,14 @@ async function main(): Promise<void> {
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
 
   const app = express();
+  // Trust only a reverse proxy connecting from loopback (our deploy topology: Caddy
+  // on the same host, see deploy/Caddyfile) to read the real client IP from
+  // X-Forwarded-For. Without this, req.ip is always the proxy's own loopback
+  // address behind Caddy, which silently collapses any per-guest IP throttle
+  // (e.g. the /meet join password guard) into a single shared bucket. Scoped to
+  // 'loopback' rather than trusting an arbitrary XFF chain from the internet.
+  app.set('trust proxy', 'loopback');
+  app.use(securityHeaders());
   app.use(cors());
   // Narrow cross-origin headers for the desktop bearer path (Authorization
   // allowed, no credentialed cookies) — see desktopCors. Applied before the

@@ -28,13 +28,13 @@ import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
-import { userStore, UserStore, isValidPassword, normalizeLoginId, type Role, type User } from '../userStore.js';
+import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
 import { controlBus, KICK_EVENT } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
-import { meetingRoomStore } from '../meetingRoomStore.js';
+import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -674,9 +674,20 @@ export class SimRoom extends Room<RoomState> {
           .getLayout()
           .furniture.some((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.meetingRoom);
         if (!isKiosk) return;
+        // Bounds how many rooms one account can have outstanding at once — without
+        // this a compromised/scripted account could flood meeting_rooms forever.
+        if (meetingRoomStore.countActiveByOwner(userId) >= MAX_ACTIVE_ROOMS_PER_OWNER) {
+          client.send('m', { type: 'meetingRoomCreated', error: 'too many active rooms — close one first' });
+          return;
+        }
         const password = typeof msg?.password === 'string' ? msg.password : '';
-        if (password && !isValidPassword(password)) {
-          client.send('m', { type: 'meetingRoomCreated', error: 'weak password' });
+        // Higher floor than the generic account password (see MIN_MEETING_ROOM_PASSWORD_LEN
+        // doc comment) — this link+password pair is typically handed out over email.
+        if (password && (password.length < MIN_MEETING_ROOM_PASSWORD_LEN || password.length > MAX_PASSWORD_LEN)) {
+          client.send('m', {
+            type: 'meetingRoomCreated',
+            error: `weak password (must be ${MIN_MEETING_ROOM_PASSWORD_LEN}-${MAX_PASSWORD_LEN} characters)`,
+          });
           return;
         }
         // Client offers 1/7/14/30 days + 3/6 months (90/180 days) — 180 is the cap.

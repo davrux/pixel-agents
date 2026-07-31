@@ -30,6 +30,18 @@ interface MeetingRoomRow {
   pw_hash: string | null;
 }
 
+/** How many non-expired rooms one owner may have outstanding at once — bounds
+ *  unbounded table growth from a single (compromised or scripted) account, on
+ *  top of the periodic prune sweep below. */
+export const MAX_ACTIVE_ROOMS_PER_OWNER = 20;
+
+/** Meeting-room passwords get a higher floor than the generic account password
+ *  (userStore.ts MIN_PASSWORD_LEN=6): the link + password pair is typically
+ *  handed out over email, an inherently less trusted channel than a login. */
+export const MIN_MEETING_ROOM_PASSWORD_LEN = 8;
+
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000; // hourly, same cadence as appStore's session cleanup
+
 export class MeetingRoomStore {
   private readonly db: DatabaseSync;
 
@@ -47,6 +59,20 @@ export class MeetingRoomStore {
       CREATE INDEX IF NOT EXISTS meeting_rooms_owner ON meeting_rooms(owner_id);
       CREATE INDEX IF NOT EXISTS meeting_rooms_expires ON meeting_rooms(expires_at);
     `);
+    // Sweep long-expired rows on startup and hourly after, so the table never
+    // grows unbounded even if nobody ever calls pruneExpired() explicitly.
+    this.pruneExpired();
+    const t = setInterval(() => this.pruneExpired(), PRUNE_INTERVAL_MS);
+    if (typeof t.unref === 'function') t.unref();
+  }
+
+  /** Non-expired rooms currently owned by `ownerId` — used to cap creation
+   *  (see MAX_ACTIVE_ROOMS_PER_OWNER) so one account can't flood the table. */
+  countActiveByOwner(ownerId: string): number {
+    const r = this.db
+      .prepare('SELECT COUNT(*) AS c FROM meeting_rooms WHERE owner_id = ? AND expires_at > ?')
+      .get(ownerId, Date.now()) as { c: number };
+    return r.c;
   }
 
   private toRoom(r: MeetingRoomRow): MeetingRoom {
