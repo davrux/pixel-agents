@@ -31,7 +31,7 @@ import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBea
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
-import { controlBus, KICK_EVENT } from '../controlBus.js';
+import { controlBus, KICK_EVENT, ZONE_INVITE_EVENT, ZONE_INVITE_RESULT_EVENT } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
@@ -175,6 +175,47 @@ export class SimRoom extends Room<RoomState> {
     }
   };
 
+  /** Deliver a zone invite to its target, wherever they are — mirrors onKick's
+   *  cross-room reach via controlBus (a no-op in every room but the one that
+   *  actually holds the target's client). */
+  private readonly onZoneInvite = (p: {
+    targetUserId: string;
+    fromUserId: string;
+    fromName: string;
+    zoneId: string;
+    zoneLabel: string;
+  }): void => {
+    for (const c of this.clients) {
+      if (authOf(c).userId === p.targetUserId) {
+        c.send('m', {
+          type: 'zoneInvitePrompt',
+          fromUserId: p.fromUserId,
+          fromName: p.fromName,
+          zoneId: p.zoneId,
+          zoneLabel: p.zoneLabel,
+        });
+      }
+    }
+  };
+
+  /** Tell the inviter whether their invite was accepted/declined, wherever THEY
+   *  are now (they may have moved to yet another zone since sending it). */
+  private readonly onZoneInviteResult = (p: { toUserId: string | null; accepted: boolean; byName: string; zoneLabel: string }): void => {
+    if (!p.toUserId) return;
+    for (const c of this.clients) {
+      if (authOf(c).userId === p.toUserId) {
+        c.send('m', { type: 'zoneInviteResult', accepted: p.accepted, byName: p.byName, zoneLabel: p.zoneLabel });
+      }
+    }
+  };
+
+  /** Display name for a zone-ACL member id, falling back to the raw id if the
+   *  account was since deleted (ACL rows for a deleted user are cleared, but
+   *  this stays defensive). */
+  private zoneMemberName(userId: string): string {
+    return userStore.get(userId)?.username || userId;
+  }
+
   /** Replay the full current state of one registry agent into this room (used
    *  both when seeding a freshly-created room and when an owner switches in).
    *  Status 'waiting' is left implicit so seeding never fires a "done" chime. */
@@ -228,12 +269,20 @@ export class SimRoom extends Room<RoomState> {
     throw new Error('unauthorized');
   }
 
-  /** Room-entry policy on top of a valid session: a password-locked zone requires
-   *  the password (admins and the zone's admins bypass it). Throws 'zone-locked'
-   *  so the client can react (prompt for the password). */
+  /** Room-entry policy on top of a valid session. A private zone rejects anyone
+   *  but the owner/zone-admins/ACL/global-admins, throwing 'forbidden' (no
+   *  password can get you in — see zoneStore.ts canEnterPrivateZone). A
+   *  password-locked zone requires the password (admins and the zone's admins
+   *  bypass it), throwing 'zone-locked' so the client can prompt for it. */
   private gateEntry(user: User, opts: { zonePassword?: string }): AuthInfo {
     const zoneId = this.zone.id;
     const isZoneAdmin = this.zones.isZoneAdmin(zoneId, user.userId);
+    // Private zones reject anyone but the owner, its zone-admins, an ACL
+    // member, or a global admin — an identity-based gate, checked before the
+    // password (a private zone doesn't need one; this is the stronger lock).
+    if (!user.isAdmin && !this.zones.canEnterPrivateZone(zoneId, user.userId)) {
+      throw new Error('forbidden');
+    }
     if (this.zones.zoneHasPassword(zoneId) && !user.isAdmin && !isZoneAdmin) {
       // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
       const tkey = `zone:${zoneId}:${user.userId}`;
@@ -315,6 +364,8 @@ export class SimRoom extends Room<RoomState> {
     director.on('event', this.onEvent);
     director.on('reroute', this.onReroute);
     controlBus.on(KICK_EVENT, this.onKick);
+    controlBus.on(ZONE_INVITE_EVENT, this.onZoneInvite);
+    controlBus.on(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -324,6 +375,8 @@ export class SimRoom extends Room<RoomState> {
     director.off('event', this.onEvent);
     director.off('reroute', this.onReroute);
     controlBus.off(KICK_EVENT, this.onKick);
+    controlBus.off(ZONE_INVITE_EVENT, this.onZoneInvite);
+    controlBus.off(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     this.store?.close();
     this.zones?.close();
   }
@@ -816,21 +869,110 @@ export class SimRoom extends Room<RoomState> {
       this.broadcast('m', { type: 'system', text });
     });
 
-    // ── Zone registry (create / edit / delete; admins only, office protected) ──
+    // ── Zone registry (any user may create/own one; edit/delete needs zone-admin
+    // or global-admin; privacy/ACL/invite is owner-only; office is protected) ──
     this.onMessage('requestZones', (client) => client.send('m', this.zoneListMessage()));
 
     this.onMessage('createZone', (client, msg: { label?: string; cols?: number; rows?: number }) => {
       if (!this.may(client, 'zone.create')) return;
       if (typeof msg?.label !== 'string') return;
-      const id = this.zones.create(msg.label, Number(msg?.cols), Number(msg?.rows), Date.now());
+      const { userId } = authOf(client);
+      // Owned by its creator (absent for an anonymous open-dev viewer, who has no
+      // userId — those zones stay ownerless/public). Capped per owner (see
+      // MAX_ZONES_PER_OWNER) so one account can't flood the registry.
+      const id = this.zones.create(msg.label, Number(msg?.cols), Number(msg?.rows), Date.now(), userId || undefined);
+      if (!id) {
+        client.send('m', { type: 'zoneCreated', error: userId && this.zones.countByOwner(userId) > 0 ? 'too many zones' : 'invalid name' });
+        return;
+      }
       // The creator becomes the new zone's admin so a regular `user` can edit the
       // room they just made (global admins can edit any zone regardless).
-      const { userId } = authOf(client);
-      if (id && userId) this.zones.setZoneAdmin(id, userId, true);
+      if (userId) this.zones.setZoneAdmin(id, userId, true);
       // Tell the creator the new id (so the client can offer to jump there) +
       // refresh everyone here.
-      if (id) client.send('m', { type: 'zoneCreated', id });
+      client.send('m', { type: 'zoneCreated', id });
       this.broadcastZoneList();
+    });
+
+    // Owner-only: toggle a zone private. Private rejects entry for anyone but
+    // the owner/zone-admins/ACL/global-admins (see gateEntry) — stronger than a
+    // password since there's no shared secret to leak, and access is revocable
+    // per person.
+    this.onMessage('zoneSetPrivate', (client, msg: { id?: string; private?: boolean }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      if (!id || !this.may(client, 'zone.managePrivacy', id)) return;
+      if (this.zones.setPrivate(id, !!msg?.private)) {
+        if (id === this.zone.id) this.zone = this.zones.get(id) ?? this.zone;
+        this.broadcastZoneList();
+      }
+    });
+
+    const zoneAclMembers = (id: string) => this.zones.listAcl(id).map((uid) => ({ userId: uid, name: this.zoneMemberName(uid) }));
+
+    this.onMessage('zoneAclList', (client, msg: { id?: string }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      if (!id || !this.may(client, 'zone.managePrivacy', id)) return;
+      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+    });
+
+    this.onMessage('zoneAclAdd', (client, msg: { id?: string; userId?: string }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      const targetId = normalizeLoginId(msg?.userId);
+      if (!id || !targetId || !this.may(client, 'zone.managePrivacy', id) || !userStore.get(targetId)) return;
+      this.zones.aclAdd(id, targetId);
+      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+    });
+
+    this.onMessage('zoneAclRemove', (client, msg: { id?: string; userId?: string }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      const targetId = normalizeLoginId(msg?.userId);
+      if (!id || !targetId || !this.may(client, 'zone.managePrivacy', id)) return;
+      this.zones.aclRemove(id, targetId);
+      client.send('m', { type: 'zoneAcl', id, members: zoneAclMembers(id) });
+    });
+
+    // Real-time "pull someone in": reaches the target wherever they are (a
+    // different zone's room instance) via the same cross-room controlBus /kick
+    // already uses. They get a prompt and must accept (zoneInviteRespond) —
+    // accepting adds them to the ACL and tells their client to travel here.
+    this.onMessage('zoneInvite', (client, msg: { id?: string; userId?: string }) => {
+      const id = typeof msg?.id === 'string' ? msg.id : '';
+      const targetId = normalizeLoginId(msg?.userId);
+      if (!id || !targetId || !this.may(client, 'zone.managePrivacy', id)) return;
+      const { userId: fromUserId, username: fromUsername } = authOf(client);
+      if (targetId === fromUserId) return;
+      if (!presence.zoneOf(targetId)) {
+        client.send('m', { type: 'zoneInviteSent', targetUserId: targetId, error: 'not online' });
+        return;
+      }
+      const zone = this.zones.get(id);
+      controlBus.emit(ZONE_INVITE_EVENT, {
+        targetUserId: targetId,
+        fromUserId,
+        fromName: fromUsername || fromUserId,
+        zoneId: id,
+        zoneLabel: zone?.label ?? id,
+      });
+      client.send('m', { type: 'zoneInviteSent', targetUserId: targetId });
+    });
+
+    // The invitee's answer — runs in WHATEVER room they're currently connected
+    // to, which may not be the target zone's room, but ZoneStore reads/writes
+    // the shared DB regardless of which room instance calls it.
+    this.onMessage('zoneInviteRespond', (client, msg: { zoneId?: string; accept?: boolean }) => {
+      const zoneId = typeof msg?.zoneId === 'string' ? msg.zoneId : '';
+      const { userId, username } = authOf(client);
+      if (!zoneId || !userId || !this.zones.get(zoneId)) return;
+      const accept = !!msg?.accept;
+      if (accept) this.zones.aclAdd(zoneId, userId);
+      const zone = this.zones.get(zoneId);
+      controlBus.emit(ZONE_INVITE_RESULT_EVENT, {
+        toUserId: zone?.ownerId,
+        accepted: accept,
+        byName: username || userId,
+        zoneLabel: zone?.label ?? zoneId,
+      });
+      if (accept) client.send('m', { type: 'zoneInviteAccepted', zoneId });
     });
 
     this.onMessage('editZone', (client, msg: { id?: string; label?: string; arrive?: { col: number; row: number } }) => {
@@ -1156,7 +1298,11 @@ export class SimRoom extends Room<RoomState> {
     return can(
       authOf(client),
       capability,
-      { authRequired: this.authRequired, isZoneAdmin: (z, u) => this.zones.isZoneAdmin(z, u) },
+      {
+        authRequired: this.authRequired,
+        isZoneAdmin: (z, u) => this.zones.isZoneAdmin(z, u),
+        zoneOwner: (z) => this.zones.zoneOwner(z),
+      },
       { zoneId },
     );
   }

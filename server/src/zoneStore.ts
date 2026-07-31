@@ -30,7 +30,13 @@ interface ZoneRow {
   created_at: number;
   npc: string | null;
   pw_hash: string | null;
+  owner_id: string | null;
+  is_private: number;
 }
+
+/** How many zones one owner may have outstanding at once — same DoS-prevention
+ *  reasoning as MAX_ACTIVE_ROOMS_PER_OWNER for meeting rooms. */
+export const MAX_ZONES_PER_OWNER = 20;
 
 export class ZoneStore {
   private readonly db: DatabaseSync;
@@ -55,6 +61,10 @@ export class ZoneStore {
       CREATE TABLE IF NOT EXISTS monitor_locks (
         zone_id TEXT NOT NULL, monitor_key TEXT NOT NULL, pw_hash TEXT NOT NULL,
         PRIMARY KEY (zone_id, monitor_key)
+      );
+      -- Private-zone allow-list: who besides the owner/admins may enter.
+      CREATE TABLE IF NOT EXISTS zone_acl (
+        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
       );
     `);
     this.migrateColumns();
@@ -134,15 +144,72 @@ export class ZoneStore {
       this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
     }
   }
-  /** Drop all per-user grants (zone-admin) — e.g. when the account is deleted. */
+  /** Drop all per-user grants (zone-admin, ACL membership) and ownerships — e.g.
+   *  when the account is deleted. Zones the user OWNED are never deleted here:
+   *  they become ownerless (owner_id NULL) but keep their layout, privacy and
+   *  ACL as-is — only an admin can manage them further after that. */
   removeUserFromAllZones(userId: string): void {
     this.db.prepare('DELETE FROM zone_admins WHERE user_id = ?').run(userId);
+    this.db.prepare('DELETE FROM zone_acl WHERE user_id = ?').run(userId);
+    this.db.prepare('UPDATE zones SET owner_id = NULL WHERE owner_id = ?').run(userId);
   }
   listZoneAdmins(zoneId: string): string[] {
     const rows = this.db
       .prepare('SELECT user_id FROM zone_admins WHERE zone_id = ? ORDER BY user_id')
       .all(zoneId) as Array<{ user_id: string }>;
     return rows.map((r) => r.user_id);
+  }
+
+  // ── Ownership + privacy ──────────────────────────────────────────
+  // A private zone rejects entry for anyone but the owner, its zone-admins
+  // (co-editors — trusted the same as the owner), global admins, and anyone on
+  // its ACL. Unlike a zone password (a shared secret), this is identity-based:
+  // no secret to leak, and the owner can revoke a single person without
+  // resetting access for everyone else.
+  zoneOwner(zoneId: string): string | null {
+    const r = this.db.prepare('SELECT owner_id FROM zones WHERE id = ?').get(zoneId) as
+      | { owner_id: string | null }
+      | undefined;
+    return r?.owner_id ?? null;
+  }
+  isPrivate(zoneId: string): boolean {
+    const r = this.db.prepare('SELECT is_private FROM zones WHERE id = ?').get(zoneId) as
+      | { is_private: number }
+      | undefined;
+    return !!r?.is_private;
+  }
+  /** Only the owner may flip this (see permissions.ts zone.managePrivacy) — a
+   *  zone-admin co-editor can layout the room but not lock people out of it. */
+  setPrivate(zoneId: string, on: boolean): boolean {
+    if (!this.has(zoneId)) return false;
+    this.db.prepare('UPDATE zones SET is_private = ? WHERE id = ?').run(on ? 1 : 0, zoneId);
+    return true;
+  }
+  isAclMember(zoneId: string, userId: string): boolean {
+    if (!zoneId || !userId) return false;
+    return this.db.prepare('SELECT 1 FROM zone_acl WHERE zone_id = ? AND user_id = ?').get(zoneId, userId) !== undefined;
+  }
+  aclAdd(zoneId: string, userId: string): void {
+    if (!zoneId || !userId) return;
+    this.db.prepare('INSERT OR IGNORE INTO zone_acl(zone_id, user_id) VALUES(?, ?)').run(zoneId, userId);
+  }
+  aclRemove(zoneId: string, userId: string): void {
+    this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ? AND user_id = ?').run(zoneId, userId);
+  }
+  listAcl(zoneId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT user_id FROM zone_acl WHERE zone_id = ? ORDER BY user_id')
+      .all(zoneId) as Array<{ user_id: string }>;
+    return rows.map((r) => r.user_id);
+  }
+  /** Full entry check for a private zone: owner, zone-admin, ACL member, or a
+   *  global admin (checked by the caller, not here — see SimRoom gateEntry). */
+  canEnterPrivateZone(zoneId: string, userId: string): boolean {
+    if (!this.isPrivate(zoneId)) return true;
+    if (!userId) return false;
+    if (this.zoneOwner(zoneId) === userId) return true;
+    if (this.isZoneAdmin(zoneId, userId)) return true;
+    return this.isAclMember(zoneId, userId);
   }
 
   /** Add columns introduced after the table first shipped. The `npc` per-zone
@@ -157,6 +224,15 @@ export class ZoneStore {
     }
     if (!cols.some((c) => c.name === 'pw_hash')) {
       this.db.exec('ALTER TABLE zones ADD COLUMN pw_hash TEXT');
+    }
+    // Ownership + privacy: existing zones predate this feature and get no owner
+    // (owner_id NULL — nobody's, stays public; only an admin can claim/manage
+    // one via the admin site if that's ever wanted).
+    if (!cols.some((c) => c.name === 'owner_id')) {
+      this.db.exec('ALTER TABLE zones ADD COLUMN owner_id TEXT');
+    }
+    if (!cols.some((c) => c.name === 'is_private')) {
+      this.db.exec('ALTER TABLE zones ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0');
     }
   }
 
@@ -184,11 +260,15 @@ export class ZoneStore {
     return this.db.prepare('SELECT 1 FROM zones WHERE id = ?').get(id) !== undefined;
   }
 
-  /** Create a user zone from a label + initial size. Returns the new id, or null
-   *  if the input is invalid. The id is a unique slug derived from the label. */
-  create(label: string, cols: number, rows: number, now: number): string | null {
+  /** Create a user zone from a label + initial size, owned by `ownerId` (absent
+   *  for e.g. an anonymous open-dev caller — those zones stay ownerless/public).
+   *  Returns the new id, or null if the input is invalid OR `ownerId` already
+   *  owns MAX_ZONES_PER_OWNER zones (bounds unbounded creation, same reasoning
+   *  as meeting rooms). The id is a unique slug derived from the label. */
+  create(label: string, cols: number, rows: number, now: number, ownerId?: string): string | null {
     const clean = cleanName(label);
     if (!LABEL_RE.test(clean)) return null;
+    if (ownerId && this.countByOwner(ownerId) >= MAX_ZONES_PER_OWNER) return null;
     const c = this.clampSize(cols);
     const r = this.clampSize(rows);
     const id = this.uniqueId(ZoneStore.slugify(clean));
@@ -196,11 +276,17 @@ export class ZoneStore {
     // New zones start with no NPCs (empty set) — you enable variants per zone.
     this.db
       .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc)
-         VALUES(?,?,?,?,?,?,0,?,'[]')`,
+        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc,owner_id)
+         VALUES(?,?,?,?,?,?,0,?,'[]',?)`,
       )
-      .run(id, clean, arrive.col, arrive.row, c, r, now);
+      .run(id, clean, arrive.col, arrive.row, c, r, now, ownerId || null);
     return id;
+  }
+
+  /** How many zones `ownerId` currently owns — used to cap creation. */
+  countByOwner(ownerId: string): number {
+    const r = this.db.prepare('SELECT COUNT(*) AS c FROM zones WHERE owner_id = ?').get(ownerId) as { c: number };
+    return r.c;
   }
 
   /** Set which NPC variants spawn in a zone. null = all active variants. */
@@ -259,6 +345,8 @@ export class ZoneStore {
       readOnly: !!r.read_only,
       npc,
       locked: !!r.pw_hash,
+      ownerId: r.owner_id ?? undefined,
+      private: !!r.is_private,
     };
   }
 

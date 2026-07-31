@@ -114,10 +114,10 @@ export function registerAdminApi(app: Express): void {
     if (id === me.userId) return void res.status(409).json({ error: 'cannot delete yourself' });
     if (target.isAdmin && userStore.adminCount() <= 1) return void res.status(409).json({ error: 'last admin' });
     userStore.deleteUser(id);
-    // Clean up the user's global data (mirrors the /delete command). Zones are
-    // deliberately left untouched — they aren't user-owned, only zone-admin
-    // *grants* are (removeUserFromAllZones), so deleting an account never
-    // deletes a zone.
+    // Clean up the user's global data (mirrors the /delete command). Zones the
+    // user owned/could-admin/was-ACL'd-into are deliberately kept, not deleted —
+    // removeUserFromAllZones() only clears their grants/ACL membership and nulls
+    // out owner_id on zones they owned (they become ownerless, not gone).
     appStore.deletePlayerAvatar(id);
     appStore.clearCharPref(id);
     appStore.clearPlayerPref(id);
@@ -129,13 +129,58 @@ export function registerAdminApi(app: Express): void {
   // ── Zones (rooms) ────────────────────────────────────────────────────────────
   app.get('/admin/zones', (req, res) => {
     if (!admin(req, res)) return;
-    const list = zones.list().map((z) => ({
-      id: z.id,
-      label: z.label,
-      readOnly: !!z.readOnly,
-      locked: !!z.locked,
-    }));
+    const list = zones.list().map((z) => {
+      const owner = z.ownerId ? userStore.get(z.ownerId) : undefined;
+      return {
+        id: z.id,
+        label: z.label,
+        readOnly: !!z.readOnly,
+        locked: !!z.locked,
+        ownerId: z.ownerId ?? null,
+        ownerName: owner ? UserStore.displayName(owner) : (z.ownerId ?? null),
+        private: !!z.private,
+      };
+    });
     res.json({ zones: list });
+  });
+
+  // Admin override: force a zone private/public regardless of its owner (or
+  // even if it has none — an ownerless zone can only be managed this way).
+  app.put('/admin/zone/:id/private', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const body = (req.body ?? {}) as { private?: unknown };
+    zones.setPrivate(id, !!body.private);
+    res.json({ ok: true, private: zones.isPrivate(id) });
+  });
+
+  // Private-zone allow-list — same admin-override rationale as the password
+  // above: an admin can see/edit any zone's ACL, not just their own.
+  app.get('/admin/zone/:id/acl', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const members = zones.listAcl(id).map((uid) => ({ userId: uid, name: userStore.get(uid)?.username || uid }));
+    res.json({ members });
+  });
+
+  app.post('/admin/zone/:id/acl', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const targetId = normalizeLoginId((req.body as { userId?: unknown } | undefined)?.userId);
+    if (!targetId || !userStore.get(targetId)) return void res.status(400).json({ error: 'no such user' });
+    zones.aclAdd(id, targetId);
+    res.json({ ok: true });
+  });
+
+  app.delete('/admin/zone/:id/acl/:userId', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    zones.aclRemove(id, normalizeLoginId(req.params.userId));
+    res.json({ ok: true });
   });
 
   // Set/clear a zone's entry password ('' → clears the lock).

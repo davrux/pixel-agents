@@ -19,6 +19,13 @@ export interface AdminZone {
   label: string;
   readOnly: boolean;
   locked: boolean;
+  ownerId: string | null;
+  ownerName: string | null;
+  private: boolean;
+}
+export interface AdminZoneAclMember {
+  userId: string;
+  name: string;
 }
 export interface AdminMonitor {
   key: string;
@@ -81,6 +88,13 @@ export const adminApi = {
   listZones: () => req<{ zones: AdminZone[] }>('GET', '/admin/zones'),
   setZonePassword: (id: string, password: string) =>
     req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(id)}/password`, { password }),
+  setZonePrivate: (id: string, priv: boolean) =>
+    req<{ private: boolean }>('PUT', `/admin/zone/${encodeURIComponent(id)}/private`, { private: priv }),
+  listZoneAcl: (id: string) => req<{ members: AdminZoneAclMember[] }>('GET', `/admin/zone/${encodeURIComponent(id)}/acl`),
+  addZoneAcl: (id: string, userId: string) =>
+    req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/acl`, { userId }),
+  removeZoneAcl: (id: string, userId: string) =>
+    req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/acl/${encodeURIComponent(userId)}`),
 
   listMonitors: (zoneId: string) =>
     req<{ monitors: AdminMonitor[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/monitors`),

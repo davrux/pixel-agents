@@ -49,7 +49,7 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { connect, isAuthError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
+import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
@@ -168,6 +168,9 @@ export class OfficeScene extends Phaser.Scene {
    *  for — remembered so the "+ New room" button in that dialog knows which
    *  kiosk tile to validate the create against once the list response arrives. */
   private pendingMeetingKioskForCreate: { col: number; row: number } | null = null;
+  /** The zone a "Zone settings" request (zoneAclList) was sent for, so
+   *  onZoneAcl knows which zone's dialog to (re)build once the response arrives. */
+  private pendingZoneSettings: ZoneConfig | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
@@ -515,7 +518,12 @@ export class OfficeScene extends Phaser.Scene {
         this.wake();
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
-        else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
+        else if (m.type === 'zoneCreated') void this.onZoneCreated(m);
+        else if (m.type === 'zoneAcl') this.onZoneAcl(m);
+        else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
+        else if (m.type === 'zoneInvitePrompt') this.onZoneInvitePrompt(m);
+        else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
+        else if (m.type === 'zoneInviteResult') this.onZoneInviteResult(m);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
@@ -615,6 +623,28 @@ export class OfficeScene extends Phaser.Scene {
         }
         setStatus('session expired — redirecting to login…');
         redirectToLogin();
+        return;
+      }
+      // The requested zone is private and this viewer has no access (not the
+      // owner/zone-admin/ACL member/global-admin) — bounce to the default zone
+      // instead of getting stuck on a zone that will never let them in.
+      if (isForbiddenError(err)) {
+        const requested = currentZone();
+        if (requested !== DEFAULT_ZONE) {
+          setStatus('that zone is private — returning to the default zone…');
+          try {
+            localStorage.setItem('pa-last-zone', DEFAULT_ZONE);
+          } catch {
+            /* localStorage unavailable */
+          }
+          const url = new URL(window.location.href);
+          url.searchParams.set('zone', DEFAULT_ZONE);
+          history.replaceState(null, '', url.href);
+          reloadApp();
+          return;
+        }
+        setStatus('this zone is private');
+        void alertDialog('This zone is private — ask its owner to add you to the access list or invite you in.');
         return;
       }
       setStatus(`connection failed: ${(err as Error).message}`);
@@ -2294,32 +2324,37 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zonesPanel) return;
     const cur = currentZone();
     const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
-    // Travelling is open to all. Creating/deleting zones + granting zone admins
-    // is global-admin only; editing a zone (layout/rename/NPCs/arrival) is open
-    // to that zone's admin too — but the client only knows its OWN zone-admin
+    // Travelling is open to all. Creating a zone is open to any signed-in user
+    // (they own what they create — see zoneStore.ts); granting zone admins stays
+    // global-admin only. Editing a zone (layout/rename/NPCs/arrival) is open to
+    // that zone's admin too — but the client only knows its OWN zone-admin
     // status for the CURRENT zone, so per-row edit beyond the current zone needs
     // global admin. (open dev mode without accounts → everyone edits.)
     const assetsAdmin = this.assetsAdmin;
+    const canCreateZone = assetsAdmin || !!this.myUserId;
 
     const rows = this.zoneList
       .map((z) => {
         const here = z.id === cur;
         const rowEdit = assetsAdmin || (here && this.myZoneAdmin);
+        const rowDelete = assetsAdmin || (here && this.myZoneAdmin);
+        const isOwner = !!this.myUserId && z.ownerId === this.myUserId;
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
-        const lock = z.readOnly ? ' 🔒' : '';
+        const lock = z.readOnly ? ' 🔒' : z.private ? ' 🔐' : '';
         const npcN = z.npc == null ? 'all' : String(z.npc.length);
         let ctrls = '';
         if (rowEdit)
           ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
-        if (assetsAdmin && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
+        if (rowDelete && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
         if (assetsAdmin) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
+        if (isOwner) ctrls += `<button data-settings="${esc(z.id)}" title="Privacy &amp; access">⚙</button>`;
         return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${ctrls}</div>`;
       })
       .join('');
 
     const footParts: string[] = [];
     if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
-    if (assetsAdmin)
+    if (canCreateZone)
       footParts.push(
         `<input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
          <div class="sz">
@@ -2360,6 +2395,13 @@ export class OfficeScene extends Phaser.Scene {
         if (uid && uid.trim()) send('setZoneAdmin', { zoneId: id, userId: uid.trim() });
       };
     });
+    // Owner-only: privacy + access list + real-time invite for a zone they own.
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-settings]').forEach((b) => {
+      b.onclick = () => {
+        const z = this.zoneList.find((x) => x.id === b.dataset.settings);
+        if (z) this.openZoneSettingsDialog(z);
+      };
+    });
     const arrive = this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]');
     if (arrive)
       arrive.onclick = () => {
@@ -2395,10 +2437,158 @@ export class OfficeScene extends Phaser.Scene {
     this.room?.send('editZone', { id, label: name });
   }
 
-  /** A zone was just created (by this viewer) → offer to jump straight to it. */
-  private async offerJumpToNewZone(id: string): Promise<void> {
+  /** A zone was just created (by this viewer) → offer to jump straight to it, or
+   *  show why it wasn't (invalid name, or the per-owner zone cap was hit). */
+  private async onZoneCreated(m: Record<string, unknown>): Promise<void> {
+    if (typeof m.error === 'string') {
+      void alertDialog(`Could not create the zone: ${m.error}.`);
+      return;
+    }
+    const id = typeof m.id === 'string' ? m.id : '';
     if (!isZoneId(id)) return;
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
+  }
+
+  /** Zone owner: open "Zone settings" — privacy toggle, access list, invite
+   *  someone in right now. Fetches the ACL first (response arrives via
+   *  'zoneAcl' → onZoneAcl, which actually builds the dialog). */
+  private openZoneSettingsDialog(zone: ZoneConfig): void {
+    this.pendingZoneSettings = zone;
+    this.room?.send('zoneAclList', { id: zone.id });
+  }
+
+  /** The server's answer to zoneAclList — also arrives after zoneAclAdd/Remove,
+   *  so this both opens the dialog the first time and refreshes it in place. */
+  private onZoneAcl(m: Record<string, unknown>): void {
+    const id = typeof m.id === 'string' ? m.id : '';
+    const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;
+    this.pendingZoneSettings = null;
+    if (!zone || !Array.isArray(m.members)) return;
+    const members = m.members as Array<{ userId: string; name: string }>;
+
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Privacy</label>
+        <div style="display:flex;align-items:center;gap:.6rem;">
+          <button type="button" class="pa-b" data-priv></button>
+          <span class="muted" data-priv-hint style="font-size:.82rem;"></span>
+        </div>
+      </div>
+      <div class="fld"><label>Access list</label>
+        <div data-acl-list style="max-height:9rem;overflow-y:auto;display:flex;flex-direction:column;gap:.4rem;"></div>
+        <div style="display:flex;gap:.35rem;margin-top:.5rem;">
+          <input class="pa-input" data-acl-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b" data-acl-add-btn>Add</button>
+        </div>
+      </div>
+      <div class="fld"><label>Invite someone now</label>
+        <div style="display:flex;gap:.35rem;">
+          <input class="pa-input" data-invite placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b green" data-invite-btn>Invite</button>
+        </div>
+        <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
+      </div>`;
+
+    const listEl = body.querySelector<HTMLDivElement>('[data-acl-list]')!;
+    if (!members.length) {
+      listEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No one on the list yet.</div>';
+    }
+    for (const mem of members) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;font-size:.85rem;';
+      const nm = document.createElement('span');
+      nm.style.flex = '1';
+      nm.textContent = mem.name;
+      const rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'pa-b';
+      rm.textContent = 'Remove';
+      rm.onclick = () => this.room?.send('zoneAclRemove', { id: zone.id, userId: mem.userId });
+      row.append(nm, rm);
+      listEl.appendChild(row);
+    }
+
+    // Optimistic local toggle — no need to wait on the server round trip for
+    // something this simple (it still persists via zoneSetPrivate below).
+    let priv = !!zone.private;
+    const privBtn = body.querySelector<HTMLButtonElement>('[data-priv]')!;
+    const privHint = body.querySelector<HTMLSpanElement>('[data-priv-hint]')!;
+    const renderPriv = (): void => {
+      privBtn.textContent = priv ? '🔐 Private' : '🔓 Public';
+      privBtn.classList.toggle('primary', priv);
+      privHint.textContent = priv
+        ? 'Only the access list below (plus you, its zone-admins and global admins) may enter.'
+        : 'Anyone can enter.';
+    };
+    renderPriv();
+    privBtn.onclick = () => {
+      priv = !priv;
+      renderPriv();
+      this.room?.send('zoneSetPrivate', { id: zone.id, private: priv });
+    };
+
+    const addIn = body.querySelector<HTMLInputElement>('[data-acl-add]')!;
+    body.querySelector<HTMLButtonElement>('[data-acl-add-btn]')!.onclick = () => {
+      const uid = addIn.value.trim();
+      if (uid) this.room?.send('zoneAclAdd', { id: zone.id, userId: uid });
+    };
+
+    const inviteIn = body.querySelector<HTMLInputElement>('[data-invite]')!;
+    const inviteMsg = body.querySelector<HTMLDivElement>('[data-invite-msg]')!;
+    body.querySelector<HTMLButtonElement>('[data-invite-btn]')!.onclick = () => {
+      const uid = inviteIn.value.trim();
+      if (!uid) return;
+      this.room?.send('zoneInvite', { id: zone.id, userId: uid });
+      inviteMsg.textContent = `Inviting ${uid}…`;
+      inviteMsg.style.color = '';
+    };
+
+    openPaDialog({ title: `Zone settings — ${zone.label}`, body, buttons: [] });
+  }
+
+  /** Feedback for the owner's zoneInvite — shown in the still-open settings
+   *  dialog's invite area, if it's still up. */
+  private onZoneInviteSent(m: Record<string, unknown>): void {
+    const msgEl = document.querySelector<HTMLDivElement>('#pa-dialog-back [data-invite-msg]');
+    if (!msgEl) return;
+    if (typeof m.error === 'string') {
+      msgEl.textContent = m.error === 'not online' ? 'That user is not online right now.' : `Could not invite: ${m.error}.`;
+      msgEl.style.color = '#f0a6a2';
+    } else {
+      msgEl.textContent = `Invite sent to ${String(m.targetUserId ?? '')}.`;
+      msgEl.style.color = '#7fd08a';
+    }
+  }
+
+  /** Someone invited us into their (possibly private) zone — must accept before
+   *  anything happens (no silent pulls). */
+  private onZoneInvitePrompt(m: Record<string, unknown>): void {
+    const zoneId = typeof m.zoneId === 'string' ? m.zoneId : '';
+    if (!isZoneId(zoneId)) return;
+    const zoneLabel = typeof m.zoneLabel === 'string' ? m.zoneLabel : zoneId;
+    const fromName = typeof m.fromName === 'string' ? m.fromName : 'Someone';
+    void (async () => {
+      const accept = await confirmDialog(`${fromName} invites you into their zone “${zoneLabel}”. Join now?`, {
+        confirmLabel: 'Join',
+      });
+      this.room?.send('zoneInviteRespond', { zoneId, accept });
+    })();
+  }
+
+  /** We accepted an invite — the server added us to the ACL; travel there. */
+  private onZoneInviteAccepted(m: Record<string, unknown>): void {
+    const zoneId = typeof m.zoneId === 'string' ? m.zoneId : '';
+    if (isZoneId(zoneId)) this.goToZone(zoneId);
+  }
+
+  /** Tell the inviter what happened to their invite, wherever they are now — a
+   *  passive system line rather than another dialog (they may be mid-something
+   *  else entirely). */
+  private onZoneInviteResult(m: Record<string, unknown>): void {
+    const byName = typeof m.byName === 'string' ? m.byName : 'They';
+    const zoneLabel = typeof m.zoneLabel === 'string' ? m.zoneLabel : 'your zone';
+    const accepted = !!m.accepted;
+    this.chat?.addSystemLine(`${byName} ${accepted ? `joined “${zoneLabel}”.` : `declined your invite to “${zoneLabel}”.`}`);
   }
 
   // ── Conference monitors (C-RTC) ──────────────────────────────────

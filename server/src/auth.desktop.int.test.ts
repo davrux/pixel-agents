@@ -309,14 +309,14 @@ function callOnAuth(
     ip: '127.0.0.1',
   };
   // Minimal `this` (mock boundary): the room-entry gate (gateEntry) needs the
-  // hosted zone + a zone store; stub it to an unlocked room so the test
-  // exercises identity resolution, not the password policy.
+  // hosted zone + a zone store; stub it to an unlocked, non-private room so the
+  // test exercises identity resolution, not the password/privacy policy.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const proto = SimRoom.prototype as any;
   const self = {
     authRequired,
     zone: { id: 'office' },
-    zones: { isZoneAdmin: () => false, zoneHasPassword: () => false },
+    zones: { isZoneAdmin: () => false, zoneHasPassword: () => false, canEnterPrivateZone: () => true },
     gateEntry: proto.gateEntry,
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

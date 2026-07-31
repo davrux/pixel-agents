@@ -230,8 +230,10 @@ function zoneCard(z: AdminZone): HTMLElement {
   const h = el('h2', undefined, z.label);
   h.style.margin = '0';
   title.append(h);
-  if (z.locked) title.append(el('span', 'lock', '🔒 locked'));
+  if (z.locked) title.append(el('span', 'lock', '🔒 password'));
+  if (z.private) title.append(el('span', 'status-off', '🔐 private'));
   card.appendChild(title);
+  card.appendChild(el('div', 'muted', `Owner: ${z.ownerName ?? '(none)'}`));
 
   // Zone password control
   const pwRow = el('div', 'row');
@@ -252,11 +254,28 @@ function zoneCard(z: AdminZone): HTMLElement {
   pwRow.append(el('span', 'muted', 'Room password:'), pw, setBtn, clrBtn);
   card.appendChild(pwRow);
 
-  // Monitors expander
+  // Private toggle (admin override — works regardless of who, if anyone, owns
+  // the zone). Private rejects entry for anyone but the owner/zone-admins/ACL.
+  const privRow = el('div', 'row');
+  privRow.style.marginTop = '.6rem';
+  const privBtn = el('button', 'act' + (z.private ? '' : ' primary'), z.private ? 'Make public' : 'Make private');
+  privBtn.onclick = async () => {
+    const res = await adminApi.setZonePrivate(z.id, !z.private);
+    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void renderRooms(); }
+    else fail('Set private', res.error);
+  };
+  privRow.append(el('span', 'muted', 'Privacy:'), privBtn);
+  card.appendChild(privRow);
+
+  // Monitors + access-list expanders
+  const btnRow = el('div', 'row');
+  btnRow.style.marginTop = '.6rem';
   const monBtn = el('button', 'act', 'Monitors ▾');
-  monBtn.style.marginTop = '.6rem';
   monBtn.onclick = () => toggleMonitors(card, z, monBtn);
-  card.appendChild(monBtn);
+  const aclBtn = el('button', 'act', 'Access list ▾');
+  aclBtn.onclick = () => toggleAcl(card, z, aclBtn);
+  btnRow.append(monBtn, aclBtn);
+  card.appendChild(btnRow);
   return card;
 }
 
@@ -265,6 +284,46 @@ function toggleMonitors(card: HTMLElement, z: AdminZone, btn: HTMLButtonElement)
   if (existing) { existing.remove(); btn.textContent = 'Monitors ▾'; return; }
   btn.textContent = 'Monitors ▴';
   void openMonitors(card, z);
+}
+
+function toggleAcl(card: HTMLElement, z: AdminZone, btn: HTMLButtonElement): void {
+  const existing = card.querySelector('.acl-list');
+  if (existing) { existing.remove(); btn.textContent = 'Access list ▾'; return; }
+  btn.textContent = 'Access list ▴';
+  void openAcl(card, z);
+}
+
+/** (Re)build the private-zone access list under a zone card from the server —
+ *  who besides the owner/zone-admins/global-admins may enter while it's private. */
+async function openAcl(card: HTMLElement, z: AdminZone): Promise<void> {
+  card.querySelector('.acl-list')?.remove();
+  const r = await adminApi.listZoneAcl(z.id);
+  const list = el('div', 'mon-list acl-list');
+  const members = r.data?.members ?? [];
+  if (!members.length) list.appendChild(el('div', 'muted', 'No one on the access list yet.'));
+  for (const m of members) {
+    const row = el('div', 'row');
+    row.append(el('span', undefined, m.name));
+    const rm = el('button', 'act danger', 'Remove');
+    rm.onclick = async () => {
+      const res = await adminApi.removeZoneAcl(z.id, m.userId);
+      if (res.ok) void openAcl(card, z); else fail('Remove', res.error);
+    };
+    row.append(rm);
+    list.appendChild(row);
+  }
+  const addRow = el('div', 'row');
+  addRow.style.marginTop = '.4rem';
+  const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16;
+  const addBtn = el('button', 'act primary', 'Add');
+  addBtn.onclick = async () => {
+    if (!idIn.value.trim()) return;
+    const res = await adminApi.addZoneAcl(z.id, idIn.value.trim());
+    if (res.ok) { idIn.value = ''; void openAcl(card, z); } else fail('Add', res.error);
+  };
+  addRow.append(idIn, addBtn);
+  list.appendChild(addRow);
+  card.appendChild(list);
 }
 
 /** (Re)build the monitor list under a zone card from the server. */

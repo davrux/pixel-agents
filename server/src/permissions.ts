@@ -27,13 +27,17 @@ export type Capability =
   | 'zone.create'
   | 'zone.delete'
   | 'zone.grantAdmin' // assign per-zone admins
-  | 'zone.edit'; // layout / arrival / rename / NPC spawn set of one zone
+  | 'zone.edit' // layout / arrival / rename / NPC spawn set of one zone
+  | 'zone.managePrivacy'; // toggle private + manage its ACL/invites — OWNER only, not zone-admins
 
 export interface PolicyEnv {
   /** Whether login is enforced. False = open dev mode (no accounts → full access). */
   authRequired: boolean;
   /** Whether `userId` is a designated admin of `zoneId`. */
   isZoneAdmin: (zoneId: string, userId: string) => boolean;
+  /** The zone's owner (null if ownerless — see zoneStore.ts). Only read for
+   *  zone.managePrivacy; other capabilities don't need it. */
+  zoneOwner?: (zoneId: string) => string | null;
 }
 
 export function can(
@@ -49,6 +53,12 @@ export function can(
   // A zone admin (e.g. the room's creator) may edit or delete THAT zone.
   if (capability === 'zone.edit' || capability === 'zone.delete') {
     return !!principal.userId && !!ctx.zoneId && env.isZoneAdmin(ctx.zoneId, principal.userId);
+  }
+  // Privacy/ACL/invite is the OWNER's call, not any zone-admin co-editor's — a
+  // co-editor can reshape the room but shouldn't be able to lock people out of
+  // it or add strangers to its ACL.
+  if (capability === 'zone.managePrivacy') {
+    return !!principal.userId && !!ctx.zoneId && env.zoneOwner?.(ctx.zoneId) === principal.userId;
   }
   return false;
 }
