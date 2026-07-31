@@ -74,6 +74,18 @@ const STYLE = `
     background:var(--panel2);border-bottom:1px solid var(--line);}
   .table-toolbar input{flex:1;min-width:8rem;}
   .table-block .table-wrap table{margin:0;}
+  /* Zones overview: one compact summary row per zone; click to expand the full
+     management panel inline (master-detail / progressive disclosure — keeps
+     the page scannable instead of every zone's whole form always open). */
+  tr.zone-row{cursor:pointer;}
+  tr.zone-row:hover{background:var(--panel2);}
+  tr.zone-row td{padding-top:.65rem;padding-bottom:.65rem;}
+  .chevron{display:inline-block;transition:transform .12s ease;color:var(--muted);width:1rem;}
+  tr.zone-row.open .chevron{transform:rotate(90deg);}
+  tr.zone-detail-row > td{background:var(--panel2);border-bottom:2px solid var(--line);padding:1rem 1.1rem;}
+  .badges{display:flex;gap:.4rem;flex-wrap:wrap;}
+  .badge{display:inline-flex;align-items:center;gap:.25rem;font-size:.78rem;padding:.15rem .5rem;border-radius:1rem;
+    background:var(--panel);border:1px solid var(--line);color:var(--muted);}
   @media (max-width: 640px){
     #pa-adm-head{padding:.6rem .7rem;gap:.5rem;}
     #pa-adm-head .brand{font-size:.95rem;}
@@ -298,24 +310,99 @@ async function renderZones(): Promise<void> {
   view.innerHTML = '';
   const intro = el('div', 'pa-adm-card');
   intro.innerHTML =
-    '<h2>Zones</h2><div class="muted">A password locks a zone — anyone but admins and its zone-admins must enter ' +
-    "it to join; making it private is a stronger, identity-based lock (an access list instead of a shared secret). " +
-    'Ownership can be taken, transferred or cleared by an admin at any time — useful for zones that predate ' +
-    'ownership or lost their owner.</div>';
+    '<h2>Zones</h2><div class="muted">Click a zone to manage its owner, password, privacy, access list and ' +
+    'monitors. A password locks a zone — anyone but admins and its zone-admins must enter it; making it private ' +
+    'is a stronger, identity-based lock (an access list instead of a shared secret). Ownership can be taken, ' +
+    'transferred or cleared by an admin at any time.</div>';
   view.appendChild(intro);
 
-  for (const z of zones) view.appendChild(zoneCard(z));
+  // One compact row per zone (master), expandable inline (detail) — keeps the
+  // page scannable instead of every zone's whole management form always open.
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML = `<h2>Zones · ${zones.length}</h2>`;
+  const tableWrap = el('div', 'table-wrap');
+  const table = el('table');
+  table.innerHTML = '<thead><tr><th></th><th>Zone</th><th>Owner</th><th>Status</th></tr></thead>';
+  const tbody = el('tbody');
+  for (const z of zones) tbody.appendChild(zoneSummaryRow(z));
+  table.appendChild(tbody);
+  tableWrap.appendChild(table);
+  card.appendChild(tableWrap);
+  view.appendChild(card);
 }
 
-function zoneCard(z: AdminZone): HTMLElement {
-  const card = el('div', 'pa-adm-card');
-  const title = el('div', 'row');
-  const h = el('h2', undefined, z.label);
-  h.style.margin = '0';
-  title.append(h);
-  if (z.locked) title.append(el('span', 'lock', '🔒 password'));
-  if (z.private) title.append(el('span', 'status-off', '🔐 private'));
-  card.appendChild(title);
+/** One master row: name, owner, lock/privacy badges, and a chevron that
+ *  expands the full management panel (zoneDetailPanel) inline below it. */
+function zoneSummaryRow(z: AdminZone): HTMLTableRowElement {
+  const tr = el('tr', 'zone-row');
+  tr.dataset.zoneId = z.id;
+  const chevTd = el('td');
+  chevTd.innerHTML = '<span class="chevron">▸</span>';
+  tr.appendChild(chevTd);
+  tr.appendChild(el('td', undefined, z.label));
+  tr.appendChild(el('td', 'muted', z.ownerName ?? '(none)'));
+  const statusTd = el('td');
+  const badges = el('div', 'badges');
+  if (z.locked) badges.appendChild(el('span', 'badge', '🔒 password'));
+  if (z.private) badges.appendChild(el('span', 'badge', '🔐 private'));
+  if (!z.locked && !z.private) badges.appendChild(el('span', 'badge', 'open'));
+  statusTd.appendChild(badges);
+  tr.appendChild(statusTd);
+  tr.onclick = () => toggleZoneDetail(tr, z);
+  return tr;
+}
+
+/** Expand/collapse the detail row under a summary row — accordion-style (only
+ *  one zone's management panel open at a time keeps the page from turning
+ *  back into a wall of forms). */
+function toggleZoneDetail(tr: HTMLTableRowElement, z: AdminZone): void {
+  const next = tr.nextElementSibling;
+  if (next?.classList.contains('zone-detail-row')) {
+    next.remove();
+    tr.classList.remove('open');
+    return;
+  }
+  document.querySelectorAll('tr.zone-detail-row').forEach((r) => r.remove());
+  document.querySelectorAll('tr.zone-row.open').forEach((r) => r.classList.remove('open'));
+  tr.classList.add('open');
+  const detailTr = el('tr', 'zone-detail-row');
+  const td = el('td');
+  td.colSpan = 4;
+  td.appendChild(zoneDetailPanel(z));
+  detailTr.appendChild(td);
+  tr.after(detailTr);
+}
+
+/** Re-fetch zones and rebuild just this one summary+detail row pair in place —
+ *  used after an owner/password/privacy change so the still-open panel keeps
+ *  showing fresh data instead of the whole page collapsing back to a list. */
+async function refreshZoneRow(zoneId: string): Promise<void> {
+  const zr = await adminApi.listZones();
+  if (!zr.ok) return;
+  zones = zr.data?.zones ?? [];
+  const z = zones.find((x) => x.id === zoneId);
+  const oldRow = document.querySelector<HTMLTableRowElement>(`tr.zone-row[data-zone-id="${zoneId}"]`);
+  if (!z || !oldRow) return;
+  const wasOpen = oldRow.classList.contains('open');
+  const oldDetail = oldRow.nextElementSibling?.classList.contains('zone-detail-row') ? oldRow.nextElementSibling : null;
+  const newRow = zoneSummaryRow(z);
+  oldRow.replaceWith(newRow);
+  oldDetail?.remove();
+  if (wasOpen) {
+    newRow.classList.add('open');
+    const detailTr = el('tr', 'zone-detail-row');
+    const td = el('td');
+    td.colSpan = 4;
+    td.appendChild(zoneDetailPanel(z));
+    detailTr.appendChild(td);
+    newRow.after(detailTr);
+  }
+}
+
+/** The full management panel for one zone — owner / password / privacy fields,
+ *  who-has-access, and monitors. Built once when its row is expanded. */
+function zoneDetailPanel(z: AdminZone): HTMLElement {
+  const card = el('div');
 
   // Owner: take (self) / transfer / clear.
   const ownRow = el('div', 'field-row');
@@ -329,20 +416,20 @@ function zoneCard(z: AdminZone): HTMLElement {
   setOwnBtn.onclick = async () => {
     if (!ownIn.value.trim()) return;
     const res = await adminApi.setZoneOwner(z.id, ownIn.value.trim());
-    if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void renderZones(); } else fail('Set owner', res.error);
+    if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void refreshZoneRow(z.id); } else fail('Set owner', res.error);
   };
   const takeBtn = el('button', 'act', '👑 Take ownership');
   takeBtn.disabled = !me || z.ownerId === me.userId;
   takeBtn.onclick = async () => {
     if (!me) return;
     const res = await adminApi.setZoneOwner(z.id, me.userId);
-    if (res.ok) { toast(`You now own ${z.label}.`); void renderZones(); } else fail('Take ownership', res.error);
+    if (res.ok) { toast(`You now own ${z.label}.`); void refreshZoneRow(z.id); } else fail('Take ownership', res.error);
   };
   const clearOwnBtn = el('button', 'act', 'Clear owner');
   clearOwnBtn.disabled = !z.ownerId;
   clearOwnBtn.onclick = async () => {
     const res = await adminApi.setZoneOwner(z.id, null);
-    if (res.ok) { toast(`${z.label} is now ownerless.`); void renderZones(); } else fail('Clear owner', res.error);
+    if (res.ok) { toast(`${z.label} is now ownerless.`); void refreshZoneRow(z.id); } else fail('Clear owner', res.error);
   };
   ownCtrls.append(takeBtn, ownIn, setOwnBtn, clearOwnBtn);
   ownRow.append(ownLabel, ownCtrls);
@@ -371,14 +458,14 @@ function zoneCard(z: AdminZone): HTMLElement {
   const setBtn = el('button', 'act primary', 'Set');
   setBtn.onclick = async () => {
     const res = await adminApi.setZonePassword(z.id, pw.value);
-    if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void renderZones(); }
+    if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void refreshZoneRow(z.id); }
     else fail('Set password', res.error);
   };
   const clrBtn = el('button', 'act', 'Clear lock');
   clrBtn.disabled = !z.locked;
   clrBtn.onclick = async () => {
     const res = await adminApi.setZonePassword(z.id, '');
-    if (res.ok) { toast(`Lock cleared for ${z.label}.`); void renderZones(); } else fail('Clear', res.error);
+    if (res.ok) { toast(`Lock cleared for ${z.label}.`); void refreshZoneRow(z.id); } else fail('Clear', res.error);
   };
   pwCtrls.append(pw, pwEyeBtn, pwGenBtn, setBtn, clrBtn);
   pwRow.append(el('span', 'field-label', 'Password'), pwCtrls);
@@ -391,7 +478,7 @@ function zoneCard(z: AdminZone): HTMLElement {
   const privBtn = el('button', 'act' + (z.private ? '' : ' primary'), z.private ? 'Make public' : 'Make private');
   privBtn.onclick = async () => {
     const res = await adminApi.setZonePrivate(z.id, !z.private);
-    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void renderZones(); }
+    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void refreshZoneRow(z.id); }
     else fail('Set private', res.error);
   };
   privCtrls.append(privBtn);
