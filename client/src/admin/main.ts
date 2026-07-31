@@ -58,6 +58,22 @@ const STYLE = `
   .muted{color:var(--muted);}
   .status-off{color:var(--danger);}
   .badge-admin{color:#f2c14e;}
+  /* A settings form: fixed label column + wrapping controls, one row per field
+     (Owner / Password / Privacy) — instead of loose same-level rows that
+     misalign once buttons wrap. */
+  .field-row{display:grid;grid-template-columns:6.5rem 1fr;gap:.3rem .6rem;align-items:center;margin-bottom:.55rem;}
+  .field-row:last-of-type{margin-bottom:0;}
+  .field-row .field-label{color:var(--muted);font-size:.82rem;}
+  .field-row .field-controls{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;min-width:0;}
+  .field-row input{flex:1 1 9rem;min-width:6rem;}
+  .pw-eye{padding:.4rem .55rem;}
+  /* A table with an attached toolbar above it (e.g. "add to access list") reads
+     as one unit instead of a table floating with unrelated controls below it. */
+  .table-block{border:1px solid var(--line);border-radius:.6rem;overflow:hidden;margin-top:.3rem;}
+  .table-toolbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;padding:.55rem .65rem;
+    background:var(--panel2);border-bottom:1px solid var(--line);}
+  .table-toolbar input{flex:1;min-width:8rem;}
+  .table-block .table-wrap table{margin:0;}
   @media (max-width: 640px){
     #pa-adm-head{padding:.6rem .7rem;gap:.5rem;}
     #pa-adm-head .brand{font-size:.95rem;}
@@ -67,8 +83,19 @@ const STYLE = `
     .row{gap:.4rem;}
     input,select{width:100%;}
     th,td{padding:.45rem .4rem;font-size:.85rem;}
+    .field-row{grid-template-columns:1fr;}
+    .field-row .field-label{margin-bottom:.1rem;}
   }
 `;
+
+/** Cryptographically random password (avoids visually ambiguous 0/O/1/l/I) —
+ *  same generator as the in-game meeting-room create dialog. */
+function generatePassword(length = 12): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
+}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -291,11 +318,12 @@ function zoneCard(z: AdminZone): HTMLElement {
   card.appendChild(title);
 
   // Owner: take (self) / transfer / clear.
-  const ownRow = el('div', 'row');
-  ownRow.style.marginTop = '.3rem';
+  const ownRow = el('div', 'field-row');
+  const ownLabel = el('span', 'field-label', 'Owner');
+  const ownCtrls = el('div', 'field-controls');
+  ownCtrls.append(el('span', 'muted', z.ownerName ?? '(none)'));
   const ownIn = el('input');
   ownIn.placeholder = 'login id';
-  ownIn.size = 16;
   wireUserAutocomplete(ownIn);
   const setOwnBtn = el('button', 'act primary', 'Set owner');
   setOwnBtn.onclick = async () => {
@@ -316,13 +344,30 @@ function zoneCard(z: AdminZone): HTMLElement {
     const res = await adminApi.setZoneOwner(z.id, null);
     if (res.ok) { toast(`${z.label} is now ownerless.`); void renderZones(); } else fail('Clear owner', res.error);
   };
-  ownRow.append(el('span', 'muted', `Owner: ${z.ownerName ?? '(none)'}`), takeBtn, ownIn, setOwnBtn, clearOwnBtn);
+  ownCtrls.append(takeBtn, ownIn, setOwnBtn, clearOwnBtn);
+  ownRow.append(ownLabel, ownCtrls);
   card.appendChild(ownRow);
 
-  // Zone password control
-  const pwRow = el('div', 'row');
-  pwRow.style.marginTop = '.6rem';
+  // Zone password control — generate + show/hide, same as the in-game
+  // meeting-room create dialog, so setting one here isn't a worse experience.
+  const pwRow = el('div', 'field-row');
+  const pwCtrls = el('div', 'field-controls');
   const pw = el('input'); pw.type = 'password'; pw.placeholder = z.locked ? '•••••• (set new)' : 'set password';
+  const pwEyeBtn = el('button', 'act pw-eye', '👁');
+  pwEyeBtn.title = 'Show password';
+  pwEyeBtn.onclick = () => {
+    const shown = pw.type === 'text';
+    pw.type = shown ? 'password' : 'text';
+    pwEyeBtn.textContent = shown ? '👁' : '🙈';
+    pwEyeBtn.title = shown ? 'Show password' : 'Hide password';
+  };
+  const pwGenBtn = el('button', 'act', '🎲 Generate');
+  pwGenBtn.onclick = () => {
+    pw.value = generatePassword();
+    pw.type = 'text';
+    pwEyeBtn.textContent = '🙈';
+    pwEyeBtn.title = 'Hide password';
+  };
   const setBtn = el('button', 'act primary', 'Set');
   setBtn.onclick = async () => {
     const res = await adminApi.setZonePassword(z.id, pw.value);
@@ -335,31 +380,33 @@ function zoneCard(z: AdminZone): HTMLElement {
     const res = await adminApi.setZonePassword(z.id, '');
     if (res.ok) { toast(`Lock cleared for ${z.label}.`); void renderZones(); } else fail('Clear', res.error);
   };
-  pwRow.append(el('span', 'muted', 'Password:'), pw, setBtn, clrBtn);
+  pwCtrls.append(pw, pwEyeBtn, pwGenBtn, setBtn, clrBtn);
+  pwRow.append(el('span', 'field-label', 'Password'), pwCtrls);
   card.appendChild(pwRow);
 
   // Private toggle (admin override — works regardless of who, if anyone, owns
   // the zone). Private rejects entry for anyone but the owner/zone-admins/ACL.
-  const privRow = el('div', 'row');
-  privRow.style.marginTop = '.6rem';
+  const privRow = el('div', 'field-row');
+  const privCtrls = el('div', 'field-controls');
   const privBtn = el('button', 'act' + (z.private ? '' : ' primary'), z.private ? 'Make public' : 'Make private');
   privBtn.onclick = async () => {
     const res = await adminApi.setZonePrivate(z.id, !z.private);
     if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void renderZones(); }
     else fail('Set private', res.error);
   };
-  privRow.append(el('span', 'muted', 'Privacy:'), privBtn);
+  privCtrls.append(privBtn);
+  privRow.append(el('span', 'field-label', 'Privacy'), privCtrls);
   card.appendChild(privRow);
 
   card.appendChild(el('div', 'section-title', 'Who has access'));
-  const membersWrap = el('div', 'table-wrap');
-  card.appendChild(membersWrap);
-  void renderMembersTable(membersWrap, z);
+  const membersBlock = el('div', 'table-block');
+  card.appendChild(membersBlock);
+  void renderMembersTable(membersBlock, z);
 
   card.appendChild(el('div', 'section-title', 'Monitors'));
-  const monitorsWrap = el('div', 'table-wrap');
-  card.appendChild(monitorsWrap);
-  void renderMonitorsTable(monitorsWrap, z);
+  const monitorsBlock = el('div', 'table-block');
+  card.appendChild(monitorsBlock);
+  void renderMonitorsTable(monitorsBlock, z);
 
   return card;
 }
@@ -368,11 +415,22 @@ function zoneCard(z: AdminZone): HTMLElement {
  *  here; granted via the in-game Zones panel or a future admin route, not
  *  this one) + the private-zone access list (removable), plus an
  *  autocomplete-backed add row. */
-async function renderMembersTable(wrap: HTMLElement, z: AdminZone): Promise<void> {
+async function renderMembersTable(block: HTMLElement, z: AdminZone): Promise<void> {
   const r = await adminApi.zoneMembers(z.id);
   const owner = r.data?.owner ?? null;
   const admins = r.data?.admins ?? [];
   const acl = r.data?.acl ?? [];
+
+  // Toolbar above the table (not a floating row below it): add-to-access-list.
+  const toolbar = el('div', 'table-toolbar');
+  const idIn = el('input'); idIn.placeholder = 'login id to add'; wireUserAutocomplete(idIn);
+  const addBtn = el('button', 'act primary', '+ Add to access list');
+  addBtn.onclick = async () => {
+    if (!idIn.value.trim()) return;
+    const res = await adminApi.addZoneAcl(z.id, idIn.value.trim());
+    if (res.ok) { idIn.value = ''; void renderMembersTable(block, z); } else fail('Add', res.error);
+  };
+  toolbar.append(idIn, addBtn);
 
   const table = el('table');
   table.innerHTML = '<thead><tr><th>Name</th><th>Role</th><th>Actions</th></tr></thead>';
@@ -395,7 +453,7 @@ async function renderMembersTable(wrap: HTMLElement, z: AdminZone): Promise<void
   for (const a of acl) {
     row(a.name, a.isAdmin, '✓ Access list', async () => {
       const res = await adminApi.removeZoneAcl(z.id, a.userId);
-      if (res.ok) void renderMembersTable(wrap, z); else fail('Remove', res.error);
+      if (res.ok) void renderMembersTable(block, z); else fail('Remove', res.error);
     });
   }
   if (!owner && !admins.length && !acl.length) {
@@ -406,24 +464,15 @@ async function renderMembersTable(wrap: HTMLElement, z: AdminZone): Promise<void
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
+  const tableWrap = el('div', 'table-wrap');
+  tableWrap.appendChild(table);
 
-  const addRow = el('div', 'row');
-  addRow.style.marginTop = '.5rem';
-  const idIn = el('input'); idIn.placeholder = 'login id'; idIn.size = 16; wireUserAutocomplete(idIn);
-  const addBtn = el('button', 'act primary', 'Add to access list');
-  addBtn.onclick = async () => {
-    if (!idIn.value.trim()) return;
-    const res = await adminApi.addZoneAcl(z.id, idIn.value.trim());
-    if (res.ok) { idIn.value = ''; void renderMembersTable(wrap, z); } else fail('Add', res.error);
-  };
-  addRow.append(idIn, addBtn);
-
-  wrap.innerHTML = '';
-  wrap.append(table, addRow);
+  block.innerHTML = '';
+  block.append(toolbar, tableWrap);
 }
 
 /** Always-visible monitors table for a zone's saved layout. */
-async function renderMonitorsTable(wrap: HTMLElement, z: AdminZone): Promise<void> {
+async function renderMonitorsTable(block: HTMLElement, z: AdminZone): Promise<void> {
   const r = await adminApi.listMonitors(z.id);
   const monitors = r.data?.monitors ?? [];
 
@@ -444,20 +493,32 @@ async function renderMonitorsTable(wrap: HTMLElement, z: AdminZone): Promise<voi
     tr.appendChild(el('td', m.locked ? 'lock' : 'muted', m.locked ? '🔒 locked' : '—'));
     const pwTd = el('td');
     const pw = el('input'); pw.type = 'password'; pw.placeholder = m.locked ? 'set new' : 'set password'; pw.size = 14;
-    pwTd.appendChild(pw);
+    const eyeBtn = el('button', 'act pw-eye', '👁');
+    eyeBtn.type = 'button';
+    eyeBtn.title = 'Show password';
+    eyeBtn.onclick = () => {
+      const shown = pw.type === 'text';
+      pw.type = shown ? 'password' : 'text';
+      eyeBtn.textContent = shown ? '👁' : '🙈';
+    };
+    const genBtn = el('button', 'act', '🎲');
+    genBtn.type = 'button';
+    genBtn.title = 'Generate a password';
+    genBtn.onclick = () => { pw.value = generatePassword(); pw.type = 'text'; eyeBtn.textContent = '🙈'; };
+    pwTd.append(pw, eyeBtn, genBtn);
     tr.appendChild(pwTd);
     const actTd = el('td');
     const set = el('button', 'act primary', 'Set');
     set.onclick = async () => {
       const res = await adminApi.setMonitorPassword(z.id, m.key, pw.value);
-      if (res.ok) { toast(`Monitor "${label}" ${res.data?.locked ? 'locked' : 'unlocked'}.`); void renderMonitorsTable(wrap, z); }
+      if (res.ok) { toast(`Monitor "${label}" ${res.data?.locked ? 'locked' : 'unlocked'}.`); void renderMonitorsTable(block, z); }
       else fail('Set monitor password', res.error);
     };
     const clr = el('button', 'act', 'Clear');
     clr.disabled = !m.locked;
     clr.onclick = async () => {
       const res = await adminApi.setMonitorPassword(z.id, m.key, '');
-      if (res.ok) { toast(`Monitor "${label}" unlocked.`); void renderMonitorsTable(wrap, z); }
+      if (res.ok) { toast(`Monitor "${label}" unlocked.`); void renderMonitorsTable(block, z); }
       else fail('Clear', res.error);
     };
     actTd.append(set, clr);
@@ -465,8 +526,10 @@ async function renderMonitorsTable(wrap: HTMLElement, z: AdminZone): Promise<voi
     tbody.appendChild(tr);
   }
   table.appendChild(tbody);
-  wrap.innerHTML = '';
-  wrap.appendChild(table);
+  const tableWrap = el('div', 'table-wrap');
+  tableWrap.appendChild(table);
+  block.innerHTML = '';
+  block.appendChild(tableWrap);
 }
 
 // ── Meeting rooms (ad-hoc /meet/<slug> calls) ─────────────────────────────────
