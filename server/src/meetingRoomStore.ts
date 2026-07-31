@@ -125,8 +125,23 @@ export class MeetingRoomStore {
     return verifyHash(r.pw_hash, password);
   }
 
-  /** Best-effort cleanup of long-expired rooms. Not called on every request —
-   *  wire it to an occasional sweep (e.g. on server startup) if desired. */
+  /** Every room, newest first — for the admin overview (server/src/adminApi.ts). */
+  listAll(): MeetingRoom[] {
+    const rows = this.db
+      .prepare('SELECT * FROM meeting_rooms ORDER BY created_at DESC')
+      .all() as unknown as MeetingRoomRow[];
+    return rows.map((r) => this.toRoom(r));
+  }
+
+  /** Delete one room by slug (admin action — end a room early instead of waiting
+   *  out its natural expiry). Idempotent: true only if a row actually existed. */
+  delete(slug: string): boolean {
+    const r = this.db.prepare('DELETE FROM meeting_rooms WHERE slug = ?').run(slug);
+    return Number(r.changes) > 0;
+  }
+
+  /** Cleanup of long-expired rooms — called on startup and hourly (see the
+   *  constructor); exposed for tests. */
   pruneExpired(graceMs = 24 * 60 * 60 * 1000): number {
     const r = this.db.prepare('DELETE FROM meeting_rooms WHERE expires_at < ?').run(Date.now() - graceMs);
     return Number(r.changes);

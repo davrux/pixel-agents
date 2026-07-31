@@ -8,11 +8,12 @@
  * server-side). The last admin can't be deleted/demoted.
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
-import { adminApi, type AdminUser, type AdminZone, type Role } from './api.js';
+import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type Role } from './api.js';
 
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
-let tab: 'users' | 'rooms' = 'users';
+let meetingRooms: AdminMeetingRoom[] = [];
+let tab: 'users' | 'rooms' | 'meetings' = 'users';
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
 
 const STYLE = `
@@ -88,6 +89,7 @@ function buildShell(): void {
     <div id="pa-adm-tabs">
       <button data-tab="users">Users</button>
       <button data-tab="rooms">Rooms</button>
+      <button data-tab="meetings">Meetings</button>
     </div>
     <div id="pa-adm-toast"></div>
     <div id="pa-adm-view"></div>`;
@@ -103,7 +105,8 @@ function render(): void {
     b.classList.toggle('on', b.dataset.tab === tab),
   );
   if (tab === 'users') void renderUsers();
-  else void renderRooms();
+  else if (tab === 'rooms') void renderRooms();
+  else void renderMeetings();
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -283,6 +286,75 @@ async function openMonitors(card: HTMLElement, z: AdminZone): Promise<void> {
     list.appendChild(row);
   }
   card.appendChild(list);
+}
+
+// ── Meeting rooms (ad-hoc /meet/<slug> calls) ─────────────────────────────────
+function fmtDate(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+async function renderMeetings(): Promise<void> {
+  const r = await adminApi.listMeetingRooms();
+  if (r.status === 401) return redirectToLogin();
+  if (r.status === 403) {
+    document.getElementById('pa-adm-view')!.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
+    return;
+  }
+  meetingRooms = r.data?.rooms ?? [];
+  const view = document.getElementById('pa-adm-view')!;
+  view.innerHTML = '';
+
+  const intro = el('div', 'pa-adm-card');
+  intro.innerHTML =
+    '<h2>Meeting rooms</h2><div class="muted">Ad-hoc video-call rooms minted from the "Meeting Room Kiosk" ' +
+    "furniture — anyone with the link (and password, if set) can join at /meet/&lt;slug&gt;, no account needed. " +
+    'Expired rooms are pruned automatically; delete one here to end it early.</div>';
+  view.appendChild(intro);
+
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML = `<h2>Rooms · ${meetingRooms.length}</h2>`;
+  if (!meetingRooms.length) {
+    card.appendChild(el('div', 'muted', 'No meeting rooms have been created yet.'));
+  } else {
+    const table = el('table');
+    table.innerHTML = '<thead><tr><th>Owner</th><th>Label</th><th>Created</th><th>Expires</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead>';
+    const tbody = el('tbody');
+    for (const m of meetingRooms) tbody.appendChild(meetingRow(m));
+    table.appendChild(tbody);
+    card.appendChild(table);
+  }
+  view.appendChild(card);
+}
+
+function meetingRow(m: AdminMeetingRoom): HTMLTableRowElement {
+  const tr = el('tr');
+  tr.appendChild(el('td', undefined, m.ownerName));
+  tr.appendChild(el('td', 'muted', m.label || '—'));
+  tr.appendChild(el('td', undefined, fmtDate(m.createdAt)));
+  tr.appendChild(el('td', undefined, fmtDate(m.expiresAt)));
+  tr.appendChild(el('td', m.hasPassword ? 'lock' : 'muted', m.hasPassword ? '🔒 set' : '—'));
+  tr.appendChild(el('td', m.expired ? 'muted' : undefined, m.expired ? 'expired' : 'active'));
+
+  const actTd = el('td');
+  const copyBtn = el('button', 'act', 'Copy link');
+  copyBtn.onclick = () => {
+    const link = `${location.origin}/meet/${encodeURIComponent(m.slug)}`;
+    void navigator.clipboard?.writeText(link).then(
+      () => toast('Link copied to clipboard.'),
+      () => toast(link),
+    );
+  };
+  const delBtn = el('button', 'act danger', 'Delete');
+  delBtn.onclick = async () => {
+    if (!confirm(`End the meeting room "${m.label || m.slug}" (owner: ${m.ownerName}) now? The link stops working immediately.`)) return;
+    const res = await adminApi.deleteMeetingRoom(m.slug);
+    if (res.ok) { toast('Meeting room deleted.'); void renderMeetings(); } else fail('Delete', res.error);
+  };
+  actTd.append(copyBtn, delBtn);
+  tr.appendChild(actTd);
+  return tr;
 }
 
 buildShell();

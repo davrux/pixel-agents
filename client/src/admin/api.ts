@@ -24,6 +24,16 @@ export interface AdminMonitor {
   name: string;
   locked: boolean;
 }
+export interface AdminMeetingRoom {
+  slug: string;
+  ownerId: string;
+  ownerName: string;
+  label: string;
+  createdAt: number;
+  expiresAt: number;
+  hasPassword: boolean;
+  expired: boolean;
+}
 
 export interface ApiResult<T> {
   ok: boolean;
@@ -74,4 +84,8 @@ export const adminApi = {
     req<{ monitors: AdminMonitor[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/monitors`),
   setMonitorPassword: (zoneId: string, key: string, password: string) =>
     req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(zoneId)}/monitor`, { key, password }),
+
+  listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
+  deleteMeetingRoom: (slug: string) =>
+    req<{ ok: true }>('DELETE', `/admin/meeting-rooms/${encodeURIComponent(slug)}`),
 };

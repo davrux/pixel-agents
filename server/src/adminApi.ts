@@ -11,10 +11,11 @@
 import express, { type Express, type Request, type Response } from 'express';
 
 import { userIdFromCookie, userIdFromBearer } from './auth.js';
-import { userStore, isValidPassword, isRole, normalizeLoginId, type Role } from './userStore.js';
+import { userStore, UserStore, isValidPassword, isRole, normalizeLoginId, type Role } from './userStore.js';
 import { ZoneStore } from './zoneStore.js';
 import { LayoutStore } from './layoutStore.js';
 import { appStore } from './appStore.js';
+import { meetingRoomStore } from './meetingRoomStore.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { PlacedFurniture } from '@pixel/shared/office/types.js';
 
@@ -159,5 +160,35 @@ export function registerAdminApi(app: Express): void {
     if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
     zones.setMonitorPassword(id, key, password || null);
     res.json({ ok: true, locked: zones.monitorHasPassword(id, key) });
+  });
+
+  // ── Meeting rooms (ad-hoc /meet/<slug> video calls) ─────────────────────────
+  // Overview + early end for rooms minted by the "Meeting Room Kiosk" furniture
+  // (see meetingRoomStore.ts / SimRoom.ts meetingRoomCreate). Expired rows are
+  // pruned automatically (hourly) but still listed here until then, so an admin
+  // can see recently-expired rooms too, not just active ones.
+  app.get('/admin/meeting-rooms', (req, res) => {
+    if (!admin(req, res)) return;
+    const rooms = meetingRoomStore.listAll().map((r) => {
+      const owner = userStore.get(r.ownerId);
+      return {
+        slug: r.slug,
+        ownerId: r.ownerId,
+        ownerName: owner ? UserStore.displayName(owner) : r.ownerId, // owner account may since be deleted
+        label: r.label,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        hasPassword: r.hasPassword,
+        expired: meetingRoomStore.isExpired(r),
+      };
+    });
+    res.json({ rooms });
+  });
+
+  // End a room early instead of waiting out its natural expiry.
+  app.delete('/admin/meeting-rooms/:slug', (req, res) => {
+    if (!admin(req, res)) return;
+    if (!meetingRoomStore.delete(req.params.slug)) return void res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
   });
 }
