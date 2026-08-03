@@ -31,6 +31,7 @@ import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBea
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
+import { zoneInvites } from '../zoneInvites.js';
 import { controlBus, KICK_EVENT, ZONE_INVITE_EVENT, ZONE_INVITE_RESULT_EVENT, ZONE_DELETED_EVENT } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
@@ -1003,6 +1004,7 @@ export class SimRoom extends Room<RoomState> {
         return;
       }
       const zone = this.zones.get(id);
+      zoneInvites.record(targetId, id);
       controlBus.emit(ZONE_INVITE_EVENT, {
         targetUserId: targetId,
         fromUserId,
@@ -1015,12 +1017,15 @@ export class SimRoom extends Room<RoomState> {
 
     // The invitee's answer — runs in WHATEVER room they're currently connected
     // to, which may not be the target zone's room, but ZoneStore reads/writes
-    // the shared DB regardless of which room instance calls it.
+    // the shared DB regardless of which room instance calls it. Zone ids
+    // aren't secret (every client gets the full zone list, private zones
+    // included), so accepting only actually adds the caller to the ACL if a
+    // matching invite was really sent — see zoneInvites.ts.
     this.onMessage('zoneInviteRespond', (client, msg: { zoneId?: string; accept?: boolean }) => {
       const zoneId = typeof msg?.zoneId === 'string' ? msg.zoneId : '';
       const { userId, username } = authOf(client);
       if (!zoneId || !userId || !this.zones.get(zoneId)) return;
-      const accept = !!msg?.accept;
+      const accept = !!msg?.accept && zoneInvites.consume(userId, zoneId);
       if (accept) this.zones.aclAdd(zoneId, userId);
       const zone = this.zones.get(zoneId);
       controlBus.emit(ZONE_INVITE_RESULT_EVENT, {
