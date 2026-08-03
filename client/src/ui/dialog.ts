@@ -10,9 +10,15 @@ function ensureStyles(): void {
   stylesInjected = true;
   const style = document.createElement('style');
   style.textContent = `
-    /* Above #pa-dialog-back (paDialog.ts, z-index 1000) — confirm/alert/prompt
-       must be able to interrupt an already-open form dialog (e.g. a validation
-       error while "Create a meeting room" is still up), not hide behind it. */
+    /* z-index:1100 used to guarantee this renders above #pa-dialog-back
+       (paDialog.ts, formerly z-index:1000) so confirm/alert/prompt could
+       interrupt an already-open form dialog. paDialog.ts now uses a native
+       <dialog> (browser top layer), which always wins over a regular z-index
+       element regardless of value — so that guarantee no longer holds. In
+       practice every current caller already avoids stacking one of these on
+       top of an open paDialog (inline errors, click-to-arm delete, …); if a
+       genuine need for it comes up, migrate this to <dialog> too rather than
+       raising this z-index further (top layer isn't reachable via z-index at all). */
     #pa-modal{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
       background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;}
     #pa-modal .box{background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;padding:1.1rem 1.2rem;
