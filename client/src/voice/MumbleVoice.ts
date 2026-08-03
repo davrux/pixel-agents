@@ -32,6 +32,16 @@ const JITTER_S = 0.08;
 const JITTER_MAX_S = 0.25;
 /** Ring capacity, comfortably above JITTER_MAX_S so a burst can never wrap. */
 const JITTER_CAP_S = 0.5;
+/** Chromium refuses a non-default sink until microphone permission exists, and
+ *  playback starts before the mic does, so the first attempt usually fails.
+ *  Retry a few times rather than giving up on the user's speaker choice. */
+const SINK_RETRY_MS = 2000;
+const SINK_RETRY_MAX = 5;
+/** How often to compare the output graph's clock against wall time. */
+const CLOCK_CHECK_MS = 5000;
+/** Report a clock ratio off by more than this. Well outside any sane scheduling
+ *  jitter, so a hit means the graph really is rendering at the wrong speed. */
+const CLOCK_TOLERANCE = 0.02;
 /** A user counts as talking until this long after their last voice packet. */
 const TALK_HOLD_MS = 300;
 const TALK_TICK_MS = 200;
@@ -98,6 +108,16 @@ interface PeerAudio {
   lastSeq: number;
   /** Packets the sender numbered but we never saw, in 10 ms units. */
   lost: number;
+  /** Decoded samples handed to the ring, and the running rate they arrive at.
+   *  Debug only: this is the other half of the clock question — how fast audio
+   *  goes *in*, against the fixed rate the worklet takes it back out. */
+  pushed: number;
+  rateAt: number;
+  ratePushed: number;
+  inRate: number;
+  /** Rate the decoder last reported. Should be the context rate; if it ever isn't,
+   *  playChunk resamples by that ratio, which would stretch this peer alone. */
+  outRate: number;
 }
 
 export class MumbleVoice {
@@ -160,6 +180,14 @@ export class MumbleVoice {
    *  because this engine can't take a sinkId on the context itself. */
   private outEl: HTMLAudioElement | null = null;
   private readonly peers = new Map<number, PeerAudio>();
+  /** Guards startPlayback, which publishes outCtx only at the end and so would
+   *  otherwise build a second context if sync arrived twice in quick succession. */
+  private startingPlayback = false;
+  private sinkRetryTimer: number | null = null;
+  private sinkRetries = 0;
+  private clockTimer: number | null = null;
+  /** One-shot latch so a wrong-speed output graph is reported, not spammed. */
+  private warnedClock = false;
 
   /** Shared worklet module, added once per AudioContext that needs it. */
   private workletUrl: string | null = null;
@@ -458,52 +486,149 @@ export class MumbleVoice {
    * this used to work, purely so setSinkId could pick the speaker, but it hands
    * the audio to Chromium's WebRTC renderer, which owns a second playout clock
    * and time-stretches whenever it thinks it has drifted from ours. That stretch
-   * is what made voices go low and slow, so we only take that path on an engine
-   * that can't set a sink on the context.
+   * is what made voices go low and slow.
+   *
+   * So the element path is reserved for an engine that has no sinkId on the
+   * context *at all*. A setSinkId that merely rejects is a different thing and
+   * must not trigger it: Chromium refuses a non-default device until microphone
+   * permission has been granted, and we start playback on sync — before, or
+   * racing, the mic. Falling back there would trade correct pitch for a device we
+   * still can't select, since the element sink needs the very same permission.
+   * We stay on ctx.destination (default device, right clock) and retry the sink.
    *
    * outCtx is published last, on purpose: onAudio() bails while it's null, so
    * nothing can build a peer before the worklet module is registered.
    */
   private async startPlayback(): Promise<void> {
-    if (this.outCtx) return;
-    const ctx = new AudioContext({ sampleRate: 48000 });
-    // With no device pinned, ctx.destination already plays to the system default,
-    // so the element is only ever needed to honour an explicit speaker choice that
-    // the context itself won't take.
-    let el: HTMLAudioElement | null = null;
-    if (this.speakerId && !(await setContextSink(ctx, this.speakerId))) {
-      el = new Audio();
-      el.style.display = 'none';
-      document.body.appendChild(el);
-    }
-    await ctx.resume().catch(() => undefined);
-    const master = ctx.createGain();
-    if (el) {
-      const dest = ctx.createMediaStreamDestination();
-      master.connect(dest);
-      el.srcObject = dest.stream;
-      if (this.speakerId) await setSinkId(el, this.speakerId);
-      void el.play().catch(() => undefined);
-    } else {
-      master.connect(ctx.destination);
-    }
+    if (this.outCtx || this.startingPlayback) return;
+    this.startingPlayback = true;
     try {
-      await this.addWorklet(ctx);
-    } catch (e) {
-      console.warn('[mumble] playout worklet failed to load; no audio', e);
-      el?.remove();
-      void ctx.close().catch(() => undefined);
+      const ctx = new AudioContext({ sampleRate: 48000 });
+      await ctx.resume().catch(() => undefined);
+      const master = ctx.createGain();
+      // With no device pinned, ctx.destination already plays to the system default,
+      // so the element is only ever needed to honour an explicit speaker choice on
+      // an engine whose context cannot take one.
+      const el = this.speakerId && !contextSinkSupported(ctx) ? new Audio() : null;
+      if (el) {
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        const dest = ctx.createMediaStreamDestination();
+        master.connect(dest);
+        el.srcObject = dest.stream;
+        await setSinkId(el, this.speakerId as string);
+        void el.play().catch(() => undefined);
+      } else {
+        master.connect(ctx.destination);
+      }
+      try {
+        await this.addWorklet(ctx);
+      } catch (e) {
+        console.warn('[mumble] playout worklet failed to load; no audio', e);
+        el?.remove();
+        void ctx.close().catch(() => undefined);
+        return;
+      }
+      // We ask for 48 kHz and assume it everywhere downstream; say so once, since a
+      // denied request would otherwise be an invisible cause of wrong-pitch audio.
+      // The element path is the known pitch hazard, so it is a warning, not info.
+      if (el) {
+        console.warn(
+          `[mumble] output ${ctx.sampleRate} Hz via an <audio> element — this engine takes no` +
+            ' sinkId on the AudioContext, so playback runs on a second clock and pitch may drift',
+        );
+      } else {
+        console.info(`[mumble] output ${ctx.sampleRate} Hz, sink on the context`);
+      }
+      this.outEl = el;
+      this.masterGain = master;
+      this.outCtx = ctx;
+      this.applyMasterGain();
+      this.sinkRetries = 0;
+      this.startClockWatch(ctx);
+      if (!el && this.speakerId) void this.applyContextSink();
+    } finally {
+      this.startingPlayback = false;
+    }
+  }
+
+  /**
+   * Watch the output graph's clock against wall time.
+   *
+   * `ctx.currentTime` advances as the device pulls the graph, so this ratio *is*
+   * the playback speed: 1.0 means one second of audio rendered per second of real
+   * time, and anything else shifts every voice by exactly that factor. It is the
+   * one thing that separates "the graph is running slow" from "the samples we were
+   * given are already stretched" — the jitter buffer reads one sample per output
+   * sample, so it cannot be the cause either way, and without this number the
+   * difference is invisible from the console.
+   */
+  private startClockWatch(ctx: AudioContext): void {
+    this.stopClockWatch();
+    let lastCtx = ctx.currentTime;
+    let lastWall = performance.now();
+    this.clockTimer = window.setInterval(() => {
+      const nowCtx = ctx.currentTime;
+      const nowWall = performance.now();
+      const rendered = nowCtx - lastCtx;
+      const elapsed = (nowWall - lastWall) / 1000;
+      lastCtx = nowCtx;
+      lastWall = nowWall;
+      // A suspended context legitimately stops rendering; that isn't drift.
+      if (elapsed <= 0 || ctx.state !== 'running') return;
+      const ratio = rendered / elapsed;
+      if (this.audioDebug) {
+        console.info(`[mumble] output clock ${ratio.toFixed(4)}x real time`);
+      }
+      if (!this.warnedClock && Math.abs(ratio - 1) > CLOCK_TOLERANCE) {
+        this.warnedClock = true;
+        console.warn(
+          `[mumble] output graph is rendering at ${ratio.toFixed(4)}x real time — every voice` +
+            ` will be pitched by that factor. The output device and the ${ctx.sampleRate} Hz` +
+            ' context are not agreeing on a rate.',
+        );
+      }
+    }, CLOCK_CHECK_MS);
+  }
+
+  private stopClockWatch(): void {
+    if (this.clockTimer !== null) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = null;
+    }
+  }
+
+  /**
+   * Point the output context at the chosen speaker, retrying on refusal.
+   *
+   * Until it lands we play out of the system default, which is the right audio in
+   * the right clock domain on the wrong device — strictly better than the element
+   * fallback, which gets the device wrong too and warps pitch doing it.
+   */
+  private async applyContextSink(): Promise<void> {
+    this.cancelSinkRetry();
+    const ctx = this.outCtx;
+    if (!ctx || this.outEl || !this.speakerId) return;
+    if (await setContextSink(ctx, this.speakerId)) {
+      this.sinkRetries = 0;
       return;
     }
-    // We ask for 48 kHz and assume it everywhere downstream; say so once, since a
-    // denied request would otherwise be an invisible cause of wrong-pitch audio.
-    console.info(
-      `[mumble] output ${ctx.sampleRate} Hz, sink via ${el ? 'element (fallback)' : 'context'}`,
-    );
-    this.outEl = el;
-    this.masterGain = master;
-    this.outCtx = ctx;
-    this.applyMasterGain();
+    if (this.sinkRetries >= SINK_RETRY_MAX) {
+      console.warn('[mumble] could not select the chosen speaker; using the system default');
+      return;
+    }
+    this.sinkRetries++;
+    this.sinkRetryTimer = window.setTimeout(() => {
+      this.sinkRetryTimer = null;
+      void this.applyContextSink();
+    }, SINK_RETRY_MS);
+  }
+
+  private cancelSinkRetry(): void {
+    if (this.sinkRetryTimer !== null) {
+      clearTimeout(this.sinkRetryTimer);
+      this.sinkRetryTimer = null;
+    }
   }
 
   /** Register the shared worklet module on a context, at most once each. */
@@ -592,6 +717,11 @@ export class MumbleVoice {
       talkingUntil: 0,
       lastSeq: -1,
       lost: 0,
+      pushed: 0,
+      rateAt: performance.now(),
+      ratePushed: 0,
+      inRate: 0,
+      outRate: 0,
     };
     peer.decoder = new AudioDecoder({
       output: (data) => this.playChunk(peer, data),
@@ -615,12 +745,25 @@ export class MumbleVoice {
       playout.port.onmessage = (ev: MessageEvent<PlayoutStats>) => {
         const name = this.users.get(session)?.name ?? session;
         const ms = (n: number) => Math.round((n / ctx.sampleRate) * 1000);
+        // Rate over at least a second — the worklet reports far more often than
+        // that, and a quarter-second window is mostly packet jitter.
+        const now = performance.now();
+        const dt = (now - peer.rateAt) / 1000;
+        if (dt >= 1) {
+          peer.inRate = (peer.pushed - peer.ratePushed) / dt;
+          peer.rateAt = now;
+          peer.ratePushed = peer.pushed;
+        }
         // depth should hover near JITTER_S and come back to it after a stall.
         // Steadily climbing depth, or dropped climbing without lost, means the
         // sender is outrunning us; lost without dropped means the network is.
+        // `in` is decoded samples per second while they are talking: it should sit
+        // at the context rate, and a lasting gap between the two is a rate
+        // disagreement with the sender rather than anything the buffer can fix.
         console.info(
           `[mumble] ${name}: depth ${ms(ev.data.depth)}ms, underruns ${ev.data.underruns},` +
-            ` dropped ${ms(ev.data.dropped)}ms, lost ${Math.round(peer.lost * 10)}ms`,
+            ` dropped ${ms(ev.data.dropped)}ms, lost ${Math.round(peer.lost * 10)}ms,` +
+            ` in ${Math.round(peer.inRate)} Hz of ${ctx.sampleRate}, decoder ${peer.outRate} Hz`,
         );
       };
     }
@@ -636,6 +779,7 @@ export class MumbleVoice {
       return;
     }
     const rate = data.sampleRate;
+    peer.outRate = rate;
     if (data.numberOfChannels !== 1 && !this.warnedChannels) {
       this.warnedChannels = true;
       console.warn(`[mumble] decoder produced ${data.numberOfChannels} channels; using the first`);
@@ -659,6 +803,7 @@ export class MumbleVoice {
       }
       samples = resampleLinear(samples, rate, ctx.sampleRate);
     }
+    peer.pushed += samples.length;
     peer.playout.port.postMessage(samples, [samples.buffer]);
   }
 
@@ -709,6 +854,11 @@ export class MumbleVoice {
       this.capture = node;
       this.captureSink = sink;
       this.startEncoder();
+      // getUserMedia just granted microphone permission, which is also what
+      // Chromium gates a non-default output sink on — so a speaker choice that was
+      // refused when playback started can be applied now.
+      this.sinkRetries = 0;
+      void this.applyContextSink();
       await this.emitDevices();
     } catch (e) {
       this.stopMic();
@@ -831,6 +981,8 @@ export class MumbleVoice {
   private teardownAudio(): void {
     this.stopMic();
     this.stopTalkLoop();
+    this.cancelSinkRetry();
+    this.stopClockWatch();
     for (const session of [...this.peers.keys()]) this.dropPeer(session);
     this.outEl?.pause();
     if (this.outEl) {
@@ -966,10 +1118,9 @@ export class MumbleVoice {
     localStorage.setItem('pa-zv-speaker', deviceId);
     // outEl is only set on the fallback path; normally the sink lives on the context.
     if (this.outEl) await setSinkId(this.outEl, deviceId);
-    else if (this.outCtx && !(await setContextSink(this.outCtx, deviceId))) {
-      // Rare — the device would have to have vanished. Say so, since otherwise the
-      // setting looks applied while audio keeps coming out of the old speaker.
-      console.warn('[mumble] could not switch output device; reconnect to retry');
+    else {
+      this.sinkRetries = 0;
+      await this.applyContextSink();
     }
     await this.emitDevices();
   }
@@ -1238,9 +1389,16 @@ interface SinkableContext extends AudioContext {
 }
 
 /**
- * Point a context at an output device. Returns false if this engine can't, or
- * refuses the device, so the caller can fall back to an <audio> element.
+ * Whether this engine can pick an output device on the context at all — which is
+ * a different question from whether a given call succeeds, and the only one that
+ * justifies the <audio> element fallback and the extra playout clock it drags in.
  */
+function contextSinkSupported(ctx: AudioContext): boolean {
+  return typeof (ctx as SinkableContext).setSinkId === 'function';
+}
+
+/** Point a context at an output device. False if the engine can't, or refuses —
+ *  Chromium does until microphone permission exists, so callers retry. */
 async function setContextSink(ctx: AudioContext, deviceId: string): Promise<boolean> {
   const sinkable = ctx as SinkableContext;
   if (typeof sinkable.setSinkId !== 'function') return false;
