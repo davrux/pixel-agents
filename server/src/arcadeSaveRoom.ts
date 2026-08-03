@@ -1,8 +1,8 @@
 /**
- * Shared arcade-savegame message handlers for any game room (the 3D VoxelRoom and,
- * later, the 2D SimRoom). One shared backend — the store (arcadeSaveStore) plus
- * this registration — so saves are NOT duplicated per room (AGENTS.md: shared
- * features share one backend). Each room just calls registerArcadeSaves(this).
+ * Shared arcade-savegame message handlers for any game room (currently SimRoom).
+ * One shared backend — the store (arcadeSaveStore) plus this registration — so
+ * saves are NOT duplicated per room (AGENTS.md: shared features share one
+ * backend). Each room just calls registerArcadeSaves(this).
  *
  * Protocol (client ↔ room):
  *   → 'arcadeSaveGet' { game }         ← 'arcadeSaveData' { game, data|null }

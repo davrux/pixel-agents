@@ -1,8 +1,7 @@
 /**
  * Mumble panel: the server's channel tree with its users, the usual mic /
  * deafen / volume controls, a pin so it can stay open while you play, and a
- * self-register button. Rendered into whatever container the host gives it —
- * the office and the voxel world each own a dedicated panel for it.
+ * self-register button. Rendered into whatever container the host gives it.
  *
  * Rows are deliberately one line per user (volume is a dropdown, not a slider):
  * a busy channel has to stay readable without scrolling.

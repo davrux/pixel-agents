@@ -1,8 +1,7 @@
 /**
  * Arcade savegames, persisted server-side per (user_id, game) in pixel.db. The blob
  * is the DOS game's changed files (a js-dos `ci.persist(true)` bundle) — opaque to
- * us. Server-wide + per user, so a player's saves follow them across devices and
- * across BOTH worlds (2D Pixels + 3D Voxel), exactly like their voxel inventory.
+ * us. Server-wide + per user, so a player's saves follow them across devices.
  * Anonymous (no user id) is not persisted.
  */
 import { db } from './db.js';

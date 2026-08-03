@@ -47,11 +47,19 @@ import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
+import { openPaDialog } from '../ui/paDialog.js';
+import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
+import { generatePassword } from '../shared/generatePassword.js';
+import {
+  filterUserDatalist as filterSharedUserDatalist,
+  wireUserAutocomplete as wireSharedUserAutocomplete,
+  type AutocompleteUser,
+} from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
-import { DEFAULT_ZONE, ZONES, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
@@ -67,10 +75,6 @@ type RenderChar = Partial<Character> & {
   /** Client-side animation clock (frame phase is cosmetic, not synced). */
   animTimer?: number;
   animPose?: string;
-  /** Joined via the rooms portal → name shows a "(Rooms)" suffix. */
-  spectator?: boolean;
-  /** Account is a customer → labelled "Customer" instead of "Player". */
-  isCustomer?: boolean;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
@@ -157,7 +161,7 @@ export class OfficeScene extends Phaser.Scene {
   private perfEnabled = false;
   private perfEl: HTMLDivElement | null = null;
   private updateMsAvg = 0;
-  /** Shared chat panel (client/src/ui/chatUI.ts) — same component as the voxel client. */
+  /** Shared chat panel (client/src/ui/chatUI.ts). */
   private chat?: ChatUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
   private myConference: { col: number; row: number; name?: string } | null = null;
@@ -165,11 +169,24 @@ export class OfficeScene extends Phaser.Scene {
   private pendingConference: { col: number; row: number; name?: string } | null = null;
   /** An arcade cabinet we clicked and are walking toward (opens on arrival). */
   private pendingArcade: { col: number; row: number; fpW: number; fpH: number } | null = null;
+  /** A meeting-room kiosk we clicked and are walking toward (opens on arrival). */
+  private pendingMeetingKiosk: { col: number; row: number; fpW: number; fpH: number } | null = null;
+  /** The kiosk a "manage your meeting rooms" request (meetingRoomList) was sent
+   *  for — remembered so the "+ New room" button in that dialog knows which
+   *  kiosk tile to validate the create against once the list response arrives. */
+  private pendingMeetingKioskForCreate: { col: number; row: number } | null = null;
+  /** The zone a "Zone settings" request (zoneMembers) was sent for, so
+   *  onZoneMembers knows which zone's dialog to (re)build once the response arrives. */
+  private pendingZoneSettings: ZoneConfig | null = null;
+  /** Every user, for the ACL-add / invite autocomplete — fetched once per zone
+   *  settings dialog open (requestUserList → userList) and reused across its
+   *  add/remove/invite round trips until the dialog is closed and reopened. */
+  private userListCache: Array<{ userId: string; name: string; isAdmin: boolean }> | null = null;
   /** Conference rosters by "col,row" anchor key (from the server). */
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
   private confUI!: ConferenceUI;
-  /** The shared arcade cabinet overlay (js-dos). Same instance as the voxel world. */
+  /** The shared arcade cabinet overlay (js-dos). */
   private arcadeUI!: ArcadeUI;
   /** Pending arcade savegame loads, keyed by game id → resolver (see wireArcade). */
   private readonly arcadePendingLoads = new Map<string, (data: Uint8Array | null) => void>();
@@ -250,8 +267,8 @@ export class OfficeScene extends Phaser.Scene {
    *  (empty in open dev mode / anonymous). */
   private myUserId = '';
   private isAdmin = false;
-  /** Account role — customers are external guests with no agents/editing. */
-  private myRole: 'admin' | 'user' | 'customer' = 'user';
+  /** Account role. */
+  private myRole: 'admin' | 'user' = 'user';
   /** Whether this viewer is a designated admin of the CURRENT zone (may layout
    *  it even without being a global admin). */
   private myZoneAdmin = false;
@@ -512,13 +529,22 @@ export class OfficeScene extends Phaser.Scene {
         this.wake();
         if (m.type === 'layoutList') this.updateLayoutsPanel(m);
         else if (m.type === 'zoneList') this.updateZoneList(m);
-        else if (m.type === 'zoneCreated') void this.offerJumpToNewZone(m.id as string);
+        else if (m.type === 'zoneCreated') void this.onZoneCreated(m);
+        else if (m.type === 'zoneMembers') this.onZoneMembers(m);
+        else if (m.type === 'userList') this.onUserList(m);
+        else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
+        else if (m.type === 'zoneInvitePrompt') this.onZoneInvitePrompt(m);
+        else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
+        else if (m.type === 'zoneInviteResult') this.onZoneInviteResult(m);
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
+        else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
+        else if (m.type === 'meetingRoomList') this.onMeetingRoomList(m);
+        else if (m.type === 'meetingRoomDeleted') this.onMeetingRoomDeleted(m);
         else if (m.type === 'playerSpawned') {
           // Visibility toggled at runtime: adopt (or clear) our avatar id without
           // a reload, then re-assert our name onto the fresh avatar (the owned
@@ -572,10 +598,6 @@ export class OfficeScene extends Phaser.Scene {
           this.agentToken = (m.token as string) ?? '';
           this.syncSettingsInputs();
         }
-        else if (m.type === 'zoneAdmins') {
-          const admins = (m.admins as string[]) ?? [];
-          void alertDialog(`Zone admins for “${m.zoneId}”:\n${admins.length ? admins.join(', ') : '(none)'}`);
-        }
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
         else if (m.type === 'zoneTransition') this.goToZone(m.zone as string); // walked into a portal (P5)
@@ -611,10 +633,26 @@ export class OfficeScene extends Phaser.Scene {
         redirectToLogin();
         return;
       }
-      // A customer without Pixels access → send them to the rooms portal instead.
+      // The requested zone is private and this viewer has no access (not the
+      // owner/zone-admin/ACL member/global-admin) — bounce to the default zone
+      // instead of getting stuck on a zone that will never let them in.
       if (isForbiddenError(err)) {
-        setStatus('This account uses the rooms portal — redirecting…');
-        window.location.href = './rooms.html';
+        const requested = currentZone();
+        if (requested !== DEFAULT_ZONE) {
+          setStatus('that zone is private — returning to the default zone…');
+          try {
+            localStorage.setItem('pa-last-zone', DEFAULT_ZONE);
+          } catch {
+            /* localStorage unavailable */
+          }
+          const url = new URL(window.location.href);
+          url.searchParams.set('zone', DEFAULT_ZONE);
+          history.replaceState(null, '', url.href);
+          reloadApp();
+          return;
+        }
+        setStatus('this zone is private');
+        void alertDialog('This zone is private — ask its owner to add you to the access list or invite you in.');
         return;
       }
       setStatus(`connection failed: ${(err as Error).message}`);
@@ -697,8 +735,6 @@ export class OfficeScene extends Phaser.Scene {
     rc.isSubagent = cs.isSubagent as boolean;
     rc.isPlayer = cs.isPlayer as boolean;
     rc.afk = cs.afk as boolean;
-    rc.spectator = cs.spectator as boolean;
-    rc.isCustomer = cs.isCustomer as boolean;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;
@@ -769,8 +805,9 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
-  /** Whether this viewer's avatar is standing next to (touching) a cabinet footprint. */
-  private nearArcade(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
+  /** Whether this viewer's avatar is standing next to (touching) a footprint
+   *  (an arcade cabinet, a meeting-room kiosk, …). */
+  private nearFootprint(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
     const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
     if (!me) return false;
     const pc = Math.floor(me.tx / TILE_SIZE);
@@ -778,6 +815,18 @@ export class OfficeScene extends Phaser.Scene {
     const dx = pc < cab.col ? cab.col - pc : pc >= cab.col + cab.fpW ? pc - (cab.col + cab.fpW - 1) : 0;
     const dy = pr < cab.row ? cab.row - pr : pr >= cab.row + cab.fpH ? pr - (cab.row + cab.fpH - 1) : 0;
     return Math.max(dx, dy) <= 1;
+  }
+
+  /** If the tile is covered by a meeting-room kiosk, its footprint (anchor + size), else null. */
+  private meetingKioskAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.meetingRoom) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row, fpW: entry.footprintW, fpH: entry.footprintH };
+      }
+    }
+    return null;
   }
 
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
@@ -794,8 +843,232 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  /** Wire server-backed arcade savegames over the office room (shared store; same
-   *  protocol as the voxel world). Called once the room is connected. */
+  /** Meeting-room kiosk, clicked/arrived-at: fetch the caller's OWN rooms first
+   *  (not just admins — every signed-in user manages their own) so they see
+   *  what they already have before minting another one. The response arrives
+   *  async via 'meetingRoomList' → onMeetingRoomList, which remembers `kiosk`
+   *  here so its "+ New room" button can still validate against the right tile. */
+  private openMeetingRoomManageDialog(kiosk: { col: number; row: number }): void {
+    this.pendingMeetingKioskForCreate = kiosk;
+    this.room?.send('meetingRoomList');
+  }
+
+  /** The server's answer to meetingRoomList — "Your meeting rooms": each owned
+   *  room with copy-link + click-to-arm delete, plus a button to create a new
+   *  one at the kiosk that triggered this. */
+  private onMeetingRoomList(m: Record<string, unknown>): void {
+    const kiosk = this.pendingMeetingKioskForCreate;
+    this.pendingMeetingKioskForCreate = null;
+    if (!kiosk) return; // stale response (e.g. the scene moved on) — nothing to attach it to
+    const rooms = Array.isArray(m.rooms) ? (m.rooms as Array<Record<string, unknown>>) : [];
+
+    const body = document.createElement('div');
+    if (!rooms.length) {
+      body.innerHTML = '<div class="muted" style="margin-bottom:.8rem;">You have no meeting rooms yet.</div>';
+    } else {
+      const list = document.createElement('div');
+      list.style.cssText =
+        'max-height:16rem;overflow-y:auto;margin-bottom:.8rem;display:flex;flex-direction:column;gap:.5rem;';
+      for (const r of rooms) list.appendChild(this.meetingRoomManageRow(r));
+      body.appendChild(list);
+    }
+
+    openPaDialog({
+      title: `Your meeting rooms${rooms.length ? ` (${rooms.length})` : ''}`,
+      body,
+      // Explicit `return false` — this swaps in a second openPaDialog call
+      // (the create form) from inside this dialog's own button handler, and
+      // openPaDialog is a single shared modal instance: without `false` here,
+      // the outer handler's own auto-close (see paDialog.ts) fires right after
+      // and immediately hides the create dialog that was just opened.
+      buttons: [{ label: '+ New room', kind: 'green', onClick: () => { this.openMeetingRoomDialog(kiosk); return false; } }],
+    });
+  }
+
+  /** One row in the manage-rooms list. Delete is click-to-arm (first click
+   *  turns it into "Confirm?") instead of a second stacked confirm dialog — a
+   *  dialog-over-dialog doesn't reliably render on top in this UI (same reason
+   *  the create dialog's password error is shown inline, not in a second modal). */
+  private meetingRoomManageRow(r: Record<string, unknown>): HTMLDivElement {
+    const slug = typeof r.slug === 'string' ? r.slug : '';
+    const label = typeof r.label === 'string' && r.label ? r.label : slug.slice(0, 8);
+    const expiresAt = typeof r.expiresAt === 'number' ? r.expiresAt : 0;
+    const hasPassword = !!r.hasPassword;
+    const expired = !!r.expired;
+
+    const row = document.createElement('div');
+    row.dataset.slug = slug;
+    row.style.cssText =
+      'display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:#171b2b;border-radius:.4rem;';
+    const info = document.createElement('div');
+    info.style.cssText = 'flex:1;min-width:0;font-size:.85rem;';
+    const expiryText = expired ? 'expired' : `expires ${new Date(expiresAt).toLocaleDateString()}`;
+    info.innerHTML =
+      `<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(label)}${hasPassword ? ' 🔒' : ''}</div>` +
+      `<div class="muted" style="font-size:.78rem;">${expiryText}</div>`;
+
+    const copyBtn = document.createElement('button');
+    copyBtn.type = 'button';
+    copyBtn.className = 'pa-b';
+    copyBtn.textContent = 'Copy link';
+    copyBtn.onclick = () => {
+      const link = `${location.origin}/meet/${encodeURIComponent(slug)}`;
+      navigator.clipboard?.writeText(link).then(
+        () => {
+          copyBtn.textContent = '✓ Copied';
+          setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 1500);
+        },
+        () => {},
+      );
+    };
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'pa-b';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => {
+      if (delBtn.dataset.armed !== '1') {
+        delBtn.dataset.armed = '1';
+        delBtn.textContent = 'Confirm?';
+        delBtn.classList.add('danger');
+        return;
+      }
+      delBtn.disabled = true;
+      this.room?.send('meetingRoomDelete', { slug });
+    };
+
+    row.append(info, copyBtn, delBtn);
+    return row;
+  }
+
+  /** The server's answer to meetingRoomDelete — drop the row from the still-open
+   *  manage dialog, or reset its armed state on failure. A no-op if the dialog
+   *  isn't open anymore (e.g. the player closed it before the response arrived). */
+  private onMeetingRoomDeleted(m: Record<string, unknown>): void {
+    const slug = typeof m.slug === 'string' ? m.slug : '';
+    if (!slug) return;
+    const row = document.querySelector<HTMLDivElement>(`#pa-dialog-back [data-slug="${CSS.escape(slug)}"]`);
+    if (!row) return;
+    if (typeof m.error === 'string') {
+      const delBtn = row.querySelector<HTMLButtonElement>('button:last-child')!;
+      delBtn.disabled = false;
+      delBtn.dataset.armed = '';
+      delBtn.textContent = 'Delete';
+      delBtn.classList.remove('danger');
+      return;
+    }
+    row.remove();
+  }
+
+  /** Meeting-room kiosk, clicked/arrived-at: ask for an expiry + optional
+   *  password, then ask the server to mint a fresh room (meetingRoomCreate).
+   *  The result (link or error) arrives async via 'meetingRoomCreated'. */
+  private openMeetingRoomDialog(kiosk: { col: number; row: number }): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Expires after</label>
+        <select class="pa-select">
+          <option value="1">1 day</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+          <option value="90">3 months</option>
+          <option value="180">6 months</option>
+        </select>
+      </div>
+      <div class="fld"><label>Password (optional, min ${MIN_MEETING_ROOM_PASSWORD_LEN} chars)</label>
+        <div style="display:flex;gap:.35rem;align-items:center">
+          <input class="pa-input" type="password" placeholder="leave empty for no password" maxlength="128" style="flex:1;min-width:0">
+          <button type="button" class="pa-b" data-showpw title="Show password">👁</button>
+          <button type="button" class="pa-b" data-genpw title="Generate a password">🎲 Generate</button>
+        </div>
+        <div data-pwerr style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;color:#f1b0ba;"></div>
+      </div>`;
+    const ttlSel = body.querySelector<HTMLSelectElement>('select')!;
+    const pwIn = body.querySelector<HTMLInputElement>('input')!;
+    const pwErr = body.querySelector<HTMLDivElement>('[data-pwerr]')!;
+    const showBtn = body.querySelector<HTMLButtonElement>('[data-showpw]')!;
+    const genBtn = body.querySelector<HTMLButtonElement>('[data-genpw]')!;
+    pwIn.oninput = () => { pwErr.textContent = ''; };
+    const setShown = (shown: boolean): void => {
+      pwIn.type = shown ? 'text' : 'password';
+      showBtn.classList.toggle('primary', shown);
+      showBtn.textContent = shown ? '🙈' : '👁';
+      showBtn.title = shown ? 'Hide password' : 'Show password';
+    };
+    showBtn.onclick = () => setShown(pwIn.type === 'password');
+    genBtn.onclick = () => {
+      pwIn.value = generatePassword();
+      pwErr.textContent = '';
+      setShown(true); // just generated it — showing it masked would be pointless
+    };
+    openPaDialog({
+      title: 'Create a meeting room',
+      body,
+      buttons: [
+        {
+          label: 'Create',
+          kind: 'green',
+          onClick: () => {
+            const pw = pwIn.value;
+            if (pw && pw.length < MIN_MEETING_ROOM_PASSWORD_LEN) {
+              // Inline, right under the field — a second modal on top of this one
+              // would stack behind it (dialog-over-dialog isn't a supported layer).
+              pwErr.textContent = `Password must be at least ${MIN_MEETING_ROOM_PASSWORD_LEN} characters (or leave it empty).`;
+              pwIn.focus();
+              return false; // keep the dialog open so they can fix it
+            }
+            this.room?.send('meetingRoomCreate', {
+              col: kiosk.col,
+              row: kiosk.row,
+              ttlDays: Number(ttlSel.value) || 7,
+              password: pw || undefined,
+            });
+          },
+        },
+      ],
+    });
+  }
+
+  /** The server minted (or refused) a meeting room — show the shareable link
+   *  (copy-to-clipboard) or the error. */
+  private onMeetingRoomCreated(m: Record<string, unknown>): void {
+    if (typeof m.error === 'string') {
+      void alertDialog(`Could not create the meeting room: ${m.error}.`);
+      return;
+    }
+    const slug = typeof m.slug === 'string' ? m.slug : '';
+    if (!slug) return;
+    const link = `${location.origin}/meet/${encodeURIComponent(slug)}`;
+    const body = document.createElement('div');
+    body.innerHTML = '<div class="fld"><label>Share this link</label><input class="pa-input" readonly></div><div></div>';
+    const inp = body.querySelector<HTMLInputElement>('input')!;
+    const feedback = body.querySelector<HTMLDivElement>('div:last-child')!;
+    feedback.style.cssText = 'min-height:1.1rem;margin-top:.5rem;font-size:.85rem;';
+    inp.value = link;
+    openPaDialog({
+      title: 'Meeting room ready',
+      body,
+      buttons: [
+        {
+          label: 'Copy link',
+          kind: 'green',
+          onClick: () => {
+            inp.select();
+            navigator.clipboard?.writeText(link).then(
+              () => { feedback.textContent = '✓ Copied to clipboard.'; feedback.style.color = '#7fd08a'; },
+              () => { feedback.textContent = 'Could not copy automatically — the text above is selected, copy it manually.'; feedback.style.color = '#f0a6a2'; },
+            );
+            return false; // keep the dialog open — they can copy again or read it
+          },
+        },
+      ],
+    });
+    setTimeout(() => { inp.focus(); inp.select(); }, 0);
+  }
+
+  /** Wire server-backed arcade savegames over the office room (shared store).
+   *  Called once the room is connected. */
   private wireArcade(room: Room): void {
     room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
       this.arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);
@@ -930,21 +1203,35 @@ export class OfficeScene extends Phaser.Scene {
             const row = Math.floor(p.worldY / TILE_SIZE);
             const conf = this.conferenceAnchorAt(col, row);
             const cab = this.arcadeAt(col, row);
+            const kiosk = this.meetingKioskAt(col, row);
             if (cab) {
               // Must stand at the cabinet to use it: open if already next to it,
               // else walk to a tile in front of it and open on arrival (see update()).
               this.pendingConference = null;
-              if (this.nearArcade(cab)) {
+              this.pendingMeetingKiosk = null;
+              if (this.nearFootprint(cab)) {
                 this.pendingArcade = null;
                 this.openArcade(cab);
               } else {
                 this.pendingArcade = cab;
                 this.room?.send('playerMove', { col: cab.col, row: cab.row + cab.fpH });
               }
+            } else if (kiosk) {
+              // Same walk-up-then-open pattern as the arcade cabinet.
+              this.pendingConference = null;
+              this.pendingArcade = null;
+              if (this.nearFootprint(kiosk)) {
+                this.pendingMeetingKiosk = null;
+                this.openMeetingRoomManageDialog(kiosk);
+              } else {
+                this.pendingMeetingKiosk = kiosk;
+                this.room?.send('playerMove', { col: kiosk.col, row: kiosk.row + kiosk.fpH });
+              }
             } else if (conf) void this.toggleConference(conf);
             else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.pendingArcade = null; // …and a walk-to-cabinet
+              this.pendingMeetingKiosk = null; // …and a walk-to-kiosk
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
             }
           }
@@ -1154,10 +1441,16 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
     // Walked up to a clicked arcade cabinet → open it (see the click handler).
-    if (this.pendingArcade && this.nearArcade(this.pendingArcade)) {
+    if (this.pendingArcade && this.nearFootprint(this.pendingArcade)) {
       const cab = this.pendingArcade;
       this.pendingArcade = null;
       this.openArcade(cab);
+    }
+    // Walked up to a clicked meeting-room kiosk → open the manage dialog.
+    if (this.pendingMeetingKiosk && this.nearFootprint(this.pendingMeetingKiosk)) {
+      const kiosk = this.pendingMeetingKiosk;
+      this.pendingMeetingKiosk = null;
+      this.openMeetingRoomManageDialog(kiosk);
     }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
@@ -1238,7 +1531,7 @@ export class OfficeScene extends Phaser.Scene {
    *  loop idles (skips work, then sleeps) until something wakes it. */
   private sceneBusy(now: number): boolean {
     if (this.editor.isEditing() || this.furnitureDirty) return true;
-    if (this.portalPickerTile || this.pendingArcade) return true;
+    if (this.portalPickerTile || this.pendingArcade || this.pendingMeetingKiosk) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     if (this.voiceBubbles.size > 0) return true; // animated "talking" indicator
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
@@ -1440,7 +1733,7 @@ export class OfficeScene extends Phaser.Scene {
   // ── Top bar + shared popover shells ──────────────────────────────
 
   private createHud(): void {
-    injectPaSkin(); // shared .pa-* menu skin (client/src/ui/paSkin.ts) — same look as the voxel client
+    injectPaSkin(); // shared .pa-* menu skin (client/src/ui/paSkin.ts)
 
     const host = document.getElementById('game') ?? document.body;
     const bar = document.createElement('div');
@@ -2044,43 +2337,51 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zonesPanel) return;
     const cur = currentZone();
     const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
-    // Travelling is open to all. Creating/deleting zones + granting zone admins
-    // is global-admin only; editing a zone (layout/rename/NPCs/arrival) is open
-    // to that zone's admin too — but the client only knows its OWN zone-admin
-    // status for the CURRENT zone, so per-row edit beyond the current zone needs
-    // global admin. (open dev mode without accounts → everyone edits.)
+    // Travelling is open to all. Creating a zone is open to any signed-in user
+    // (they own what they create — see zoneStore.ts); granting zone admins is
+    // that zone's owner's call (plus global admins, everywhere). Editing a zone
+    // (layout/rename/NPCs/arrival) is open to that zone's admin too — but the
+    // client only knows its OWN zone-admin status for the CURRENT zone, so
+    // per-row edit beyond the current zone needs global admin. (open dev mode
+    // without accounts → everyone edits.)
     const assetsAdmin = this.assetsAdmin;
+    const canCreateZone = assetsAdmin || !!this.myUserId;
 
     const rows = this.zoneList
       .map((z) => {
         const here = z.id === cur;
         const rowEdit = assetsAdmin || (here && this.myZoneAdmin);
+        const rowDelete = assetsAdmin || (here && this.myZoneAdmin);
+        const isOwner = !!this.myUserId && z.ownerId === this.myUserId;
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
-        const lock = z.readOnly ? ' 🔒' : '';
+        const lock = z.readOnly ? ' 🔒' : z.private ? ' 🔐' : '';
         const npcN = z.npc == null ? 'all' : String(z.npc.length);
         let ctrls = '';
         if (rowEdit)
           ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
-        if (assetsAdmin && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
-        if (assetsAdmin) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
+        if (rowDelete && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
+        if (assetsAdmin || isOwner) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
+        if (isOwner) ctrls += `<button data-settings="${esc(z.id)}" title="Privacy &amp; access">⚙</button>`;
+        // Global-admin quick action for an ownerless zone (predates ownership,
+        // or lost its owner when that account was deleted) — no need to leave
+        // the game for the admin site just to claim it.
+        if (assetsAdmin && !z.ownerId) ctrls += `<button data-take="${esc(z.id)}" title="Take ownership">👑</button>`;
         return `<div class="item"><span class="nm ${here ? 'here' : ''}">${esc(z.label)}${lock}<br><small>${esc(z.id)} · 🐾${npcN}</small></span>${tag}${ctrls}</div>`;
       })
       .join('');
 
     const footParts: string[] = [];
     if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
-    if (assetsAdmin)
-      footParts.push(
-        `<input id="pa-z-label" type="text" maxlength="32" placeholder="New zone name" />
-         <div class="sz">
-           <input id="pa-z-cols" type="number" min="6" max="64" value="20" title="Width (tiles)" />
-           <input id="pa-z-rows" type="number" min="6" max="64" value="14" title="Height (tiles)" />
-         </div>
-         <button data-new class="new">＋ Create zone</button>`,
-      );
+    if (canCreateZone) footParts.push(`<button data-new class="new">＋ Create zone</button>`);
     const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
-    // No heading here — the Space panel header + the Layouts/Zones tab label it.
-    this.zonesPanel.innerHTML = `${rows}${foot}`;
+    // "You are" line — who you're signed in as, and whether that's a global
+    // admin (relevant here: admins bypass privacy/passwords and can take
+    // ownership of any ownerless zone).
+    const meLabel = this.myUserId
+      ? `${this.isAdmin ? '★ ' : ''}${esc(this.viewerUsername || this.myUserId)}${this.isAdmin ? ' (admin)' : ''}`
+      : 'anonymous viewer';
+    const meLine = `<div class="who-am-i muted">You: ${meLabel}</div>`;
+    this.zonesPanel.innerHTML = `${meLine}${rows}${foot}`;
 
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => {
       b.onclick = () => this.goToZone(b.dataset.go!);
@@ -2098,16 +2399,22 @@ export class OfficeScene extends Phaser.Scene {
           send('deleteZone', { id: b.dataset.del });
       };
     });
-    // Grant/revoke a per-zone admin (global admin): prompt for a login id; the
-    // server toggles it and replies with the current admin list.
+    // Grant/revoke a per-zone admin (global admin only): a proper list + add,
+    // not a blind login-id prompt.
     this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-admins]').forEach((b) => {
-      b.onclick = async () => {
-        const id = b.dataset.admins!;
-        const uid = await promptDialog(`Toggle a zone admin for “${id}” — enter a user login id:`, '', {
-          maxLength: 32,
-          confirmLabel: 'Toggle',
-        });
-        if (uid && uid.trim()) send('setZoneAdmin', { zoneId: id, userId: uid.trim() });
+      b.onclick = () => this.openZoneAdminsDialog(b.dataset.admins!);
+    });
+    // Owner-only: privacy + access list + real-time invite for a zone they own.
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-settings]').forEach((b) => {
+      b.onclick = () => {
+        const z = this.zoneList.find((x) => x.id === b.dataset.settings);
+        if (z) this.openZoneSettingsDialog(z);
+      };
+    });
+    // Global-admin quick action: claim an ownerless zone as its owner.
+    this.zonesPanel.querySelectorAll<HTMLButtonElement>('[data-take]').forEach((b) => {
+      b.onclick = () => {
+        if (this.myUserId) send('zoneSetOwner', { id: b.dataset.take, ownerId: this.myUserId });
       };
     });
     const arrive = this.zonesPanel.querySelector<HTMLButtonElement>('[data-arrive]');
@@ -2118,17 +2425,46 @@ export class OfficeScene extends Phaser.Scene {
         setStatus('Click a floor tile to set where players arrive in this zone.');
       };
     const newBtn = this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]');
-    if (newBtn)
-      newBtn.onclick = () => {
-        const label = (this.zonesPanel.querySelector('#pa-z-label') as HTMLInputElement)?.value.trim() ?? '';
-        const cols = Number((this.zonesPanel.querySelector('#pa-z-cols') as HTMLInputElement)?.value);
-        const rows = Number((this.zonesPanel.querySelector('#pa-z-rows') as HTMLInputElement)?.value);
-        if (!label) {
-          setStatus('Enter a name for the new zone.');
-          return;
-        }
-        send('createZone', { label, cols, rows });
-      };
+    if (newBtn) newBtn.onclick = () => this.openCreateZoneDialog();
+  }
+
+  /** "+ Create zone" — a proper dialog (matching Rename's promptDialog), not
+   *  inputs embedded in the popover: keeps focus/keyboard handling simple and
+   *  gives room for the size fields too. */
+  private openCreateZoneDialog(): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Zone name</label>
+        <input class="pa-input" type="text" maxlength="32" placeholder="e.g. Design Team">
+      </div>
+      <div class="fld"><label>Size (tiles)</label>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+          <input class="pa-input" type="number" min="6" max="64" value="20" title="Width" style="flex:1;min-width:0;">
+          <span class="muted">×</span>
+          <input class="pa-input" type="number" min="6" max="64" value="14" title="Height" style="flex:1;min-width:0;">
+        </div>
+      </div>`;
+    const nameIn = body.querySelector<HTMLInputElement>('input[type=text]')!;
+    const [colsIn, rowsIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
+    openPaDialog({
+      title: 'Create a zone',
+      body,
+      buttons: [
+        {
+          label: 'Create',
+          kind: 'green',
+          onClick: () => {
+            const label = cleanName(nameIn.value);
+            if (!label) {
+              nameIn.focus();
+              return false;
+            }
+            this.room?.send('createZone', { label, cols: Number(colsIn.value), rows: Number(rowsIn.value) });
+          },
+        },
+      ],
+    });
+    setTimeout(() => nameIn.focus(), 0);
   }
 
   /** Edit a zone's label (and arrival tile via "col,row"). */
@@ -2145,10 +2481,232 @@ export class OfficeScene extends Phaser.Scene {
     this.room?.send('editZone', { id, label: name });
   }
 
-  /** A zone was just created (by this viewer) → offer to jump straight to it. */
-  private async offerJumpToNewZone(id: string): Promise<void> {
+  /** A zone was just created (by this viewer) → offer to jump straight to it, or
+   *  show why it wasn't (invalid name, or the per-owner zone cap was hit). */
+  private async onZoneCreated(m: Record<string, unknown>): Promise<void> {
+    if (typeof m.error === 'string') {
+      void alertDialog(`Could not create the zone: ${m.error}.`);
+      return;
+    }
+    const id = typeof m.id === 'string' ? m.id : '';
     if (!isZoneId(id)) return;
     if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
+  }
+
+  /** Zone owner: open "Zone settings" — privacy toggle, who-has-access (owner +
+   *  zone-admins + ACL together), and inviting someone in right now. Fetches
+   *  the member list + the user directory (for autocomplete) in parallel;
+   *  onZoneMembers actually builds the dialog once the members arrive. */
+  private openZoneSettingsDialog(zone: ZoneConfig): void {
+    this.pendingZoneSettings = zone;
+    this.room?.send('zoneMembers', { id: zone.id });
+    this.room?.send('requestUserList');
+  }
+
+  private static readonly USER_LIST_ID = 'pa-user-list';
+
+  private toAutocompleteUsers(): AutocompleteUser[] {
+    return (this.userListCache ?? []).map((u) => ({ userId: u.userId, label: u.name, isAdmin: u.isAdmin }));
+  }
+
+  /** Rebuild the shared datalist for `query` (see shared/userAutocomplete.ts). */
+  private filterUserDatalist(query: string): void {
+    filterSharedUserDatalist(OfficeScene.USER_LIST_ID, this.toAutocompleteUsers(), query);
+  }
+
+  /** Wire a login-id input to the shared user autocomplete: filters as you
+   *  type instead of relying on the browser to filter a giant static list. */
+  private wireUserAutocomplete(input: HTMLInputElement): void {
+    wireSharedUserAutocomplete(input, OfficeScene.USER_LIST_ID, () => this.toAutocompleteUsers());
+  }
+
+  /** The server's answer to requestUserList — caches the full list (used by
+   *  filterUserDatalist) and refreshes the datalist for whichever input (if
+   *  any) is currently focused, even while a dialog is already open. */
+  private onUserList(m: Record<string, unknown>): void {
+    if (!Array.isArray(m.users)) return;
+    this.userListCache = m.users as Array<{ userId: string; name: string; isAdmin: boolean }>;
+    const active = document.activeElement;
+    this.filterUserDatalist(active instanceof HTMLInputElement && active.list?.id === OfficeScene.USER_LIST_ID ? active.value : '');
+  }
+
+  /** Owner (of this zone) or global admin: open "Zone admins" — who may edit
+   *  this zone's layout. REST-backed (not a room message) via the shared
+   *  widget — same route the admin website's Zones tab uses, guarded
+   *  server-side by the same rule (see shared/zoneAdminsWidget.ts,
+   *  adminApi.ts's zoneGrantAdminAuth). No zoneMembers round trip needed to
+   *  open it, so there's no dialog-routing state to keep in sync here. */
+  private openZoneAdminsDialog(zoneId: string): void {
+    const label = this.zoneList.find((z) => z.id === zoneId)?.label ?? zoneId;
+    this.room?.send('requestUserList');
+
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Zone admins may edit this zone's layout</label>
+        <div data-admins-widget></div>
+        <div data-admins-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
+      </div>`;
+    const widgetEl = body.querySelector<HTMLDivElement>('[data-admins-widget]')!;
+    const msgEl = body.querySelector<HTMLDivElement>('[data-admins-msg]')!;
+    renderZoneAdminsWidget(widgetEl, zoneId, {
+      wireAutocomplete: (input) => this.wireUserAutocomplete(input),
+      onError: (action, error) => {
+        msgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
+        msgEl.style.color = '#f0a6a2';
+      },
+      classNames: { revokeButton: 'pa-b', grantButton: 'pa-b green' },
+    });
+
+    openPaDialog({ title: `Zone admins — ${label}`, body, buttons: [] });
+  }
+
+  /** The server's answer to zoneMembers — also arrives after zoneAclAdd/Remove,
+   *  so this both opens a dialog the first time and refreshes it in place
+   *  afterwards. (Zone-admins grant/revoke no longer goes through here — see
+   *  openZoneAdminsDialog.) */
+  private onZoneMembers(m: Record<string, unknown>): void {
+    const id = typeof m.id === 'string' ? m.id : '';
+    const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;
+    this.pendingZoneSettings = null;
+    if (!zone) return;
+    type Member = { userId: string; name: string; isAdmin: boolean };
+    const owner = (m.owner ?? null) as Member | null;
+    const admins = Array.isArray(m.admins) ? (m.admins as Member[]) : [];
+    const acl = Array.isArray(m.acl) ? (m.acl as Member[]) : [];
+    this.filterUserDatalist('');
+
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Privacy</label>
+        <div style="display:flex;align-items:center;gap:.6rem;">
+          <button type="button" class="pa-b" data-priv></button>
+          <span class="muted" data-priv-hint style="font-size:.82rem;"></span>
+        </div>
+      </div>
+      <div class="fld"><label>Who has access</label>
+        <div data-members style="max-height:11rem;overflow-y:auto;display:flex;flex-direction:column;gap:.35rem;"></div>
+        <div style="display:flex;gap:.35rem;margin-top:.5rem;">
+          <input class="pa-input" data-acl-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b" data-acl-add-btn>Add to access list</button>
+        </div>
+      </div>
+      <div class="fld"><label>Invite someone now</label>
+        <div style="display:flex;gap:.35rem;">
+          <input class="pa-input" data-invite placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
+          <button type="button" class="pa-b green" data-invite-btn>Invite</button>
+        </div>
+        <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
+      </div>`;
+
+    const membersEl = body.querySelector<HTMLDivElement>('[data-members]')!;
+    if (!owner && !admins.length && !acl.length) {
+      membersEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No one has special access yet.</div>';
+    }
+    const memberRow = (m2: Member, sub: string, onRemove?: () => void): void => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;';
+      const nm = document.createElement('span');
+      nm.style.flex = '1';
+      nm.style.fontSize = '.85rem';
+      nm.innerHTML = `${m2.isAdmin ? '★ ' : ''}${esc(m2.name)} <span class="muted" style="font-size:.76rem;">${esc(sub)}</span>`;
+      row.appendChild(nm);
+      if (onRemove) {
+        const rm = document.createElement('button');
+        rm.type = 'button';
+        rm.className = 'pa-b';
+        rm.textContent = 'Remove';
+        rm.onclick = onRemove;
+        row.appendChild(rm);
+      }
+      membersEl.appendChild(row);
+    };
+    if (owner) memberRow(owner, '👑 owner');
+    for (const a of admins) memberRow(a, '🛠 zone-admin (edits the layout)');
+    for (const a of acl) memberRow(a, '✓ access list', () => this.room?.send('zoneAclRemove', { id: zone.id, userId: a.userId }));
+
+    // Optimistic local toggle — no need to wait on the server round trip for
+    // something this simple (it still persists via zoneSetPrivate below).
+    let priv = !!zone.private;
+    const privBtn = body.querySelector<HTMLButtonElement>('[data-priv]')!;
+    const privHint = body.querySelector<HTMLSpanElement>('[data-priv-hint]')!;
+    const renderPriv = (): void => {
+      privBtn.textContent = priv ? '🔐 Private' : '🔓 Public';
+      privBtn.classList.toggle('primary', priv);
+      privHint.textContent = priv
+        ? 'Only the access list above (plus the owner, zone-admins and global admins) may enter.'
+        : 'Anyone can enter.';
+    };
+    renderPriv();
+    privBtn.onclick = () => {
+      priv = !priv;
+      renderPriv();
+      this.room?.send('zoneSetPrivate', { id: zone.id, private: priv });
+    };
+
+    const addIn = body.querySelector<HTMLInputElement>('[data-acl-add]')!;
+    this.wireUserAutocomplete(addIn);
+    body.querySelector<HTMLButtonElement>('[data-acl-add-btn]')!.onclick = () => {
+      const uid = cleanName(addIn.value);
+      if (uid) this.room?.send('zoneAclAdd', { id: zone.id, userId: uid });
+    };
+
+    const inviteIn = body.querySelector<HTMLInputElement>('[data-invite]')!;
+    this.wireUserAutocomplete(inviteIn);
+    const inviteMsg = body.querySelector<HTMLDivElement>('[data-invite-msg]')!;
+    body.querySelector<HTMLButtonElement>('[data-invite-btn]')!.onclick = () => {
+      const uid = cleanName(inviteIn.value);
+      if (!uid) return;
+      this.room?.send('zoneInvite', { id: zone.id, userId: uid });
+      inviteMsg.textContent = `Inviting ${uid}…`;
+      inviteMsg.style.color = '';
+    };
+
+    openPaDialog({ title: `Zone settings — ${zone.label}`, body, buttons: [] });
+  }
+
+  /** Feedback for the owner's zoneInvite — shown in the still-open settings
+   *  dialog's invite area, if it's still up. */
+  private onZoneInviteSent(m: Record<string, unknown>): void {
+    const msgEl = document.querySelector<HTMLDivElement>('#pa-dialog-back [data-invite-msg]');
+    if (!msgEl) return;
+    if (typeof m.error === 'string') {
+      msgEl.textContent = m.error === 'not online' ? 'That user is not online right now.' : `Could not invite: ${m.error}.`;
+      msgEl.style.color = '#f0a6a2';
+    } else {
+      msgEl.textContent = `Invite sent to ${String(m.targetUserId ?? '')}.`;
+      msgEl.style.color = '#7fd08a';
+    }
+  }
+
+  /** Someone invited us into their (possibly private) zone — must accept before
+   *  anything happens (no silent pulls). */
+  private onZoneInvitePrompt(m: Record<string, unknown>): void {
+    const zoneId = typeof m.zoneId === 'string' ? m.zoneId : '';
+    if (!isZoneId(zoneId)) return;
+    const zoneLabel = typeof m.zoneLabel === 'string' ? m.zoneLabel : zoneId;
+    const fromName = typeof m.fromName === 'string' ? m.fromName : 'Someone';
+    void (async () => {
+      const accept = await confirmDialog(`${fromName} invites you into their zone “${zoneLabel}”. Join now?`, {
+        confirmLabel: 'Join',
+      });
+      this.room?.send('zoneInviteRespond', { zoneId, accept });
+    })();
+  }
+
+  /** We accepted an invite — the server added us to the ACL; travel there. */
+  private onZoneInviteAccepted(m: Record<string, unknown>): void {
+    const zoneId = typeof m.zoneId === 'string' ? m.zoneId : '';
+    if (isZoneId(zoneId)) this.goToZone(zoneId);
+  }
+
+  /** Tell the inviter what happened to their invite, wherever they are now — a
+   *  passive system line rather than another dialog (they may be mid-something
+   *  else entirely). */
+  private onZoneInviteResult(m: Record<string, unknown>): void {
+    const byName = typeof m.byName === 'string' ? m.byName : 'They';
+    const zoneLabel = typeof m.zoneLabel === 'string' ? m.zoneLabel : 'your zone';
+    const accepted = !!m.accepted;
+    this.chat?.addSystemLine(`${byName} ${accepted ? `joined “${zoneLabel}”.` : `declined your invite to “${zoneLabel}”.`}`);
   }
 
   // ── Conference monitors (C-RTC) ──────────────────────────────────
@@ -2901,12 +3459,6 @@ export class OfficeScene extends Phaser.Scene {
     if (!this.zoneEditAdmin && this.spaceTab === 'layouts') this.spaceTab = 'zones';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
     if (save) save.style.display = this.assetsAdmin ? '' : 'none';
-    // Customers have no agents: hide the agent token + agents'-avatar settings.
-    const isCustomer = this.myRole === 'customer';
-    for (const sel of ['#pa-agent-token', '#pa-agent-skin']) {
-      const el = this.settingsPanel?.querySelector<HTMLElement>(sel);
-      if (el) el.style.display = isCustomer ? 'none' : '';
-    }
     // The zones panel stays available for travel; admin controls reflect the role.
     this.renderZonesPanel?.();
   }
@@ -2934,7 +3486,6 @@ export class OfficeScene extends Phaser.Scene {
       let name: string;
       if (ch.isPlayer) {
         name = ch.folderName || ch.agentName || '';
-        if (name && ch.spectator) name += ' (Rooms)'; // present via the portal, not walking
       } else if (ch.isSubagent) {
         name = ch.agentName || ch.folderName || '';
       } else {
@@ -3000,16 +3551,6 @@ export class OfficeScene extends Phaser.Scene {
       isAdmin: () => this.isAdmin,
       canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen,
       clientCommand: (name, _args, sys) => {
-        if (name === "voxel") {
-          sys("Entering the voxel world…");
-          window.location.href = "./voxel.html";
-          return true;
-        }
-        if (name === "rooms") {
-          sys("Opening the rooms portal…");
-          window.location.href = `./rooms.html?zone=${encodeURIComponent(currentZone())}`;
-          return true;
-        }
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
           else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }
@@ -3204,7 +3745,7 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.top = `${Math.round(sy)}px`;
 
     const act = ch.isPlayer
-      ? (ch.isCustomer ? 'Customer' : 'Player') + (ch.spectator ? ' (Rooms)' : '')
+      ? 'Player'
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
@@ -3224,6 +3765,11 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.display = 'flex';
   }
 }
+
+/** Meeting-room passwords get a higher floor than account passwords (server-enforced
+ *  too, see MIN_MEETING_ROOM_PASSWORD_LEN in meetingRoomStore.ts) — the link+password
+ *  pair is typically handed out over email, a less trusted channel than a login. */
+const MIN_MEETING_ROOM_PASSWORD_LEN = 8;
 
 function fuelColor(ratio: number): string {
   if (ratio >= TOKEN_CRITICAL_THRESHOLD) return FUEL_COLOR_CRITICAL;

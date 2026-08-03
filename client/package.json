@@ -13,11 +13,9 @@
     "@pixel/shared": "workspace:*",
     "colyseus.js": "^0.16.22",
     "livekit-client": "^2.20.0",
-    "phaser": "^3.90.0",
-    "three": "^0.185.0"
+    "phaser": "^3.90.0"
   },
   "devDependencies": {
-    "@types/three": "^0.185.0",
     "typescript": "^5.9.3",
     "vite": "^6.0.0"
   }

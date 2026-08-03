@@ -1,8 +1,7 @@
 /**
- * Shared LiveKit helpers — one place both the 2D office (SimRoom) and the 3D voxel
- * world (VoxelRoom) mint zone-voice tokens, so there's no duplicate token logic.
- * A room's identity is `p<id>` so the client can map a LiveKit participant back to
- * its avatar for proximity audio.
+ * Shared LiveKit helpers — one place the 2D office (SimRoom) mints zone-voice
+ * tokens. A room's identity is `p<id>` so the client can map a LiveKit
+ * participant back to its avatar for proximity audio.
  */
 import { AccessToken } from 'livekit-server-sdk';
 
