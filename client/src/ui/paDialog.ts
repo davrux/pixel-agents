@@ -1,7 +1,7 @@
 /**
  * A centred modal dialog in the shared "pixel-menu" skin (.pa-* — same look as the
- * 2D office), for the voxel client's prompts (portal target, …) instead of the raw
- * browser window.prompt/confirm. Backdrop-click or Esc cancels; one modal at a time.
+ * 2D office), for prompts (portal target, …) instead of the raw browser
+ * window.prompt/confirm. Backdrop-click or Esc cancels; one modal at a time.
  * Relies on injectPaSkin() having run (for .pa-panel / .pa-select / .pa-b / .pa-input).
  */
 import { injectPaSkin } from './paSkin.js';

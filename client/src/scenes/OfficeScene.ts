@@ -49,6 +49,12 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
+import { generatePassword } from '../shared/generatePassword.js';
+import {
+  filterUserDatalist as filterSharedUserDatalist,
+  wireUserAutocomplete as wireSharedUserAutocomplete,
+  type AutocompleteUser,
+} from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
@@ -155,7 +161,7 @@ export class OfficeScene extends Phaser.Scene {
   private perfEnabled = false;
   private perfEl: HTMLDivElement | null = null;
   private updateMsAvg = 0;
-  /** Shared chat panel (client/src/ui/chatUI.ts) — same component as the voxel client. */
+  /** Shared chat panel (client/src/ui/chatUI.ts). */
   private chat?: ChatUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
   private myConference: { col: number; row: number; name?: string } | null = null;
@@ -180,7 +186,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly conferenceMembers = new Map<string, Array<{ id: number; name: string }>>();
   /** The WebEx-style conference window (stage + sidebar + control bar). */
   private confUI!: ConferenceUI;
-  /** The shared arcade cabinet overlay (js-dos). Same instance as the voxel world. */
+  /** The shared arcade cabinet overlay (js-dos). */
   private arcadeUI!: ArcadeUI;
   /** Pending arcade savegame loads, keyed by game id → resolver (see wireArcade). */
   private readonly arcadePendingLoads = new Map<string, (data: Uint8Array | null) => void>();
@@ -1056,8 +1062,8 @@ export class OfficeScene extends Phaser.Scene {
     setTimeout(() => { inp.focus(); inp.select(); }, 0);
   }
 
-  /** Wire server-backed arcade savegames over the office room (shared store; same
-   *  protocol as the voxel world). Called once the room is connected. */
+  /** Wire server-backed arcade savegames over the office room (shared store).
+   *  Called once the room is connected. */
   private wireArcade(room: Room): void {
     room.onMessage('arcadeSaveData', (m: { game: string; data: Uint8Array | ArrayBuffer | null }) => {
       this.arcadePendingLoads.get(m.game)?.(m.data ? new Uint8Array(m.data as ArrayBuffer) : null);
@@ -1722,7 +1728,7 @@ export class OfficeScene extends Phaser.Scene {
   // ── Top bar + shared popover shells ──────────────────────────────
 
   private createHud(): void {
-    injectPaSkin(); // shared .pa-* menu skin (client/src/ui/paSkin.ts) — same look as the voxel client
+    injectPaSkin(); // shared .pa-* menu skin (client/src/ui/paSkin.ts)
 
     const host = document.getElementById('game') ?? document.body;
     const bar = document.createElement('div');
@@ -2492,46 +2498,21 @@ export class OfficeScene extends Phaser.Scene {
     this.room?.send('requestUserList');
   }
 
-  /** Above this many matches, a native <datalist> gets unwieldy (and some
-   *  browsers cap/slow down anyway) — same limit used admin-side. */
-  private static readonly AUTOCOMPLETE_MAX = 20;
+  private static readonly USER_LIST_ID = 'pa-user-list';
 
-  /** One shared <datalist> of user matches, for the ACL-add / invite / zone-admin
-   *  inputs' native autocomplete (search-as-you-type across login id + display
-   *  name). Rebuilt per keystroke (filterUserDatalist) rather than dumped once
-   *  in full, so a large user base doesn't turn it into an unusable dropdown. */
-  private ensureUserDatalist(): HTMLDataListElement {
-    let dl = document.getElementById('pa-user-list') as HTMLDataListElement | null;
-    if (!dl) {
-      dl = document.createElement('datalist');
-      dl.id = 'pa-user-list';
-      document.body.appendChild(dl);
-    }
-    return dl;
+  private toAutocompleteUsers(): AutocompleteUser[] {
+    return (this.userListCache ?? []).map((u) => ({ userId: u.userId, label: u.name, isAdmin: u.isAdmin }));
   }
 
-  /** Rebuild the shared datalist to at most AUTOCOMPLETE_MAX matches of `query`
-   *  (case-insensitive substring on login id or display name; empty query =
-   *  first AUTOCOMPLETE_MAX accounts, so something shows before typing). */
+  /** Rebuild the shared datalist for `query` (see shared/userAutocomplete.ts). */
   private filterUserDatalist(query: string): void {
-    const dl = this.ensureUserDatalist();
-    const q = query.trim().toLowerCase();
-    const all = this.userListCache ?? [];
-    const matches = (q ? all.filter((u) => u.userId.toLowerCase().includes(q) || u.name.toLowerCase().includes(q)) : all).slice(
-      0,
-      OfficeScene.AUTOCOMPLETE_MAX,
-    );
-    dl.innerHTML = matches
-      .map((u) => `<option value="${esc(u.userId)}">${u.isAdmin ? '★ ' : ''}${esc(u.name)} (${esc(u.userId)})</option>`)
-      .join('');
+    filterSharedUserDatalist(OfficeScene.USER_LIST_ID, this.toAutocompleteUsers(), query);
   }
 
   /** Wire a login-id input to the shared user autocomplete: filters as you
    *  type instead of relying on the browser to filter a giant static list. */
   private wireUserAutocomplete(input: HTMLInputElement): void {
-    input.setAttribute('list', 'pa-user-list');
-    input.addEventListener('input', () => this.filterUserDatalist(input.value));
-    input.addEventListener('focus', () => this.filterUserDatalist(input.value));
+    wireSharedUserAutocomplete(input, OfficeScene.USER_LIST_ID, () => this.toAutocompleteUsers());
   }
 
   /** The server's answer to requestUserList — caches the full list (used by
@@ -2541,7 +2522,7 @@ export class OfficeScene extends Phaser.Scene {
     if (!Array.isArray(m.users)) return;
     this.userListCache = m.users as Array<{ userId: string; name: string; isAdmin: boolean }>;
     const active = document.activeElement;
-    this.filterUserDatalist(active instanceof HTMLInputElement && active.list?.id === 'pa-user-list' ? active.value : '');
+    this.filterUserDatalist(active instanceof HTMLInputElement && active.list?.id === OfficeScene.USER_LIST_ID ? active.value : '');
   }
 
   /** Owner (of this zone) or global admin: open "Zone admins" — who may edit
@@ -3565,11 +3546,6 @@ export class OfficeScene extends Phaser.Scene {
       isAdmin: () => this.isAdmin,
       canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen,
       clientCommand: (name, _args, sys) => {
-        if (name === "voxel") {
-          sys("Entering the voxel world…");
-          window.location.href = "./voxel.html";
-          return true;
-        }
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
           else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }
@@ -3789,14 +3765,6 @@ export class OfficeScene extends Phaser.Scene {
  *  too, see MIN_MEETING_ROOM_PASSWORD_LEN in meetingRoomStore.ts) — the link+password
  *  pair is typically handed out over email, a less trusted channel than a login. */
 const MIN_MEETING_ROOM_PASSWORD_LEN = 8;
-
-/** Cryptographically random password, avoiding visually ambiguous characters (0/O/1/l/I). */
-function generatePassword(length = 12): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
-}
 
 function fuelColor(ratio: number): string {
   if (ratio >= TOKEN_CRITICAL_THRESHOLD) return FUEL_COLOR_CRITICAL;

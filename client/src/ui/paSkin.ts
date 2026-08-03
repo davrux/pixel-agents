@@ -1,8 +1,7 @@
 /**
- * Shared "pixel-menu" skin — the .pa-* menu/panel/button styles used by the 2D office
- * AND the 3D voxel client, so both look identical (one source of truth, no duplicate
- * CSS). Injected once (idempotent). Adds a `.pa-select` for native <select> dropdowns
- * (the office uses custom dropdowns; the voxel world-switcher is a real <select>).
+ * Shared "pixel-menu" skin — the .pa-* menu/panel/button styles used across the
+ * 2D office client (one source of truth, no duplicate CSS). Injected once
+ * (idempotent). Adds a `.pa-select` for native <select> dropdowns.
  */
 export function injectPaSkin(): void {
   if (document.getElementById('pa-skin')) return;

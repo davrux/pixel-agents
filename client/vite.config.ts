@@ -35,11 +35,10 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Multi-page: the 2D game (index.html), the 3D voxel spike, the admin
-      // panel, and the standalone ad-hoc meeting-room join page.
+      // Multi-page: the 2D game (index.html), the admin panel, and the
+      // standalone ad-hoc meeting-room join page.
       input: {
         main: resolve(__dirname, 'index.html'),
-        voxel: resolve(__dirname, 'voxel.html'),
         admin: resolve(__dirname, 'admin.html'),
         meet: resolve(__dirname, 'meet.html'),
       },

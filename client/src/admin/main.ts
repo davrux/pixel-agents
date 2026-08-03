@@ -10,6 +10,8 @@
 import { redirectToLogin, gotoLogout } from '../net/room.js';
 import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type Role } from './api.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
+import { generatePassword } from '../shared/generatePassword.js';
+import { filterUserDatalist as filterDatalist, wireUserAutocomplete as wireAutocomplete, type AutocompleteUser } from '../shared/userAutocomplete.js';
 
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
@@ -110,14 +112,6 @@ const STYLE = `
   }
 `;
 
-/** Cryptographically random password (avoids visually ambiguous 0/O/1/l/I) —
- *  same generator as the in-game meeting-room create dialog. */
-function generatePassword(length = 12): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-  const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join('');
-}
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -319,36 +313,16 @@ function userRow(u: AdminUser): HTMLTableRowElement {
 }
 
 // ── Zones ────────────────────────────────────────────────────────────────────
-const AUTOCOMPLETE_MAX = 20; // a full unfiltered list gets unwieldy once there are many accounts
-
-/** Shared <datalist> of account matches, for the owner/ACL autocomplete inputs.
- *  Rebuilt per keystroke (filterUserDatalist), capped at AUTOCOMPLETE_MAX. */
-function ensureUserDatalist(): HTMLDataListElement {
-  let dl = document.getElementById('pa-adm-userlist') as HTMLDataListElement | null;
-  if (!dl) {
-    dl = document.createElement('datalist');
-    dl.id = 'pa-adm-userlist';
-    document.body.appendChild(dl);
-  }
-  return dl;
-}
+const USER_LIST_ID = 'pa-adm-userlist';
+const toAutocompleteUsers = (): AutocompleteUser[] => users.map((u) => ({ userId: u.userId, label: u.username || u.userId, isAdmin: u.role === 'admin' }));
 
 function filterUserDatalist(query: string): void {
-  const dl = ensureUserDatalist();
-  const q = query.trim().toLowerCase();
-  const matches = (
-    q ? users.filter((u) => u.userId.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)) : users
-  ).slice(0, AUTOCOMPLETE_MAX);
-  dl.innerHTML = matches
-    .map((u) => `<option value="${u.userId}">${u.role === 'admin' ? '★ ' : ''}${u.username || u.userId} (${u.userId})</option>`)
-    .join('');
+  filterDatalist(USER_LIST_ID, toAutocompleteUsers(), query);
 }
 
 /** Wire a login-id input to the shared autocomplete: filters as you type. */
 function wireUserAutocomplete(input: HTMLInputElement): void {
-  input.setAttribute('list', 'pa-adm-userlist');
-  input.addEventListener('input', () => filterUserDatalist(input.value));
-  input.addEventListener('focus', () => filterUserDatalist(input.value));
+  wireAutocomplete(input, USER_LIST_ID, toAutocompleteUsers);
 }
 
 async function renderZones(): Promise<void> {

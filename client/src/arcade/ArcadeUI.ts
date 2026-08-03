@@ -1,7 +1,7 @@
 /**
  * The arcade cabinet overlay — a centered, pixel-menu-styled window that hosts a
- * js-dos player running a DOS game. Shared by both clients (2D Pixels + 3D Voxel):
- * a machine's "use" action calls `open(game)`; closing stops the emulator.
+ * js-dos player running a DOS game. A machine's "use" action calls `open(game)`;
+ * closing stops the emulator.
  *
  * The window can go true fullscreen. Mouse capture (pointer lock) is enabled so
  * Doom's mouselook works; Escape releases the mouse (browser), the ✕ / Leave

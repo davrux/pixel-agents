@@ -34,19 +34,6 @@ export async function isServerUp(): Promise<boolean> {
   }
 }
 
-/** Existing voxel world ids (so the client can validate a persisted "last world" before
- *  connecting). Returns null if the list can't be fetched (server down / offline dev). */
-export async function fetchVoxelWorlds(): Promise<string[] | null> {
-  try {
-    const res = await fetch(`${serverHttpOrigin()}/voxel/worlds`, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { worlds?: unknown };
-    return Array.isArray(body.worlds) ? body.worlds.filter((w): w is string => typeof w === 'string') : null;
-  } catch {
-    return null;
-  }
-}
-
 function errMsg(err: unknown): string {
   return ((err as { message?: string } | undefined)?.message ?? '').toLowerCase();
 }

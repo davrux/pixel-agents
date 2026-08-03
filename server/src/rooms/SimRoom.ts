@@ -1056,19 +1056,12 @@ export class SimRoom extends Room<RoomState> {
       }
     });
 
-    // Grant/revoke a per-zone admin (global admins only). A zone admin then
-    // satisfies the 'zone.edit' capability for that zone. `admin` omitted → toggle.
-    this.onMessage('setZoneAdmin', (client, msg: { zoneId?: string; userId?: string; admin?: boolean }) => {
-      if (!this.may(client, 'zone.grantAdmin')) return;
-      const zoneId = typeof msg?.zoneId === 'string' ? msg.zoneId : '';
-      const targetId = normalizeLoginId(msg?.userId);
-      if (!zoneId || !this.zones.get(zoneId) || !targetId || !userStore.get(targetId)) return;
-      const on = typeof msg?.admin === 'boolean' ? msg.admin : !this.zones.isZoneAdmin(zoneId, targetId);
-      this.zones.setZoneAdmin(zoneId, targetId, on);
-      // Same response shape as zoneAclAdd/Remove — lets the "Zone admins"
-      // dialog refresh itself in place after a grant/revoke.
-      client.send('m', { type: 'zoneMembers', id: zoneId, ...zoneMembersPayload(zoneId) });
-    });
+    // Grant/revoke a per-zone admin is REST-only now (PUT/DELETE
+    // /admin/zone/:id/admins, guarded by the same 'zone.grantAdmin' capability
+    // — see adminApi.ts's zoneGrantAdminAuth), called directly from Pixels'
+    // Zones panel via fetch instead of a room message — shared with the admin
+    // website's identical control (client/src/shared/zoneAdminsWidget.ts). No
+    // room-message path for this exists anymore.
 
     // Per-zone NPC spawn set: which variants appear in a zone (null = all).
     this.onMessage('setZoneNpc', (client, msg: { id?: string; npc?: string[] | null }) => {

@@ -34,15 +34,13 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
 
-import { WORLD_ROOM, VOXEL_ROOM } from '@pixel/shared';
+import { WORLD_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
-import { listWorlds } from './voxel/chunkStore.js';
-import { migrateItemIds } from './voxel/migrateItemIds.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
 
@@ -54,7 +52,6 @@ try {
   /* no .env present */
 }
 import { SimRoom } from './rooms/SimRoom.js';
-import { VoxelRoom } from './rooms/VoxelRoom.js';
 import { attachFeedServer } from './ingest/feedServer.js';
 import { startMockDriver } from './ingest/mockDriver.js';
 
@@ -117,8 +114,8 @@ export function desktopCors(): RequestHandler {
 // over an actual HTTPS connection (direct TLS or behind the TLS-terminating Caddy
 // proxy — see `trust proxy` above), never over plain http (would be wrong advice
 // for local dev). Deliberately NOT a full page CSP (script-src/connect-src/etc.):
-// Phaser, LiveKit and the voxel worker rely on blob: workers, wss:// connections and
-// canvas/data: images that a hand-rolled CSP could break without careful auditing —
+// Phaser and LiveKit rely on blob: workers, wss:// connections and canvas/data:
+// images that a hand-rolled CSP could break without careful auditing —
 // left for a follow-up if a full CSP is wanted.
 export function securityHeaders(): RequestHandler {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -134,9 +131,6 @@ export function securityHeaders(): RequestHandler {
 }
 
 async function main(): Promise<void> {
-  // One-time persistence migration: shift voxel item-id bands +100 (frees block
-  // ids for the arcade cabinet). Idempotent; runs before any player can join.
-  migrateItemIds();
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
@@ -156,16 +150,6 @@ async function main(): Promise<void> {
   // routes so preflight and actual responses carry the contract.
   app.use(desktopCors());
   app.get('/health', (_req, res) => res.json({ ok: true }));
-  // Existing voxel world ids — the client validates a persisted "last world" against this
-  // before connecting, so an auto-reconnect never resurrects a world that was deleted.
-  // When login is enforced, require a valid session (same gate as the rest of the app) so
-  // world ids aren't enumerable by anonymous callers.
-  app.get('/voxel/worlds', (req, res) => {
-    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
-      return void res.status(401).json({ error: 'unauthorized' });
-    }
-    res.json({ worlds: ['default', ...listWorlds().filter((w) => w !== 'default')] });
-  });
 
   // Arcade catalog — metadata only (titles/emulator/flags), so it's public (the
   // content files at /arcade/content are auth-gated). Registered before the auth
@@ -176,8 +160,8 @@ async function main(): Promise<void> {
   // server instead of making everyone type it. Suggestion only: the desktop app
   // connects to Mumble directly and keeps its own credentials and certificate —
   // the server holds nothing here beyond these three env vars.
-  // Registered before registerAuth installs its gate, so — like /voxel/worlds —
-  // it has to check the session itself rather than inherit the gate.
+  // Registered before registerAuth installs its gate, so it has to check the
+  // session itself rather than inherit the gate.
   app.get('/mumble/config', (req, res) => {
     if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
       return void res.status(401).json({ error: 'unauthorized' });
@@ -191,7 +175,7 @@ async function main(): Promise<void> {
 
   // Ad-hoc meeting rooms (/meet/<slug>) are reachable by anyone with the link —
   // no pixel-agents account required — so they're registered here, before the
-  // login gate, same as /arcade/catalog and /voxel/worlds above.
+  // login gate, same as /arcade/catalog above.
   registerMeetingRoomApi(app, clientDist);
 
   // Login + cookie-session gate (only when an admin token is configured).
@@ -246,9 +230,6 @@ async function main(): Promise<void> {
   // token to be configured — without one nobody can join (there is no anonymous mode).
   if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
   gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: true, version }).filterBy(['zone']);
-  // Voxel MMO world: one authoritative instance per world id (multiworld),
-  // matchmade by `world`. Persistent chunks + server-authoritative edits.
-  gameServer.define(VOXEL_ROOM, VoxelRoom, { authRequired: true, version }).filterBy(['world']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).

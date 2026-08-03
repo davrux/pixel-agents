@@ -2,8 +2,8 @@
  * Public REST API for ad-hoc meeting rooms (see meetingRoomStore.ts). Reachable
  * WITHOUT a pixel-agents session — a guest with the link only needs a display
  * name and, if the room is locked, its password. Registered BEFORE registerAuth
- * installs its login gate (same pattern as /arcade/catalog, /voxel/worlds in
- * index.ts) — public by design, not by gate-bypass accident.
+ * installs its login gate (same pattern as /arcade/catalog in index.ts) —
+ * public by design, not by gate-bypass accident.
  *
  * A logged-in pixel-agents viewer (cookie or desktop bearer) skips the name
  * prompt entirely — the client's GET /info call reports `authenticatedAs`, and
@@ -23,7 +23,7 @@ import { mintVoiceToken, voiceConfigured, voiceRoomName, voiceUrl } from './voic
 import { appStore } from './appStore.js';
 import { isThrottled, noteFail, clearFails } from './throttle.js';
 
-/** Per-deployment LiveKit room-name namespace, same convention as SimRoom/VoxelRoom. */
+/** Per-deployment LiveKit room-name namespace, same convention as SimRoom. */
 const voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
 
 /** The display name of an already-signed-in viewer (cookie or desktop bearer), else null. */

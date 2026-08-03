@@ -1,22 +1,11 @@
 /**
- * Shared chat UI — one implementation used by BOTH the 2D office client and the 3D
- * voxel client (no duplicate chat codebase). Owns the DOM panel (log + input + resize
- * + hide/open + idle fade + ↑/↓ history), parses slash commands against the shared
- * registry (`/help` local, others forwarded), and renders chat/system lines. Everything
- * host-specific — how messages are sent, admin status, chat bubbles over avatars, the
- * focus guard, `/voxel` behaviour — comes in through `ChatHooks`.
+ * Shared chat UI. Owns the DOM panel (log + input + resize + hide/open + idle
+ * fade + ↑/↓ history), parses slash commands against the shared registry
+ * (`/help` local, others forwarded), and renders chat/system lines. Everything
+ * host-specific — how messages are sent, admin status, chat bubbles over
+ * avatars, the focus guard — comes in through `ChatHooks`.
  */
 import { findCommand, mayRunCommand, commandsForGroup, type CommandSpec } from '@pixel/shared/commands';
-
-/** Commands whose printed form (in a chat line) is rendered as a clickable link that runs
- *  it — restricted to self-only, harmless actions (teleporting yourself). */
-const CLICKABLE_CMDS = new Set(['goto']);
-
-/** Fixed keyword arguments a command accepts, for TAB completion of its argument. */
-const ARG_HINTS: Record<string, string[]> = {
-  pos: ['print'],
-  goto: ['world-spawn'],
-};
 
 export interface ChatHooks {
   sendChat: (text: string) => void;
@@ -24,13 +13,13 @@ export interface ChatHooks {
   isAdmin: () => boolean;
   /** May Enter focus the chat right now? (host guard: not editing / no menu open) */
   canFocus?: () => boolean;
-  /** Handle a client-only slash command (e.g. /voxel). Return true if handled here. */
+  /** Handle a client-only slash command. Return true if handled here. */
   clientCommand?: (name: string, args: string, sys: (t: string) => void) => boolean;
-  /** Host-only commands (e.g. voxel /pos, /goto) — merged into /help + TAB autocomplete
-   *  and handled via clientCommand. Kept out of the shared registry so they don't appear
-   *  in the other client. */
+  /** Host-only commands, merged into /help + TAB autocomplete and handled via
+   *  clientCommand. Kept out of the shared registry so they don't appear
+   *  everywhere this UI is used. */
   extraCommands?: CommandSpec[];
-  onFocus?: () => void; // e.g. release pointer lock (voxel)
+  onFocus?: () => void; // e.g. release pointer lock
   onBlur?: () => void;
 }
 
@@ -54,14 +43,6 @@ export class ChatUI {
     this.box.className = 'pa-ui';
     this.log = document.createElement('div');
     this.log.id = 'pa-chatlog';
-    // Clicking a printed command link (e.g. a shared /goto) runs it.
-    this.log.addEventListener('click', (e) => {
-      const a = (e.target as HTMLElement).closest('a.pa-cmd');
-      if (!a) return;
-      e.preventDefault();
-      const cmd = a.getAttribute('data-cmd');
-      if (cmd) this.submit(`/${cmd}`);
-    });
     this.input = document.createElement('input');
     this.input.id = 'pa-chatinput';
     this.input.type = 'text';
@@ -196,31 +177,16 @@ export class ChatUI {
     const args = sp.join(' ');
     const sys = (t: string): void => this.addSystemLine(t);
     if (name === 'help') return this.showHelp(args);
-    if (this.hooks.clientCommand?.(name, args, sys)) return; // host-handled (e.g. /voxel)
+    if (this.hooks.clientCommand?.(name, args, sys)) return; // host-handled
     const spec = findCommand(name);
     if (!spec) sys(`Unknown command: /${name}. Try /help.`);
     else if (!mayRunCommand(spec, this.hooks.isAdmin())) sys(`/${spec.name} is for admins only.`);
     else this.hooks.sendCommand(spec.name, args);
   }
 
-  /** Escape + URL-linkify a chat line, and turn a printed clickable command (e.g. a
-   *  `/goto x y z` from `/pos print`) into a link that runs it on click. */
+  /** Escape + URL-linkify a chat line. */
   private renderText(text: string): string {
-    // Only self-teleport /goto links are clickable, and only in a client that has the
-    // command (voxel). Match its exact grammar so trailing words aren't swallowed.
-    if (!(CLICKABLE_CMDS.has('goto') && this.allCommands().some((c) => c.name === 'goto'))) return linkify(text);
-    const re = /\/goto\s+(?:world-spawn|-?\d+\s+-?\d+\s+-?\d+)/gi;
-    let out = '';
-    let last = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      out += linkify(text.slice(last, m.index));
-      const cmd = m[0].replace(/^\//, '').replace(/\s+/g, ' ').trim(); // "goto 12 68 -5"
-      out += `<a class="pa-cmd" data-cmd="${esc(cmd)}" title="Click to travel">/${esc(cmd)}</a>`;
-      last = m.index + m[0].length;
-    }
-    out += linkify(text.slice(last));
-    return out;
+    return linkify(text);
   }
 
   /** Every command the viewer may use: shared registry (group-filtered) + host extras. */
@@ -246,23 +212,12 @@ export class ChatUI {
     this.addSystemLine(`Commands: ${list}. Use /help <command> for details.`);
   }
 
-  /** TAB completion for the command name (and /goto's world-spawn target). */
+  /** TAB completion for the command name. */
   private autocomplete(): void {
     const val = this.input.value;
     if (!val.startsWith('/')) return;
     const sp = val.slice(1).split(/\s+/);
-    // Completing an argument (there's already a space) — complete against the command's
-    // fixed keyword args (e.g. /pos print, /goto world-spawn).
-    if (sp.length > 1) {
-      const hints = ARG_HINTS[sp[0].toLowerCase()] ?? [];
-      const last = sp[sp.length - 1].toLowerCase();
-      const matches = hints.filter((h) => h.startsWith(last));
-      if (matches.length === 1) {
-        sp[sp.length - 1] = matches[0];
-        this.input.value = `/${sp.join(' ')}`;
-      }
-      return;
-    }
+    if (sp.length > 1) return; // already typing an argument — nothing to complete
     const prefix = sp[0].toLowerCase();
     const matches = this.allCommands().filter((c) => c.name.startsWith(prefix));
     if (matches.length === 0) return;
@@ -425,8 +380,6 @@ function injectStyle(): void {
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#7fa7e0;}
     #pa-chatlog .ln a{color:#9ecbff;text-decoration:underline;overflow-wrap:anywhere;}
-    #pa-chatlog .ln a.pa-cmd{color:#7fd08a;cursor:pointer;text-decoration:underline dotted;font-weight:600;}
-    #pa-chatlog .ln a.pa-cmd:hover{color:#a6e6ad;text-decoration:underline;}
     #pa-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
     #pa-chatlog .ln.sys{color:#9aa0b8;font-style:italic;}
     #pa-chatinput{background:rgba(23,27,43,.9);border:2px solid #05060b;border-radius:0.4rem;color:#e9ecf7;

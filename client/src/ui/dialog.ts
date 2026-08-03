@@ -12,9 +12,7 @@ function ensureStyles(): void {
   style.textContent = `
     /* Above #pa-dialog-back (paDialog.ts, z-index 1000) — confirm/alert/prompt
        must be able to interrupt an already-open form dialog (e.g. a validation
-       error while "Create a meeting room" is still up), not hide behind it.
-       Below the voxel disconnect/kick overlay (z-index 1200), which should win
-       over everything when the connection itself is gone. */
+       error while "Create a meeting room" is still up), not hide behind it. */
     #pa-modal{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
       background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;}
     #pa-modal .box{background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;padding:1.1rem 1.2rem;
