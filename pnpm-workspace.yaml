@@ -20,3 +20,5 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - electron@43.0.0
+
+verifyDepsBeforeRun: false
