@@ -11,8 +11,15 @@ set -e
 
 cd "$(dirname "$0")/.."
 
+# Clear old AppImages first. electron-builder only overwrites the artifact name it
+# is currently configured for, so a rename (as in fa1d177, which dropped the spaces
+# from the name) leaves the previous file sitting in release/ — launchable, and
+# indistinguishable at a glance from a fresh build. That cost a long debugging
+# session chasing a bug in source that the running binary predated.
+rm -f desktop/release/*.AppImage
+
 pnpm run dist:desktop
 
 echo
 echo "Built: desktop/release/"
-ls -1 desktop/release/*.AppImage 2>/dev/null
+ls -1 --full-time desktop/release/*.AppImage 2>/dev/null
