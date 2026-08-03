@@ -157,8 +157,14 @@ command for any new destination (see AGENTS.md convention).
        the AudioContext**. Routing through `MediaStreamAudioDestinationNode` into an
        `<audio srcObject>` — the old way to get `setSinkId` — hands audio to
        Chromium's WebRTC renderer, which has its own playout clock and time-stretches
-       when it thinks it has drifted. Kept only as a fallback for an engine that
-       won't take a sink on the context.
+       when it thinks it has drifted. The element is used **only** when the engine
+       exposes no `setSinkId` on the context. A call that merely *rejects* must not
+       reach for it: Chromium refuses a non-default sink until mic permission is
+       granted, and playback starts on sync, racing (or preceding) `startMic` — so
+       with the mic off that refusal is the normal state, and the fallback would give
+       up correct pitch for a device the element can't select either. We stay on the
+       default device and retry the context sink (again after `startMic`, which is
+       what grants the permission).
     2. The jitter buffer is the `pa-voice-playout` worklet: a per-user ring read at
        exactly one sample per output sample, so arrival timing can never affect
        pitch. It emits silence when starved and drops the oldest audio above 250 ms,
