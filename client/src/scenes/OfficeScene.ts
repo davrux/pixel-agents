@@ -876,7 +876,12 @@ export class OfficeScene extends Phaser.Scene {
     openPaDialog({
       title: `Your meeting rooms${rooms.length ? ` (${rooms.length})` : ''}`,
       body,
-      buttons: [{ label: '+ New room', kind: 'green', onClick: () => this.openMeetingRoomDialog(kiosk) }],
+      // Explicit `return false` — this swaps in a second openPaDialog call
+      // (the create form) from inside this dialog's own button handler, and
+      // openPaDialog is a single shared modal instance: without `false` here,
+      // the outer handler's own auto-close (see paDialog.ts) fires right after
+      // and immediately hides the create dialog that was just opened.
+      buttons: [{ label: '+ New room', kind: 'green', onClick: () => { this.openMeetingRoomDialog(kiosk); return false; } }],
     });
   }
 
