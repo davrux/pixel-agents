@@ -13,6 +13,7 @@ import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from './constants.js';
 import { portalAssets } from './portalAssets.js';
 import { conferenceAssets } from './conferenceAssets.js';
 import { arcadeAssets } from './arcadeAssets.js';
+import { meetingRoomAssets } from './meetingRoomAssets.js';
 
 /** The exact on-join message sequence the original webview expects, built once
  *  at startup. Each entry is a ready-to-send {type, ...payload} object. */
@@ -46,9 +47,9 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
   ]);
   const layout = loadDefaultLayout(ASSETS_ROOT);
 
-  // Inject generated furniture (portals + conference monitor + arcade cabinet) into
-  // the catalog so they're real, editable furniture.
-  const generated = [...portalAssets(), ...conferenceAssets(), ...arcadeAssets()];
+  // Inject generated furniture (portals + conference monitor + arcade cabinet +
+  // meeting-room kiosk) into the catalog so they're real, editable furniture.
+  const generated = [...portalAssets(), ...conferenceAssets(), ...arcadeAssets(), ...meetingRoomAssets()];
   const furnitureCatalog = [...(furniture?.catalog ?? []), ...generated.map((p) => p.entry)];
   const furnitureSprites: Record<string, unknown> = {
     ...(furniture ? Object.fromEntries(furniture.sprites) : {}),

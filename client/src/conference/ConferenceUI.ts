@@ -1,8 +1,13 @@
 /**
  * The conference window shell (WebEx-style), styled like the rest of the pixel
- * menus. Owns a large centered overlay that can go true fullscreen: a tiled
- * participant stage, a toggleable side panel (Chat / Participants), and a bottom
- * control bar (mic, cam, screen, chat, participants, devices, fullscreen, leave).
+ * menus. Fills the whole browser viewport whenever it's open (there's no
+ * "windowed" state to speak of — a call is the thing you're doing, not a panel
+ * beside something else) — same surface whether it's opened over the pixel
+ * world (a monitor) or on the standalone /meet page: a tiled participant stage,
+ * a toggleable side panel (Chat / Participants), and a bottom control bar (mic,
+ * cam, screen, chat, participants, devices, fullscreen, leave). The "Fullscreen"
+ * button still calls the browser's Fullscreen API on top of that, to additionally
+ * hide the tab/address bar.
  *
  * Media + the in-meeting chat transport live in LiveKitConference; this class is
  * pure UI, driven by handlers + update calls from OfficeScene.
@@ -42,16 +47,9 @@ interface PartRow {
 // dark #0f1220 surfaces, #05060b borders, the inset 2px-light / 3px-dark bevel,
 // blue #2f66b0 + green #2f7d3f accents. Keep these in sync with OfficeScene's CSS.
 const CSS = `
-  #pa-conf{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:120;display:none;
-    width:min(92vw,72rem);height:min(86vh,44rem);flex-direction:column;background:#0f1220;border:2px solid #05060b;
-    border-radius:0.6rem;color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
-    box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
-  #pa-conf:fullscreen{width:100%;height:100%;left:0;top:0;transform:none;border:0;border-radius:0;max-width:none;}
-  /* Bottom-right drag grip — resize the window like the chat panel (hidden in fullscreen). */
-  #pa-conf .pa-conf-resize{position:absolute;right:0;bottom:0;width:1.2rem;height:1.2rem;cursor:se-resize;z-index:6;
-    background:linear-gradient(135deg,transparent 45%,#5a6076 45%,#5a6076 55%,transparent 55%,transparent 70%,#5a6076 70%,#5a6076 80%,transparent 80%);}
-  #pa-conf .pa-conf-resize:hover{filter:brightness(1.6);}
-  #pa-conf:fullscreen .pa-conf-resize{display:none;}
+  #pa-conf{position:fixed;inset:0;z-index:120;display:none;
+    width:100%;height:100%;flex-direction:column;background:#0f1220;
+    color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;}
   #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#0f1220;
     border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
   #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#eef1fb;font-weight:600;letter-spacing:.3px;}
@@ -210,8 +208,7 @@ export class ConferenceUI {
         <button data-full title="Fullscreen">⛶</button>
         <button data-leave class="leave">Leave</button>
         <div class="pa-conf-dev"></div>
-      </div>
-      <div class="pa-conf-resize" title="Drag to resize"></div>`;
+      </div>`;
     (document.getElementById('game') ?? document.body).appendChild(root);
     this.root = root;
     this.stageEl = root.querySelector('#pa-conf-stage')!;
@@ -225,55 +222,6 @@ export class ConferenceUI {
     this.bar = root.querySelector('.pa-conf-bar')!;
     this.devPop = root.querySelector('.pa-conf-dev')!;
     this.wire();
-    this.wireResize(root.querySelector('.pa-conf-resize')!);
-  }
-
-  /** Drag the bottom-right grip to resize the window. The window is centred via a
-   *  translate(-50%,-50%), so the grabbed corner moves at half the width delta — grow
-   *  the box by 2× the pointer delta so the corner tracks the cursor. Persisted. */
-  private wireResize(grip: HTMLElement): void {
-    const root = this.root;
-    const apply = (w: number, h: number): void => {
-      root.style.width = `${Math.round(w)}px`;
-      root.style.height = `${Math.round(h)}px`;
-      root.style.maxWidth = 'none';
-    };
-    try {
-      const w = Number(localStorage.getItem('pa-conf-w'));
-      const h = Number(localStorage.getItem('pa-conf-h'));
-      if (w && h) apply(w, h);
-    } catch {
-      /* ignore */
-    }
-    let sx = 0,
-      sy = 0,
-      sw = 0,
-      sh = 0;
-    const onMove = (e: PointerEvent): void => {
-      const w = Math.max(28 * 16, Math.min(window.innerWidth * 0.98, sw + (e.clientX - sx) * 2));
-      const h = Math.max(20 * 16, Math.min(window.innerHeight * 0.98, sh + (e.clientY - sy) * 2));
-      apply(w, h);
-    };
-    const end = (): void => {
-      grip.removeEventListener('pointermove', onMove);
-      try {
-        localStorage.setItem('pa-conf-w', String(parseInt(root.style.width, 10)));
-        localStorage.setItem('pa-conf-h', String(parseInt(root.style.height, 10)));
-      } catch {
-        /* ignore */
-      }
-    };
-    grip.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      sx = e.clientX;
-      sy = e.clientY;
-      const r = root.getBoundingClientRect();
-      sw = r.width;
-      sh = r.height;
-      grip.setPointerCapture(e.pointerId);
-      grip.addEventListener('pointermove', onMove);
-      grip.addEventListener('pointerup', end, { once: true });
-    });
   }
 
   /** The stage element LiveKitConference renders participant tiles into. */

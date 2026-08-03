@@ -293,15 +293,14 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
 - **Slash-commands for navigation & quick actions.** The chat slash-command
   framework (`shared/src/commands.ts`, `user`/`admin` groups, gated by
   `mayRunCommand`) is the canonical way to reach other views/destinations and
-  trigger quick actions. **When you add a new destination (page, world, portal)
-  or a chat-triggerable feature, add a matching command** in `commands.ts` and
+  trigger quick actions. **When you add a new destination (page, portal) or a
+  chat-triggerable feature, add a matching command** in `commands.ts` and
   handle it — client-side via the shared `ChatUI` `clientCommand` hook for
-  navigation (e.g. `/voxel`, `/rooms`, `/admin-site` set `window.location`;
-  carry the current zone as `?zone=` where relevant), or server-side in
-  `accountCommands.ts` for account/admin actions. Wire it in **both** the Pixels
-  (`OfficeScene`) and Voxel (`voxel/main.ts`) clients since they share `ChatUI`,
-  and it then shows up in `/help` automatically. Current set: `/help /afk /users
-  /voxel /rooms /admin-site /add /delete /set-admin /remove-admin /kick`.
+  navigation (e.g. `/admin-site` sets `window.location`; carry the current
+  zone as `?zone=` where relevant), or server-side in `accountCommands.ts` for
+  account/admin actions. It then shows up in `/help` automatically. Current
+  set: `/help /afk /users /admin-site /add /delete /set-admin /remove-admin
+  /kick`.
 - **Measuring performance:** judge render/mesher perf by **frame / CPU time**,
   not proxies like triangle count (greedy meshing once measured *slower* despite
   −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +

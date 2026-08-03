@@ -1,7 +1,7 @@
 /**
  * Arcade multiplayer lobby — brokers an IPX match at one cabinet among the players
- * in the same room (SimRoom zone / VoxelRoom world). js-dos does the actual peer
- * rendezvous over WebRTC using a shared ALIAS (both host and joiners set
+ * in the same zone (SimRoom). js-dos does the actual peer rendezvous over WebRTC
+ * using a shared ALIAS (both host and joiners set
  * connectIpxAddress = alias; the host also runs the IPX server). So the lobby only
  * has to agree on: the alias, the player count (IPX -nodes), the mode, and a
  * synchronised start — no raw peer-id handshake.
@@ -40,8 +40,8 @@ const userNameOf = (client: Client): string =>
   (client.auth as { userId?: string } | undefined)?.userId ||
   'Player';
 
-// A cabinet key: 2 coords (2D "col,row") or 3 (voxel "x,y,z"), signed.
-const isCabinet = (c?: string): c is string => typeof c === 'string' && /^-?\d+,-?\d+(,-?\d+)?$/.test(c);
+// A cabinet key: 2 signed coords ("col,row").
+const isCabinet = (c?: string): c is string => typeof c === 'string' && /^-?\d+,-?\d+$/.test(c);
 
 export function registerArcadeLobby(room: Room): { onLeave: (sessionId: string) => void } {
   const matches = new Map<string, Match>(); // cabinet → match

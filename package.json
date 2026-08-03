@@ -27,8 +27,5 @@
     "docker:build": "pnpm run version:gen && docker build -t \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\" .",
     "docker:push": "docker push \"${PIXEL_AGENTS_IMAGE:-davrux/pixel-agents:dev}\"",
     "docker:release": "pnpm run docker:build && pnpm run docker:push"
-  },
-  "devDependencies": {
-    "assimpjs": "0.0.10"
   }
 }

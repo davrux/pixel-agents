@@ -1,6 +1,6 @@
 /**
  * Shared desktop session flows (boot, reauth, sign-out) used by every entry
- * page (index, voxel, rooms). All functions here are desktop-only: callers
+ * page (index, admin, meet). All functions here are desktop-only: callers
  * must guard with `isDesktop()` before invoking them.
  */
 import { desktop, reloadApp, setConfiguredServerOrigin } from './bridge';

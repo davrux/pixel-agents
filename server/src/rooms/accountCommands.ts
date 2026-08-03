@@ -1,10 +1,10 @@
 /**
  * Shared server-side execution of the account/admin slash-commands
- * (users / add / delete / set-admin / remove-admin / kick). Both the 2D SimRoom
- * and the 3D VoxelRoom delegate here, so the chat behaves IDENTICALLY in every
- * world — same registry, same output (incl. the ★ admin marker), same global
- * user store + cross-world presence + kick bus. World-specific commands (afk,
- * voxel, goto, …) stay in each room; this handles only the global ones.
+ * (users / add / delete / set-admin / remove-admin / kick). SimRoom delegates
+ * here, so the chat behaves IDENTICALLY across zones — same registry, same
+ * output (incl. the ★ admin marker), same global user store + cross-zone
+ * presence + kick bus. Zone-specific commands (afk, …) stay in the room;
+ * this handles only the global ones.
  */
 import type { CommandSpec } from '@pixel/shared';
 
@@ -48,7 +48,7 @@ export function runAccountCommand(spec: CommandSpec, args: string[], ctx: Accoun
             : 'No users registered.',
         );
       } else if (mode === 'online') {
-        // Everyone online across all zones AND voxel worlds (one presence tracker).
+        // Everyone online across all zones (one presence tracker).
         const all = presence.list().sort((a, b) => a.zone.localeCompare(b.zone) || a.name.localeCompare(b.name));
         sys(
           all.length

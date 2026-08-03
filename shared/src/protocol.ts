@@ -55,6 +55,14 @@ export interface ZoneConfig {
    *  actual password never leaves the server; clients only learn it's locked so
    *  they can prompt. */
   locked?: boolean;
+  /** The user who created this zone (owns its privacy/ACL/invite controls) —
+   *  absent for builtin zones and zones whose owner's account was later
+   *  deleted (the zone stays, just ownerless — see zoneStore.ts). */
+  ownerId?: string;
+  /** Private zones stay visible in the zone list (so the name isn't a secret)
+   *  but reject entry for anyone but the owner, its zone-admins, an ACL
+   *  member, or a global admin. */
+  private?: boolean;
 }
 
 /** Builtin zones, used to seed the persistent zone registry on first run. After

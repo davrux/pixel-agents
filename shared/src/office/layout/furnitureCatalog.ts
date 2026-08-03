@@ -21,6 +21,7 @@ export interface LoadedAssetData {
     portal?: boolean; // zone portal (door / beam pad)
     conference?: boolean; // conference monitor (click → join a video call)
     arcade?: boolean; // arcade cabinet (click → launch a DOS game)
+    meetingRoom?: boolean; // meeting-room kiosk (click → mint an ad-hoc video room link)
     rotationScheme?: string;
     animationGroup?: string;
     frame?: number;
@@ -112,6 +113,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.portal ? { portal: true } : {}),
         ...(asset.conference ? { conference: true } : {}),
         ...(asset.arcade ? { arcade: true } : {}),
+        ...(asset.meetingRoom ? { meetingRoom: true } : {}),
       };
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);

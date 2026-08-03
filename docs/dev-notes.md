@@ -7,15 +7,16 @@ because the agent's `~/.claude` store is wiped on every dev-container rebuild.
 as work progresses. It is a curated summary, not a changelog (git has the history).
 
 ## Big picture
-Server-authoritative MMO on **Colyseus + `/feed`** (one port), three browser
-**renderers on the same backend** (any server change applies to all):
+Server-authoritative MMO on **Colyseus + `/feed`** (one port), browser
+**clients on the same backend** (any server change applies to all):
 - **Pixels** (`client/index.html` → `client/src/scenes/OfficeScene.ts`) — 2D Phaser
   office; zones = rooms (SimRoom).
-- **Voxel** (`client/voxel.html` → `client/src/voxel/`) — 3D Three.js world
-  (VoxelRoom; worlds, separate from zones).
-- **Rooms portal** (`client/rooms.html` → `client/src/rooms/main.ts`) — professional
-  Teams-style customer view of a zone (chat/voice/meetings), no Phaser.
+- **Meet** (`client/meet.html` → `client/src/meet/main.ts`) — standalone ad-hoc
+  meeting-room join page (`/meet/<slug>`), no pixel-agents account required.
 - **Admin** (`client/admin.html` → `client/src/admin/`) — admin-only user/room mgmt.
+
+(A 3D voxel-sandbox client existed on this branch; removed — see
+`origin/voxel-backup` for its history if it's ever wanted back.)
 
 Auth/users/sessions/zones/voice/conference/chat are **shared server-side** (single
 `pixel.db`). Identity = `user_id` (login id). See `AGENTS.md` for the invariants.
@@ -25,9 +26,9 @@ Auth/users/sessions/zones/voice/conference/chat are **shared server-side** (sing
   admin = everything; user = create/edit their OWN zones (creator becomes that
   zone's admin); customer = external guest.
 - **Customer gating:** only assigned rooms (`zone_customers`); the Pixels 2D client
-  needs `allow_pixels` (portal join is a non-spatial "spectator"); never voxel
-  worlds; no agents (feed rejects them); no arcade WAD endpoints. Zone lists +
-  portal options are filtered per customer. Shown in-world as "Customer".
+  needs `allow_pixels` (portal join is a non-spatial "spectator"); no agents (feed
+  rejects them); no arcade WAD endpoints. Zone lists + portal options are
+  filtered per customer. Shown in-world as "Customer".
 - **Passwords** (scrypt, `server/src/pwhash.ts`): per-zone entry password + per-
   monitor call password (`zoneStore`); admins/zone-admins/assigned customers bypass.
 - **Admin REST API** `server/src/adminApi.ts` (`/admin/*`, admin-gated) backs
@@ -47,12 +48,11 @@ overlays, then `game.loop.sleep()` after ~2 s; woken by input/state/voice/tab-fo
 Overlays capped ~20 Hz. Perf overlay: **F8** / `?perf=1`.
 
 ## Navigation (slash-commands)
-`/voxel`, `/rooms` (carries current zone), `/admin-site` (admin) — client-side via
-the shared ChatUI `clientCommand` hook, wired in both Pixels + Voxel. Add a matching
-command for any new destination (see AGENTS.md convention).
+`/admin-site` (admin) — client-side via the shared ChatUI `clientCommand` hook.
+Add a matching command for any new destination (see AGENTS.md convention).
 
 ## Other subsystems (brief)
-- **Arcade** cabinets (Pixels + Voxel) run games via js-dos (DOS); server-wide
+- **Arcade** cabinets (Pixels) run games via js-dos (DOS); server-wide
   savegames. **Fully content-driven — NO games are baked into the image.** The
   operator bind-mounts a content dir (`ARCADE_CONTENT_DIR`) holding the game files
   + a **`catalog.json`** (`ArcadeGame[]`); the server serves the catalog at
@@ -101,9 +101,9 @@ command for any new destination (see AGENTS.md convention).
   `DOOM.EXE` so IPXSETUP launches any variant; the bundle's autoexec always runs
   `NET.BAT` (single-player `DOOM.EXE` by default; a networked launch overlays it).
   Lobby: `server/src/arcadeLobby.ts` `registerArcadeLobby(room)` (per-room,
-  per-cabinet match; host/join/mode/start; onLeave hook wired in SimRoom+VoxelRoom;
+  per-cabinet match; host/join/mode/start; onLeave hook wired in SimRoom;
   sends `arcadeLobby` + `arcadeLaunch`). Client: ArcadeUI 👥 button → lobby modal →
-  on `arcadeLaunch` boot the game. Wired in Pixels + Voxel.
+  on `arcadeLaunch` boot the game.
   - **Transport is HumbleNet, NOT PeerJS.** js-dos v8 does IPX-over-WebRTC via its
     bundled HumbleNet (`emulators/webrtcnet.wasm`); the "peerServer" is a HumbleNet
     signaling server (default `https://net.dos.zone`), which the standard `peer`
@@ -136,7 +136,6 @@ command for any new destination (see AGENTS.md convention).
     array). Env: `ARCADE_TURN_URLS` (comma list), `ARCADE_TURN_SECRET`,
     `ARCADE_TURN_TTL` (default 12h), optional `ARCADE_STUN_URLS`. Unset → STUN-only
     (LAN/same-machine only). Operator must run coturn on the public host.
-- **Voxel** is a large survival sandbox (see git history / `voxel/`); heaviest client.
 - **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit); per-member
   volume/mute. **Zone voice** = per-zone WebRTC + proximity.
 - **Mumble (desktop only)** — a real Mumble client, split across the two processes:

@@ -216,6 +216,9 @@ export interface FurnitureCatalogEntry {
   conference?: boolean;
   /** Whether this furniture is an arcade cabinet: clicking it launches a DOS game. */
   arcade?: boolean;
+  /** Whether this furniture creates ad-hoc meeting rooms: clicking it opens a
+   *  dialog to mint a random-link, password-optional, expiring video/audio room. */
+  meetingRoom?: boolean;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */

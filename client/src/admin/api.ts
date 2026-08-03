@@ -6,25 +6,48 @@
 import { serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop } from '../desktop/bridge.js';
 
-export type Role = 'admin' | 'user' | 'customer';
+export type Role = 'admin' | 'user';
 export interface AdminUser {
   userId: string;
   username: string;
   role: Role;
   hasPassword: boolean;
-  allowPixels: boolean;
+  disabled: boolean;
 }
 export interface AdminZone {
   id: string;
   label: string;
   readOnly: boolean;
   locked: boolean;
-  customers: number;
+  ownerId: string | null;
+  ownerName: string | null;
+  private: boolean;
+}
+export interface AdminZoneAclMember {
+  userId: string;
+  name: string;
+  isAdmin: boolean;
+}
+export interface AdminZoneMembers {
+  owner: AdminZoneAclMember | null;
+  admins: AdminZoneAclMember[];
+  acl: AdminZoneAclMember[];
 }
 export interface AdminMonitor {
   key: string;
   name: string;
   locked: boolean;
+}
+export interface AdminMeetingRoom {
+  slug: string;
+  ownerId: string;
+  ownerName: string;
+  label: string;
+  createdAt: number;
+  expiresAt: number;
+  hasPassword: boolean;
+  expired: boolean;
+  ownerDisabled: boolean;
 }
 
 export interface ApiResult<T> {
@@ -61,23 +84,42 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<Api
 }
 
 export const adminApi = {
+  whoami: () => req<{ userId: string; name: string }>('GET', '/admin/whoami'),
   listUsers: () => req<{ users: AdminUser[] }>('GET', '/admin/users'),
-  createUser: (loginId: string, password: string, role: Role, allowPixels = false) =>
-    req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role, allowPixels }),
-  updateUser: (id: string, patch: { role?: Role; password?: string; allowPixels?: boolean }) =>
+  createUser: (loginId: string, password: string, role: Role) =>
+    req<{ user: AdminUser }>('POST', '/admin/users', { loginId, password, role }),
+  updateUser: (id: string, patch: { role?: Role; password?: string; disabled?: boolean }) =>
     req<{ user: AdminUser }>('PATCH', `/admin/users/${encodeURIComponent(id)}`, patch),
   deleteUser: (id: string) => req<{ ok: true }>('DELETE', `/admin/users/${encodeURIComponent(id)}`),
 
   listZones: () => req<{ zones: AdminZone[] }>('GET', '/admin/zones'),
   setZonePassword: (id: string, password: string) =>
     req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(id)}/password`, { password }),
+  setZonePrivate: (id: string, priv: boolean) =>
+    req<{ private: boolean }>('PUT', `/admin/zone/${encodeURIComponent(id)}/private`, { private: priv }),
+  setZoneOwner: (id: string, ownerId: string | null) =>
+    req<{ ownerId: string | null; ownerName: string | null }>('PUT', `/admin/zone/${encodeURIComponent(id)}/owner`, { ownerId }),
+  zoneMembers: (id: string) => req<AdminZoneMembers>('GET', `/admin/zone/${encodeURIComponent(id)}/members`),
+  addZoneAcl: (id: string, userId: string) =>
+    req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/acl`, { userId }),
+  removeZoneAcl: (id: string, userId: string) =>
+    req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/acl/${encodeURIComponent(userId)}`),
 
-  userRooms: (id: string) => req<{ assigned: string[] }>('GET', `/admin/users/${encodeURIComponent(id)}/rooms`),
-  assignRoom: (id: string, zoneId: string, on: boolean) =>
-    req<{ assigned: string[] }>('PUT', `/admin/users/${encodeURIComponent(id)}/rooms`, { zoneId, on }),
+  // Zone-admins (co-editors): callable by that zone's owner too, not just a
+  // global admin (see server's zoneGrantAdminAuth) — shared by admin.html's
+  // Zones tab and Pixels' own "Zone admins" panel (shared/zoneAdminsWidget.ts).
+  listZoneAdmins: (id: string) => req<{ admins: AdminZoneAclMember[] }>('GET', `/admin/zone/${encodeURIComponent(id)}/admins`),
+  grantZoneAdmin: (id: string, userId: string) =>
+    req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/admins`, { userId }),
+  revokeZoneAdmin: (id: string, userId: string) =>
+    req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`),
 
   listMonitors: (zoneId: string) =>
     req<{ monitors: AdminMonitor[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/monitors`),
   setMonitorPassword: (zoneId: string, key: string, password: string) =>
     req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(zoneId)}/monitor`, { key, password }),
+
+  listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
+  deleteMeetingRoom: (slug: string) =>
+    req<{ ok: true }>('DELETE', `/admin/meeting-rooms/${encodeURIComponent(slug)}`),
 };

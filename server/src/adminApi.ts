@@ -5,16 +5,18 @@
  * effect on the game rooms too (entry/password gates read the DB live).
  *
  * Covers: user CRUD + role + password reset (the last admin can't be deleted or
- * demoted), per-customer room assignments, per-zone entry passwords, and per-
- * monitor call passwords. Passwords are stored hashed (scrypt) — never returned.
+ * demoted), per-zone entry passwords, and per-monitor call passwords. Passwords
+ * are stored hashed (scrypt) — never returned.
  */
 import express, { type Express, type Request, type Response } from 'express';
 
 import { userIdFromCookie, userIdFromBearer } from './auth.js';
-import { userStore, isValidPassword, isRole, normalizeLoginId, type Role } from './userStore.js';
+import { userStore, UserStore, isValidPassword, isRole, normalizeLoginId, type Role } from './userStore.js';
 import { ZoneStore } from './zoneStore.js';
 import { LayoutStore } from './layoutStore.js';
 import { appStore } from './appStore.js';
+import { meetingRoomStore } from './meetingRoomStore.js';
+import { can, type Principal } from './permissions.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { PlacedFurniture } from '@pixel/shared/office/types.js';
 
@@ -43,12 +45,44 @@ export function registerAdminApi(app: Express): void {
     return { userId: uid };
   };
 
-  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean; allowPixels: boolean }) => ({
+  // Same rule as the in-game Zones panel's 'zone.grantAdmin' capability (see
+  // permissions.ts) — reused here instead of re-deriving "owner or global
+  // admin" by hand, so the REST and Colyseus paths can't drift apart. Unlike
+  // every other route above, this allows a caller who ISN'T a global admin —
+  // that's the point: a zone owner calls this from inside Pixels (fetch, not
+  // by visiting admin.html, which still 403s them at the page level), while
+  // the admin website calls the very same route as a global admin.
+  const zoneGrantAdminAuth = (req: Request, res: Response, zoneId: string): { userId: string } | null => {
+    const uid = reqUserId(req);
+    if (!uid) {
+      res.status(401).json({ error: 'unauthorized' });
+      return null;
+    }
+    const principal: Principal = { userId: uid, isAdmin: !!userStore.get(uid)?.isAdmin };
+    const env = { authRequired: true, isZoneAdmin: (z: string, u: string) => zones.isZoneAdmin(z, u), zoneOwner: (z: string) => zones.zoneOwner(z) };
+    if (!can(principal, 'zone.grantAdmin', env, { zoneId })) {
+      res.status(403).json({ error: 'forbidden' });
+      return null;
+    }
+    return { userId: uid };
+  };
+
+  const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean; disabled: boolean }) => ({
     userId: u.userId,
     username: u.username,
     role: u.role,
     hasPassword: u.hasPassword,
-    allowPixels: u.allowPixels,
+    disabled: u.disabled,
+  });
+
+  // Who the caller is — the admin site has no other way to know its own
+  // identity (it's a plain REST client, not a Colyseus connection with a
+  // viewerIdentity message); backs the "Take ownership" quick action.
+  app.get('/admin/whoami', (req, res) => {
+    const me = admin(req, res);
+    if (!me) return;
+    const user = userStore.get(me.userId);
+    res.json({ userId: me.userId, name: user ? UserStore.displayName(user) : me.userId });
   });
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -59,13 +93,13 @@ export function registerAdminApi(app: Express): void {
 
   app.post('/admin/users', json, (req, res) => {
     if (!admin(req, res)) return;
-    const body = (req.body ?? {}) as { loginId?: unknown; password?: unknown; role?: unknown; allowPixels?: unknown };
+    const body = (req.body ?? {}) as { loginId?: unknown; password?: unknown; role?: unknown };
     const loginId = normalizeLoginId(body.loginId);
     if (!loginId) return void res.status(400).json({ error: 'invalid login id' });
     if (userStore.exists(loginId)) return void res.status(409).json({ error: 'user exists' });
     if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
     const role: Role = isRole(body.role) ? body.role : 'user';
-    const user = userStore.createUser(loginId, body.password, { role, allowPixels: !!body.allowPixels });
+    const user = userStore.createUser(loginId, body.password, { role });
     res.json({ ok: true, user: userView(user) });
   });
 
@@ -75,7 +109,7 @@ export function registerAdminApi(app: Express): void {
     const id = normalizeLoginId(req.params.id);
     const target = userStore.get(id);
     if (!target) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; allowPixels?: unknown };
+    const body = (req.body ?? {}) as { role?: unknown; password?: unknown; disabled?: unknown };
 
     if (body.role !== undefined) {
       if (!isRole(body.role)) return void res.status(400).json({ error: 'invalid role' });
@@ -89,7 +123,18 @@ export function registerAdminApi(app: Express): void {
       if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
       userStore.setPassword(id, body.password);
     }
-    if (body.allowPixels !== undefined) userStore.setAllowPixels(id, !!body.allowPixels);
+    if (body.disabled !== undefined) {
+      const disabled = !!body.disabled;
+      if (disabled) {
+        if (id === me.userId) return void res.status(409).json({ error: 'cannot disable yourself' });
+        // Never leave the system without a usable admin (unlike adminCount(), a
+        // disabled admin doesn't count as usable).
+        if (target.isAdmin && userStore.enabledAdminCount() <= 1) {
+          return void res.status(409).json({ error: 'last admin' });
+        }
+      }
+      userStore.setDisabled(id, disabled);
+    }
     res.json({ ok: true, user: userView(userStore.get(id)!) });
   });
 
@@ -102,25 +147,126 @@ export function registerAdminApi(app: Express): void {
     if (id === me.userId) return void res.status(409).json({ error: 'cannot delete yourself' });
     if (target.isAdmin && userStore.adminCount() <= 1) return void res.status(409).json({ error: 'last admin' });
     userStore.deleteUser(id);
-    // Clean up the user's global + per-zone data (mirrors the /delete command).
+    // Clean up the user's global data (mirrors the /delete command). Zones the
+    // user owned/could-admin/was-ACL'd-into are deliberately kept, not deleted —
+    // removeUserFromAllZones() only clears their grants/ACL membership and nulls
+    // out owner_id on zones they owned (they become ownerless, not gone).
     appStore.deletePlayerAvatar(id);
     appStore.clearCharPref(id);
     appStore.clearPlayerPref(id);
     zones.removeUserFromAllZones(id);
+    meetingRoomStore.deleteAllByOwner(id);
     res.json({ ok: true });
   });
 
   // ── Zones (rooms) ────────────────────────────────────────────────────────────
   app.get('/admin/zones', (req, res) => {
     if (!admin(req, res)) return;
-    const list = zones.list().map((z) => ({
-      id: z.id,
-      label: z.label,
-      readOnly: !!z.readOnly,
-      locked: !!z.locked,
-      customers: zones.listZoneCustomers(z.id).length,
-    }));
+    const list = zones.list().map((z) => {
+      const owner = z.ownerId ? userStore.get(z.ownerId) : undefined;
+      return {
+        id: z.id,
+        label: z.label,
+        readOnly: !!z.readOnly,
+        locked: !!z.locked,
+        ownerId: z.ownerId ?? null,
+        ownerName: owner ? UserStore.displayName(owner) : (z.ownerId ?? null),
+        private: !!z.private,
+      };
+    });
     res.json({ zones: list });
+  });
+
+  // Admin override: force a zone private/public regardless of its owner (or
+  // even if it has none — an ownerless zone can only be managed this way).
+  app.put('/admin/zone/:id/private', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const body = (req.body ?? {}) as { private?: unknown };
+    zones.setPrivate(id, !!body.private);
+    res.json({ ok: true, private: zones.isPrivate(id) });
+  });
+
+  // Take/transfer/revoke ownership — the migration path for zones that predate
+  // this feature, or lost their owner when that account was deleted (they stay
+  // ownerless, not gone — see zoneStore.ts removeUserFromAllZones).
+  app.put('/admin/zone/:id/owner', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const raw = (req.body as { ownerId?: unknown } | undefined)?.ownerId;
+    const ownerId = raw == null || raw === '' ? null : normalizeLoginId(raw);
+    if (ownerId && !userStore.get(ownerId)) return void res.status(400).json({ error: 'no such user' });
+    zones.setOwner(id, ownerId);
+    const owner = ownerId ? userStore.get(ownerId) : undefined;
+    res.json({ ok: true, ownerId, ownerName: owner ? UserStore.displayName(owner) : ownerId });
+  });
+
+  // Everyone with a stake in a zone's access, together — same shape as the
+  // in-game zoneMembers message, so the admin UI can show the full picture
+  // (owner + zone-admins + ACL) instead of the ACL alone.
+  const zoneMemberView = (uid: string) => {
+    const u = userStore.get(uid);
+    return { userId: uid, name: u?.username || uid, isAdmin: !!u?.isAdmin };
+  };
+  app.get('/admin/zone/:id/members', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const ownerId = zones.zoneOwner(id);
+    res.json({
+      owner: ownerId ? zoneMemberView(ownerId) : null,
+      admins: zones.listZoneAdmins(id).map(zoneMemberView),
+      acl: zones.listAcl(id).map(zoneMemberView),
+    });
+  });
+
+  app.post('/admin/zone/:id/acl', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const targetId = normalizeLoginId((req.body as { userId?: unknown } | undefined)?.userId);
+    if (!targetId || !userStore.get(targetId)) return void res.status(400).json({ error: 'no such user' });
+    zones.aclAdd(id, targetId);
+    res.json({ ok: true });
+  });
+
+  app.delete('/admin/zone/:id/acl/:userId', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    zones.aclRemove(id, normalizeLoginId(req.params.userId));
+    res.json({ ok: true });
+  });
+
+  // Zone-admins (co-editors): the one set of zone routes an owner may call
+  // without being a global admin — see zoneGrantAdminAuth above. Shared by the
+  // admin website's Zones tab and Pixels' own "Zone admins" panel (both call
+  // this same route; see client/src/shared/zoneAdminsWidget.ts).
+  app.get('/admin/zone/:id/admins', (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    res.json({ admins: zones.listZoneAdmins(id).map(zoneMemberView) });
+  });
+
+  app.post('/admin/zone/:id/admins', json, (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const targetId = normalizeLoginId((req.body as { userId?: unknown } | undefined)?.userId);
+    if (!targetId || !userStore.get(targetId)) return void res.status(400).json({ error: 'no such user' });
+    zones.setZoneAdmin(id, targetId, true);
+    res.json({ ok: true });
+  });
+
+  app.delete('/admin/zone/:id/admins/:userId', (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    zones.setZoneAdmin(id, normalizeLoginId(req.params.userId), false);
+    res.json({ ok: true });
   });
 
   // Set/clear a zone's entry password ('' → clears the lock).
@@ -133,25 +279,6 @@ export function registerAdminApi(app: Express): void {
     if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
     zones.setZonePassword(id, password || null);
     res.json({ ok: true, locked: zones.zoneHasPassword(id) });
-  });
-
-  // ── Customer ↔ room assignments ───────────────────────────────────────────
-  app.get('/admin/users/:id/rooms', (req, res) => {
-    if (!admin(req, res)) return;
-    const id = normalizeLoginId(req.params.id);
-    if (!userStore.get(id)) return void res.status(404).json({ error: 'not found' });
-    res.json({ assigned: zones.listCustomerZones(id) });
-  });
-
-  app.put('/admin/users/:id/rooms', json, (req, res) => {
-    if (!admin(req, res)) return;
-    const id = normalizeLoginId(req.params.id);
-    if (!userStore.get(id)) return void res.status(404).json({ error: 'not found' });
-    const body = (req.body ?? {}) as { zoneId?: unknown; on?: unknown };
-    const zoneId = typeof body.zoneId === 'string' ? body.zoneId : '';
-    if (!zones.has(zoneId)) return void res.status(400).json({ error: 'no such zone' });
-    zones.assignCustomer(zoneId, id, !!body.on);
-    res.json({ ok: true, assigned: zones.listCustomerZones(id) });
   });
 
   // ── Conference monitors (per zone) ────────────────────────────────────────
@@ -181,5 +308,36 @@ export function registerAdminApi(app: Express): void {
     if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
     zones.setMonitorPassword(id, key, password || null);
     res.json({ ok: true, locked: zones.monitorHasPassword(id, key) });
+  });
+
+  // ── Meeting rooms (ad-hoc /meet/<slug> video calls) ─────────────────────────
+  // Overview + early end for rooms minted by the "Meeting Room Kiosk" furniture
+  // (see meetingRoomStore.ts / SimRoom.ts meetingRoomCreate). Expired rows are
+  // pruned automatically (hourly) but still listed here until then, so an admin
+  // can see recently-expired rooms too, not just active ones.
+  app.get('/admin/meeting-rooms', (req, res) => {
+    if (!admin(req, res)) return;
+    const rooms = meetingRoomStore.listAll().map((r) => {
+      const owner = userStore.get(r.ownerId);
+      return {
+        slug: r.slug,
+        ownerId: r.ownerId,
+        ownerName: owner ? UserStore.displayName(owner) : r.ownerId, // owner account may since be deleted
+        ownerDisabled: !!owner?.disabled,
+        label: r.label,
+        createdAt: r.createdAt,
+        expiresAt: r.expiresAt,
+        hasPassword: r.hasPassword,
+        expired: meetingRoomStore.isExpired(r),
+      };
+    });
+    res.json({ rooms });
+  });
+
+  // End a room early instead of waiting out its natural expiry.
+  app.delete('/admin/meeting-rooms/:slug', (req, res) => {
+    if (!admin(req, res)) return;
+    if (!meetingRoomStore.delete(req.params.slug)) return void res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
   });
 }

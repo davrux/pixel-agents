@@ -51,13 +51,6 @@ export class CharacterSync extends EntitySync {
   /** Player set themselves away (/afk) — shows an "afk" marker; clears on move.
    *  Appended last (schema-evolution safe: never shift existing field indices). */
   @type('boolean') afk = false;
-  /** This "player" joined via the rooms portal (a non-spatial viewer). Still shown
-   *  in the world as their avatar — labelled "… (Rooms)" — so Pixels players always
-   *  see who's present in the room, including portal-only participants. */
-  @type('boolean') spectator = false;
-  /** The player's account is a customer (external guest) — shown as "Customer"
-   *  rather than "Player" in the 2D client. */
-  @type('boolean') isCustomer = false;
 }
 
 export class PetSync extends EntitySync {
