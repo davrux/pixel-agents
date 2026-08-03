@@ -45,14 +45,19 @@ export function registerAdminApi(app: Express): void {
     return { userId: uid };
   };
 
-  // Same rule as the in-game Zones panel's 'zone.grantAdmin' capability (see
-  // permissions.ts) — reused here instead of re-deriving "owner or global
-  // admin" by hand, so the REST and Colyseus paths can't drift apart. Unlike
-  // every other route above, this allows a caller who ISN'T a global admin —
-  // that's the point: a zone owner calls this from inside Pixels (fetch, not
-  // by visiting admin.html, which still 403s them at the page level), while
-  // the admin website calls the very same route as a global admin.
-  const zoneGrantAdminAuth = (req: Request, res: Response, zoneId: string): { userId: string } | null => {
+  // Delegates to the shared `can()` policy (see permissions.ts) instead of
+  // re-deriving "owner or global admin" by hand, so the REST and Colyseus
+  // paths can't drift apart. Unlike routes gated on `admin()` above, this
+  // allows a caller who ISN'T a global admin — that's the point: a zone
+  // owner calls this from inside Pixels (fetch, not by visiting admin.html,
+  // which still 403s non-admins at the page level), while the admin website
+  // calls the very same route as a global admin.
+  const zoneCapabilityAuth = (
+    req: Request,
+    res: Response,
+    zoneId: string,
+    capability: 'zone.grantAdmin' | 'zone.managePassword' | 'zone.manageMonitors' | 'zone.managePrivacy',
+  ): { userId: string } | null => {
     const uid = reqUserId(req);
     if (!uid) {
       res.status(401).json({ error: 'unauthorized' });
@@ -60,12 +65,14 @@ export function registerAdminApi(app: Express): void {
     }
     const principal: Principal = { userId: uid, isAdmin: !!userStore.get(uid)?.isAdmin };
     const env = { authRequired: true, isZoneAdmin: (z: string, u: string) => zones.isZoneAdmin(z, u), zoneOwner: (z: string) => zones.zoneOwner(z) };
-    if (!can(principal, 'zone.grantAdmin', env, { zoneId })) {
+    if (!can(principal, capability, env, { zoneId })) {
       res.status(403).json({ error: 'forbidden' });
       return null;
     }
     return { userId: uid };
   };
+  const zoneGrantAdminAuth = (req: Request, res: Response, zoneId: string): { userId: string } | null =>
+    zoneCapabilityAuth(req, res, zoneId, 'zone.grantAdmin');
 
   const userView = (u: { userId: string; username: string; role: Role; hasPassword: boolean; disabled: boolean }) => ({
     userId: u.userId,
@@ -269,10 +276,10 @@ export function registerAdminApi(app: Express): void {
     res.json({ ok: true });
   });
 
-  // Set/clear a zone's entry password ('' → clears the lock).
+  // Set/clear a zone's entry password ('' → clears the lock). Owner or global admin.
   app.put('/admin/zone/:id/password', json, (req, res) => {
-    if (!admin(req, res)) return;
     const id = req.params.id;
+    if (!zoneCapabilityAuth(req, res, id, 'zone.managePassword')) return;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
     const pw = (req.body ?? {}) as { password?: unknown };
     const password = typeof pw.password === 'string' ? pw.password : '';
@@ -285,8 +292,8 @@ export function registerAdminApi(app: Express): void {
   // Monitors come from the zone's active saved layout (where admins place them in
   // the editor). Zones still on the pristine generated default list none here.
   app.get('/admin/zone/:id/monitors', (req, res) => {
-    if (!admin(req, res)) return;
     const id = req.params.id;
+    if (!zoneCapabilityAuth(req, res, id, 'zone.manageMonitors')) return;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
     const locked = new Set(zones.lockedMonitors(id));
     const layout = layouts.getActiveLayout(id) as { furniture?: PlacedFurniture[] } | null;
@@ -296,10 +303,10 @@ export function registerAdminApi(app: Express): void {
     res.json({ monitors });
   });
 
-  // Set/clear a monitor's call password (key = "col,row").
+  // Set/clear a monitor's call password (key = "col,row"). Owner or global admin.
   app.put('/admin/zone/:id/monitor', json, (req, res) => {
-    if (!admin(req, res)) return;
     const id = req.params.id;
+    if (!zoneCapabilityAuth(req, res, id, 'zone.manageMonitors')) return;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
     const body = (req.body ?? {}) as { key?: unknown; password?: unknown };
     const key = typeof body.key === 'string' && /^\d+,\d+$/.test(body.key) ? body.key : '';

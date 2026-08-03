@@ -49,6 +49,8 @@ import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
+import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
+import { renderZoneMonitorsWidget } from '../shared/zoneMonitorsWidget.js';
 import { generatePassword } from '../shared/generatePassword.js';
 import {
   filterUserDatalist as filterSharedUserDatalist,
@@ -2596,6 +2598,14 @@ export class OfficeScene extends Phaser.Scene {
           <button type="button" class="pa-b green" data-invite-btn>Invite</button>
         </div>
         <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
+      </div>
+      <div class="fld"><label>Entry password</label>
+        <div data-password-widget></div>
+        <div data-password-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
+      </div>
+      <div class="fld"><label>Monitors</label>
+        <div data-monitors-widget></div>
+        <div data-monitors-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
       </div>`;
 
     const membersEl = body.querySelector<HTMLDivElement>('[data-members]')!;
@@ -2660,6 +2670,29 @@ export class OfficeScene extends Phaser.Scene {
       inviteMsg.textContent = `Inviting ${uid}…`;
       inviteMsg.style.color = '';
     };
+
+    // Entry password + monitors — owner's call too (see server's
+    // zoneCapabilityAuth), REST-backed via the shared widgets (same routes
+    // the admin website's Zones tab uses; see shared/zonePasswordWidget.ts
+    // and shared/zoneMonitorsWidget.ts).
+    const passwordEl = body.querySelector<HTMLDivElement>('[data-password-widget]')!;
+    const passwordMsgEl = body.querySelector<HTMLDivElement>('[data-password-msg]')!;
+    renderZonePasswordWidget(passwordEl, zone.id, !!zone.locked, {
+      onError: (action, error) => {
+        passwordMsgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
+        passwordMsgEl.style.color = '#f0a6a2';
+      },
+      classNames: { button: 'pa-b', primaryButton: 'pa-b green', dangerButton: 'pa-b danger' },
+    });
+    const monitorsEl = body.querySelector<HTMLDivElement>('[data-monitors-widget]')!;
+    const monitorsMsgEl = body.querySelector<HTMLDivElement>('[data-monitors-msg]')!;
+    renderZoneMonitorsWidget(monitorsEl, zone.id, {
+      onError: (action, error) => {
+        monitorsMsgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
+        monitorsMsgEl.style.color = '#f0a6a2';
+      },
+      classNames: { button: 'pa-b', primaryButton: 'pa-b green' },
+    });
 
     openPaDialog({ title: `Zone settings — ${zone.label}`, body, buttons: [] });
   }
