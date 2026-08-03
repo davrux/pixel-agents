@@ -15,7 +15,11 @@
         font-weight: 400;
         font-display: block;
       }
+      /* Same responsive rem scale as client/index.html — 1rem grows with the
+         viewport, so admin.html's rem-based sizing matches Pixels' instead of
+         sitting at the browser's plain 16px default. */
       :root {
+        font-size: clamp(17px, 0.5vw + 13px, 26px);
         --bg: #0a0d16;
         --panel: #0f1220;
         --panel2: #171b2b;
