@@ -29,8 +29,9 @@ const STYLE = `
     border-bottom:1px solid var(--line);flex-wrap:wrap;}
   #pa-adm-head .brand{font-weight:650;font-size:1.05rem;}
   #pa-adm-head .spacer{flex:1;}
-  #pa-adm-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:1px solid var(--line);
-    border-radius:.5rem;padding:.5rem .8rem;font:inherit;font-size:.85rem;}
+  #pa-adm-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:2px solid var(--line);
+    border-radius:.45rem;padding:.5rem .8rem;font:inherit;font-size:.85rem;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   #pa-adm-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);overflow-x:auto;}
   #pa-adm-tabs button{cursor:pointer;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
     padding:.5rem .8rem;font:inherit;font-size:.95rem;white-space:nowrap;}
@@ -48,15 +49,22 @@ const STYLE = `
     white-space:nowrap;}
   th{color:var(--muted);font-weight:600;font-size:.72rem;letter-spacing:.6px;text-transform:uppercase;}
   td.wrap{white-space:normal;}
-  input,select{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:.45rem;
-    padding:.4rem .5rem;font:inherit;font-size:.9rem;max-width:100%;}
+  /* Same inset-bevel look as Pixels' .pa-input/.pa-b (see paSkin.ts) — a
+     2px dark border plus a lighter-top/darker-bottom inset shadow reads as
+     the same "chunky pixel button" family across both surfaces. */
+  input,select{background:var(--panel2);color:var(--text);border:2px solid var(--line);border-radius:.35rem;
+    padding:.4rem .55rem;font:inherit;font-size:.9rem;max-width:100%;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   input:focus,select:focus{outline:none;border-color:var(--accent);}
-  button.act{cursor:pointer;font:inherit;font-size:.85rem;border-radius:.45rem;border:1px solid var(--line);
-    padding:.4rem .65rem;background:var(--panel2);color:var(--text);margin-right:.3rem;}
+  button.act{cursor:pointer;font:inherit;font-size:.85rem;border-radius:.35rem;border:2px solid var(--line);
+    padding:.4rem .7rem;background:var(--panel2);color:var(--text);margin-right:.3rem;
+    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
   button.act:hover{border-color:var(--accent);}
   button.act:disabled{opacity:.45;cursor:default;}
-  button.primary{background:var(--accent);border-color:transparent;color:#fff;}
-  button.danger{background:var(--danger);border-color:transparent;color:#fff;}
+  button.primary{background:var(--accent);border-color:var(--line);color:#fff;
+    box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+  button.danger{background:var(--danger);border-color:var(--line);color:#f1d0d6;
+    box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
   .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
   .lock{color:var(--accent2);}
   .muted{color:var(--muted);}
