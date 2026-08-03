@@ -48,6 +48,7 @@ import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
+import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
@@ -171,10 +172,6 @@ export class OfficeScene extends Phaser.Scene {
   /** The zone a "Zone settings" request (zoneMembers) was sent for, so
    *  onZoneMembers knows which zone's dialog to (re)build once the response arrives. */
   private pendingZoneSettings: ZoneConfig | null = null;
-  /** The zone id a "Zone admins" request (also zoneMembers, admin-only path) was
-   *  sent for — kept separate from pendingZoneSettings since it's a different
-   *  dialog (co-editor grants, not privacy/ACL/invite). */
-  private pendingZoneAdmins: string | null = null;
   /** Every user, for the ACL-add / invite autocomplete — fetched once per zone
    *  settings dialog open (requestUserList → userList) and reused across its
    *  add/remove/invite round trips until the dialog is closed and reopened. */
@@ -2330,11 +2327,12 @@ export class OfficeScene extends Phaser.Scene {
     const cur = currentZone();
     const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
     // Travelling is open to all. Creating a zone is open to any signed-in user
-    // (they own what they create — see zoneStore.ts); granting zone admins stays
-    // global-admin only. Editing a zone (layout/rename/NPCs/arrival) is open to
-    // that zone's admin too — but the client only knows its OWN zone-admin
-    // status for the CURRENT zone, so per-row edit beyond the current zone needs
-    // global admin. (open dev mode without accounts → everyone edits.)
+    // (they own what they create — see zoneStore.ts); granting zone admins is
+    // that zone's owner's call (plus global admins, everywhere). Editing a zone
+    // (layout/rename/NPCs/arrival) is open to that zone's admin too — but the
+    // client only knows its OWN zone-admin status for the CURRENT zone, so
+    // per-row edit beyond the current zone needs global admin. (open dev mode
+    // without accounts → everyone edits.)
     const assetsAdmin = this.assetsAdmin;
     const canCreateZone = assetsAdmin || !!this.myUserId;
 
@@ -2351,7 +2349,7 @@ export class OfficeScene extends Phaser.Scene {
         if (rowEdit)
           ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
         if (rowDelete && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
-        if (assetsAdmin) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
+        if (assetsAdmin || isOwner) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
         if (isOwner) ctrls += `<button data-settings="${esc(z.id)}" title="Privacy &amp; access">⚙</button>`;
         // Global-admin quick action for an ownerless zone (predates ownership,
         // or lost its owner when that account was deleted) — no need to leave
@@ -2546,67 +2544,42 @@ export class OfficeScene extends Phaser.Scene {
     this.filterUserDatalist(active instanceof HTMLInputElement && active.list?.id === 'pa-user-list' ? active.value : '');
   }
 
-  /** Global admin: open "Zone admins" — who may edit this zone's layout, with
-   *  add-by-autocomplete instead of a blind login-id prompt. Reuses zoneMembers
-   *  (an admin's call bypasses its owner-only gate) but routes to a different
-   *  dialog than openZoneSettingsDialog (see pendingZoneAdmins). */
+  /** Owner (of this zone) or global admin: open "Zone admins" — who may edit
+   *  this zone's layout. REST-backed (not a room message) via the shared
+   *  widget — same route the admin website's Zones tab uses, guarded
+   *  server-side by the same rule (see shared/zoneAdminsWidget.ts,
+   *  adminApi.ts's zoneGrantAdminAuth). No zoneMembers round trip needed to
+   *  open it, so there's no dialog-routing state to keep in sync here. */
   private openZoneAdminsDialog(zoneId: string): void {
-    this.pendingZoneAdmins = zoneId;
-    this.room?.send('zoneMembers', { id: zoneId });
+    const label = this.zoneList.find((z) => z.id === zoneId)?.label ?? zoneId;
     this.room?.send('requestUserList');
-  }
-
-  /** (Re)builds the "Zone admins" dialog from a zoneMembers response. */
-  private buildZoneAdminsDialog(id: string, m: Record<string, unknown>): void {
-    const label = this.zoneList.find((z) => z.id === id)?.label ?? id;
-    const admins = Array.isArray(m.admins) ? (m.admins as Array<{ userId: string; name: string; isAdmin: boolean }>) : [];
 
     const body = document.createElement('div');
     body.innerHTML = `
       <div class="fld"><label>Zone admins may edit this zone's layout</label>
-        <div data-admins-list style="max-height:11rem;overflow-y:auto;display:flex;flex-direction:column;gap:.35rem;"></div>
-        <div style="display:flex;gap:.35rem;margin-top:.5rem;">
-          <input class="pa-input" data-admins-add placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
-          <button type="button" class="pa-b" data-admins-add-btn>Grant</button>
-        </div>
+        <div data-admins-widget></div>
+        <div data-admins-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
       </div>`;
-
-    const listEl = body.querySelector<HTMLDivElement>('[data-admins-list]')!;
-    if (!admins.length) listEl.innerHTML = '<div class="muted" style="font-size:.85rem;">No zone-admins yet.</div>';
-    for (const a of admins) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:.5rem;';
-      const nm = document.createElement('span');
-      nm.style.cssText = 'flex:1;font-size:.85rem;';
-      nm.textContent = `${a.isAdmin ? '★ ' : ''}${a.name}`;
-      const rm = document.createElement('button');
-      rm.type = 'button';
-      rm.className = 'pa-b';
-      rm.textContent = 'Revoke';
-      rm.onclick = () => this.room?.send('setZoneAdmin', { zoneId: id, userId: a.userId, admin: false });
-      row.append(nm, rm);
-      listEl.appendChild(row);
-    }
-
-    const addIn = body.querySelector<HTMLInputElement>('[data-admins-add]')!;
-    this.wireUserAutocomplete(addIn);
-    body.querySelector<HTMLButtonElement>('[data-admins-add-btn]')!.onclick = () => {
-      const uid = cleanName(addIn.value);
-      if (uid) this.room?.send('setZoneAdmin', { zoneId: id, userId: uid, admin: true });
-    };
+    const widgetEl = body.querySelector<HTMLDivElement>('[data-admins-widget]')!;
+    const msgEl = body.querySelector<HTMLDivElement>('[data-admins-msg]')!;
+    renderZoneAdminsWidget(widgetEl, zoneId, {
+      wireAutocomplete: (input) => this.wireUserAutocomplete(input),
+      onError: (action, error) => {
+        msgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
+        msgEl.style.color = '#f0a6a2';
+      },
+      classNames: { revokeButton: 'pa-b', grantButton: 'pa-b green' },
+    });
 
     openPaDialog({ title: `Zone admins — ${label}`, body, buttons: [] });
   }
 
   /** The server's answer to zoneMembers — also arrives after zoneAclAdd/Remove,
-   *  so this both opens the dialog the first time and refreshes it in place. */
+   *  so this both opens a dialog the first time and refreshes it in place
+   *  afterwards. (Zone-admins grant/revoke no longer goes through here — see
+   *  openZoneAdminsDialog.) */
   private onZoneMembers(m: Record<string, unknown>): void {
     const id = typeof m.id === 'string' ? m.id : '';
-    if (this.pendingZoneAdmins === id) {
-      this.pendingZoneAdmins = null;
-      this.buildZoneAdminsDialog(id, m);
-      return;
-    }
     const zone = (this.pendingZoneSettings?.id === id ? this.pendingZoneSettings : this.zoneList.find((z) => z.id === id)) ?? null;
     this.pendingZoneSettings = null;
     if (!zone) return;

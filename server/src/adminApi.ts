@@ -16,6 +16,7 @@ import { ZoneStore } from './zoneStore.js';
 import { LayoutStore } from './layoutStore.js';
 import { appStore } from './appStore.js';
 import { meetingRoomStore } from './meetingRoomStore.js';
+import { can, type Principal } from './permissions.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { PlacedFurniture } from '@pixel/shared/office/types.js';
 
@@ -38,6 +39,28 @@ export function registerAdminApi(app: Express): void {
       return null;
     }
     if (!userStore.get(uid)?.isAdmin) {
+      res.status(403).json({ error: 'forbidden' });
+      return null;
+    }
+    return { userId: uid };
+  };
+
+  // Same rule as the in-game Zones panel's 'zone.grantAdmin' capability (see
+  // permissions.ts) — reused here instead of re-deriving "owner or global
+  // admin" by hand, so the REST and Colyseus paths can't drift apart. Unlike
+  // every other route above, this allows a caller who ISN'T a global admin —
+  // that's the point: a zone owner calls this from inside Pixels (fetch, not
+  // by visiting admin.html, which still 403s them at the page level), while
+  // the admin website calls the very same route as a global admin.
+  const zoneGrantAdminAuth = (req: Request, res: Response, zoneId: string): { userId: string } | null => {
+    const uid = reqUserId(req);
+    if (!uid) {
+      res.status(401).json({ error: 'unauthorized' });
+      return null;
+    }
+    const principal: Principal = { userId: uid, isAdmin: !!userStore.get(uid)?.isAdmin };
+    const env = { authRequired: true, isZoneAdmin: (z: string, u: string) => zones.isZoneAdmin(z, u), zoneOwner: (z: string) => zones.zoneOwner(z) };
+    if (!can(principal, 'zone.grantAdmin', env, { zoneId })) {
       res.status(403).json({ error: 'forbidden' });
       return null;
     }
@@ -214,6 +237,35 @@ export function registerAdminApi(app: Express): void {
     const id = req.params.id;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
     zones.aclRemove(id, normalizeLoginId(req.params.userId));
+    res.json({ ok: true });
+  });
+
+  // Zone-admins (co-editors): the one set of zone routes an owner may call
+  // without being a global admin — see zoneGrantAdminAuth above. Shared by the
+  // admin website's Zones tab and Pixels' own "Zone admins" panel (both call
+  // this same route; see client/src/shared/zoneAdminsWidget.ts).
+  app.get('/admin/zone/:id/admins', (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    res.json({ admins: zones.listZoneAdmins(id).map(zoneMemberView) });
+  });
+
+  app.post('/admin/zone/:id/admins', json, (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const targetId = normalizeLoginId((req.body as { userId?: unknown } | undefined)?.userId);
+    if (!targetId || !userStore.get(targetId)) return void res.status(400).json({ error: 'no such user' });
+    zones.setZoneAdmin(id, targetId, true);
+    res.json({ ok: true });
+  });
+
+  app.delete('/admin/zone/:id/admins/:userId', (req, res) => {
+    const id = req.params.id;
+    if (!zoneGrantAdminAuth(req, res, id)) return;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    zones.setZoneAdmin(id, normalizeLoginId(req.params.userId), false);
     res.json({ ok: true });
   });
 

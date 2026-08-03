@@ -9,6 +9,7 @@
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
 import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type Role } from './api.js';
+import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
@@ -58,14 +59,6 @@ const STYLE = `
   .muted{color:var(--muted);}
   .status-off{color:var(--danger);}
   .badge-admin{color:#f2c14e;}
-  /* A settings form: fixed label column + wrapping controls, one row per field
-     (Owner / Password / Privacy) — instead of loose same-level rows that
-     misalign once buttons wrap. */
-  .field-row{display:grid;grid-template-columns:6.5rem 1fr;gap:.3rem .6rem;align-items:center;margin-bottom:.55rem;}
-  .field-row:last-of-type{margin-bottom:0;}
-  .field-row .field-label{color:var(--muted);font-size:.82rem;}
-  .field-row .field-controls{display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;min-width:0;}
-  .field-row input{flex:1 1 9rem;min-width:6rem;}
   .pw-eye{padding:.4rem .55rem;}
   /* A table with an attached toolbar above it (e.g. "add to access list") reads
      as one unit instead of a table floating with unrelated controls below it. */
@@ -86,6 +79,25 @@ const STYLE = `
   .badges{display:flex;gap:.4rem;flex-wrap:wrap;}
   .badge{display:inline-flex;align-items:center;gap:.25rem;font-size:.78rem;padding:.15rem .5rem;border-radius:1rem;
     background:var(--panel);border:1px solid var(--line);color:var(--muted);}
+  /* A field's compact "view" state: value + a single ⋮ Actions button, instead
+     of every possible action (take/transfer/clear, generate/set/clear-lock, …)
+     sitting in the row at once. Picking an action that needs input (transfer,
+     new password) swaps the row into a small inline form; everything else
+     (take ownership, clear) runs immediately from the menu. */
+  .menu-wrap{position:relative;display:inline-block;}
+  /* position:fixed (not absolute) + JS-computed top/left in actionsMenu() — the
+     table rows this lives in scroll inside a .table-wrap, and an absolutely
+     positioned dropdown gets clipped by that ancestor's overflow instead of
+     floating over the page. */
+  .menu-dropdown{display:none;position:fixed;background:var(--panel);
+    border:1px solid var(--line);border-radius:.5rem;box-shadow:0 10px 28px rgba(0,0,0,.4);
+    min-width:11rem;z-index:500;overflow:hidden;}
+  .menu-dropdown.open{display:block;}
+  .menu-item{display:block;width:100%;text-align:left;background:transparent;border:0;border-radius:0;
+    margin:0;padding:.55rem .8rem;color:var(--text);font:inherit;font-size:.88rem;cursor:pointer;}
+  .menu-item:hover{background:var(--panel2);}
+  .menu-item:disabled{opacity:.4;cursor:default;background:transparent;}
+  .menu-item.danger{color:#f0a6a2;}
   @media (max-width: 640px){
     #pa-adm-head{padding:.6rem .7rem;gap:.5rem;}
     #pa-adm-head .brand{font-size:.95rem;}
@@ -95,8 +107,6 @@ const STYLE = `
     .row{gap:.4rem;}
     input,select{width:100%;}
     th,td{padding:.45rem .4rem;font-size:.85rem;}
-    .field-row{grid-template-columns:1fr;}
-    .field-row .field-label{margin-bottom:.1rem;}
   }
 `;
 
@@ -114,6 +124,51 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text;
   return e;
+}
+
+/** A "⋮ Actions" button + dropdown — one place a field's less-frequent actions
+ *  live instead of every button sitting in the row at once. Only one menu is
+ *  ever open at a time (closeAllMenus, wired to a page-wide click listener). */
+function closeAllMenus(): void {
+  document.querySelectorAll<HTMLElement>('.menu-dropdown.open').forEach((m) => m.classList.remove('open'));
+}
+document.addEventListener('click', closeAllMenus);
+
+interface MenuItem {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  danger?: boolean;
+}
+function actionsMenu(items: MenuItem[]): HTMLElement {
+  const wrap = el('div', 'menu-wrap');
+  const btn = el('button', 'act primary', '⋮ Actions');
+  const menu = el('div', 'menu-dropdown');
+  for (const item of items) {
+    const mi = el('button', 'menu-item' + (item.danger ? ' danger' : ''), item.label);
+    mi.type = 'button';
+    mi.disabled = !!item.disabled;
+    mi.onclick = (e) => {
+      e.stopPropagation();
+      closeAllMenus();
+      item.onClick();
+    };
+    menu.appendChild(mi);
+  }
+  btn.type = 'button';
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const isOpen = menu.classList.contains('open');
+    closeAllMenus();
+    if (!isOpen) {
+      menu.classList.add('open');
+      const r = btn.getBoundingClientRect();
+      menu.style.top = `${r.bottom + 4}px`;
+      menu.style.left = `${Math.max(4, r.right - menu.offsetWidth)}px`;
+    }
+  };
+  wrap.append(btn, menu);
+  return wrap;
 }
 function toast(msg: string, err = false): void {
   const t = document.getElementById('pa-adm-toast');
@@ -400,95 +455,46 @@ async function refreshZoneRow(zoneId: string): Promise<void> {
 }
 
 /** The full management panel for one zone — owner / password / privacy fields,
- *  who-has-access, and monitors. Built once when its row is expanded. */
+ *  who-has-access, and monitors. Built once when its row is expanded. The
+ *  Owner/Password/Privacy fields render as one table (Field | Value |
+ *  Actions), matching the Zones/Users tables instead of a bespoke layout. */
 function zoneDetailPanel(z: AdminZone): HTMLElement {
   const card = el('div');
 
-  // Owner: take (self) / transfer / clear.
-  const ownRow = el('div', 'field-row');
-  const ownLabel = el('span', 'field-label', 'Owner');
-  const ownCtrls = el('div', 'field-controls');
-  ownCtrls.append(el('span', 'muted', z.ownerName ?? '(none)'));
-  const ownIn = el('input');
-  ownIn.placeholder = 'login id';
-  wireUserAutocomplete(ownIn);
-  const setOwnBtn = el('button', 'act primary', 'Set owner');
-  setOwnBtn.onclick = async () => {
-    if (!ownIn.value.trim()) return;
-    const res = await adminApi.setZoneOwner(z.id, ownIn.value.trim());
-    if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void refreshZoneRow(z.id); } else fail('Set owner', res.error);
-  };
-  const takeBtn = el('button', 'act', '👑 Take ownership');
-  takeBtn.disabled = !me || z.ownerId === me.userId;
-  takeBtn.onclick = async () => {
-    if (!me) return;
-    const res = await adminApi.setZoneOwner(z.id, me.userId);
-    if (res.ok) { toast(`You now own ${z.label}.`); void refreshZoneRow(z.id); } else fail('Take ownership', res.error);
-  };
-  const clearOwnBtn = el('button', 'act', 'Clear owner');
-  clearOwnBtn.disabled = !z.ownerId;
-  clearOwnBtn.onclick = async () => {
-    const res = await adminApi.setZoneOwner(z.id, null);
-    if (res.ok) { toast(`${z.label} is now ownerless.`); void refreshZoneRow(z.id); } else fail('Clear owner', res.error);
-  };
-  ownCtrls.append(takeBtn, ownIn, setOwnBtn, clearOwnBtn);
-  ownRow.append(ownLabel, ownCtrls);
-  card.appendChild(ownRow);
+  const fieldsTable = el('table');
+  fieldsTable.innerHTML = '<thead><tr><th>Field</th><th>Value</th><th>Actions</th></tr></thead>';
+  const fieldsBody = el('tbody');
+  fieldsBody.append(ownerFieldRow(z), passwordFieldRow(z), privacyFieldRow(z));
+  fieldsTable.appendChild(fieldsBody);
+  const fieldsWrap = el('div', 'table-wrap');
+  fieldsWrap.appendChild(fieldsTable);
+  card.appendChild(fieldsWrap);
 
-  // Zone password control — generate + show/hide, same as the in-game
-  // meeting-room create dialog, so setting one here isn't a worse experience.
-  const pwRow = el('div', 'field-row');
-  const pwCtrls = el('div', 'field-controls');
-  const pw = el('input'); pw.type = 'password'; pw.placeholder = z.locked ? '•••••• (set new)' : 'set password';
-  const pwEyeBtn = el('button', 'act pw-eye', '👁');
-  pwEyeBtn.title = 'Show password';
-  pwEyeBtn.onclick = () => {
-    const shown = pw.type === 'text';
-    pw.type = shown ? 'password' : 'text';
-    pwEyeBtn.textContent = shown ? '👁' : '🙈';
-    pwEyeBtn.title = shown ? 'Show password' : 'Hide password';
-  };
-  const pwGenBtn = el('button', 'act', '🎲 Generate');
-  pwGenBtn.onclick = () => {
-    pw.value = generatePassword();
-    pw.type = 'text';
-    pwEyeBtn.textContent = '🙈';
-    pwEyeBtn.title = 'Hide password';
-  };
-  const setBtn = el('button', 'act primary', 'Set');
-  setBtn.onclick = async () => {
-    const res = await adminApi.setZonePassword(z.id, pw.value);
-    if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void refreshZoneRow(z.id); }
-    else fail('Set password', res.error);
-  };
-  const clrBtn = el('button', 'act', 'Clear lock');
-  clrBtn.disabled = !z.locked;
-  clrBtn.onclick = async () => {
-    const res = await adminApi.setZonePassword(z.id, '');
-    if (res.ok) { toast(`Lock cleared for ${z.label}.`); void refreshZoneRow(z.id); } else fail('Clear', res.error);
-  };
-  pwCtrls.append(pw, pwEyeBtn, pwGenBtn, setBtn, clrBtn);
-  pwRow.append(el('span', 'field-label', 'Password'), pwCtrls);
-  card.appendChild(pwRow);
+  // Zone admins (co-editors) matter regardless of privacy — they bypass the
+  // password and can enter a private zone too — so unlike "Who has access"
+  // below, this section is always shown, not gated on z.private. Shared with
+  // Pixels' own Zones panel (same widget, same REST route — see
+  // shared/zoneAdminsWidget.ts): granting is that zone's owner's call, or a
+  // global admin's, enforced server-side either way.
+  card.appendChild(el('div', 'section-title', 'Zone admins'));
+  const adminsBlock = el('div', 'table-block');
+  adminsBlock.style.padding = '.65rem .8rem';
+  card.appendChild(adminsBlock);
+  renderZoneAdminsWidget(adminsBlock, z.id, {
+    wireAutocomplete: wireUserAutocomplete,
+    onError: (action, error) => fail(action, error),
+    classNames: { revokeButton: 'act danger', grantButton: 'act primary' },
+  });
 
-  // Private toggle (admin override — works regardless of who, if anyone, owns
-  // the zone). Private rejects entry for anyone but the owner/zone-admins/ACL.
-  const privRow = el('div', 'field-row');
-  const privCtrls = el('div', 'field-controls');
-  const privBtn = el('button', 'act' + (z.private ? '' : ' primary'), z.private ? 'Make public' : 'Make private');
-  privBtn.onclick = async () => {
-    const res = await adminApi.setZonePrivate(z.id, !z.private);
-    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void refreshZoneRow(z.id); }
-    else fail('Set private', res.error);
-  };
-  privCtrls.append(privBtn);
-  privRow.append(el('span', 'field-label', 'Privacy'), privCtrls);
-  card.appendChild(privRow);
-
-  card.appendChild(el('div', 'section-title', 'Who has access'));
-  const membersBlock = el('div', 'table-block');
-  card.appendChild(membersBlock);
-  void renderMembersTable(membersBlock, z);
+  // The access list only ever gates entry once the zone is private (see
+  // renderMembersTable / server canEnterPrivateZone), so the section simply
+  // isn't there for a public zone — no need to explain why in prose.
+  if (z.private) {
+    card.appendChild(el('div', 'section-title', 'Who has access'));
+    const membersBlock = el('div', 'table-block');
+    card.appendChild(membersBlock);
+    void renderMembersTable(membersBlock, z);
+  }
 
   card.appendChild(el('div', 'section-title', 'Monitors'));
   const monitorsBlock = el('div', 'table-block');
@@ -498,14 +504,158 @@ function zoneDetailPanel(z: AdminZone): HTMLElement {
   return card;
 }
 
-/** Always-visible "who has access" table — owner + zone-admins (read-only
- *  here; granted via the in-game Zones panel or a future admin route, not
- *  this one) + the private-zone access list (removable), plus an
- *  autocomplete-backed add row. */
+/** Owner row: compact name + ⋮ Actions by default; "Transfer owner…" swaps
+ *  the Value/Actions cells into a login-id input + Set/Cancel (Take
+ *  ownership / Clear run straight from the menu — they need no further
+ *  input, so no reason to open a form for them). */
+function ownerFieldRow(z: AdminZone): HTMLTableRowElement {
+  const tr = el('tr');
+  tr.appendChild(el('td', undefined, 'Owner'));
+  const valueTd = el('td');
+  const actionsTd = el('td');
+  const renderView = (): void => {
+    valueTd.textContent = z.ownerName ?? '(none)';
+    actionsTd.innerHTML = '';
+    actionsTd.appendChild(
+      actionsMenu([
+        {
+          label: '👑 Take ownership',
+          disabled: !me || z.ownerId === me.userId,
+          onClick: async () => {
+            if (!me) return;
+            const res = await adminApi.setZoneOwner(z.id, me.userId);
+            if (res.ok) { toast(`You now own ${z.label}.`); void refreshZoneRow(z.id); } else fail('Take ownership', res.error);
+          },
+        },
+        { label: '🔁 Transfer owner…', onClick: renderTransfer },
+        {
+          label: '✕ Clear owner',
+          disabled: !z.ownerId,
+          danger: true,
+          onClick: async () => {
+            const res = await adminApi.setZoneOwner(z.id, null);
+            if (res.ok) { toast(`${z.label} is now ownerless.`); void refreshZoneRow(z.id); } else fail('Clear owner', res.error);
+          },
+        },
+      ]),
+    );
+  };
+  const renderTransfer = (): void => {
+    valueTd.innerHTML = '';
+    const ownIn = el('input');
+    ownIn.placeholder = 'login id';
+    wireUserAutocomplete(ownIn);
+    valueTd.appendChild(ownIn);
+    actionsTd.innerHTML = '';
+    const setOwnBtn = el('button', 'act primary', 'Set owner');
+    setOwnBtn.onclick = async () => {
+      if (!ownIn.value.trim()) return;
+      const res = await adminApi.setZoneOwner(z.id, ownIn.value.trim());
+      if (res.ok) { toast(`${z.label} is now owned by ${res.data?.ownerName}.`); void refreshZoneRow(z.id); } else fail('Set owner', res.error);
+    };
+    const cancelBtn = el('button', 'act', 'Cancel');
+    cancelBtn.onclick = () => renderView();
+    actionsTd.append(setOwnBtn, cancelBtn);
+    ownIn.focus();
+  };
+  renderView();
+  tr.append(valueTd, actionsTd);
+  return tr;
+}
+
+/** Password row: compact locked?/not + ⋮ Actions by default; "Set new
+ *  password…" swaps in the generate + show/hide form (same as the in-game
+ *  meeting-room create dialog) across the Value/Actions cells. */
+function passwordFieldRow(z: AdminZone): HTMLTableRowElement {
+  const tr = el('tr');
+  tr.appendChild(el('td', undefined, 'Password'));
+  const valueTd = el('td');
+  const actionsTd = el('td');
+  const renderView = (): void => {
+    valueTd.innerHTML = '';
+    valueTd.appendChild(el('span', z.locked ? 'lock' : 'muted', z.locked ? '🔒 locked' : '— not locked'));
+    actionsTd.innerHTML = '';
+    actionsTd.appendChild(
+      actionsMenu([
+        { label: '🔑 Set new password…', onClick: renderEdit },
+        {
+          label: '✕ Clear lock',
+          disabled: !z.locked,
+          danger: true,
+          onClick: async () => {
+            const res = await adminApi.setZonePassword(z.id, '');
+            if (res.ok) { toast(`Lock cleared for ${z.label}.`); void refreshZoneRow(z.id); } else fail('Clear', res.error);
+          },
+        },
+      ]),
+    );
+  };
+  const renderEdit = (): void => {
+    valueTd.innerHTML = '';
+    const pw = el('input'); pw.type = 'password'; pw.placeholder = 'new password';
+    const pwEyeBtn = el('button', 'act pw-eye', '👁');
+    pwEyeBtn.type = 'button';
+    pwEyeBtn.title = 'Show password';
+    pwEyeBtn.onclick = () => {
+      const shown = pw.type === 'text';
+      pw.type = shown ? 'password' : 'text';
+      pwEyeBtn.textContent = shown ? '👁' : '🙈';
+      pwEyeBtn.title = shown ? 'Show password' : 'Hide password';
+    };
+    const pwGenBtn = el('button', 'act', '🎲 Generate');
+    pwGenBtn.type = 'button';
+    pwGenBtn.onclick = () => {
+      pw.value = generatePassword();
+      pw.type = 'text';
+      pwEyeBtn.textContent = '🙈';
+      pwEyeBtn.title = 'Hide password';
+    };
+    valueTd.append(pw, pwEyeBtn, pwGenBtn);
+    actionsTd.innerHTML = '';
+    const setBtn = el('button', 'act primary', 'Set');
+    setBtn.onclick = async () => {
+      const res = await adminApi.setZonePassword(z.id, pw.value);
+      if (res.ok) { toast(`Password ${res.data?.locked ? 'set' : 'cleared'} for ${z.label}.`); void refreshZoneRow(z.id); }
+      else fail('Set password', res.error);
+    };
+    const cancelBtn = el('button', 'act', 'Cancel');
+    cancelBtn.onclick = () => renderView();
+    actionsTd.append(setBtn, cancelBtn);
+    pw.focus();
+  };
+  renderView();
+  tr.append(valueTd, actionsTd);
+  return tr;
+}
+
+/** Privacy row: admin override — works regardless of who, if anyone, owns
+ *  the zone. Private rejects entry for anyone but the owner/zone-admins/ACL.
+ *  Just one action, so a plain button instead of a dropdown. */
+function privacyFieldRow(z: AdminZone): HTMLTableRowElement {
+  const tr = el('tr');
+  tr.appendChild(el('td', undefined, 'Privacy'));
+  tr.appendChild(el('td', 'muted', z.private ? '🔐 private' : 'public'));
+  const actionsTd = el('td');
+  const privBtn = el('button', 'act primary', z.private ? 'Make public' : 'Make private');
+  privBtn.onclick = async () => {
+    const res = await adminApi.setZonePrivate(z.id, !z.private);
+    if (res.ok) { toast(`${z.label} is now ${res.data?.private ? 'private' : 'public'}.`); void refreshZoneRow(z.id); }
+    else fail('Set private', res.error);
+  };
+  actionsTd.appendChild(privBtn);
+  tr.appendChild(actionsTd);
+  return tr;
+}
+
+/** "Who has access" table — owner + the private-zone access list (removable),
+ *  plus an autocomplete-backed add row. Zone-admins get their own section
+ *  (see zoneDetailPanel) since they matter regardless of privacy; this table
+ *  is only ever rendered while the zone IS private (see zoneDetailPanel) —
+ *  the ACL is only consulted for entry once a zone is private, so there's
+ *  nothing useful to show or manage here for a public zone. */
 async function renderMembersTable(block: HTMLElement, z: AdminZone): Promise<void> {
   const r = await adminApi.zoneMembers(z.id);
   const owner = r.data?.owner ?? null;
-  const admins = r.data?.admins ?? [];
   const acl = r.data?.acl ?? [];
 
   // Toolbar above the table (not a floating row below it): add-to-access-list.
@@ -536,14 +686,13 @@ async function renderMembersTable(block: HTMLElement, z: AdminZone): Promise<voi
     tbody.appendChild(tr);
   };
   if (owner) row(owner.name, owner.isAdmin, '👑 Owner');
-  for (const a of admins) row(a.name, a.isAdmin, '🛠 Zone-admin');
   for (const a of acl) {
     row(a.name, a.isAdmin, '✓ Access list', async () => {
       const res = await adminApi.removeZoneAcl(z.id, a.userId);
       if (res.ok) void renderMembersTable(block, z); else fail('Remove', res.error);
     });
   }
-  if (!owner && !admins.length && !acl.length) {
+  if (!owner && !acl.length) {
     const tr = el('tr');
     const td = el('td', 'muted wrap', 'No one has special access yet.');
     td.colSpan = 3;

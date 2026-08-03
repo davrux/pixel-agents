@@ -319,12 +319,19 @@ export class ZoneStore {
     return true;
   }
 
-  /** Delete a zone. Read-only zones (the office) can never be deleted. */
+  /** Delete a zone. Read-only zones (the office) can never be deleted. Also
+   *  clears the zone-keyed rows in zone_admins/zone_acl/monitor_locks — these
+   *  aren't foreign-keyed to zones, so a plain `DELETE FROM zones` would
+   *  otherwise leave them orphaned (harmless zombie rows a zone id could
+   *  later collide with if reused, and clutter in the tables regardless). */
   delete(id: string): boolean {
     const r = this.db.prepare('SELECT read_only FROM zones WHERE id = ?').get(id) as
       | { read_only: number }
       | undefined;
     if (!r || r.read_only) return false;
+    this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ?').run(id);
+    this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ?').run(id);
+    this.db.prepare('DELETE FROM monitor_locks WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;
   }

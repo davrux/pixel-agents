@@ -37,7 +37,7 @@ export interface PolicyEnv {
   /** Whether `userId` is a designated admin of `zoneId`. */
   isZoneAdmin: (zoneId: string, userId: string) => boolean;
   /** The zone's owner (null if ownerless — see zoneStore.ts). Only read for
-   *  zone.managePrivacy; other capabilities don't need it. */
+   *  zone.managePrivacy and zone.grantAdmin; other capabilities don't need it. */
   zoneOwner?: (zoneId: string) => string | null;
 }
 
@@ -59,6 +59,11 @@ export function can(
   // co-editor can reshape the room but shouldn't be able to lock people out of
   // it or add strangers to its ACL.
   if (capability === 'zone.managePrivacy') {
+    return !!principal.userId && !!ctx.zoneId && env.zoneOwner?.(ctx.zoneId) === principal.userId;
+  }
+  // Zone-admin grants are the owner's call too (plus global admins, above) — a
+  // zone-admin co-editor can't deputize further co-editors.
+  if (capability === 'zone.grantAdmin') {
     return !!principal.userId && !!ctx.zoneId && env.zoneOwner?.(ctx.zoneId) === principal.userId;
   }
   return false;
