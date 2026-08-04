@@ -72,6 +72,9 @@ interface FurnWork {
   isDesk: boolean;
   canPlaceOnSurfaces: boolean;
   canPlaceOnWalls: boolean;
+  /** Only meaningful alongside canPlaceOnWalls — lets a wall-mountable item
+   *  ALSO go on ordinary floor tiles, instead of requiring a wall. */
+  canPlaceOnFloor: boolean;
   backgroundTiles: number;
   /** Interaction station this furniture provides ('' = none, 'coffee', …). */
   appliance: string;
@@ -202,6 +205,7 @@ export class FurnitureEditor {
       isDesk: false,
       canPlaceOnSurfaces: false,
       canPlaceOnWalls: false,
+      canPlaceOnFloor: false,
       backgroundTiles: 0,
       appliance: '',
       conference: false,
@@ -285,6 +289,8 @@ export class FurnitureEditor {
         <label class="chk"><input id="pa-f-desk" type="checkbox"> Seat</label>
         <label class="chk"><input id="pa-f-surf" type="checkbox"> On surfaces</label>
         <label class="chk"><input id="pa-f-wall" type="checkbox"> On walls</label>
+        <label class="chk" title="Only matters with &quot;On walls&quot; checked — lets it ALSO go on the floor instead of requiring a wall">
+          <input id="pa-f-floor" type="checkbox"> Also on floor</label>
       </div>
       <div class="row"><label class="f" for="pa-f-appliance">Action</label>
         <select id="pa-f-appliance" style="flex:1;">
@@ -376,6 +382,10 @@ export class FurnitureEditor {
     };
     this.field('#pa-f-wall').onchange = (e) => {
       this.work.canPlaceOnWalls = (e.target as HTMLInputElement).checked;
+      this.dirty = true;
+    };
+    this.field('#pa-f-floor').onchange = (e) => {
+      this.work.canPlaceOnFloor = (e.target as HTMLInputElement).checked;
       this.dirty = true;
     };
     this.field('#pa-f-appliance').onchange = (e) => {
@@ -532,6 +542,7 @@ export class FurnitureEditor {
       isDesk: !!entry?.isDesk,
       canPlaceOnSurfaces: !!entry?.canPlaceOnSurfaces,
       canPlaceOnWalls: !!entry?.canPlaceOnWalls,
+      canPlaceOnFloor: !!entry?.canPlaceOnFloor,
       backgroundTiles: entry?.backgroundTiles ?? 0,
       // Resolved entry includes the bundled coffee-machine legacy default.
       appliance: entry?.appliance ?? '',
@@ -607,6 +618,7 @@ export class FurnitureEditor {
     (this.field('#pa-f-desk')).checked = this.work.isDesk;
     (this.field('#pa-f-surf')).checked = this.work.canPlaceOnSurfaces;
     (this.field('#pa-f-wall')).checked = this.work.canPlaceOnWalls;
+    (this.field('#pa-f-floor')).checked = this.work.canPlaceOnFloor;
     const action = this.work.conference
       ? 'conference'
       : this.work.arcade
@@ -663,6 +675,7 @@ export class FurnitureEditor {
         isDesk: w.isDesk,
         canPlaceOnSurfaces: w.canPlaceOnSurfaces,
         canPlaceOnWalls: w.canPlaceOnWalls,
+        canPlaceOnFloor: w.canPlaceOnFloor,
         backgroundTiles: w.backgroundTiles,
         appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
         conference: w.conference,
