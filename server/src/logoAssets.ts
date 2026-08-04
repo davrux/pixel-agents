@@ -10,13 +10,17 @@ const T = ''; // transparent
 
 /** Bold 9px-tall block font — just enough glyphs to spell "UPONU", with 2px-
  *  thick strokes (vs. a 1px hairline) to match the real wordmark's chunky
- *  weight — a thin single-pixel outline read as spindly next to it. N is 6px
- *  wide (vs. 5 for the others) so its diagonal doesn't collapse into a plain H. */
+ *  weight — a thin single-pixel outline read as spindly next to it. N is 7px
+ *  wide: a 2px-thick vertical on each side with a 1px diagonal stepping
+ *  through the 3 columns between them (top-left to bottom-right, 3 rows per
+ *  step) — packing the diagonal to the same 2px thickness as the verticals
+ *  leaves no room for the background gaps that make it read as a diagonal at
+ *  all, so it collapses into a solid block instead of a letter. */
 const GLYPHS: Record<string, string[]> = {
   U: ['XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XXXXX'],
   P: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XX...', 'XX...', 'XX...', 'XX...'],
   O: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX'],
-  N: ['XXX.XX', 'XXX.XX', 'XXX.XX', 'XXX.XX', 'XXXXXX', 'XX.XXX', 'XX.XXX', 'XX.XXX', 'XX.XXX'],
+  N: ['XXX..XX', 'XXX..XX', 'XXX..XX', 'XX.X.XX', 'XX.X.XX', 'XX.X.XX', 'XX..XXX', 'XX..XXX', 'XX..XXX'],
 };
 const GLYPH_H = 9;
 const GAP = 1; // 1px between letters — with 0 they run together into an unreadable blob
