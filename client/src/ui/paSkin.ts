@@ -40,7 +40,7 @@ export function injectPaSkin(): void {
       #pa-menubar .pa-dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}
       #pa-menubar .pa-div{width:2px;height:1.9rem;background:#242c46;box-shadow:inset 1px 0 0 #05060b;border-radius:1px;margin:0 0.1rem;}
       #pa-menubar .pa-spacer{flex:1;}
-      #pa-menu-more{justify-content:center;min-width:2.9rem;padding:0.5rem 0.7rem;font-size:1.2rem;}
+      #pa-menu-more{justify-content:center;min-width:2.9rem;padding:0.5rem 0.7rem;}
       /* One shared popover style — same width, style + position for every menu. */
       .pa-panel{position:fixed;top:3.7rem;z-index:60;display:none;width:24rem;max-width:94vw;
         max-height:calc(100vh - 4.7rem);overflow-y:auto;overscroll-behavior:contain;

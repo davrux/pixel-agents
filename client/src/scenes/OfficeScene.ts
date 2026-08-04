@@ -1804,7 +1804,10 @@ export class OfficeScene extends Phaser.Scene {
     const more = document.createElement('button');
     more.id = 'pa-menu-more';
     more.className = 'pa-btn';
-    more.textContent = '☰';
+    const moreIco = document.createElement('span');
+    moreIco.className = 'ico';
+    moreIco.textContent = '☰';
+    more.appendChild(moreIco);
     more.title = 'Menu';
     more.onclick = () =>
       void this.setMenu(
