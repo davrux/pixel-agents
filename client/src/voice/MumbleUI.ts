@@ -34,6 +34,18 @@ export interface MumbleUIHooks {
  *  readable without scrolling. */
 const VOLUME_STEPS = [0, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
 
+/** A tree row that outlives the snapshot it was built from: the element stays in
+ *  the document and `update` folds in fresh data. See renderTree for why the
+ *  element has to survive rather than be rebuilt. */
+interface ChannelRow {
+  el: HTMLElement;
+  update(channel: MumbleChannelInfo, userCount: number, depth: number): void;
+}
+interface UserRow {
+  el: HTMLElement;
+  update(user: MumbleUserInfo, depth: number, t: MumbleTree): void;
+}
+
 export class MumbleUI {
   readonly voice: MumbleVoice | null;
 
@@ -55,6 +67,10 @@ export class MumbleUI {
   private treeEl?: HTMLElement;
   private alertsEl?: HTMLInputElement;
   private pinBtn?: HTMLButtonElement;
+  /** Rows already in the tree, by channel id and by user session, so a re-render
+   *  can update them instead of replacing them — see renderTree. */
+  private readonly channelRows = new Map<number, ChannelRow>();
+  private readonly userRows = new Map<number, UserRow>();
   private pinned = localStorage.getItem('pa-mb-pinned') === '1';
   private lastState?: MumbleVoiceState;
 
@@ -338,13 +354,24 @@ export class MumbleUI {
     fillSelect(this.spkSel, d.speakers, d.speakerId);
   }
 
-  /** Rebuild the tree. Users are re-created each tick (they carry only a talking
-   *  dot and flags), except a slider the user is dragging, which is left alone. */
+  /**
+   * Fold a fresh snapshot into the tree.
+   *
+   * This runs every TALK_TICK_MS to animate the talking dots, so rows are updated
+   * in place and only moved when the order really changes. Rebuilding them — or
+   * even detaching and re-inserting the same elements, which is what
+   * replaceChildren does — takes the volume <select> out of the document with its
+   * native popup open, and that popup dies with it. It is why the dropdown used to
+   * shut again a fifth of a second after you clicked it, before you could pick
+   * anything.
+   */
   private renderTree(t: MumbleTree): void {
     const el = this.treeEl;
     const voice = this.voice;
     if (!el || !voice) return;
     if (t.channels.length === 0) {
+      this.channelRows.clear();
+      this.userRows.clear();
       el.replaceChildren(mkEmpty(this.lastState?.connected ? 'No channels.' : 'Not connected.'));
       return;
     }
@@ -368,11 +395,29 @@ export class MumbleUI {
       else usersByChannel.set(u.channel, [u]);
     }
 
-    const out = document.createDocumentFragment();
+    const order: HTMLElement[] = [];
+    const liveChannels = new Set<number>();
+    const liveUsers = new Set<number>();
     const walk = (channel: MumbleChannelInfo, depth: number): void => {
       const users = (usersByChannel.get(channel.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
-      out.appendChild(this.mkChannelRow(channel, users.length, depth));
-      for (const u of users) out.appendChild(this.mkUserRow(u, depth + 1, t));
+      let ch = this.channelRows.get(channel.id);
+      if (!ch) {
+        ch = this.mkChannelRow(channel.id);
+        this.channelRows.set(channel.id, ch);
+      }
+      ch.update(channel, users.length, depth);
+      liveChannels.add(channel.id);
+      order.push(ch.el);
+      for (const u of users) {
+        let ur = this.userRows.get(u.session);
+        if (!ur) {
+          ur = this.mkUserRow(u, t);
+          this.userRows.set(u.session, ur);
+        }
+        ur.update(u, depth + 1, t);
+        liveUsers.add(u.session);
+        order.push(ur.el);
+      }
       const kids = (byParent.get(channel.id) ?? []).sort(
         (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name),
       );
@@ -381,76 +426,142 @@ export class MumbleUI {
     for (const r of roots.sort((a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name))) {
       walk(r, 0);
     }
-    el.replaceChildren(out);
+    for (const id of this.channelRows.keys()) if (!liveChannels.has(id)) this.channelRows.delete(id);
+    for (const session of this.userRows.keys()) if (!liveUsers.has(session)) this.userRows.delete(session);
+    applyOrder(el, order);
   }
 
-  private mkChannelRow(channel: MumbleChannelInfo, userCount: number, depth: number): HTMLElement {
+  /** A channel row. Its id is fixed — the map is keyed by it — so only the name,
+   *  count, depth and "you are here" highlight are refreshed. */
+  private mkChannelRow(id: number): ChannelRow {
     const row = document.createElement('div');
     row.className = 'ch';
-    if (channel.id === this.lastState?.channel) row.classList.add('here');
-    row.style.paddingLeft = `${0.4 + depth * 0.8}rem`;
     const name = document.createElement('span');
     name.className = 'n';
-    name.textContent = channel.name;
     const count = document.createElement('span');
     count.className = 'c';
-    count.textContent = userCount > 0 ? String(userCount) : '';
     row.append(name, count);
-    row.title = channel.description ? `${channel.name} — ${channel.description}` : `Join ${channel.name}`;
-    row.onclick = () => this.voice?.joinChannel(channel.id);
-    return row;
+    row.onclick = () => this.voice?.joinChannel(id);
+    return {
+      el: row,
+      update: (channel, userCount, depth) => {
+        row.classList.toggle('here', channel.id === this.lastState?.channel);
+        row.style.paddingLeft = `${0.4 + depth * 0.8}rem`;
+        name.textContent = channel.name;
+        count.textContent = userCount > 0 ? String(userCount) : '';
+        row.title = channel.description ? `${channel.name} — ${channel.description}` : `Join ${channel.name}`;
+      },
+    };
   }
 
-  /** One line per user: talk dot, name, state flags, mute, volume dropdown. */
-  private mkUserRow(user: MumbleUserInfo, depth: number, t: MumbleTree): HTMLElement {
+  /**
+   * One line per user: talk dot, name, state flags, mute, volume dropdown.
+   *
+   * Built once per session and updated in place. Whether this is our own row is
+   * fixed for the life of the row, since a new session id means a new row, so the
+   * controls can be left out of the DOM entirely rather than toggled.
+   */
+  private mkUserRow(user: MumbleUserInfo, t: MumbleTree): UserRow {
     const voice = this.voice!;
     const row = document.createElement('div');
     row.className = 'us';
-    row.style.marginLeft = `${0.4 + depth * 0.8}rem`;
-
     const talk = document.createElement('span');
-    talk.className = `tk${t.talking.has(user.session) ? ' on' : ''}`;
     const name = document.createElement('span');
-    name.className = `nm${user.session === t.me ? ' me' : ''}`;
-    name.textContent = user.name;
-    name.title = user.userId !== undefined ? `${user.name} — registered on the server` : user.name;
-    row.append(talk, name, mkStateIcon('mic', user), mkStateIcon('speaker', user));
-
+    const mic = document.createElement('span');
+    const spk = document.createElement('span');
     // Our own row carries no controls: you don't mute or attenuate yourself.
-    if (user.session === t.me) return row;
+    const self = user.session === t.me;
+    name.className = `nm${self ? ' me' : ''}`;
+    row.append(talk, name, mic, spk);
 
-    // Mute and volume are local-only, so they key off the display name —
-    // session ids churn on every reconnect.
-    const muted = voice.isUserMuted(user.name);
-    const mute = document.createElement('button');
-    mute.className = 'mu';
-    mute.innerHTML = '<span class="ico">🔊</span>';
-    mute.classList.toggle('on', muted);
-    mute.title = muted ? 'Unmute this user for you' : 'Mute this user for you';
-    mute.onclick = () => voice.setUserMuted(user.name, !muted);
-
-    const vol = document.createElement('select');
-    vol.className = 'vol';
-    vol.title = `Volume for ${user.name}`;
-    const current = voice.getUserVolume(user.name);
-    // Include the stored value if it isn't one of the presets (e.g. set by an
-    // older build's slider), so opening the dropdown never silently changes it.
-    const steps = VOLUME_STEPS.includes(current) ? VOLUME_STEPS : [...VOLUME_STEPS, current].sort((a, b) => a - b);
-    for (const step of steps) {
-      const o = document.createElement('option');
-      o.value = String(step);
-      o.textContent = `${Math.round(step * 100)}%`;
-      if (step === current) o.selected = true;
-      vol.appendChild(o);
+    // Mute and volume are local-only, so they key off the display name — session
+    // ids churn on every reconnect. A rename keeps the row, so the handlers read
+    // the current name at click time rather than closing over the first one.
+    let who = user.name;
+    let mute: HTMLButtonElement | undefined;
+    let vol: HTMLSelectElement | undefined;
+    let steps: number[] = [];
+    if (!self) {
+      mute = document.createElement('button');
+      mute.className = 'mu';
+      mute.innerHTML = '<span class="ico">🔊</span>';
+      mute.onclick = () => voice.setUserMuted(who, !voice.isUserMuted(who));
+      const sel = document.createElement('select');
+      sel.className = 'vol';
+      sel.onchange = () => voice.setUserVolume(who, Number(sel.value));
+      vol = sel;
+      row.append(mute, sel);
     }
-    vol.onchange = () => voice.setUserVolume(user.name, Number(vol.value));
-    row.append(mute, vol);
-    return row;
+
+    return {
+      el: row,
+      update: (u, depth, tree) => {
+        who = u.name;
+        row.style.marginLeft = `${0.4 + depth * 0.8}rem`;
+        talk.className = `tk${tree.talking.has(u.session) ? ' on' : ''}`;
+        name.textContent = u.name;
+        name.title = u.userId !== undefined ? `${u.name} — registered on the server` : u.name;
+        applyStateIcon(mic, 'mic', u);
+        applyStateIcon(spk, 'speaker', u);
+        if (!mute || !vol) return;
+        const muted = voice.isUserMuted(u.name);
+        mute.classList.toggle('on', muted);
+        mute.title = muted ? 'Unmute this user for you' : 'Mute this user for you';
+        vol.title = `Volume for ${u.name}`;
+        const current = voice.getUserVolume(u.name);
+        // Include the stored value if it isn't one of the presets (e.g. set by an
+        // older build's slider), so opening the dropdown never silently changes it.
+        const want = VOLUME_STEPS.includes(current)
+          ? VOLUME_STEPS
+          : [...VOLUME_STEPS, current].sort((a, b) => a - b);
+        // Rewriting the options closes an open popup just as surely as replacing
+        // the element would, so only do it when the choices actually differ.
+        if (want.length !== steps.length || want.some((s, i) => s !== steps[i])) {
+          steps = want;
+          vol.replaceChildren(
+            ...want.map((step) => {
+              const o = document.createElement('option');
+              o.value = String(step);
+              o.textContent = `${Math.round(step * 100)}%`;
+              return o;
+            }),
+          );
+        }
+        if (Number(vol.value) !== current) vol.value = String(current);
+      },
+    };
   }
 }
 
 /**
- * One state icon for a user's mic or speaker.
+ * Make `el`'s children exactly `nodes`, in that order, moving as little as
+ * possible.
+ *
+ * A row that is already in the right place must not be touched at all: taking a
+ * node out of the document and putting it back drops focus, and a <select> loses
+ * its open popup with it. That rules out replaceChildren even when it is handed
+ * the very same elements it already has.
+ */
+function applyOrder(el: HTMLElement, nodes: HTMLElement[]): void {
+  let cur = el.firstChild;
+  for (const want of nodes) {
+    if (cur === want) {
+      cur = cur.nextSibling;
+      continue;
+    }
+    el.insertBefore(want, cur);
+  }
+  while (cur) {
+    const next = cur.nextSibling;
+    el.removeChild(cur);
+    cur = next;
+  }
+}
+
+/**
+ * Paint one state icon for a user's mic or speaker, in place — the row it belongs
+ * to outlives any single snapshot, so the classes are set from scratch each time
+ * rather than added to.
  *
  * Mumble distinguishes a user's own choice (self_mute / self_deaf) from one
  * imposed by the server (mute / deaf / suppress); both silence them, so both
@@ -458,8 +569,7 @@ export class MumbleUI {
  * at a glance. Deafening implies you also transmit nothing, so a deafened user
  * shows a slashed mic too — matching what the official client displays.
  */
-function mkStateIcon(kind: 'mic' | 'speaker', user: MumbleUserInfo): HTMLElement {
-  const el = document.createElement('span');
+function applyStateIcon(el: HTMLElement, kind: 'mic' | 'speaker', user: MumbleUserInfo): void {
   el.className = 'st';
   if (kind === 'speaker') {
     el.textContent = '🎧';
@@ -472,7 +582,7 @@ function mkStateIcon(kind: 'mic' | 'speaker', user: MumbleUserInfo): HTMLElement
     } else {
       el.title = 'Hearing everyone';
     }
-    return el;
+    return;
   }
   el.textContent = '🎤';
   if (user.mute) {
@@ -487,7 +597,6 @@ function mkStateIcon(kind: 'mic' | 'speaker', user: MumbleUserInfo): HTMLElement
   } else {
     el.title = 'Microphone live';
   }
-  return el;
 }
 
 function mkEmpty(text: string): HTMLElement {
