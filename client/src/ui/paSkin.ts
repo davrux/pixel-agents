@@ -85,6 +85,7 @@ export function injectPaSkin(): void {
         background:#1b2033;border:2px solid #05060b;border-radius:0.45rem;cursor:pointer;margin-bottom:0.5rem;
         box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
       .pa-menurow.here{color:#f2c14e;}
+      .pa-menurow.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-menurow .sub{margin-left:auto;color:#6f7590;font-size:0.8rem;}
       /* Native dropdown / text input styled to match (the office uses custom ones).
          appearance:none strips the OS chrome so our pixel styling actually shows;

@@ -1968,9 +1968,9 @@ export class OfficeScene extends Phaser.Scene {
     const body = this.morePanel?.querySelector<HTMLElement>('.pa-body');
     if (!body) return;
     body.replaceChildren();
-    const row = (icon: string, label: string, sub: string | null, onClick: () => void): void => {
+    const row = (icon: string, label: string, sub: string | null, onClick: () => void, opts: { danger?: boolean } = {}): void => {
       const r = document.createElement('div');
-      r.className = 'pa-menurow';
+      r.className = 'pa-menurow' + (opts.danger ? ' danger' : '');
       r.append(document.createTextNode(`${icon} ${label}`));
       if (sub) {
         const s = document.createElement('span');
@@ -1992,13 +1992,19 @@ export class OfficeScene extends Phaser.Scene {
     // security, just not offering a link that would just error out).
     if (this.isAdmin) row('🛡', 'Admin site', null, () => { window.location.href = './admin.html'; });
     if (this.myUserId) {
-      row('🚪', 'Log out', null, () => {
-        if (isDesktop()) {
-          void desktopSignOut();
-          return;
-        }
-        gotoLogout();
-      });
+      row(
+        '🚪',
+        'Log out',
+        null,
+        () => {
+          if (isDesktop()) {
+            void desktopSignOut();
+            return;
+          }
+          gotoLogout();
+        },
+        { danger: true },
+      );
     }
     const hr = document.createElement('div');
     hr.style.cssText = 'height:1px;background:#1b2138;margin:0.3rem 0 0.6rem;';
