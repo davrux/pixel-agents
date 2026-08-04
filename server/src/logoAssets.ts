@@ -8,49 +8,45 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 
 const T = ''; // transparent
 
-/** Tiny 5px-tall block font — just enough glyphs to spell "UPONU". Widths vary
- *  per glyph (N is 4px wide so its diagonal doesn't collapse into a plain H). */
+/** Bold 9px-tall block font — just enough glyphs to spell "UPONU", with 2px-
+ *  thick strokes (vs. a 1px hairline) to match the real wordmark's chunky
+ *  weight — a thin single-pixel outline read as spindly next to it. N is 6px
+ *  wide (vs. 5 for the others) so its diagonal doesn't collapse into a plain H. */
 const GLYPHS: Record<string, string[]> = {
-  U: ['X.X', 'X.X', 'X.X', 'X.X', 'XXX'],
-  P: ['XXX', 'X.X', 'XXX', 'X..', 'X..'],
-  O: ['XXX', 'X.X', 'X.X', 'X.X', 'XXX'],
-  N: ['X..X', 'XX.X', 'X.XX', 'X..X', 'X..X'],
+  U: ['XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XXXXX'],
+  P: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XX...', 'XX...', 'XX...', 'XX...'],
+  O: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX'],
+  N: ['XXX.XX', 'XXX.XX', 'XXX.XX', 'XXX.XX', 'XXXXXX', 'XX.XXX', 'XX.XXX', 'XX.XXX', 'XX.XXX'],
 };
-const GLYPH_H = 5;
+const GLYPH_H = 9;
+const GAP = 1; // 1px between letters — with 0 they run together into an unreadable blob
 
-/** A small framed plaque: white frame + dark panel + the "UPONU" wordmark, same
- *  2×2 canvas as the whiteboard but — like WHITEBOARD.png itself — only a small
- *  centered block is actually drawn, with transparent margin around it, so it
- *  reads as a plaque hanging on the wall rather than a block filling the tile. */
+/** A small plaque: an off-white background + the "UPONU" wordmark, same 2×2
+ *  canvas as the whiteboard but — like WHITEBOARD.png itself — only a small
+ *  centered block is actually drawn, with transparent margin above/below, so
+ *  it reads as a plaque hanging on the wall rather than a block filling the
+ *  tile. No separate frame layer: now that the background is white (was a
+ *  dark panel), a white-on-white frame would be invisible anyway. */
 export function logoSprite(): SpriteData {
   const canvasW = 32;
   const canvasH = 32;
   const g: SpriteData = Array.from({ length: canvasH }, () => new Array<string>(canvasW).fill(T));
-  const frame = '#f4f2ee';
-  const panel = '#ffffff';
+  const panel = '#f4f2ee';
   const ink = '#c51a1b';
 
   const word = 'UPONU';
   const widths = [...word].map((ch) => GLYPHS[ch][0].length);
-  const textW = widths.reduce((a, b) => a + b, 0) + (word.length - 1); // letters + 1px gaps
+  const textW = widths.reduce((a, b) => a + b, 0) + GAP * (word.length - 1);
   const textH = GLYPH_H;
 
-  const panelPad = 2; // panel margin around the text
-  const framePad = 2; // frame thickness around the panel
-  const panelW = textW + panelPad * 2;
-  const panelH = textH + panelPad * 2;
-  const frameW = panelW + framePad * 2;
-  const frameH = panelH + framePad * 2;
-  const frameLeft = Math.floor((canvasW - frameW) / 2);
-  const frameTop = Math.floor((canvasH - frameH) / 2);
-  const panelLeft = frameLeft + framePad;
-  const panelTop = frameTop + framePad;
-  const textLeft = panelLeft + panelPad;
-  const textTop = panelTop + panelPad;
+  const padV = 1; // vertical breathing room within the panel
+  const panelW = textW; // no horizontal pad — needs the full 32px width already
+  const panelH = textH + padV * 2;
+  const panelLeft = Math.floor((canvasW - panelW) / 2);
+  const panelTop = Math.floor((canvasH - panelH) / 2);
+  const textLeft = panelLeft;
+  const textTop = panelTop + padV;
 
-  for (let y = 0; y < frameH; y++) {
-    for (let x = 0; x < frameW; x++) g[frameTop + y][frameLeft + x] = frame;
-  }
   for (let y = 0; y < panelH; y++) {
     for (let x = 0; x < panelW; x++) g[panelTop + y][panelLeft + x] = panel;
   }
@@ -63,7 +59,7 @@ export function logoSprite(): SpriteData {
         if (glyph[y][x] === 'X') g[textTop + y][cx + x] = ink;
       }
     }
-    cx += w + 1;
+    cx += w + GAP;
   }
   return g;
 }
