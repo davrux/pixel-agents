@@ -1986,6 +1986,10 @@ export class OfficeScene extends Phaser.Scene {
     }
     row('⚙', 'Settings', null, () => void this.setMenu('settings'));
     row('❓', 'Help', null, () => void this.setMenu('help'));
+    // Same navigation as the /admin-site chat command — global admins only
+    // (admin.html itself 403s anyone else, so hiding it otherwise isn't
+    // security, just not offering a link that would just error out).
+    if (this.isAdmin) row('🛡', 'Admin site', null, () => { window.location.href = './admin.html'; });
     const hr = document.createElement('div');
     hr.style.cssText = 'height:1px;background:#1b2138;margin:0.3rem 0 0.6rem;';
     body.appendChild(hr);
