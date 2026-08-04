@@ -2034,24 +2034,101 @@ export class OfficeScene extends Phaser.Scene {
   private renderHelpPanel(): void {
     const body = this.helpPanel?.querySelector<HTMLElement>('.pa-body');
     if (!body) return;
-    const rows: Array<[string, string]> = [
-      ['W A S D / Arrows', 'Move'],
-      ['Left-click floor', 'Walk there'],
-      ['Left-click chair / bench', 'Sit down'],
-      ['C', 'Sit / stand (in place)'],
-      ['M', 'Mute / unmute your mic (while in voice)'],
-      ['Walk onto a door / beam pad', 'Choose a destination zone'],
-      ['Enter', 'Chat — focus, then send (cursor stays)'],
-      ['Esc', 'Leave the chat field'],
-      ['Click an avatar', 'Select (show tooltip)'],
-      ['Mouse wheel', 'Zoom'],
-      ['Drag (empty space)', 'Pan the camera'],
-      ['🌐 Space → Zones', 'Create / edit / delete zones, set arrival, NPCs'],
-      ['🌐 Space → Layouts', 'Edit this zone’s layout'],
-      ['F8', 'Toggle the performance overlay (FPS / frame time)'],
+    const sections: Array<{ title: string; rows: Array<[string, string]> }> = [
+      {
+        title: 'Move & camera',
+        rows: [
+          ['W A S D / Arrows', 'Move'],
+          ['Left-click floor', 'Walk there'],
+          ['Left-click chair / bench', 'Sit down'],
+          ['C', 'Sit / stand (in place)'],
+          ['Click an avatar', 'Select it (tooltip) — hover works too'],
+          ['Mouse wheel', 'Zoom'],
+          ['Drag (empty space)', 'Pan the camera'],
+          ['F8', 'Toggle the performance overlay (FPS / frame time)'],
+        ],
+      },
+      {
+        title: 'Chat',
+        rows: [
+          ['Enter', 'Focus chat, then send (cursor stays)'],
+          ['Esc', 'Leave the chat field'],
+          ['↑ / ↓ (in chat)', 'Browse your last messages'],
+          ['Tab (in chat)', 'Autocomplete a /command'],
+          ['/help', 'List every chat command'],
+        ],
+      },
+      {
+        title: 'Zones & travel',
+        rows: [
+          ['Walk onto a door / beam pad', 'Choose a destination zone'],
+          ['🚪 zone name (top bar)', 'Jump straight to any zone'],
+          ['🌐 Space → Zones', 'Create a zone, or travel to any of them'],
+          ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which NPCs spawn, or delete a zone'],
+          ['📍 Set arrival point', 'Where new arrivals land in this zone (zone admin)'],
+          ['⚙ next to your zone', 'Privacy, access list, invites, entry password, monitor passwords'],
+          ['👤 next to your zone', 'Grant or revoke zone-admins (who may edit its layout)'],
+        ],
+      },
+      {
+        title: 'Editing a layout',
+        rows: [
+          ['🌐 Space → Layouts → ✏ Edit', 'Rearrange floor, walls, furniture (zone admin)'],
+          ['First edit of a zone', 'Forks the shared "Default" into your own saved layout'],
+          ['1 2 3 4 5 (while editing)', 'Select / furniture / floor / wall / eyedropper tool'],
+          ['R / Shift+R', 'Rotate the selected piece'],
+          ['Delete / Backspace', 'Remove the selected piece'],
+          ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
+          ['✓ Done', 'Exit — changes already autosaved live for everyone here'],
+        ],
+      },
+      {
+        title: 'Voice',
+        rows: [
+          ['🔊 Audio (top bar)', 'Proximity voice — louder the closer someone stands'],
+          ['M', 'Mute / unmute your mic (while in voice)'],
+          ['🎧 Mumble (desktop app)', 'A separate, persistent cross-zone voice channel'],
+        ],
+      },
+      {
+        title: 'Conferencing & meetings',
+        rows: [
+          ['Click a conference monitor', 'Join a video call (mic / cam / screen-share); click again to leave'],
+          ['Click a meeting-room kiosk', 'Create your own room with a shareable link — works without an account'],
+        ],
+      },
+      {
+        title: 'Arcade',
+        rows: [
+          ['Click a cabinet', 'Pick a game to play; some support a multiplayer lobby'],
+          ['Your progress', 'Saves automatically, per game'],
+        ],
+      },
+      {
+        title: 'Your account',
+        rows: [
+          ['☰ → Settings', 'Display name, password, agent token'],
+          ['✨ Create / ✏ Edit', 'Your own avatar — or start from a shared template'],
+          ['Sound / volume / labels', 'Notification and display preferences'],
+        ],
+      },
+      {
+        title: 'Menu (☰)',
+        rows: [
+          ['⚙ Settings · ❓ Help', 'This panel and your account settings'],
+          ['🛡 Admin site', 'Global admins only'],
+          ['🎨 Assets', 'Edit the shared character & furniture galleries (admins)'],
+          ['🚪 Log out', ''],
+          ['▤ Collapse toolbar', 'Tucks Space / Assets into ☰ on a small screen'],
+        ],
+      },
     ];
-    body.innerHTML = rows
-      .map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`)
+    body.innerHTML = sections
+      .map(
+        (sec) =>
+          `<div class="grouplbl">${esc(sec.title)}</div>` +
+          sec.rows.map(([k, v]) => `<div class="row"><kbd>${esc(k)}</kbd><span>${esc(v)}</span></div>`).join(''),
+      )
       .join('');
   }
 
