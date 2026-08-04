@@ -57,7 +57,7 @@ import {
   PetState,
   TILE_SIZE,
 } from '../types.js';
-import { createCharacter, updateCharacter } from './characters.js';
+import { createCharacter, releaseStation, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
@@ -681,6 +681,7 @@ export class OfficeState {
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
     ch.pendingConference = null; // …and a pending walk-to-monitor
+    ch.pendingAppliance = null; // …and a pending walk-to-appliance
     ch.afk = false; // moving clears the afk marker
     ch.path = path;
     ch.moveProgress = 0;
@@ -707,6 +708,7 @@ export class OfficeState {
     ch.heldDir = null;
     ch.afk = false; // moving to a seat clears the afk marker
     ch.pendingConference = null; // a click-to-sit cancels a pending walk-to-monitor
+    ch.pendingAppliance = null; // …and a pending walk-to-appliance
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
       ch.moveProgress = 0;
@@ -739,6 +741,7 @@ export class OfficeState {
     if (dir !== null) {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
       ch.pendingConference = null; // …and a walk-to-monitor
+      ch.pendingAppliance = null; // …and a walk-to-appliance
       ch.afk = false; // moving clears the afk marker
     }
     ch.heldDir = dir;
@@ -758,6 +761,7 @@ export class OfficeState {
       ch.heldDir = null;
       ch.pendingSitFacing = null;
       ch.pendingConference = null;
+      ch.pendingAppliance = null;
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
@@ -845,6 +849,7 @@ export class OfficeState {
     const key = `${anchorCol},${anchorRow}`;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
+    ch.pendingAppliance = null;
 
     // Walkable orthogonal neighbours of the footprint, each facing the monitor.
     const seen = new Set<string>();
@@ -901,14 +906,64 @@ export class OfficeState {
     return true;
   }
 
+  /** Walk a player to an appliance's stand tile (e.g. coffee machine), facing
+   *  it, then hold the cosmetic "using it" pose (COFFEE) for a few seconds on
+   *  arrival — same stationId/stationTimer the agent FSM already uses for NPC
+   *  coffee breaks (see characters.ts), just started by a click instead of AI.
+   *  Triggers immediately if already standing there. Returns false if there's
+   *  no appliance at that tile or no stand tile was derivable (buildStations). */
+  useAppliance(id: number, anchorCol: number, anchorRow: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    // An appliance can share its tile with the surface it sits on (e.g. a
+    // coffee machine placed atop a counter) — match the appliance-flagged
+    // item specifically, not just whatever's first at that tile.
+    const item = this.layout.furniture.find(
+      (f) => f.col === anchorCol && f.row === anchorRow && getCatalogEntry(f.type)?.appliance,
+    );
+    if (!item) return false;
+    const station = this.stations.get(`station:${item.uid}`);
+    if (!station) return false;
+    ch.heldDir = null;
+    ch.pendingSitFacing = null;
+    ch.pendingConference = null;
+
+    if (ch.tileCol === station.col && ch.tileRow === station.row) {
+      ch.dir = station.facingDir;
+      ch.stationId = station.uid;
+      ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+      ch.pendingAppliance = null;
+      return true;
+    }
+    const path = findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles);
+    if (path.length === 0) return false;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.pendingAppliance = { stationUid: station.uid, facing: station.facingDir };
+    return true;
+  }
+
   /** Advance a player's avatar: click-to-walk feeds a path; WASD feeds a held
    *  direction that steps tile-by-tile (chained so it doesn't stutter). */
   private updatePlayerMovement(ch: Character, dt: number): void {
     if (ch.state === CharacterState.SIT) return; // sitting still; movement input stands up
+    // A new walk (WASD held-step queued below, or a path already queued by
+    // walkPlayer/useAppliance) ends any appliance pose right away — players
+    // aren't run through the agent FSM (see the isPlayer branch above), so
+    // nothing else would release this claim once they move on.
+    if (ch.stationId && ch.path.length > 0) releaseStation(ch, this.stations);
     // Standing at a tile with a key held → begin a step that way.
     if (ch.path.length === 0) this.tryStepHeldDir(ch);
 
     if (ch.path.length === 0) {
+      // Holding an appliance pose (cosmetic "using it" timer) while idle —
+      // the agent FSM does this in updateCharacter's IDLE case; players skip
+      // that function entirely, so it's replicated here instead.
+      if (ch.stationId) {
+        ch.stationTimer -= dt;
+        if (ch.stationTimer <= 0) releaseStation(ch, this.stations);
+      }
       if (ch.state !== CharacterState.IDLE) ch.state = CharacterState.IDLE;
       return; // idle (no portal check here — only fires on arrival, below)
     }
@@ -926,6 +981,13 @@ export class OfficeState {
           ch.state = CharacterState.IDLE;
           this.pendingConferenceJoins.push({ id: ch.id, key: ch.pendingConference.key });
           ch.pendingConference = null;
+        } else if (ch.pendingAppliance) {
+          // Reached an appliance's stand tile → face it + start the pose timer.
+          ch.dir = ch.pendingAppliance.facing;
+          ch.state = CharacterState.IDLE;
+          ch.stationId = ch.pendingAppliance.stationUid;
+          ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+          ch.pendingAppliance = null;
         } else if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
           // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
           ch.dir = ch.pendingSitFacing;

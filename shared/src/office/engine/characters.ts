@@ -348,8 +348,10 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
   return spriteForPose(pose, ch.dir, ch.frame, sprites);
 }
 
-/** Release the agent's interaction-station claim (idempotent). */
-function releaseStation(ch: Character, stations: Map<string, InteractionPoint>): void {
+/** Release the character's interaction-station claim (idempotent). Exported so
+ *  officeState's player-only movement path (which doesn't run the agent FSM
+ *  above) can release a player's own station claim too. */
+export function releaseStation(ch: Character, stations: Map<string, InteractionPoint>): void {
   if (!ch.stationId) return;
   const station = stations.get(ch.stationId);
   if (station && station.occupantId === ch.id) station.occupantId = null;

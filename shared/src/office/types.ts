@@ -324,6 +324,9 @@ export interface Character {
   /** When walking to a conference monitor, the monitor key to join + the facing
    *  on arrival; null = none. Server-only intent. */
   pendingConference?: { key: string; facing: Direction } | null;
+  /** When walking to an appliance (e.g. coffee machine), the station to start
+   *  standing at + the facing on arrival; null = none. Server-only intent. */
+  pendingAppliance?: { stationUid: string; facing: Direction } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

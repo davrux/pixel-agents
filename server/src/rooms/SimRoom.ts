@@ -549,6 +549,14 @@ export class SimRoom extends Room<RoomState> {
     return false;
   }
 
+  /** Whether an appliance (e.g. coffee machine) is placed with its anchor at this tile. */
+  private hasApplianceAt(col: number, row: number): boolean {
+    for (const item of this.os.getLayout().furniture) {
+      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.appliance) return true;
+    }
+    return false;
+  }
+
   /** Current members of a conference (by "col,row" key), for broadcast. */
   private conferenceMembersMsg(key: string): Record<string, unknown> {
     const [col, row] = key.split(',').map(Number);
@@ -726,6 +734,21 @@ export class SimRoom extends Room<RoomState> {
       if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
       if (!this.os.walkPlayerToConference(id, col, row)) {
         client.send('m', { type: 'system', text: "Can't reach that monitor — walk up to it to join." });
+      }
+    });
+
+    // Appliances (coffee machine, …): click → walk the avatar to its stand
+    // tile, then hold a cosmetic "using it" pose for a few seconds (no game
+    // effect — see officeState.useAppliance/stationId, the same mechanism
+    // NPCs use for coffee breaks).
+    this.onMessage('applianceApproach', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasApplianceAt(col, row)) return;
+      if (!this.os.useAppliance(id, col, row)) {
+        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
       }
     });
 

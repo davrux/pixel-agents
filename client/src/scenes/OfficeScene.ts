@@ -801,6 +801,18 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
+  /** If the tile is covered by an appliance (e.g. coffee machine), its anchor, else null. */
+  private applianceAt(col: number, row: number): { col: number; row: number } | null {
+    for (const f of this.furniturePlacements) {
+      const entry = getCatalogEntry(f.type);
+      if (!entry?.appliance) continue;
+      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
+        return { col: f.col, row: f.row };
+      }
+    }
+    return null;
+  }
+
   /** If the tile is covered by an arcade cabinet, its footprint (anchor + size), else null. */
   private arcadeAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
     for (const f of this.furniturePlacements) {
@@ -1229,6 +1241,7 @@ export class OfficeScene extends Phaser.Scene {
             const conf = this.conferenceAnchorAt(col, row);
             const cab = this.arcadeAt(col, row);
             const kiosk = this.meetingKioskAt(col, row);
+            const appliance = this.applianceAt(col, row);
             if (cab) {
               // Must stand at the cabinet to use it: open if already next to it,
               // else walk to a tile in front of it and open on arrival (see update()).
@@ -1253,7 +1266,14 @@ export class OfficeScene extends Phaser.Scene {
                 this.room?.send('playerMove', { col: kiosk.col, row: kiosk.row + kiosk.fpH });
               }
             } else if (conf) void this.toggleConference(conf);
-            else {
+            else if (appliance) {
+              // Server-authoritative walk-then-use, same as conference monitors —
+              // no client-side pending/nearFootprint dance needed (see officeState's
+              // useAppliance): it walks the avatar itself and starts the pose.
+              this.pendingArcade = null;
+              this.pendingMeetingKiosk = null;
+              this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
+            } else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.pendingArcade = null; // …and a walk-to-cabinet
               this.pendingMeetingKiosk = null; // …and a walk-to-kiosk
