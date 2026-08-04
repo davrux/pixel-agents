@@ -963,6 +963,28 @@ export class LayoutEditor {
     this.updateSwatch();
     this.refreshPalettePreviews();
   }
+  /** "Reset" button next to the sliders — back to neutral (h/s/b/c 0, no
+   *  colorize). Mirrors readColor()'s live-apply so it behaves the same as
+   *  dragging every slider back to 0: recolors the current selection, or just
+   *  updates the placement ghost/palette preview for the paint tools. Needed
+   *  because the eyedropper (Pick) copies a picked object's color into these
+   *  same sliders, which then keeps applying to everything placed afterward
+   *  until manually cleared. */
+  private resetColor(): void {
+    this.applyColor({ h: 0, s: 0, b: 0, c: 0, colorize: false });
+    if (this.tool === 'select' && this.selectedUid && this.layout) {
+      const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+      if (f) {
+        this.beginGesture();
+        delete f.color;
+        this.rebuildFurniture();
+        this.deps.onEdit(this.layout, true);
+      }
+    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
+      this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
+      this.refreshPalettePreviews();
+    }
+  }
   private updateSwatch(): void {
     // Truthful preview of the colorize result: saturation 0 → grey (matches the
     // engine's s/100), lightness from brightness.
@@ -1038,6 +1060,10 @@ export class LayoutEditor {
       #pa-editor .color .rowc span{width:2.1rem;color:#9aa0b8;}
       #pa-editor .color input[type=range]{flex:1;accent-color:#3f78c4;}
       #pa-editor .sw{width:1.6rem;height:1.1rem;border:2px solid #05060b;border-radius:0.2rem;}
+      #pa-editor .pa-color-reset{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+        border-radius:0.3rem;font:0.75rem 'FS Pixel Sans',monospace;padding:0.25rem 0.5rem;
+        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-editor .pa-color-reset:hover{background:#1a2032;}
       .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.7rem;align-content:start;}
       .pa-pal-item{display:flex;align-items:center;justify-content:center;height:3.4rem;cursor:pointer;
         background:#0a0d16;border:2px solid #05060b;border-radius:0.4rem;padding:0.25rem;
@@ -1117,7 +1143,13 @@ export class LayoutEditor {
     const clab = Object.assign(document.createElement('label'), { textContent: 'Colorize', htmlFor: 'pa-colorize' });
     clab.style.flex = '1';
     this.swatchEl = Object.assign(document.createElement('div'), { className: 'sw' });
-    crow.append(this.colorizeEl, clab, this.swatchEl);
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = 'pa-color-reset';
+    resetBtn.textContent = 'Reset';
+    resetBtn.title = 'Back to default colour (no hue/sat/bright/contrast, not colorized)';
+    resetBtn.onclick = () => this.resetColor();
+    crow.append(this.colorizeEl, clab, this.swatchEl, resetBtn);
     color.appendChild(crow);
 
     this.palFurn = Object.assign(document.createElement('div'), { className: 'pa-pal' });
