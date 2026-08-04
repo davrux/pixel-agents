@@ -5,6 +5,7 @@
  */
 import { serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop } from '../desktop/bridge.js';
+import type { ArcadeGame } from '@pixel/shared';
 
 export type Role = 'admin' | 'user';
 export interface AdminUser {
@@ -37,6 +38,14 @@ export interface AdminMonitor {
   key: string;
   name: string;
   locked: boolean;
+}
+export interface AdminArcadeCabinet {
+  key: string;
+  name: string;
+  /** This cabinet's own game list, or null if it follows the global default. */
+  override: string[] | null;
+  /** The resolved list actually offered right now (override ?? default ?? all). */
+  effective: string[];
 }
 export interface AdminMeetingRoom {
   slug: string;
@@ -122,4 +131,15 @@ export const adminApi = {
   listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
   deleteMeetingRoom: (slug: string) =>
     req<{ ok: true }>('DELETE', `/admin/meeting-rooms/${encodeURIComponent(slug)}`),
+
+  // Arcade: the game catalog itself is the same public route the in-game
+  // launcher uses (no admin-only data in it — see server/src/index.ts).
+  listArcadeGames: () => req<{ games: ArcadeGame[] }>('GET', '/arcade/catalog'),
+  getArcadeDefaultGames: () => req<{ gameIds: string[] }>('GET', '/admin/arcade/default-games'),
+  setArcadeDefaultGames: (gameIds: string[]) =>
+    req<{ gameIds: string[] }>('PUT', '/admin/arcade/default-games', { gameIds }),
+  listArcadeCabinets: (zoneId: string) =>
+    req<{ cabinets: AdminArcadeCabinet[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/arcade-cabinets`),
+  setArcadeCabinetGames: (zoneId: string, key: string, gameIds: string[] | null) =>
+    req<{ effective: string[] }>('PUT', `/admin/zone/${encodeURIComponent(zoneId)}/arcade-cabinet`, { key, gameIds }),
 };

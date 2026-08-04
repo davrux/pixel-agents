@@ -840,6 +840,7 @@ export class OfficeScene extends Phaser.Scene {
     if (this.input.keyboard) this.input.keyboard.enabled = false;
     void this.arcadeUI.openMenu({
       cabinet: `${cab.col},${cab.row}`, // brokers a multiplayer match at this cabinet
+      zone: currentZone(), // resolves which games THIS cabinet offers (admin-curated)
       onClose: () => {
         if (this.input.keyboard) this.input.keyboard.enabled = true;
       },

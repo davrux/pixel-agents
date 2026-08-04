@@ -85,6 +85,9 @@ export interface ArcadeMenuOpts {
   onClose?: () => void;
   /** The cabinet's tile key "col,row" — needed to broker a multiplayer match. */
   cabinet?: string;
+  /** The zone this cabinet is in — with `cabinet`, resolves which of the
+   *  catalog's games this specific cabinet offers (see loadAllowedIds). */
+  zone?: string;
 }
 
 const CSS = `
@@ -219,18 +222,39 @@ export class ArcadeUI {
     return this.catalog;
   }
 
+  /** This cabinet's own game-id allow-list (admin-curated, see adminApi's arcade
+   *  routes), resolved server-side from its override or the global default.
+   *  Not cached — each cabinet can have its own list and admins expect a change
+   *  to show up the next time someone opens that cabinet's menu, not after a
+   *  page reload. Fails open (null) on any error: this is content curation, not
+   *  an access control, so a network hiccup should show every game, not none. */
+  private async loadAllowedIds(zone: string, cabinet: string): Promise<Set<string> | null> {
+    try {
+      const url = `${serverHttpOrigin()}/arcade/allowed-games?zone=${encodeURIComponent(zone)}&cabinet=${encodeURIComponent(cabinet)}`;
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const body = (await res.json()) as { gameIds?: unknown };
+      return Array.isArray(body.gameIds) ? new Set(body.gameIds.filter((x): x is string => typeof x === 'string')) : null;
+    } catch {
+      return null;
+    }
+  }
+
   /** Show the game picker (shared pixel-menu look); choosing a title boots it. This
    *  is the entry point both worlds use so the cabinet always offers a title menu.
    *  opts.onClose fires when the session fully ends (picker cancelled or game closed). */
   async openMenu(opts: ArcadeMenuOpts = {}): Promise<void> {
     if (this.isOpen || paDialogOpen()) return;
-    const games = await this.loadCatalog();
+    const allGames = await this.loadCatalog();
+    const allowed = opts.zone && opts.cabinet ? await this.loadAllowedIds(opts.zone, opts.cabinet) : null;
+    const games = allowed ? allGames.filter((g) => allowed.has(g.id)) : allGames;
     if (paDialogOpen() || this.isOpen) return; // a dialog/game opened while we fetched
     const body = document.createElement('div');
     if (!games.length) {
-      body.innerHTML =
-        '<div style="opacity:.8">No games are installed.<br>' +
-        'Add content to the server\'s ARCADE_CONTENT_DIR (see docs/dev-notes.md).</div>';
+      body.innerHTML = allGames.length
+        ? '<div style="opacity:.8">No games are enabled for this cabinet.</div>'
+        : '<div style="opacity:.8">No games are installed.<br>' +
+          'Add content to the server\'s ARCADE_CONTENT_DIR (see docs/dev-notes.md).</div>';
       openPaDialog({ title: '🕹 Arcade', body, onClose: () => opts.onClose?.(), buttons: [] });
       return;
     }

@@ -20,6 +20,8 @@ import { controlBus, KICK_EVENT } from './controlBus.js';
 import { can, type Principal } from './permissions.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { PlacedFurniture } from '@pixel/shared/office/types.js';
+import { getArcadeCatalog } from './arcadeCatalog.js';
+import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
 
 // Fresh stores over the shared DB (reads/writes hit the same tables the rooms use).
 // The layout store only needs DB-backed saved layouts here (where admins place
@@ -362,5 +364,70 @@ export function registerAdminApi(app: Express): void {
     if (!admin(req, res)) return;
     if (!meetingRoomStore.delete(req.params.slug)) return void res.status(404).json({ error: 'not found' });
     res.json({ ok: true });
+  });
+
+  // ── Arcade cabinet game restrictions ────────────────────────────────────
+  // Global admins only — unlike monitors/passwords, a zone owner does NOT get
+  // this (see permissions.ts: no capability branch, so only the isAdmin
+  // short-circuit in can() would ever allow it; simpler to just gate on the
+  // plain admin() helper directly, same as /admin/zone/:id/owner).
+  // Ids not in the current catalog are dropped — never persist a selection
+  // the client couldn't actually offer.
+  const cleanGameIds = (raw: unknown): string[] | null => {
+    if (!Array.isArray(raw)) return null;
+    const valid = new Set(getArcadeCatalog().map((g) => g.id));
+    return raw.filter((x): x is string => typeof x === 'string' && valid.has(x));
+  };
+
+  // The default new cabinets follow. Resolved to a concrete list (never null)
+  // for display — the admin UI edits/saves an explicit list; there's no
+  // separate "unset" affordance beyond selecting every game.
+  app.get('/admin/arcade/default-games', (req, res) => {
+    if (!admin(req, res)) return;
+    res.json({ gameIds: resolveAllowedGames(getArcadeDefaultGames()) });
+  });
+
+  app.put('/admin/arcade/default-games', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const gameIds = cleanGameIds((req.body as { gameIds?: unknown } | undefined)?.gameIds);
+    if (!gameIds) return void res.status(400).json({ error: 'bad gameIds' });
+    setArcadeDefaultGames(gameIds);
+    res.json({ ok: true, gameIds });
+  });
+
+  // Cabinets come from the zone's active saved layout (where admins place them
+  // in the editor), same sourcing as Monitors above.
+  app.get('/admin/zone/:id/arcade-cabinets', (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const layout = layouts.getActiveLayout(id) as { furniture?: PlacedFurniture[] } | null;
+    const cabinets = (layout?.furniture ?? [])
+      .filter((f) => getCatalogEntry(f.type)?.arcade)
+      .map((f) => {
+        const key = `${f.col},${f.row}`;
+        const override = zones.cabinetGamesOverride(id, key);
+        return { key, name: f.name ?? '', override, effective: resolveAllowedGames(override) };
+      });
+    res.json({ cabinets });
+  });
+
+  // Set/clear one cabinet's own game list (key = "col,row"). null clears the
+  // override so it goes back to following the default.
+  app.put('/admin/zone/:id/arcade-cabinet', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const id = req.params.id;
+    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
+    const body = (req.body ?? {}) as { key?: unknown; gameIds?: unknown };
+    const key = typeof body.key === 'string' && /^\d+,\d+$/.test(body.key) ? body.key : '';
+    if (!key) return void res.status(400).json({ error: 'bad cabinet key' });
+    let gameIds: string[] | null = null;
+    if (body.gameIds !== null) {
+      const cleaned = cleanGameIds(body.gameIds);
+      if (!cleaned) return void res.status(400).json({ error: 'bad gameIds' });
+      gameIds = cleaned;
+    }
+    zones.setCabinetGames(id, key, gameIds);
+    res.json({ ok: true, effective: resolveAllowedGames(gameIds) });
   });
 }

@@ -66,6 +66,13 @@ export class ZoneStore {
       CREATE TABLE IF NOT EXISTS zone_acl (
         zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
       );
+      -- Per-arcade-cabinet game allow-list override, keyed by anchor tile "col,row".
+      -- A cabinet with no row here just follows the global default (see
+      -- arcadeDefaults.ts) — only cabinets an admin has explicitly curated get one.
+      CREATE TABLE IF NOT EXISTS arcade_cabinet_games (
+        zone_id TEXT NOT NULL, cabinet_key TEXT NOT NULL, game_ids TEXT NOT NULL,
+        PRIMARY KEY (zone_id, cabinet_key)
+      );
     `);
     this.migrateColumns();
     this.seed();
@@ -122,6 +129,45 @@ export class ZoneStore {
       .prepare('SELECT monitor_key FROM monitor_locks WHERE zone_id = ?')
       .all(zoneId) as Array<{ monitor_key: string }>;
     return rows.map((r) => r.monitor_key);
+  }
+
+  // ── Arcade cabinet game overrides ─────────────────────────────────
+  // Per-cabinet curation of the (global, content-driven) arcade catalog — see
+  // arcadeDefaults.ts for how this combines with the global default list.
+  // Admin-only (server/src/adminApi.ts uses the plain admin() guard, not
+  // zoneCapabilityAuth — unlike monitors, zone owners don't get this).
+  /** This cabinet's own game-id list, or null if it just follows the default. */
+  cabinetGamesOverride(zoneId: string, cabinetKey: string): string[] | null {
+    const r = this.db
+      .prepare('SELECT game_ids FROM arcade_cabinet_games WHERE zone_id = ? AND cabinet_key = ?')
+      .get(zoneId, cabinetKey) as { game_ids: string } | undefined;
+    if (!r) return null;
+    try {
+      const ids = JSON.parse(r.game_ids);
+      return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : null;
+    } catch {
+      return null;
+    }
+  }
+  /** Set this cabinet's own game-id list, or clear it (null) to follow the default again. */
+  setCabinetGames(zoneId: string, cabinetKey: string, gameIds: string[] | null): void {
+    if (!zoneId || !cabinetKey) return;
+    if (gameIds) {
+      this.db
+        .prepare(
+          'INSERT INTO arcade_cabinet_games(zone_id, cabinet_key, game_ids) VALUES(?,?,?) ON CONFLICT(zone_id, cabinet_key) DO UPDATE SET game_ids=excluded.game_ids',
+        )
+        .run(zoneId, cabinetKey, JSON.stringify(gameIds));
+    } else {
+      this.db.prepare('DELETE FROM arcade_cabinet_games WHERE zone_id = ? AND cabinet_key = ?').run(zoneId, cabinetKey);
+    }
+  }
+  /** Every cabinet key in this zone that has its own override (for the admin list view). */
+  cabinetKeysWithOverride(zoneId: string): string[] {
+    const rows = this.db
+      .prepare('SELECT cabinet_key FROM arcade_cabinet_games WHERE zone_id = ?')
+      .all(zoneId) as Array<{ cabinet_key: string }>;
+    return rows.map((r) => r.cabinet_key);
   }
 
   // ── Per-zone admins ──────────────────────────────────────────────
@@ -320,7 +366,7 @@ export class ZoneStore {
   }
 
   /** Delete a zone. Read-only zones (the office) can never be deleted. Also
-   *  clears the zone-keyed rows in zone_admins/zone_acl/monitor_locks — these
+   *  clears the zone-keyed rows in zone_admins/zone_acl/monitor_locks/arcade_cabinet_games — these
    *  aren't foreign-keyed to zones, so a plain `DELETE FROM zones` would
    *  otherwise leave them orphaned (harmless zombie rows a zone id could
    *  later collide with if reused, and clutter in the tables regardless). */
@@ -332,6 +378,7 @@ export class ZoneStore {
     this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM monitor_locks WHERE zone_id = ?').run(id);
+    this.db.prepare('DELETE FROM arcade_cabinet_games WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;
   }

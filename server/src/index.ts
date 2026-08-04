@@ -44,6 +44,8 @@ import { registerAdminApi } from './adminApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
+import { resolveAllowedGames } from './arcadeDefaults.js';
+import { ZoneStore } from './zoneStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -157,6 +159,17 @@ async function main(): Promise<void> {
   // content files at /arcade/content are auth-gated). Registered before the auth
   // gate so the launcher can populate itself on both browser + desktop.
   app.get('/arcade/catalog', (_req, res) => res.json({ games: getArcadeCatalog() }));
+
+  // Which games one placed cabinet currently offers (its own admin override, or
+  // the global default — see arcadeDefaults.ts). Same public trust level as
+  // /arcade/catalog above: this is content curation, not an access control.
+  const arcadeZones = new ZoneStore();
+  app.get('/arcade/allowed-games', (req, res) => {
+    const zone = typeof req.query.zone === 'string' ? req.query.zone : '';
+    const cabinet = typeof req.query.cabinet === 'string' ? req.query.cabinet : '';
+    const override = zone && /^\d+,\d+$/.test(cabinet) ? arcadeZones.cabinetGamesOverride(zone, cabinet) : null;
+    res.json({ gameIds: resolveAllowedGames(override) });
+  });
 
   // Suggested Mumble address, so the desktop app can offer the community's voice
   // server instead of making everyone type it. Suggestion only: the desktop app

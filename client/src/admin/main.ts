@@ -8,7 +8,8 @@
  * server-side). The last admin can't be deleted/demoted.
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
-import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type Role } from './api.js';
+import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type AdminArcadeCabinet, type Role } from './api.js';
+import type { ArcadeGame } from '@pixel/shared';
 import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
@@ -18,7 +19,8 @@ import { filterUserDatalist as filterDatalist, wireUserAutocomplete as wireAutoc
 let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
 let meetingRooms: AdminMeetingRoom[] = [];
-let tab: 'users' | 'zones' | 'meetings' = 'users';
+let arcadeGames: ArcadeGame[] = [];
+let tab: 'users' | 'zones' | 'meetings' | 'arcade' = 'users';
 /** Who's signed in — fetched once at startup; backs the "Take ownership" self-button. */
 let me: { userId: string; name: string } | null = null;
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
@@ -110,6 +112,12 @@ const STYLE = `
   .menu-item:hover{background:var(--panel2);}
   .menu-item:disabled{opacity:.4;cursor:default;background:transparent;}
   .menu-item.danger{color:#f0a6a2;}
+  .chk-list{display:flex;flex-wrap:wrap;gap:.5rem 1rem;margin:.6rem 0;}
+  .chk-list label{display:flex;align-items:center;gap:.35rem;font-size:.88rem;cursor:pointer;}
+  .chk-list input{margin:0;}
+  .arcade-cabinet{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .7rem;}
+  .arcade-cabinet .editor{display:none;margin-top:.6rem;}
+  .arcade-cabinet .editor.open{display:block;}
   @media (max-width: 640px){
     #pa-adm-head{padding:.6rem .7rem;gap:.5rem;}
     #pa-adm-head .brand{font-size:.95rem;}
@@ -207,6 +215,7 @@ function buildShell(): void {
       <button data-tab="users">Users</button>
       <button data-tab="zones">Zones</button>
       <button data-tab="meetings">Meetings</button>
+      <button data-tab="arcade">Arcade</button>
     </div>
     <div id="pa-adm-toast"></div>
     <div id="pa-adm-view"></div>`;
@@ -224,7 +233,18 @@ function render(): void {
   );
   if (tab === 'users') void renderUsers();
   else if (tab === 'zones') void renderZones();
+  else if (tab === 'arcade') void renderArcade();
   else void renderMeetings();
+}
+
+/** Fetch + cache the arcade catalog (public /arcade/catalog) — same metadata
+ *  both the Default-games tab and each zone's cabinet editor render checkboxes
+ *  from, so it's loaded once and reused rather than re-fetched per section. */
+async function ensureArcadeGames(): Promise<ArcadeGame[]> {
+  if (arcadeGames.length) return arcadeGames;
+  const r = await adminApi.listArcadeGames();
+  if (r.ok) arcadeGames = r.data?.games ?? [];
+  return arcadeGames;
 }
 
 // ── Users ──────────────────────────────────────────────────────────────────
@@ -521,6 +541,14 @@ function zoneDetailPanel(z: AdminZone): HTMLElement {
     classNames: { button: 'act', primaryButton: 'act primary' },
   });
 
+  // Arcade cabinets — admin-only (see renderZoneArcadeCabinets), so unlike the
+  // sections above this isn't a shared widget with any in-game panel.
+  card.appendChild(el('div', 'section-title', 'Arcade cabinets'));
+  const arcadeBlock = el('div', 'table-block');
+  arcadeBlock.style.padding = '.65rem .8rem';
+  card.appendChild(arcadeBlock);
+  void renderZoneArcadeCabinets(arcadeBlock, z.id);
+
   return card;
 }
 
@@ -739,6 +767,145 @@ function meetingRow(m: AdminMeetingRoom): HTMLTableRowElement {
   actTd.append(copyBtn, delBtn);
   tr.appendChild(actTd);
   return tr;
+}
+
+// ── Arcade — global default game list ─────────────────────────────────────
+// Admin-only (server's PUT/GET /admin/arcade/default-games use the plain
+// admin() guard, not zoneCapabilityAuth) — a zone owner does not get this,
+// unlike Monitors/Password, so it's not a shared widget with any in-game
+// panel; it only ever renders here.
+async function renderArcade(): Promise<void> {
+  const [games, def] = await Promise.all([ensureArcadeGames(), adminApi.getArcadeDefaultGames()]);
+  if (def.status === 401) return redirectToLogin();
+  const view = document.getElementById('pa-adm-view')!;
+  view.innerHTML = '';
+  if (def.status === 403) {
+    view.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
+    return;
+  }
+
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML =
+    '<h2>Default games</h2><div class="muted">Games a newly placed arcade cabinet offers, unless it\'s given its ' +
+    "own list under a zone's Arcade cabinets section. Saving here immediately updates every cabinet that still " +
+    'follows the default.</div>';
+  if (!games.length) {
+    card.appendChild(el('div', 'muted', 'No games in the arcade catalog.'));
+  } else {
+    const checked = new Set(def.data?.gameIds ?? games.map((g) => g.id));
+    const list = el('div', 'chk-list');
+    const boxes: HTMLInputElement[] = [];
+    for (const g of games) {
+      const label = el('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = checked.has(g.id);
+      cb.dataset.gameId = g.id;
+      boxes.push(cb);
+      label.append(cb, document.createTextNode(g.title));
+      list.appendChild(label);
+    }
+    card.appendChild(list);
+    const saveBtn = el('button', 'act primary', 'Save');
+    saveBtn.onclick = async () => {
+      const ids = boxes.filter((b) => b.checked).map((b) => b.dataset.gameId!);
+      const res = await adminApi.setArcadeDefaultGames(ids);
+      if (res.ok) toast(`Default games saved (${ids.length}/${games.length}).`);
+      else fail('Save default games', res.error);
+    };
+    card.appendChild(saveBtn);
+  }
+  view.appendChild(card);
+}
+
+// ── Arcade cabinets (per zone) ─────────────────────────────────────────────
+// Rendered inline in zoneDetailPanel, right after Monitors — but NOT a shared
+// widget: unlike Monitors, this is admin-only (see renderArcade's note above),
+// so there's no in-game consumer to share it with.
+async function renderZoneArcadeCabinets(container: HTMLElement, zoneId: string): Promise<void> {
+  const [games, res] = await Promise.all([ensureArcadeGames(), adminApi.listArcadeCabinets(zoneId)]);
+  container.innerHTML = '';
+  if (!res.ok) {
+    fail('Load arcade cabinets', res.error);
+    return;
+  }
+  const cabinets = res.data?.cabinets ?? [];
+  if (!cabinets.length) {
+    const empty = el('div', 'muted', "No arcade cabinets in this zone's saved layout.");
+    empty.style.fontSize = '.85rem';
+    container.appendChild(empty);
+    return;
+  }
+  const list = el('div');
+  list.style.cssText = 'display:flex;flex-direction:column;gap:.6rem;';
+  for (const cab of cabinets) list.appendChild(arcadeCabinetRow(zoneId, cab, games));
+  container.appendChild(list);
+}
+
+/** One cabinet: a compact summary row (name, "N/M games (default|custom)") that
+ *  expands into a checkbox editor — same progressive-disclosure idiom as the
+ *  Owner/Privacy field rows, so the zone panel doesn't turn into a wall of
+ *  checkboxes when a zone has several cabinets. */
+function arcadeCabinetRow(zoneId: string, cab: AdminArcadeCabinet, games: ArcadeGame[]): HTMLElement {
+  const label = cab.name || `Cabinet ${cab.key}`;
+  const statusText = (c: AdminArcadeCabinet) => `${c.effective.length}/${games.length} games (${c.override ? 'custom' : 'default'})`;
+
+  const wrap = el('div', 'arcade-cabinet');
+  const head = el('div', 'row');
+  const nm = el('span', undefined, `🕹 ${label}`);
+  nm.style.cssText = 'flex:1;font-size:.85rem;';
+  const status = el('span', 'muted', statusText(cab));
+  status.style.fontSize = '.85rem';
+  const editBtn = el('button', 'act', 'Edit');
+  head.append(nm, status, editBtn);
+  wrap.appendChild(head);
+
+  const editor = el('div', 'editor');
+  const list = el('div', 'chk-list');
+  const boxes: HTMLInputElement[] = [];
+  const activeIds = new Set(cab.effective);
+  for (const g of games) {
+    const lab = el('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = activeIds.has(g.id);
+    cb.dataset.gameId = g.id;
+    boxes.push(cb);
+    lab.append(cb, document.createTextNode(g.title));
+    list.appendChild(lab);
+  }
+  editor.appendChild(list);
+
+  const actions = el('div', 'row');
+  const saveBtn = el('button', 'act primary', 'Save');
+  const resetBtn = el('button', 'act', 'Use default');
+  resetBtn.disabled = !cab.override;
+  saveBtn.onclick = async () => {
+    const ids = boxes.filter((b) => b.checked).map((b) => b.dataset.gameId!);
+    const r = await adminApi.setArcadeCabinetGames(zoneId, cab.key, ids);
+    if (!r.ok) return void fail('Save cabinet games', r.error);
+    cab.override = ids;
+    cab.effective = r.data?.effective ?? ids;
+    status.textContent = statusText(cab);
+    resetBtn.disabled = false;
+    toast(`Saved "${label}".`);
+  };
+  resetBtn.onclick = async () => {
+    const r = await adminApi.setArcadeCabinetGames(zoneId, cab.key, null);
+    if (!r.ok) return void fail('Reset cabinet games', r.error);
+    cab.override = null;
+    cab.effective = r.data?.effective ?? cab.effective;
+    for (const b of boxes) b.checked = cab.effective.includes(b.dataset.gameId!);
+    status.textContent = statusText(cab);
+    resetBtn.disabled = true;
+    toast(`"${label}" reset to the default list.`);
+  };
+  actions.append(saveBtn, resetBtn);
+  editor.appendChild(actions);
+  wrap.appendChild(editor);
+
+  editBtn.onclick = () => editor.classList.toggle('open');
+  return wrap;
 }
 
 buildShell();
