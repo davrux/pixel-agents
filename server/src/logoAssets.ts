@@ -27,8 +27,8 @@ export function logoSprite(): SpriteData {
   const canvasH = 32;
   const g: SpriteData = Array.from({ length: canvasH }, () => new Array<string>(canvasW).fill(T));
   const frame = '#f4f2ee';
-  const panel = '#242220';
-  const ink = '#e2585a';
+  const panel = '#ffffff';
+  const ink = '#c51a1b';
 
   const word = 'UPONU';
   const widths = [...word].map((ch) => GLYPHS[ch][0].length);

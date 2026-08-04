@@ -117,6 +117,10 @@ export class OfficeState {
   /** Players who reached a conference monitor (walk-to-join), drained by the room
    *  → conference membership. {id, key=monitor anchor "col,row"}. */
   private pendingConferenceJoins: Array<{ id: number; key: string }> = [];
+  /** Players who reached an arcade cabinet's or meeting-room kiosk's stand
+   *  tile (walk-then-use), drained by the room → tells that one client to
+   *  open its local UI (see walkPlayerToInteraction / 'interactionReady'). */
+  private pendingInteractions: Array<{ id: number; kind: 'arcade' | 'meetingRoom'; col: number; row: number }> = [];
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -260,46 +264,67 @@ export class OfficeState {
 
   // ── Interaction stations (coffee machine, …) ──────────────
 
-  /** Derive a one-capacity standing point next to each appliance: the first
-   *  walkable tile adjacent to its footprint, facing the furniture. */
+  /** All walkable tiles orthogonally adjacent to a footprint (not overlapping
+   *  it), each paired with the facing direction that looks back at the
+   *  footprint. Shared "stand here to interact" candidate generator —
+   *  appliances, conference monitors, arcade cabinets and meeting-room kiosks
+   *  all derive their approach spot(s) from this one implementation. */
+  private computeApproachTiles(
+    col: number,
+    row: number,
+    w: number,
+    h: number,
+  ): Array<{ col: number; row: number; facing: Direction }> {
+    const seen = new Set<string>();
+    const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
+    for (let dr = 0; dr < h; dr++) {
+      for (let dc = 0; dc < w; dc++) {
+        const fc = col + dc;
+        const fr = row + dr;
+        const cands: Array<[number, number, Direction]> = [
+          [fc, fr - 1, Direction.DOWN],
+          [fc, fr + 1, Direction.UP],
+          [fc - 1, fr, Direction.RIGHT],
+          [fc + 1, fr, Direction.LEFT],
+        ];
+        for (const [nc, nr, facing] of cands) {
+          const k = `${nc},${nr}`;
+          const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
+          if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
+          seen.add(k);
+          approaches.push({ col: nc, row: nr, facing });
+        }
+      }
+    }
+    return approaches;
+  }
+
+  /** One standing point PER walkable tile adjacent to each appliance (not just
+   *  the first) — so multiple visitors spread out around it instead of
+   *  stacking on a single fixed tile. findFreeStation() already picks randomly
+   *  among every free entry across every appliance, so registering more
+   *  entries per appliance is all that's needed for that to also randomize
+   *  position around one single appliance. */
   private buildStations(): void {
     this.stations = new Map();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.type);
       if (!entry?.appliance) continue; // data-driven: only furniture marked as an appliance
-
-      const w = entry.footprintW;
-      const h = entry.footprintH;
-
-      // Candidate stand tiles around the footprint (front/below first), each
-      // facing back toward the appliance.
-      const candidates: Array<{ col: number; row: number; facing: Direction }> = [];
-      for (let dc = 0; dc < w; dc++) {
-        candidates.push({ col: item.col + dc, row: item.row + h, facing: Direction.UP });
-        candidates.push({ col: item.col + dc, row: item.row - 1, facing: Direction.DOWN });
-      }
-      for (let dr = 0; dr < h; dr++) {
-        candidates.push({ col: item.col - 1, row: item.row + dr, facing: Direction.RIGHT });
-        candidates.push({ col: item.col + w, row: item.row + dr, facing: Direction.LEFT });
-      }
-
-      const spot = candidates.find(
-        (c) =>
-          isWalkable(c.col, c.row, this.tileMap, this.blockedTiles) &&
-          !this.isStationTile(c.col, c.row),
+      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH).filter(
+        (c) => !this.isStationTile(c.col, c.row),
       );
-      if (!spot) continue;
-
-      const uid = `station:${item.uid}`;
-      this.stations.set(uid, {
-        uid,
-        col: spot.col,
-        row: spot.row,
-        facingDir: spot.facing,
-        posture: 'stand',
-        station: 'appliance',
-        furnitureType: item.type,
-        occupantId: null,
+      spots.forEach((spot, i) => {
+        const uid = `station:${item.uid}:${i}`;
+        this.stations.set(uid, {
+          uid,
+          col: spot.col,
+          row: spot.row,
+          facingDir: spot.facing,
+          posture: 'stand',
+          station: 'appliance',
+          furnitureType: item.type,
+          occupantId: null,
+        });
       });
     }
   }
@@ -682,6 +707,7 @@ export class OfficeState {
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
     ch.pendingConference = null; // …and a pending walk-to-monitor
     ch.pendingAppliance = null; // …and a pending walk-to-appliance
+    ch.pendingInteraction = null; // …and a pending walk-to-arcade/kiosk
     ch.afk = false; // moving clears the afk marker
     ch.path = path;
     ch.moveProgress = 0;
@@ -709,6 +735,7 @@ export class OfficeState {
     ch.afk = false; // moving to a seat clears the afk marker
     ch.pendingConference = null; // a click-to-sit cancels a pending walk-to-monitor
     ch.pendingAppliance = null; // …and a pending walk-to-appliance
+    ch.pendingInteraction = null; // …and a pending walk-to-arcade/kiosk
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
       ch.moveProgress = 0;
@@ -742,6 +769,7 @@ export class OfficeState {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
       ch.pendingConference = null; // …and a walk-to-monitor
       ch.pendingAppliance = null; // …and a walk-to-appliance
+      ch.pendingInteraction = null; // …and a walk-to-arcade/kiosk
       ch.afk = false; // moving clears the afk marker
     }
     ch.heldDir = dir;
@@ -762,6 +790,7 @@ export class OfficeState {
       ch.pendingSitFacing = null;
       ch.pendingConference = null;
       ch.pendingAppliance = null;
+      ch.pendingInteraction = null;
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
@@ -835,9 +864,20 @@ export class OfficeState {
     return out;
   }
 
-  /** Walk a player to a free tile in front of a conference monitor (anchor tile),
-   *  facing it, then queue them to join on arrival. Joins in place if already
-   *  adjacent or if nowhere to stand. Returns false if there's no furniture there. */
+  /** Drain players who reached an arcade cabinet's or meeting-room kiosk's
+   *  stand tile this tick (room tells that client to open its own UI). */
+  takePendingInteractions(): Array<{ id: number; kind: 'arcade' | 'meetingRoom'; col: number; row: number }> {
+    if (this.pendingInteractions.length === 0) return [];
+    const out = this.pendingInteractions;
+    this.pendingInteractions = [];
+    return out;
+  }
+
+  /** Walk a player to one of the walkable tiles around a conference monitor
+   *  (anchor tile), facing it, then queue them to join on arrival. Joins in
+   *  place if already at any approach tile. Picks randomly among the reachable
+   *  approach tiles otherwise — so simultaneous joiners don't all converge on
+   *  the exact same spot. Returns false if there's no furniture there. */
   walkPlayerToConference(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
@@ -850,29 +890,9 @@ export class OfficeState {
     ch.heldDir = null;
     ch.pendingSitFacing = null;
     ch.pendingAppliance = null;
+    ch.pendingInteraction = null;
 
-    // Walkable orthogonal neighbours of the footprint, each facing the monitor.
-    const seen = new Set<string>();
-    const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
-    for (let dr = 0; dr < fh; dr++) {
-      for (let dc = 0; dc < fw; dc++) {
-        const fc = item.col + dc;
-        const fr = item.row + dr;
-        const cands: Array<[number, number, Direction]> = [
-          [fc, fr - 1, Direction.DOWN],
-          [fc, fr + 1, Direction.UP],
-          [fc - 1, fr, Direction.RIGHT],
-          [fc + 1, fr, Direction.LEFT],
-        ];
-        for (const [nc, nr, facing] of cands) {
-          const k = `${nc},${nr}`;
-          const inFoot = nc >= item.col && nc < item.col + fw && nr >= item.row && nr < item.row + fh;
-          if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
-          seen.add(k);
-          approaches.push({ col: nc, row: nr, facing });
-        }
-      }
-    }
+    const approaches = this.computeApproachTiles(item.col, item.row, fw, fh);
 
     // Strict proximity: you only join a monitor's call by actually standing at
     // one of its approach tiles (now, or on arrival after walking there). No
@@ -889,28 +909,30 @@ export class OfficeState {
       ch.pendingConference = null;
       return false; // no walkable spot at the monitor → can't join
     }
-    let best: { path: Array<{ col: number; row: number }>; facing: Direction } | null = null;
-    for (const a of approaches) {
-      const path = findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles);
-      if (path.length === 0) continue;
-      if (!best || path.length < best.path.length) best = { path, facing: a.facing };
-    }
-    if (!best) {
+    const reachable = approaches
+      .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles) }))
+      .filter((r) => r.path.length > 0);
+    if (reachable.length === 0) {
       ch.pendingConference = null;
       return false; // unreachable from here → can't join
     }
-    ch.path = best.path;
+    const pick = reachable[Math.floor(Math.random() * reachable.length)];
+    ch.path = pick.path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
-    ch.pendingConference = { key, facing: best.facing };
+    ch.pendingConference = { key, facing: pick.a.facing };
     return true;
   }
 
-  /** Walk a player to an appliance's stand tile (e.g. coffee machine), facing
-   *  it, then hold the cosmetic "using it" pose (COFFEE) for a few seconds on
-   *  arrival — same stationId/stationTimer the agent FSM already uses for NPC
-   *  coffee breaks (see characters.ts), just started by a click instead of AI.
-   *  Triggers immediately if already standing there. Returns false if there's
+  /** Walk a player to one of an appliance's stand tiles (e.g. coffee machine),
+   *  facing it, then hold the cosmetic "using it" pose (COFFEE) for a few
+   *  seconds on arrival — same stationId/stationTimer/occupantId the agent FSM
+   *  already uses for NPC coffee breaks (see characters.ts), just started by a
+   *  click instead of AI. Triggers immediately if already standing at ANY of
+   *  the appliance's stand tiles; otherwise picks randomly among the free
+   *  (unoccupied) reachable ones — falling back to any reachable one if all
+   *  are currently occupied — so simultaneous visitors spread out around the
+   *  appliance instead of stacking on one fixed tile. Returns false if there's
    *  no appliance at that tile or no stand tile was derivable (buildStations). */
   useAppliance(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.characters.get(id);
@@ -922,25 +944,84 @@ export class OfficeState {
       (f) => f.col === anchorCol && f.row === anchorRow && getCatalogEntry(f.type)?.appliance,
     );
     if (!item) return false;
-    const station = this.stations.get(`station:${item.uid}`);
-    if (!station) return false;
+    const prefix = `station:${item.uid}:`;
+    const spots = [...this.stations.entries()].filter(([uid]) => uid.startsWith(prefix));
+    if (spots.length === 0) return false;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
     ch.pendingConference = null;
+    ch.pendingInteraction = null;
 
-    if (ch.tileCol === station.col && ch.tileRow === station.row) {
-      ch.dir = station.facingDir;
-      ch.stationId = station.uid;
+    const here = spots.find(([, s]) => s.col === ch.tileCol && s.row === ch.tileRow);
+    if (here) {
+      const [uid, s] = here;
+      ch.dir = s.facingDir;
+      ch.stationId = uid;
+      s.occupantId = ch.id;
       ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
       ch.pendingAppliance = null;
       return true;
     }
-    const path = findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles);
-    if (path.length === 0) return false;
-    ch.path = path;
+    const reachable = spots
+      .map(([uid, s]) => ({ uid, s, path: findPath(ch.tileCol, ch.tileRow, s.col, s.row, this.tileMap, this.blockedTiles) }))
+      .filter((r) => r.path.length > 0);
+    if (reachable.length === 0) return false;
+    const free = reachable.filter((r) => r.s.occupantId === null);
+    const pool = free.length > 0 ? free : reachable;
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    ch.path = pick.path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
-    ch.pendingAppliance = { stationUid: station.uid, facing: station.facingDir };
+    ch.pendingAppliance = { stationUid: pick.uid, facing: pick.s.facingDir };
+    return true;
+  }
+
+  /** Walk a player to one of the walkable tiles around an arcade cabinet's or
+   *  meeting-room kiosk's footprint (anchor tile), facing it, then tell the
+   *  room to open the caller's local UI on arrival (see takePendingInteractions
+   *  / SimRoom's 'interactionReady') — same shape as walkPlayerToConference,
+   *  just without a server-side effect of its own (the client owns the arcade
+   *  game picker / room-manage dialog). Triggers immediately if already at any
+   *  approach tile; otherwise picks randomly among the reachable ones, so
+   *  simultaneous visitors don't all converge on one fixed tile. Returns false
+   *  if there's no matching furniture there or nowhere reachable to stand. */
+  walkPlayerToInteraction(id: number, anchorCol: number, anchorRow: number, kind: 'arcade' | 'meetingRoom'): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    const item = this.layout.furniture.find(
+      (f) => f.col === anchorCol && f.row === anchorRow && getCatalogEntry(f.type)?.[kind],
+    );
+    if (!item) return false;
+    const entry = getCatalogEntry(item.type)!;
+    ch.heldDir = null;
+    ch.pendingSitFacing = null;
+    ch.pendingConference = null;
+    ch.pendingAppliance = null;
+
+    const approaches = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH);
+    const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
+    if (here) {
+      ch.dir = here.facing;
+      ch.pendingInteraction = null;
+      this.pendingInteractions.push({ id, kind, col: anchorCol, row: anchorRow });
+      return true;
+    }
+    if (approaches.length === 0) {
+      ch.pendingInteraction = null;
+      return false;
+    }
+    const reachable = approaches
+      .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles) }))
+      .filter((r) => r.path.length > 0);
+    if (reachable.length === 0) {
+      ch.pendingInteraction = null;
+      return false;
+    }
+    const pick = reachable[Math.floor(Math.random() * reachable.length)];
+    ch.path = pick.path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.pendingInteraction = { kind, col: anchorCol, row: anchorRow, facing: pick.a.facing };
     return true;
   }
 
@@ -982,12 +1063,27 @@ export class OfficeState {
           this.pendingConferenceJoins.push({ id: ch.id, key: ch.pendingConference.key });
           ch.pendingConference = null;
         } else if (ch.pendingAppliance) {
-          // Reached an appliance's stand tile → face it + start the pose timer.
+          // Reached an appliance's stand tile → face it, claim it, start the pose timer.
           ch.dir = ch.pendingAppliance.facing;
           ch.state = CharacterState.IDLE;
           ch.stationId = ch.pendingAppliance.stationUid;
+          const claimed = this.stations.get(ch.pendingAppliance.stationUid);
+          if (claimed) claimed.occupantId = ch.id;
           ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
           ch.pendingAppliance = null;
+        } else if (ch.pendingInteraction) {
+          // Reached an arcade cabinet's or meeting-room kiosk's stand tile →
+          // face it and tell the room, which opens the caller's own local UI
+          // (see SimRoom.handleInteractionArrivals / 'interactionReady').
+          ch.dir = ch.pendingInteraction.facing;
+          ch.state = CharacterState.IDLE;
+          this.pendingInteractions.push({
+            id: ch.id,
+            kind: ch.pendingInteraction.kind,
+            col: ch.pendingInteraction.col,
+            row: ch.pendingInteraction.row,
+          });
+          ch.pendingInteraction = null;
         } else if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
           // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
           ch.dir = ch.pendingSitFacing;

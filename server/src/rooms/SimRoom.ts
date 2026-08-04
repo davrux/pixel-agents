@@ -557,6 +557,22 @@ export class SimRoom extends Room<RoomState> {
     return false;
   }
 
+  /** Whether an arcade cabinet is placed with its anchor at this tile. */
+  private hasArcadeAt(col: number, row: number): boolean {
+    for (const item of this.os.getLayout().furniture) {
+      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.arcade) return true;
+    }
+    return false;
+  }
+
+  /** Whether a meeting-room kiosk is placed with its anchor at this tile. */
+  private hasMeetingRoomAt(col: number, row: number): boolean {
+    for (const item of this.os.getLayout().furniture) {
+      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.meetingRoom) return true;
+    }
+    return false;
+  }
+
   /** Current members of a conference (by "col,row" key), for broadcast. */
   private conferenceMembersMsg(key: string): Record<string, unknown> {
     const [col, row] = key.split(',').map(Number);
@@ -748,6 +764,32 @@ export class SimRoom extends Room<RoomState> {
       const row = Math.floor(Number(msg?.row));
       if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasApplianceAt(col, row)) return;
       if (!this.os.useAppliance(id, col, row)) {
+        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
+      }
+    });
+
+    // Arcade cabinets and meeting-room kiosks: click → walk the avatar to a
+    // (randomly picked, so simultaneous visitors spread out) tile around the
+    // cabinet, then tell just that client to open its own local UI once
+    // arrived — see handleInteractionArrivals / 'interactionReady'.
+    this.onMessage('arcadeApproach', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasArcadeAt(col, row)) return;
+      if (!this.os.walkPlayerToInteraction(id, col, row, 'arcade')) {
+        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
+      }
+    });
+
+    this.onMessage('meetingRoomApproach', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasMeetingRoomAt(col, row)) return;
+      if (!this.os.walkPlayerToInteraction(id, col, row, 'meetingRoom')) {
         client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
       }
     });
@@ -1594,6 +1636,7 @@ export class SimRoom extends Room<RoomState> {
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
     this.handleConferenceArrivals();
+    this.handleInteractionArrivals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
@@ -1623,6 +1666,18 @@ export class SimRoom extends Room<RoomState> {
       }
       set.add(id);
       this.broadcast('m', this.conferenceMembersMsg(key));
+    }
+  }
+
+  /** Players who reached an arcade cabinet's or meeting-room kiosk's stand
+   *  tile this tick → tell just that client to open its own local UI (the
+   *  game picker / room-manage dialog — this room has no state of its own to
+   *  update, unlike a conference join). */
+  private handleInteractionArrivals(): void {
+    for (const { id, kind, col, row } of this.os.takePendingInteractions()) {
+      const client = this.clientForPlayer(id);
+      if (!client) continue;
+      client.send('m', { type: 'interactionReady', kind, col, row });
     }
   }
 

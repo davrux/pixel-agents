@@ -169,10 +169,6 @@ export class OfficeScene extends Phaser.Scene {
   private myConference: { col: number; row: number; name?: string } | null = null;
   /** A monitor we clicked and are walking toward (join finalizes on arrival). */
   private pendingConference: { col: number; row: number; name?: string } | null = null;
-  /** An arcade cabinet we clicked and are walking toward (opens on arrival). */
-  private pendingArcade: { col: number; row: number; fpW: number; fpH: number } | null = null;
-  /** A meeting-room kiosk we clicked and are walking toward (opens on arrival). */
-  private pendingMeetingKiosk: { col: number; row: number; fpW: number; fpH: number } | null = null;
   /** The kiosk a "manage your meeting rooms" request (meetingRoomList) was sent
    *  for — remembered so the "+ New room" button in that dialog knows which
    *  kiosk tile to validate the create against once the list response arrives. */
@@ -612,6 +608,14 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
         else if (m.type === 'zoneTransition') this.goToZone(m.zone as string); // walked into a portal (P5)
+        else if (m.type === 'interactionReady') {
+          // Arrived at an arcade cabinet or meeting-room kiosk we clicked
+          // (server picked the stand tile — see officeState.walkPlayerToInteraction).
+          const col = m.col as number;
+          const row = m.row as number;
+          if (m.kind === 'arcade') this.openArcade({ col, row });
+          else if (m.kind === 'meetingRoom') this.openMeetingRoomManageDialog({ col, row });
+        }
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
@@ -816,37 +820,25 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
-  /** If the tile is covered by an arcade cabinet, its footprint (anchor + size), else null. */
-  private arcadeAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
+  /** If the tile is covered by an arcade cabinet, its anchor, else null. */
+  private arcadeAt(col: number, row: number): { col: number; row: number } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
       if (!entry?.arcade) continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row, fpW: entry.footprintW, fpH: entry.footprintH };
+        return { col: f.col, row: f.row };
       }
     }
     return null;
   }
 
-  /** Whether this viewer's avatar is standing next to (touching) a footprint
-   *  (an arcade cabinet, a meeting-room kiosk, …). */
-  private nearFootprint(cab: { col: number; row: number; fpW: number; fpH: number }): boolean {
-    const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
-    if (!me) return false;
-    const pc = Math.floor(me.tx / TILE_SIZE);
-    const pr = Math.floor(me.ty / TILE_SIZE);
-    const dx = pc < cab.col ? cab.col - pc : pc >= cab.col + cab.fpW ? pc - (cab.col + cab.fpW - 1) : 0;
-    const dy = pr < cab.row ? cab.row - pr : pr >= cab.row + cab.fpH ? pr - (cab.row + cab.fpH - 1) : 0;
-    return Math.max(dx, dy) <= 1;
-  }
-
-  /** If the tile is covered by a meeting-room kiosk, its footprint (anchor + size), else null. */
-  private meetingKioskAt(col: number, row: number): { col: number; row: number; fpW: number; fpH: number } | null {
+  /** If the tile is covered by a meeting-room kiosk, its anchor, else null. */
+  private meetingKioskAt(col: number, row: number): { col: number; row: number } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
       if (!entry?.meetingRoom) continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row, fpW: entry.footprintW, fpH: entry.footprintH };
+        return { col: f.col, row: f.row };
       }
     }
     return null;
@@ -1246,40 +1238,21 @@ export class OfficeScene extends Phaser.Scene {
             const kiosk = this.meetingKioskAt(col, row);
             const appliance = this.applianceAt(col, row);
             if (cab) {
-              // Must stand at the cabinet to use it: open if already next to it,
-              // else walk to a tile in front of it and open on arrival (see update()).
+              // Server-authoritative walk-then-open, like conference monitors and
+              // appliances: it picks a (random, so simultaneous visitors spread
+              // out) stand tile, walks the avatar, then tells us to open the
+              // picker once arrived (see onInteractionReady / 'interactionReady').
               this.pendingConference = null;
-              this.pendingMeetingKiosk = null;
-              if (this.nearFootprint(cab)) {
-                this.pendingArcade = null;
-                this.openArcade(cab);
-              } else {
-                this.pendingArcade = cab;
-                this.room?.send('playerMove', { col: cab.col, row: cab.row + cab.fpH });
-              }
+              this.room?.send('arcadeApproach', { col: cab.col, row: cab.row });
             } else if (kiosk) {
-              // Same walk-up-then-open pattern as the arcade cabinet.
               this.pendingConference = null;
-              this.pendingArcade = null;
-              if (this.nearFootprint(kiosk)) {
-                this.pendingMeetingKiosk = null;
-                this.openMeetingRoomManageDialog(kiosk);
-              } else {
-                this.pendingMeetingKiosk = kiosk;
-                this.room?.send('playerMove', { col: kiosk.col, row: kiosk.row + kiosk.fpH });
-              }
+              this.room?.send('meetingRoomApproach', { col: kiosk.col, row: kiosk.row });
             } else if (conf) void this.toggleConference(conf);
             else if (appliance) {
-              // Server-authoritative walk-then-use, same as conference monitors —
-              // no client-side pending/nearFootprint dance needed (see officeState's
-              // useAppliance): it walks the avatar itself and starts the pose.
-              this.pendingArcade = null;
-              this.pendingMeetingKiosk = null;
+              // Same server-authoritative walk-then-use (see officeState's useAppliance).
               this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
             } else {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
-              this.pendingArcade = null; // …and a walk-to-cabinet
-              this.pendingMeetingKiosk = null; // …and a walk-to-kiosk
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
             }
           }
@@ -1488,18 +1461,6 @@ export class OfficeScene extends Phaser.Scene {
         this.portalPickerTile = null;
       }
     }
-    // Walked up to a clicked arcade cabinet → open it (see the click handler).
-    if (this.pendingArcade && this.nearFootprint(this.pendingArcade)) {
-      const cab = this.pendingArcade;
-      this.pendingArcade = null;
-      this.openArcade(cab);
-    }
-    // Walked up to a clicked meeting-room kiosk → open the manage dialog.
-    if (this.pendingMeetingKiosk && this.nearFootprint(this.pendingMeetingKiosk)) {
-      const kiosk = this.pendingMeetingKiosk;
-      this.pendingMeetingKiosk = null;
-      this.openMeetingRoomManageDialog(kiosk);
-    }
     // While editing, furniture comes from the editor's local working copy; the
     // server-synced furniture is rebuilt again once editing ends.
     if (this.furnitureDirty && !this.editor.isEditing()) {
@@ -1580,7 +1541,7 @@ export class OfficeScene extends Phaser.Scene {
    *  loop idles (skips work, then sleeps) until something wakes it. */
   private sceneBusy(now: number): boolean {
     if (this.editor.isEditing() || this.furnitureDirty) return true;
-    if (this.portalPickerTile || this.pendingArcade || this.pendingMeetingKiosk) return true;
+    if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     if (this.voiceBubbles.size > 0) return true; // animated "talking" indicator
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;

@@ -327,6 +327,11 @@ export interface Character {
   /** When walking to an appliance (e.g. coffee machine), the station to start
    *  standing at + the facing on arrival; null = none. Server-only intent. */
   pendingAppliance?: { stationUid: string; facing: Direction } | null;
+  /** When walking to an arcade cabinet or meeting-room kiosk, what to notify
+   *  the room of on arrival (the room then tells the owning client to open its
+   *  local UI — see officeState.walkPlayerToInteraction); null = none.
+   *  Server-only intent. */
+  pendingInteraction?: { kind: 'arcade' | 'meetingRoom'; col: number; row: number; facing: Direction } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */
