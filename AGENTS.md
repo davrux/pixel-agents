@@ -129,10 +129,16 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
    (`layout/tileMap.ts`). No physics engine — it would break determinism and
    headless server execution.
 4. **Data model first.** Places an agent can occupy are `InteractionPoint`s
-   (`posture: sit|stand`, `occupantId` for one-capacity reservation). Seats
-   (chairs) still use the older `Seat` type and are meant to fold into
-   `InteractionPoint` over time. Appliances (e.g. `COFFEE_MACHINE`) yield a
-   `stand` point — extend `APPLIANCE_TYPES` in `officeState.ts` to add more.
+   (`posture: sit|stand`, `occupantId` for one-capacity reservation *per
+   point*). Seats (chairs) still use the older `Seat` type and are meant to
+   fold into `InteractionPoint` over time. Appliances are data-driven — any
+   catalog entry with the `appliance` flag (see `getCatalogEntry(...).appliance`)
+   yields a stand point per walkable tile around its footprint (not just
+   one), via `OfficeState.computeApproachTiles` — no hardcoded type list to
+   extend. That same helper backs conference monitors, arcade cabinets and
+   meeting-room kiosks too; `findFreeStation()` already picks randomly among
+   every free point, so registering more points per item is what spreads
+   simultaneous visitors around one item instead of stacking them.
 5. **Animation is pose-driven.** A character's `CharacterPose`
    (`idle|walk|typing|reading|coffee`) is computed server-side
    (`getCharacterPose`) and synced. The renderer resolves frames through the
@@ -250,28 +256,32 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   `client/src/scenes/OfficeScene.ts`. **Reuse those classes** instead of
   hand-rolling styles: `.pa-btn` (top-bar buttons), `.pa-panel` +
   `.pa-head`/`.pa-body`/`.pa-x` (popovers/dialogs), `.pa-b` (+ `.primary`/
-  `.green`/`.danger`/`.wide`), `.pa-seg`/`.seg` (tabs), `.pa-chip`, `.pa-menurow`,
+  `.danger`/`.wide`), `.pa-seg`/`.seg` (tabs), `.pa-chip`, `.pa-menurow`,
   `.pa-list-row`, `.pa-thumb`. A self-contained widget that can't share the
   stylesheet (e.g. `conference/ConferenceUI.ts`) must **mirror the same tokens**.
-  - **Tokens.** Font `'FS Pixel Sans', ui-monospace, monospace`. Surfaces:
-    window/panel `#0f1220`, raised control `#141826`, inset control/input
-    `#171b2b`, deep-inset (segments/thumbs) `#0a0d16`, menurow `#1b2033`,
-    segment-on `#242c46`. Border **always `2px solid #05060b`**. Signature bevel
-    = `box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16` (panels use
-    `#232a44`/`#080a14` + a `0 12px 28px rgba(0,0,0,.55)` drop). Text
-    `#e9ecf7`/`#eef1fb`, muted `#9aa0b8`, dim/label `#6f7590`, link/name
-    `#7fa7e0`. Accents: blue `#2f66b0` (inset `#5a92d6`/`#163862`), green/confirm
-    `#2f7d3f` (`#56b566`/`#164a1f`), danger `#7c2634` (`#b34a5a`/`#45111a`), warn
-    `#a86a2e`, active/live `#7fd08a`/`#5fbf6f`, highlight `#f2c14e`. Radius:
-    buttons `0.35–0.45rem`, panels `0.6rem`.
+  Non-CSS color literals count too — e.g. `PhaserRenderer.ts`'s
+  `VOICE_RING_COLOR` is a Phaser numeric hex chosen to match the active-tab
+  underline; a palette change must update those alongside the CSS.
+  - **Tokens** (adopted from uponu.com's brand palette). Font `'FS Pixel
+    Sans', ui-monospace, monospace`. Surfaces: window/panel `#1c1a19`, raised
+    control `#242220`, inset control/input `#262422`, deep-inset
+    (segments/thumbs) `#141312`, menurow `#242220`, segment-on `#37342f`.
+    Border **always `2px solid #0a0908`**. Signature bevel =
+    `box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505` (panels use
+    `#292725`/`#030303` + a `0 12px 28px rgba(0,0,0,.55)` drop). Text
+    `#f1efec`/`#f5f3f0`, muted `#adb0b2`, dim/label `#818586`, link/kbd
+    `#4998c0`. Accents: primary red `#c51a1b` (inset `#e2585a`/`#5c0f10`) —
+    used for primary actions AND for on/off toggle states that read as
+    "active" (mic/camera/track "on", conference `button.on`); danger
+    `#7c2634` (`#b34a5a`/`#45111a`) is deliberately a **different, darker**
+    red so destructive actions stay visually distinct from primary ones; warn
+    `#a86a2e`; active/live (status indicators only — equalizer, live-dot,
+    active-tab underline, voice ring — never a button) `#7fbf6a`/`#5aa348`;
+    highlight `#e7da00`. Radius: buttons `0.35–0.45rem`, panels `0.6rem`.
   - **Deprecated — do NOT use** (the pre-restyle palette): panel bg
     `#14161c`/`#1b1f2a`, control `#2a2f3a`, borders `#3a4150`/`#2c323e` (or any
     `1px solid` on chrome), accent `#3a6df0`, flat `0 8px 0`/`0 6px 0` shadows.
     (`#14161c` is fine only as the Phaser *canvas* background, not UI chrome.)
-  - **Still on the old look — restyle when you touch them:** `ui/dialog.ts`
-    (shared modal), `editor/CharacterEditor.ts` + `editor/FurnitureEditor.ts`
-    (inputs/cards/sub-dialogs), and OfficeScene's settings + character-picker
-    panels. New UI must ship the new look.
 - **Config via env:** `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`,
   `PIXEL_ADMIN_TOKEN` (admin login token; also `--token`), `PIXEL_STREAM_DATA_DIR`
   (holds the single `pixel.db`).

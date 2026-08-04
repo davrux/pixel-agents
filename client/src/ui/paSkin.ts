@@ -78,7 +78,6 @@ export function injectPaSkin(): void {
       .pa-b{padding:0.4rem 0.7rem;font-size:0.85rem;color:#f1efec;background:#262422;border:2px solid #0a0908;
         border-radius:0.35rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font-family:inherit;}
       .pa-b.primary{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
-      .pa-b.green{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       .pa-b.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-b.wide{width:100%;padding:0.6rem;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;}
       .pa-menurow{display:flex;align-items:center;gap:0.6rem;padding:0.65rem 0.75rem;font-size:1.05rem;color:#f1efec;

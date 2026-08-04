@@ -17,7 +17,7 @@ export interface ZoneAdminsWidgetOptions {
   /** Surface a failed grant/revoke/load however this host shows errors. */
   onError: (action: string, error?: string) => void;
   /** Button/input classes so this widget matches the host's existing skin
-   *  (the admin site's `.act`/`.act.primary` vs Pixels' `.pa-b`/`.pa-b.green`). */
+   *  (the admin site's `.act`/`.act.primary` vs Pixels' `.pa-b`/`.pa-b.primary`). */
   classNames?: {
     revokeButton?: string;
     grantButton?: string;

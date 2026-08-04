@@ -22,7 +22,7 @@ import { injectPaSkin } from './paSkin.js';
 
 export interface PaDialogButton {
   label: string;
-  kind?: 'primary' | 'green' | 'danger';
+  kind?: 'primary' | 'danger';
   /** Return false to keep the dialog open (e.g. validation failed); anything else closes it. */
   onClick: () => void | boolean;
 }

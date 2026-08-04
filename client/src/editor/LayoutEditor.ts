@@ -1059,7 +1059,7 @@ export class LayoutEditor {
     const style = document.createElement('style');
     style.textContent = `
       /* Matches the grouped-menu pixel style (#1c1a19 panels, chunky #0a0908
-         borders + inset bevels, green primary, blue sliders, green selection). */
+         borders + inset bevels, red primary, red sliders, green selection). */
       #pa-editor{position:fixed;top:0;left:0;bottom:0;z-index:55;display:none;flex-direction:column;
         width:20rem;background:#1c1a19;border-right:2px solid #0a0908;color:#f1efec;
         box-shadow:inset -3px 0 0 #030303,4px 0 18px rgba(0,0,0,.45);

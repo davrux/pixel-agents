@@ -897,7 +897,7 @@ export class OfficeScene extends Phaser.Scene {
       // openPaDialog is a single shared modal instance: without `false` here,
       // the outer handler's own auto-close (see paDialog.ts) fires right after
       // and immediately hides the create dialog that was just opened.
-      buttons: [{ label: '+ New room', kind: 'green', onClick: () => { this.openMeetingRoomDialog(kiosk); return false; } }],
+      buttons: [{ label: '+ New room', kind: 'primary', onClick: () => { this.openMeetingRoomDialog(kiosk); return false; } }],
     });
   }
 
@@ -1024,7 +1024,7 @@ export class OfficeScene extends Phaser.Scene {
       buttons: [
         {
           label: 'Create',
-          kind: 'green',
+          kind: 'primary',
           onClick: () => {
             const pw = pwIn.value;
             if (pw && pw.length < MIN_MEETING_ROOM_PASSWORD_LEN) {
@@ -1068,7 +1068,7 @@ export class OfficeScene extends Phaser.Scene {
       buttons: [
         {
           label: 'Copy link',
-          kind: 'green',
+          kind: 'primary',
           onClick: () => {
             inp.select();
             navigator.clipboard?.writeText(link).then(
@@ -2573,7 +2573,7 @@ export class OfficeScene extends Phaser.Scene {
       buttons: [
         {
           label: 'Create',
-          kind: 'green',
+          kind: 'primary',
           onClick: () => {
             const label = cleanName(nameIn.value);
             if (!label) {
@@ -2675,7 +2675,7 @@ export class OfficeScene extends Phaser.Scene {
         msgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
         msgEl.style.color = '#f0a6a2';
       },
-      classNames: { revokeButton: 'pa-b', grantButton: 'pa-b green' },
+      classNames: { revokeButton: 'pa-b', grantButton: 'pa-b primary' },
     });
 
     openPaDialog({ title: `Zone admins — ${label}`, body, buttons: [] });
@@ -2714,7 +2714,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="fld"><label>Invite someone now</label>
         <div style="display:flex;gap:.35rem;">
           <input class="pa-input" data-invite placeholder="login id" maxlength="32" style="flex:1;min-width:0;">
-          <button type="button" class="pa-b green" data-invite-btn>Invite</button>
+          <button type="button" class="pa-b primary" data-invite-btn>Invite</button>
         </div>
         <div data-invite-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
       </div>
@@ -2801,7 +2801,7 @@ export class OfficeScene extends Phaser.Scene {
         passwordMsgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
         passwordMsgEl.style.color = '#f0a6a2';
       },
-      classNames: { button: 'pa-b', primaryButton: 'pa-b green', dangerButton: 'pa-b danger' },
+      classNames: { button: 'pa-b', primaryButton: 'pa-b primary', dangerButton: 'pa-b danger' },
     });
     const monitorsEl = body.querySelector<HTMLDivElement>('[data-monitors-widget]')!;
     const monitorsMsgEl = body.querySelector<HTMLDivElement>('[data-monitors-msg]')!;
@@ -2810,7 +2810,7 @@ export class OfficeScene extends Phaser.Scene {
         monitorsMsgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
         monitorsMsgEl.style.color = '#f0a6a2';
       },
-      classNames: { button: 'pa-b', primaryButton: 'pa-b green' },
+      classNames: { button: 'pa-b', primaryButton: 'pa-b primary' },
     });
 
     openPaDialog({ title: `Zone settings — ${zone.label}`, body, buttons: [] });

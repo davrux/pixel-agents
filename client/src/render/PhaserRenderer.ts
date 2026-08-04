@@ -53,7 +53,7 @@ const BUBBLE_DEPTH = 1_000_000;
 // Voice "speaking" ring drawn under a character's feet while they talk. A single
 // shared soft-ellipse texture (white, so it can be tinted) pulsed in alpha/scale.
 const VOICE_RING_TEXTURE = '__voicering';
-const VOICE_RING_COLOR = 0x7fd08a; // app green accent (matches the active-tab underline)
+const VOICE_RING_COLOR = 0x7fbf6a; // app green accent (matches the active-tab underline)
 const VOICE_RING_PULSE_HZ = 3; // pulses per second
 
 interface CharGObjects {
