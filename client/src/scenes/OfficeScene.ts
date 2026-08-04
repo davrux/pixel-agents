@@ -589,10 +589,11 @@ export class OfficeScene extends Phaser.Scene {
           if (this.mySkin === null && typeof m.characterSkin === 'string') {
             this.mySkin = m.characterSkin;
           }
-          // Logged-in → offer logout; hide editing entry points from non-admins.
-          const logout = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-logout');
-          if (logout) logout.style.display = this.myUserId ? '' : 'none';
+          // Logged-in → the ☰ menu offers logout; hide editing entry points from
+          // non-admins. The ☰ menu (Admin site / Log out rows) may already be
+          // open when this arrives (e.g. a reconnect) — refresh it too.
           this.applyAdminVisibility();
+          if (this.currentMenu === 'more') this.renderMorePanel();
           this.syncSettingsInputs();
           this.renderCharSwatches();
         }
@@ -1990,6 +1991,15 @@ export class OfficeScene extends Phaser.Scene {
     // (admin.html itself 403s anyone else, so hiding it otherwise isn't
     // security, just not offering a link that would just error out).
     if (this.isAdmin) row('🛡', 'Admin site', null, () => { window.location.href = './admin.html'; });
+    if (this.myUserId) {
+      row('🚪', 'Log out', null, () => {
+        if (isDesktop()) {
+          void desktopSignOut();
+          return;
+        }
+        gotoLogout();
+      });
+    }
     const hr = document.createElement('div');
     hr.style.cssText = 'height:1px;background:#1b2138;margin:0.3rem 0 0.6rem;';
     body.appendChild(hr);
@@ -3004,9 +3014,6 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#232a44;border:2px solid #05060b;
         color:#dfe6ff;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
         box-shadow:inset 0 2px 0 #3a4470,inset 0 -3px 0 #0c1022;}
-      #pa-settings #pa-logout{width:100%;margin-top:0.5rem;background:#7c2634;border:2px solid #05060b;
-        color:#f1d0d6;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
-        box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
     `;
     document.head.appendChild(style);
 
@@ -3045,8 +3052,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
-      <button id="pa-change-server">Change server</button>
-      <button id="pa-logout">Log out</button>`;
+      <button id="pa-change-server">Change server</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
 
@@ -3160,16 +3166,6 @@ export class OfficeScene extends Phaser.Scene {
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
     };
-    const logoutBtn = panel.querySelector<HTMLButtonElement>('#pa-logout')!;
-    logoutBtn.style.display = 'none'; // shown only when a login session is active
-    logoutBtn.onclick = () => {
-      if (isDesktop()) {
-        void desktopSignOut();
-        return;
-      }
-      gotoLogout();
-    };
-
     // "Change server" is a desktop-only concern (the browser build's server is
     // its own origin, not user-configurable), so it is hidden in the browser.
     const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
