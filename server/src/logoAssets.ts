@@ -10,16 +10,21 @@ const T = ''; // transparent
 
 /** Bold 9px-tall block font — just enough glyphs to spell "UPONU", with 2px-
  *  thick strokes (vs. a 1px hairline) to match the real wordmark's chunky
- *  weight — a thin single-pixel outline read as spindly next to it. N is 7px
- *  wide: a 2px-thick vertical on each side with a 1px diagonal stepping
- *  through the 3 columns between them (top-left to bottom-right, 3 rows per
- *  step) — packing the diagonal to the same 2px thickness as the verticals
- *  leaves no room for the background gaps that make it read as a diagonal at
- *  all, so it collapses into a solid block instead of a letter. */
+ *  weight — a thin single-pixel outline read as spindly next to it. The real
+ *  uponu wordmark is extremely rounded (O is a near-perfect ring, P's bowl and
+ *  U's base are curved); U/P/O chamfer their outer top/bottom corners (a
+ *  single pixel cut to `.` instead of `X`) to hint at that curvature within
+ *  the grid — a standard low-cost pixel-art way to imply roundness without
+ *  the resolution for a true curve. N is 7px wide: a 2px-thick vertical on
+ *  each side with a 1px diagonal stepping through the 3 columns between them
+ *  (top-left to bottom-right, 3 rows per step) — packing the diagonal to the
+ *  same 2px thickness as the verticals leaves no room for the background gaps
+ *  that make it read as a diagonal at all, so it collapses into a solid block
+ *  instead of a letter. */
 const GLYPHS: Record<string, string[]> = {
-  U: ['XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XXXXX'],
-  P: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XX...', 'XX...', 'XX...', 'XX...'],
-  O: ['XXXXX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX'],
+  U: ['XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', '.XXX.'],
+  P: ['.XXX.', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XX...', 'XX...', 'XX...', 'XX...'],
+  O: ['.XXX.', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', '.XXX.'],
   N: ['XXX..XX', 'XXX..XX', 'XXX..XX', 'XX.X.XX', 'XX.X.XX', 'XX.X.XX', 'XX..XXX', 'XX..XXX', 'XX..XXX'],
 };
 const GLYPH_H = 9;
