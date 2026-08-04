@@ -8,9 +8,10 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 
 const T = ''; // transparent
 
-/** A big wall monitor: bezel + dark screen + a green power LED. 3×2 tiles. */
+/** A wall monitor: bezel + dark screen + a green power LED. 2×2 tiles (same
+ *  footprint as the whiteboard). */
 export function monitorSprite(): SpriteData {
-  const w = 48;
+  const w = 32;
   const h = 32;
   const g: SpriteData = Array.from({ length: h }, () => new Array<string>(w).fill(T));
   const bezel = '#2b2f36';
@@ -48,12 +49,17 @@ export function conferenceAssets(): ConferenceAsset[] {
         id: 'MONITOR',
         label: 'Conference Monitor',
         category: 'decor',
-        width: 48,
+        width: 32,
         height: 32,
-        footprintW: 3,
+        footprintW: 2,
         footprintH: 2,
         isDesk: false,
         conference: true,
+        // Same footprint as the whiteboard, but flexible about where it goes:
+        // floor, on top of a desk/table, or mounted on a wall.
+        canPlaceOnWalls: true,
+        canPlaceOnFloor: true,
+        canPlaceOnSurfaces: true,
       },
       sprite: monitorSprite(),
     },

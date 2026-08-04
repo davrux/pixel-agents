@@ -16,6 +16,7 @@ export interface LoadedAssetData {
     canPlaceOnSurfaces?: boolean;
     backgroundTiles?: number;
     canPlaceOnWalls?: boolean;
+    canPlaceOnFloor?: boolean;
     mirrorSide?: boolean;
     appliance?: string; // interaction station kind ('coffee', …)
     portal?: boolean; // zone portal (door / beam pad)
@@ -103,6 +104,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.canPlaceOnSurfaces ? { canPlaceOnSurfaces: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
+        ...(asset.canPlaceOnFloor ? { canPlaceOnFloor: true } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         // Appliance station kind. An explicit value (incl. '' to disable) wins;
         // when never set, the bundled COFFEE_MACHINE legacy-defaults to coffee.

@@ -401,38 +401,34 @@ export class LayoutEditor {
    * follow v1's rule — only the BOTTOM row must sit on a wall; the upper rows
    * hang above it (over VOID, or even above the map), so e.g. a 2-tall bookshelf
    * mounts on the wall row with its body hanging over the void above it.
+   *
+   * canPlaceOnFloor lets a wall-mountable item ALSO go on ordinary floor tiles
+   * (e.g. a monitor that can stand on the floor/a desk or hang on a wall) — the
+   * spot is valid if EITHER the wall rule or the floor rule passes.
    */
-  private canPlace(col: number, row: number, e: { footprintW: number; footprintH: number; canPlaceOnWalls?: boolean; canPlaceOnSurfaces?: boolean; backgroundTiles?: number }, excludeUid?: string): boolean {
+  private canPlace(
+    col: number,
+    row: number,
+    e: {
+      footprintW: number;
+      footprintH: number;
+      canPlaceOnWalls?: boolean;
+      canPlaceOnFloor?: boolean;
+      canPlaceOnSurfaces?: boolean;
+      backgroundTiles?: number;
+    },
+    excludeUid?: string,
+  ): boolean {
     if (!this.layout) return false;
     const { footprintW: w, footprintH: h } = e;
-    const wall = !!e.canPlaceOnWalls;
     const bg = e.backgroundTiles ?? 0;
+    const wallCapable = !!e.canPlaceOnWalls;
+    const floorCapable = !wallCapable || !!e.canPlaceOnFloor;
 
-    // Bounds — wall items only need their bottom row in-bounds (top rows may hang
-    // above the map); other items need the whole footprint in-bounds.
     if (col < 0 || col + w > this.layout.cols) return false;
-    if (wall) {
-      const bottom = row + h - 1;
-      if (bottom < 0 || bottom >= this.layout.rows) return false;
-    } else if (row < 0 || row + h > this.layout.rows) {
-      return false;
-    }
-
-    // Tile rules. Background rows and rows above the map skip the check; for wall
-    // items only the bottom row is checked (and must be a wall).
-    for (let dr = 0; dr < h; dr++) {
-      if (dr < bg || row + dr < 0) continue;
-      if (wall && dr < h - 1) continue;
-      for (let dc = 0; dc < w; dc++) {
-        const t = this.tileMap[row + dr]?.[col + dc];
-        if (wall) {
-          if (t !== TileType.WALL) return false;
-        } else {
-          if (t === TileType.VOID || t === undefined) return false;
-          if (t === TileType.WALL) return false;
-        }
-      }
-    }
+    const wallOk = wallCapable && this.wallFootprintOk(col, row, w, h);
+    const floorOk = floorCapable && this.floorFootprintOk(col, row, w, h, bg);
+    if (!wallOk && !floorOk) return false;
 
     if (!e.canPlaceOnSurfaces) {
       // Surface items (e.g. a PC on a desk) sit ON TOP of base furniture, so they
@@ -448,6 +444,32 @@ export class LayoutEditor {
         for (let dc = 0; dc < w; dc++) {
           if (blocked.has(`${col + dc},${row + dr}`)) return false;
         }
+      }
+    }
+    return true;
+  }
+
+  /** Wall-mounted footprint rule (v1): only the bottom row must sit on a WALL
+   *  tile; upper rows may hang over void (or above the map entirely). */
+  private wallFootprintOk(col: number, row: number, w: number, h: number): boolean {
+    if (!this.layout) return false;
+    const bottom = row + h - 1;
+    if (bottom < 0 || bottom >= this.layout.rows) return false;
+    for (let dc = 0; dc < w; dc++) {
+      if (this.tileMap[bottom]?.[col + dc] !== TileType.WALL) return false;
+    }
+    return true;
+  }
+
+  /** Ordinary floor footprint rule: the whole footprint (minus background rows)
+   *  must sit on real floor tiles — not void, not a wall. */
+  private floorFootprintOk(col: number, row: number, w: number, h: number, bg: number): boolean {
+    if (!this.layout) return false;
+    if (row < 0 || row + h > this.layout.rows) return false;
+    for (let dr = bg; dr < h; dr++) {
+      for (let dc = 0; dc < w; dc++) {
+        const t = this.tileMap[row + dr]?.[col + dc];
+        if (t === TileType.VOID || t === undefined || t === TileType.WALL) return false;
       }
     }
     return true;

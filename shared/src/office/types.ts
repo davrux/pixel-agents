@@ -227,6 +227,10 @@ export interface FurnitureCatalogEntry {
   backgroundTiles?: number;
   /** Whether this item can be placed on wall tiles */
   canPlaceOnWalls?: boolean;
+  /** Whether a wall-mountable item (canPlaceOnWalls) may ALSO be placed on
+   *  ordinary floor tiles, rather than requiring a wall. No effect if
+   *  canPlaceOnWalls is false (floor is already the only option then). */
+  canPlaceOnFloor?: boolean;
   /** Whether this is a side-oriented asset that produces a mirrored "left" variant */
   mirrorSide?: boolean;
 }
