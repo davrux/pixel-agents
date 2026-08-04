@@ -65,6 +65,17 @@ class AppStore {
     this.db.prepare('DELETE FROM sessions WHERE sid = ?').run(sid);
   }
 
+  /** Kill every active session for a user — call this on account deletion.
+   *  Without it, a still-valid session (cookie or desktop bearer) for a
+   *  deleted login id keeps resolving as that id (see userIdFromCookie's
+   *  disabled-check, which only denies an *existing* disabled account, not
+   *  one that's gone entirely) up to its normal TTL. Recreating an account
+   *  with the same login id would then silently inherit that dangling
+   *  session — a different logical account, same row key, no re-login. */
+  deleteSessionsForUser(userId: string): void {
+    this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
+  }
+
   cleanupExpired(): void {
     this.db.prepare('DELETE FROM sessions WHERE expires < ?').run(Date.now());
   }

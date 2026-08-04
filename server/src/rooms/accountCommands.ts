@@ -79,6 +79,11 @@ export function runAccountCommand(spec: CommandSpec, args: string[], ctx: Accoun
       if (!loginId) return sys(`Usage: ${spec.usage}`), true;
       if (loginId === me.userId) return sys(`You can't delete yourself.`), true;
       if (!userStore.deleteUser(loginId)) return sys(`No such user: "${loginId}".`), true;
+      // Kill any active session for this login id immediately, and disconnect
+      // them from the game right now if they're online (see adminApi.ts's
+      // delete route for why — same reasoning applies here).
+      appStore.deleteSessionsForUser(loginId);
+      controlBus.emit(KICK_EVENT, loginId);
       // Global user data (avatar/prefs) is owned by the shared appStore.
       appStore.deletePlayerAvatar(loginId);
       appStore.clearCharPref(loginId);

@@ -35,14 +35,23 @@ function parseCookies(header: string | undefined): Record<string, string> {
 }
 
 /** Resolve the logged-in user id for a request's cookie (or undefined). A
- *  disabled account resolves to undefined here — the single choke point this
- *  and userIdFromBearer share means a suspension takes effect immediately for
- *  every caller (login gate, room onAuth, admin API, /meet authedDisplayName),
- *  not just on the next login. */
+ *  disabled OR deleted account resolves to undefined here — the single choke
+ *  point this and userIdFromBearer share means a suspension takes effect
+ *  immediately for every caller (login gate, room onAuth, admin API, /meet
+ *  authedDisplayName), not just on the next login. Requiring the account to
+ *  still *exist* (not just "not disabled") also matters on its own: a
+ *  deleted user's session otherwise keeps resolving as valid up to its
+ *  normal TTL — `undefined?.disabled` is falsy, so a missing row used to
+ *  pass the disabled check the same as a normal enabled account. Account
+ *  deletion additionally kills sessions outright (see deleteSessionsForUser)
+ *  so a recreated account with the same login id can't inherit one; this is
+ *  the defense-in-depth backstop for any session that slips through anyway. */
 export function userIdFromCookie(cookieHeader: string | undefined): string | undefined {
   const sid = parseCookies(cookieHeader)[VIEWER_COOKIE];
   const userId = appStore.getSession(sid)?.userId;
-  return userId && !userStore.get(userId)?.disabled ? userId : undefined;
+  if (!userId) return undefined;
+  const user = userStore.get(userId);
+  return user && !user.disabled ? userId : undefined;
 }
 
 export function hasValidSession(cookieHeader: string | undefined): boolean {
@@ -62,7 +71,9 @@ function bearerToken(authHeader: string | undefined): string | undefined {
  *  immediate-disabled-check behaviour. */
 export function userIdFromBearer(authHeader: string | undefined): string | undefined {
   const userId = appStore.getSession(bearerToken(authHeader))?.userId;
-  return userId && !userStore.get(userId)?.disabled ? userId : undefined;
+  if (!userId) return undefined;
+  const user = userStore.get(userId);
+  return user && !user.disabled ? userId : undefined;
 }
 
 export function hasValidBearerSession(authHeader: string | undefined): boolean {

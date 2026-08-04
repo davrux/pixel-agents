@@ -16,6 +16,7 @@ import { ZoneStore } from './zoneStore.js';
 import { LayoutStore } from './layoutStore.js';
 import { appStore } from './appStore.js';
 import { meetingRoomStore } from './meetingRoomStore.js';
+import { controlBus, KICK_EVENT } from './controlBus.js';
 import { can, type Principal } from './permissions.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { PlacedFurniture } from '@pixel/shared/office/types.js';
@@ -154,6 +155,16 @@ export function registerAdminApi(app: Express): void {
     if (id === me.userId) return void res.status(409).json({ error: 'cannot delete yourself' });
     if (target.isAdmin && userStore.adminCount() <= 1) return void res.status(409).json({ error: 'last admin' });
     userStore.deleteUser(id);
+    // Kill any active session for this login id immediately — otherwise a
+    // still-valid cookie/bearer session for it keeps working (see
+    // auth.ts's userIdFromCookie), and would silently attach to a future
+    // account recreated with the same login id instead of forcing re-login.
+    appStore.deleteSessionsForUser(id);
+    // Disconnect them from the game right now too, if they're online — same
+    // reach as /kick. Without this their WebSocket stays open (Colyseus only
+    // re-runs onAuth on a fresh connection, not on an already-open one) even
+    // though their HTTP session is already dead.
+    controlBus.emit(KICK_EVENT, id);
     // Clean up the user's global data (mirrors the /delete command). Zones the
     // user owned/could-admin/was-ACL'd-into are deliberately kept, not deleted —
     // removeUserFromAllZones() only clears their grants/ACL membership and nulls
