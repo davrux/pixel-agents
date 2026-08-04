@@ -95,7 +95,7 @@ export class ZoneVoiceUI {
       #pa-zv-master .hint{font-size:0.78rem;color:#818586;margin-top:0.2rem;}
       #pa-zv-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #0a0908;cursor:pointer;
         position:relative;background:#302d2a;box-shadow:inset 0 2px 0 #423f3b,inset 0 -2px 0 #141312;transition:background .15s;}
-      #pa-zv-track.on{background:#3e7a30;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-zv-track.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-zv-track .knob{position:absolute;top:50%;left:1px;transform:translateY(-50%);width:1.25rem;height:1.25rem;border-radius:50%;
         background:#f5f3f0;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
       #pa-zv-track.on .knob{left:1.6rem;}
@@ -114,7 +114,7 @@ export class ZoneVoiceUI {
       #pa-zv-meter .lvl.on{background:#5aa348;}
       #pa-zv-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#e7da00;}
       #pa-zv-prox{display:flex;align-items:center;gap:0.5rem;margin-top:0.7rem;font-size:0.9rem;color:#cac8c3;cursor:pointer;}
-      #pa-zv-prox input{accent-color:#3e7a30;width:1rem;height:1rem;}
+      #pa-zv-prox input{accent-color:#c51a1b;width:1rem;height:1rem;}
       #pa-zv-sub .subhint{font-size:0.78rem;color:#818586;margin-top:0.35rem;line-height:1.5;}
       #pa-zv-peers{margin-top:0.7rem;border-top:1px solid #2c2a28;padding-top:0.6rem;}
       #pa-zv-peers .pr{display:flex;flex-direction:column;gap:0.4rem;margin:0.45rem 0;padding:0.5rem 0.55rem;

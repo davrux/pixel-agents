@@ -128,11 +128,11 @@ export class MumbleUI {
       #pa-mb-master .hint{font-size:0.78rem;color:#818586;margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;}
       #pa-mb-master .hint.bad{color:#e08894;}
       #pa-mb-pin{flex:none;opacity:.45;filter:grayscale(1);}
-      #pa-mb-pin.on{opacity:1;filter:none;background:#3e7a30;border-color:#0a0908;color:#eaf7ec;
-        box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-mb-pin.on{opacity:1;filter:none;background:#c51a1b;border-color:#0a0908;color:#eaf7ec;
+        box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-mb-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #0a0908;cursor:pointer;
         position:relative;background:#302d2a;box-shadow:inset 0 2px 0 #423f3b,inset 0 -2px 0 #141312;transition:background .15s;}
-      #pa-mb-track.on{background:#3e7a30;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-mb-track.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-mb-track .knob{position:absolute;top:50%;left:1px;transform:translateY(-50%);width:1.25rem;height:1.25rem;
         border-radius:50%;background:#f5f3f0;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
       #pa-mb-track.on .knob{left:1.6rem;}
@@ -149,7 +149,7 @@ export class MumbleUI {
          connection is off, when the rest of the sub-panel is disabled. */
       #pa-mb .chk{display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0;font-size:0.88rem;color:#adb0b2;
         cursor:pointer;}
-      #pa-mb .chk input{accent-color:#3e7a30;width:0.95rem;height:0.95rem;cursor:pointer;}
+      #pa-mb .chk input{accent-color:#c51a1b;width:0.95rem;height:0.95rem;cursor:pointer;}
       #pa-mb-btns{display:flex;gap:0.4rem;margin:0.5rem 0;}
       #pa-mb button{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#d7d5d1;border-radius:0.3rem;
         font:0.85rem 'FS Pixel Sans',monospace;padding:0.3rem 0.55rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}

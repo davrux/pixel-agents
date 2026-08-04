@@ -97,7 +97,7 @@ export class MumbleSettingsUI {
       #pa-mumble-cfg .suggest{font-size:0.8rem;color:#818586;margin:-0.3rem 0 0.5rem;}
       #pa-mumble-cfg .suggest a{color:#4998c0;cursor:pointer;text-decoration:underline;}
       #pa-mumble-cfg .chk{display:flex;align-items:center;gap:0.5rem;margin:0.55rem 0;font-size:0.95rem;color:#cac8c3;}
-      #pa-mumble-cfg .chk input{accent-color:#3e7a30;width:1rem;height:1rem;}
+      #pa-mumble-cfg .chk input{accent-color:#c51a1b;width:1rem;height:1rem;}
     `;
     document.head.appendChild(style);
   }

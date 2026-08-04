@@ -45,7 +45,7 @@ interface PartRow {
 
 // Shared pixel-menu look (matches #pa-menubar / .pa-btn / .pa-panel in OfficeScene):
 // dark #1c1a19 surfaces, #0a0908 borders, the inset 2px-light / 3px-dark bevel,
-// red #c51a1b + green #3e7a30 accents. Keep these in sync with OfficeScene's CSS.
+// red #c51a1b accents (primary and "on" states alike). Keep in sync with OfficeScene's CSS.
 const CSS = `
   #pa-conf{position:fixed;inset:0;z-index:120;display:none;
     width:100%;height:100%;flex-direction:column;background:#1c1a19;
@@ -132,8 +132,8 @@ const CSS = `
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-bar button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-bar button.off{opacity:0.5;}
-  #pa-conf .pa-conf-bar button.on{background:#3e7a30;border-color:#0a0908;color:#fff;
-    box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+  #pa-conf .pa-conf-bar button.on{background:#c51a1b;border-color:#0a0908;color:#fff;
+    box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
   #pa-conf .pa-conf-bar button.leave{background:#7c2634;border-color:#0a0908;color:#f1d0d6;
     box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
   #pa-conf .pa-conf-dev{position:absolute;bottom:3.6rem;left:50%;transform:translateX(-50%);background:#1c1a19;

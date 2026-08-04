@@ -295,6 +295,9 @@ export class OfficeScene extends Phaser.Scene {
   private readonly nameLabels = new Map<number, HTMLDivElement>();
   /** "afk" markers over away players (/afk), keyed by character id. */
   private readonly afkLabels = new Map<number, HTMLDivElement>();
+  /** "☕" markers over anyone (agent, NPC or player) currently in the COFFEE
+   *  pose (standing at an appliance station), keyed by character id. */
+  private readonly coffeeIcons = new Map<number, HTMLDivElement>();
   private layoutListData: { layouts: Array<{ name: string; readOnly: boolean }>; active: string } = {
     layouts: [],
     active: 'Default',
@@ -1567,6 +1570,7 @@ export class OfficeScene extends Phaser.Scene {
       this.updateChatBubbles();
       this.updateVoiceBubbles();
       this.updateAfkLabels();
+      this.updateCoffeeIcons();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
   }
@@ -3713,6 +3717,8 @@ export class OfficeScene extends Phaser.Scene {
           background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
         .pa-afk{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           font:0.72rem 'FS Pixel Sans',monospace;color:#ffd98a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;}
+        .pa-coffee-icon{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
+          font-size:0.95rem;line-height:1;text-shadow:0 0 3px #000,0 0 3px #000;}
         .pa-vic.spk{animation:pa-voice 0.9s infinite ease-in-out;}
         @keyframes pa-voice{0%,100%{transform:scale(0.92);opacity:.75;}50%{transform:scale(1.1);opacity:1;}}
       `;
@@ -3862,6 +3868,38 @@ export class OfficeScene extends Phaser.Scene {
         el.textContent = '💤 afk';
         host.appendChild(el);
         this.afkLabels.set(ch.id, el);
+      }
+      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      const headOff = (34 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
+      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
+      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
+    }
+  }
+
+  /** Show a small "☕" over anyone currently in the COFFEE pose (agent, NPC or
+   *  player alike — see getCharacterPose/stationId) — purely cosmetic, same
+   *  overlay pattern as the afk marker above. */
+  private updateCoffeeIcons(): void {
+    const editing = this.editor.isEditing();
+    const cam = this.cameras.main;
+    const wv = cam.worldView;
+    const host = document.getElementById('game') ?? document.body;
+    for (const ch of this.characters.values()) {
+      const show = !editing && ch.pose === 'coffee';
+      let el = this.coffeeIcons.get(ch.id);
+      if (!show) {
+        if (el) {
+          el.remove();
+          this.coffeeIcons.delete(ch.id);
+        }
+        continue;
+      }
+      if (!el) {
+        el = document.createElement('div');
+        el.className = 'pa-coffee-icon';
+        el.textContent = '☕';
+        host.appendChild(el);
+        this.coffeeIcons.set(ch.id, el);
       }
       const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
       const headOff = (34 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
