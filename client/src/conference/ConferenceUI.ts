@@ -44,43 +44,43 @@ interface PartRow {
 }
 
 // Shared pixel-menu look (matches #pa-menubar / .pa-btn / .pa-panel in OfficeScene):
-// dark #0f1220 surfaces, #05060b borders, the inset 2px-light / 3px-dark bevel,
-// blue #2f66b0 + green #2f7d3f accents. Keep these in sync with OfficeScene's CSS.
+// dark #1c1a19 surfaces, #0a0908 borders, the inset 2px-light / 3px-dark bevel,
+// blue #c51a1b + green #3e7a30 accents. Keep these in sync with OfficeScene's CSS.
 const CSS = `
   #pa-conf{position:fixed;inset:0;z-index:120;display:none;
-    width:100%;height:100%;flex-direction:column;background:#0f1220;
-    color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;}
-  #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#0f1220;
-    border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
-  #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#eef1fb;font-weight:600;letter-spacing:.3px;}
-  #pa-conf .pa-conf-head .sub{color:#6f7590;font-size:0.85rem;}
-  #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.85rem;color:#7fd08a;}
+    width:100%;height:100%;flex-direction:column;background:#1c1a19;
+    color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;}
+  #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#1c1a19;
+    border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
+  #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#f5f3f0;font-weight:600;letter-spacing:.3px;}
+  #pa-conf .pa-conf-head .sub{color:#818586;font-size:0.85rem;}
+  #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.85rem;color:#7fbf6a;}
   #pa-conf .pa-conf-head .status.err{color:#f2a1a1;}
   #pa-conf .pa-conf-body{flex:1;display:flex;min-height:0;}
   #pa-conf .pa-conf-main{flex:1;display:flex;min-width:0;min-height:0;}
   /* Default: grid of participant tiles fills the main area. */
   #pa-conf-stage{flex:1;display:grid;gap:0.5rem;padding:0.6rem;overflow:auto;align-content:center;
-    grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));background:#0a0d16;min-width:0;}
-  #pa-conf .pa-conf-tile{position:relative;aspect-ratio:16/9;background:#171b2b;border:2px solid #05060b;
+    grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));background:#141312;min-width:0;}
+  #pa-conf .pa-conf-tile{position:relative;aspect-ratio:16/9;background:#262422;border:2px solid #0a0908;
     border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-  #pa-conf .pa-conf-tile.speaking{border-color:#2f66b0;box-shadow:0 0 0 2px #5a92d6 inset;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-tile.speaking{border-color:#c51a1b;box-shadow:0 0 0 2px #e2585a inset;}
   /* Camera off → a plain black screen (the placeholder avatar sits on top). */
   #pa-conf .pa-conf-tile.camoff{background:#000;box-shadow:none;}
   /* Screen-share spotlight (hidden until a screen is shared). */
-  #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#0a0d16;
+  #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#141312;
     align-items:center;justify-content:center;}
   #pa-conf.sharing #pa-conf-spotlight{display:flex;}
   #pa-conf-spotlight .pa-conf-screen{position:relative;width:100%;height:100%;background:#000;
-    border:2px solid #2f66b0;border-radius:0.4rem;box-shadow:0 0 0 1px #5a92d6;
+    border:2px solid #c51a1b;border-radius:0.4rem;box-shadow:0 0 0 1px #e2585a;
     display:flex;align-items:center;justify-content:center;overflow:hidden;}
   #pa-conf-spotlight .pa-conf-video.contain{width:100%;height:100%;object-fit:contain;}
   .pa-conf-spot-ctl{position:absolute;top:0.55rem;right:0.55rem;z-index:3;display:none;gap:0.35rem;}
   #pa-conf.sharing .pa-conf-spot-ctl{display:flex;}
-  .pa-conf-spot-ctl button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+  .pa-conf-spot-ctl button{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
     border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.32rem 0.55rem;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-  .pa-conf-spot-ctl button:hover{background:#1a2032;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  .pa-conf-spot-ctl button:hover{background:#2e2b28;}
   /* While sharing, participant tiles become a scrollable column on the right. */
   #pa-conf.sharing #pa-conf-stage{flex:0 0 14rem;display:flex;flex-direction:column;gap:0.4rem;overflow-y:auto;
     overflow-x:hidden;align-content:stretch;}
@@ -89,60 +89,60 @@ const CSS = `
   #pa-conf .pa-conf-video{width:100%;height:100%;object-fit:cover;background:#000;}
   #pa-conf .pa-conf-video.mirror{transform:scaleX(-1);}
   #pa-conf .pa-conf-video.contain{object-fit:contain;}
-  #pa-conf .pa-conf-ph{width:3.4rem;height:3.4rem;border-radius:50%;background:#0a0d16;border:2px solid #05060b;
-    display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#c7ccdf;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #pa-conf .pa-conf-ph{width:3.4rem;height:3.4rem;border-radius:50%;background:#141312;border:2px solid #0a0908;
+    display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:#d7d9da;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-name{position:absolute;left:0.35rem;bottom:0.3rem;font-size:0.8rem;color:#fff;
     text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;}
-  #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#0f1220;
-    border-left:2px solid #05060b;min-height:0;}
+  #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#1c1a19;
+    border-left:2px solid #0a0908;min-height:0;}
   #pa-conf.side-open .pa-conf-side{display:flex;}
-  #pa-conf .pa-conf-tabs{display:flex;gap:0.35rem;padding:0.35rem;background:#0a0d16;border-bottom:2px solid #05060b;}
-  #pa-conf .pa-conf-tabs button{flex:1;background:transparent;border:0;color:#9aa0b8;cursor:pointer;border-radius:0.35rem;
+  #pa-conf .pa-conf-tabs{display:flex;gap:0.35rem;padding:0.35rem;background:#141312;border-bottom:2px solid #0a0908;}
+  #pa-conf .pa-conf-tabs button{flex:1;background:transparent;border:0;color:#adb0b2;cursor:pointer;border-radius:0.35rem;
     font:0.95rem 'FS Pixel Sans',monospace;padding:0.45rem 0.3rem;}
-  #pa-conf .pa-conf-tabs button.on{color:#fff;background:#242c46;
+  #pa-conf .pa-conf-tabs button.on{color:#fff;background:#37342f;
     box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
   #pa-conf .pa-conf-chat,#pa-conf .pa-conf-parts{flex:1;min-height:0;display:none;flex-direction:column;}
   #pa-conf.tab-chat .pa-conf-chat{display:flex;}
   #pa-conf.tab-parts .pa-conf-parts{display:flex;}
   #pa-conf .pa-conf-chatlog{flex:1;overflow-y:auto;padding:0.5rem 0.6rem;display:flex;flex-direction:column;
     gap:0.25rem;font-size:0.92rem;line-height:1.35;}
-  #pa-conf .pa-conf-chatlog .ln .ts{color:#6f7590;font-size:0.82em;}
-  #pa-conf .pa-conf-chatlog .ln b{color:#7fa7e0;}
-  #pa-conf .pa-conf-chatin{border:0;border-top:2px solid #05060b;background:#171b2b;color:#e9ecf7;
-    font:1rem 'FS Pixel Sans',monospace;padding:0.55rem 0.6rem;box-shadow:inset 0 2px 0 #2b3252;}
+  #pa-conf .pa-conf-chatlog .ln .ts{color:#818586;font-size:0.82em;}
+  #pa-conf .pa-conf-chatlog .ln b{color:#4998c0;}
+  #pa-conf .pa-conf-chatin{border:0;border-top:2px solid #0a0908;background:#262422;color:#f1efec;
+    font:1rem 'FS Pixel Sans',monospace;padding:0.55rem 0.6rem;box-shadow:inset 0 2px 0 #4a4744;}
   #pa-conf .pa-conf-parts{padding:0.4rem 0.2rem;overflow-y:auto;}
   #pa-conf .pa-conf-parts .p{display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.4rem 0.5rem;
-    font-size:0.95rem;border-bottom:1px solid #1b2138;}
+    font-size:0.95rem;border-bottom:1px solid #2c2a28;}
   #pa-conf .pa-conf-parts .p .n{flex:1;}
   #pa-conf .pa-conf-parts .p .i{opacity:0.85;}
   #pa-conf .pa-conf-parts .p .vol-row{display:flex;align-items:center;gap:0.4rem;width:100%;}
-  #pa-conf .pa-conf-parts .p .vol-row button{cursor:pointer;background:#171b2b;border:2px solid #05060b;
-    color:#e9ecf7;border-radius:0.35rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.2rem 0.4rem;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-  #pa-conf .pa-conf-parts .p .vol-row button:hover{background:#1a2032;}
+  #pa-conf .pa-conf-parts .p .vol-row button{cursor:pointer;background:#262422;border:2px solid #0a0908;
+    color:#f1efec;border-radius:0.35rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.2rem 0.4rem;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-parts .p .vol-row button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-parts .p .vol-row button.muted{color:#f2a1a1;border-color:#7c2634;}
-  #pa-conf .pa-conf-parts .p .vol-row input[type=range]{flex:1;min-width:0;accent-color:#2f66b0;}
-  #pa-conf .pa-conf-parts .p .vol-row .pct{font-size:0.8rem;color:#9aa0b8;min-width:2.6rem;text-align:right;}
+  #pa-conf .pa-conf-parts .p .vol-row input[type=range]{flex:1;min-width:0;accent-color:#c51a1b;}
+  #pa-conf .pa-conf-parts .p .vol-row .pct{font-size:0.8rem;color:#adb0b2;min-width:2.6rem;text-align:right;}
   #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
-    padding:0.6rem;background:#0f1220;border-top:2px solid #05060b;box-shadow:inset 0 1px 0 #1b2138;position:relative;}
-  #pa-conf .pa-conf-bar button{cursor:pointer;background:#141826;border:2px solid #05060b;color:#e9ecf7;
+    padding:0.6rem;background:#1c1a19;border-top:2px solid #0a0908;box-shadow:inset 0 1px 0 #2c2a28;position:relative;}
+  #pa-conf .pa-conf-bar button{cursor:pointer;background:#242220;border:2px solid #0a0908;color:#f1efec;
     border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.3rem;
     width:5.5rem;box-sizing:border-box;text-align:center;white-space:nowrap;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-  #pa-conf .pa-conf-bar button:hover{background:#1a2032;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-bar button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-bar button.off{opacity:0.5;}
-  #pa-conf .pa-conf-bar button.on{background:#2f7d3f;border-color:#05060b;color:#fff;
-    box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
-  #pa-conf .pa-conf-bar button.leave{background:#7c2634;border-color:#05060b;color:#f1d0d6;
+  #pa-conf .pa-conf-bar button.on{background:#3e7a30;border-color:#0a0908;color:#fff;
+    box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+  #pa-conf .pa-conf-bar button.leave{background:#7c2634;border-color:#0a0908;color:#f1d0d6;
     box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
-  #pa-conf .pa-conf-dev{position:absolute;bottom:3.6rem;left:50%;transform:translateX(-50%);background:#0f1220;
-    border:2px solid #05060b;border-radius:0.6rem;padding:0.7rem;display:none;flex-direction:column;gap:0.45rem;
-    min-width:16rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
+  #pa-conf .pa-conf-dev{position:absolute;bottom:3.6rem;left:50%;transform:translateX(-50%);background:#1c1a19;
+    border:2px solid #0a0908;border-radius:0.6rem;padding:0.7rem;display:none;flex-direction:column;gap:0.45rem;
+    min-width:16rem;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
   #pa-conf .pa-conf-dev.open{display:flex;}
-  #pa-conf .pa-conf-dev label{font-size:0.72rem;letter-spacing:1px;color:#6f7590;text-transform:uppercase;}
-  #pa-conf .pa-conf-dev select{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;
-    font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+  #pa-conf .pa-conf-dev label{font-size:0.72rem;letter-spacing:1px;color:#818586;text-transform:uppercase;}
+  #pa-conf .pa-conf-dev select{background:#262422;border:2px solid #0a0908;color:#f1efec;border-radius:0.35rem;
+    font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
 `;
 
 export class ConferenceUI {
@@ -354,7 +354,7 @@ export class ConferenceUI {
     if (!this.devPop.childElementCount) {
       const none = document.createElement('div');
       none.textContent = 'No selectable devices.';
-      none.style.color = '#9aa3b2';
+      none.style.color = '#adb0b2';
       this.devPop.appendChild(none);
     }
   }

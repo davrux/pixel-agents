@@ -322,7 +322,7 @@ export class OfficeScene extends Phaser.Scene {
     g.generateTexture('__WHITE', 1, 1);
     g.destroy();
 
-    this.cameras.main.setBackgroundColor('#14161c');
+    this.cameras.main.setBackgroundColor('#171514');
     this.os = new OfficeState();
     this.view = new PhaserRenderer(this, this.renderSource());
     this.setupIdleWaking();
@@ -908,7 +908,7 @@ export class OfficeScene extends Phaser.Scene {
     const row = document.createElement('div');
     row.dataset.slug = slug;
     row.style.cssText =
-      'display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:#171b2b;border-radius:.4rem;';
+      'display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;background:#262422;border-radius:.4rem;';
     const info = document.createElement('div');
     info.style.cssText = 'flex:1;min-width:0;font-size:.85rem;';
     const expiryText = expired ? 'expired' : `expires ${new Date(expiresAt).toLocaleDateString()}`;
@@ -1065,7 +1065,7 @@ export class OfficeScene extends Phaser.Scene {
           onClick: () => {
             inp.select();
             navigator.clipboard?.writeText(link).then(
-              () => { feedback.textContent = '✓ Copied to clipboard.'; feedback.style.color = '#7fd08a'; },
+              () => { feedback.textContent = '✓ Copied to clipboard.'; feedback.style.color = '#7fbf6a'; },
               () => { feedback.textContent = 'Could not copy automatically — the text above is selected, copy it manually.'; feedback.style.color = '#f0a6a2'; },
             );
             return false; // keep the dialog open — they can copy again or read it
@@ -1869,9 +1869,9 @@ export class OfficeScene extends Phaser.Scene {
     const statusEl = document.getElementById('status');
     if (statusEl) {
       statusEl.style.cssText =
-        'position:static;margin:0;padding:0.4rem 0.7rem;font-size:0.85rem;color:#9aa0b8;' +
-        'background:#141826;border:2px solid #05060b;border-radius:0.45rem;' +
-        'box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;max-width:16rem;' +
+        'position:static;margin:0;padding:0.4rem 0.7rem;font-size:0.85rem;color:#adb0b2;' +
+        'background:#242220;border:2px solid #0a0908;border-radius:0.45rem;' +
+        'box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;max-width:16rem;' +
         'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
       bar.insertBefore(statusEl, more);
     }
@@ -2044,7 +2044,7 @@ export class OfficeScene extends Phaser.Scene {
       );
     }
     const hr = document.createElement('div');
-    hr.style.cssText = 'height:1px;background:#1b2138;margin:0.3rem 0 0.6rem;';
+    hr.style.cssText = 'height:1px;background:#2c2a28;margin:0.3rem 0 0.6rem;';
     body.appendChild(hr);
     row(
       '▤',
@@ -2841,7 +2841,7 @@ export class OfficeScene extends Phaser.Scene {
       msgEl.style.color = '#f0a6a2';
     } else {
       msgEl.textContent = `Invite sent to ${String(m.targetUserId ?? '')}.`;
-      msgEl.style.color = '#7fd08a';
+      msgEl.style.color = '#7fbf6a';
     }
   }
 
@@ -3006,9 +3006,9 @@ export class OfficeScene extends Phaser.Scene {
     el.id = 'pa-znpc';
     el.className = 'pa-ui';
     el.style.cssText =
-      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#0f1220;' +
-      'border:2px solid #05060b;border-radius:0.6rem;padding:1rem;color:#e9ecf7;min-width:14rem;max-height:70vh;' +
-      "overflow:auto;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);";
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:85;background:#1c1a19;' +
+      'border:2px solid #0a0908;border-radius:0.6rem;padding:1rem;color:#f1efec;min-width:14rem;max-height:70vh;' +
+      "overflow:auto;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);";
 
     const send = (): void => {
       const keys = roster.map((r) => r.key).filter((k) => enabled.has(k));
@@ -3018,13 +3018,13 @@ export class OfficeScene extends Phaser.Scene {
 
     const head = document.createElement('div');
     head.textContent = `🐾 NPCs — ${zone.label}`;
-    head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#eef1fb;';
+    head.style.cssText = 'font-size:1.15rem;margin-bottom:0.6rem;color:#f5f3f0;';
     el.appendChild(head);
 
     if (!roster.length) {
       const none = document.createElement('div');
       none.textContent = 'No NPC variants loaded.';
-      none.style.cssText = 'color:#9aa0b8;margin-bottom:0.6rem;';
+      none.style.cssText = 'color:#adb0b2;margin-bottom:0.6rem;';
       el.appendChild(none);
     }
     for (const r of roster) {
@@ -3049,8 +3049,8 @@ export class OfficeScene extends Phaser.Scene {
       const b = document.createElement('button');
       b.textContent = txt;
       b.style.cssText =
-        'flex:1;padding:0.4rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;border-radius:0.35rem;' +
-        "color:#e9ecf7;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
+        'flex:1;padding:0.4rem;cursor:pointer;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;' +
+        "color:#f1efec;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;";
       b.onclick = fn;
       return b;
     };
@@ -3106,34 +3106,34 @@ export class OfficeScene extends Phaser.Scene {
       #pa-settings .row{display:flex;align-items:center;gap:0.5rem;margin:0.65rem 0;font-size:1rem;}
       #pa-settings .row input[type=range]{flex:1;}
       #pa-settings .row label{flex:1;}
-      #pa-settings .row input[type=text],#pa-settings .row input[type=password]{flex:1;min-width:0;background:#171b2b;color:#e9ecf7;
-        border:2px solid #05060b;border-radius:0.35rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-settings .hint{font-size:0.8rem;color:#6f7590;margin:-0.25rem 0 0.65rem;}
+      #pa-settings .row input[type=text],#pa-settings .row input[type=password]{flex:1;min-width:0;background:#262422;color:#f1efec;
+        border:2px solid #0a0908;border-radius:0.35rem;padding:0.3rem 0.45rem;font:0.95rem 'FS Pixel Sans',monospace;
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-settings .hint{font-size:0.8rem;color:#818586;margin:-0.25rem 0 0.65rem;}
       #pa-char,#pa-pchar{display:flex;gap:0.4rem;flex-wrap:wrap;margin:0.3rem 0 0.65rem;}
-      #pa-char canvas,#pa-pchar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#0a0d16;
-        border:2px solid #05060b;border-radius:0.35rem;cursor:pointer;}
-      #pa-char canvas.sel,#pa-pchar canvas.sel{border-color:#5a92d6;}
+      #pa-char canvas,#pa-pchar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#141312;
+        border:2px solid #0a0908;border-radius:0.35rem;cursor:pointer;}
+      #pa-char canvas.sel,#pa-pchar canvas.sel{border-color:#e2585a;}
       #pa-char .rnd,#pa-pchar .rnd{width:2rem;height:4rem;display:flex;align-items:center;justify-content:center;
-        background:#0a0d16;border:2px solid #05060b;border-radius:0.35rem;cursor:pointer;font-size:1.1rem;}
-      #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#5a92d6;}
+        background:#141312;border:2px solid #0a0908;border-radius:0.35rem;cursor:pointer;font-size:1.1rem;}
+      #pa-char .rnd.sel,#pa-pchar .rnd.sel{border-color:#e2585a;}
       #pa-avatar{display:flex;gap:0.6rem;align-items:center;margin:0.3rem 0 0.2rem;}
-      #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#0a0d16;
-        border:2px solid #05060b;border-radius:0.35rem;}
+      #pa-avatar canvas{width:2rem;height:4rem;image-rendering:pixelated;background:#141312;
+        border:2px solid #0a0908;border-radius:0.35rem;}
       #pa-avatar .pa-av-btns{display:flex;flex-direction:column;gap:0.35rem;flex:1;}
-      #pa-avatar button,#pa-account button{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
-        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+      #pa-avatar button,#pa-account button{background:#262422;border:2px solid #0a0908;color:#f1efec;
+        border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-avatar button:disabled,#pa-account button:disabled{opacity:0.5;cursor:default;}
       /* Account buttons fill their row (single → full width; pair → split evenly). */
       #pa-account button{flex:1;}
-      #pa-userinfo{font-size:0.85rem;color:#9aa0b8;margin:-0.35rem 0 0.7rem;display:flex;
+      #pa-userinfo{font-size:0.85rem;color:#adb0b2;margin:-0.35rem 0 0.7rem;display:flex;
         align-items:center;gap:0.4rem;flex-wrap:wrap;}
-      #pa-userinfo code{color:#c7ccdf;background:#0a0d16;border:2px solid #05060b;border-radius:0.25rem;padding:0.05rem 0.3rem;}
-      #pa-userinfo .admin{background:#2f7d3f;border:2px solid #05060b;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
-        box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
-      #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#232a44;border:2px solid #05060b;
-        color:#dfe6ff;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
-        box-shadow:inset 0 2px 0 #3a4470,inset 0 -3px 0 #0c1022;}
+      #pa-userinfo code{color:#d7d9da;background:#141312;border:2px solid #0a0908;border-radius:0.25rem;padding:0.05rem 0.3rem;}
+      #pa-userinfo .admin{background:#3e7a30;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
+        box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#292725;border:2px solid #0a0908;
+        color:#ece9e4;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #141210;}
     `;
     document.head.appendChild(style);
 
@@ -3414,12 +3414,12 @@ export class OfficeScene extends Phaser.Scene {
     el.id = 'pa-portal';
     el.className = 'pa-ui';
     el.style.cssText =
-      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:80;background:#0f1220;' +
-      'border:2px solid #05060b;border-radius:0.6rem;padding:1rem;color:#e9ecf7;min-width:12rem;text-align:center;' +
-      "font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);";
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:80;background:#1c1a19;' +
+      'border:2px solid #0a0908;border-radius:0.6rem;padding:1rem;color:#f1efec;min-width:12rem;text-align:center;' +
+      "font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);";
     const head = document.createElement('div');
     head.textContent = '🚪 Travel to…';
-    head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#eef1fb;';
+    head.style.cssText = 'font-size:1.2rem;margin-bottom:0.7rem;color:#f5f3f0;';
     el.appendChild(head);
     const close = (): void => {
       el.remove();
@@ -3429,8 +3429,8 @@ export class OfficeScene extends Phaser.Scene {
       const b = document.createElement('button');
       b.textContent = z.label;
       b.style.cssText =
-        'display:block;width:100%;margin:0.3rem 0;padding:0.55rem;cursor:pointer;background:#1b2033;' +
-        "border:2px solid #05060b;border-radius:0.45rem;color:#e9ecf7;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
+        'display:block;width:100%;margin:0.3rem 0;padding:0.55rem;cursor:pointer;background:#242220;' +
+        "border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;font:1rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;";
       b.onclick = () => {
         this.room?.send('portalGo', { zone: z.id });
         close();
@@ -3440,8 +3440,8 @@ export class OfficeScene extends Phaser.Scene {
     const cancel = document.createElement('button');
     cancel.textContent = 'Cancel';
     cancel.style.cssText =
-      'margin-top:0.5rem;padding:0.4rem 0.8rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;' +
-      "border-radius:0.35rem;color:#9aa0b8;font:0.9rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
+      'margin-top:0.5rem;padding:0.4rem 0.8rem;cursor:pointer;background:#262422;border:2px solid #0a0908;' +
+      "border-radius:0.35rem;color:#adb0b2;font:0.9rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;";
     cancel.onclick = close;
     el.appendChild(cancel);
     (document.getElementById('game') ?? document.body).appendChild(el);
@@ -3460,7 +3460,7 @@ export class OfficeScene extends Phaser.Scene {
       overlay.id = 'pa-reconnect';
       overlay.style.cssText =
         'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
-        "background:rgba(10,12,18,.82);color:#eef1f6;font:1.1rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;";
+        "background:rgba(10,12,18,.82);color:#f4f2ee;font:1.1rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;";
       overlay.textContent = 'Connection lost — reconnecting…';
       (document.getElementById('game') ?? document.body).appendChild(overlay);
     }
@@ -3652,7 +3652,7 @@ export class OfficeScene extends Phaser.Scene {
         el = document.createElement('div');
         el.style.cssText =
           "position:absolute;z-index:45;transform:translate(-50%,-100%);pointer-events:none;" +
-          "font:0.9rem 'FS Pixel Sans',monospace;color:#e6e9ef;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
+          "font:0.9rem 'FS Pixel Sans',monospace;color:#efeeea;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;";
         host.appendChild(el);
         this.nameLabels.set(ch.id, el);
       }
@@ -3681,7 +3681,7 @@ export class OfficeScene extends Phaser.Scene {
       s.id = "pa-bubble-style";
       s.textContent = `
         .pa-chatbubble{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
-          max-width:14rem;background:#f2f4f8;color:#14171f;border-radius:0.5rem;padding:0.3rem 0.55rem;
+          max-width:14rem;background:#f7f5f2;color:#181614;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
         .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
@@ -3861,12 +3861,12 @@ export class OfficeScene extends Phaser.Scene {
           pointer-events:none;display:none;flex-direction:column;align-items:center;
           font-family:'FS Pixel Sans',ui-monospace,monospace;}
         .pa-tip .row{display:flex;align-items:center;gap:0.45rem;
-          background:#0f1220;border:2px solid #05060b;border-radius:0.35rem;
-          padding:0.4rem 0.7rem;white-space:nowrap;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16,0 2px 0 rgba(0,0,0,.4);}
+          background:#1c1a19;border:2px solid #0a0908;border-radius:0.35rem;
+          padding:0.4rem 0.7rem;white-space:nowrap;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505,0 2px 0 rgba(0,0,0,.4);}
         .pa-tip .dot{width:0.65rem;height:0.65rem;border-radius:50%;flex:0 0 auto;}
-        .pa-tip .act{color:#e9ecf7;font-size:1.2rem;line-height:1.15;}
-        .pa-tip .name{color:#9aa0b8;font-size:0.9rem;line-height:1.15;}
-        .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#0a0d16;margin-top:0.2rem;}
+        .pa-tip .act{color:#f1efec;font-size:1.2rem;line-height:1.15;}
+        .pa-tip .name{color:#adb0b2;font-size:0.9rem;line-height:1.15;}
+        .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#141312;margin-top:0.2rem;}
         .pa-tip .fuel > div{height:100%;}
       `;
       document.head.appendChild(style);
@@ -3905,7 +3905,7 @@ export class OfficeScene extends Phaser.Scene {
     const name = ch.isPlayer
       ? ch.folderName || 'Player'
       : ch.agentName || ch.folderName || `agent ${id}`;
-    const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#44cc44' : '';
+    const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#4caf3f' : '';
     const total = (ch.inputTokens ?? 0) + (ch.outputTokens ?? 0);
     const ratio = total / MAX_CONTEXT_TOKENS;
 

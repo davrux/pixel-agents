@@ -118,60 +118,60 @@ export class MumbleUI {
     const style = document.createElement('style');
     style.id = 'pa-mb-style';
     style.textContent = `
-      #pa-mb{margin-top:0.9rem;border-top:1px solid #1b2138;padding-top:0.8rem;}
+      #pa-mb{margin-top:0.9rem;border-top:1px solid #2c2a28;padding-top:0.8rem;}
       #pa-mb-master{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.7rem 0.8rem;
-        background:#0a0d16;border:2px solid #05060b;border-radius:0.5rem;}
+        background:#141312;border:2px solid #0a0908;border-radius:0.5rem;}
       #pa-mb-master .ti{min-width:0;}
-      #pa-mb-master .title{display:flex;align-items:center;gap:0.45rem;font-size:1rem;color:#e9ecf7;}
-      #pa-mb-master .dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#5a6076;}
-      #pa-mb-master .dot.live{background:#5fbf6f;box-shadow:0 0 6px #5fbf6f;}
-      #pa-mb-master .hint{font-size:0.78rem;color:#6f7590;margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;}
+      #pa-mb-master .title{display:flex;align-items:center;gap:0.45rem;font-size:1rem;color:#f1efec;}
+      #pa-mb-master .dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#525556;}
+      #pa-mb-master .dot.live{background:#5aa348;box-shadow:0 0 6px #5aa348;}
+      #pa-mb-master .hint{font-size:0.78rem;color:#818586;margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;}
       #pa-mb-master .hint.bad{color:#e08894;}
       #pa-mb-pin{flex:none;opacity:.45;filter:grayscale(1);}
-      #pa-mb-pin.on{opacity:1;filter:none;background:#2f7d3f;border-color:#05060b;color:#eaf7ec;
-        box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
-      #pa-mb-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #05060b;cursor:pointer;
-        position:relative;background:#2a2f45;box-shadow:inset 0 2px 0 #3a4160,inset 0 -2px 0 #0a0d16;transition:background .15s;}
-      #pa-mb-track.on{background:#2f7d3f;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+      #pa-mb-pin.on{opacity:1;filter:none;background:#3e7a30;border-color:#0a0908;color:#eaf7ec;
+        box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-mb-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #0a0908;cursor:pointer;
+        position:relative;background:#302d2a;box-shadow:inset 0 2px 0 #423f3b,inset 0 -2px 0 #141312;transition:background .15s;}
+      #pa-mb-track.on{background:#3e7a30;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
       #pa-mb-track .knob{position:absolute;top:50%;left:1px;transform:translateY(-50%);width:1.25rem;height:1.25rem;
-        border-radius:50%;background:#eef1fb;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
+        border-radius:50%;background:#f5f3f0;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
       #pa-mb-track.on .knob{left:1.6rem;}
       #pa-mb-sub{margin-top:0.65rem;}
       #pa-mb-sub.off{opacity:.4;pointer-events:none;filter:grayscale(.4);}
       #pa-mb-sub .row{display:flex;align-items:center;gap:0.55rem;margin:0.45rem 0;font-size:0.9rem;}
-      #pa-mb-sub .row label{flex:0 0 auto;min-width:4rem;color:#9aa0b8;}
-      #pa-mb-sub input[type=range]{flex:1;accent-color:#3f78c4;}
-      #pa-mb-sub .val{flex:0 0 auto;min-width:3.4rem;text-align:right;font-size:0.78rem;color:#9aa0b8;}
-      #pa-mb-sub select{flex:1;min-width:0;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
-        border-radius:0.35rem;padding:0.4rem;font:0.85rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #2b3252;}
+      #pa-mb-sub .row label{flex:0 0 auto;min-width:4rem;color:#adb0b2;}
+      #pa-mb-sub input[type=range]{flex:1;accent-color:#c51a1b;}
+      #pa-mb-sub .val{flex:0 0 auto;min-width:3.4rem;text-align:right;font-size:0.78rem;color:#adb0b2;}
+      #pa-mb-sub select{flex:1;min-width:0;background:#262422;border:2px solid #0a0908;color:#f1efec;
+        border-radius:0.35rem;padding:0.4rem;font:0.85rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744;}
       #pa-mb-sub select:disabled{opacity:0.5;}
       /* Outside #pa-mb-sub on purpose: a preference stays settable while the
          connection is off, when the rest of the sub-panel is disabled. */
-      #pa-mb .chk{display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0;font-size:0.88rem;color:#9aa0b8;
+      #pa-mb .chk{display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0;font-size:0.88rem;color:#adb0b2;
         cursor:pointer;}
-      #pa-mb .chk input{accent-color:#3f9d54;width:0.95rem;height:0.95rem;cursor:pointer;}
+      #pa-mb .chk input{accent-color:#3e7a30;width:0.95rem;height:0.95rem;cursor:pointer;}
       #pa-mb-btns{display:flex;gap:0.4rem;margin:0.5rem 0;}
-      #pa-mb button{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#cdd3dd;border-radius:0.3rem;
-        font:0.85rem 'FS Pixel Sans',monospace;padding:0.3rem 0.55rem;box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-mb button.on{background:#7c2634;border-color:#05060b;color:#f6cdd4;
+      #pa-mb button{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#d7d5d1;border-radius:0.3rem;
+        font:0.85rem 'FS Pixel Sans',monospace;padding:0.3rem 0.55rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-mb button.on{background:#7c2634;border-color:#0a0908;color:#f6cdd4;
         box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
-      #pa-mb-meter{position:relative;flex:1;height:0.6rem;background:#0a0d16;border:2px solid #05060b;
+      #pa-mb-meter{position:relative;flex:1;height:0.6rem;background:#141312;border:2px solid #0a0908;
         border-radius:0.3rem;overflow:hidden;}
       #pa-mb-meter .lvl{position:absolute;left:0;top:0;bottom:0;width:0;background:#6b7280;transition:width .05s linear;}
-      #pa-mb-meter .lvl.on{background:#5fbf6f;}
-      #pa-mb-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#f2c14e;}
+      #pa-mb-meter .lvl.on{background:#5aa348;}
+      #pa-mb-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#e7da00;}
       #pa-mb-tree{margin-top:0.7rem;max-height:16rem;overflow-y:auto;}
       #pa-mb-tree .ch{display:flex;align-items:center;gap:0.4rem;padding:0.28rem 0.4rem;border-radius:0.3rem;
-        cursor:pointer;font-size:0.88rem;color:#c3c9de;}
-      #pa-mb-tree .ch:hover{background:#141a2c;}
-      #pa-mb-tree .ch.here{background:#1b2440;color:#e9ecf7;}
+        cursor:pointer;font-size:0.88rem;color:#cac8c3;}
+      #pa-mb-tree .ch:hover{background:#1c1a18;}
+      #pa-mb-tree .ch.here{background:#262422;color:#f1efec;}
       #pa-mb-tree .ch .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-      #pa-mb-tree .ch .c{font-size:0.75rem;color:#6f7590;}
+      #pa-mb-tree .ch .c{font-size:0.75rem;color:#818586;}
       #pa-mb-tree .us{display:flex;align-items:center;gap:0.4rem;padding:0.22rem 0.4rem;margin:0.15rem 0;
-        background:#0a0d16;border:2px solid #05060b;border-radius:0.4rem;}
-      #pa-mb-tree .us .tk{width:0.45rem;height:0.45rem;border-radius:50%;background:#3a4160;flex:none;}
-      #pa-mb-tree .us .tk.on{background:#5fbf6f;box-shadow:0 0 5px #5fbf6f;}
-      #pa-mb-tree .us .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.86rem;color:#e5e9f6;}
+        background:#141312;border:2px solid #0a0908;border-radius:0.4rem;}
+      #pa-mb-tree .us .tk{width:0.45rem;height:0.45rem;border-radius:50%;background:#423f3b;flex:none;}
+      #pa-mb-tree .us .tk.on{background:#5aa348;box-shadow:0 0 5px #5aa348;}
+      #pa-mb-tree .us .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.86rem;color:#f0eeea;}
       #pa-mb-tree .us .nm.me{color:#9fd2ff;}
       /* Per-user mic / speaker state. Same red-slash idiom as the zone-voice
          mute buttons, so "off" reads identically across both panels. */
@@ -180,17 +180,17 @@ export class MumbleUI {
       #pa-mb-tree .us .st.off::after{content:'';position:absolute;left:-12%;top:44%;width:124%;height:0.16em;
         background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
       /* Forced by an admin rather than chosen by the user — amber, not red. */
-      #pa-mb-tree .us .st.forced::after{background:#f2c14e;}
+      #pa-mb-tree .us .st.forced::after{background:#e7da00;}
       #pa-mb-tree .us .mu{flex:none;padding:0.1rem 0.3rem;font-size:0.8rem;}
       #pa-mb-tree .us .mu .ico{position:relative;display:inline-block;line-height:1;}
       #pa-mb-tree .us .mu.on .ico::after{content:'';position:absolute;left:-12%;top:44%;width:124%;height:0.16em;
         background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
-      #pa-mb-tree .us .vol{flex:none;width:4.4rem;background:#171b2b;border:2px solid #05060b;color:#cdd3dd;
+      #pa-mb-tree .us .vol{flex:none;width:4.4rem;background:#262422;border:2px solid #0a0908;color:#d7d5d1;
         border-radius:0.3rem;padding:0.1rem 0.15rem;font:0.78rem 'FS Pixel Sans',monospace;cursor:pointer;}
-      #pa-mb-tree .empty{color:#6f7590;font-size:0.85rem;}
+      #pa-mb-tree .empty{color:#818586;font-size:0.85rem;}
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
-      #pa-mb-cfg{font-size:0.78rem;color:#6f7590;margin-top:0.5rem;}
-      #pa-mb-cfg a{color:#7fa9e0;cursor:pointer;text-decoration:underline;}
+      #pa-mb-cfg{font-size:0.78rem;color:#818586;margin-top:0.5rem;}
+      #pa-mb-cfg a{color:#4998c0;cursor:pointer;text-decoration:underline;}
     `;
     document.head.appendChild(style);
   }

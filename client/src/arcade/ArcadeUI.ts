@@ -92,29 +92,29 @@ export interface ArcadeMenuOpts {
 
 const CSS = `
   #pa-arc{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:130;display:none;
-    width:min(94vw,64rem);height:min(90vh,44rem);flex-direction:column;background:#0f1220;border:2px solid #05060b;
-    border-radius:0.6rem;color:#e9ecf7;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
-    box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
+    width:min(94vw,64rem);height:min(90vh,44rem);flex-direction:column;background:#1c1a19;border:2px solid #0a0908;
+    border-radius:0.6rem;color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
+    box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
   #pa-arc:fullscreen{width:100%;height:100%;left:0;top:0;transform:none;border:0;border-radius:0;max-width:none;}
-  #pa-arc .pa-arc-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#0f1220;
-    border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
-  #pa-arc .pa-arc-head .title{font-size:1.2rem;color:#eef1fb;font-weight:600;letter-spacing:.3px;}
-  #pa-arc .pa-arc-head .sub{color:#6f7590;font-size:0.85rem;}
-  #pa-arc .pa-arc-head .status{margin-left:auto;font-size:0.85rem;color:#7fd08a;}
+  #pa-arc .pa-arc-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#1c1a19;
+    border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
+  #pa-arc .pa-arc-head .title{font-size:1.2rem;color:#f5f3f0;font-weight:600;letter-spacing:.3px;}
+  #pa-arc .pa-arc-head .sub{color:#818586;font-size:0.85rem;}
+  #pa-arc .pa-arc-head .status{margin-left:auto;font-size:0.85rem;color:#7fbf6a;}
   #pa-arc .pa-arc-head .status.err{color:#f2a1a1;}
   /* The js-dos player mounts here and fills the area (black letterbox around it). */
   #pa-arc .pa-arc-stage{flex:1;min-height:0;position:relative;background:#000;}
   #pa-arc .pa-arc-dos{position:absolute;inset:0;}
   #pa-arc .pa-arc-msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:#9aa3b2;font-size:1rem;text-align:center;padding:1rem;}
+    color:#adb0b2;font-size:1rem;text-align:center;padding:1rem;}
   #pa-arc .pa-arc-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
-    padding:0.55rem;background:#0f1220;border-top:2px solid #05060b;box-shadow:inset 0 1px 0 #1b2138;}
-  #pa-arc .pa-arc-bar .hint{color:#6f7590;font-size:0.82rem;margin-right:auto;padding-left:0.35rem;}
-  #pa-arc .pa-arc-bar button{cursor:pointer;background:#141826;border:2px solid #05060b;color:#e9ecf7;
+    padding:0.55rem;background:#1c1a19;border-top:2px solid #0a0908;box-shadow:inset 0 1px 0 #2c2a28;}
+  #pa-arc .pa-arc-bar .hint{color:#818586;font-size:0.82rem;margin-right:auto;padding-left:0.35rem;}
+  #pa-arc .pa-arc-bar button{cursor:pointer;background:#242220;border:2px solid #0a0908;color:#f1efec;
     border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-  #pa-arc .pa-arc-bar button:hover{background:#1a2032;}
-  #pa-arc .pa-arc-bar button.leave{background:#7c2634;border-color:#05060b;color:#f1d0d6;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-arc .pa-arc-bar button:hover{background:#2e2b28;}
+  #pa-arc .pa-arc-bar button.leave{background:#7c2634;border-color:#0a0908;color:#f1d0d6;
     box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
 `;
 
@@ -311,7 +311,7 @@ export class ArcadeUI {
           armed = 0;
           hooks.reset(game.id);
           rm.textContent = '✓';
-          rm.style.color = '#7fd08a';
+          rm.style.color = '#7fbf6a';
         };
         row.appendChild(rm);
       }
@@ -483,8 +483,8 @@ export class ArcadeUI {
       `<div style="margin:0 0 .7rem">${members.map((n) => `• ${esc(n)}`).join('<br>') || '—'}</div>` +
       (youAreHost
         ? `<div class="row" style="display:flex;gap:.4rem;margin:0 0 .6rem">
-             <button class="pa-btn" data-mode="dm" ${mode === 'dm' ? 'style="border-color:#5a92d6"' : ''}>Deathmatch</button>
-             <button class="pa-btn" data-mode="coop" ${mode === 'coop' ? 'style="border-color:#56b566"' : ''}>Co-op</button>
+             <button class="pa-btn" data-mode="dm" ${mode === 'dm' ? 'style="border-color:#e2585a"' : ''}>Deathmatch</button>
+             <button class="pa-btn" data-mode="coop" ${mode === 'coop' ? 'style="border-color:#6fae5c"' : ''}>Co-op</button>
            </div>`
         : `<div style="opacity:.8;margin:0 0 .6rem">Mode: ${mode === 'dm' ? 'Deathmatch' : 'Co-op'} — waiting for the host to start…</div>`);
     const controls = document.createElement('div');

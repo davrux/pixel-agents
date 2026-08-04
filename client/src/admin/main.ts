@@ -34,7 +34,7 @@ const STYLE = `
   #pa-adm-head .spacer{flex:1;}
   #pa-adm-head button{cursor:pointer;background:var(--panel2);color:var(--text);border:2px solid var(--line);
     border-radius:.45rem;padding:.5rem .8rem;font:inherit;font-size:.85rem;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-adm-tabs{display:flex;gap:.3rem;padding:.7rem 1.1rem 0;background:var(--panel);overflow-x:auto;}
   #pa-adm-tabs button{cursor:pointer;background:transparent;color:var(--muted);border:0;border-bottom:2px solid transparent;
     padding:.5rem .8rem;font:inherit;font-size:.95rem;white-space:nowrap;}
@@ -57,22 +57,22 @@ const STYLE = `
      the same "chunky pixel button" family across both surfaces. */
   input,select{background:var(--panel2);color:var(--text);border:2px solid var(--line);border-radius:.35rem;
     padding:.4rem .55rem;font:inherit;font-size:.9rem;max-width:100%;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   input:focus,select:focus{outline:none;border-color:var(--accent);}
   button.act{cursor:pointer;font:inherit;font-size:.85rem;border-radius:.35rem;border:2px solid var(--line);
     padding:.4rem .7rem;background:var(--panel2);color:var(--text);margin-right:.3rem;
-    box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   button.act:hover{border-color:var(--accent);}
   button.act:disabled{opacity:.45;cursor:default;}
   button.primary{background:var(--accent);border-color:var(--line);color:#fff;
-    box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+    box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
   button.danger{background:var(--danger);border-color:var(--line);color:#f1d0d6;
     box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
   .row{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;}
   .lock{color:var(--accent2);}
   .muted{color:var(--muted);}
   .status-off{color:var(--danger);}
-  .badge-admin{color:#f2c14e;}
+  .badge-admin{color:#e7da00;}
   .pw-eye{padding:.4rem .55rem;}
   /* A table with an attached toolbar above it (e.g. "add to access list") reads
      as one unit instead of a table floating with unrelated controls below it. */
@@ -119,7 +119,7 @@ const STYLE = `
   .chk-list label:last-child{border-bottom:none;}
   .chk-list label:hover{background:var(--panel2);}
   .chk-list input{margin:0;}
-  .save-ok{color:#7fd08a;font-size:.85rem;opacity:0;transition:opacity .15s ease;}
+  .save-ok{color:#7fbf6a;font-size:.85rem;opacity:0;transition:opacity .15s ease;}
   .save-ok.show{opacity:1;}
   .arcade-cabinet{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .7rem;}
   .arcade-cabinet .editor{display:none;margin-top:.6rem;}

@@ -25,17 +25,17 @@ function ensureStyles(): void {
        raising this z-index further (top layer isn't reachable via z-index at all). */
     #pa-modal{position:fixed;inset:0;z-index:1100;display:flex;align-items:center;justify-content:center;
       background:rgba(0,0,0,.55);font-family:'FS Pixel Sans',ui-monospace,monospace;}
-    #pa-modal .box{background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;padding:1.1rem 1.2rem;
-      max-width:24rem;color:#e9ecf7;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
+    #pa-modal .box{background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:1.1rem 1.2rem;
+      max-width:24rem;color:#f1efec;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
     #pa-modal .msg{font-size:1.05rem;line-height:1.4;margin:0 0 1rem;white-space:pre-wrap;word-break:break-word;}
-    #pa-modal input[type=text]{width:100%;box-sizing:border-box;background:#171b2b;border:2px solid #05060b;
-      color:#e9ecf7;border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.6rem;margin-bottom:1rem;
-      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
+    #pa-modal input[type=text]{width:100%;box-sizing:border-box;background:#262422;border:2px solid #0a0908;
+      color:#f1efec;border-radius:0.35rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.6rem;margin-bottom:1rem;
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-modal .foot{display:flex;gap:0.6rem;justify-content:flex-end;}
-    #pa-modal button{background:#171b2b;border:2px solid #05060b;color:#e9ecf7;border-radius:0.35rem;
+    #pa-modal button{background:#262422;border:2px solid #0a0908;color:#f1efec;border-radius:0.35rem;
       font:1rem 'FS Pixel Sans',monospace;padding:0.5rem 0.9rem;cursor:pointer;
-      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-    #pa-modal button.ok{background:#2f66b0;color:#fff;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-modal button.ok{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
     #pa-modal button.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
     #pa-modal .pw-row{display:flex;gap:0.4rem;margin-bottom:1rem;}
     #pa-modal .pw-row input[type=password],#pa-modal .pw-row input[type=text]{flex:1;min-width:0;margin-bottom:0;}

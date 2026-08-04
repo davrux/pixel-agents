@@ -38,7 +38,7 @@ function ensureStyle(): void {
     dialog#pa-dialog-back::backdrop{background:rgba(0,0,0,.55);}
     #pa-dialog-back .pa-panel{position:static;display:block;width:22rem;}
     #pa-dialog-back .pa-body .fld{margin-bottom:0.85rem;}
-    #pa-dialog-back .pa-body .fld label{display:block;font-size:0.78rem;letter-spacing:.5px;color:#8a90a8;
+    #pa-dialog-back .pa-body .fld label{display:block;font-size:0.78rem;letter-spacing:.5px;color:#818586;
       text-transform:uppercase;margin-bottom:0.3rem;}
     #pa-dialog-back .pa-body .fld .pa-select,#pa-dialog-back .pa-body .fld .pa-input{width:100%;}
     #pa-dialog-back .pa-foot{display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.4rem;}

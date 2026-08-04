@@ -84,20 +84,20 @@ export class MumbleSettingsUI {
     const style = document.createElement('style');
     style.id = 'pa-mbcfg-style';
     style.textContent = `
-      #pa-mumble-cfg{margin-top:0.9rem;border-top:1px solid #1b2138;padding-top:0.7rem;}
-      #pa-mumble-cfg h5{margin:0 0 0.5rem;font-size:0.95rem;color:#e9ecf7;font-weight:normal;}
+      #pa-mumble-cfg{margin-top:0.9rem;border-top:1px solid #2c2a28;padding-top:0.7rem;}
+      #pa-mumble-cfg h5{margin:0 0 0.5rem;font-size:0.95rem;color:#f1efec;font-weight:normal;}
       #pa-mumble-cfg .btns{display:flex;gap:0.4rem;margin:0.5rem 0;}
-      #pa-mumble-cfg .btns button{flex:1;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+      #pa-mumble-cfg .btns button{flex:1;background:#262422;border:2px solid #0a0908;color:#f1efec;
         border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;cursor:pointer;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-mumble-cfg .save{width:100%;margin-top:0.3rem;background:#232a44;border:2px solid #05060b;color:#dfe6ff;
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-mumble-cfg .save{width:100%;margin-top:0.3rem;background:#292725;border:2px solid #0a0908;color:#ece9e4;
         border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem;cursor:pointer;
-        box-shadow:inset 0 2px 0 #3a4470,inset 0 -3px 0 #0c1022;}
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #141210;}
       #pa-mumble-cfg .warn{font-size:0.8rem;color:#e0b062;margin:0.35rem 0;line-height:1.45;}
-      #pa-mumble-cfg .suggest{font-size:0.8rem;color:#6f7590;margin:-0.3rem 0 0.5rem;}
-      #pa-mumble-cfg .suggest a{color:#7fa9e0;cursor:pointer;text-decoration:underline;}
-      #pa-mumble-cfg .chk{display:flex;align-items:center;gap:0.5rem;margin:0.55rem 0;font-size:0.95rem;color:#c3c9de;}
-      #pa-mumble-cfg .chk input{accent-color:#3f9d54;width:1rem;height:1rem;}
+      #pa-mumble-cfg .suggest{font-size:0.8rem;color:#818586;margin:-0.3rem 0 0.5rem;}
+      #pa-mumble-cfg .suggest a{color:#4998c0;cursor:pointer;text-decoration:underline;}
+      #pa-mumble-cfg .chk{display:flex;align-items:center;gap:0.5rem;margin:0.55rem 0;font-size:0.95rem;color:#cac8c3;}
+      #pa-mumble-cfg .chk input{accent-color:#3e7a30;width:1rem;height:1rem;}
     `;
     document.head.appendChild(style);
   }

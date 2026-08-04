@@ -1058,39 +1058,39 @@ export class LayoutEditor {
   private buildDom(): void {
     const style = document.createElement('style');
     style.textContent = `
-      /* Matches the grouped-menu pixel style (#0f1220 panels, chunky #05060b
+      /* Matches the grouped-menu pixel style (#1c1a19 panels, chunky #0a0908
          borders + inset bevels, green primary, blue sliders, green selection). */
       #pa-editor{position:fixed;top:0;left:0;bottom:0;z-index:55;display:none;flex-direction:column;
-        width:20rem;background:#0f1220;border-right:2px solid #05060b;color:#e9ecf7;
-        box-shadow:inset -3px 0 0 #080a14,4px 0 18px rgba(0,0,0,.45);
+        width:20rem;background:#1c1a19;border-right:2px solid #0a0908;color:#f1efec;
+        box-shadow:inset -3px 0 0 #030303,4px 0 18px rgba(0,0,0,.45);
         font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.9rem;}
-      #pa-editor .bar{display:flex;gap:0.5rem;padding:0.7rem;border-bottom:2px solid #05060b;box-shadow:inset 0 -1px 0 #1b2138;}
-      #pa-editor .bar button{flex:1;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+      #pa-editor .bar{display:flex;gap:0.5rem;padding:0.7rem;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
+      #pa-editor .bar button{flex:1;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
         border-radius:0.4rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-editor .bar button:hover{background:#1a2032;}
-      #pa-editor .bar button.save{background:#2f7d3f;color:#fff;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-editor .bar button:hover{background:#2e2b28;}
+      #pa-editor .bar button.save{background:#3e7a30;color:#fff;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
       #pa-editor .tools{display:flex;gap:0.4rem;padding:0.6rem 0.7rem 0.4rem;}
-      #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#aeb4cc;
+      #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#adb0b2;
         border-radius:0.4rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.5rem 0.25rem;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-editor .tools .pa-tool.sel{color:#fff;background:#242c46;
-        box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 2px #7fd08a;}
-      #pa-editor .hint{padding:0.15rem 0.75rem 0.55rem;font-size:0.8rem;color:#6f7590;line-height:1.5;}
-      #pa-editor .color{display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0.75rem;border-top:1px solid #1b2138;border-bottom:1px solid #1b2138;}
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-editor .tools .pa-tool.sel{color:#fff;background:#37342f;
+        box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 2px #7fbf6a;}
+      #pa-editor .hint{padding:0.15rem 0.75rem 0.55rem;font-size:0.8rem;color:#818586;line-height:1.5;}
+      #pa-editor .color{display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0.75rem;border-top:1px solid #2c2a28;border-bottom:1px solid #2c2a28;}
       #pa-editor .color .rowc{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;}
-      #pa-editor .color .rowc span{width:2.1rem;color:#9aa0b8;}
-      #pa-editor .color input[type=range]{flex:1;accent-color:#3f78c4;}
-      #pa-editor .sw{width:1.6rem;height:1.1rem;border:2px solid #05060b;border-radius:0.2rem;}
-      #pa-editor .pa-color-reset{cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
+      #pa-editor .color .rowc span{width:2.1rem;color:#adb0b2;}
+      #pa-editor .color input[type=range]{flex:1;accent-color:#c51a1b;}
+      #pa-editor .sw{width:1.6rem;height:1.1rem;border:2px solid #0a0908;border-radius:0.2rem;}
+      #pa-editor .pa-color-reset{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
         border-radius:0.3rem;font:0.75rem 'FS Pixel Sans',monospace;padding:0.25rem 0.5rem;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      #pa-editor .pa-color-reset:hover{background:#1a2032;}
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      #pa-editor .pa-color-reset:hover{background:#2e2b28;}
       .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.7rem;align-content:start;}
       .pa-pal-item{display:flex;align-items:center;justify-content:center;height:3.4rem;cursor:pointer;
-        background:#0a0d16;border:2px solid #05060b;border-radius:0.4rem;padding:0.25rem;
-        box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-      .pa-pal-item.sel{border-color:#7fd08a;box-shadow:0 0 0 2px #7fd08a;}
+        background:#141312;border:2px solid #0a0908;border-radius:0.4rem;padding:0.25rem;
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      .pa-pal-item.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
       .pa-pal-item img{max-width:2.75rem;max-height:2.75rem;image-rendering:pixelated;}
     `;
     document.head.appendChild(style);
@@ -1126,9 +1126,9 @@ export class LayoutEditor {
     this.rotateBtn.className = 'pa-tool';
     this.rotateBtn.textContent = '⟳ Rotate (R)';
     this.rotateBtn.style.cssText =
-      'margin:0 0.7rem 0.5rem;cursor:pointer;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;' +
+      'margin:0 0.7rem 0.5rem;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;' +
       'border-radius:0.4rem;font:0.9rem "FS Pixel Sans",monospace;padding:0.5rem;' +
-      'box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;';
+      'box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;';
     this.rotateBtn.onclick = () => this.rotate('cw');
 
     // Color controls
@@ -1195,9 +1195,9 @@ export class LayoutEditor {
       b.textContent = txt;
       b.title = title;
       b.style.cssText =
-        "cursor:pointer;width:2.2rem;height:2.2rem;background:#141826;border:2px solid #05060b;" +
-        "border-radius:0.4rem;color:#e9ecf7;font:1.15rem 'FS Pixel Sans',monospace;" +
-        "box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;";
+        "cursor:pointer;width:2.2rem;height:2.2rem;background:#242220;border:2px solid #0a0908;" +
+        "border-radius:0.4rem;color:#f1efec;font:1.15rem 'FS Pixel Sans',monospace;" +
+        "box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;";
       b.onclick = onClick;
       return b;
     };
