@@ -2,7 +2,11 @@
  * In-game modal dialogs (confirm / prompt) styled to match the pixel UI, so we
  * never fall back to the browser's native window.confirm/prompt chrome (which
  * clashes with the office look). Promise-based: resolves to the user's choice.
+ *
+ * Plain DOM, no Phaser/Colyseus dependency — usable from admin.html too, not
+ * just the game.
  */
+import { generatePassword } from '../shared/generatePassword.js';
 
 let stylesInjected = false;
 function ensureStyles(): void {
@@ -33,6 +37,9 @@ function ensureStyles(): void {
       box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
     #pa-modal button.ok{background:#2f66b0;color:#fff;box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
     #pa-modal button.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+    #pa-modal .pw-row{display:flex;gap:0.4rem;margin-bottom:1rem;}
+    #pa-modal .pw-row input[type=password],#pa-modal .pw-row input[type=text]{flex:1;min-width:0;margin-bottom:0;}
+    #pa-modal .pw-row button{padding:0.5rem 0.6rem;}
   `;
   document.head.appendChild(style);
 }
@@ -175,5 +182,75 @@ export function promptDialog(
     document.body.appendChild(overlay);
     input.focus();
     input.select();
+  });
+}
+
+/**
+ * Pixel-styled password prompt — like promptDialog but masked, with a
+ * show/hide toggle and a "generate" button (same pattern as the zone/monitor
+ * password widgets' inline forms — see shared/zonePasswordWidget.ts). Resolves
+ * to the entered password, or null on cancel / Esc / backdrop click.
+ */
+export function passwordPromptDialog(
+  message: string,
+  opts: { confirmLabel?: string; cancelLabel?: string; maxLength?: number } = {},
+): Promise<string | null> {
+  const { overlay, box } = buildModal(message);
+  const row = document.createElement('div');
+  row.className = 'pw-row';
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.autocomplete = 'new-password';
+  if (opts.maxLength) input.maxLength = opts.maxLength;
+  const eyeBtn = document.createElement('button');
+  eyeBtn.type = 'button';
+  eyeBtn.textContent = '👁';
+  eyeBtn.title = 'Show password';
+  eyeBtn.onclick = () => {
+    const shown = input.type === 'text';
+    input.type = shown ? 'password' : 'text';
+    eyeBtn.textContent = shown ? '👁' : '🙈';
+    eyeBtn.title = shown ? 'Show password' : 'Hide password';
+  };
+  const genBtn = document.createElement('button');
+  genBtn.type = 'button';
+  genBtn.textContent = '🎲';
+  genBtn.title = 'Generate a password';
+  genBtn.onclick = () => {
+    input.value = generatePassword();
+    input.type = 'text';
+    eyeBtn.textContent = '🙈';
+    eyeBtn.title = 'Hide password';
+  };
+  row.append(input, eyeBtn, genBtn);
+  box.appendChild(row);
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const cancel = document.createElement('button');
+  cancel.textContent = opts.cancelLabel ?? 'Cancel';
+  const ok = document.createElement('button');
+  ok.textContent = opts.confirmLabel ?? 'OK';
+  ok.className = 'ok';
+  foot.append(cancel, ok);
+  box.appendChild(foot);
+
+  return new Promise<string | null>((resolve) => {
+    const done = (v: string | null) => {
+      window.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(v);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') done(null);
+      else if (e.key === 'Enter') done(input.value);
+    };
+    cancel.onclick = () => done(null);
+    ok.onclick = () => done(input.value);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) done(null);
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    input.focus();
   });
 }

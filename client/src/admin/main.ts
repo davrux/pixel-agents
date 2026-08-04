@@ -9,6 +9,7 @@
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
 import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type Role } from './api.js';
+import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
 import { renderZoneMonitorsWidget } from '../shared/zoneMonitorsWidget.js';
@@ -297,7 +298,7 @@ function userRow(u: AdminUser): HTMLTableRowElement {
   const actTd = el('td');
   const pwBtn = el('button', 'act', 'Reset password');
   pwBtn.onclick = async () => {
-    const pw = prompt(`New password for "${u.userId}" (min 6 chars):`);
+    const pw = await passwordPromptDialog(`New password for "${u.userId}" (min 6 chars):`);
     if (pw == null) return;
     const res = await adminApi.updateUser(u.userId, { password: pw });
     if (res.ok) toast(`Password reset for "${u.userId}".`); else fail('Reset password', res.error);
@@ -305,14 +306,27 @@ function userRow(u: AdminUser): HTMLTableRowElement {
   const toggleBtn = el('button', 'act' + (u.disabled ? '' : ' danger'), u.disabled ? 'Enable' : 'Disable');
   toggleBtn.onclick = async () => {
     const disabling = !u.disabled;
-    if (disabling && !confirm(`Disable account "${u.userId}"? They'll be signed out and can't log in — their meeting rooms stop working too, until re-enabled.`)) return;
+    if (
+      disabling &&
+      !(await confirmDialog(
+        `Disable account "${u.userId}"? They'll be signed out and can't log in — their meeting rooms stop working too, until re-enabled.`,
+        { confirmLabel: 'Disable', danger: true },
+      ))
+    )
+      return;
     const res = await adminApi.updateUser(u.userId, { disabled: disabling });
     if (res.ok) { toast(`"${u.userId}" ${disabling ? 'disabled' : 're-enabled'}.`); void renderUsers(); }
     else fail(disabling ? 'Disable' : 'Enable', res.error);
   };
   const delBtn = el('button', 'act danger', 'Delete');
   delBtn.onclick = async () => {
-    if (!confirm(`Delete account "${u.userId}"? This removes its avatar, meeting rooms and room assignments.`)) return;
+    if (
+      !(await confirmDialog(`Delete account "${u.userId}"? This removes its avatar, meeting rooms and room assignments.`, {
+        confirmLabel: 'Delete',
+        danger: true,
+      }))
+    )
+      return;
     const res = await adminApi.deleteUser(u.userId);
     if (res.ok) { toast(`Deleted "${u.userId}".`); void renderUsers(); } else fail('Delete', res.error);
   };
@@ -712,7 +726,13 @@ function meetingRow(m: AdminMeetingRoom): HTMLTableRowElement {
   };
   const delBtn = el('button', 'act danger', 'Delete');
   delBtn.onclick = async () => {
-    if (!confirm(`End the meeting room "${m.label || m.slug}" (owner: ${m.ownerName}) now? The link stops working immediately.`)) return;
+    if (
+      !(await confirmDialog(`End the meeting room "${m.label || m.slug}" (owner: ${m.ownerName}) now? The link stops working immediately.`, {
+        confirmLabel: 'End room',
+        danger: true,
+      }))
+    )
+      return;
     const res = await adminApi.deleteMeetingRoom(m.slug);
     if (res.ok) { toast('Meeting room deleted.'); void renderMeetings(); } else fail('Delete', res.error);
   };
