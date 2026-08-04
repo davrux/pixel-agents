@@ -112,9 +112,15 @@ const STYLE = `
   .menu-item:hover{background:var(--panel2);}
   .menu-item:disabled{opacity:.4;cursor:default;background:transparent;}
   .menu-item.danger{color:#f0a6a2;}
-  .chk-list{display:flex;flex-wrap:wrap;gap:.5rem 1rem;margin:.6rem 0;}
-  .chk-list label{display:flex;align-items:center;gap:.35rem;font-size:.88rem;cursor:pointer;}
+  .chk-list{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:.5rem;
+    overflow:hidden;margin:.6rem 0;}
+  .chk-list label{display:flex;align-items:center;gap:.55rem;font-size:.88rem;cursor:pointer;
+    padding:.5rem .7rem;border-bottom:1px solid var(--line);}
+  .chk-list label:last-child{border-bottom:none;}
+  .chk-list label:hover{background:var(--panel2);}
   .chk-list input{margin:0;}
+  .save-ok{color:#7fd08a;font-size:.85rem;opacity:0;transition:opacity .15s ease;}
+  .save-ok.show{opacity:1;}
   .arcade-cabinet{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .7rem;}
   .arcade-cabinet .editor{display:none;margin-top:.6rem;}
   .arcade-cabinet .editor.open{display:block;}
@@ -181,6 +187,22 @@ function actionsMenu(items: MenuItem[]): HTMLElement {
   };
   wrap.append(btn, menu);
   return wrap;
+}
+/** Briefly show "✓ Saved" at the end of a button row — the page-wide
+ *  #pa-adm-toast (still set too, see toast()) sits far from a Save button at
+ *  the bottom of a long checkbox list, easy to miss entirely. */
+const saveFlashTimers = new WeakMap<HTMLElement, number>();
+function flashSaved(row: HTMLElement, text = '✓ Saved'): void {
+  let mark = row.querySelector<HTMLElement>('.save-ok');
+  if (!mark) {
+    mark = el('span', 'save-ok');
+    row.appendChild(mark);
+  }
+  mark.textContent = text;
+  mark.classList.add('show');
+  const prev = saveFlashTimers.get(mark);
+  if (prev) window.clearTimeout(prev);
+  saveFlashTimers.set(mark, window.setTimeout(() => mark!.classList.remove('show'), 1600));
 }
 function toast(msg: string, err = false): void {
   const t = document.getElementById('pa-adm-toast');
@@ -806,14 +828,16 @@ async function renderArcade(): Promise<void> {
       list.appendChild(label);
     }
     card.appendChild(list);
+    const actions = el('div', 'row');
     const saveBtn = el('button', 'act primary', 'Save');
     saveBtn.onclick = async () => {
       const ids = boxes.filter((b) => b.checked).map((b) => b.dataset.gameId!);
       const res = await adminApi.setArcadeDefaultGames(ids);
-      if (res.ok) toast(`Default games saved (${ids.length}/${games.length}).`);
+      if (res.ok) { flashSaved(actions); toast(`Default games saved (${ids.length}/${games.length}).`); }
       else fail('Save default games', res.error);
     };
-    card.appendChild(saveBtn);
+    actions.appendChild(saveBtn);
+    card.appendChild(actions);
   }
   view.appendChild(card);
 }
@@ -888,6 +912,7 @@ function arcadeCabinetRow(zoneId: string, cab: AdminArcadeCabinet, games: Arcade
     cab.effective = r.data?.effective ?? ids;
     status.textContent = statusText(cab);
     resetBtn.disabled = false;
+    flashSaved(actions);
     toast(`Saved "${label}".`);
   };
   resetBtn.onclick = async () => {
@@ -898,6 +923,7 @@ function arcadeCabinetRow(zoneId: string, cab: AdminArcadeCabinet, games: Arcade
     for (const b of boxes) b.checked = cab.effective.includes(b.dataset.gameId!);
     status.textContent = statusText(cab);
     resetBtn.disabled = true;
+    flashSaved(actions, '✓ Reset');
     toast(`"${label}" reset to the default list.`);
   };
   actions.append(saveBtn, resetBtn);
