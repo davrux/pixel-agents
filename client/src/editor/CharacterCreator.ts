@@ -88,7 +88,7 @@ const CSS = `
   #pa-cc .cc-foot .cc-hint{flex:1;min-width:0;color:#818586;font-size:0.8rem;}
   #pa-cc .cc-b{padding:0.5rem 0.9rem;font:0.95rem 'FS Pixel Sans',monospace;color:#f1efec;background:#262422;
     border:2px solid #0a0908;border-radius:0.4rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-  #pa-cc .cc-b.primary{background:#3e7a30;color:#fff;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+  #pa-cc .cc-b.primary{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
   #pa-cc .cc-loading{padding:2rem;color:#adb0b2;text-align:center;}
 `;
 

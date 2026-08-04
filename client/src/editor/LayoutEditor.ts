@@ -1069,7 +1069,7 @@ export class LayoutEditor {
         border-radius:0.4rem;font:1rem 'FS Pixel Sans',monospace;padding:0.5rem;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-editor .bar button:hover{background:#2e2b28;}
-      #pa-editor .bar button.save{background:#3e7a30;color:#fff;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-editor .bar button.save{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-editor .tools{display:flex;gap:0.4rem;padding:0.6rem 0.7rem 0.4rem;}
       #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#adb0b2;
         border-radius:0.4rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.5rem 0.25rem;

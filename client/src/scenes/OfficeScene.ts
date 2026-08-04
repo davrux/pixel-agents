@@ -3129,8 +3129,8 @@ export class OfficeScene extends Phaser.Scene {
       #pa-userinfo{font-size:0.85rem;color:#adb0b2;margin:-0.35rem 0 0.7rem;display:flex;
         align-items:center;gap:0.4rem;flex-wrap:wrap;}
       #pa-userinfo code{color:#d7d9da;background:#141312;border:2px solid #0a0908;border-radius:0.25rem;padding:0.05rem 0.3rem;}
-      #pa-userinfo .admin{background:#3e7a30;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
-        box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      #pa-userinfo .admin{background:#c51a1b;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
+        box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#292725;border:2px solid #0a0908;
         color:#ece9e4;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #141210;}

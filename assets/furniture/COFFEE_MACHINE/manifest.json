@@ -1,7 +1,7 @@
 {
   "id": "COFFEE_MACHINE",
   "name": "Coffee Machine",
-  "category": "electronics",
+  "category": "kitchens",
   "type": "asset",
   "appliance": "coffee",
   "canPlaceOnWalls": false,

@@ -45,7 +45,7 @@ interface PartRow {
 
 // Shared pixel-menu look (matches #pa-menubar / .pa-btn / .pa-panel in OfficeScene):
 // dark #1c1a19 surfaces, #0a0908 borders, the inset 2px-light / 3px-dark bevel,
-// blue #c51a1b + green #3e7a30 accents. Keep these in sync with OfficeScene's CSS.
+// red #c51a1b + green #3e7a30 accents. Keep these in sync with OfficeScene's CSS.
 const CSS = `
   #pa-conf{position:fixed;inset:0;z-index:120;display:none;
     width:100%;height:100%;flex-direction:column;background:#1c1a19;

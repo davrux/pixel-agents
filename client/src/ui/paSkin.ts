@@ -78,7 +78,7 @@ export function injectPaSkin(): void {
       .pa-b{padding:0.4rem 0.7rem;font-size:0.85rem;color:#f1efec;background:#262422;border:2px solid #0a0908;
         border-radius:0.35rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font-family:inherit;}
       .pa-b.primary{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
-      .pa-b.green{background:#3e7a30;color:#fff;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      .pa-b.green{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       .pa-b.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-b.wide{width:100%;padding:0.6rem;font-size:1rem;display:flex;align-items:center;justify-content:center;gap:0.4rem;}
       .pa-menurow{display:flex;align-items:center;gap:0.6rem;padding:0.65rem 0.75rem;font-size:1.05rem;color:#f1efec;
@@ -103,8 +103,8 @@ export function injectPaSkin(): void {
       .pa-whoami{margin-bottom:0.7rem;padding-bottom:0.7rem;border-bottom:1px solid #2c2a28;}
       .pa-whoami .name{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;font-size:1.15rem;font-weight:600;color:#f5f3f0;}
       .pa-whoami .handle{margin-top:0.15rem;font-size:0.85rem;color:#818586;}
-      .pa-whoami .admin{background:#3e7a30;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
-        font-size:0.78rem;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;}
+      .pa-whoami .admin{background:#c51a1b;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
+        font-size:0.78rem;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       /* Space (Layouts / Zones) — kept close to the originals, restyled. */
       #pa-layouts h4,#pa-zones h4{margin:0 0 0.5rem;font-size:0.95rem;color:#818586;font-weight:400;}
       #pa-zones .who-am-i{font-size:0.82rem;margin:0 0 0.6rem;padding-bottom:0.5rem;border-bottom:1px solid #2c2a28;}
@@ -118,7 +118,7 @@ export function injectPaSkin(): void {
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-layouts .foot{margin-top:0.8rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-layouts .foot button{padding:0.55rem;}
-      #pa-layouts .foot button.edit{background:#3e7a30;border-color:#0a0908;box-shadow:inset 0 2px 0 #6fae5c,inset 0 -3px 0 #1f3f18;font-size:1rem;}
+      #pa-layouts .foot button.edit{background:#c51a1b;border-color:#0a0908;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;font-size:1rem;}
       #pa-zones .foot{margin-top:0.8rem;border-top:1px solid #2c2a28;padding-top:0.7rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-zones .foot input{background:#262422;border:2px solid #0a0908;color:#f1efec;border-radius:0.3rem;
         padding:0.45rem 0.5rem;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744;}
