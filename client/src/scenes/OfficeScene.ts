@@ -306,6 +306,11 @@ export class OfficeScene extends Phaser.Scene {
   /** Re-fit zoom/center only on the first layout — later (live-edit) broadcasts
    *  must not yank the camera of the editor or watchers. */
   private cameraInitialized = false;
+  /** The current map's world size (cols/rows * TILE_SIZE) — stored so a window
+   *  resize can recompute pan bounds (see applyCameraBounds) without needing
+   *  the layout again. */
+  private officeW = 0;
+  private officeH = 0;
 
   constructor() {
     super('office');
@@ -1116,12 +1121,28 @@ export class OfficeScene extends Phaser.Scene {
    *  view on every change (only the office bounds grow on expand). */
   private fitCamera(w: number, h: number): void {
     const cam = this.cameras.main;
-    cam.setBounds(-256, -256, w + 512, h + 512);
-    if (this.cameraInitialized) return;
-    const z = Math.min(this.scale.width / w, this.scale.height / h) * 0.95;
-    cam.setZoom(z > 0 ? z : 2);
-    cam.centerOn(w / 2, h / 2);
-    this.cameraInitialized = true;
+    this.officeW = w;
+    this.officeH = h;
+    if (!this.cameraInitialized) {
+      const z = Math.min(this.scale.width / w, this.scale.height / h) * 0.95;
+      cam.setZoom(z > 0 ? z : 2);
+      cam.centerOn(w / 2, h / 2);
+      this.cameraInitialized = true;
+    }
+    this.applyCameraBounds();
+  }
+
+  /** Pan bounds: the map plus half the currently visible world area on each
+   *  side — lets you push any map edge to roughly the middle of the screen
+   *  instead of stopping a fixed, window-size-oblivious distance past it.
+   *  Depends on the CURRENT zoom, so it must run after zoom is set; also
+   *  re-run on window resize (see setupIdleWaking) — bounds only, zoom and
+   *  centering are left alone so a resize doesn't yank anyone's view. */
+  private applyCameraBounds(): void {
+    const cam = this.cameras.main;
+    const marginX = this.scale.width / cam.zoom / 2;
+    const marginY = this.scale.height / cam.zoom / 2;
+    cam.setBounds(-marginX, -marginY, this.officeW + marginX * 2, this.officeH + marginY * 2);
   }
 
   // ── Input: pan / zoom / hover / select ───────────────────────────
@@ -1567,6 +1588,10 @@ export class OfficeScene extends Phaser.Scene {
       input();
     });
     window.addEventListener('resize', input);
+    // Phaser's own resize event (not the raw DOM one above) — fires once the
+    // Scale Manager has actually updated this.scale.width/height, so the
+    // margin math in applyCameraBounds reads the new size, not a stale one.
+    this.scale.on(Phaser.Scale.Events.RESIZE, () => this.applyCameraBounds());
     // Tab hidden → sleep the loop entirely; visible/focused → wake.
     document.addEventListener('visibilitychange', () => (document.hidden ? this.sleepLoop() : this.wake()));
     window.addEventListener('focus', () => this.wake());
