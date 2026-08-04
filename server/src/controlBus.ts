@@ -28,3 +28,12 @@ export const ZONE_INVITE_RESULT_EVENT = 'zoneInviteResult';
  *  reroutes every one of its clients to the office, since their zone no
  *  longer exists. */
 export const ZONE_DELETED_EVENT = 'zoneDeleted';
+
+/** A shared asset (character/pet/floor/wall/furniture) was saved or reset via
+ *  the in-game Assets editor. Assets are global, but each zone's SimRoom
+ *  caches its own merged bundle — without this, only the room the edit was
+ *  made FROM re-reads the DB; every other already-running zone keeps serving
+ *  its stale in-memory catalog until it empties out and recycles. Every
+ *  SimRoom re-merges + re-broadcasts on this, regardless of which room (if
+ *  any) the edit actually came from. Payload: the AssetType string. */
+export const ASSET_CHANGED_EVENT = 'assetChanged';

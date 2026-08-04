@@ -32,7 +32,14 @@ import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_L
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
 import { zoneInvites } from '../zoneInvites.js';
-import { controlBus, KICK_EVENT, ZONE_INVITE_EVENT, ZONE_INVITE_RESULT_EVENT, ZONE_DELETED_EVENT } from '../controlBus.js';
+import {
+  controlBus,
+  KICK_EVENT,
+  ZONE_INVITE_EVENT,
+  ZONE_INVITE_RESULT_EVENT,
+  ZONE_DELETED_EVENT,
+  ASSET_CHANGED_EVENT,
+} from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
@@ -223,6 +230,16 @@ export class SimRoom extends Room<RoomState> {
     return { userId, name: this.zoneMemberName(userId), isAdmin: !!userStore.get(userId)?.isAdmin };
   }
 
+  /** A shared asset (character/pet/floor/wall/furniture) was saved or reset —
+   *  possibly from a different zone's room. Assets are global, so every live
+   *  room re-merges its own catalog + re-applies, not just the one the edit
+   *  happened in (otherwise every OTHER already-running zone keeps serving
+   *  its stale in-memory bundle indefinitely, until it empties out and the
+   *  room recycles). */
+  private readonly onAssetChanged = (type: AssetType): void => {
+    this.reapplyAsset(type);
+  };
+
   /** A zone was deleted (possibly from a client sitting in a completely
    *  different zone) — if it was THIS room's zone, everyone standing in it
    *  has nowhere left to be; reroute them all to the office via the same
@@ -384,6 +401,7 @@ export class SimRoom extends Room<RoomState> {
     controlBus.on(ZONE_INVITE_EVENT, this.onZoneInvite);
     controlBus.on(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.on(ZONE_DELETED_EVENT, this.onZoneDeleted);
+    controlBus.on(ASSET_CHANGED_EVENT, this.onAssetChanged);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -396,6 +414,7 @@ export class SimRoom extends Room<RoomState> {
     controlBus.off(ZONE_INVITE_EVENT, this.onZoneInvite);
     controlBus.off(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
+    controlBus.off(ASSET_CHANGED_EVENT, this.onAssetChanged);
     this.store?.close();
     this.zones?.close();
   }
@@ -1185,7 +1204,7 @@ export class SimRoom extends Room<RoomState> {
       const toSave = { ...cloneCharacterData(data), name };
       if (!this.validCharacterData(toSave)) return;
       appStore.saveAsset('character', this.nextCharTemplateId(), toSave);
-      this.reapplyAsset('character');
+      controlBus.emit(ASSET_CHANGED_EVENT, 'character');
     });
 
     // Click-to-move: walk the viewer's own avatar to a tile (server validates).
@@ -1269,13 +1288,13 @@ export class SimRoom extends Room<RoomState> {
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
-      this.reapplyAsset(type);
+      controlBus.emit(ASSET_CHANGED_EVENT, type);
     });
     this.onMessage('deleteAsset', (client, msg: { assetType?: string; name?: string }) => {
       if (!this.may(client, 'gallery.edit')) return;
       const type = this.validAssetType(msg?.assetType);
       if (!type || typeof msg?.name !== 'string') return;
-      if (appStore.deleteAsset(type, msg.name)) this.reapplyAsset(type);
+      if (appStore.deleteAsset(type, msg.name)) controlBus.emit(ASSET_CHANGED_EVENT, type);
     });
   }
 
