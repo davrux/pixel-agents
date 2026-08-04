@@ -142,6 +142,11 @@ export function registerAdminApi(app: Express): void {
         }
       }
       userStore.setDisabled(id, disabled);
+      // Disconnect them from the game right now if they're online. auth.ts
+      // already re-checks `disabled` on every HTTP request (no session-row
+      // change needed there), but Colyseus only re-runs onAuth on a fresh
+      // connection — an already-open WebSocket wouldn't otherwise notice.
+      if (disabled) controlBus.emit(KICK_EVENT, id);
     }
     res.json({ ok: true, user: userView(userStore.get(id)!) });
   });
