@@ -8,21 +8,21 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 
 const T = ''; // transparent
 
-/** A wall monitor: bezel + dark screen + a green power LED. 2×2 tiles (same
- *  footprint as the whiteboard). */
+/** A wall monitor: bezel + dark screen + a green power LED. 2×1 tiles — wide
+ *  and flat like an actual screen, not the whiteboard's square footprint. */
 export function monitorSprite(): SpriteData {
   const w = 32;
-  const h = 32;
+  const h = 16;
   const g: SpriteData = Array.from({ length: h }, () => new Array<string>(w).fill(T));
   const bezel = '#2b2f36';
   const bezelLt = '#3a4048';
   const screen = '#10243a';
   const glow = '#1c3a5c';
   const led = '#46e06a';
-  const screenBottom = h - 3; // leave a thin bezel chin
+  const screenBottom = h - 2; // leave a thin bezel chin
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const onBezel = x < 2 || x >= w - 2 || y < 2 || y >= screenBottom;
+      const onBezel = x < 2 || x >= w - 2 || y < 1 || y >= screenBottom;
       if (onBezel) {
         g[y][x] = y === 0 || x === 0 ? bezelLt : bezel; // slight top/left highlight
       } else {
@@ -32,7 +32,7 @@ export function monitorSprite(): SpriteData {
     }
   }
   // Power LED, bottom-right of the bezel chin.
-  g[h - 2][w - 4] = led;
+  g[h - 1][w - 4] = led;
   return g;
 }
 
@@ -50,13 +50,14 @@ export function conferenceAssets(): ConferenceAsset[] {
         label: 'Conference Monitor',
         category: 'decor',
         width: 32,
-        height: 32,
+        height: 16,
         footprintW: 2,
-        footprintH: 2,
+        footprintH: 1,
         isDesk: false,
         conference: true,
-        // Same footprint as the whiteboard, but flexible about where it goes:
-        // floor, on top of a desk/table, or mounted on a wall.
+        // Wide + flat like a real screen (not the whiteboard's square 2x2).
+        // Flexible about where it goes: floor, on top of a desk/table, or
+        // mounted on a wall.
         canPlaceOnWalls: true,
         canPlaceOnFloor: true,
         canPlaceOnSurfaces: true,
