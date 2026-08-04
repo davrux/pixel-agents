@@ -6,23 +6,36 @@
     <link rel="icon" href="data:," />
     <title>Administration</title>
     <style>
+      /* Same palette/font as Pixels' own .pa-* skin (see client/src/ui/paSkin.ts
+         and pixelRexTheme.ts) — one visual identity across the game and the
+         admin site instead of two independently-maintained looks. */
+      @font-face {
+        font-family: 'FS Pixel Sans';
+        src: url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+        font-weight: 400;
+        font-display: block;
+      }
+      /* Same responsive rem scale as client/index.html — 1rem grows with the
+         viewport, so admin.html's rem-based sizing matches Pixels' instead of
+         sitting at the browser's plain 16px default. */
       :root {
-        --bg: #1b1a26;
-        --panel: #24232f;
-        --panel2: #2f2e3d;
-        --line: #3a3948;
-        --text: #ecebf2;
-        --muted: #a6a4b8;
-        --accent: #6264a7;
-        --accent2: #3aa675;
-        --danger: #b4453f;
+        font-size: clamp(17px, 0.5vw + 13px, 26px);
+        --bg: #0a0d16;
+        --panel: #0f1220;
+        --panel2: #171b2b;
+        --line: #05060b;
+        --text: #e9ecf7;
+        --muted: #8a90a8;
+        --accent: #2f66b0;
+        --accent2: #2f7d3f;
+        --danger: #7c2634;
       }
       * { box-sizing: border-box; }
       html, body { margin: 0; height: 100%; }
       body {
         background: var(--bg);
         color: var(--text);
-        font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        font-family: 'FS Pixel Sans', ui-monospace, monospace;
       }
       #app { display: flex; flex-direction: column; min-height: 100vh; }
     </style>

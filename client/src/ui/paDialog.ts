@@ -1,7 +1,21 @@
 /**
  * A centred modal dialog in the shared "pixel-menu" skin (.pa-* — same look as the
  * 2D office), for prompts (portal target, …) instead of the raw browser
- * window.prompt/confirm. Backdrop-click or Esc cancels; one modal at a time.
+ * window.prompt/confirm. Backdrop-click or Esc cancels.
+ *
+ * Built on the native <dialog> element (showModal/close) rather than a single
+ * hand-rolled backdrop div: each call gets its own real element with its own
+ * browser-tracked open/closed state, so a button whose onClick opens a NEW
+ * dialog (swapping the current one for another, e.g. a "+ New X" button
+ * inside a list dialog) can't accidentally close the wrong one — closing an
+ * already-closed <dialog> is a harmless no-op, whereas the old shared-div
+ * version's closeDialog() would tear down whatever was *currently* showing,
+ * new or old (see the "+ New room" bug this replaced). The browser also only
+ * allows one <dialog> open via showModal() at a time, so opening a second one
+ * here explicitly closes whatever's already open first — same "one modal at a
+ * time" contract as before, just enforced by us instead of relying on it
+ * happening to work.
+ *
  * Relies on injectPaSkin() having run (for .pa-panel / .pa-select / .pa-b / .pa-input).
  */
 import { injectPaSkin } from './paSkin.js';
@@ -18,11 +32,10 @@ function ensureStyle(): void {
   if (document.getElementById('pa-dialog-style')) return;
   const s = document.createElement('style');
   s.id = 'pa-dialog-style';
-  // Full-screen backdrop centring a .pa-panel (which is normally a top-anchored popover).
   s.textContent = `
-    #pa-dialog-back{position:fixed;inset:0;z-index:1000;display:none;align-items:center;justify-content:center;
-      background:rgba(0,0,0,.55);}
-    #pa-dialog-back.open{display:flex;}
+    dialog#pa-dialog-back{position:fixed;inset:0;margin:auto;padding:0;border:0;background:transparent;
+      max-width:calc(100vw - 2rem);max-height:calc(100vh - 2rem);color:inherit;}
+    dialog#pa-dialog-back::backdrop{background:rgba(0,0,0,.55);}
     #pa-dialog-back .pa-panel{position:static;display:block;width:22rem;}
     #pa-dialog-back .pa-body .fld{margin-bottom:0.85rem;}
     #pa-dialog-back .pa-body .fld label{display:block;font-size:0.78rem;letter-spacing:.5px;color:#8a90a8;
@@ -33,16 +46,19 @@ function ensureStyle(): void {
   document.head.appendChild(s);
 }
 
-let back: HTMLDivElement | null = null;
-let onCancel: (() => void) | null = null;
-let onClose: (() => void) | null = null;
+/** The one <dialog> currently shown via openPaDialog, if any — tracked only so
+ *  paDialogOpen()/closePaDialog() (used by ArcadeUI to coordinate with whatever
+ *  dialog is up right now) have something to check/close without every caller
+ *  needing to hold onto the close() this function returns. */
+let current: HTMLDialogElement | null = null;
 
-function closeDialog(): void {
-  if (!back?.classList.contains('open')) return;
-  back.classList.remove('open');
-  const cb = onClose;
-  onClose = null;
-  cb?.(); // always fires once, on any close path (button / cancel / backdrop / Esc)
+/** Fire the 'cancel' listener below, then close — the shared path for every
+ *  cancel-flavoured dismissal (backdrop click, ✕, Cancel button, closePaDialog()).
+ *  Esc is handled by the browser itself: it fires a real 'cancel' event followed
+ *  by closing the dialog, which our listeners below already handle identically. */
+function requestCancel(dialogEl: HTMLDialogElement): void {
+  dialogEl.dispatchEvent(new Event('cancel'));
+  dialogEl.close();
 }
 
 /**
@@ -52,71 +68,73 @@ function closeDialog(): void {
  */
 export function openPaDialog(opts: { title: string; body: HTMLElement; buttons: PaDialogButton[]; onCancel?: () => void; onClose?: () => void }): () => void {
   ensureStyle();
-  onClose = opts.onClose ?? null;
-  if (!back) {
-    back = document.createElement('div');
-    back.id = 'pa-dialog-back';
-    back.className = 'pa-ui';
-    (document.getElementById('game') ?? document.body).appendChild(back);
-    back.addEventListener('mousedown', (e) => {
-      if (e.target === back) {
-        onCancel?.();
-        closeDialog();
-      }
-    });
-  }
-  onCancel = opts.onCancel ?? null;
-  back.innerHTML = '';
+  // Only one <dialog> may be open via showModal() at a time — close whatever's
+  // up before opening this one (matches the previous "one modal at a time").
+  current?.close();
+
+  const dialogEl = document.createElement('dialog');
+  dialogEl.id = 'pa-dialog-back'; // kept stable — OfficeScene queries `#pa-dialog-back [data-…]` for the open dialog's own fields
+  dialogEl.className = 'pa-ui';
+
   const panel = document.createElement('div');
   panel.className = 'pa-panel';
   const head = document.createElement('div');
   head.className = 'pa-head';
   head.innerHTML = `<h4></h4><div class="pa-x" title="Cancel (Esc)">✕</div>`;
   head.querySelector('h4')!.textContent = opts.title;
-  head.querySelector<HTMLElement>('.pa-x')!.onclick = () => {
-    opts.onCancel?.();
-    closeDialog();
-  };
+  head.querySelector<HTMLElement>('.pa-x')!.onclick = () => requestCancel(dialogEl);
   const bodyEl = document.createElement('div');
   bodyEl.className = 'pa-body';
   bodyEl.appendChild(opts.body);
   const foot = document.createElement('div');
   foot.className = 'pa-foot';
   const cancel = document.createElement('button');
+  cancel.type = 'button';
   cancel.className = 'pa-b';
   cancel.textContent = 'Cancel';
-  cancel.onclick = () => {
-    opts.onCancel?.();
-    closeDialog();
-  };
+  cancel.onclick = () => requestCancel(dialogEl);
   foot.appendChild(cancel);
   for (const b of opts.buttons) {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'pa-b' + (b.kind ? ' ' + b.kind : '');
     btn.textContent = b.label;
     btn.onclick = () => {
-      if (b.onClick() !== false) closeDialog();
+      if (b.onClick() !== false) dialogEl.close();
     };
     foot.appendChild(btn);
   }
   bodyEl.appendChild(foot);
-  panel.appendChild(head);
-  panel.appendChild(bodyEl);
-  back.appendChild(panel);
-  back.classList.add('open');
+  panel.append(head, bodyEl);
+  dialogEl.appendChild(panel);
+
+  dialogEl.addEventListener('cancel', () => opts.onCancel?.());
+  // Fires exactly once, on every close path (button / cancel-Esc / backdrop / .close()).
+  dialogEl.addEventListener('close', () => {
+    if (current === dialogEl) current = null;
+    opts.onClose?.();
+    dialogEl.remove();
+  });
+  // Backdrop click: with showModal(), a click whose target is the <dialog>
+  // element itself (not something inside .pa-panel) landed in the ::backdrop.
+  dialogEl.addEventListener('mousedown', (e) => {
+    if (e.target === dialogEl) requestCancel(dialogEl);
+  });
+
+  (document.getElementById('game') ?? document.body).appendChild(dialogEl);
+  current = dialogEl;
+  dialogEl.showModal();
   // Focus the first control for keyboard use.
   setTimeout(() => bodyEl.querySelector<HTMLElement>('select,input,button')?.focus(), 0);
-  return closeDialog;
+  return () => dialogEl.close();
 }
 
 export function paDialogOpen(): boolean {
-  return !!back?.classList.contains('open');
+  return !!current?.open;
 }
 
-/** Close the open modal (as if Cancel) — for a global Esc handler. */
+/** Close the open modal (as if Cancel) — for callers that just want "whatever's
+ *  open right now, gone" without holding onto their own close() reference. */
 export function closePaDialog(): void {
-  if (paDialogOpen()) {
-    onCancel?.();
-    closeDialog();
-  }
+  if (current) requestCancel(current);
 }
