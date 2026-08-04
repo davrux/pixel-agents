@@ -26,7 +26,13 @@ import { applyEvent } from '../sim/applyEvent.js';
 import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
-import { ASSET_TYPES, buildMerged, messageTypeForAsset, type AssetType } from '../assetOverrides.js';
+import {
+  ASSET_TYPES,
+  getMergedBundle,
+  invalidateMergedBundle,
+  messageTypeForAsset,
+  type AssetType,
+} from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
@@ -92,8 +98,8 @@ function authOf(client: Client): AuthInfo {
 }
 
 export class SimRoom extends Room<RoomState> {
-  /** Read-only file defaults; `bundle` is these merged with DB asset overrides. */
-  private defaults!: AssetBundle;
+  /** File defaults merged with DB asset overrides — the process-wide cached
+   *  bundle from assetOverrides.ts, not recomputed per room (see getMergedBundle). */
   private bundle!: AssetBundle;
   private os!: OfficeState;
   private store!: LayoutStore;
@@ -330,9 +336,8 @@ export class SimRoom extends Room<RoomState> {
     return { userId: user.userId, username: UserStore.displayName(user), isAdmin: user.isAdmin, role: user.role };
   }
 
-  onCreate(options: { bundle: AssetBundle; authRequired?: boolean; zone?: string; version?: string }): void {
-    this.defaults = options.bundle;
-    this.bundle = buildMerged(this.defaults); // file defaults + DB asset overrides
+  onCreate(options: { authRequired?: boolean; zone?: string; version?: string }): void {
+    this.bundle = getMergedBundle(); // file defaults + DB asset overrides (process-wide cache)
     this.authRequired = options.authRequired ?? false;
     this.version = options.version ?? '';
     // Resolve which space this room hosts from the persistent registry (user
@@ -1204,6 +1209,7 @@ export class SimRoom extends Room<RoomState> {
       const toSave = { ...cloneCharacterData(data), name };
       if (!this.validCharacterData(toSave)) return;
       appStore.saveAsset('character', this.nextCharTemplateId(), toSave);
+      invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, 'character');
     });
 
@@ -1288,13 +1294,17 @@ export class SimRoom extends Room<RoomState> {
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
+      invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
     });
     this.onMessage('deleteAsset', (client, msg: { assetType?: string; name?: string }) => {
       if (!this.may(client, 'gallery.edit')) return;
       const type = this.validAssetType(msg?.assetType);
       if (!type || typeof msg?.name !== 'string') return;
-      if (appStore.deleteAsset(type, msg.name)) controlBus.emit(ASSET_CHANGED_EVENT, type);
+      if (appStore.deleteAsset(type, msg.name)) {
+        invalidateMergedBundle();
+        controlBus.emit(ASSET_CHANGED_EVENT, type);
+      }
     });
   }
 
@@ -1511,9 +1521,10 @@ export class SimRoom extends Room<RoomState> {
     return true;
   }
 
-  /** Re-merge defaults+DB, re-apply the affected type to the engine, broadcast. */
+  /** Re-read the (already re-merged — see invalidateMergedBundle) shared bundle,
+   *  re-apply the affected type to this room's engine, and broadcast. */
   private reapplyAsset(type: AssetType): void {
-    this.bundle = buildMerged(this.defaults);
+    this.bundle = getMergedBundle();
     switch (type) {
       case 'character': {
         setCharacterTemplates(this.bundle.raw.characters as never);

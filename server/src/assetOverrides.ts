@@ -155,3 +155,31 @@ export function messageTypeForAsset(type: AssetType): string {
     furniture: 'furnitureAssetsLoaded',
   }[type];
 }
+
+// ── Process-wide merged-bundle cache ──────────────────────────────
+// Assets are global (not per-zone), so the merged result is identical for
+// every room — computing it independently in each one is pure duplicated
+// work, and worse, requires every OTHER already-running room to be told to
+// redo it too. One cache, built lazily and invalidated on save/delete;
+// every room just reads it.
+let defaultsBundle: AssetBundle | null = null;
+let cached: AssetBundle | null = null;
+
+/** Call once at boot, before any room can be created. */
+export function initAssetDefaults(defaults: AssetBundle): void {
+  defaultsBundle = defaults;
+  cached = null;
+}
+
+/** The current merged bundle (file defaults + DB overrides). Cached until
+ *  invalidateMergedBundle() runs after a save/delete. */
+export function getMergedBundle(): AssetBundle {
+  if (!defaultsBundle) throw new Error('assetOverrides: initAssetDefaults() was not called at boot');
+  if (!cached) cached = buildMerged(defaultsBundle);
+  return cached;
+}
+
+/** Drop the cache so the next getMergedBundle() call re-reads the DB. */
+export function invalidateMergedBundle(): void {
+  cached = null;
+}

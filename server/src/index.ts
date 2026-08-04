@@ -37,6 +37,7 @@ import express, { type Request, type Response, type NextFunction, type RequestHa
 import { WORLD_ROOM } from '@pixel/shared';
 
 import { loadAssetBundle } from './assets.js';
+import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
@@ -133,6 +134,7 @@ export function securityHeaders(): RequestHandler {
 async function main(): Promise<void> {
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
+  initAssetDefaults(bundle); // process-wide merged-bundle cache (see assetOverrides.ts)
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
 
   const app = express();
@@ -229,7 +231,7 @@ async function main(): Promise<void> {
   // session cookie / bearer). Login is served by registerAuth, which needs an admin
   // token to be configured — without one nobody can join (there is no anonymous mode).
   if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
-  gameServer.define(WORLD_ROOM, SimRoom, { bundle, authRequired: true, version }).filterBy(['zone']);
+  gameServer.define(WORLD_ROOM, SimRoom, { authRequired: true, version }).filterBy(['zone']);
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
