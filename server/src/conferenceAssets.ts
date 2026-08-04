@@ -8,13 +8,20 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 
 const T = ''; // transparent
 
-/** A wall monitor: bezel + dark screen + a green power LED. 2×2 tiles — same
- *  footprint as the whiteboard, so it mounts flush in a wall band instead of
- *  only filling half of it. */
+/** A wall monitor: bezel + dark screen + a green power LED. 2×2 canvas (same
+ *  footprint as the whiteboard), but — like WHITEBOARD.png itself — the
+ *  actual picture only fills the vertical middle (rows 8-23 of 32, one
+ *  tile's worth), leaving transparent margin above/below. Without that
+ *  margin it reads as a solid block covering the whole 2x2 footprint instead
+ *  of a screen hanging mid-wall. */
 export function monitorSprite(): SpriteData {
-  const w = 32;
-  const h = 32;
-  const g: SpriteData = Array.from({ length: h }, () => new Array<string>(w).fill(T));
+  const canvasW = 32;
+  const canvasH = 32;
+  const g: SpriteData = Array.from({ length: canvasH }, () => new Array<string>(canvasW).fill(T));
+  const left = 2;
+  const top = 8;
+  const w = canvasW - left * 2; // 28
+  const h = 16;
   const bezel = '#2b2f36';
   const bezelLt = '#3a4048';
   const screen = '#10243a';
@@ -25,15 +32,15 @@ export function monitorSprite(): SpriteData {
     for (let x = 0; x < w; x++) {
       const onBezel = x < 2 || x >= w - 2 || y < 2 || y >= screenBottom;
       if (onBezel) {
-        g[y][x] = y === 0 || x === 0 ? bezelLt : bezel; // slight top/left highlight
+        g[top + y][left + x] = y === 0 || x === 0 ? bezelLt : bezel; // slight top/left highlight
       } else {
         // Screen with a faint diagonal reflection.
-        g[y][x] = (x - y) % 9 === 0 ? glow : screen;
+        g[top + y][left + x] = (x - y) % 9 === 0 ? glow : screen;
       }
     }
   }
   // Power LED, bottom-right of the bezel chin.
-  g[h - 2][w - 4] = led;
+  g[top + h - 2][left + w - 4] = led;
   return g;
 }
 
