@@ -75,6 +75,12 @@ interface FurnWork {
   backgroundTiles: number;
   /** Interaction station this furniture provides ('' = none, 'coffee', …). */
   appliance: string;
+  /** Click → join a per-instance video call. */
+  conference: boolean;
+  /** Click → launch a DOS game. */
+  arcade: boolean;
+  /** Click → mint an ad-hoc video-room link. */
+  meetingRoom: boolean;
   /** Animation frames (length 1 for a static item). */
   frames: FurnFrame[];
   /** Selected frame index. */
@@ -198,6 +204,9 @@ export class FurnitureEditor {
       canPlaceOnWalls: false,
       backgroundTiles: 0,
       appliance: '',
+      conference: false,
+      arcade: false,
+      meetingRoom: false,
       frames: [{ id: '', sprite }],
       frameIdx: 0,
       animGroup: null,
@@ -281,6 +290,9 @@ export class FurnitureEditor {
         <select id="pa-f-appliance" style="flex:1;">
           <option value="">None</option>
           <option value="coffee">Coffee (NPCs visit)</option>
+          <option value="conference">Conference monitor (click → join video call)</option>
+          <option value="arcade">Arcade cabinet (click → launch a game)</option>
+          <option value="meetingRoom">Meeting room kiosk (click → mint a video link)</option>
         </select></div>
       <div class="row">
         <input id="pa-f-color" type="color" value="${this.color}">
@@ -367,7 +379,13 @@ export class FurnitureEditor {
       this.dirty = true;
     };
     this.field('#pa-f-appliance').onchange = (e) => {
-      this.work.appliance = (e.target as HTMLSelectElement).value;
+      // One "Action" picker backs four independent, mutually-exclusive catalog
+      // fields — clear the other three whichever one gets picked.
+      const v = (e.target as HTMLSelectElement).value;
+      this.work.appliance = v === 'coffee' ? 'coffee' : '';
+      this.work.conference = v === 'conference';
+      this.work.arcade = v === 'arcade';
+      this.work.meetingRoom = v === 'meetingRoom';
       this.dirty = true;
     };
     const colorEl = this.field('#pa-f-color');
@@ -517,6 +535,9 @@ export class FurnitureEditor {
       backgroundTiles: entry?.backgroundTiles ?? 0,
       // Resolved entry includes the bundled coffee-machine legacy default.
       appliance: entry?.appliance ?? '',
+      conference: !!entry?.conference,
+      arcade: !!entry?.arcade,
+      meetingRoom: !!entry?.meetingRoom,
       frames,
       frameIdx: 0,
       animGroup,
@@ -586,7 +607,14 @@ export class FurnitureEditor {
     (this.field('#pa-f-desk')).checked = this.work.isDesk;
     (this.field('#pa-f-surf')).checked = this.work.canPlaceOnSurfaces;
     (this.field('#pa-f-wall')).checked = this.work.canPlaceOnWalls;
-    this.field<HTMLSelectElement>('#pa-f-appliance').value = this.work.appliance;
+    const action = this.work.conference
+      ? 'conference'
+      : this.work.arcade
+        ? 'arcade'
+        : this.work.meetingRoom
+          ? 'meetingRoom'
+          : this.work.appliance;
+    this.field<HTMLSelectElement>('#pa-f-appliance').value = action;
   }
 
   private onFootprintChange(): void {
@@ -637,6 +665,9 @@ export class FurnitureEditor {
         canPlaceOnWalls: w.canPlaceOnWalls,
         backgroundTiles: w.backgroundTiles,
         appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
+        conference: w.conference,
+        arcade: w.arcade,
+        meetingRoom: w.meetingRoom,
       };
       if (animated && w.animGroup) {
         catalog.animationGroup = w.animGroup;
