@@ -1968,6 +1968,14 @@ export class OfficeScene extends Phaser.Scene {
     const body = this.morePanel?.querySelector<HTMLElement>('.pa-body');
     if (!body) return;
     body.replaceChildren();
+    if (this.myUserId) {
+      const who = document.createElement('div');
+      who.className = 'pa-whoami';
+      who.innerHTML =
+        `<div class="ln"><span>User ID</span><code>${esc(this.myUserId)}</code>${this.isAdmin ? '<span class="admin">★ Admin</span>' : ''}</div>` +
+        `<div class="ln"><span>Display name</span><code>${esc(this.viewerUsername || this.myUserId)}</code></div>`;
+      body.appendChild(who);
+    }
     const row = (icon: string, label: string, sub: string | null, onClick: () => void, opts: { danger?: boolean } = {}): void => {
       const r = document.createElement('div');
       r.className = 'pa-menurow' + (opts.danger ? ' danger' : '');
