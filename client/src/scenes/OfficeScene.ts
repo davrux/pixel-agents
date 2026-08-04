@@ -1972,8 +1972,8 @@ export class OfficeScene extends Phaser.Scene {
       const who = document.createElement('div');
       who.className = 'pa-whoami';
       who.innerHTML =
-        `<div class="ln"><span>User ID</span><code>${esc(this.myUserId)}</code>${this.isAdmin ? '<span class="admin">★ Admin</span>' : ''}</div>` +
-        `<div class="ln"><span>Display name</span><code>${esc(this.viewerUsername || this.myUserId)}</code></div>`;
+        `<div class="name">${esc(this.viewerUsername || this.myUserId)}${this.isAdmin ? '<span class="admin">★ Admin</span>' : ''}</div>` +
+        `<div class="handle">@${esc(this.myUserId)}</div>`;
       body.appendChild(who);
     }
     const row = (icon: string, label: string, sub: string | null, onClick: () => void, opts: { danger?: boolean } = {}): void => {

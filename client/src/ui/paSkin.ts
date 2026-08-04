@@ -99,13 +99,12 @@ export function injectPaSkin(): void {
       .pa-select option{background:#171b2b;color:#e9ecf7;}
       /* Dimmed helper text — used across dialogs (meeting rooms, zone settings, …). */
       .muted{color:#8a90a8;}
-      /* Who-am-I identity chips (☰ menu: User ID + display name). */
-      .pa-whoami{font-size:0.85rem;color:#9aa0b8;margin-bottom:0.6rem;padding-bottom:0.6rem;border-bottom:1px solid #1b2138;}
-      .pa-whoami .ln{display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.25rem;}
-      .pa-whoami .ln:last-child{margin-bottom:0;}
-      .pa-whoami code{color:#c7ccdf;background:#0a0d16;border:2px solid #05060b;border-radius:0.25rem;padding:0.05rem 0.3rem;}
+      /* Who-am-I profile header (☰ menu): display name + @user-id handle. */
+      .pa-whoami{margin-bottom:0.7rem;padding-bottom:0.7rem;border-bottom:1px solid #1b2138;}
+      .pa-whoami .name{display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;font-size:1.15rem;font-weight:600;color:#eef1fb;}
+      .pa-whoami .handle{margin-top:0.15rem;font-size:0.85rem;color:#6f7590;}
       .pa-whoami .admin{background:#2f7d3f;border:2px solid #05060b;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
-        box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
+        font-size:0.78rem;box-shadow:inset 0 2px 0 #56b566,inset 0 -3px 0 #164a1f;}
       /* Space (Layouts / Zones) — kept close to the originals, restyled. */
       #pa-layouts h4,#pa-zones h4{margin:0 0 0.5rem;font-size:0.95rem;color:#8a90a8;font-weight:400;}
       #pa-zones .who-am-i{font-size:0.82rem;margin:0 0 0.6rem;padding-bottom:0.5rem;border-bottom:1px solid #1b2138;}
