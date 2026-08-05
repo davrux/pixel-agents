@@ -280,12 +280,18 @@ export class OfficeState {
    *
    *  Wall-mounted items (footprint's bottom row anchored on a WALL tile — the
    *  convention every 2-row wall item placement uses, see LayoutEditor's
-   *  wallFootprintOk) only have ONE valid side: the room the sprite actually
-   *  faces, always the row above the wall row (every wall item's art is drawn
-   *  there — see e.g. conferenceAssets.ts). On a divider wall with walkable
-   *  floor on both sides, the naive 4-neighbor scan below would otherwise also
-   *  offer the tile *behind* the wall as an equally valid approach, walking a
-   *  player to the blank back of the screen instead of its front. */
+   *  wallFootprintOk) render their art in the row ABOVE the wall row (see
+   *  e.g. conferenceAssets.ts), but that says nothing about which side a
+   *  player should approach from — most such walls are a room's own boundary,
+   *  with void/blocked space on the art's side and the real room on the far
+   *  side of the wall, so isWalkable already picks the right side for free.
+   *  The only case that needs help is a divider wall with walkable floor on
+   *  BOTH sides (art side included) — there the naive 4-neighbor scan below
+   *  would offer the tile behind the wall as an equally valid approach,
+   *  walking a player to the blank back of the screen. Only exclude that
+   *  art-side tile when it's genuinely ambiguous (both sides walkable);
+   *  forcing the exclusion unconditionally would (and did) wrongly block the
+   *  only real approach on a boundary wall. */
   private computeApproachTiles(
     col: number,
     row: number,
@@ -296,6 +302,16 @@ export class OfficeState {
     let wallMounted = true;
     for (let dc = 0; dc < w && wallMounted; dc++) {
       if (this.tileMap[wallRow]?.[col + dc] !== TileType.WALL) wallMounted = false;
+    }
+    const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
+    const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side
+    let excludeArtSide = false;
+    if (wallMounted) {
+      excludeArtSide = true;
+      for (let dc = 0; dc < w && excludeArtSide; dc++) {
+        if (!isWalkable(col + dc, artRow, this.tileMap, this.blockedTiles)) excludeArtSide = false;
+        if (!isWalkable(col + dc, farRow, this.tileMap, this.blockedTiles)) excludeArtSide = false;
+      }
     }
     const seen = new Set<string>();
     const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
@@ -312,7 +328,7 @@ export class OfficeState {
         for (const [nc, nr, facing] of cands) {
           const k = `${nc},${nr}`;
           const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
-          if (wallMounted && nr >= wallRow) continue; // behind/along the wall — never the sprite's front
+          if (excludeArtSide && nr === artRow) continue; // ambiguous divider wall — behind the screen
           if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
           seen.add(k);
           approaches.push({ col: nc, row: nr, facing });
