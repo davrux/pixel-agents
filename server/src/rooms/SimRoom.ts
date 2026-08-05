@@ -1221,6 +1221,11 @@ export class SimRoom extends Room<RoomState> {
       const pw = String(msg?.password ?? '');
       if (!userId || !isValidPassword(pw)) return;
       userStore.setPassword(userId, pw);
+      // Invalidate every session (including this one) so a stolen cookie/
+      // bearer token stops working the moment the password changes, instead
+      // of surviving up to its full TTL — the client re-prompts for login.
+      appStore.deleteSessionsForUser(userId);
+      controlBus.emit(KICK_EVENT, userId);
     });
 
     // Change the free display name; the avatar's name follows it live.

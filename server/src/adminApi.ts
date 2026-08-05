@@ -132,6 +132,11 @@ export function registerAdminApi(app: Express): void {
     if (body.password !== undefined) {
       if (!isValidPassword(body.password)) return void res.status(400).json({ error: 'weak password' });
       userStore.setPassword(id, body.password);
+      // A password reset should invalidate whatever session(s) let someone in
+      // under the old one — otherwise a stolen cookie/bearer token keeps
+      // working for its full TTL even after the password changes.
+      appStore.deleteSessionsForUser(id);
+      controlBus.emit(KICK_EVENT, id);
     }
     if (body.disabled !== undefined) {
       const disabled = !!body.disabled;
