@@ -31,7 +31,7 @@ import {
   layoutToSeats,
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
-import { findPath, getWalkableTiles, isWalkable } from '../layout/tileMap.js';
+import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -718,13 +718,17 @@ export class OfficeState {
     this.characters.delete(id);
   }
 
-  /** Walk a player's avatar to a tile (viewer click-to-move). Paths via the
-   *  shared pathfinder; returns false if the target is unreachable/unwalkable. */
+  /** Walk a player's avatar to a tile (viewer click-to-move). A click on a
+   *  wall/furniture/blocked-floor tile redirects to the nearest walkable tile
+   *  instead of failing outright, so clicking "on" an obstacle walks the
+   *  avatar up to it rather than doing nothing. Paths via the shared
+   *  pathfinder; returns false if nothing walkable is reachable at all. */
   walkPlayer(id: number, col: number, row: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
-    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
-    const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
+    const target = nearestWalkableTile(col, row, this.tileMap, this.blockedTiles);
+    if (!target) return false;
+    const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles);
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit

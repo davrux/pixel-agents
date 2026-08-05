@@ -11,4 +11,4 @@ export {
   layoutToTileMap,
   serializeLayout,
 } from './layoutSerializer.js';
-export { findPath, getWalkableTiles, isWalkable } from './tileMap.js';
+export { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from './tileMap.js';

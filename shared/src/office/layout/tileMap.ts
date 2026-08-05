@@ -34,6 +34,34 @@ export function getWalkableTiles(
   return tiles;
 }
 
+/** The walkable tile closest to (col,row) — searched outward ring by ring
+ *  (Chebyshev distance) so a click on a wall, blocked floor tile, or furniture
+ *  footprint still resolves to a nearby spot instead of failing outright.
+ *  Returns (col,row) itself if already walkable; null if the grid has no
+ *  walkable tile at all. */
+export function nearestWalkableTile(
+  col: number,
+  row: number,
+  tileMap: TileType[][],
+  blockedTiles: Set<string>,
+): { col: number; row: number } | null {
+  if (isWalkable(col, row, tileMap, blockedTiles)) return { col, row };
+  const rows = tileMap.length;
+  const cols = rows > 0 ? tileMap[0].length : 0;
+  const maxRadius = Math.max(rows, cols);
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        if (Math.max(Math.abs(dc), Math.abs(dr)) !== radius) continue; // only this ring
+        const c = col + dc;
+        const r = row + dr;
+        if (isWalkable(c, r, tileMap, blockedTiles)) return { col: c, row: r };
+      }
+    }
+  }
+  return null;
+}
+
 /** BFS pathfinding on 4-connected grid (no diagonals). Returns path excluding start, including end. */
 export function findPath(
   startCol: number,
