@@ -1,34 +1,32 @@
 /**
- * Generated placeholder "uponu" wall logo, injected into the furniture catalog at
- * load time (like the conference monitor — refine the art in the in-game furniture
- * editor if wanted). A small framed plaque, same footprint/wall-hanging convention
- * as WHITEBOARD.png: real furniture, editable, not baked into a static PNG.
+ * The "uponu" wall logos, injected into the furniture catalog at load time (like
+ * the conference monitor): real, editable furniture following WHITEBOARD.png's
+ * wall-hanging convention, not baked into a static PNG. Two variants — the traced
+ * wordmark and the older framed plaque.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
 const T = ''; // transparent
 
-/** Bold 9px-tall block font — just enough glyphs to spell "UPONU", with 2px-
- *  thick strokes (vs. a 1px hairline) to match the real wordmark's chunky
- *  weight — a thin single-pixel outline read as spindly next to it. The real
- *  uponu wordmark is extremely rounded (O is a near-perfect ring, P's bowl and
- *  U's base are curved); U/P/O chamfer their outer top/bottom corners (a
- *  single pixel cut to `.` instead of `X`) to hint at that curvature within
- *  the grid — a standard low-cost pixel-art way to imply roundness without
- *  the resolution for a true curve. N is 7px wide: a 2px-thick vertical on
- *  each side with a 1px diagonal stepping through the 3 columns between them
- *  (top-left to bottom-right, 3 rows per step) — packing the diagonal to the
- *  same 2px thickness as the verticals leaves no room for the background gaps
- *  that make it read as a diagonal at all, so it collapses into a solid block
- *  instead of a letter. */
-const GLYPHS: Record<string, string[]> = {
-  U: ['XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', '.XXX.'],
-  P: ['.XXX.', 'XX.XX', 'XX.XX', 'XX.XX', 'XXXXX', 'XX...', 'XX...', 'XX...', 'XX...'],
-  O: ['.XXX.', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', 'XX.XX', '.XXX.'],
-  N: ['XXX..XX', 'XXX..XX', 'XXX..XX', 'XX.X.XX', 'XX.X.XX', 'XX.X.XX', 'XX..XXX', 'XX..XXX', 'XX..XXX'],
-};
-const GLYPH_H = 9;
-const GAP = 1; // 1px between letters — with 0 they run together into an unreadable blob
+/** The real wordmark, traced 1:1 from the source pixel art (Documents/
+ *  pixeluponu.png — a 42×8 grid upscaled 48× to 2000×367, pure white on
+ *  transparent, every module solid). Stored as the finished 42×8 image rather
+ *  than as a per-letter font + kerning pass: the letterforms are lowercase and
+ *  individually kerned (the `o` and second `u` are wider than the first `u`,
+ *  the `p` carries a descender into the last row), so reassembling them from
+ *  uniform glyph cells would not reproduce it. One char per pixel, `X` = ink. */
+const WORDMARK = [
+  'XX...XX..XXXXX....XXXX...XXXXXX...XX...XXX',
+  'XX...XXX.XXXXXX..XXXXXX..XXXXXXX..XX...XXX',
+  'XX...XXX.....XX..XX..XXX.XXX..XX..XX...XXX',
+  'XX...XXX.....XX.XXX...XX.XX...XXX.XX...XXX',
+  'XX...XXX.XXXXXX..XX...XX.XX...XXX.XXX..XXX',
+  'XXXXXXXX.XXXXXX..XXXXXXX.XX...XXX..XXXXXXX',
+  '.XXXXXXX.XXXX.....XXXXX..XX...XXX..XXXXXXX',
+  '..XXXXX..XX........XXX...XX....XX....XXXXX',
+];
+const WORDMARK_W = WORDMARK[0].length; // 42
+const WORDMARK_H = WORDMARK.length; // 8
 
 /** The original tiny 5px-tall font, kept around as the "classic" dark variant
  *  below — some walls read better with the smaller, punchier plaque than the
@@ -71,38 +69,31 @@ function drawWord(
   }
 }
 
-/** A small plaque: an off-white background + the "UPONU" wordmark, same 2×2
- *  canvas as the whiteboard but — like WHITEBOARD.png itself — only a small
- *  centered block is actually drawn, with transparent margin above/below, so
- *  it reads as a plaque hanging on the wall rather than a block filling the
- *  tile. No separate frame layer: now that the background is white (was a
- *  dark panel), a white-on-white frame would be invisible anyway. */
+/** The wordmark itself, centered on a transparent canvas — no panel and no
+ *  frame, matching the source art: white ink straight onto the wall (WALL_COLOR
+ *  is dark, so it reads without a backing plate). 3 tiles wide rather than the
+ *  whiteboard's 2, because the 42px wordmark does not fit in 32px and scaling
+ *  it down would land on fractional pixels and destroy the letterforms. */
 export function logoSprite(): SpriteData {
-  const canvasW = 32;
-  const canvasH = 32;
+  const canvasW = 48; // 3 tiles
+  const canvasH = 32; // 2 tiles
   const g: SpriteData = Array.from({ length: canvasH }, () => new Array<string>(canvasW).fill(T));
-  const panel = '#f4f2ee';
-  const ink = '#c51a1b';
+  const ink = '#ffffff';
 
-  const textW = wordWidth(GLYPHS, GAP);
-  const textH = GLYPH_H;
-
-  const padV = 1; // vertical breathing room within the panel
-  const panelW = textW; // no horizontal pad — needs the full 32px width already
-  const panelH = textH + padV * 2;
-  const panelLeft = Math.floor((canvasW - panelW) / 2);
-  const panelTop = Math.floor((canvasH - panelH) / 2);
-
-  for (let y = 0; y < panelH; y++) {
-    for (let x = 0; x < panelW; x++) g[panelTop + y][panelLeft + x] = panel;
+  const left = Math.floor((canvasW - WORDMARK_W) / 2);
+  const top = Math.floor((canvasH - WORDMARK_H) / 2);
+  for (let y = 0; y < WORDMARK_H; y++) {
+    for (let x = 0; x < WORDMARK_W; x++) {
+      if (WORDMARK[y][x] === 'X') g[top + y][left + x] = ink;
+    }
   }
-  drawWord(g, GLYPHS, GLYPH_H, GAP, panelLeft, panelTop + padV, ink);
   return g;
 }
 
 /** The original design: a white frame around a dark panel, with the wordmark
  *  in white ink — kept as a second, smaller/punchier plaque alongside the
- *  bold red-on-white one above, rather than replaced by it. */
+ *  traced wordmark above, rather than replaced by it. Still uses the hand-built
+ *  5px font, since it is a plaque of its own design, not a copy of the art. */
 export function logoSpriteClassic(): SpriteData {
   const canvasW = 32;
   const canvasH = 32;
@@ -144,9 +135,7 @@ export interface LogoAsset {
 export function logoAssets(): LogoAsset[] {
   const base = {
     category: 'wall',
-    width: 32,
     height: 32,
-    footprintW: 2,
     footprintH: 2,
     isDesk: false,
     // Wall-only, same as the whiteboard — a logo plaque doesn't belong on the
@@ -154,13 +143,15 @@ export function logoAssets(): LogoAsset[] {
     canPlaceOnWalls: true,
     canPlaceOnSurfaces: false,
   };
+  // width/footprintW are per-entry: the traced wordmark needs 3 tiles, the
+  // classic plaque still fits in 2.
   return [
     {
-      entry: { ...base, id: 'UPONU_LOGO', label: 'Uponu Logo' },
+      entry: { ...base, id: 'UPONU_LOGO', label: 'Uponu Logo', width: 48, footprintW: 3 },
       sprite: logoSprite(),
     },
     {
-      entry: { ...base, id: 'UPONU_LOGO_DARK', label: 'Uponu Logo (Dark)' },
+      entry: { ...base, id: 'UPONU_LOGO_DARK', label: 'Uponu Logo (Dark)', width: 32, footprintW: 2 },
       sprite: logoSpriteClassic(),
     },
   ];
