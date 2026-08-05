@@ -56,6 +56,7 @@ import {
   PetKind as PetKindEnum,
   PetState,
   TILE_SIZE,
+  TileType,
 } from '../types.js';
 import { createCharacter, releaseStation, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
@@ -268,13 +269,27 @@ export class OfficeState {
    *  it), each paired with the facing direction that looks back at the
    *  footprint. Shared "stand here to interact" candidate generator —
    *  appliances, conference monitors, arcade cabinets and meeting-room kiosks
-   *  all derive their approach spot(s) from this one implementation. */
+   *  all derive their approach spot(s) from this one implementation.
+   *
+   *  Wall-mounted items (footprint's bottom row anchored on a WALL tile — the
+   *  convention every 2-row wall item placement uses, see LayoutEditor's
+   *  wallFootprintOk) only have ONE valid side: the room the sprite actually
+   *  faces, always the row above the wall row (every wall item's art is drawn
+   *  there — see e.g. conferenceAssets.ts). On a divider wall with walkable
+   *  floor on both sides, the naive 4-neighbor scan below would otherwise also
+   *  offer the tile *behind* the wall as an equally valid approach, walking a
+   *  player to the blank back of the screen instead of its front. */
   private computeApproachTiles(
     col: number,
     row: number,
     w: number,
     h: number,
   ): Array<{ col: number; row: number; facing: Direction }> {
+    const wallRow = row + h - 1;
+    let wallMounted = true;
+    for (let dc = 0; dc < w && wallMounted; dc++) {
+      if (this.tileMap[wallRow]?.[col + dc] !== TileType.WALL) wallMounted = false;
+    }
     const seen = new Set<string>();
     const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
     for (let dr = 0; dr < h; dr++) {
@@ -290,6 +305,7 @@ export class OfficeState {
         for (const [nc, nr, facing] of cands) {
           const k = `${nc},${nr}`;
           const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
+          if (wallMounted && nr >= wallRow) continue; // behind/along the wall — never the sprite's front
           if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
           seen.add(k);
           approaches.push({ col: nc, row: nr, facing });
