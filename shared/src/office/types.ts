@@ -244,6 +244,16 @@ export interface PlacedFurniture {
   color?: ColorValue;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
   name?: string;
+  /** Wall-mounted items only (canPlaceOnWalls): which side a player approaches
+   *  from, when a wall has walkable floor on BOTH sides (e.g. a room divider)
+   *  and the correct side genuinely can't be inferred from the tile map alone.
+   *  DOWN = approached from the art side (the row the sprite renders in,
+   *  above the wall); UP = approached from the far side (below the wall).
+   *  Ignored when only one side is walkable — isWalkable already resolves
+   *  that case on its own. Unset defaults to UP (the far side), matching the
+   *  engine's long-standing default. Editable via LayoutEditor's flip-facing
+   *  control (shown for wall-mountable, interactive items). */
+  facing?: Direction;
 }
 
 export interface OfficeLayout {

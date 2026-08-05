@@ -16,6 +16,7 @@ import {
 import { getColorizedFloorSprite, getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
 import { getWallSetCount, getWallSetPreviewSprite, wallColorToHex } from '@pixel/shared/office/wallTiles.js';
 import {
+  Direction,
   TILE_SIZE,
   TileType,
   type FurnitureInstance,
@@ -109,6 +110,7 @@ export class LayoutEditor {
   private actionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
+  private flipFacingBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
@@ -936,6 +938,20 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
+  /** Flip which side of a wall-mounted item's wall a player approaches from
+   *  (PlacedFurniture.facing) — only has any effect when the wall has
+   *  walkable floor on both sides (see officeState's computeApproachTiles);
+   *  otherwise the tile map already resolves the correct side on its own and
+   *  this is a harmless no-op. No sprite/tileMap change, so no rebuild. */
+  private flipFacingSelected(): void {
+    if (!this.layout || !this.selectedUid) return;
+    const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+    if (!f) return;
+    this.beginGesture();
+    f.facing = f.facing === Direction.DOWN ? Direction.UP : Direction.DOWN;
+    this.deps.onEdit(this.layout, true);
+  }
+
   private deleteSelected(): void {
     if (!this.layout || !this.selectedUid) return;
     const i = this.layout.furniture.findIndex((x) => x.uid === this.selectedUid);
@@ -981,6 +997,15 @@ export class LayoutEditor {
     this.actionBar.style.display = 'flex';
     this.rotateBtnInBar.style.display = isRotatable(f.type) ? 'inline-block' : 'none';
     this.nameBtnInBar.style.display = e.conference ? 'inline-block' : 'none';
+    // Facing only matters for wall-mounted interactive items (the ones that
+    // compute an approach tile) — and only when the wall is genuinely
+    // ambiguous (floor on both sides); showing it unconditionally for every
+    // wall-mountable item would just be a dead control most of the time, but
+    // wall/furniture edits elsewhere can turn an unambiguous wall ambiguous
+    // later, so it's shown whenever the item COULD need it rather than
+    // trying to recompute ambiguity here too.
+    const canFace = !!e.canPlaceOnWalls && !!(e.appliance || e.conference || e.arcade || e.meetingRoom);
+    this.flipFacingBtnInBar.style.display = canFace ? 'inline-block' : 'none';
   }
 
   // ── Color ────────────────────────────────────────────────────────
@@ -1251,11 +1276,16 @@ export class LayoutEditor {
     };
     this.rotateBtnInBar = mkAct('⟳', 'Rotate (R)', () => this.rotateSelected());
     this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
+    this.flipFacingBtnInBar = mkAct(
+      '⇅',
+      "Flip which side to approach from (only matters on a wall with floor on both sides)",
+      () => this.flipFacingSelected(),
+    );
     const delBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelected());
     delBtn.style.background = '#7c2634';
     delBtn.style.color = '#f6cdd4';
     delBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
-    this.actionBar.append(this.rotateBtnInBar, this.nameBtnInBar, delBtn);
+    this.actionBar.append(this.rotateBtnInBar, this.nameBtnInBar, this.flipFacingBtnInBar, delBtn);
     host.appendChild(this.actionBar);
 
     this.selectTool('select');

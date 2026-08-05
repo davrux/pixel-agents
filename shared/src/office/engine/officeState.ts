@@ -287,16 +287,20 @@ export class OfficeState {
    *  side of the wall, so isWalkable already picks the right side for free.
    *  The only case that needs help is a divider wall with walkable floor on
    *  BOTH sides (art side included) — there the naive 4-neighbor scan below
-   *  would offer the tile behind the wall as an equally valid approach,
-   *  walking a player to the blank back of the screen. Only exclude that
-   *  art-side tile when it's genuinely ambiguous (both sides walkable);
-   *  forcing the exclusion unconditionally would (and did) wrongly block the
-   *  only real approach on a boundary wall. */
+   *  would otherwise also offer the tile behind the wall as an equally valid
+   *  approach, walking a player to the blank back of the screen. Which side
+   *  is correct in that ambiguous case can't be inferred from the tile map
+   *  (established the hard way, twice) — every engine that solves this well
+   *  (RPG Maker's per-direction tile passage, Grid Engine's ge_collide_*)
+   *  stores it as authored data instead, so `facing` (PlacedFurniture, set at
+   *  placement time) is authoritative here; the tile map only decides when
+   *  one side isn't walkable at all. */
   private computeApproachTiles(
     col: number,
     row: number,
     w: number,
     h: number,
+    facing?: Direction,
   ): Array<{ col: number; row: number; facing: Direction }> {
     const wallRow = row + h - 1;
     let wallMounted = true;
@@ -305,14 +309,19 @@ export class OfficeState {
     }
     const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
     const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side
-    let excludeArtSide = false;
+    let ambiguous = false;
     if (wallMounted) {
-      excludeArtSide = true;
-      for (let dc = 0; dc < w && excludeArtSide; dc++) {
-        if (!isWalkable(col + dc, artRow, this.tileMap, this.blockedTiles)) excludeArtSide = false;
-        if (!isWalkable(col + dc, farRow, this.tileMap, this.blockedTiles)) excludeArtSide = false;
+      ambiguous = true;
+      for (let dc = 0; dc < w && ambiguous; dc++) {
+        if (!isWalkable(col + dc, artRow, this.tileMap, this.blockedTiles)) ambiguous = false;
+        if (!isWalkable(col + dc, farRow, this.tileMap, this.blockedTiles)) ambiguous = false;
       }
     }
+    // The art-side approach faces DOWN (toward the wall from the north); the
+    // far-side approach faces UP (toward the wall from the south) — see the
+    // cands table below. Default (facing unset) keeps the engine's
+    // long-standing far-side default.
+    const wantFacing = facing ?? Direction.UP;
     const seen = new Set<string>();
     const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
     for (let dr = 0; dr < h; dr++) {
@@ -325,13 +334,14 @@ export class OfficeState {
           [fc - 1, fr, Direction.RIGHT],
           [fc + 1, fr, Direction.LEFT],
         ];
-        for (const [nc, nr, facing] of cands) {
+        for (const [nc, nr, approachFacing] of cands) {
           const k = `${nc},${nr}`;
           const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
-          if (excludeArtSide && nr === artRow) continue; // ambiguous divider wall — behind the screen
+          if (ambiguous && nr === artRow && wantFacing !== Direction.DOWN) continue;
+          if (ambiguous && nr === farRow && wantFacing !== Direction.UP) continue;
           if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
           seen.add(k);
-          approaches.push({ col: nc, row: nr, facing });
+          approaches.push({ col: nc, row: nr, facing: approachFacing });
         }
       }
     }
@@ -349,7 +359,7 @@ export class OfficeState {
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.type);
       if (!entry?.appliance) continue; // data-driven: only furniture marked as an appliance
-      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH).filter(
+      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing).filter(
         (c) => !this.isStationTile(c.col, c.row),
       );
       spots.forEach((spot, i) => {
@@ -935,7 +945,7 @@ export class OfficeState {
     ch.pendingAppliance = null;
     ch.pendingInteraction = null;
 
-    const approaches = this.computeApproachTiles(item.col, item.row, fw, fh);
+    const approaches = this.computeApproachTiles(item.col, item.row, fw, fh, item.facing);
 
     // Strict proximity: you only join a monitor's call by actually standing at
     // one of its approach tiles (now, or on arrival after walking there). No
@@ -1041,7 +1051,7 @@ export class OfficeState {
     ch.pendingConference = null;
     ch.pendingAppliance = null;
 
-    const approaches = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH);
+    const approaches = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing);
     const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
     if (here) {
       ch.dir = here.facing;
