@@ -24,12 +24,6 @@ export const TileType = {
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
 
-/** Floor types that render like any other floor but block movement — e.g.
- *  water: painted with the Floor tool same as carpet/wood, but a character
- *  can't walk across it. Checked in tileMap.ts's isWalkable, the single
- *  choke point every pathfinding/movement call goes through. */
-export const NON_WALKABLE_FLOOR_TYPES: ReadonlySet<TileType> = new Set([TileType.FLOOR_11]);
-
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from './colorTypes.js';
 import type { ColorValue } from './colorTypes.js';

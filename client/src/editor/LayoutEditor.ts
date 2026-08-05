@@ -1235,11 +1235,6 @@ export class LayoutEditor {
       const item = document.createElement('div');
       item.className = 'pa-pal-item';
       item.dataset.pattern = String(p);
-      // Water is the one floor type that blocks movement (see shared's
-      // NON_WALKABLE_FLOOR_TYPES) — flag it here since the swatch itself
-      // gives no other hint that it behaves differently from every other
-      // walkable floor pattern.
-      if (p === TileType.FLOOR_11) item.title = 'Water — blocks movement';
       const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(getColorizedFloorSprite(p, NEUTRAL)) });
       item.appendChild(img);
       item.onclick = () => {
