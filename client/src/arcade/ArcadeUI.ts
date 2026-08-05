@@ -264,7 +264,12 @@ export class ArcadeUI {
       row.style.cssText = 'display:flex;gap:0.35rem;align-items:stretch;margin:0 0 0.45rem;';
       const btn = document.createElement('button');
       btn.className = 'pa-btn';
-      btn.style.cssText = 'flex:1;text-align:left;margin:0;';
+      // min-width:0 lets this flex item actually shrink below its content's
+      // natural width; white-space:normal overrides .pa-btn's own nowrap (fine
+      // for its usual short single-line labels, wrong here) so a long
+      // title/blurb wraps onto more lines instead of pushing the 👥/↺ buttons
+      // out past the dialog's fixed width.
+      btn.style.cssText = 'flex:1;min-width:0;text-align:left;margin:0;white-space:normal;';
       btn.innerHTML =
         `<b>${esc(game.title)}</b><br><span style="opacity:.7;font-size:.85em">` +
         `${esc(game.blurb)}${game.multiplayer ? ` · up to ${game.maxPlayers}P` : ''}</span>`;

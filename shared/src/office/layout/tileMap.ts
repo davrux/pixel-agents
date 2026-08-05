@@ -1,6 +1,7 @@
-import { TileType } from '../types.js';
+import { TileType, NON_WALKABLE_FLOOR_TYPES } from '../types.js';
 
-/** Check if a tile is walkable (floor, carpet, or doorway, and not blocked by furniture) */
+/** Check if a tile is walkable (floor, carpet, or doorway; not a wall/void,
+ *  not a non-walkable floor type like water, and not blocked by furniture) */
 export function isWalkable(
   col: number,
   row: number,
@@ -12,6 +13,7 @@ export function isWalkable(
   if (row < 0 || row >= rows || col < 0 || col >= cols) return false;
   const t = tileMap[row][col];
   if (t === TileType.WALL || t === TileType.VOID) return false;
+  if (NON_WALKABLE_FLOOR_TYPES.has(t)) return false;
   if (blockedTiles.has(`${col},${row}`)) return false;
   return true;
 }
