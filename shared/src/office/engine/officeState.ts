@@ -25,6 +25,7 @@ import { isPlayerAvatarSkin } from '../../protocol.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
+  getBlockedFloorTiles,
   getBlockedTiles,
   layoutToFurnitureInstances,
   layoutToSeats,
@@ -64,6 +65,12 @@ import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
+/** Union of every source of non-walkable tiles: furniture footprints and
+ *  tiles the layout itself marks blocked (layout.tileBlocked, independent of
+ *  floor pattern). The single Set isWalkable checks. */
+function computeBlockedTiles(layout: OfficeLayout): Set<string> {
+  return new Set([...getBlockedTiles(layout.furniture), ...getBlockedFloorTiles(layout)]);
+}
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -130,7 +137,7 @@ export class OfficeState {
     this.layout = layout || createDefaultLayout();
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
-    this.blockedTiles = getBlockedTiles(this.layout.furniture);
+    this.blockedTiles = computeBlockedTiles(this.layout);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -150,7 +157,7 @@ export class OfficeState {
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
-    this.blockedTiles = getBlockedTiles(layout.furniture);
+    this.blockedTiles = computeBlockedTiles(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 

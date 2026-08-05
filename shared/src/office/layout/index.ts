@@ -3,6 +3,7 @@ export { FURNITURE_CATEGORIES, getCatalogByCategory, getCatalogEntry } from './f
 export {
   createDefaultLayout,
   deserializeLayout,
+  getBlockedFloorTiles,
   getBlockedTiles,
   getSeatTiles,
   layoutToFurnitureInstances,

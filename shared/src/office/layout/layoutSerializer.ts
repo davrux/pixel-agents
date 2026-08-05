@@ -122,6 +122,20 @@ export function getBlockedTiles(
   return tiles;
 }
 
+/** Tiles explicitly marked non-walkable in the layout itself (layout.tileBlocked),
+ *  independent of floor pattern — e.g. a puddle painted with an ordinary floor
+ *  pattern. Empty when the layout has no such tiles. */
+export function getBlockedFloorTiles(layout: OfficeLayout): Set<string> {
+  const tiles = new Set<string>();
+  const blocked = layout.tileBlocked;
+  if (!blocked) return tiles;
+  for (let i = 0; i < blocked.length; i++) {
+    if (!blocked[i]) continue;
+    tiles.add(`${i % layout.cols},${Math.floor(i / layout.cols)}`);
+  }
+  return tiles;
+}
+
 /** Get tiles blocked for placement purposes — skips top backgroundTiles rows per item */
 export function getPlacementBlockedTiles(
   furniture: PlacedFurniture[],

@@ -254,6 +254,12 @@ export interface OfficeLayout {
   furniture: PlacedFurniture[];
   /** Per-tile color settings, parallel to tiles array. null = wall/no color */
   tileColors?: Array<ColorValue | null>;
+  /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
+   *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
+   *  the room, but this one tile shouldn't be walkable). true = blocked;
+   *  false/missing = normal. Painted with the editor's Block tool; merged into
+   *  officeState's blockedTiles alongside furniture footprints. */
+  tileBlocked?: boolean[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

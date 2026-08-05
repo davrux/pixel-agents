@@ -45,7 +45,7 @@ export interface EditorDeps {
   onEditingChange: (editing: boolean) => void;
 }
 
-type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'eyedropper';
+type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
@@ -56,6 +56,7 @@ const GRID_LINE = { color: 0xffffff, alpha: 0.12 };
 const VOID_OUTLINE = { color: 0xffffff, alpha: 0.08 };
 const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
+const BLOCKED_TILE = { color: 0xe0342a, stroke: 0.6, fill: 0.22 };
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;
@@ -148,6 +149,9 @@ export class LayoutEditor {
     if (!this.layout.tileColors) {
       this.layout.tileColors = new Array(this.layout.cols * this.layout.rows).fill(null);
     }
+    if (!this.layout.tileBlocked) {
+      this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
+    }
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
     this.undoStack = [];
@@ -219,7 +223,7 @@ export class LayoutEditor {
       this.rotate(e.shiftKey ? 'ccw' : 'cw');
       e.preventDefault();
     } else if (!typing) {
-      const map: Record<string, Tool> = { '1': 'select', '2': 'furniture', '3': 'floor', '4': 'wall', '5': 'eyedropper' };
+      const map: Record<string, Tool> = { '1': 'select', '2': 'furniture', '3': 'floor', '4': 'wall', '5': 'block', '6': 'eyedropper' };
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
     }
@@ -260,6 +264,9 @@ export class LayoutEditor {
         this.paintTile(adj?.col ?? col, adj?.row ?? row, TileType.WALL);
         break;
       }
+      case 'block':
+        this.paintBlocked(col, row, true);
+        break;
       case 'eyedropper':
         this.eyedrop(wx, wy);
         break;
@@ -271,13 +278,15 @@ export class LayoutEditor {
     if (this.tool === 'furniture') this.deleteFurnitureAt(wx, wy);
     else if (this.tool === 'floor' || this.tool === 'wall') {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
+    } else if (this.tool === 'block') {
+      this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
     }
   }
 
-  /** Floor/Wall are paint tools — the scene lets you drag-paint with them
+  /** Floor/Wall/Block are paint tools — the scene lets you drag-paint with them
    *  (and pans with the middle mouse instead of the left button). */
   isPaintTool(): boolean {
-    return this.tool === 'floor' || this.tool === 'wall';
+    return this.tool === 'floor' || this.tool === 'wall' || this.tool === 'block';
   }
 
   /** Begin a drag-paint stroke: reset the per-tile dedup and snapshot for undo
@@ -502,6 +511,18 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, false);
   }
 
+  /** Paint (or clear) the "blocks movement" flag on one tile — independent of
+   *  floor pattern (see OfficeLayout.tileBlocked). No sprite/tileMap change,
+   *  just the edit-mode overlay (drawGrid) and autosave. */
+  private paintBlocked(col: number, row: number, blocked: boolean): void {
+    if (!this.layout) return;
+    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
+    if (!this.layout.tileBlocked) this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
+    this.layout.tileBlocked[row * this.layout.cols + col] = blocked;
+    this.drawGrid();
+    this.deps.onEdit(this.layout, false);
+  }
+
   private eyedrop(wx: number, wy: number): void {
     if (!this.layout) return;
     // Furniture first (top-most under the cursor), else the tile.
@@ -714,6 +735,28 @@ export class LayoutEditor {
       }
     }
 
+    // Tiles marked non-walkable (layout.tileBlocked, independent of floor
+    // pattern) — a red hatch so it's visible while editing no matter which
+    // tool is active, same as the VOID outline above.
+    if (this.layout.tileBlocked) {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (!this.layout.tileBlocked[r * cols + c]) continue;
+          const x = c * s;
+          const y = r * s;
+          g.fillStyle(BLOCKED_TILE.color, BLOCKED_TILE.fill);
+          g.fillRect(x, y, s, s);
+          g.lineStyle(lw, BLOCKED_TILE.color, BLOCKED_TILE.stroke);
+          g.beginPath();
+          g.moveTo(x, y);
+          g.lineTo(x + s, y + s);
+          g.moveTo(x + s, y);
+          g.lineTo(x, y + s);
+          g.strokePath();
+        }
+      }
+    }
+
     // Ghost-border expansion ring (one tile around the bounds) for floor/wall.
     if (this.tool === 'floor' || this.tool === 'wall') {
       const ring: Array<{ c: number; r: number }> = [];
@@ -800,6 +843,7 @@ export class LayoutEditor {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
+    const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -817,18 +861,21 @@ export class LayoutEditor {
 
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
     const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+    const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
         const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
+        newBlocked[newIdx] = tileBlocked[oldIdx];
       }
     }
     this.layout.cols = newCols;
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
+    this.layout.tileBlocked = newBlocked;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
@@ -1039,6 +1086,7 @@ export class LayoutEditor {
       furniture: 'Furniture — left-click place, right-click remove',
       floor: 'Floor — left-click paint, right-click erase',
       wall: 'Wall — left-click paint, right-click erase',
+      block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
     this.hint.textContent = labels[t];
@@ -1111,7 +1159,7 @@ export class LayoutEditor {
 
     const tools = document.createElement('div');
     tools.className = 'tools';
-    for (const [t, label] of [['select', 'Select'], ['furniture', 'Furn'], ['floor', 'Floor'], ['wall', 'Wall'], ['eyedropper', 'Pick']] as const) {
+    for (const [t, label] of [['select', 'Select'], ['furniture', 'Furn'], ['floor', 'Floor'], ['wall', 'Wall'], ['block', 'Block'], ['eyedropper', 'Pick']] as const) {
       const b = document.createElement('button');
       b.className = 'pa-tool';
       b.dataset.tool = t;
