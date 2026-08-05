@@ -195,7 +195,12 @@ async function fetchSuggestion(): Promise<MumbleSuggestion | null> {
     const token = await desktop().getToken();
     const res = await fetch(`${serverHttpOrigin()}/mumble/config`, {
       cache: 'no-store',
-      credentials: 'include',
+      // Desktop-only file (see header comment): this is always a genuine
+      // cross-origin request (app://bundle -> the real server), and the
+      // server's CORS response never sets Access-Control-Allow-Credentials,
+      // so 'include' would make the browser reject the response outright.
+      // Auth here is bearer-token-only anyway.
+      credentials: 'omit',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) return null;

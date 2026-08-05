@@ -80,7 +80,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<Api
     if (body !== undefined) headers['Content-Type'] = 'application/json';
     const res = await fetch(`${serverHttpOrigin()}${path}`, {
       method,
-      credentials: 'include',
+      // Cookie auth only applies same-origin (the browser); on desktop this is a
+      // genuine cross-origin request (app://bundle -> the real server) and the
+      // server's CORS response never sets Access-Control-Allow-Credentials, so
+      // 'include' there makes the browser reject every response outright.
+      // Desktop auth is bearer-token-only anyway (see authHeaders above).
+      credentials: isDesktop() ? 'omit' : 'include',
       cache: 'no-store',
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
