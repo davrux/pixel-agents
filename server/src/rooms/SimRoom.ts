@@ -754,9 +754,10 @@ export class SimRoom extends Room<RoomState> {
     });
 
     // Appliances (coffee machine, …): click → walk the avatar to its stand
-    // tile, then hold a cosmetic "using it" pose for a few seconds (no game
-    // effect — see officeState.useAppliance/stationId, the same mechanism
-    // NPCs use for coffee breaks).
+    // tile, then hold a cosmetic "using it" pose (☕ over the avatar) until the
+    // player walks away or sits down (no game effect — see
+    // officeState.useAppliance/stationId, the same mechanism NPCs use for
+    // coffee breaks, minus their break timer).
     this.onMessage('applianceApproach', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;

@@ -743,6 +743,7 @@ export class OfficeState {
       ch.dir = seat.facingDir;
       ch.state = CharacterState.SIT;
       ch.pendingSitFacing = null;
+      releaseStation(ch, this.stations); // sitting ends any appliance pose
       return true;
     }
     const key = `${col},${row}`;
@@ -794,6 +795,9 @@ export class OfficeState {
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
+      // Sitting down at an appliance's stand tile ends the pose — updatePlayerMovement
+      // returns early while SIT, so nothing else would drop the claim.
+      releaseStation(ch, this.stations);
     } else if (ch.state === CharacterState.SIT) {
       ch.state = CharacterState.IDLE;
     }
@@ -925,10 +929,12 @@ export class OfficeState {
   }
 
   /** Walk a player to one of an appliance's stand tiles (e.g. coffee machine),
-   *  facing it, then hold the cosmetic "using it" pose (COFFEE) for a few
-   *  seconds on arrival — same stationId/stationTimer/occupantId the agent FSM
-   *  already uses for NPC coffee breaks (see characters.ts), just started by a
-   *  click instead of AI. Triggers immediately if already standing at ANY of
+   *  facing it, then hold the cosmetic "using it" pose (COFFEE) on arrival —
+   *  same stationId/occupantId claim the agent FSM already uses for NPC coffee
+   *  breaks (see characters.ts), just started by a click instead of AI. Unlike
+   *  an NPC's timed break, a player holds the pose indefinitely (stationTimer
+   *  stays 0 and never counts down) until they walk away or sit down — see
+   *  updatePlayerMovement. Triggers immediately if already standing at ANY of
    *  the appliance's stand tiles; otherwise picks randomly among the free
    *  (unoccupied) reachable ones — falling back to any reachable one if all
    *  are currently occupied — so simultaneous visitors spread out around the
@@ -958,7 +964,7 @@ export class OfficeState {
       ch.dir = s.facingDir;
       ch.stationId = uid;
       s.occupantId = ch.id;
-      ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+      ch.stationTimer = 0; // players hold the pose until they move (no timeout)
       ch.pendingAppliance = null;
       return true;
     }
@@ -1038,13 +1044,10 @@ export class OfficeState {
     if (ch.path.length === 0) this.tryStepHeldDir(ch);
 
     if (ch.path.length === 0) {
-      // Holding an appliance pose (cosmetic "using it" timer) while idle —
-      // the agent FSM does this in updateCharacter's IDLE case; players skip
-      // that function entirely, so it's replicated here instead.
-      if (ch.stationId) {
-        ch.stationTimer -= dt;
-        if (ch.stationTimer <= 0) releaseStation(ch, this.stations);
-      }
+      // Standing still keeps any appliance pose (☕ over the avatar) — unlike an
+      // NPC's timed coffee break (updateCharacter's IDLE case), a player's claim
+      // has no timeout: it's released when they walk away (above) or sit down
+      // (sitPlayerAt / setPlayerSit).
       if (ch.state !== CharacterState.IDLE) ch.state = CharacterState.IDLE;
       return; // idle (no portal check here — only fires on arrival, below)
     }
@@ -1063,13 +1066,13 @@ export class OfficeState {
           this.pendingConferenceJoins.push({ id: ch.id, key: ch.pendingConference.key });
           ch.pendingConference = null;
         } else if (ch.pendingAppliance) {
-          // Reached an appliance's stand tile → face it, claim it, start the pose timer.
+          // Reached an appliance's stand tile → face it, claim it, hold the pose.
           ch.dir = ch.pendingAppliance.facing;
           ch.state = CharacterState.IDLE;
           ch.stationId = ch.pendingAppliance.stationUid;
           const claimed = this.stations.get(ch.pendingAppliance.stationUid);
           if (claimed) claimed.occupantId = ch.id;
-          ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+          ch.stationTimer = 0; // held until the player moves away (no timeout)
           ch.pendingAppliance = null;
         } else if (ch.pendingInteraction) {
           // Reached an arcade cabinet's or meeting-room kiosk's stand tile →
