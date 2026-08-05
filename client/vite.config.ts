@@ -35,11 +35,11 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Multi-page: the 2D game (index.html), the admin panel, and the
-      // standalone ad-hoc meeting-room join page.
+      // Multi-page: the 2D game (index.html) and the standalone ad-hoc
+      // meeting-room join page. The admin panel is an in-game overlay
+      // (client/src/admin/main.ts, dynamically imported), not its own page.
       input: {
         main: resolve(__dirname, 'index.html'),
-        admin: resolve(__dirname, 'admin.html'),
         meet: resolve(__dirname, 'meet.html'),
       },
     },

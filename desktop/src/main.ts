@@ -92,8 +92,8 @@ function isAppOrigin(targetUrl: string): boolean {
   try {
     // The custom `app:` scheme is not a WHATWG "special" scheme, so URL.origin is
     // the opaque string "null" — comparing it to APP_ORIGIN always fails and the
-    // will-navigate guard wrongly blocks legitimate in-app navigations (e.g. the
-    // /admin-site command's index.html → admin.html). Compare scheme + host directly.
+    // will-navigate guard would wrongly block legitimate in-app navigation (e.g.
+    // reloadApp()'s reload of index.html itself). Compare scheme + host directly.
     const u = new URL(targetUrl);
     return u.protocol === `${APP_SCHEME}:` && u.host === APP_HOST;
   } catch {

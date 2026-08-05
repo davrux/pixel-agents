@@ -844,6 +844,18 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
+  /** Open the administration overlay in-place — dynamically imported (its ~900
+   *  lines of table/tab UI have no reason to sit in every player's initial
+   *  bundle) so only an actual admin ever pays for loading it. Deliberately an
+   *  overlay on THIS page, not a navigation to a separate admin.html: leaving
+   *  the document would tear down the zone's WebRTC voice call and, on
+   *  desktop, the Mumble connection, even though the player never left the
+   *  zone. */
+  private async openAdminSite(): Promise<void> {
+    const { openAdminOverlay } = await import('../admin/main.js');
+    openAdminOverlay();
+  }
+
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
    *  while it's up so the DOS game receives the keys (js-dos owns the mouse). */
   private openArcade(cab: { col: number; row: number }): void {
@@ -2009,10 +2021,10 @@ export class OfficeScene extends Phaser.Scene {
     }
     row('⚙', 'Settings', null, () => void this.setMenu('settings'));
     row('❓', 'Help', null, () => void this.setMenu('help'));
-    // Same navigation as the /admin-site chat command — global admins only
-    // (admin.html itself 403s anyone else, so hiding it otherwise isn't
-    // security, just not offering a link that would just error out).
-    if (this.isAdmin) row('🛡', 'Admin site', null, () => { window.location.href = './admin.html'; });
+    // Same action as the /admin-site chat command — global admins only (the
+    // admin API 403s anyone else, so hiding it otherwise isn't security, just
+    // not offering a control that would just error out).
+    if (this.isAdmin) row('🛡', 'Admin site', null, () => void this.openAdminSite());
     if (this.myUserId) {
       row(
         '🚪',
@@ -3693,7 +3705,7 @@ export class OfficeScene extends Phaser.Scene {
       clientCommand: (name, _args, sys) => {
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
-          else { sys("Opening the administration page…"); window.location.href = "./admin.html"; }
+          else void this.openAdminSite();
           return true;
         }
         return false;

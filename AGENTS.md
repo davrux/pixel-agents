@@ -306,8 +306,12 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   trigger quick actions. **When you add a new destination (page, portal) or a
   chat-triggerable feature, add a matching command** in `commands.ts` and
   handle it — client-side via the shared `ChatUI` `clientCommand` hook for
-  navigation (e.g. `/admin-site` sets `window.location`; carry the current
-  zone as `?zone=` where relevant), or server-side in `accountCommands.ts` for
+  navigation (e.g. `/admin-site` opens the in-game admin overlay in-place —
+  see `client/src/admin/main.ts`'s `openAdminOverlay`, dynamically imported so
+  non-admins never pay for its bundle weight — rather than navigating to a
+  separate page, which would tear down the zone's voice call; a destination
+  that genuinely needs its own page can still set `window.location`, carrying
+  the current zone as `?zone=` where relevant), or server-side in `accountCommands.ts` for
   account/admin actions. It then shows up in `/help` automatically. Current
   set: `/help /afk /users /admin-site /add /delete /set-admin /remove-admin
   /kick`.

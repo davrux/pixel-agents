@@ -1,5 +1,5 @@
 /**
- * Admin-only REST API backing the user-management page (admin.html). Every route
+ * Admin-only REST API backing the in-game admin overlay. Every route
  * is gated on an admin session (cookie or desktop bearer, same store as the game).
  * State lives in the shared pixel.db via userStore + zoneStore, so changes take
  * effect on the game rooms too (entry/password gates read the DB live).
@@ -52,9 +52,9 @@ export function registerAdminApi(app: Express): void {
   // re-deriving "owner or global admin" by hand, so the REST and Colyseus
   // paths can't drift apart. Unlike routes gated on `admin()` above, this
   // allows a caller who ISN'T a global admin — that's the point: a zone
-  // owner calls this from inside Pixels (fetch, not by visiting admin.html,
-  // which still 403s non-admins at the page level), while the admin website
-  // calls the very same route as a global admin.
+  // owner calls this from inside Pixels' own in-game panels as themselves,
+  // while the admin overlay (only ever offered to global admins in the first
+  // place) calls the very same route as a global admin.
   const zoneCapabilityAuth = (
     req: Request,
     res: Response,

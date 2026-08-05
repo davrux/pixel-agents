@@ -1,7 +1,8 @@
 /**
  * Shared desktop session flows (boot, reauth, sign-out) used by every entry
- * page (index, admin, meet). All functions here are desktop-only: callers
- * must guard with `isDesktop()` before invoking them.
+ * page (index, meet — the admin panel is an in-game overlay, not its own
+ * page, so it has no boot flow of its own). All functions here are
+ * desktop-only: callers must guard with `isDesktop()` before invoking them.
  */
 import { desktop, reloadApp, setConfiguredServerOrigin } from './bridge';
 import { showConnectionScreen } from '../screens/connection';

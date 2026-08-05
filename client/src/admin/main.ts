@@ -1,7 +1,14 @@
 /**
- * Administration page — admin-only user + room management on the shared backend.
- * A thin SPA over the admin REST API (server/src/adminApi.ts); the server enforces
- * admin access, so this page just presents the data and issues the calls.
+ * Administration overlay — admin-only user + room management on the shared
+ * backend. A thin SPA over the admin REST API (server/src/adminApi.ts); the
+ * server enforces admin access, so this just presents the data and issues the
+ * calls.
+ *
+ * Rendered as an in-game <dialog> overlay (see openAdminOverlay below), NOT a
+ * separate page: opening it used to navigate the whole tab to admin.html,
+ * which tore down the zone's WebRTC voice call (and, on desktop, made the
+ * Mumble UI vanish) even though the player never actually left the zone.
+ * Staying on the same document keeps all of that alive.
  *
  * Users: create / delete / change role / reset password. Rooms: set or clear a
  * room's entry password and each monitor's call password (stored hashed
@@ -224,14 +231,10 @@ function fail(prefix: string, error?: string): void {
   toast(`${prefix}: ${error ? (map[error] ?? error) : 'failed'}`, true);
 }
 
-function buildShell(): void {
-  const s = document.createElement('style');
-  s.textContent = STYLE;
-  document.head.appendChild(s);
-  const app = document.getElementById('app')!;
+function buildShell(app: HTMLElement, onClose: () => void): void {
   app.innerHTML = `
     <div id="pa-adm-head"><span class="brand">🛡 Administration</span><span class="spacer"></span>
-      <button data-pixels>← Pixels</button>
+      <button data-close>✕ Close</button>
       <button data-logout>Sign out</button></div>
     <div id="pa-adm-tabs">
       <button data-tab="users">Users</button>
@@ -241,12 +244,70 @@ function buildShell(): void {
     </div>
     <div id="pa-adm-toast"></div>
     <div id="pa-adm-view"></div>`;
-  app.querySelector<HTMLButtonElement>('[data-pixels]')!.onclick = () => { window.location.href = './'; };
+  app.querySelector<HTMLButtonElement>('[data-close]')!.onclick = () => onClose();
   app.querySelector<HTMLButtonElement>('[data-logout]')!.onclick = () => gotoLogout();
   app.querySelectorAll<HTMLButtonElement>('#pa-adm-tabs button').forEach((b) => {
     b.onclick = () => { tab = b.dataset.tab as typeof tab; render(); };
   });
   void adminApi.whoami().then((r) => { if (r.ok && r.data) me = r.data; });
+}
+
+/** Colors admin.html used to define at its own :root — scoped to the overlay
+ *  element instead of the game's global :root so this is the only place that
+ *  needs to know them (the game itself has no use for these variable names). */
+const OVERLAY_VARS = `
+  --bg:#141312; --panel:#1c1a19; --panel2:#262422; --line:#0a0908; --text:#f1efec;
+  --muted:#818586; --accent:#c51a1b; --accent2:#3e7a30; --danger:#7c2634;
+`;
+
+/** One admin overlay at a time — mirrors openPaDialog's singleton contract. */
+let current: HTMLDialogElement | null = null;
+
+/** Open the administration overlay in-place, over the running game — no page
+ *  navigation, so the zone's voice call (and, on desktop, the Mumble
+ *  connection) is never interrupted by an admin merely checking a setting. */
+export function openAdminOverlay(): void {
+  current?.close();
+
+  const dialogEl = document.createElement('dialog');
+  dialogEl.id = 'pa-admin-overlay';
+  dialogEl.style.cssText = `
+    ${OVERLAY_VARS}
+    position:fixed; inset:0; margin:auto; padding:0; border:0; color:var(--text);
+    width:min(64rem,94vw); height:min(90vh,50rem); max-width:94vw; max-height:94vh;
+    background:var(--bg); border-radius:.7rem; overflow:hidden;
+    font-family:'FS Pixel Sans',ui-monospace,monospace;
+  `;
+  if (!document.getElementById('pa-admin-overlay-style')) {
+    const s = document.createElement('style');
+    s.id = 'pa-admin-overlay-style';
+    s.textContent = `dialog#pa-admin-overlay::backdrop{background:rgba(0,0,0,.55);}
+      dialog#pa-admin-overlay{display:flex; flex-direction:column;}
+      #pa-admin-overlay #app{flex:1; min-height:0; display:flex; flex-direction:column;}
+      #pa-admin-overlay #pa-adm-head,#pa-admin-overlay #pa-adm-tabs,#pa-admin-overlay #pa-adm-toast{flex:0 0 auto;}
+      #pa-admin-overlay #pa-adm-view{flex:1; min-height:0; overflow-y:auto;}
+      ${STYLE}`;
+    document.head.appendChild(s);
+  }
+  const app = document.createElement('div');
+  app.id = 'app';
+  dialogEl.appendChild(app);
+
+  const close = () => dialogEl.close();
+  dialogEl.addEventListener('close', () => {
+    if (current === dialogEl) current = null;
+    dialogEl.remove();
+  });
+  dialogEl.addEventListener('mousedown', (e) => {
+    if (e.target === dialogEl) close();
+  });
+
+  (document.getElementById('game') ?? document.body).appendChild(dialogEl);
+  current = dialogEl;
+  dialogEl.showModal();
+
+  buildShell(app, close);
+  render();
 }
 
 function render(): void {
@@ -933,6 +994,3 @@ function arcadeCabinetRow(zoneId: string, cab: AdminArcadeCabinet, games: Arcade
   editBtn.onclick = () => editor.classList.toggle('open');
   return wrap;
 }
-
-buildShell();
-render();

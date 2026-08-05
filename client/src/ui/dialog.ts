@@ -3,8 +3,8 @@
  * never fall back to the browser's native window.confirm/prompt chrome (which
  * clashes with the office look). Promise-based: resolves to the user's choice.
  *
- * Plain DOM, no Phaser/Colyseus dependency — usable from admin.html too, not
- * just the game.
+ * Plain DOM, no Phaser/Colyseus dependency — usable from the admin overlay
+ * too, not just the 2D scene.
  */
 import { generatePassword } from '../shared/generatePassword.js';
 

@@ -196,7 +196,7 @@ async function main(): Promise<void> {
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
-    registerAdminApi(app); // admin-only user/room management REST API (admin.html)
+    registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in

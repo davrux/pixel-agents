@@ -120,8 +120,8 @@ export const adminApi = {
     req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/acl/${encodeURIComponent(userId)}`),
 
   // Zone-admins (co-editors): callable by that zone's owner too, not just a
-  // global admin (see server's zoneGrantAdminAuth) — shared by admin.html's
-  // Zones tab and Pixels' own "Zone admins" panel (shared/zoneAdminsWidget.ts).
+  // global admin (see server's zoneGrantAdminAuth) — shared by the admin
+  // overlay's Zones tab and Pixels' own "Zone admins" panel (shared/zoneAdminsWidget.ts).
   listZoneAdmins: (id: string) => req<{ admins: AdminZoneAclMember[] }>('GET', `/admin/zone/${encodeURIComponent(id)}/admins`),
   grantZoneAdmin: (id: string, userId: string) =>
     req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/admins`, { userId }),
