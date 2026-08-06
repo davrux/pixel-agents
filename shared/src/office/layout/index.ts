@@ -1,5 +1,5 @@
 export type { CatalogEntryWithCategory, FurnitureCategory } from './furnitureCatalog.js';
-export { FURNITURE_CATEGORIES, getCatalogByCategory, getCatalogEntry } from './furnitureCatalog.js';
+export { FURNITURE_CATEGORIES, getCatalogByCategory, getCatalogEntry, effectiveAction } from './furnitureCatalog.js';
 export {
   createDefaultLayout,
   deserializeLayout,

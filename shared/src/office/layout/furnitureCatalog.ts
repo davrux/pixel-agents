@@ -1,4 +1,4 @@
-import type { ApplianceKind, FurnitureCatalogEntry, SpriteData } from '../types.js';
+import type { Action, ApplianceKind, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
 
 export interface LoadedAssetData {
   catalog: Array<{
@@ -346,6 +346,20 @@ export function getCatalogEntry(type: string): CatalogEntryWithCategory | undefi
 export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryWithCategory[] {
   const catalog = dynamicCatalog ?? [];
   return catalog.filter((e) => e.category === category);
+}
+
+/** A placed item's effective action (see Action): its own override
+ *  (`item.action`) if set, else whatever the catalog's legacy flags
+ *  (conference/arcade/meetingRoom/appliance) imply — so every item placed
+ *  before the Action system existed keeps working with zero data changes. */
+export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): Action | null {
+  if (item.action) return item.action;
+  if (!entry) return null;
+  if (entry.conference) return { kind: 'meetingRoom', video: true };
+  if (entry.meetingRoom) return { kind: 'linkManager' };
+  if (entry.arcade) return { kind: 'arcade' };
+  if (entry.appliance) return { kind: 'appliance', pose: entry.appliance };
+  return null;
 }
 
 /* Currently unused since the editor palette is organized by category. */

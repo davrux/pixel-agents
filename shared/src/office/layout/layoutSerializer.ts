@@ -1,6 +1,7 @@
 import type { ColorValue } from '../colorTypes.js';
 import { getColorizedSprite } from '../colorize.js';
 import type {
+  Action,
   FurnitureInstance,
   OfficeLayout,
   PlacedFurniture,
@@ -386,6 +387,16 @@ export function migrateLayoutColors(layout: OfficeLayout): OfficeLayout {
 function migrateLayout(layout: OfficeLayout): OfficeLayout {
   // Migrate furniture types
   layout = { ...layout, furniture: migrateFurnitureTypes(layout.furniture) };
+
+  // Upgrade the old boolean-only walk-in-meeting-area flag to a 'meetingRoom'
+  // tile action (see Action) — one-time, on load; tilePrivateArea itself is
+  // deprecated and no longer read anywhere once this has run.
+  if (layout.tilePrivateArea && !layout.tileActions) {
+    const tileActions: Array<Action | null> = layout.tilePrivateArea.map((on) =>
+      on ? { kind: 'meetingRoom' as const, video: true } : null,
+    );
+    layout = { ...layout, tileActions };
+  }
 
   // Migrate old VOID value (was 8, now 255) — only for legacy layouts since FLOOR_8 reuses value 8
   const OLD_VOID = 8;

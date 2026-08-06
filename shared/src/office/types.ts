@@ -198,6 +198,39 @@ export type EditTool = (typeof EditTool)[keyof typeof EditTool];
  *  water cooler, …). Empty/undefined = ordinary furniture. */
 export type ApplianceKind = 'coffee';
 
+/**
+ * A generic action attachable to any placed furniture instance
+ * (`PlacedFurniture.action`) or any tile (`OfficeLayout.tileActions`) —
+ * replaces the old per-feature furniture-catalog flags (conference/arcade/
+ * meetingRoom/appliance) and the tile-only `tilePrivateArea` boolean with one
+ * model. Player-only: NPCs/agents never trigger any of these (enforced once,
+ * server-side, in OfficeState.walkPlayerToAction's `ch.isPlayer` check).
+ *
+ * Trigger rule: a furniture action requires an explicit click (walk-then-
+ * open, like today's arcade/kiosk/conference); a tile action fires the
+ * moment a player's tile matches it (like today's portals and meeting
+ * areas) — 'meetingRoom' on a tile is membership-by-position (join/leave by
+ * walking in/out, no explicit trigger), everything else on a tile is
+ * edge-triggered once on arrival.
+ */
+export type Action =
+  /** In-world video/audio call via ConferenceUI/LiveKitConference — on
+   *  furniture this is today's conference monitor (explicit join/leave
+   *  click); on a tile this is today's walk-in meeting area (automatic
+   *  membership). video:false = camera never offered, audio+chat only. */
+  | { kind: 'meetingRoom'; video: boolean }
+  /** Opens the "manage my shareable /meet/<slug> links" dialog — today's
+   *  meeting kiosk. The actual call happens on the separate /meet page, not
+   *  in-world. */
+  | { kind: 'linkManager' }
+  /** Opens a sandboxed iframe overlay with this URL. https:// only. */
+  | { kind: 'iframe'; url: string }
+  /** Cosmetic pose+timer, no room/video — today's coffee machine. */
+  | { kind: 'appliance'; pose: ApplianceKind }
+  /** js-dos emulator overlay with per-player saves + an optional
+   *  multiplayer lobby — today's arcade cabinet. */
+  | { kind: 'arcade' };
+
 export interface FurnitureCatalogEntry {
   type: string; // asset ID from furniture manifest
   label: string;
@@ -261,6 +294,12 @@ export interface PlacedFurniture {
    *  to back" controls (shown only when the selection overlaps another
    *  item); unset (0) leaves the normal position-based sort order untouched. */
   zOffset?: number;
+  /** Per-instance action override (see Action) — takes priority over the
+   *  catalog's legacy conference/arcade/meetingRoom/appliance flags (see
+   *  effectiveAction in furnitureCatalog.ts). Lets any placed item carry any
+   *  action, e.g. turning a specific arcade cabinet into a link-manager
+   *  kiosk instead, without a new catalog type. */
+  action?: Action;
 }
 
 /** A free-text label placed on one tile — purely decorative (no footprint,
@@ -291,16 +330,21 @@ export interface OfficeLayout {
    *  false/missing = normal. Painted with the editor's Block tool; merged into
    *  officeState's blockedTiles alongside furniture footprints. */
   tileBlocked?: boolean[];
-  /** Per-tile "meeting area" flag, parallel to tiles array — painted with the
-   *  editor's Meeting tool. Every maximal 4-connected group of true tiles is
-   *  one meeting area (id assigned by flood fill at layout-build time, see
-   *  computePrivateAreaIds — never stored, always derived, so ids stay
-   *  unique/contiguous by construction and two areas painted separately then
-   *  later bridged just merge into one on the next rebuild). Standing on a
-   *  tile in the same area as another player groups you for the walk-in
-   *  meeting UI (participant popup, on-the-fly video/screen-share) —
-   *  independent of the click-to-join MEETING_KIOSK conference. */
+  /** @deprecated superseded by tileActions (a 'meetingRoom' action on the
+   *  same tiles) — kept only so migrateLayout can upgrade old saved layouts
+   *  on load; nothing else reads this field anymore. */
   tilePrivateArea?: boolean[];
+  /** Per-tile action (see Action), parallel to tiles array — painted with the
+   *  editor's Action tool. For 'meetingRoom' tiles, every maximal
+   *  4-connected group of same-kind tiles is one area (id assigned by flood
+   *  fill at layout-build time, see computeActionAreas — never stored,
+   *  always derived, so ids stay unique/contiguous by construction and two
+   *  areas painted separately then later bridged just merge into one on the
+   *  next rebuild); standing in one automatically joins you (no explicit
+   *  click), independent of a furniture 'meetingRoom' action's explicit
+   *  join/leave click. Every other action kind fires once when a player's
+   *  tile matches it (edge-triggered, like a portal). */
+  tileActions?: Array<Action | null>;
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
