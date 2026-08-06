@@ -134,12 +134,21 @@ sign out from within the app.
 **Build a distributable** (currently a Linux AppImage, unsigned):
 
 ```bash
-pnpm dist:desktop     # → desktop/release/Pixel Agents-<version>-<arch>.AppImage
+pnpm dist:desktop     # → desktop/release/pixel-agents-<version>-<arch>.AppImage
 ```
 
 `pnpm build:desktop` just compiles the shell (client build + Electron
 main/preload) without packaging. Both require `electron`'s postinstall to have
 fetched its Chromium binary (allowed in `pnpm-workspace.yaml`).
+
+CI (`.github/workflows/desktop.yml`) builds the AppImage on every push. A `v*`
+tag gets it attached to that release; every `master` commit overwrites the
+rolling `latest` prerelease, so the newest master build is always at a fixed URL:
+
+```bash
+curl -LO https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage
+chmod +x pixel-agents-latest-x86_64.AppImage
+```
 
 #### Mumble voice (desktop only)
 
