@@ -146,8 +146,10 @@ export class LiveKitConference {
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
-      await room.localParticipant.setCameraEnabled(true);
-      await room.localParticipant.setMicrophoneEnabled(true);
+      // In parallel, not sequential — camera negotiation (device warm-up,
+      // resolution/codec) is much slower than mic, and awaiting it first
+      // means audio would otherwise wait behind a delay it doesn't have.
+      await Promise.all([room.localParticipant.setCameraEnabled(true), room.localParticipant.setMicrophoneEnabled(true)]);
       this.ensureTile(room.localParticipant, true);
       for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
       this.notify();
