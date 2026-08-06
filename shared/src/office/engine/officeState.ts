@@ -1014,9 +1014,17 @@ export class OfficeState {
   walkPlayerToAction(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
-    const item = this.layout.furniture.find((f) => f.col === anchorCol && f.row === anchorRow);
+    // A tile can carry more than one furniture item (e.g. a cup placed on a
+    // table via canPlaceOnSurfaces) — match the one that actually HAS a
+    // (non-appliance) action, not just whichever happens to be first at that
+    // position (mirrors useAppliance's own same-tile disambiguation).
+    const item = this.layout.furniture.find((f) => {
+      if (f.col !== anchorCol || f.row !== anchorRow) return false;
+      const a = effectiveAction(f, getCatalogEntry(f.type));
+      return !!a && a.kind !== 'appliance';
+    });
     const action = item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
-    if (!action || action.kind === 'appliance') return false;
+    if (!action) return false;
     const entry = getCatalogEntry(item!.type);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
