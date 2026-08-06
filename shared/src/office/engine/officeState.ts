@@ -355,7 +355,13 @@ export class OfficeState {
     w: number,
     h: number,
     facing?: Direction,
+    allowedSides?: Array<'N' | 'S' | 'E' | 'W'>,
   ): Array<{ col: number; row: number; facing: Direction }> {
+    // An explicit allow-list (PlacedFurniture.approachSides) is a deliberate
+    // per-instance choice — it overrides the wall-ambiguity auto-resolution
+    // below entirely rather than combining with it, so picking e.g. only 'S'
+    // behaves the same on a plain floor item as on an ambiguous wall one.
+    const restrict = allowedSides && allowedSides.length > 0 ? allowedSides : null;
     const wallRow = row + h - 1;
     let wallMounted = true;
     for (let dc = 0; dc < w && wallMounted; dc++) {
@@ -364,7 +370,7 @@ export class OfficeState {
     const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
     const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side
     let ambiguous = false;
-    if (wallMounted) {
+    if (wallMounted && !restrict) {
       ambiguous = true;
       for (let dc = 0; dc < w && ambiguous; dc++) {
         if (!isWalkable(col + dc, artRow, this.tileMap, this.blockedTiles)) ambiguous = false;
@@ -382,13 +388,14 @@ export class OfficeState {
       for (let dc = 0; dc < w; dc++) {
         const fc = col + dc;
         const fr = row + dr;
-        const cands: Array<[number, number, Direction]> = [
-          [fc, fr - 1, Direction.DOWN],
-          [fc, fr + 1, Direction.UP],
-          [fc - 1, fr, Direction.RIGHT],
-          [fc + 1, fr, Direction.LEFT],
+        const cands: Array<[number, number, Direction, 'N' | 'S' | 'E' | 'W']> = [
+          [fc, fr - 1, Direction.DOWN, 'N'],
+          [fc, fr + 1, Direction.UP, 'S'],
+          [fc - 1, fr, Direction.RIGHT, 'W'],
+          [fc + 1, fr, Direction.LEFT, 'E'],
         ];
-        for (const [nc, nr, approachFacing] of cands) {
+        for (const [nc, nr, approachFacing, side] of cands) {
+          if (restrict && !restrict.includes(side)) continue;
           const k = `${nc},${nr}`;
           const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
           // Ambiguous case: reject the whole wrong side, not just the tile
@@ -423,7 +430,7 @@ export class OfficeState {
       // override (the editor's Action… button) must be able to turn ANY
       // furniture into a station, not just ones the catalog itself flags.
       if (effectiveAction(item, entry)?.kind !== 'appliance') continue;
-      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing).filter(
+      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing, item.approachSides).filter(
         (c) => !this.isStationTile(c.col, c.row),
       );
       spots.forEach((spot, i) => {
@@ -1018,7 +1025,7 @@ export class OfficeState {
     ch.pendingAppliance = null;
     ch.pendingAction = null;
 
-    const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.facing);
+    const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.facing, item!.approachSides);
 
     // Strict proximity: you only trigger an action by actually standing at
     // one of its approach tiles (now, or on arrival after walking there). No

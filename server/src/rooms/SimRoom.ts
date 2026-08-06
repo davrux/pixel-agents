@@ -192,13 +192,22 @@ function sanitizeLayoutActions(layout: Record<string, unknown>): Record<string, 
   }
   const furniture = layout.furniture;
   if (Array.isArray(furniture)) {
+    const SIDES = new Set(['N', 'S', 'E', 'W']);
     for (const item of furniture) {
       if (!item || typeof item !== 'object') continue;
       const rec = item as Record<string, unknown>;
-      if (rec.action === undefined) continue;
-      const action = sanitizeAction(rec.action);
-      if (action) rec.action = action;
-      else delete rec.action;
+      if (rec.action !== undefined) {
+        const action = sanitizeAction(rec.action);
+        if (action) rec.action = action;
+        else delete rec.action;
+      }
+      if (rec.approachSides !== undefined) {
+        const sides = Array.isArray(rec.approachSides)
+          ? [...new Set(rec.approachSides.filter((s): s is string => typeof s === 'string' && SIDES.has(s)))]
+          : [];
+        if (sides.length > 0) rec.approachSides = sides;
+        else delete rec.approachSides;
+      }
     }
   }
   return layout;

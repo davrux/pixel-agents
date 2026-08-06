@@ -201,7 +201,7 @@ export class LayoutEditor {
   private textActionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
-  private flipFacingBtnInBar!: HTMLButtonElement;
+  private sidesBtnInBar!: HTMLButtonElement;
   private bringFrontBtnInBar!: HTMLButtonElement;
   private sendBackBtnInBar!: HTMLButtonElement;
   private editAssetBtnInBar!: HTMLButtonElement;
@@ -1303,18 +1303,68 @@ export class LayoutEditor {
     });
   }
 
-  /** Flip which side of a wall-mounted item's wall a player approaches from
-   *  (PlacedFurniture.facing) — only has any effect when the wall has
-   *  walkable floor on both sides (see officeState's computeApproachTiles);
-   *  otherwise the tile map already resolves the correct side on its own and
-   *  this is a harmless no-op. No sprite/tileMap change, so no rebuild. */
-  private flipFacingSelected(): void {
+  /** Toggle which side(s) the selected item may be approached from (see
+   *  PlacedFurniture.approachSides) — a small floating checkbox menu
+   *  anchored near the 🧭 button. Each checkbox applies immediately (no OK
+   *  button); unlike chooseActionMenu there's nothing to "resolve" to. */
+  private chooseApproachSides(): void {
     if (!this.layout || !this.selectedUid) return;
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
     if (!f) return;
-    this.beginGesture();
-    f.facing = f.facing === Direction.DOWN ? Direction.UP : Direction.DOWN;
-    this.deps.onEdit(this.layout, true);
+    const rect = this.sidesBtnInBar.getBoundingClientRect();
+    const menu = document.createElement('div');
+    menu.className = 'pa-pal pa-pal-action pa-action-menu';
+    menu.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;z-index:90;width:12rem;display:grid;`;
+    const hint = document.createElement('div');
+    hint.style.cssText = 'padding:0.3rem 0.7rem 0.5rem;font-size:0.72rem;opacity:.65;line-height:1.3;';
+    hint.textContent = 'Empty = automatic (every open side works). Check one or more to restrict.';
+    menu.appendChild(hint);
+    const SIDES: Array<{ tag: 'N' | 'S' | 'E' | 'W'; label: string }> = [
+      { tag: 'N', label: 'North' },
+      { tag: 'S', label: 'South' },
+      { tag: 'W', label: 'West' },
+      { tag: 'E', label: 'East' },
+    ];
+    const renderRow = (b: HTMLButtonElement, tag: 'N' | 'S' | 'E' | 'W', label: string): void => {
+      const on = !!f.approachSides?.includes(tag);
+      b.textContent = `${on ? '☑' : '☐'} ${label}`;
+      b.classList.toggle('sel', on);
+    };
+    for (const { tag, label } of SIDES) {
+      const b = document.createElement('button');
+      b.className = 'pa-pal-item pa-action-choice';
+      renderRow(b, tag, label);
+      b.onclick = () => {
+        this.beginGesture();
+        const cur = new Set(f.approachSides ?? []);
+        cur.has(tag) ? cur.delete(tag) : cur.add(tag);
+        if (cur.size === 0) delete f.approachSides;
+        else f.approachSides = SIDES.map((s) => s.tag).filter((t) => cur.has(t));
+        renderRow(b, tag, label);
+        this.deps.onEdit(this.layout!, true);
+      };
+      menu.appendChild(b);
+    }
+    document.body.appendChild(menu);
+    // Same on-screen clamp as chooseActionMenu — anchored near a selection
+    // close to the window edge would otherwise render partly unclickable.
+    const margin = 4;
+    const mrect = menu.getBoundingClientRect();
+    let left = rect.left;
+    let top = rect.bottom + 4;
+    if (mrect.right > window.innerWidth) left -= mrect.right - window.innerWidth + margin;
+    if (left < margin) left = margin;
+    if (mrect.bottom > window.innerHeight) top -= mrect.bottom - window.innerHeight + margin;
+    if (top < margin) top = margin;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    const onOutside = (e: MouseEvent): void => {
+      if (!menu.contains(e.target as Node)) {
+        document.removeEventListener('mousedown', onOutside, true);
+        menu.remove();
+      }
+    };
+    setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
   }
 
   /** Other placed furniture whose footprint overlaps `f`'s — the "stacked on
@@ -1486,24 +1536,14 @@ export class LayoutEditor {
     this.rotateBtnInBar.style.display = isRotatable(f.type) ? 'inline-block' : 'none';
     const action = effectiveAction(f, e);
     this.nameBtnInBar.style.display = action?.kind === 'meetingRoom' ? 'inline-block' : 'none';
-    // Facing only matters for wall-mounted interactive items (the ones that
-    // compute an approach tile) — and only when the wall is genuinely
-    // ambiguous (floor on both sides); showing it unconditionally for every
-    // wall-mountable item would just be a dead control most of the time, but
-    // wall/furniture edits elsewhere can turn an unambiguous wall ambiguous
-    // later, so it's shown whenever the item COULD need it rather than
-    // trying to recompute ambiguity here too.
-    const canFace = !!e.canPlaceOnWalls && !!action;
-    this.flipFacingBtnInBar.style.display = canFace ? 'inline-block' : 'none';
-    if (canFace) {
-      // Show which side is CURRENT, not just a static flip icon — unset/UP
-      // approaches from the far/south side (glyph points south); DOWN flips
-      // to the art/north side (glyph points north). See computeApproachTiles.
-      const southSide = f.facing !== Direction.DOWN;
-      this.flipFacingBtnInBar.textContent = southSide ? '⬇' : '⬆';
-      this.flipFacingBtnInBar.title = southSide
-        ? 'Approaching from the south — click to flip to the north side'
-        : 'Approaching from the north — click to flip to the south side';
+    // Approach sides only matter for items with SOME action (the ones that
+    // compute an approach tile at all) — any item, not just wall-mountable
+    // ones (see PlacedFurniture.approachSides).
+    this.sidesBtnInBar.style.display = action ? 'inline-block' : 'none';
+    if (action) {
+      const n = f.approachSides?.length ?? 0;
+      this.sidesBtnInBar.title = n > 0 ? `Approach sides… (restricted to ${f.approachSides!.join('/')})` : 'Approach sides… (currently automatic)';
+      this.sidesBtnInBar.classList.toggle('pa-restricted', n > 0);
     }
     const overlapping = this.overlappingFurniture(f);
     this.bringFrontBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
@@ -1687,6 +1727,7 @@ export class LayoutEditor {
       .pa-action-choice.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
       .pa-action-swatch{flex:0 0 auto;width:0.9rem;height:0.9rem;margin-right:0.5rem;
         border:1px solid rgba(0,0,0,.5);border-radius:0.2rem;box-shadow:0 0 0 1px rgba(255,255,255,.15) inset;}
+      .pa-restricted{border-color:#e0a83a!important;box-shadow:0 0 0 2px #e0a83a,inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505!important;}
     `;
     document.head.appendChild(style);
 
@@ -1826,11 +1867,7 @@ export class LayoutEditor {
     };
     this.rotateBtnInBar = mkAct('⟳', 'Rotate (R)', () => this.rotateSelected());
     this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
-    this.flipFacingBtnInBar = mkAct(
-      '⇅',
-      "Flip which side to approach from (only matters on a wall with floor on both sides)",
-      () => this.flipFacingSelected(),
-    );
+    this.sidesBtnInBar = mkAct('🧭', 'Approach sides… (which side(s) a player may use this from)', () => this.chooseApproachSides());
     this.bringFrontBtnInBar = mkAct('🔼', 'Bring to front (of what it overlaps)', () => this.restackSelected(true));
     this.sendBackBtnInBar = mkAct('🔽', 'Send to back (of what it overlaps)', () => this.restackSelected(false));
     this.editAssetBtnInBar = mkAct('🎨', 'Edit this asset (stays in layout-edit mode)', () => {
@@ -1849,7 +1886,7 @@ export class LayoutEditor {
     this.actionBar.append(
       this.rotateBtnInBar,
       this.nameBtnInBar,
-      this.flipFacingBtnInBar,
+      this.sidesBtnInBar,
       this.bringFrontBtnInBar,
       this.sendBackBtnInBar,
       this.editAssetBtnInBar,

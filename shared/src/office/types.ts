@@ -277,16 +277,21 @@ export interface PlacedFurniture {
   color?: ColorValue;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
   name?: string;
-  /** Wall-mounted items only (canPlaceOnWalls): which side a player approaches
-   *  from, when a wall has walkable floor on BOTH sides (e.g. a room divider)
-   *  and the correct side genuinely can't be inferred from the tile map alone.
+  /** @deprecated superseded by approachSides (LayoutEditor no longer exposes
+   *  a control for this) — kept only so old saved layouts keep resolving a
+   *  wall-mounted item's ambiguous side exactly as before. Still read by
+   *  computeApproachTiles as the fallback when approachSides is unset/empty.
    *  DOWN = approached from the art side (the row the sprite renders in,
-   *  above the wall); UP = approached from the far side (below the wall).
-   *  Ignored when only one side is walkable — isWalkable already resolves
-   *  that case on its own. Unset defaults to UP (the far side), matching the
-   *  engine's long-standing default. Editable via LayoutEditor's flip-facing
-   *  control (shown for wall-mountable, interactive items). */
+   *  above the wall); UP = approached from the far side (below the wall). */
   facing?: Direction;
+  /** Which side(s) a player may approach this item from, for any Action-
+   *  bearing or appliance item (not just wall-mounted ones) — see
+   *  computeApproachTiles. Unset or empty = today's automatic behaviour
+   *  (every physically open side works, with `facing` still resolving a
+   *  wall's ambiguous side); a non-empty set is an explicit allow-list that
+   *  overrides that automatic resolution entirely. Editable via
+   *  LayoutEditor's 🧭 "Approach sides…" control. */
+  approachSides?: Array<'N' | 'S' | 'E' | 'W'>;
   /** Manual stacking override for items sharing a tile (e.g. a table, a cup on
    *  it, and a wall TV all overlapping) — a relative layer index among the
    *  overlapping group, not an absolute depth. Positive = closer to front,
