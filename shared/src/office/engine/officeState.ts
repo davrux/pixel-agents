@@ -1015,14 +1015,30 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     // A tile can carry more than one furniture item (e.g. a cup placed on a
-    // table via canPlaceOnSurfaces) — match the one that actually HAS a
-    // (non-appliance) action, not just whichever happens to be first at that
-    // position (mirrors useAppliance's own same-tile disambiguation).
-    const item = this.layout.furniture.find((f) => {
+    // table via canPlaceOnSurfaces) — of the ones that actually HAVE a
+    // (non-appliance) action, prefer whichever renders on top: a surface
+    // item over the desk/table it sits on, then the higher manual "bring to
+    // front" override, then whichever was placed later (the editor
+    // convention — you place the base first, decorations on top after).
+    // An action-less item on top of an actioned one (e.g. a plain decoration
+    // sitting on an actioned desk) does NOT shadow the action underneath —
+    // only items that are themselves in the running (have an action) get
+    // ranked against each other.
+    const candidates = this.layout.furniture.filter((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
       const a = effectiveAction(f, getCatalogEntry(f.type));
       return !!a && a.kind !== 'appliance';
     });
+    candidates.sort((a, b) => {
+      const aSurf = getCatalogEntry(a.type)?.canPlaceOnSurfaces ? 1 : 0;
+      const bSurf = getCatalogEntry(b.type)?.canPlaceOnSurfaces ? 1 : 0;
+      if (aSurf !== bSurf) return bSurf - aSurf;
+      const aOff = a.zOffset ?? 0;
+      const bOff = b.zOffset ?? 0;
+      if (aOff !== bOff) return bOff - aOff;
+      return this.layout.furniture.indexOf(b) - this.layout.furniture.indexOf(a);
+    });
+    const item = candidates[0];
     const action = item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
     if (!action) return false;
     const entry = getCatalogEntry(item!.type);
