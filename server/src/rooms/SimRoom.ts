@@ -12,6 +12,8 @@ import {
   DEFAULT_ZONE,
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
+  TEXT_LABEL_DEFAULT_FONT_SIZE,
+  clampTextLabelFontSize,
   type CommandSpec,
 } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -118,7 +120,7 @@ function authOf(client: Client): AuthInfo {
 function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
   const texts = layout.texts;
   if (!Array.isArray(texts)) return layout;
-  const clean: Array<{ uid: string; col: number; row: number; text: string }> = [];
+  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number }> = [];
   for (const t of texts) {
     if (clean.length >= MAX_TEXT_LABELS) break;
     if (!t || typeof t !== 'object') continue;
@@ -126,7 +128,17 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
     if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
     const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
     if (!text) continue;
-    clean.push({ uid: rec.uid, col: rec.col, row: rec.row, text });
+    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number } = {
+      uid: rec.uid,
+      col: rec.col,
+      row: rec.row,
+      text,
+    };
+    if (rec.fontSize !== undefined) {
+      const size = clampTextLabelFontSize(rec.fontSize);
+      if (size !== TEXT_LABEL_DEFAULT_FONT_SIZE) entry.fontSize = size;
+    }
+    clean.push(entry);
   }
   layout.texts = clean;
   return layout;

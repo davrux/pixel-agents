@@ -8,8 +8,11 @@ export const MAX_COLS = 100;
 export const MAX_ROWS = 100;
 
 // ── Character Animation ─────────────────────────────────────
-export const WALK_SPEED_PX_PER_SEC = 48;
-export const WALK_FRAME_DURATION_SEC = 0.15;
+// 2x the original pace (48 px/s, 0.15s/frame) — WorkAdventure-style brisker
+// walking; frame duration halved alongside speed so the stride still reads
+// as the same length, not a slide.
+export const WALK_SPEED_PX_PER_SEC = 96;
+export const WALK_FRAME_DURATION_SEC = 0.075;
 export const TYPE_FRAME_DURATION_SEC = 0.3;
 export const WANDER_PAUSE_MIN_SEC = 2.0;
 export const WANDER_PAUSE_MAX_SEC = 20.0;

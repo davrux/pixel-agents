@@ -22,6 +22,7 @@ import {
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
+  type PlacedText,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
@@ -30,7 +31,15 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog } from '../ui/dialog.js';
-import { cleanName, MAX_NAME_LEN, MAX_TEXT_LABEL_LEN } from '@pixel/shared/protocol';
+import {
+  cleanName,
+  MAX_NAME_LEN,
+  MAX_TEXT_LABEL_LEN,
+  TEXT_LABEL_DEFAULT_FONT_SIZE,
+  TEXT_LABEL_MIN_FONT_SIZE,
+  TEXT_LABEL_MAX_FONT_SIZE,
+  clampTextLabelFontSize,
+} from '@pixel/shared/protocol';
 
 export interface EditorDeps {
   getLayout: () => OfficeLayout;
@@ -108,8 +117,11 @@ export class LayoutEditor {
   private redoStack: OfficeLayout[] = [];
   /** True while a color-slider drag is the active gesture (one undo per drag). */
   private colorGesture = false;
-  /** Drag-to-move state: uid being dragged + cursor→tile grab offset. */
+  /** Drag-to-move state: uid being dragged (furniture or a text label) +
+   *  cursor→tile grab offset (text labels have no footprint, so their grab
+   *  offset is always 0,0 — the drop tile IS the new position). */
   private dragUid: string | null = null;
+  private dragKind: 'furniture' | 'text' | null = null;
   private dragGrab = { dc: 0, dr: 0 };
   private dragMoved = false;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
@@ -174,6 +186,7 @@ export class LayoutEditor {
     this.redoStack = [];
     this.colorGesture = false;
     this.dragUid = null;
+    this.dragKind = null;
     this.editing = true;
     this.root.style.display = 'flex';
     this.refreshHistoryButtons();
@@ -194,6 +207,7 @@ export class LayoutEditor {
     if (this.colorGesture && this.layout) this.deps.onEdit(this.layout, true);
     this.colorGesture = false;
     this.dragUid = null;
+    this.dragKind = null;
     this.editing = false;
     this.layout = null;
     this.selectedUid = null;
@@ -581,14 +595,27 @@ export class LayoutEditor {
     const input = await promptDialog('Text label:', existing?.text ?? '', { maxLength: MAX_TEXT_LABEL_LEN });
     if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
     const text = cleanName(input, MAX_TEXT_LABEL_LEN);
+    let fontSize: number | undefined;
+    if (text) {
+      const sizeInput = await promptDialog(
+        `Font size (${TEXT_LABEL_MIN_FONT_SIZE}-${TEXT_LABEL_MAX_FONT_SIZE}px):`,
+        String(existing?.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE),
+      );
+      if (sizeInput === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+      fontSize = clampTextLabelFontSize(sizeInput);
+    }
     this.beginGesture();
     if (!this.layout.texts) this.layout.texts = [];
     if (!text) {
       if (existing) this.layout.texts = this.layout.texts.filter((t) => t !== existing);
     } else if (existing) {
       existing.text = text;
+      if (fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete existing.fontSize;
+      else existing.fontSize = fontSize;
     } else {
-      this.layout.texts.push({ uid: this.nextUid(), col, row, text });
+      const pt: PlacedText = { uid: this.nextUid(), col, row, text };
+      if (fontSize !== TEXT_LABEL_DEFAULT_FONT_SIZE) pt.fontSize = fontSize;
+      this.layout.texts.push(pt);
     }
     this.deps.rebuildStatic();
     this.deps.onEdit(this.layout, true);
@@ -690,50 +717,93 @@ export class LayoutEditor {
     set(this.redoBtn, this.redoStack.length > 0);
   }
 
-  // ── Drag-to-move furniture (Select tool) ─────────────────────────
+  // ── Drag-to-move furniture / text labels (Select tool) ───────────
 
-  /** Grab the furniture under the cursor for dragging. Returns false if none
-   *  (or not in select tool) so the scene can pan/select instead. */
+  /** Grab the furniture piece or text label under the cursor for dragging.
+   *  Returns false if neither (or not in select tool) so the scene can pan/
+   *  select instead. Furniture wins if both overlap (matches its existing
+   *  pixel-perfect hit priority). */
   beginFurnitureDrag(wx: number, wy: number): boolean {
     if (!this.editing || this.tool !== 'select' || !this.layout) return false;
     const uid = this.furnitureHitAt(wx, wy);
     const f = uid ? this.layout.furniture.find((x) => x.uid === uid) : undefined;
-    if (!uid || !f) return false;
-    this.dragUid = uid;
-    this.dragGrab = { dc: Math.floor(wx / TILE_SIZE) - f.col, dr: Math.floor(wy / TILE_SIZE) - f.row };
-    this.dragMoved = false;
-    return true;
+    if (uid && f) {
+      this.dragKind = 'furniture';
+      this.dragUid = uid;
+      this.dragGrab = { dc: Math.floor(wx / TILE_SIZE) - f.col, dr: Math.floor(wy / TILE_SIZE) - f.row };
+      this.dragMoved = false;
+      return true;
+    }
+    const col = Math.floor(wx / TILE_SIZE);
+    const row = Math.floor(wy / TILE_SIZE);
+    const t = this.layout.texts?.find((x) => x.col === col && x.row === row);
+    if (t) {
+      this.dragKind = 'text';
+      this.dragUid = t.uid;
+      this.dragGrab = { dc: 0, dr: 0 }; // a label has no footprint — the drop tile IS its new spot
+      this.dragMoved = false;
+      return true;
+    }
+    return false;
   }
 
   isDraggingFurniture(): boolean {
     return this.dragUid !== null;
   }
 
-  /** Preview the dragged piece at the cursor's target tile (tinted by validity). */
+  /** Preview the dragged piece/label at the cursor's target tile. Furniture
+   *  gets the sprite ghost (tinted by validity); a text label — no footprint
+   *  rules to preview — just gets a plain highlight box on the target tile. */
   dragFurnitureTo(wx: number, wy: number): void {
-    if (!this.dragUid || !this.layout || !this.ghost) return;
+    if (!this.dragUid || !this.layout) return;
     this.dragMoved = true;
+    const col = Math.floor(wx / TILE_SIZE);
+    const row = Math.floor(wy / TILE_SIZE);
+    if (this.dragKind === 'text') {
+      this.ghost?.setVisible(false);
+      this.selRect?.setPosition(col * TILE_SIZE, row * TILE_SIZE).setVisible(true);
+      return;
+    }
+    if (!this.ghost) return;
     const f = this.layout.furniture.find((x) => x.uid === this.dragUid);
     const e = f && getCatalogEntry(f.type);
     if (!f || !e) return;
-    const col = Math.floor(wx / TILE_SIZE) - this.dragGrab.dc;
-    const row = Math.floor(wy / TILE_SIZE) - this.dragGrab.dr;
-    const valid = this.canPlace(col, row, e, this.dragUid);
+    const dcol = col - this.dragGrab.dc;
+    const drow = row - this.dragGrab.dr;
+    const valid = this.canPlace(dcol, drow, e, this.dragUid);
     const ac = f.color;
     const sprite = ac
       ? getColorizedSprite(`drag-${f.type}-${ac.h}-${ac.s}-${ac.b}-${ac.c}-${ac.colorize ? 1 : 0}`, e.sprite, ac)
       : e.sprite;
     this.ghost.setTexture(spriteTexture(this.scene, sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
-      .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(valid ? 0xffffff : 0xff6666).setVisible(true);
+      .setPosition(dcol * TILE_SIZE, drow * TILE_SIZE).setTint(valid ? 0xffffff : 0xff6666).setVisible(true);
     this.selRect?.setVisible(false);
   }
 
-  /** Commit (or cancel) the move. A no-move drag falls back to click-select. */
+  /** Commit (or cancel) the move. A no-move drag falls back to click-select
+   *  (furniture only — there's no select/action-bar UI for text labels). */
   endFurnitureDrag(wx: number, wy: number): void {
     const uid = this.dragUid;
+    const kind = this.dragKind;
     this.dragUid = null;
+    this.dragKind = null;
     this.ghost?.setVisible(false);
     if (!uid || !this.layout) return;
+    if (kind === 'text') {
+      this.selRect?.setVisible(false);
+      if (!this.dragMoved) return;
+      const t = this.layout.texts?.find((x) => x.uid === uid);
+      const col = Math.floor(wx / TILE_SIZE);
+      const row = Math.floor(wy / TILE_SIZE);
+      if (!t || col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
+      if (col === t.col && row === t.row) return; // dropped back on itself
+      this.beginGesture();
+      t.col = col;
+      t.row = row;
+      this.deps.rebuildStatic();
+      this.deps.onEdit(this.layout, true);
+      return;
+    }
     if (!this.dragMoved) {
       this.selectAt(wx, wy);
       return;

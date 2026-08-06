@@ -243,10 +243,11 @@ export class OfficeState {
     }
   }
 
-  /** Move a character to a random walkable tile */
+  /** Move a character to a random walkable tile (never inside a meeting area). */
   private relocateCharacterToWalkable(ch: Character): void {
     if (this.walkableTiles.length === 0) return;
-    const spawn = this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)];
+    const pool = this.spawnableTiles();
+    const spawn = pool[Math.floor(Math.random() * pool.length)];
     ch.tileCol = spawn.col;
     ch.tileRow = spawn.row;
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
@@ -272,6 +273,16 @@ export class OfficeState {
    *  when it has no explicit name; see conferenceKey). */
   areaAnchor(areaId: number): { col: number; row: number } | null {
     return privateAreaAnchor(this.privateAreas, areaId);
+  }
+
+  /** Walkable tiles minus any meeting area — nobody should ever spawn/land
+   *  standing in a walk-in meeting area (it would auto-join them into a call
+   *  before they've even chosen anything). Falls back to the unrestricted
+   *  walkable set if meeting areas somehow cover the whole map, so a spawn
+   *  is never simply impossible. */
+  private spawnableTiles(): Array<{ col: number; row: number }> {
+    const pool = this.walkableTiles.filter((t) => this.areaIdAt(t.col, t.row) === null);
+    return pool.length > 0 ? pool : this.walkableTiles;
   }
 
   /** Get the blocked-tile key for a character's own seat, or null */
@@ -641,11 +652,9 @@ export class OfficeState {
       seat.assigned = true;
       ch = createCharacter(id, skin, seatId, seat, hueShift);
     } else {
-      // No seats — spawn at random walkable tile
-      const spawn =
-        this.walkableTiles.length > 0
-          ? this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)]
-          : { col: 1, row: 1 };
+      // No seats — spawn at a random walkable tile (never inside a meeting area).
+      const pool = this.spawnableTiles();
+      const spawn = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
       ch = createCharacter(id, skin, null, null, hueShift);
       ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
       ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
@@ -725,9 +734,10 @@ export class OfficeState {
   }
 
   /** A free walkable tile to spawn on: not a wall/blocked tile, not under any
-   *  furniture footprint, and not occupied by another character or pet. Prefers
-   *  `preferred` (e.g. a zone's arrival tile) when it's free; else a random free
-   *  tile; else any walkable tile as a last resort. */
+   *  furniture footprint, not occupied by another character or pet, and never
+   *  inside a meeting area (see spawnableTiles). Prefers `preferred` (e.g. a
+   *  zone's arrival tile) when it's free; else a random free tile; else any
+   *  walkable tile as a last resort. */
   private findFreeSpawnTile(preferred?: { col: number; row: number }): { col: number; row: number } {
     const occupied = new Set<string>();
     for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
@@ -741,10 +751,12 @@ export class OfficeState {
       }
     }
     const isFree = (t: { col: number; row: number }): boolean =>
-      isWalkable(t.col, t.row, this.tileMap, this.blockedTiles) && !occupied.has(`${t.col},${t.row}`);
+      isWalkable(t.col, t.row, this.tileMap, this.blockedTiles) &&
+      !occupied.has(`${t.col},${t.row}`) &&
+      this.areaIdAt(t.col, t.row) === null;
 
     if (preferred && isFree(preferred)) return preferred;
-    const free = this.walkableTiles.filter(isFree);
+    const free = this.spawnableTiles().filter(isFree);
     const pool = free.length > 0 ? free : this.walkableTiles;
     return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
   }
@@ -779,6 +791,12 @@ export class OfficeState {
   walkPlayer(id: number, col: number, row: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
+    // Outside the play area (off the map, or a VOID gap in it) — no-op, not
+    // "walk to the nearest real tile". A click ON a real but non-walkable
+    // tile (a wall, furniture) still resolves to the nearest walkable spot,
+    // same as before — this only rejects clicks that hit no tile at all.
+    const clicked = this.tileMap[row]?.[col];
+    if (clicked === undefined || clicked === TileType.VOID) return false;
     const target = nearestWalkableTile(col, row, this.tileMap, this.blockedTiles);
     if (!target) return false;
     const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles);

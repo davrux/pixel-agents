@@ -19,6 +19,7 @@ import {
   PET_Z_SORT_OFFSET,
   WALL_COLOR,
 } from '@pixel/shared/office/constants.js';
+import { TEXT_LABEL_DEFAULT_FONT_SIZE } from '@pixel/shared/protocol';
 import { getCharacterSprite } from '@pixel/shared/office/engine/index.js';
 import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
@@ -151,7 +152,7 @@ export class PhaserRenderer {
       const txt = this.scene.add
         .text(x, y, pt.text, {
           fontFamily: "'FS Pixel Sans', monospace",
-          fontSize: '8px',
+          fontSize: `${pt.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE}px`,
           color: '#ffffff',
           stroke: '#000000',
           strokeThickness: 2,

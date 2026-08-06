@@ -165,6 +165,19 @@ export const MAX_TEXT_LABEL_LEN = 48;
  *  bounded cap against an unbounded editor-side loop or a malformed save. */
 export const MAX_TEXT_LABELS = 200;
 
+/** Default/min/max font size (px) for a placed free-text label. */
+export const TEXT_LABEL_DEFAULT_FONT_SIZE = 8;
+export const TEXT_LABEL_MIN_FONT_SIZE = 6;
+export const TEXT_LABEL_MAX_FONT_SIZE = 32;
+
+/** Clamp a user-entered font size to the valid range, falling back to the
+ *  default for anything non-numeric. */
+export function clampTextLabelFontSize(input: unknown): number {
+  const n = typeof input === 'number' ? input : Number(input);
+  if (!Number.isFinite(n)) return TEXT_LABEL_DEFAULT_FONT_SIZE;
+  return Math.min(TEXT_LABEL_MAX_FONT_SIZE, Math.max(TEXT_LABEL_MIN_FONT_SIZE, Math.round(n)));
+}
+
 /** Stable identity of a conference monitor's call: its name (slugged) when set —
  *  so the room survives the monitor being moved — else its tile position. Shared
  *  by client + server so both agree on the key. */

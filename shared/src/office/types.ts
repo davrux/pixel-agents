@@ -266,12 +266,15 @@ export interface PlacedFurniture {
 /** A free-text label placed on one tile — purely decorative (no footprint,
  *  no walkability effect), rendered as a floating sign at that tile. Placed/
  *  edited/deleted via the editor's Text tool (one prompt per click, no
- *  drag-paint); an empty edit deletes it. */
+ *  drag-paint); an empty edit deletes it. Draggable in the Select tool like
+ *  furniture. */
 export interface PlacedText {
   uid: string;
   col: number;
   row: number;
   text: string;
+  /** Font size in px. Unset = the default (see TEXT_LABEL_DEFAULT_FONT_SIZE). */
+  fontSize?: number;
 }
 
 export interface OfficeLayout {

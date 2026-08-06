@@ -95,11 +95,10 @@ const POSE_FRAME_MS: Record<string, number> = {
 };
 
 // Default camera zoom: a character sprite is CHARACTER_BASELINE_HEIGHT (32)
-// world px tall, so at zoom 2 it renders ~64 CSS px tall — ~1.7cm at the
-// standard 96-CSS-px-per-inch reference (96/2.54 ≈ 37.8 px/cm), the middle of
-// a comfortable 1.5–2cm range on an ordinary monitor. Manual zoom (mouse
-// wheel) still overrides this per session; it's just the starting point.
-const DEFAULT_ZOOM = 2;
+// world px tall, so at zoom 2.5 it renders ~80 CSS px tall — ~2.1cm at the
+// standard 96-CSS-px-per-inch reference (96/2.54 ≈ 37.8 px/cm). Manual zoom
+// (mouse wheel) still overrides this per session; it's just the starting point.
+const DEFAULT_ZOOM = 2.5;
 
 // Idle-throttle tuning (see update()): DOM overlays run at ~20 Hz; after a short
 // grace with a fully static scene the per-frame work is skipped, and after ~2 s
