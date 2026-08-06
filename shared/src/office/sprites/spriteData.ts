@@ -34,7 +34,8 @@ function resolveBubbleSprite(data: BubbleSpriteJson): SpriteData {
 /** Permission bubble: white square with "..." in amber, and a tail pointer (11x13) */
 export const BUBBLE_PERMISSION_SPRITE: SpriteData = resolveBubbleSprite(bubblePermissionData);
 
-/** Waiting bubble: white square with green checkmark, and a tail pointer (11x13) */
+/** Waiting bubble: white square with a green "?" — the agent's turn ended and it
+ *  is waiting on you — and a tail pointer (11x13) */
 export const BUBBLE_WAITING_SPRITE: SpriteData = resolveBubbleSprite(bubbleWaitingData);
 
 // ════════════════════════════════════════════════════════════════
