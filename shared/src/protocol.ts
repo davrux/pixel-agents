@@ -178,6 +178,30 @@ export function clampTextLabelFontSize(input: unknown): number {
   return Math.min(TEXT_LABEL_MAX_FONT_SIZE, Math.max(TEXT_LABEL_MIN_FONT_SIZE, Math.round(n)));
 }
 
+/** Font-family choices for a placed free-text label — a closed set (not free
+ *  text) so the client's picker and the server's save-time sanitization
+ *  agree. Only one CUSTOM font is actually bundled today ('FS Pixel Sans',
+ *  the game's pixel font); the rest are browser-generic families — real,
+ *  always-available variety rather than a picker with just one option.
+ *  Adding another *custom* font later means shipping its font file/@font-face
+ *  and adding one more entry here, nothing else changes. */
+export const TEXT_LABEL_FONT_CHOICES: Array<{ label: string; value: string }> = [
+  { label: 'Pixel (default)', value: "'FS Pixel Sans', monospace" },
+  { label: 'Monospace', value: 'monospace' },
+  { label: 'Sans-serif', value: 'sans-serif' },
+  { label: 'Serif', value: 'serif' },
+];
+export const TEXT_LABEL_DEFAULT_FONT_FAMILY = TEXT_LABEL_FONT_CHOICES[0].value;
+
+/** Validate a saved fontFamily against the closed set above — anything else
+ *  (including the default itself, kept unset to match fontSize's own
+ *  unset-means-default convention) resolves to undefined. */
+export function sanitizeTextLabelFontFamily(input: unknown): string | undefined {
+  if (typeof input !== 'string') return undefined;
+  const known = TEXT_LABEL_FONT_CHOICES.find((c) => c.value === input);
+  return known && known.value !== TEXT_LABEL_DEFAULT_FONT_FAMILY ? known.value : undefined;
+}
+
 /** Stable identity of a conference monitor's call: its name (slugged) when set —
  *  so the room survives the monitor being moved — else its tile position. Shared
  *  by client + server so both agree on the key. */

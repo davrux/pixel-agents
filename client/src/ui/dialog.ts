@@ -7,6 +7,12 @@
  * too, not just the 2D scene.
  */
 import { generatePassword } from '../shared/generatePassword.js';
+import {
+  TEXT_LABEL_FONT_CHOICES,
+  TEXT_LABEL_MIN_FONT_SIZE,
+  TEXT_LABEL_MAX_FONT_SIZE,
+  clampTextLabelFontSize,
+} from '@pixel/shared/protocol';
 
 let stylesInjected = false;
 function ensureStyles(): void {
@@ -40,6 +46,12 @@ function ensureStyles(): void {
     #pa-modal .pw-row{display:flex;gap:0.4rem;margin-bottom:1rem;}
     #pa-modal .pw-row input[type=password],#pa-modal .pw-row input[type=text]{flex:1;min-width:0;margin-bottom:0;}
     #pa-modal .pw-row button{padding:0.5rem 0.6rem;}
+    #pa-modal .field-row{display:flex;align-items:center;gap:0.4rem;margin-bottom:1rem;font-size:0.9rem;}
+    #pa-modal .field-row label{color:#adb0b2;flex:0 0 auto;}
+    #pa-modal .field-row input[type=number]{width:3.6rem;flex:0 0 auto;margin-bottom:0;}
+    #pa-modal .field-row select{flex:1;min-width:0;background:#262422;border:2px solid #0a0908;color:#f1efec;
+      border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.4rem 0.5rem;cursor:pointer;
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   `;
   document.head.appendChild(style);
 }
@@ -175,6 +187,94 @@ export function promptDialog(
     };
     cancel.onclick = () => done(null);
     ok.onclick = () => done(input.value);
+    overlay.onclick = (e) => {
+      if (e.target === overlay) done(null);
+    };
+    window.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+  });
+}
+
+export interface TextLabelDialogResult {
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+}
+
+/**
+ * One dialog for a placed free-text label's content, size, and font —
+ * replaces what used to be two sequential promptDialog calls (text, then
+ * font size) with a single form. Resolves to null on cancel / Esc / backdrop
+ * click, same as the other dialogs here.
+ */
+export function textLabelDialog(
+  message: string,
+  current: TextLabelDialogResult,
+  opts: { confirmLabel?: string; cancelLabel?: string; maxLength?: number } = {},
+): Promise<TextLabelDialogResult | null> {
+  const { overlay, box } = buildModal(message);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.value = current.text;
+  if (opts.maxLength) input.maxLength = opts.maxLength;
+  box.appendChild(input);
+
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  const sizeLabel = document.createElement('label');
+  sizeLabel.textContent = 'Size';
+  sizeLabel.htmlFor = 'pa-modal-size';
+  const sizeInput = document.createElement('input');
+  sizeInput.id = 'pa-modal-size';
+  sizeInput.type = 'number';
+  sizeInput.min = String(TEXT_LABEL_MIN_FONT_SIZE);
+  sizeInput.max = String(TEXT_LABEL_MAX_FONT_SIZE);
+  sizeInput.value = String(current.fontSize);
+  const fontLabel = document.createElement('label');
+  fontLabel.textContent = 'Font';
+  fontLabel.htmlFor = 'pa-modal-font';
+  const fontSelect = document.createElement('select');
+  fontSelect.id = 'pa-modal-font';
+  for (const choice of TEXT_LABEL_FONT_CHOICES) {
+    const option = document.createElement('option');
+    option.value = choice.value;
+    option.textContent = choice.label;
+    fontSelect.appendChild(option);
+  }
+  fontSelect.value = current.fontFamily;
+  row.append(sizeLabel, sizeInput, fontLabel, fontSelect);
+  box.appendChild(row);
+
+  const foot = document.createElement('div');
+  foot.className = 'foot';
+  const cancel = document.createElement('button');
+  cancel.textContent = opts.cancelLabel ?? 'Cancel';
+  const ok = document.createElement('button');
+  ok.textContent = opts.confirmLabel ?? 'OK';
+  ok.className = 'ok';
+  foot.append(cancel, ok);
+  box.appendChild(foot);
+
+  return new Promise<TextLabelDialogResult | null>((resolve) => {
+    const done = (v: TextLabelDialogResult | null) => {
+      window.removeEventListener('keydown', onKey);
+      overlay.remove();
+      resolve(v);
+    };
+    const submit = (): void =>
+      done({
+        text: input.value,
+        fontSize: clampTextLabelFontSize(sizeInput.value),
+        fontFamily: fontSelect.value,
+      });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') done(null);
+      else if (e.key === 'Enter') submit();
+    };
+    cancel.onclick = () => done(null);
+    ok.onclick = submit;
     overlay.onclick = (e) => {
       if (e.target === overlay) done(null);
     };

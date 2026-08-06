@@ -314,6 +314,10 @@ export interface PlacedText {
   text: string;
   /** Font size in px. Unset = the default (see TEXT_LABEL_DEFAULT_FONT_SIZE). */
   fontSize?: number;
+  /** CSS font-family value, one of TEXT_LABEL_FONT_CHOICES (protocol.ts).
+   *  Unset = the default pixel font. Closed set (not free text) — sanitized
+   *  server-side same as everything else user-authored in a layout. */
+  fontFamily?: string;
   /** Free rotation in degrees (0-359, normalized), pivoted at the label's own
    *  anchor (bottom-center of its tile). Unset = 0 (upright, unrotated). */
   angle?: number;

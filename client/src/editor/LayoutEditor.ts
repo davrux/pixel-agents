@@ -32,16 +32,14 @@ import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
-import { promptDialog } from '../ui/dialog.js';
+import { promptDialog, textLabelDialog } from '../ui/dialog.js';
 import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
 import {
   cleanName,
   MAX_NAME_LEN,
   MAX_TEXT_LABEL_LEN,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
-  TEXT_LABEL_MIN_FONT_SIZE,
-  TEXT_LABEL_MAX_FONT_SIZE,
-  clampTextLabelFontSize,
+  TEXT_LABEL_DEFAULT_FONT_FAMILY,
 } from '@pixel/shared/protocol';
 
 export interface EditorDeps {
@@ -402,6 +400,37 @@ export class LayoutEditor {
     return hits.sort((a, b) => b.z - a.z).map((hit) => hit.uid);
   }
 
+  /** Shared offscreen 2d context for measuring a label's rendered width —
+   *  same font the renderer actually draws with, so the hit box matches what
+   *  you see rather than just the one anchor tile. */
+  private static measureCtx: CanvasRenderingContext2D | null = null;
+  private static measureTextWidth(text: string, fontSizePx: number): number {
+    if (!LayoutEditor.measureCtx) LayoutEditor.measureCtx = document.createElement('canvas').getContext('2d');
+    const ctx = LayoutEditor.measureCtx;
+    if (!ctx) return text.length * fontSizePx * 0.6; // no canvas 2d — rough monospace fallback
+    ctx.font = `${fontSizePx}px 'FS Pixel Sans', monospace`;
+    return ctx.measureText(text).width;
+  }
+
+  /** The text label under (wx,wy), matched against its actual rendered extent
+   *  (see PhaserRenderer's text positioning: origin 0.5,1 at ((col+0.5)*TILE,
+   *  (row+1)*TILE)) — not just its one anchor tile, which is far smaller than
+   *  most labels. Ignores a rotated label's angle (an axis-aligned box is a
+   *  reasonable approximation for picking, not worth exact rotated math). */
+  private textHitAt(wx: number, wy: number): PlacedText | null {
+    if (!this.layout?.texts) return null;
+    for (let i = this.layout.texts.length - 1; i >= 0; i--) {
+      const t = this.layout.texts[i];
+      const fontSize = t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE;
+      const width = LayoutEditor.measureTextWidth(t.text, fontSize);
+      const cx = (t.col + 0.5) * TILE_SIZE;
+      const bottom = (t.row + 1) * TILE_SIZE;
+      const top = bottom - fontSize * 1.2;
+      if (wx >= cx - width / 2 && wx <= cx + width / 2 && wy >= top && wy <= bottom) return t;
+    }
+    return null;
+  }
+
   private furnitureHitAt(wx: number, wy: number): string | null {
     return this.furnitureHitsAt(wx, wy)[0] ?? null;
   }
@@ -604,34 +633,36 @@ export class LayoutEditor {
   }
 
   /** Place, edit, or (empty input) delete a free-text label on one tile — the
-   *  Text tool's only interaction, one prompt per click, no drag-paint. */
+   *  Text tool's only interaction, one dialog per click, no drag-paint. */
   private async placeOrEditText(col: number, row: number): Promise<void> {
     if (!this.layout) return;
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
     const existing = this.layout.texts?.find((t) => t.col === col && t.row === row);
-    const input = await promptDialog('Text label:', existing?.text ?? '', { maxLength: MAX_TEXT_LABEL_LEN });
-    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
-    const text = cleanName(input, MAX_TEXT_LABEL_LEN);
-    let fontSize: number | undefined;
-    if (text) {
-      const sizeInput = await promptDialog(
-        `Font size (${TEXT_LABEL_MIN_FONT_SIZE}-${TEXT_LABEL_MAX_FONT_SIZE}px):`,
-        String(existing?.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE),
-      );
-      if (sizeInput === null || !this.layout) return; // cancelled, or the editor closed meanwhile
-      fontSize = clampTextLabelFontSize(sizeInput);
-    }
+    const result = await textLabelDialog(
+      'Text label:',
+      {
+        text: existing?.text ?? '',
+        fontSize: existing?.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE,
+        fontFamily: existing?.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY,
+      },
+      { maxLength: MAX_TEXT_LABEL_LEN },
+    );
+    if (result === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const text = cleanName(result.text, MAX_TEXT_LABEL_LEN);
     this.beginGesture();
     if (!this.layout.texts) this.layout.texts = [];
     if (!text) {
       if (existing) this.layout.texts = this.layout.texts.filter((t) => t !== existing);
     } else if (existing) {
       existing.text = text;
-      if (fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete existing.fontSize;
-      else existing.fontSize = fontSize;
+      if (result.fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete existing.fontSize;
+      else existing.fontSize = result.fontSize;
+      if (result.fontFamily === TEXT_LABEL_DEFAULT_FONT_FAMILY) delete existing.fontFamily;
+      else existing.fontFamily = result.fontFamily;
     } else {
       const pt: PlacedText = { uid: this.nextUid(), col, row, text };
-      if (fontSize !== TEXT_LABEL_DEFAULT_FONT_SIZE) pt.fontSize = fontSize;
+      if (result.fontSize !== TEXT_LABEL_DEFAULT_FONT_SIZE) pt.fontSize = result.fontSize;
+      if (result.fontFamily !== TEXT_LABEL_DEFAULT_FONT_FAMILY) pt.fontFamily = result.fontFamily;
       this.layout.texts.push(pt);
     }
     this.deps.rebuildStatic();
@@ -753,9 +784,7 @@ export class LayoutEditor {
       this.dragMoved = false;
       return true;
     }
-    const col = Math.floor(wx / TILE_SIZE);
-    const row = Math.floor(wy / TILE_SIZE);
-    const t = this.layout.texts?.find((x) => x.col === col && x.row === row);
+    const t = this.textHitAt(wx, wy);
     if (t) {
       this.dragKind = 'text';
       this.dragUid = t.uid;
@@ -1362,23 +1391,27 @@ export class LayoutEditor {
     if (!this.layout || !this.selectedTextUid) return;
     const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
     if (!t) return;
-    const input = await promptDialog('Text label:', t.text, { maxLength: MAX_TEXT_LABEL_LEN });
-    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
-    const text = cleanName(input, MAX_TEXT_LABEL_LEN);
+    const result = await textLabelDialog(
+      'Text label:',
+      {
+        text: t.text,
+        fontSize: t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE,
+        fontFamily: t.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY,
+      },
+      { maxLength: MAX_TEXT_LABEL_LEN },
+    );
+    if (result === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const text = cleanName(result.text, MAX_TEXT_LABEL_LEN);
     if (!text) {
       this.deleteSelectedText();
       return;
     }
-    const sizeInput = await promptDialog(
-      `Font size (${TEXT_LABEL_MIN_FONT_SIZE}-${TEXT_LABEL_MAX_FONT_SIZE}px):`,
-      String(t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE),
-    );
-    if (sizeInput === null || !this.layout) return; // cancelled, or the editor closed meanwhile
-    const fontSize = clampTextLabelFontSize(sizeInput);
     this.beginGesture();
     t.text = text;
-    if (fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete t.fontSize;
-    else t.fontSize = fontSize;
+    if (result.fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete t.fontSize;
+    else t.fontSize = result.fontSize;
+    if (result.fontFamily === TEXT_LABEL_DEFAULT_FONT_FAMILY) delete t.fontFamily;
+    else t.fontFamily = result.fontFamily;
     this.deps.rebuildStatic();
     this.deps.onEdit(this.layout, true);
   }
