@@ -263,6 +263,17 @@ export interface PlacedFurniture {
   zOffset?: number;
 }
 
+/** A free-text label placed on one tile — purely decorative (no footprint,
+ *  no walkability effect), rendered as a floating sign at that tile. Placed/
+ *  edited/deleted via the editor's Text tool (one prompt per click, no
+ *  drag-paint); an empty edit deletes it. */
+export interface PlacedText {
+  uid: string;
+  col: number;
+  row: number;
+  text: string;
+}
+
 export interface OfficeLayout {
   version: 1;
   cols: number;
@@ -287,6 +298,8 @@ export interface OfficeLayout {
    *  meeting UI (participant popup, on-the-fly video/screen-share) —
    *  independent of the click-to-join MEETING_KIOSK conference. */
   tilePrivateArea?: boolean[];
+  /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
+  texts?: PlacedText[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

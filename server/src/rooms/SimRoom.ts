@@ -1,7 +1,19 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
-import { resolveZone, conferenceKey, cleanName, playerAvatarSkinId, findCommand, mayRunCommand, KICK_CLOSE_CODE, DEFAULT_ZONE, type CommandSpec } from '@pixel/shared';
+import {
+  resolveZone,
+  conferenceKey,
+  cleanName,
+  playerAvatarSkinId,
+  findCommand,
+  mayRunCommand,
+  KICK_CLOSE_CODE,
+  DEFAULT_ZONE,
+  MAX_TEXT_LABEL_LEN,
+  MAX_TEXT_LABELS,
+  type CommandSpec,
+} from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -95,6 +107,29 @@ function authOf(client: Client): AuthInfo {
     isAdmin: !!a?.isAdmin,
     role: a?.role ?? (a?.isAdmin ? 'admin' : 'user'),
   };
+}
+
+/** Cap a saved layout's free-text labels (OfficeLayout.texts) to a sane
+ *  length/count before it's persisted — the only content check on a saved
+ *  layout blob (furniture/tiles have none either; this mirrors the client's
+ *  own cap, see LayoutEditor's Text tool, in case a client is patched or
+ *  malicious). Mutates and returns the same object; other fields pass through
+ *  untouched. */
+function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
+  const texts = layout.texts;
+  if (!Array.isArray(texts)) return layout;
+  const clean: Array<{ uid: string; col: number; row: number; text: string }> = [];
+  for (const t of texts) {
+    if (clean.length >= MAX_TEXT_LABELS) break;
+    if (!t || typeof t !== 'object') continue;
+    const rec = t as Record<string, unknown>;
+    if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
+    const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
+    if (!text) continue;
+    clean.push({ uid: rec.uid, col: rec.col, row: rec.row, text });
+  }
+  layout.texts = clean;
+  return layout;
 }
 
 export class SimRoom extends Room<{ state: RoomState }> {
@@ -774,14 +809,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
-      if (msg?.layout && this.store.saveActive(zone, msg.layout, Date.now())) this.applyActiveLayout();
+      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutTexts(msg.layout), Date.now())) this.applyActiveLayout();
     });
 
     this.onMessage('saveLayoutAs', (client, msg: { name?: string; layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
-        this.store.saveAs(zone, name, msg.layout, Date.now());
+        this.store.saveAs(zone, name, sanitizeLayoutTexts(msg.layout), Date.now());
         this.applyActiveLayout();
       }
     });

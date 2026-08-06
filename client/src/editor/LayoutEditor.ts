@@ -30,7 +30,7 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog } from '../ui/dialog.js';
-import { cleanName, MAX_NAME_LEN } from '@pixel/shared/protocol';
+import { cleanName, MAX_NAME_LEN, MAX_TEXT_LABEL_LEN } from '@pixel/shared/protocol';
 
 export interface EditorDeps {
   getLayout: () => OfficeLayout;
@@ -52,7 +52,7 @@ export interface EditorDeps {
   openAssetEditor?: (type: string) => void;
 }
 
-type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'meeting' | 'eyedropper';
+type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'meeting' | 'text' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
@@ -167,6 +167,7 @@ export class LayoutEditor {
     if (!this.layout.tilePrivateArea) {
       this.layout.tilePrivateArea = new Array(this.layout.cols * this.layout.rows).fill(false);
     }
+    if (!this.layout.texts) this.layout.texts = [];
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
     this.undoStack = [];
@@ -245,7 +246,8 @@ export class LayoutEditor {
         '4': 'wall',
         '5': 'block',
         '6': 'meeting',
-        '7': 'eyedropper',
+        '7': 'text',
+        '8': 'eyedropper',
       };
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
@@ -293,6 +295,9 @@ export class LayoutEditor {
       case 'meeting':
         this.paintMeetingArea(col, row, true);
         break;
+      case 'text':
+        void this.placeOrEditText(col, row);
+        break;
       case 'eyedropper':
         this.eyedrop(wx, wy);
         break;
@@ -308,6 +313,8 @@ export class LayoutEditor {
       this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
     } else if (this.tool === 'meeting') {
       this.paintMeetingArea(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
+    } else if (this.tool === 'text') {
+      this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
   }
 
@@ -565,6 +572,39 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, false);
   }
 
+  /** Place, edit, or (empty input) delete a free-text label on one tile — the
+   *  Text tool's only interaction, one prompt per click, no drag-paint. */
+  private async placeOrEditText(col: number, row: number): Promise<void> {
+    if (!this.layout) return;
+    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
+    const existing = this.layout.texts?.find((t) => t.col === col && t.row === row);
+    const input = await promptDialog('Text label:', existing?.text ?? '', { maxLength: MAX_TEXT_LABEL_LEN });
+    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const text = cleanName(input, MAX_TEXT_LABEL_LEN);
+    this.beginGesture();
+    if (!this.layout.texts) this.layout.texts = [];
+    if (!text) {
+      if (existing) this.layout.texts = this.layout.texts.filter((t) => t !== existing);
+    } else if (existing) {
+      existing.text = text;
+    } else {
+      this.layout.texts.push({ uid: this.nextUid(), col, row, text });
+    }
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** Right-click with the Text tool: delete the label at this tile directly. */
+  private deleteTextAt(col: number, row: number): void {
+    if (!this.layout?.texts) return;
+    const i = this.layout.texts.findIndex((t) => t.col === col && t.row === row);
+    if (i < 0) return;
+    this.beginGesture();
+    this.layout.texts.splice(i, 1);
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
   private eyedrop(wx: number, wy: number): void {
     if (!this.layout) return;
     // Furniture first (top-most under the cursor), else the tile.
@@ -724,14 +764,15 @@ export class LayoutEditor {
    */
   private ensureUniqueUids(): void {
     if (!this.layout) return;
+    const all = [...this.layout.furniture, ...(this.layout.texts ?? [])];
     let max = 0;
-    for (const f of this.layout.furniture) {
+    for (const f of all) {
       const m = /^e(\d+)$/.exec(f.uid ?? '');
       if (m) max = Math.max(max, Number(m[1]));
     }
     this.uid = max;
     const seen = new Set<string>();
-    for (const f of this.layout.furniture) {
+    for (const f of all) {
       if (!f.uid || seen.has(f.uid)) f.uid = this.nextUid();
       seen.add(f.uid);
     }
@@ -1226,6 +1267,7 @@ export class LayoutEditor {
       wall: 'Wall — left-click paint, right-click erase',
       block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
       meeting: 'Meeting area — left-click marks a tile as part of a walk-in meeting area, right-click clears it',
+      text: 'Text — left-click to place/edit a label (empty clears it), right-click removes it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
     this.hint.textContent = labels[t];
@@ -1305,6 +1347,7 @@ export class LayoutEditor {
       ['wall', 'Wall'],
       ['block', 'Block'],
       ['meeting', 'Meeting'],
+      ['text', 'Text'],
       ['eyedropper', 'Pick'],
     ] as const) {
       const b = document.createElement('button');

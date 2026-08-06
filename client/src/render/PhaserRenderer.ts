@@ -71,6 +71,10 @@ interface CharGObjects {
  */
 export class PhaserRenderer {
   private readonly statics: Phaser.GameObjects.Image[] = [];
+  /** Free-text labels (OfficeLayout.texts) — rebuilt wholesale alongside
+   *  floor/walls in buildStatic() rather than pooled like furniture, since
+   *  they're plain decorative strings with no animation/instance churn. */
+  private readonly texts: Phaser.GameObjects.Text[] = [];
   private readonly furniturePool: Phaser.GameObjects.Image[] = [];
   /** The furniture array reference last rendered — the engine swaps it on each
    *  rebuild (ambient animation every ~0.2s and PC auto-on/off), so an identity
@@ -100,6 +104,8 @@ export class PhaserRenderer {
   buildStatic(): void {
     for (const o of this.statics) o.destroy();
     this.statics.length = 0;
+    for (const t of this.texts) t.destroy();
+    this.texts.length = 0;
     this.lastFurnitureRef = null; // force a furniture re-sync for the new layout
 
     const layout = this.state.getLayout();
@@ -137,6 +143,23 @@ export class PhaserRenderer {
       }
     }
 
+    // Free-text labels (OfficeLayout.texts) — a floating sign anchored to the
+    // bottom-centre of their tile, sorted like a same-row character/furniture.
+    for (const pt of layout.texts ?? []) {
+      const x = (pt.col + 0.5) * TILE_SIZE;
+      const y = (pt.row + 1) * TILE_SIZE;
+      const txt = this.scene.add
+        .text(x, y, pt.text, {
+          fontFamily: "'FS Pixel Sans', monospace",
+          fontSize: '8px',
+          color: '#ffffff',
+          stroke: '#000000',
+          strokeThickness: 2,
+        })
+        .setOrigin(0.5, 1)
+        .setDepth(y);
+      this.texts.push(txt);
+    }
   }
 
   /** Re-render furniture only when the engine swapped the instance array

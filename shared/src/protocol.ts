@@ -156,6 +156,15 @@ export function cleanName(input: unknown, max: number = MAX_NAME_LEN): string {
   return (typeof input === 'string' ? input : '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+/** Max length for a placed free-text label (OfficeLayout.texts) — a label/
+ *  short sentence, not an essay. Shared so the client's editor prompt and the
+ *  server's save-time sanitization agree. */
+export const MAX_TEXT_LABEL_LEN = 48;
+
+/** Max number of free-text labels one layout may have — a generous but
+ *  bounded cap against an unbounded editor-side loop or a malformed save. */
+export const MAX_TEXT_LABELS = 200;
+
 /** Stable identity of a conference monitor's call: its name (slugged) when set —
  *  so the room survives the monitor being moved — else its tile position. Shared
  *  by client + server so both agree on the key. */
