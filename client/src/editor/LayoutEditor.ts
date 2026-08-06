@@ -93,25 +93,34 @@ function actionTileColor(action: Action): number {
   if (action.kind === 'meetingRoom' && !action.video) return MEETING_ROOM_NO_VIDEO_COLOR;
   return ACTION_TILE_COLOR[action.kind];
 }
-const ACTION_TILE_STROKE = 0.85;
-const ACTION_TILE_FILL = 0.32;
+const ACTION_TILE_STROKE = 0.95;
+const ACTION_TILE_FILL = 0.42;
 
 /** Menu of tile-action kinds the Action tool can paint, in palette order.
- *  'iframe' needs a URL, prompted for when picked (not per tile). */
-const TILE_ACTION_CHOICES: Array<{ label: string; make: () => Action | Promise<Action | null> }> = [
-  { label: 'Meeting (video)', make: () => ({ kind: 'meetingRoom', video: true }) },
-  { label: 'Meeting (audio only)', make: () => ({ kind: 'meetingRoom', video: false }) },
-  { label: 'AdHoc Meeting Kiosk', make: () => ({ kind: 'linkManager' }) },
+ *  'iframe' needs a URL, prompted for when picked (not per tile). `swatch` is
+ *  the exact colour that kind paints onto the grid (see actionTileColor) —
+ *  shown next to the label in both the palette and the furniture popup menu
+ *  so a choice's colour is known before picking it, not just after. */
+const TILE_ACTION_CHOICES: Array<{ label: string; swatch: number; make: () => Action | Promise<Action | null> }> = [
+  { label: 'Meeting (video)', swatch: actionTileColor({ kind: 'meetingRoom', video: true }), make: () => ({ kind: 'meetingRoom', video: true }) },
+  { label: 'Meeting (audio only)', swatch: actionTileColor({ kind: 'meetingRoom', video: false }), make: () => ({ kind: 'meetingRoom', video: false }) },
+  { label: 'AdHoc Meeting Kiosk', swatch: actionTileColor({ kind: 'linkManager' }), make: () => ({ kind: 'linkManager' }) },
   {
     label: 'Open link (iframe)',
+    swatch: actionTileColor({ kind: 'iframe', url: '' }),
     make: async () => {
       const url = await promptDialog('Page to open (https:// only):', 'https://');
       return url && url.startsWith('https://') ? { kind: 'iframe', url: url.trim() } : null;
     },
   },
-  { label: 'Arcade cabinet', make: () => ({ kind: 'arcade' }) },
-  { label: 'Appliance (coffee)', make: () => ({ kind: 'appliance', pose: 'coffee' }) },
+  { label: 'Arcade cabinet', swatch: actionTileColor({ kind: 'arcade' }), make: () => ({ kind: 'arcade' }) },
+  { label: 'Appliance (coffee)', swatch: actionTileColor({ kind: 'appliance', pose: 'coffee' }), make: () => ({ kind: 'appliance', pose: 'coffee' }) },
 ];
+
+/** '#rrggbb' for a swatch colour — same numbers drawGrid paints with. */
+function swatchHex(n: number): string {
+  return `#${n.toString(16).padStart(6, '0')}`;
+}
 
 /** The TILE_ACTION_CHOICES label matching a given Action — used to highlight
  *  "this one is currently active" in both the persistent tile-tool palette
@@ -1003,7 +1012,10 @@ export class LayoutEditor {
           const color = actionTileColor(action);
           g.fillStyle(color, ACTION_TILE_FILL);
           g.fillRect(x, y, s, s);
-          g.lineStyle(lw, color, ACTION_TILE_STROKE);
+          // A thicker border than the fill alone — the fill blends with
+          // whatever's painted underneath (floor colour), but a bold, near-
+          // opaque border stays true to the action's own colour either way.
+          g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
           g.strokeRect(x, y, s, s);
         }
       }
@@ -1255,7 +1267,7 @@ export class LayoutEditor {
         const b = document.createElement('button');
         b.className = 'pa-pal-item pa-action-choice';
         if (choice.label === currentLabel) b.classList.add('sel');
-        b.textContent = choice.label;
+        b.innerHTML = `<span class="pa-action-swatch" style="background:${swatchHex(choice.swatch)}"></span>${choice.label}`;
         b.onclick = () => pick(choice.make);
         menu.appendChild(b);
       }
@@ -1673,6 +1685,8 @@ export class LayoutEditor {
       .pa-action-choice{height:auto;justify-content:flex-start;padding:0.5rem 0.7rem;
         font:0.85rem 'FS Pixel Sans',monospace;color:#f1efec;text-align:left;}
       .pa-action-choice.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
+      .pa-action-swatch{flex:0 0 auto;width:0.9rem;height:0.9rem;margin-right:0.5rem;
+        border:1px solid rgba(0,0,0,.5);border-radius:0.2rem;box-shadow:0 0 0 1px rgba(255,255,255,.15) inset;}
     `;
     document.head.appendChild(style);
 
@@ -1778,7 +1792,7 @@ export class LayoutEditor {
     for (const choice of TILE_ACTION_CHOICES) {
       const b = document.createElement('button');
       b.className = 'pa-pal-item pa-action-choice';
-      b.textContent = choice.label;
+      b.innerHTML = `<span class="pa-action-swatch" style="background:${swatchHex(choice.swatch)}"></span>${choice.label}`;
       b.onclick = async () => {
         const action = await choice.make();
         if (!action) return; // cancelled (iframe URL prompt)
