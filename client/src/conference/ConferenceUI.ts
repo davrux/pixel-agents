@@ -30,6 +30,10 @@ export interface ConferenceUIHandlers {
   setMuted: (identity: string, muted: boolean) => void;
   sendChat: (text: string) => void;
   leave: () => void;
+  /** Retarget the live call back to its small ambient popup without hanging
+   *  up. Only meeting areas set this (a monitor conference has no mini
+   *  view to shrink back to) — the button hides when it's absent. */
+  minimize?: () => void;
 }
 
 /** One People-panel row's live elements (reused across re-renders so an active
@@ -56,6 +60,10 @@ const CSS = `
   #pa-conf .pa-conf-head .sub{color:#818586;font-size:0.85rem;}
   #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.85rem;color:#7fbf6a;}
   #pa-conf .pa-conf-head .status.err{color:#f2a1a1;}
+  #pa-conf .pa-conf-head .pa-conf-min{cursor:pointer;background:#242220;border:2px solid #0a0908;color:#f1efec;
+    border-radius:0.35rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.3rem 0.5rem;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-head .pa-conf-min:hover{background:#2e2b28;}
   #pa-conf .pa-conf-body{flex:1;display:flex;min-height:0;}
   #pa-conf .pa-conf-main{flex:1;display:flex;min-width:0;min-height:0;}
   /* Default: grid of participant tiles fills the main area. */
@@ -152,6 +160,7 @@ export class ConferenceUI {
   private readonly titleEl: HTMLSpanElement;
   private readonly subEl: HTMLSpanElement;
   private readonly statusEl: HTMLSpanElement;
+  private readonly minBtn: HTMLButtonElement;
   private readonly chatLog: HTMLDivElement;
   private readonly chatInput: HTMLInputElement;
   private readonly partsEl: HTMLDivElement;
@@ -175,6 +184,7 @@ export class ConferenceUI {
     root.innerHTML = `
       <div class="pa-conf-head">
         <span class="title"></span><span class="sub"></span><span class="status"></span>
+        <button class="pa-conf-min" data-min title="Minimize" style="display:none">🗕</button>
       </div>
       <div class="pa-conf-body">
         <div class="pa-conf-main">
@@ -216,6 +226,7 @@ export class ConferenceUI {
     this.titleEl = root.querySelector('.pa-conf-head .title')!;
     this.subEl = root.querySelector('.pa-conf-head .sub')!;
     this.statusEl = root.querySelector('.pa-conf-head .status')!;
+    this.minBtn = root.querySelector('.pa-conf-head .pa-conf-min')!;
     this.chatLog = root.querySelector('.pa-conf-chatlog')!;
     this.chatInput = root.querySelector('.pa-conf-chatin')!;
     this.partsEl = root.querySelector('.pa-conf-parts')!;
@@ -246,6 +257,7 @@ export class ConferenceUI {
     q('[data-cam]').onclick = () => this.handlers?.toggleCam();
     q('[data-screen]').onclick = () => this.handlers?.toggleScreen();
     q('[data-leave]').onclick = () => this.handlers?.leave();
+    this.minBtn.onclick = () => this.handlers?.minimize?.();
     q('[data-chat]').onclick = () => this.openSide('chat');
     q('[data-people]').onclick = () => this.openSide('parts');
     q('[data-dev]').onclick = () => this.devPop.classList.toggle('open');
@@ -292,6 +304,7 @@ export class ConferenceUI {
   open(title: string, handlers: ConferenceUIHandlers): void {
     this.handlers = handlers;
     this.titleEl.textContent = `📹 ${title}`;
+    this.minBtn.style.display = handlers.minimize ? '' : 'none';
     this.chatLog.innerHTML = '';
     this.partsEl.innerHTML = '';
     this.partRows.clear();

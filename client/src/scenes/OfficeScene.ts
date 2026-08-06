@@ -193,23 +193,24 @@ export class OfficeScene extends Phaser.Scene {
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
-  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — a small popup
-   *  ("who's here" + Join video) driven by meetingAreaMembers broadcasts.
-   *  The actual call reuses ConferenceUI/LiveKitConference wholesale, one
-   *  dedicated LiveKit room per area (see onMeetingAreaToken), exactly like
-   *  a conference monitor. */
+  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — standing on the
+   *  tile auto-connects (mirrors WorkAdventure's proximity bubble) into a
+   *  small ambient popup with live camera tiles, reusing LiveKitConference's
+   *  own tile rendering. One dedicated LiveKit room per area (see
+   *  onMeetingAreaToken), exactly like a conference monitor. */
   private meetingArea?: MeetingAreaUI;
   /** The meeting area (anchor "col,row" key) our tile is currently in, or
    *  null — purely reactive to meetingAreaMembers broadcasts (no explicit
    *  join/leave message; standing on the tile *is* server-side membership,
-   *  see SimRoom's updateMeetingAreaMembership). Drives the popup. */
+   *  see SimRoom's updateMeetingAreaMembership). Drives auto-join. */
   private myMeetingAreaKey: string | null = null;
   /** The meeting area (anchor tile) whose video CALL we're connected to, or
-   *  null — separate from membership above: you can stand in an area
-   *  without joining its call. */
+   *  null — separate from membership above: you can hang up and keep
+   *  standing in the area without being auto-rejoined. */
   private myMeetingArea: { col: number; row: number } | null = null;
-  /** Meeting-area rosters by "col,row" anchor key (from the server). */
-  private readonly meetingAreaMembers = new Map<string, Array<{ id: number; name: string }>>();
+  /** Whether that call is currently retargeted into the full monitor-style
+   *  window (ConferenceUI) rather than the small ambient popup. */
+  private meetingAreaExpanded = false;
   /** Active LiveKit connection for the joined meeting area, or undefined. */
   private meetingConf?: LiveKitConference;
   private mumble?: MumbleUI;
@@ -3029,24 +3030,22 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── Meeting areas (walk-in, automatic membership) ────────────────
 
-  /** Server broadcast: current roster of a meeting area (by its anchor
-   *  "col,row" key). Drives the small popup entirely — there's no per-frame
-   *  poll, unlike the old areaId-sync design; membership only ever changes
-   *  when this message arrives. */
+  /** Server broadcast: current tile-membership of a meeting area (by its
+   *  anchor "col,row" key). Drives auto-connect entirely — no explicit join
+   *  message; walking onto the tile *is* membership, and the first time it
+   *  appears for a key we weren't already in, that's the entry transition
+   *  that starts the call. A later broadcast for the SAME key (someone else
+   *  joining/leaving) does not re-trigger it. */
   private onMeetingAreaMembers(m: Record<string, unknown>): void {
     const key = `${m.col},${m.row}`;
     const members = (m.members as Array<{ id: number; name: string }>) ?? [];
-    if (members.length) this.meetingAreaMembers.set(key, members);
-    else this.meetingAreaMembers.delete(key);
     const iAmIn = this.myPlayerId !== null && members.some((p) => p.id === this.myPlayerId);
     if (iAmIn) {
+      const entering = this.myMeetingAreaKey !== key;
       this.myMeetingAreaKey = key;
-      const anchor = { col: m.col as number, row: m.row as number };
-      const others = members.filter((p) => p.id !== this.myPlayerId);
-      this.meetingArea?.update(others, { onJoin: () => this.joinMeetingAreaVideo(anchor) });
+      if (entering) this.joinMeetingAreaVideo({ col: m.col as number, row: m.row as number });
     } else if (this.myMeetingAreaKey === key) {
       this.myMeetingAreaKey = null;
-      this.meetingArea?.update(null, null);
     }
     // If the server dropped us from our own call's area (walked out, despawn, …), tear down.
     if (this.myMeetingArea && `${this.myMeetingArea.col},${this.myMeetingArea.row}` === key && !iAmIn) {
@@ -3054,8 +3053,9 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** "Join video" clicked in the popup — request a token for this area's own
-   *  LiveKit room (one per area, keyed by its anchor tile). */
+  /** Auto-join on entering a meeting area's tile (mirrors WorkAdventure's
+   *  proximity bubble — no explicit "Join" click): request a token for this
+   *  area's own LiveKit room and open the small ambient popup. */
   private joinMeetingAreaVideo(anchor: { col: number; row: number }): void {
     if (this.myMeetingArea && `${this.myMeetingArea.col},${this.myMeetingArea.row}` === `${anchor.col},${anchor.row}`) return;
     if (this.myConference) {
@@ -3063,40 +3063,74 @@ export class OfficeScene extends Phaser.Scene {
       this.leaveConferenceLocal();
     }
     this.myMeetingArea = { ...anchor };
-    this.meetingArea?.setInCall(true);
+    this.meetingAreaExpanded = false;
+    this.meetingArea?.setVisible(true);
+    this.meetingArea?.setHandlers(this.meetingAreaMiniHandlers());
     this.room?.send('meetingAreaToken', anchor);
   }
 
-  /** Tear down the local call (disconnect LiveKit) and clear our membership. */
+  /** Tear down the local call (disconnect LiveKit) and clear our membership.
+   *  Leaving the CALL is independent of tile membership (myMeetingAreaKey):
+   *  you can hang up and keep standing in the area without being re-joined
+   *  until you actually walk out and back in. */
   private leaveMeetingAreaLocal(): void {
     this.myMeetingArea = null;
+    this.meetingAreaExpanded = false;
     void this.meetingConf?.disconnect();
     this.meetingConf = undefined;
     this.confUI.close();
-    this.meetingArea?.setInCall(false);
+    this.meetingArea?.setVisible(false);
+    this.meetingArea?.setHandlers(null);
     this.zoneVoice?.voice.resume('meetingArea');
     this.mumble?.voice?.resume('meetingArea');
   }
 
+  /** Retarget the live call from the small ambient popup into the full
+   *  monitor-style window (device setup, chat, big screen-share spotlight) —
+   *  same LiveKitConference instance, no reconnect. Also triggered
+   *  automatically the moment someone starts sharing their screen (it should
+   *  show big immediately, not cramped into the mini view). */
+  private expandMeetingArea(): void {
+    if (!this.meetingConf || !this.myMeetingArea || this.meetingAreaExpanded) return;
+    this.meetingAreaExpanded = true;
+    this.meetingConf.retarget(this.confUI.stage, this.confUI.screens);
+    this.meetingArea?.setVisible(false);
+    this.confUI.open('Meeting area', this.meetingAreaFullHandlers());
+  }
+
+  /** Retarget the live call back to the small ambient popup, without hanging
+   *  up — the reverse of expandMeetingArea. */
+  private minimizeMeetingArea(): void {
+    if (!this.meetingConf || !this.myMeetingArea || !this.meetingAreaExpanded) return;
+    this.meetingAreaExpanded = false;
+    this.meetingConf.retarget(this.meetingArea!.stage, this.meetingArea!.screens);
+    this.confUI.close();
+    this.meetingArea?.setVisible(true);
+  }
+
   /** Server minted a LiveKit token (or reported it's unconfigured) for our
-   *  meeting area's call. Mirrors onConferenceToken exactly. */
+   *  meeting area's call. State/devices/participants/chat are always
+   *  forwarded to the full window too (even hidden behind the mini popup)
+   *  so it's already current the moment expandMeetingArea opens it. */
   private onMeetingAreaToken(m: Record<string, unknown>): void {
     const c = this.myMeetingArea;
     if (!c || `${c.col},${c.row}` !== `${m.col},${m.row}`) return;
     if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
-      this.confUI.open('Meeting area', this.meetingAreaHandlers());
-      this.confUI.setState({ connected: false, camOn: true, micOn: true, screenOn: false, error: 'Video not configured on the server.' });
+      this.meetingArea?.setState({ connected: false, micOn: true, camOn: true, error: 'Video not configured on the server.' });
       return;
     }
-    // Open the window first (it owns the stage element the tiles render into),
-    // then connect the media into it.
-    this.confUI.open('Meeting area', this.meetingAreaHandlers());
-    this.meetingConf = new LiveKitConference(this.confUI.stage, this.confUI.screens, {
-      onState: (s) => this.confUI.setState(s),
+    this.meetingConf = new LiveKitConference(this.meetingArea!.stage, this.meetingArea!.screens, {
+      onState: (s) => {
+        this.meetingArea?.setState(s);
+        this.confUI.setState(s);
+      },
       onDevices: (d) => this.confUI.setDevices(d),
       onChat: (msg) => this.confUI.addChat(msg),
       onParticipants: (list) => this.confUI.setParticipants(list),
-      onScreens: (n) => this.confUI.setSharing(n > 0),
+      onScreens: (n) => {
+        this.confUI.setSharing(n > 0);
+        if (n > 0 && !this.meetingAreaExpanded) this.expandMeetingArea();
+      },
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveMeetingAreaLocal).
@@ -3107,8 +3141,21 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  /** Control-bar handlers for the meeting-area call window (delegate to the live call). */
-  private meetingAreaHandlers(): import('../conference/ConferenceUI.js').ConferenceUIHandlers {
+  /** Mini-popup handlers (mic/cam toggle, expand, leave) while the call
+   *  renders into MeetingAreaUI's own small stage. */
+  private meetingAreaMiniHandlers(): import('../ui/meetingArea.js').MeetingAreaHandlers {
+    return {
+      toggleMic: () => void this.meetingConf?.toggleMic(),
+      toggleCam: () => void this.meetingConf?.toggleCam(),
+      expand: () => this.expandMeetingArea(),
+      leave: () => this.leaveMeetingAreaLocal(),
+    };
+  }
+
+  /** Full-window handlers for the meeting-area call, once expanded — same
+   *  shape as conferenceHandlers() plus minimize (shrink back to the mini
+   *  popup instead of hanging up). */
+  private meetingAreaFullHandlers(): import('../conference/ConferenceUI.js').ConferenceUIHandlers {
     return {
       toggleMic: () => void this.meetingConf?.toggleMic(),
       toggleCam: () => void this.meetingConf?.toggleCam(),
@@ -3120,6 +3167,7 @@ export class OfficeScene extends Phaser.Scene {
       setMuted: (identity, muted) => this.meetingConf?.setParticipantMuted(identity, muted),
       sendChat: (text) => this.meetingConf?.sendChat(text),
       leave: () => this.leaveMeetingAreaLocal(),
+      minimize: () => this.minimizeMeetingArea(),
     };
   }
 

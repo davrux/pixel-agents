@@ -95,11 +95,25 @@ export class LiveKitConference {
   private speakerId?: string;
 
   constructor(
-    private readonly stage: HTMLElement,
-    private readonly screensEl: HTMLElement,
+    private stage: HTMLElement,
+    private screensEl: HTMLElement,
     private readonly cb: ConferenceCallbacks,
   ) {
     this.loadSavedVolumes();
+  }
+
+  /** Move every currently-rendered tile / screen-share / audio element from
+   *  the old stage+screens containers into new ones, and point all FUTURE
+   *  renders (ensureTile/addTrack) at the new containers too — lets a live
+   *  call switch between a small ambient view (meeting areas) and the full
+   *  monitor-style window without reconnecting media. */
+  retarget(stage: HTMLElement, screensEl: HTMLElement): void {
+    if (stage === this.stage && screensEl === this.screensEl) return;
+    for (const t of this.tiles.values()) stage.appendChild(t.root);
+    for (const el of this.screens.values()) screensEl.appendChild(el);
+    for (const a of this.audios.values()) stage.appendChild(a.el);
+    this.stage = stage;
+    this.screensEl = screensEl;
   }
 
   async connect(url: string, token: string): Promise<void> {
