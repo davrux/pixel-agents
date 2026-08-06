@@ -3,6 +3,10 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "dist",
+    // Explicit since TypeScript 7, which no longer infers the common source
+    // directory for emit. "src" keeps the existing layout (dist/main.js, …)
+    // that electron-builder and the `dev` script expect.
+    "rootDir": "src",
     "types": ["node"],
     "lib": ["ES2022"]
   },

@@ -16,10 +16,10 @@
     "test": "tsc -p tsconfig.test.json && node --test \"dist/test-build/**/*.test.js\""
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
-    "electron": "^43.0.0",
-    "electron-builder": "^26.0.0",
-    "esbuild": "^0.24.0",
-    "typescript": "^5.9.3"
+    "@types/node": "^26.1.2",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
+    "typescript": "^7.0.2"
   }
 }

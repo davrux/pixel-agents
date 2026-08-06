@@ -1,4 +1,4 @@
-import { Client, type Room } from 'colyseus.js';
+import { Client, ErrorCode, type Room } from '@colyseus/sdk';
 import { DEFAULT_ZONE, WORLD_ROOM } from '@pixel/shared/protocol';
 import { isDesktop, getConfiguredServerOrigin, desktop } from '../desktop/bridge';
 
@@ -48,13 +48,23 @@ export function isForbiddenError(err: unknown): boolean {
 }
 
 /** Did the room reject the join because the session cookie is missing/invalid?
- *  Colyseus 0.16 maps ANY onAuth throw to ErrorCode.AUTH_FAILED (4215), so the
- *  more specific room-entry rejections (locked / forbidden) are excluded here. */
+ *  The more specific room-entry rejections (locked / forbidden) are excluded
+ *  first, since they share the generic error code below.
+ *
+ *  On 0.17 a SimRoom onAuth throw actually reaches us as APPLICATION_ERROR (526)
+ *  carrying the thrown message, so the `message` test — not the code — is what
+ *  classifies it; the AUTH_FAILED check still covers the auth failures Colyseus
+ *  raises itself. Both are compared against the SDK's constants rather than
+ *  literals: 0.17 renumbered these codes (AUTH_FAILED 4215 → 525), and a
+ *  hardcoded number fails silently, never sending the viewer to the login page.
+ *  server/src/matchmaking.int.test.ts pins the reject-on-join behaviour. */
 export function isAuthError(err: unknown): boolean {
   const e = err as { code?: number; message?: string } | undefined;
   const msg = errMsg(err);
   if (isZoneLockedError(err) || isForbiddenError(err)) return false;
-  return e?.code === 4215 || e?.code === 401 || msg.includes('unauthorized') || msg.includes('onauth');
+  return (
+    e?.code === ErrorCode.AUTH_FAILED || e?.code === 401 || msg.includes('unauthorized') || msg.includes('onauth')
+  );
 }
 
 /** Send the viewer to the server's login page (the auth gate serves the form). */
@@ -73,7 +83,7 @@ export async function connect(
   opts: { zonePassword?: string } = {},
 ): Promise<Room> {
   const client = new Client(endpoint());
-  // Desktop only: attach the server-issued bearer token so colyseus.js adds
+  // Desktop only: attach the server-issued bearer token so @colyseus/sdk adds
   // `Authorization: Bearer <sid>` to the matchmake POST (and `_authToken` to the
   // WS join query), reaching onAuth's bearer branch. Read once from the preload
   // IPC (in-memory, safeStorage-backed) — never persisted in the renderer. The

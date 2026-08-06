@@ -47,7 +47,7 @@
 //                               getSession(sid)->{userId}|undefined (lazy TTL),
 //                               deleteSession(sid). SESSION_TTL_MS = 7 days.
 //   server/src/rooms/SimRoom.ts:190-198 : onAuth(_client,_options,context)
-//                               reads context.headers.cookie today; NEW additive
+//                               reads context.headers.get('cookie') today; NEW additive
 //                               bearer branch reads context.token.
 //   server/src/index.ts       : open cors(); NEW narrow CORS headers on the
 //                               token/signout/health cross-origin responses.
@@ -69,7 +69,7 @@
 // ROI: 109 (BV:10 x Freq:10 + Legal:0 + Defect:9)  -- highest: hard-constraint
 //      release gate (FR-3). A regression here breaks every existing browser user.
 // Behavior: seed user -> createSession -> onAuth called with a crafted
-//   AuthContext whose headers.cookie carries `pixel_stream_sid=<sid>` (and no
+//   AuthContext whose headers carry cookie `pixel_stream_sid=<sid>` (and no
 //   context.token) -> resolves AuthInfo for that user, unchanged from baseline.
 // @category: integration
 // @lane: integration
@@ -267,8 +267,10 @@ before(async () => {
   app.get('/health', (_req, res) => void res.json({ ok: true }));
   registerAuth(app, ADMIN_TOKEN);
 
-  await new Promise<void>((resolve) => {
-    server = app.listen(0, '127.0.0.1', resolve);
+  // Express 5 types the listen callback as `(error?: Error) => void`, so the
+  // promise settles explicitly rather than handing `resolve` over directly.
+  await new Promise<void>((resolve, reject) => {
+    server = app.listen(0, '127.0.0.1', (err?: Error) => (err ? reject(err) : resolve()));
   });
   const { port } = server.address() as AddressInfo;
   baseUrl = `http://127.0.0.1:${port}`;
@@ -305,7 +307,9 @@ function callOnAuth(
 ): AuthInfo {
   const authContext = {
     token: context.token,
-    headers: context.cookie === undefined ? {} : { cookie: context.cookie },
+    // Colyseus 0.17's AuthContext carries a WHATWG `Headers`, not a plain
+    // object — the mock mirrors that so onAuth's .get('cookie') is exercised.
+    headers: new Headers(context.cookie === undefined ? {} : { cookie: context.cookie }),
     ip: '127.0.0.1',
   };
   // Minimal `this` (mock boundary): the room-entry gate (gateEntry) needs the

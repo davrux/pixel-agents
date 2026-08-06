@@ -5,8 +5,8 @@ import { homedir } from 'node:os';
 
 // Resolve @pixel/shared straight to its TypeScript source (outside node_modules)
 // so Vite transpiles it and never pulls @colyseus/schema into the browser bundle
-// (the client reads state via colyseus.js reflection; schema types are type-only).
-const shared = (p: string) => resolve(__dirname, '../shared/src', p);
+// (the client reads state via @colyseus/sdk reflection; schema types are type-only).
+const shared = (p: string) => resolve(import.meta.dirname,'../shared/src', p);
 
 // Serve the HMR dev page over HTTPS when a cert exists in the data dir (the same
 // one the server uses), so the page origin is https → the client derives wss://
@@ -39,8 +39,8 @@ export default defineConfig({
       // meeting-room join page. The admin panel is an in-game overlay
       // (client/src/admin/main.ts, dynamically imported), not its own page.
       input: {
-        main: resolve(__dirname, 'index.html'),
-        meet: resolve(__dirname, 'meet.html'),
+        main: resolve(import.meta.dirname,'index.html'),
+        meet: resolve(import.meta.dirname,'meet.html'),
       },
     },
   },

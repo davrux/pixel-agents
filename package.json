@@ -4,7 +4,7 @@
   "private": true,
   "description": "Multi-agent pixel world rendered with Colyseus (authoritative server) + Phaser (client). A rewrite of pixel-agents.",
   "license": "MIT",
-  "packageManager": "pnpm@11.11.0",
+  "packageManager": "pnpm@11.20.0",
   "repository": {
     "type": "git",
     "url": "https://codeberg.org/davrux/pixel-agents"
