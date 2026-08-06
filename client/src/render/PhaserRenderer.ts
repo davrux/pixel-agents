@@ -46,9 +46,46 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
 import { spriteTexture } from './sprites.js';
+import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
 
 const FLOOR_DEPTH = -100000;
 const BUBBLE_DEPTH = 1_000_000;
+
+// Head markers (☕ / 💤 afk / crossed mic — see markerIcons.ts). Sizes are WORLD
+// pixels, picked so they read like the DOM icons they replaced did at the default
+// fit zoom; being world-space, they now keep that size relative to the avatar.
+const MARKER_DEPTH = BUBBLE_DEPTH + 1;
+const MARKER_SIZE_COFFEE = 5;
+const MARKER_SIZE_AFK = 4;
+const MARKER_SIZE_VOICE = 3.5;
+const MARKER_AFK_COLOR = '#ffd98a';
+/** Bottom of the marker row: 34px above the feet of a baseline (32px) character,
+ *  scaled for taller sprites — where the old DOM afk/coffee overlays sat. */
+const MARKER_ROW_OFFSET_PX = 34;
+const MARKER_GAP_PX = 1;
+/** Coffee sip loop length, matching the CSS keyframes this replaces. */
+const SIP_PERIOD_MS = 2200;
+/** Shared empty list — most characters carry no marker on any given frame. */
+const NO_MARKERS: MarkerSpec[] = [];
+
+/** Coffee "sip": tilt back, then straighten while lifted, on a 2.2 s loop.
+ *  `lift` is in em (multiplied by the marker's world size by the caller). */
+function sipOffset(nowMs: number): { rot: number; lift: number } {
+  const p = (nowMs % SIP_PERIOD_MS) / SIP_PERIOD_MS;
+  const ease = (t: number): number => t * t * (3 - 2 * t); // ≈ CSS ease-in-out
+  const TILT = -0.28; // rad, ≈ −16°
+  const LIFT = 0.066; // em per keyframe step (the old −1px at a 15px glyph)
+  if (p < 0.3) {
+    const t = ease(p / 0.3);
+    return { rot: TILT * t, lift: LIFT * t };
+  }
+  if (p < 0.55) {
+    const t = ease((p - 0.3) / 0.25);
+    return { rot: TILT * (1 - t), lift: LIFT * (1 + t) };
+  }
+  const t = ease((p - 0.55) / 0.45);
+  return { rot: 0, lift: LIFT * 2 * (1 - t) };
+}
 
 // Voice "speaking" ring drawn under a character's feet while they talk. A single
 // shared soft-ellipse texture (white, so it can be tinted) pulsed in alpha/scale.
@@ -61,6 +98,8 @@ interface CharGObjects {
   bubble: Phaser.GameObjects.Image;
   /** Pulsing halo shown while this character is speaking in voice chat. */
   ring: Phaser.GameObjects.Image;
+  /** Pooled head markers, laid out in a row above the sprite. */
+  markers: Phaser.GameObjects.Image[];
 }
 
 /**
@@ -83,11 +122,22 @@ export class PhaserRenderer {
   /** Player ids currently speaking in voice chat — drives the per-character ring.
    *  Fed each frame by the scene from the voice active-speaker state. */
   private readonly speakingIds = new Set<number>();
+  /** Per-player mic-mute / sound-off flags, fed by the scene from the voice
+   *  state — drives the crossed-mic and crossed-speaker head markers. */
+  private readonly voiceFlags = new Map<number, { muted: boolean; deaf: boolean }>();
 
   /** Replace the set of players shown with a speaking ring (called per frame). */
   setSpeakingIds(ids: Set<number>): void {
     this.speakingIds.clear();
     for (const id of ids) this.speakingIds.add(id);
+  }
+
+  /** Replace the per-player mic/sound flags behind the voice head markers. */
+  setVoiceStatus(status: Map<number, { muted: boolean; deaf: boolean }>): void {
+    this.voiceFlags.clear();
+    for (const [id, st] of status) {
+      if (st.muted || st.deaf) this.voiceFlags.set(id, st);
+    }
   }
 
   constructor(
@@ -211,6 +261,7 @@ export class PhaserRenderer {
         g.body.setVisible(false);
         g.bubble.setVisible(false);
         g.ring.setVisible(false);
+        for (const m of g.markers) m.setVisible(false);
       }
       for (const img of this.pets.values()) img.setVisible(false);
       return;
@@ -229,6 +280,7 @@ export class PhaserRenderer {
           body: this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1),
           bubble: this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1).setDepth(BUBBLE_DEPTH).setVisible(false),
           ring: this.scene.add.image(0, 0, this.ensureRingTexture()).setOrigin(0.5, 0.5).setVisible(false),
+          markers: [],
         };
         this.chars.set(ch.id, g);
       }
@@ -239,6 +291,7 @@ export class PhaserRenderer {
         g.body.destroy();
         g.bubble.destroy();
         g.ring.destroy();
+        for (const m of g.markers) m.destroy();
         this.chars.delete(id);
         this.removeMatrixTexture(id);
       }
@@ -277,6 +330,9 @@ export class PhaserRenderer {
       g.ring.setVisible(false);
     }
 
+    // Status markers over the head (☕ / 💤 afk / muted mic).
+    this.drawMarkers(ch, g, sd.length, sit);
+
     // Hide bubbles while the character is materialising/dissolving.
     if (ch.matrixEffect) {
       g.bubble.setVisible(false);
@@ -300,6 +356,59 @@ export class PhaserRenderer {
     } else {
       g.bubble.setVisible(false);
     }
+  }
+
+  /** The markers a character currently carries, left to right: voice state first,
+   *  then pose/presence. Nothing to show is the common case, hence the shared
+   *  empty list (this runs per character per frame). */
+  private markerSpecs(ch: Character): MarkerSpec[] {
+    const voice = this.voiceFlags.get(ch.id);
+    if (!voice && !ch.afk && ch.pose !== 'coffee') return NO_MARKERS;
+    const specs: MarkerSpec[] = [];
+    if (voice?.muted) specs.push({ text: '🎤', size: MARKER_SIZE_VOICE, crossed: true });
+    if (voice?.deaf) specs.push({ text: '🔊', size: MARKER_SIZE_VOICE, crossed: true });
+    if (ch.pose === 'coffee') specs.push({ text: '☕', size: MARKER_SIZE_COFFEE, sip: true });
+    if (ch.afk) specs.push({ text: '💤 afk', size: MARKER_SIZE_AFK, color: MARKER_AFK_COLOR });
+    return specs;
+  }
+
+  /** Lay the head markers out in a centred row just above the sprite. Hidden
+   *  while the character materialises/dissolves (like the speech bubble). */
+  private drawMarkers(ch: Character, g: CharGObjects, spriteH: number, sit: number): void {
+    const specs = ch.matrixEffect ? NO_MARKERS : this.markerSpecs(ch);
+    if (specs.length === 0) {
+      for (const m of g.markers) m.setVisible(false);
+      return;
+    }
+    // Rasterize at the current zoom so the glyphs stay crisp, not upscaled.
+    const res = markerResolution(this.scene.cameras.main.zoom);
+    const texs = specs.map((s) => markerTexture(this.scene, s, res));
+    let rowW = MARKER_GAP_PX * Math.max(0, texs.length - 1);
+    for (const t of texs) rowW += t.w;
+
+    const baseY = ch.y + sit - (MARKER_ROW_OFFSET_PX * spriteH) / CHARACTER_BASELINE_HEIGHT;
+    let x = ch.x - rowW / 2;
+    for (let i = 0; i < texs.length; i++) {
+      const t = texs[i];
+      let img = g.markers[i];
+      if (!img) {
+        img = this.scene.add.image(0, 0, t.key).setOrigin(0.5, 1).setDepth(MARKER_DEPTH);
+        g.markers[i] = img;
+      }
+      if (img.texture.key !== t.key) img.setTexture(t.key);
+      img.setDisplaySize(t.w, t.h);
+      let y = baseY;
+      let rot = 0;
+      if (specs[i].sip) {
+        const s = sipOffset(this.scene.time.now);
+        rot = s.rot;
+        y -= s.lift * specs[i].size;
+      }
+      img.setRotation(rot);
+      img.setPosition(x + t.w / 2, y).setVisible(true);
+      x += t.w + MARKER_GAP_PX;
+    }
+    for (let i = texs.length; i < g.markers.length; i++) g.markers[i].setVisible(false);
   }
 
   /** Render the Matrix effect for a character into its own canvas texture

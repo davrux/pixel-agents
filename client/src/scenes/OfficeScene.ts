@@ -201,11 +201,10 @@ export class OfficeScene extends Phaser.Scene {
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
   /** Player ids currently talking via zone voice (client-side, from LiveKit). */
   private voiceSpeakers = new Set<number>();
-  /** Per-player zone-voice presence + mic-mute + sound-off (from LiveKit). */
+  /** Per-player zone-voice presence + mic-mute + sound-off (from LiveKit). Fed to
+   *  the renderer, which draws the crossed 🎤 / 🔊 markers over the avatars. */
   private voiceStatus = new Map<number, { muted: boolean; deaf: boolean }>();
-  /** Small voice status icons over avatars (in-voice players), keyed by player id. */
-  private readonly voiceBubbles = new Map<number, HTMLDivElement>();
-  /** Per-speaker grace deadline (ms) so the talking icon stays on through gaps. */
+  /** Per-speaker grace deadline (ms) so the talking ring stays on through gaps. */
   private readonly voiceSpeakUntil = new Map<number, number>();
   private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
@@ -289,11 +288,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Previous (active,bubble) per agent — to detect transitions for sounds. */
   private readonly prevState = new Map<number, { active: boolean; bubble: string }>();
   private readonly nameLabels = new Map<number, HTMLDivElement>();
-  /** "afk" markers over away players (/afk), keyed by character id. */
-  private readonly afkLabels = new Map<number, HTMLDivElement>();
-  /** "☕" markers over anyone (agent, NPC or player) currently in the COFFEE
-   *  pose (standing at an appliance station), keyed by character id. */
-  private readonly coffeeIcons = new Map<number, HTMLDivElement>();
   private layoutListData: { layouts: Array<{ name: string; readOnly: boolean }>; active: string } = {
     layouts: [],
     active: 'Default',
@@ -445,13 +439,16 @@ export class OfficeScene extends Phaser.Scene {
         announceVoice: (event) => this.room?.send('voiceEvent', { event }),
         myPosition: () => this.playerPosition(this.myPlayerId),
         positionOf: (id) => this.playerPosition(id),
+        // Both feed in-world indicators (ring / head markers), and a muted-but-
+        // silent scene is otherwise perfectly idle, so these wake the loop like
+        // user input: one active frame to pick the change up.
         onSpeakers: (ids) => {
           this.voiceSpeakers = ids;
-          this.wake(); // talking indicators changed → redraw
+          this.wake(true); // talking indicators changed → redraw
         },
         onVoiceStatus: (status) => {
           this.voiceStatus = status;
-          this.wake();
+          this.wake(true);
         },
         // Reflect live voice state on the Audio dot + quick-access bar buttons.
         onStateChange: (s) => this.updateVoiceBarButtons(s),
@@ -1541,9 +1538,7 @@ export class OfficeScene extends Phaser.Scene {
       this.updateTooltip();
       this.updateNameLabels();
       this.updateChatBubbles();
-      this.updateVoiceBubbles();
-      this.updateAfkLabels();
-      this.updateCoffeeIcons();
+      this.updateVoiceIndicators();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
   }
@@ -1555,7 +1550,7 @@ export class OfficeScene extends Phaser.Scene {
     if (this.editor.isEditing() || this.furnitureDirty) return true;
     if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
-    if (this.voiceBubbles.size > 0) return true; // animated "talking" indicator
+    if (this.voiceSpeakUntil.size > 0) return true; // pulsing in-world speaking ring
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
     for (const ch of this.characters.values()) {
       if (Math.abs((ch.x ?? ch.tx) - ch.tx) > 0.4 || Math.abs((ch.y ?? ch.ty) - ch.ty) > 0.4) return true;
@@ -1596,8 +1591,9 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** Re-run the render loop after it was idled/slept. `userInput` = a real user
-   *  action (mouse/keys) → keep the scene responsive (reset the idle counter).
-   *  State/voice patches pass false: they only wake a SLEPT loop; while already
+   *  action (mouse/keys), or a discrete event whose result must show up now
+   *  (voice mute/speaking) → keep the scene responsive (reset the idle counter).
+   *  Bulk state patches pass false: they only wake a SLEPT loop; while already
    *  awake, whether to stay active is decided by sceneBusy() (actual on-screen
    *  motion), so idle bookkeeping patches don't peg the loop active. */
   private wake(userInput = false): void {
@@ -3671,8 +3667,10 @@ export class OfficeScene extends Phaser.Scene {
   // ── Chat (zone-local; log + input + bubbles over avatars) ────────
 
   private createChat(): void {
-    // Avatar overlays (chat bubbles / voice status / afk markers) are 2D-specific and stay
-    // here; the chat panel itself is the shared ChatUI (client/src/ui/chatUI.ts).
+    // Chat bubbles are a 2D-specific DOM overlay and stay here; the chat panel
+    // itself is the shared ChatUI (client/src/ui/chatUI.ts). The status icons
+    // that used to live alongside them (voice / afk / coffee) are drawn in-world
+    // by PhaserRenderer now — see markerIcons.ts.
     if (!document.getElementById("pa-bubble-style")) {
       const s = document.createElement("style");
       s.id = "pa-bubble-style";
@@ -3681,25 +3679,6 @@ export class OfficeScene extends Phaser.Scene {
           max-width:14rem;background:#f7f5f2;color:#181614;border-radius:0.5rem;padding:0.3rem 0.55rem;
           font:0.92rem 'FS Pixel Sans',monospace;line-height:1.2;white-space:pre-wrap;word-break:break-word;
           box-shadow:0 2px 0 rgba(0,0,0,.35);text-align:center;}
-        .pa-vstat{position:absolute;z-index:47;transform:translate(-50%,-100%);pointer-events:none;
-          display:flex;gap:0.2em;font-size:0.62rem;line-height:1;text-shadow:0 0 2px #000,0 0 2px #000;}
-        .pa-vic{position:relative;display:inline-block;line-height:1;}
-        .pa-vic.crossed::before{content:'';position:absolute;inset:-22%;border-radius:50%;
-          border:0.1rem solid #f0696e;box-shadow:0 0 1px #000;}
-        .pa-vic.crossed::after{content:'';position:absolute;left:-12%;top:45%;width:124%;height:0.1rem;
-          background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
-        .pa-afk{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
-          font:0.72rem 'FS Pixel Sans',monospace;color:#ffd98a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;}
-        .pa-coffee-icon{position:absolute;z-index:46;pointer-events:none;
-          font-size:0.95rem;line-height:1;text-shadow:0 0 3px #000,0 0 3px #000;
-          transform-origin:70% 100%;animation:pa-coffee-sip 2.2s ease-in-out infinite;}
-        @keyframes pa-coffee-sip{
-          0%,100%{transform:translate(-50%,-100%) rotate(0deg) translateY(0);}
-          30%{transform:translate(-50%,-100%) rotate(-16deg) translateY(-1px);}
-          55%{transform:translate(-50%,-100%) rotate(0deg) translateY(-2px);}
-        }
-        .pa-vic.spk{animation:pa-voice 0.9s infinite ease-in-out;}
-        @keyframes pa-voice{0%,100%{transform:scale(0.92);opacity:.75;}50%{transform:scale(1.1);opacity:1;}}
       `;
       document.head.appendChild(s);
     }
@@ -3764,127 +3743,20 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Tiny zone-voice status icon over each in-voice avatar: 🎤 in voice,
-   *  crossed 🎤 muted, crossed 🔊 sound off (deafened); the mic pulses while
-   *  speaking. */
-  private updateVoiceBubbles(): void {
+  /** Feed the in-world voice indicators (Phaser): the pulsing ring under whoever
+   *  is talking, and the crossed 🎤 / 🔊 head markers for muted / sound-off. Both
+   *  are drawn by the renderer so they pan and zoom with the avatar. */
+  private updateVoiceIndicators(): void {
     const now = performance.now();
-    // Grace window so the speaking icon stays steady through gaps between words
+    // Grace window so the speaking ring stays steady through gaps between words
     // (LiveKit's active-speaker flag toggles off in those pauses).
     const GRACE_MS = 800;
     for (const id of this.voiceSpeakers) this.voiceSpeakUntil.set(id, now + GRACE_MS);
     for (const [id, until] of this.voiceSpeakUntil) {
       if (now >= until) this.voiceSpeakUntil.delete(id);
     }
-    // Drive the in-world speaking rings (Phaser). Set before the early return
-    // below so rings still clear when nobody has a DOM voice-status icon.
     this.view.setSpeakingIds(new Set(this.voiceSpeakUntil.keys()));
-
-    if (this.voiceBubbles.size === 0 && this.voiceStatus.size === 0) return;
-    const cam = this.cameras.main;
-    const wv = cam.worldView;
-    const editing = this.editor.isEditing();
-
-    // Drop icons for players no longer in voice (or gone / editing).
-    for (const [id, el] of this.voiceBubbles) {
-      if (editing || !this.voiceStatus.has(id) || !this.characters.get(id)) {
-        el.remove();
-        this.voiceBubbles.delete(id);
-      }
-    }
-    if (editing) return;
-
-    for (const [id, st] of this.voiceStatus) {
-      const ch = this.characters.get(id);
-      if (!ch) continue;
-      let el = this.voiceBubbles.get(id);
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'pa-vstat';
-        (document.getElementById('game') ?? document.body).appendChild(el);
-        this.voiceBubbles.set(id, el);
-      }
-      // Only show icons when deactivated: 🎤⊘ when muted, 🔊⊘ when deafened.
-      // Hide the whole bubble when neither is deactivated (clean look during normal voice).
-      let micEl = el.querySelector<HTMLElement>('.pa-vic-mic');
-      let spkEl = el.querySelector<HTMLElement>('.pa-vic-spk');
-      if (!micEl || !spkEl) {
-        el.innerHTML = '<span class="pa-vic pa-vic-mic crossed">🎤</span><span class="pa-vic pa-vic-spk crossed">🔊</span>';
-        micEl = el.querySelector('.pa-vic-mic')!;
-        spkEl = el.querySelector('.pa-vic-spk')!;
-      }
-      micEl.style.display = st.muted ? '' : 'none';
-      spkEl.style.display = st.deaf ? '' : 'none';
-      el.style.display = (st.muted || st.deaf) ? '' : 'none';
-      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      // Higher above the head so the larger two-icon row stays clear of the name label.
-      const headOff = (30 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
-      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
-    }
-  }
-
-  /** Show a small "💤 afk" marker over players who set themselves away (/afk),
-   *  positioned above the head (a touch higher than the name label). */
-  private updateAfkLabels(): void {
-    const editing = this.editor.isEditing();
-    const cam = this.cameras.main;
-    const wv = cam.worldView;
-    const host = document.getElementById('game') ?? document.body;
-    for (const ch of this.characters.values()) {
-      const show = !editing && !!ch.afk;
-      let el = this.afkLabels.get(ch.id);
-      if (!show) {
-        if (el) {
-          el.remove();
-          this.afkLabels.delete(ch.id);
-        }
-        continue;
-      }
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'pa-afk';
-        el.textContent = '💤 afk';
-        host.appendChild(el);
-        this.afkLabels.set(ch.id, el);
-      }
-      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      const headOff = (34 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
-      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
-    }
-  }
-
-  /** Show a small "☕" over anyone currently in the COFFEE pose (agent, NPC or
-   *  player alike — see getCharacterPose/stationId) — purely cosmetic, same
-   *  overlay pattern as the afk marker above. */
-  private updateCoffeeIcons(): void {
-    const editing = this.editor.isEditing();
-    const cam = this.cameras.main;
-    const wv = cam.worldView;
-    const host = document.getElementById('game') ?? document.body;
-    for (const ch of this.characters.values()) {
-      const show = !editing && ch.pose === 'coffee';
-      let el = this.coffeeIcons.get(ch.id);
-      if (!show) {
-        if (el) {
-          el.remove();
-          this.coffeeIcons.delete(ch.id);
-        }
-        continue;
-      }
-      if (!el) {
-        el = document.createElement('div');
-        el.className = 'pa-coffee-icon';
-        el.textContent = '☕';
-        host.appendChild(el);
-        this.coffeeIcons.set(ch.id, el);
-      }
-      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      const headOff = (34 * getCharacterSize(ch.skin ?? '').h) / CHARACTER_BASELINE_HEIGHT;
-      el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
-    }
+    this.view.setVoiceStatus(this.voiceStatus);
   }
 
   // ── Hover / selection tooltip (DOM overlay, fixed readable size) ──
