@@ -102,6 +102,8 @@ const CSS = `
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-name{position:absolute;left:0.35rem;bottom:0.3rem;font-size:0.8rem;color:#fff;
     text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;}
+  #pa-conf .pa-conf-micoff{position:absolute;top:0.35rem;right:0.35rem;font-size:1.1rem;z-index:2;
+    filter:drop-shadow(0 0 2px #000) drop-shadow(0 0 3px #000);}
   #pa-conf .pa-conf-side{width:17rem;flex:0 0 auto;display:none;flex-direction:column;background:#1c1a19;
     border-left:2px solid #0a0908;min-height:0;}
   #pa-conf.side-open .pa-conf-side{display:flex;}

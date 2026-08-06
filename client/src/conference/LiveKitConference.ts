@@ -70,6 +70,8 @@ interface PTile {
   media: HTMLElement; // holds the <video> or the placeholder
   placeholder: HTMLElement;
   hasVideo: boolean;
+  /** Small "muted" badge shown over the tile while this participant's mic is off. */
+  micBadge: HTMLElement;
 }
 
 const enc = new TextEncoder();
@@ -178,8 +180,12 @@ export class LiveKitConference {
     const tag = document.createElement('span');
     tag.className = 'pa-conf-name';
     tag.textContent = local ? 'You' : p.name || p.identity;
-    root.append(media, tag);
-    t = { root, media, placeholder, hasVideo: false };
+    const micBadge = document.createElement('div');
+    micBadge.className = 'pa-conf-micoff';
+    micBadge.textContent = '🚫';
+    micBadge.style.display = p.isMicrophoneEnabled ? 'none' : '';
+    root.append(media, tag, micBadge);
+    t = { root, media, placeholder, hasVideo: false, micBadge };
     this.tiles.set(p.identity, t);
     this.stage.appendChild(root);
     return t;
@@ -314,11 +320,17 @@ export class LiveKitConference {
 
   // ── Participants ───────────────────────────────────────────────────
 
+  /** Rebuild the participant list AND sync every tile's mic-off badge — both
+   *  read the same p.isMicrophoneEnabled, and every mic (un)mute / (un)publish
+   *  / connect / disconnect already calls this, so there's no separate
+   *  audio-mute listener needed. */
   private emitParticipants(): void {
     const room = this.room;
-    if (!room || !this.cb.onParticipants) return;
+    if (!room) return;
     const list: ConferenceParticipant[] = [];
     const add = (p: Participant, local: boolean): void => {
+      const t = this.tiles.get(p.identity);
+      if (t) t.micBadge.style.display = p.isMicrophoneEnabled ? 'none' : '';
       list.push({
         identity: p.identity,
         name: local ? 'You' : p.name || p.identity,
@@ -331,7 +343,7 @@ export class LiveKitConference {
     };
     add(room.localParticipant, true);
     for (const p of room.remoteParticipants.values()) add(p, false);
-    this.cb.onParticipants(list);
+    this.cb.onParticipants?.(list);
   }
 
   // ── Per-member playback volume (local to this viewer) ─────────────

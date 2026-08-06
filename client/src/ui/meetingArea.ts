@@ -1,6 +1,9 @@
 export interface MeetingAreaHandlers {
   toggleMic: () => void;
   toggleCam: () => void;
+  switchCamera: (id: string) => void;
+  switchMic: (id: string) => void;
+  switchSpeaker: (id: string) => void;
   expand: () => void;
   leave: () => void;
 }
@@ -10,6 +13,15 @@ export interface MeetingAreaState {
   micOn: boolean;
   camOn: boolean;
   error?: string;
+}
+
+export interface MeetingAreaDevices {
+  cameras: MediaDeviceInfo[];
+  mics: MediaDeviceInfo[];
+  speakers: MediaDeviceInfo[];
+  camId?: string;
+  micId?: string;
+  speakerId?: string;
 }
 
 /**
@@ -31,6 +43,7 @@ export class MeetingAreaUI {
   private readonly screensEl: HTMLDivElement;
   private readonly micBtn: HTMLButtonElement;
   private readonly camBtn: HTMLButtonElement;
+  private readonly devPop: HTMLDivElement;
   private handlers: MeetingAreaHandlers | null = null;
 
   constructor() {
@@ -62,13 +75,15 @@ export class MeetingAreaUI {
     const controls = document.createElement('div');
     controls.className = 'pa-meet-controls';
     this.micBtn = document.createElement('button');
-    this.micBtn.textContent = '🎙';
     this.micBtn.title = 'Toggle microphone';
     this.micBtn.onclick = () => this.handlers?.toggleMic();
     this.camBtn = document.createElement('button');
-    this.camBtn.textContent = '📷';
     this.camBtn.title = 'Toggle camera';
     this.camBtn.onclick = () => this.handlers?.toggleCam();
+    const devBtn = document.createElement('button');
+    devBtn.textContent = '⚙';
+    devBtn.title = 'Choose camera / mic / speaker';
+    devBtn.onclick = () => this.devPop.classList.toggle('open');
     const expandBtn = document.createElement('button');
     expandBtn.textContent = '⛶';
     expandBtn.title = 'Switch to full meeting view';
@@ -78,10 +93,15 @@ export class MeetingAreaUI {
     leaveBtn.textContent = '📵';
     leaveBtn.title = 'Leave the call';
     leaveBtn.onclick = () => this.handlers?.leave();
-    controls.append(this.micBtn, this.camBtn, expandBtn, leaveBtn);
+    controls.append(this.micBtn, this.camBtn, devBtn, expandBtn, leaveBtn);
     this.panel.appendChild(controls);
 
+    this.devPop = document.createElement('div');
+    this.devPop.className = 'pa-meet-dev';
+    this.panel.appendChild(this.devPop);
+
     document.body.appendChild(this.panel);
+    this.setState({ connected: false, micOn: true, camOn: true });
   }
 
   /** The stage element LiveKitConference renders participant tiles into
@@ -97,6 +117,7 @@ export class MeetingAreaUI {
 
   setVisible(visible: boolean): void {
     this.panel.style.display = visible ? 'flex' : 'none';
+    if (!visible) this.devPop.classList.remove('open');
   }
 
   setHandlers(h: MeetingAreaHandlers | null): void {
@@ -106,8 +127,39 @@ export class MeetingAreaUI {
   setState(s: MeetingAreaState): void {
     this.statusEl.textContent = s.error ? s.error : s.connected ? '● live' : '… connecting';
     this.statusEl.classList.toggle('err', !!s.error);
+    this.micBtn.textContent = s.micOn ? '🎙' : '🔇';
+    this.camBtn.textContent = s.camOn ? '📷' : '🚫';
     this.micBtn.classList.toggle('off', !s.micOn);
     this.camBtn.classList.toggle('off', !s.camOn);
+  }
+
+  setDevices(d: MeetingAreaDevices): void {
+    const pick = (icon: string, list: MediaDeviceInfo[], active: string | undefined, on: (id: string) => void): HTMLElement | null => {
+      if (list.length < 2) return null;
+      const wrap = document.createElement('label');
+      wrap.textContent = icon;
+      const sel = document.createElement('select');
+      for (const dev of list) {
+        const o = document.createElement('option');
+        o.value = dev.deviceId;
+        o.textContent = dev.label || icon;
+        if (dev.deviceId === active) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => on(sel.value);
+      wrap.appendChild(sel);
+      return wrap;
+    };
+    this.devPop.innerHTML = '';
+    const cam = pick('📷', d.cameras, d.camId, (id) => this.handlers?.switchCamera(id));
+    const mic = pick('🎙', d.mics, d.micId, (id) => this.handlers?.switchMic(id));
+    const spk = pick('🔊', d.speakers, d.speakerId, (id) => this.handlers?.switchSpeaker(id));
+    for (const el of [cam, mic, spk]) if (el) this.devPop.appendChild(el);
+    if (!this.devPop.childElementCount) {
+      const none = document.createElement('div');
+      none.textContent = 'No selectable devices.';
+      this.devPop.appendChild(none);
+    }
   }
 }
 
@@ -137,14 +189,23 @@ function injectMeetingAreaStyles(): void {
       display:flex;align-items:center;justify-content:center;font-size:0.65rem;color:#d7d9da;}
     #pa-meeting .pa-conf-name{position:absolute;left:0.2rem;bottom:0.15rem;font-size:0.62rem;color:#fff;
       text-shadow:0 0 3px #000,0 0 3px #000;z-index:1;}
-    #pa-meeting .pa-meet-controls{display:flex;gap:0.35rem;}
+    #pa-meeting .pa-conf-micoff{position:absolute;top:0.2rem;right:0.2rem;font-size:0.7rem;z-index:2;
+      filter:drop-shadow(0 0 2px #000);}
+    #pa-meeting .pa-meet-controls{display:flex;gap:0.3rem;position:relative;}
     #pa-meeting .pa-meet-controls button{flex:1;cursor:pointer;background:#262422;border:2px solid #0a0908;
-      color:#f1efec;border-radius:0.35rem;font-size:0.95rem;padding:0.35rem 0.2rem;
+      color:#f1efec;border-radius:0.35rem;font-size:0.9rem;padding:0.35rem 0.15rem;
       box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-meeting .pa-meet-controls button:hover{background:#2f2c29;}
-    #pa-meeting .pa-meet-controls button.off{opacity:0.5;}
+    #pa-meeting .pa-meet-controls button.off{background:#3a1f22;}
     #pa-meeting .pa-meet-controls button.pa-meet-leave{background:#7c2634;border-color:#0a0908;
       box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+    #pa-meeting .pa-meet-dev{position:absolute;bottom:2.6rem;left:0;right:0;background:#1c1a19;
+      border:2px solid #0a0908;border-radius:0.5rem;padding:0.5rem;display:none;flex-direction:column;gap:0.35rem;
+      box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 8px 20px rgba(0,0,0,.5);}
+    #pa-meeting .pa-meet-dev.open{display:flex;}
+    #pa-meeting .pa-meet-dev label{font-size:0.7rem;color:#818586;display:flex;align-items:center;gap:0.3rem;}
+    #pa-meeting .pa-meet-dev select{flex:1;min-width:0;background:#262422;border:2px solid #0a0908;color:#f1efec;
+      border-radius:0.3rem;font:0.75rem 'FS Pixel Sans',monospace;padding:0.25rem;}
   `;
   document.head.appendChild(s);
 }

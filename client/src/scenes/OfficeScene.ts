@@ -3124,7 +3124,10 @@ export class OfficeScene extends Phaser.Scene {
         this.meetingArea?.setState(s);
         this.confUI.setState(s);
       },
-      onDevices: (d) => this.confUI.setDevices(d),
+      onDevices: (d) => {
+        this.meetingArea?.setDevices(d);
+        this.confUI.setDevices(d);
+      },
       onChat: (msg) => this.confUI.addChat(msg),
       onParticipants: (list) => this.confUI.setParticipants(list),
       onScreens: (n) => {
@@ -3147,6 +3150,9 @@ export class OfficeScene extends Phaser.Scene {
     return {
       toggleMic: () => void this.meetingConf?.toggleMic(),
       toggleCam: () => void this.meetingConf?.toggleCam(),
+      switchCamera: (id) => void this.meetingConf?.switchCamera(id),
+      switchMic: (id) => void this.meetingConf?.switchMic(id),
+      switchSpeaker: (id) => void this.meetingConf?.switchSpeaker(id),
       expand: () => this.expandMeetingArea(),
       leave: () => this.leaveMeetingAreaLocal(),
     };
