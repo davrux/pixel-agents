@@ -3690,8 +3690,14 @@ export class OfficeScene extends Phaser.Scene {
           background:#f0696e;transform:rotate(-20deg);border-radius:1px;box-shadow:0 0 1px #000;}
         .pa-afk{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
           font:0.72rem 'FS Pixel Sans',monospace;color:#ffd98a;text-shadow:0 0 3px #000,0 0 3px #000;white-space:nowrap;}
-        .pa-coffee-icon{position:absolute;z-index:46;transform:translate(-50%,-100%);pointer-events:none;
-          font-size:0.95rem;line-height:1;text-shadow:0 0 3px #000,0 0 3px #000;}
+        .pa-coffee-icon{position:absolute;z-index:46;pointer-events:none;
+          font-size:0.95rem;line-height:1;text-shadow:0 0 3px #000,0 0 3px #000;
+          transform-origin:70% 100%;animation:pa-coffee-sip 2.2s ease-in-out infinite;}
+        @keyframes pa-coffee-sip{
+          0%,100%{transform:translate(-50%,-100%) rotate(0deg) translateY(0);}
+          30%{transform:translate(-50%,-100%) rotate(-16deg) translateY(-1px);}
+          55%{transform:translate(-50%,-100%) rotate(0deg) translateY(-2px);}
+        }
         .pa-vic.spk{animation:pa-voice 0.9s infinite ease-in-out;}
         @keyframes pa-voice{0%,100%{transform:scale(0.92);opacity:.75;}50%{transform:scale(1.1);opacity:1;}}
       `;
