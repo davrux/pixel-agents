@@ -158,6 +158,7 @@ export class PhaserRenderer {
           strokeThickness: 2,
         })
         .setOrigin(0.5, 1)
+        .setAngle(pt.angle ?? 0)
         .setDepth(y);
       this.texts.push(txt);
     }

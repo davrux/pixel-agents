@@ -76,7 +76,9 @@ const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
 const BLOCKED_TILE = { color: 0xe0342a, stroke: 0.6, fill: 0.22 };
 /** Grid-overlay colour per tile-action kind (see Action) — 'meetingRoom'
- *  keeps the original teal so existing meeting areas look unchanged. */
+ *  keeps the original teal (video on) so existing meeting areas look mostly
+ *  unchanged; audio-only gets its own blue so the two read as visibly
+ *  distinct at a glance, not just "the same teal, trust me". */
 const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   meetingRoom: 0x2ac9c9,
   linkManager: 0x9b6bd8,
@@ -84,8 +86,15 @@ const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   appliance: 0x6bd89b,
   arcade: 0xd83a6b,
 };
-const ACTION_TILE_STROKE = 0.6;
-const ACTION_TILE_FILL = 0.18;
+const MEETING_ROOM_NO_VIDEO_COLOR = 0x3a7fd8;
+/** Colour for one specific action, distinguishing meetingRoom's video/no-video
+ *  split (both otherwise share 'meetingRoom' in ACTION_TILE_COLOR). */
+function actionTileColor(action: Action): number {
+  if (action.kind === 'meetingRoom' && !action.video) return MEETING_ROOM_NO_VIDEO_COLOR;
+  return ACTION_TILE_COLOR[action.kind];
+}
+const ACTION_TILE_STROKE = 0.85;
+const ACTION_TILE_FILL = 0.32;
 
 /** Menu of tile-action kinds the Action tool can paint, in palette order.
  *  'iframe' needs a URL, prompted for when picked (not per tile). */
@@ -103,6 +112,24 @@ const TILE_ACTION_CHOICES: Array<{ label: string; make: () => Action | Promise<A
   { label: 'Arcade cabinet', make: () => ({ kind: 'arcade' }) },
   { label: 'Appliance (coffee)', make: () => ({ kind: 'appliance', pose: 'coffee' }) },
 ];
+
+/** The TILE_ACTION_CHOICES label matching a given Action — used to highlight
+ *  "this one is currently active" in both the persistent tile-tool palette
+ *  and the furniture popup menu, so picking isn't blind trial and error. */
+function actionChoiceLabel(a: Action): string {
+  switch (a.kind) {
+    case 'meetingRoom':
+      return a.video ? 'Meeting (video)' : 'Meeting (audio only)';
+    case 'linkManager':
+      return 'AdHoc Meeting Kiosk';
+    case 'iframe':
+      return 'Open link (iframe)';
+    case 'arcade':
+      return 'Arcade cabinet';
+    case 'appliance':
+      return 'Appliance (coffee)';
+  }
+}
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;
@@ -127,6 +154,9 @@ export class LayoutEditor {
   private tool: Tool = 'select';
   private selectedType: string | null = null;
   private selectedUid: string | null = null;
+  /** The selected text label's uid, mutually exclusive with selectedUid
+   *  (selecting one always clears the other) — see selectAt/endFurnitureDrag. */
+  private selectedTextUid: string | null = null;
   private lastSelClick = { x: -999, y: -999 };
   private floorPattern = 1;
   private wallSet = 0;
@@ -159,6 +189,7 @@ export class LayoutEditor {
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
   private rotateBtn!: HTMLButtonElement;
   private actionBar!: HTMLDivElement;
+  private textActionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
   private flipFacingBtnInBar!: HTMLButtonElement;
@@ -245,8 +276,10 @@ export class LayoutEditor {
     this.editing = false;
     this.layout = null;
     this.selectedUid = null;
+    this.selectedTextUid = null;
     this.root.style.display = 'none';
     this.actionBar.style.display = 'none';
+    this.textActionBar.style.display = 'none';
     this.ghost?.destroy();
     this.ghost = undefined;
     this.selRect?.destroy();
@@ -299,6 +332,7 @@ export class LayoutEditor {
       };
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedTextUid) this.deleteSelectedText();
     }
   }
 
@@ -732,8 +766,10 @@ export class LayoutEditor {
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.selectedUid = null;
+    this.selectedTextUid = null;
     this.colorGesture = false;
     this.actionBar.style.display = 'none';
+    this.textActionBar.style.display = 'none';
     this.selRect?.setVisible(false);
     this.rebuildFurniture();
     this.deps.rebuildStatic();
@@ -816,7 +852,7 @@ export class LayoutEditor {
   }
 
   /** Commit (or cancel) the move. A no-move drag falls back to click-select
-   *  (furniture only — there's no select/action-bar UI for text labels). */
+   *  (a text label gets its own minimal action bar — edit/rotate/delete). */
   endFurnitureDrag(wx: number, wy: number): void {
     const uid = this.dragUid;
     const kind = this.dragKind;
@@ -826,12 +862,18 @@ export class LayoutEditor {
     if (!uid || !this.layout) return;
     if (kind === 'text') {
       this.selRect?.setVisible(false);
-      if (!this.dragMoved) return;
+      if (!this.dragMoved) {
+        this.selectedUid = null;
+        this.selectedTextUid = uid;
+        return;
+      }
       const t = this.layout.texts?.find((x) => x.uid === uid);
       const col = Math.floor(wx / TILE_SIZE);
       const row = Math.floor(wy / TILE_SIZE);
       if (!t || col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-      if (col === t.col && row === t.row) return; // dropped back on itself
+      this.selectedUid = null;
+      this.selectedTextUid = uid;
+      if (col === t.col && row === t.row) return; // dropped back on itself — stays selected
       this.beginGesture();
       t.col = col;
       t.row = row;
@@ -958,7 +1000,7 @@ export class LayoutEditor {
           if (!action) continue;
           const x = c * s;
           const y = r * s;
-          const color = ACTION_TILE_COLOR[action.kind];
+          const color = actionTileColor(action);
           g.fillStyle(color, ACTION_TILE_FILL);
           g.fillRect(x, y, s, s);
           g.lineStyle(lw, color, ACTION_TILE_STROKE);
@@ -1107,11 +1149,13 @@ export class LayoutEditor {
 
   private selectAt(wx: number, wy: number): void {
     this.commitColorGesture(); // finalize any color edit on the previous selection
+    this.selectedTextUid = null; // furniture and text selection are mutually exclusive
     const hits = this.furnitureHitsAt(wx, wy); // top-most first
     if (hits.length === 0) {
       this.selectedUid = null;
       this.lastSelClick = { x: wx, y: wy };
       this.actionBar.style.display = 'none';
+      this.textActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
       return;
     }
@@ -1164,7 +1208,8 @@ export class LayoutEditor {
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
     if (!f) return;
     const rect = this.actionBtnInBar.getBoundingClientRect();
-    const result = await this.chooseActionMenu(rect.left, rect.bottom + 4);
+    const current = effectiveAction(f, getCatalogEntry(f.type));
+    const result = await this.chooseActionMenu(rect.left, rect.bottom + 4, current);
     if (result === undefined || !this.layout) return; // dismissed, or the editor closed meanwhile
     this.beginGesture();
     if (result) f.action = result;
@@ -1175,40 +1220,71 @@ export class LayoutEditor {
 
   /** One-off floating menu (the same choices as the Action tool's palette,
    *  plus "No action") anchored near (x,y) in viewport coordinates — used by
-   *  the furniture Action… button. Resolves to the chosen Action, `null`
-   *  for "No action" (clears the override), or `undefined` if dismissed
-   *  without choosing. */
-  private chooseActionMenu(x: number, y: number): Promise<Action | null | undefined> {
+   *  the furniture Action… button. `current` (the item's effective action, if
+   *  any) is highlighted on open so it's visible which one is active before
+   *  picking — otherwise there's no way to tell without trial and error.
+   *  Resolves to the chosen Action, `null` for "No action" (clears the
+   *  override), or `undefined` if dismissed without choosing. */
+  private chooseActionMenu(x: number, y: number, current?: Action | null): Promise<Action | null | undefined> {
     return new Promise((resolve) => {
       const menu = document.createElement('div');
       menu.className = 'pa-pal pa-pal-action pa-action-menu';
       menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:90;width:14rem;max-height:70vh;overflow:auto;display:grid;`;
-      const done = (v: Action | null | undefined): void => {
+      const currentLabel = current ? actionChoiceLabel(current) : null;
+      // Retire the menu (listener + DOM) the instant a choice is picked —
+      // BEFORE awaiting its (possibly async) maker. The iframe choice opens
+      // promptDialog, whose own overlay lives outside .pa-action-menu; if the
+      // menu stayed open and listening, clicking into that prompt would read
+      // as an "outside click" and resolve this menu with `undefined` right
+      // away, discarding the URL the moment the async maker finished.
+      const retire = (): void => {
         document.removeEventListener('mousedown', onOutside, true);
         menu.remove();
-        resolve(v);
       };
       const onOutside = (e: MouseEvent): void => {
-        if (!menu.contains(e.target as Node)) done(undefined);
+        if (!menu.contains(e.target as Node)) {
+          retire();
+          resolve(undefined);
+        }
+      };
+      const pick = (make: () => Action | Promise<Action | null>): void => {
+        retire();
+        void Promise.resolve(make()).then((action) => resolve(action ?? undefined));
       };
       for (const choice of TILE_ACTION_CHOICES) {
         const b = document.createElement('button');
         b.className = 'pa-pal-item pa-action-choice';
+        if (choice.label === currentLabel) b.classList.add('sel');
         b.textContent = choice.label;
-        b.onclick = () => {
-          void Promise.resolve(choice.make()).then((action) => {
-            if (action) done(action);
-          });
-        };
+        b.onclick = () => pick(choice.make);
         menu.appendChild(b);
       }
       const clear = document.createElement('button');
       clear.className = 'pa-pal-item pa-action-choice';
+      if (currentLabel === null) clear.classList.add('sel');
       clear.style.color = '#f2a1a1';
       clear.textContent = '✕ No action (remove)';
-      clear.onclick = () => done(null);
+      clear.onclick = () => {
+        retire();
+        resolve(null);
+      };
       menu.appendChild(clear);
       document.body.appendChild(menu);
+      // Clamp on-screen: anchored near a selected item close to the window's
+      // top/right edge would otherwise render partly off-screen — clipped
+      // buttons are invisible AND unclickable (position:fixed doesn't scroll
+      // into view), which silently "eats" clicks on whichever choices land
+      // above y=0 or past the right edge.
+      const margin = 4;
+      const rect = menu.getBoundingClientRect();
+      let left = x;
+      let top = y;
+      if (rect.right > window.innerWidth) left -= rect.right - window.innerWidth + margin;
+      if (left < margin) left = margin;
+      if (rect.bottom > window.innerHeight) top -= rect.bottom - window.innerHeight + margin;
+      if (top < margin) top = margin;
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
       // Defer listening for outside clicks by one tick — otherwise the same
       // click that opened this menu (still bubbling) closes it immediately.
       setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
@@ -1278,12 +1354,99 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
+  /** Edit the selected text label's content/font size — same two prompts as
+   *  placeOrEditText, but against the current Select-tool selection rather
+   *  than a clicked tile. Clearing the text deletes the label, same as there. */
+  private async editSelectedText(): Promise<void> {
+    if (!this.layout || !this.selectedTextUid) return;
+    const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
+    if (!t) return;
+    const input = await promptDialog('Text label:', t.text, { maxLength: MAX_TEXT_LABEL_LEN });
+    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const text = cleanName(input, MAX_TEXT_LABEL_LEN);
+    if (!text) {
+      this.deleteSelectedText();
+      return;
+    }
+    const sizeInput = await promptDialog(
+      `Font size (${TEXT_LABEL_MIN_FONT_SIZE}-${TEXT_LABEL_MAX_FONT_SIZE}px):`,
+      String(t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE),
+    );
+    if (sizeInput === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const fontSize = clampTextLabelFontSize(sizeInput);
+    this.beginGesture();
+    t.text = text;
+    if (fontSize === TEXT_LABEL_DEFAULT_FONT_SIZE) delete t.fontSize;
+    else t.fontSize = fontSize;
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** Rotate the selected text label to a free angle in degrees — a label has
+   *  no orientation sprites (unlike rotatable furniture's fixed 90°-step R
+   *  key), so this is a numeric prompt rather than a cycle through variants. */
+  private async rotateSelectedText(): Promise<void> {
+    if (!this.layout || !this.selectedTextUid) return;
+    const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
+    if (!t) return;
+    const input = await promptDialog('Angle (degrees, any value):', String(t.angle ?? 0));
+    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const n = Number(input);
+    this.beginGesture();
+    const angle = Number.isFinite(n) ? ((n % 360) + 360) % 360 : 0;
+    if (angle === 0) delete t.angle;
+    else t.angle = angle;
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  private deleteSelectedText(): void {
+    if (!this.layout || !this.selectedTextUid) return;
+    const i = this.layout.texts?.findIndex((x) => x.uid === this.selectedTextUid) ?? -1;
+    if (i < 0 || !this.layout.texts) return;
+    this.beginGesture();
+    this.layout.texts.splice(i, 1);
+    this.selectedTextUid = null;
+    this.textActionBar.style.display = 'none';
+    this.selRect?.setVisible(false);
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
   /** Position the floating action bar + selection outline above the selected
-   *  furniture each frame (camera-correct). Called by the scene's update(). */
+   *  furniture (or text label's own minimal bar) each frame (camera-correct).
+   *  Called by the scene's update(). */
   tickUI(): void {
     // Keep grid lines ~1px on screen across zoom levels (redraw only on change).
     if (this.editing && this.grid && this.scene.cameras.main.zoom !== this.gridZoom) this.drawGrid();
-    if (!this.editing || this.tool !== 'select' || !this.selectedUid || !this.layout) {
+    if (!this.editing || this.tool !== 'select' || !this.layout) {
+      this.actionBar.style.display = 'none';
+      this.textActionBar.style.display = 'none';
+      this.selRect?.setVisible(false);
+      return;
+    }
+    if (this.selectedTextUid) {
+      this.actionBar.style.display = 'none';
+      const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
+      if (!t) {
+        this.textActionBar.style.display = 'none';
+        this.selRect?.setVisible(false);
+        return;
+      }
+      const wpx = t.col * TILE_SIZE;
+      const wpy = t.row * TILE_SIZE;
+      this.selRect?.setPosition(wpx, wpy).setSize(TILE_SIZE, TILE_SIZE).setVisible(true);
+      const cam = this.scene.cameras.main;
+      const wv = cam.worldView;
+      const sx = (wpx + TILE_SIZE / 2 - wv.x) * cam.zoom;
+      const sy = (wpy - wv.y) * cam.zoom;
+      this.textActionBar.style.left = `${Math.round(sx)}px`;
+      this.textActionBar.style.top = `${Math.round(sy)}px`;
+      this.textActionBar.style.display = 'flex';
+      return;
+    }
+    this.textActionBar.style.display = 'none';
+    if (!this.selectedUid) {
       this.actionBar.style.display = 'none';
       this.selRect?.setVisible(false);
       return;
@@ -1428,7 +1591,9 @@ export class LayoutEditor {
     if (this.rotateBtn) this.rotateBtn.style.display = t === 'furniture' ? 'block' : 'none';
     if (t !== 'select') {
       this.selectedUid = null;
+      this.selectedTextUid = null;
       if (this.actionBar) this.actionBar.style.display = 'none';
+      if (this.textActionBar) this.textActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
     }
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
@@ -1459,19 +1624,7 @@ export class LayoutEditor {
   }
 
   private highlightActionChoice(): void {
-    const cur = this.currentTileAction;
-    const label =
-      cur.kind === 'meetingRoom'
-        ? cur.video
-          ? 'Meeting (video)'
-          : 'Meeting (audio only)'
-        : cur.kind === 'linkManager'
-          ? 'AdHoc Meeting Kiosk'
-          : cur.kind === 'iframe'
-            ? 'Open link (iframe)'
-            : cur.kind === 'arcade'
-              ? 'Arcade cabinet'
-              : 'Appliance (coffee)';
+    const label = actionChoiceLabel(this.currentTileAction);
     this.palAction.querySelectorAll<HTMLButtonElement>('.pa-action-choice').forEach((b) => {
       b.classList.toggle('sel', b.textContent === label);
     });
@@ -1690,6 +1843,20 @@ export class LayoutEditor {
       delBtn,
     );
     host.appendChild(this.actionBar);
+
+    // A text label's own minimal floating bar (edit / rotate / delete) — no
+    // rotate-90/name/facing/restack/asset-editor/action-override buttons,
+    // none of those apply to a plain string.
+    this.textActionBar = document.createElement('div');
+    this.textActionBar.style.cssText = this.actionBar.style.cssText;
+    const textEditBtn = mkAct('✎', 'Edit text / font size', () => void this.editSelectedText());
+    const textRotateBtn = mkAct('⟳', 'Rotate (free angle)', () => void this.rotateSelectedText());
+    const textDelBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelectedText());
+    textDelBtn.style.background = '#7c2634';
+    textDelBtn.style.color = '#f6cdd4';
+    textDelBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
+    this.textActionBar.append(textEditBtn, textRotateBtn, textDelBtn);
+    host.appendChild(this.textActionBar);
 
     this.selectTool('select');
     this.updateSwatch();

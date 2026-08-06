@@ -120,7 +120,7 @@ function authOf(client: Client): AuthInfo {
 function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
   const texts = layout.texts;
   if (!Array.isArray(texts)) return layout;
-  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number }> = [];
+  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number; angle?: number }> = [];
   for (const t of texts) {
     if (clean.length >= MAX_TEXT_LABELS) break;
     if (!t || typeof t !== 'object') continue;
@@ -128,7 +128,7 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
     if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
     const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
     if (!text) continue;
-    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number } = {
+    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number; angle?: number } = {
       uid: rec.uid,
       col: rec.col,
       row: rec.row,
@@ -137,6 +137,10 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
     if (rec.fontSize !== undefined) {
       const size = clampTextLabelFontSize(rec.fontSize);
       if (size !== TEXT_LABEL_DEFAULT_FONT_SIZE) entry.fontSize = size;
+    }
+    if (typeof rec.angle === 'number' && Number.isFinite(rec.angle)) {
+      const angle = ((rec.angle % 360) + 360) % 360;
+      if (angle !== 0) entry.angle = angle;
     }
     clean.push(entry);
   }

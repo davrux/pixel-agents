@@ -314,6 +314,9 @@ export interface PlacedText {
   text: string;
   /** Font size in px. Unset = the default (see TEXT_LABEL_DEFAULT_FONT_SIZE). */
   fontSize?: number;
+  /** Free rotation in degrees (0-359, normalized), pivoted at the label's own
+   *  anchor (bottom-center of its tile). Unset = 0 (upright, unrotated). */
+  angle?: number;
 }
 
 export interface OfficeLayout {
