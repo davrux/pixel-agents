@@ -1,0 +1,86 @@
+name: Desktop AppImage
+
+# Baut das Electron-Desktop-Paket (Linux AppImage, unsigniert — siehe
+# desktop/electron-builder.yml) und hängt es bei Tag-Builds als Asset an das
+# GitHub-Release.
+#
+#   push tag v*        -> AppImage bauen + an das Release "v<x.y.z>" hängen
+#                         (Release wird angelegt, falls es noch nicht existiert)
+#   workflow_dispatch  -> AppImage bauen und nur als Workflow-Artifact ablegen
+#
+# Keine zusätzlichen Secrets nötig: der eingebaute GITHUB_TOKEN darf Releases
+# schreiben (permissions.contents: write).
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Release anlegen / Asset hochladen
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Enable corepack (pnpm aus packageManager)
+        run: corepack enable
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Die AppImage-Version (und damit der Dateiname, siehe artifactName in
+      # desktop/electron-builder.yml) kommt aus desktop/package.json. Bei einem
+      # Tag-Build wird sie auf den Tag gesetzt, damit Asset und Release-Tag
+      # zusammenpassen.
+      - name: Version aus Tag übernehmen
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          export VERSION="${TAG#v}"
+          node -e '
+            const fs = require("node:fs");
+            const p = "desktop/package.json";
+            const pkg = JSON.parse(fs.readFileSync(p, "utf8"));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + "\n");
+          '
+          echo "desktop version -> $VERSION"
+        shell: bash
+
+      # pnpm dist:desktop = client bauen -> desktop/dist bauen -> electron-builder.
+      # --publish never: electron-builder soll bei Tag-Builds nichts von sich aus
+      # hochladen, das Asset hängt der Schritt unten an.
+      - name: Build AppImage
+        run: pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
+
+      - name: Upload als Workflow-Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: pixel-agents-appimage
+          path: desktop/release/*.AppImage
+          if-no-files-found: error
+
+      - name: An das Release hängen
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -e
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+          gh release upload "$TAG" desktop/release/*.AppImage --clobber
+        shell: bash
