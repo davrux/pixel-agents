@@ -94,6 +94,13 @@ const POSE_FRAME_MS: Record<string, number> = {
   sit: TYPE_FRAME_DURATION_SEC * 1000, // static placeholder; animates if a sit track is authored
 };
 
+// Default camera zoom: a character sprite is CHARACTER_BASELINE_HEIGHT (32)
+// world px tall, so at zoom 2 it renders ~64 CSS px tall — ~1.7cm at the
+// standard 96-CSS-px-per-inch reference (96/2.54 ≈ 37.8 px/cm), the middle of
+// a comfortable 1.5–2cm range on an ordinary monitor. Manual zoom (mouse
+// wheel) still overrides this per session; it's just the starting point.
+const DEFAULT_ZOOM = 2;
+
 // Idle-throttle tuning (see update()): DOM overlays run at ~20 Hz; after a short
 // grace with a fully static scene the per-frame work is skipped, and after ~2 s
 // the whole render loop is put to sleep (woken by input/state/voice/tab focus).
@@ -331,6 +338,14 @@ export class OfficeScene extends Phaser.Scene {
    *  the layout again. */
   private officeW = 0;
   private officeH = 0;
+  /** Manual drag-panning "detaches" the camera from follow (see setupInput's
+   *  pan handler + update()'s re-engage check below) so looking around doesn't
+   *  fight the every-frame recenter; it snaps back to following the moment the
+   *  player's own position changes again (walk, sit, portal, anything). Never
+   *  active while editing — the editor keeps its existing free-camera feel. */
+  private cameraFollowDetached = false;
+  /** Player position at the moment of detaching, to detect "have I moved". */
+  private cameraDetachAt: { x: number; y: number } | null = null;
 
   constructor() {
     super('office');
@@ -1174,14 +1189,16 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Always update bounds (cheap, harmless), but only set zoom/center on the
    *  first layout — so live-edit broadcasts don't jerk the editor's or watchers'
-   *  view on every change (only the office bounds grow on expand). */
+   *  view on every change (only the office bounds grow on expand). Centering
+   *  on the map here is just a placeholder for the one frame or so before the
+   *  player's own position is known — update()'s follow-camera takes over
+   *  immediately once it is. */
   private fitCamera(w: number, h: number): void {
     const cam = this.cameras.main;
     this.officeW = w;
     this.officeH = h;
     if (!this.cameraInitialized) {
-      const z = Math.min(this.scale.width / w, this.scale.height / h) * 0.95;
-      cam.setZoom(z > 0 ? z : 2);
+      cam.setZoom(DEFAULT_ZOOM);
       cam.centerOn(w / 2, h / 2);
       this.cameraInitialized = true;
     }
@@ -1328,7 +1345,15 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       if (dragging) {
-        if (Math.abs(p.x - lx) + Math.abs(p.y - ly) > 2) moved = true;
+        if (!moved && Math.abs(p.x - lx) + Math.abs(p.y - ly) > 2) {
+          moved = true;
+          // A real pan (not just a click) detaches the follow-camera — see
+          // update()'s re-engage check.
+          if (!this.cameraFollowDetached) {
+            this.cameraFollowDetached = true;
+            this.cameraDetachAt = this.playerPosition(this.myPlayerId);
+          }
+        }
         cam.scrollX -= (p.x - lx) / cam.zoom;
         cam.scrollY -= (p.y - ly) / cam.zoom;
         lx = p.x;
@@ -1498,6 +1523,25 @@ export class OfficeScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (!this.room) return;
     const t0 = this.perfEnabled ? performance.now() : 0;
+    // Follow-camera: recenter on the local player every frame this runs at
+    // all (ahead of the idle-throttle return below, so it isn't skipped and
+    // catches up immediately once the player's own position is first known),
+    // unless a manual drag has detached it — in which case check whether the
+    // player has since moved (any cause: walk, sit, portal) and re-engage the
+    // moment they have. Never while editing (its own free-camera feel stays).
+    if (!this.editor.isEditing()) {
+      const pos = this.playerPosition(this.myPlayerId);
+      if (pos) {
+        if (this.cameraFollowDetached) {
+          const at = this.cameraDetachAt;
+          if (!at || Math.abs(pos.x - at.x) > 0.5 || Math.abs(pos.y - at.y) > 0.5) {
+            this.cameraFollowDetached = false;
+            this.cameraDetachAt = null;
+          }
+        }
+        if (!this.cameraFollowDetached) this.cameras.main.centerOn(pos.x, pos.y);
+      }
+    }
     // Close the destination picker once the avatar moves off the portal tile.
     if (this.portalPickerTile) {
       const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
