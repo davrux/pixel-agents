@@ -74,6 +74,22 @@ function computeBlockedTiles(layout: OfficeLayout): Set<string> {
   return new Set([...getBlockedTiles(layout.furniture), ...getBlockedFloorTiles(layout)]);
 }
 
+/** "col,row" keys of every tile carrying a tile action (any kind) — a plain
+ *  click-to-move walk should route around these when it can (see walkPlayer),
+ *  rather than cutting through a meeting room/kiosk/etc. on its way somewhere
+ *  else. Furniture-sourced actions don't need an equivalent set: their tiles
+ *  are already non-walkable via computeBlockedTiles (you approach them, you
+ *  don't cut through them). */
+function computeActionTileKeys(layout: OfficeLayout): Set<string> {
+  const keys = new Set<string>();
+  const actions = layout.tileActions;
+  if (!actions) return keys;
+  for (let i = 0; i < actions.length; i++) {
+    if (actions[i]) keys.add(`${i % layout.cols},${Math.floor(i / layout.cols)}`);
+  }
+  return keys;
+}
+
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
@@ -81,6 +97,11 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
+  /** "col,row" of every tile carrying a tile action — see computeActionTileKeys.
+   *  Only walkPlayer's plain click-to-move consults this (a soft detour cost
+   *  in findPath, not a hard block); NPC wandering, seats, and appliance/
+   *  action approach paths ignore it entirely. */
+  private actionTileKeys: Set<string>;
   /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
    *  via areaIdAt()/areaAnchor(), never mutated in place. */
   private actionAreas: ActionAreaMap;
@@ -141,6 +162,7 @@ export class OfficeState {
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
     this.actionAreas = computeActionAreas(this.layout);
+    this.actionTileKeys = computeActionTileKeys(this.layout);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -162,6 +184,7 @@ export class OfficeState {
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
     this.actionAreas = computeActionAreas(layout);
+    this.actionTileKeys = computeActionTileKeys(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -798,7 +821,11 @@ export class OfficeState {
     if (clicked === undefined || clicked === TileType.VOID) return false;
     const target = nearestWalkableTile(col, row, this.tileMap, this.blockedTiles);
     if (!target) return false;
-    const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles);
+    // Route around tile actions when a detour exists (see computeActionTileKeys)
+    // — a plain walk-click shouldn't cut through a meeting room/kiosk/etc. on
+    // its way somewhere else, but can still land ON one directly when that's
+    // the actual target (its own cost is unavoidable either way).
+    const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles, this.actionTileKeys);
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
