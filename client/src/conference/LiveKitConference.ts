@@ -1,9 +1,13 @@
 /**
  * LiveKit media layer for the in-world conference monitors. Owns the room
- * lifecycle and renders **one tile per participant** into a stage grid (video,
- * or an initials placeholder when the camera is off), plus separate "spotlight"
- * tiles for screen shares. Also carries an ephemeral in-meeting chat over the
- * LiveKit data channel and surfaces participant / active-speaker changes.
+ * lifecycle and renders **one tile per participant** into the stage (video, or
+ * an initials placeholder when the camera is off) plus one tile per screen
+ * share. Also carries an ephemeral in-meeting chat over the LiveKit data
+ * channel and surfaces participant / active-speaker changes.
+ *
+ * Every tile carries a `data-focus-key` and lands in the same stage element:
+ * ConferenceUI owns the layout on top of that (grid vs. focused tile) and picks
+ * tiles up by watching the stage, so nothing here needs to know about it.
  *
  * The surrounding shell (control bar, chat/participants sidebars, fullscreen)
  * lives in ConferenceUI; this class only manages media + data. All of it is
@@ -61,8 +65,8 @@ export interface ConferenceCallbacks {
   onDevices?: (d: ConferenceDevices) => void;
   onChat?: (m: ConferenceChatMsg) => void;
   onParticipants?: (list: ConferenceParticipant[]) => void;
-  /** Number of active screen shares changed (drives the spotlight layout). */
-  onScreens?: (count: number) => void;
+  /** Transient message for the viewer (e.g. "Ada muted you"). */
+  onNotice?: (text: string) => void;
 }
 
 interface PTile {
@@ -79,7 +83,7 @@ export class LiveKitConference {
   private room: Room | null = null;
   /** One tile per participant identity (camera / placeholder). */
   private readonly tiles = new Map<string, PTile>();
-  /** Screen-share spotlight tiles, keyed by track sid. */
+  /** Screen-share tiles, keyed by track sid. */
   private readonly screens = new Map<string, HTMLElement>();
   /** Hidden remote audio elements, keyed by track sid. */
   private readonly audios = new Map<string, { el: HTMLMediaElement; identity: string }>();
@@ -96,7 +100,6 @@ export class LiveKitConference {
 
   constructor(
     private readonly stage: HTMLElement,
-    private readonly screensEl: HTMLElement,
     private readonly cb: ConferenceCallbacks,
   ) {
     this.loadSavedVolumes();
@@ -155,6 +158,8 @@ export class LiveKitConference {
     const root = document.createElement('div');
     root.className = 'pa-conf-tile';
     root.dataset.identity = p.identity;
+    root.dataset.focusKey = `p:${p.identity}`;
+    root.title = 'Click to focus';
     const media = document.createElement('div');
     media.className = 'pa-conf-media';
     const placeholder = document.createElement('div');
@@ -180,15 +185,16 @@ export class LiveKitConference {
       if (isScreen) {
         const sid = track.sid || `${p.identity}-screen`;
         const tile = document.createElement('div');
-        tile.className = 'pa-conf-tile pa-conf-screen';
+        tile.className = 'pa-conf-tile screen';
+        tile.dataset.focusKey = `s:${sid}`;
+        tile.title = 'Click to focus';
         const tag = document.createElement('span');
         tag.className = 'pa-conf-name';
         tag.textContent = `🖥 ${local ? 'You' : p.name || p.identity}`;
         video.classList.add('contain');
         tile.append(video, tag);
         this.screens.set(sid, tile);
-        this.screensEl.appendChild(tile);
-        this.cb.onScreens?.(this.screens.size);
+        this.stage.appendChild(tile);
       } else {
         const t = this.ensureTile(p, local);
         t.placeholder.style.display = 'none';
@@ -214,7 +220,6 @@ export class LiveKitConference {
       if (el && sid) {
         el.remove();
         this.screens.delete(sid);
-        this.cb.onScreens?.(this.screens.size);
       }
       return;
     }
@@ -284,7 +289,7 @@ export class LiveKitConference {
 
   private onData(payload: Uint8Array, p?: RemoteParticipant): void {
     try {
-      const msg = JSON.parse(dec.decode(payload)) as { t?: string; text?: string; at?: number };
+      const msg = JSON.parse(dec.decode(payload)) as { t?: string; text?: string; at?: number; target?: string };
       if (msg.t === 'chat' && typeof msg.text === 'string') {
         this.cb.onChat?.({
           from: p?.name || p?.identity || '?',
@@ -292,10 +297,40 @@ export class LiveKitConference {
           at: typeof msg.at === 'number' ? msg.at : Date.now(),
           local: false,
         });
+      } else if (msg.t === 'mute' && msg.target === this.room?.localParticipant.identity) {
+        void this.muteSelf(p?.name || p?.identity || 'Someone');
       }
     } catch {
       /* ignore malformed data */
     }
+  }
+
+  // ── Mute for everyone (a request, not an enforcement) ──────────────
+
+  /** Ask a member to switch their microphone off. It's their own client that
+   *  does the muting, so the mic really is off at the source — everyone stops
+   *  hearing them, not just us — and they can turn it back on whenever they
+   *  like with their own Mic button. (Anyone in the call may do this; there are
+   *  no moderators here, same as the rest of the office.) */
+  requestMute(identity: string): void {
+    const room = this.room;
+    if (!room || identity === room.localParticipant.identity) return;
+    room.localParticipant.publishData(enc.encode(JSON.stringify({ t: 'mute', target: identity })), {
+      reliable: true,
+      destinationIdentities: [identity], // nobody else needs to see the request
+    });
+    const name = room.remoteParticipants.get(identity)?.name || identity;
+    this.cb.onNotice?.(`Asked ${name} to mute.`);
+  }
+
+  /** Someone asked us to mute — comply, and say who so it isn't a mystery. */
+  private async muteSelf(by: string): Promise<void> {
+    if (!this.micOn) return;
+    this.micOn = false;
+    await this.room?.localParticipant.setMicrophoneEnabled(false);
+    this.notify();
+    this.emitParticipants();
+    this.cb.onNotice?.(`${by} muted you. Press 🎙 Mic to unmute.`);
   }
 
   // ── Participants ───────────────────────────────────────────────────

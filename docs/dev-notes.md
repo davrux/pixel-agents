@@ -136,8 +136,18 @@ Add a matching command for any new destination (see AGENTS.md convention).
     array). Env: `ARCADE_TURN_URLS` (comma list), `ARCADE_TURN_SECRET`,
     `ARCADE_TURN_TTL` (default 12h), optional `ARCADE_STUN_URLS`. Unset → STUN-only
     (LAN/same-machine only). Operator must run coturn on the public host.
-- **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit); per-member
-  volume/mute. **Zone voice** = per-zone WebRTC + proximity.
+- **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit). The People
+  panel carries two different mutes per member: 🔊 + the slider are **local**
+  (this viewer's playback only, volume persisted by name in localStorage), while
+  "Mute for all" sends a `{t:'mute'}` data message to that member, whose own
+  client switches its mic off — so it's off at the source for everyone, and they
+  can unmute themselves again with their Mic button. No moderator role, no
+  server enforcement. LiveKitConference drops every tile — cameras *and* screen shares —
+  into one stage; ConferenceUI owns the layout on top of it: a page-filling grid
+  (tile size solved in JS, since CSS auto-fit strands everyone in one row) or one
+  focused tile plus a filmstrip. Click a tile to focus it, "▦ Grid"/Esc/double-click
+  to go back; a new screen share focuses itself once. **Zone voice** = per-zone
+  WebRTC + proximity.
 - **Mumble (desktop only)** — a real Mumble client, split across the two processes:
   - `desktop/src/mumble/` is main-process: `varint.ts` (Mumble's own big-endian
     varint — **not** protobuf's LEB128, which is in `protobuf.ts`), `protocol.ts`

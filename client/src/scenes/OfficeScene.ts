@@ -2951,12 +2951,12 @@ export class OfficeScene extends Phaser.Scene {
     // Open the window first (it owns the stage element the tiles render into),
     // then connect the media into it.
     this.confUI.open(title, this.conferenceHandlers());
-    this.conf = new LiveKitConference(this.confUI.stage, this.confUI.screens, {
+    this.conf = new LiveKitConference(this.confUI.stage, {
       onState: (s) => this.confUI.setState(s),
       onDevices: (d) => this.confUI.setDevices(d),
       onChat: (msg) => this.confUI.addChat(msg),
       onParticipants: (list) => this.confUI.setParticipants(list),
-      onScreens: (n) => this.confUI.setSharing(n > 0),
+      onNotice: (text) => this.confUI.notice(text),
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
@@ -2978,6 +2978,7 @@ export class OfficeScene extends Phaser.Scene {
       switchSpeaker: (id) => void this.conf?.switchSpeaker(id),
       setVolume: (identity, v) => this.conf?.setParticipantVolume(identity, v),
       setMuted: (identity, muted) => this.conf?.setParticipantMuted(identity, muted),
+      muteForAll: (identity) => this.conf?.requestMute(identity),
       sendChat: (text) => this.conf?.sendChat(text),
       leave: () => {
         if (this.myConference) void this.toggleConference(this.myConference);

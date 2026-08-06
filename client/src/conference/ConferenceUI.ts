@@ -9,8 +9,19 @@
  * button still calls the browser's Fullscreen API on top of that, to additionally
  * hide the tab/address bar.
  *
+ * Two stage layouts, both owned here:
+ *  - **Grid** (default): every tile — cameras *and* shared screens — is laid out
+ *    in a page-filling grid. The row/column split is picked in JS (`layoutGrid`)
+ *    because CSS auto-fit can only fill rows left-to-right, which strands a
+ *    handful of participants in one thin line across a wide window.
+ *  - **Focus**: one tile fills the stage with the rest as a filmstrip below it.
+ *    Any tile can be focused by clicking it (a new screen share focuses itself);
+ *    "▦ Grid", Esc, or a double-click goes back.
+ *
  * Media + the in-meeting chat transport live in LiveKitConference; this class is
- * pure UI, driven by handlers + update calls from OfficeScene.
+ * pure UI, driven by handlers + update calls from OfficeScene. Tiles are created
+ * by LiveKitConference into `stage`; this class only moves and sizes them, and
+ * watches for tiles coming and going with a MutationObserver.
  */
 import type {
   ConferenceState,
@@ -27,7 +38,8 @@ export interface ConferenceUIHandlers {
   switchMic: (id: string) => void;
   switchSpeaker: (id: string) => void;
   setVolume: (identity: string, v: number) => void; // 0..1
-  setMuted: (identity: string, muted: boolean) => void;
+  setMuted: (identity: string, muted: boolean) => void; // for me only
+  muteForAll: (identity: string) => void; // asks them to switch their mic off
   sendChat: (text: string) => void;
   leave: () => void;
 }
@@ -39,6 +51,7 @@ interface PartRow {
   nm: HTMLElement;
   icons: HTMLElement;
   mute?: HTMLButtonElement;
+  muteAll?: HTMLButtonElement;
   vol?: HTMLInputElement;
   pct?: HTMLElement;
 }
@@ -57,34 +70,38 @@ const CSS = `
   #pa-conf .pa-conf-head .status{margin-left:auto;font-size:0.85rem;color:#7fbf6a;}
   #pa-conf .pa-conf-head .status.err{color:#f2a1a1;}
   #pa-conf .pa-conf-body{flex:1;display:flex;min-height:0;}
-  #pa-conf .pa-conf-main{flex:1;display:flex;min-width:0;min-height:0;}
-  /* Default: grid of participant tiles fills the main area. */
-  #pa-conf-stage{flex:1;display:grid;gap:0.5rem;padding:0.6rem;overflow:auto;align-content:center;
-    grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));background:#141312;min-width:0;}
-  #pa-conf .pa-conf-tile{position:relative;aspect-ratio:16/9;background:#262422;border:2px solid #0a0908;
-    border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;
+  #pa-conf .pa-conf-main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;background:#141312;}
+  /* Default: a page-filling grid. Wrapping flex rather than CSS grid so a partial
+     last row centres under the rest; --tile-w (written by layoutGrid()) is what
+     actually decides the wrap. GRID_GAP / GRID_PAD must match the px used there. */
+  #pa-conf-stage{flex:1;display:flex;flex-wrap:wrap;gap:8px;padding:8px;overflow:auto;min-width:0;min-height:0;
+    justify-content:center;align-content:safe center;}
+  #pa-conf .pa-conf-tile{position:relative;flex:0 0 auto;width:var(--tile-w,13rem);aspect-ratio:16/9;
+    box-sizing:border-box;background:#262422;border:2px solid #0a0908;
+    border-radius:0.4rem;overflow:hidden;display:flex;align-items:center;justify-content:center;cursor:pointer;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-tile.speaking{border-color:#c51a1b;box-shadow:0 0 0 2px #e2585a inset;}
   /* Camera off → a plain black screen (the placeholder avatar sits on top). */
   #pa-conf .pa-conf-tile.camoff{background:#000;box-shadow:none;}
-  /* Screen-share spotlight (hidden until a screen is shared). */
-  #pa-conf-spotlight{display:none;position:relative;flex:1;min-width:0;padding:0.6rem;background:#141312;
+  /* A shared screen is just another tile — never cropped, and flagged in red. */
+  #pa-conf .pa-conf-tile.screen{background:#000;border-color:#c51a1b;box-shadow:0 0 0 1px #e2585a;}
+  #pa-conf .pa-conf-tile.screen .pa-conf-video{object-fit:contain;}
+  /* Focus mode: the focused tile fills the stage, the rest run along the bottom. */
+  #pa-conf-focus{display:none;position:relative;flex:1;min-width:0;min-height:0;padding:8px;
     align-items:center;justify-content:center;}
-  #pa-conf.sharing #pa-conf-spotlight{display:flex;}
-  #pa-conf-spotlight .pa-conf-screen{position:relative;width:100%;height:100%;background:#000;
-    border:2px solid #c51a1b;border-radius:0.4rem;box-shadow:0 0 0 1px #e2585a;
-    display:flex;align-items:center;justify-content:center;overflow:hidden;}
-  #pa-conf-spotlight .pa-conf-video.contain{width:100%;height:100%;object-fit:contain;}
-  .pa-conf-spot-ctl{position:absolute;top:0.55rem;right:0.55rem;z-index:3;display:none;gap:0.35rem;}
-  #pa-conf.sharing .pa-conf-spot-ctl{display:flex;}
+  #pa-conf.focus-mode #pa-conf-focus{display:flex;}
+  #pa-conf.focus-mode #pa-conf-stage{flex:0 0 auto;height:8.5rem;flex-wrap:nowrap;
+    justify-content:safe center;overflow-x:auto;overflow-y:hidden;}
+  #pa-conf.focus-mode #pa-conf-stage .pa-conf-tile{flex:0 0 auto;width:auto;height:100%;}
+  #pa-conf.focus-mode.strip-collapsed #pa-conf-stage,
+  #pa-conf.focus-mode.strip-empty #pa-conf-stage{display:none;}
+  #pa-conf .pa-conf-tile.focused{width:100%;height:100%;aspect-ratio:auto;cursor:default;}
+  #pa-conf .pa-conf-tile.focused .pa-conf-video{object-fit:contain;background:#000;}
+  .pa-conf-spot-ctl{position:absolute;top:0.55rem;right:0.55rem;z-index:3;display:flex;gap:0.35rem;}
   .pa-conf-spot-ctl button{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
     border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.32rem 0.55rem;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   .pa-conf-spot-ctl button:hover{background:#2e2b28;}
-  /* While sharing, participant tiles become a scrollable column on the right. */
-  #pa-conf.sharing #pa-conf-stage{flex:0 0 14rem;display:flex;flex-direction:column;gap:0.4rem;overflow-y:auto;
-    overflow-x:hidden;align-content:stretch;}
-  #pa-conf.sharing.people-collapsed #pa-conf-stage{display:none;}
   #pa-conf .pa-conf-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
   #pa-conf .pa-conf-video{width:100%;height:100%;object-fit:cover;background:#000;}
   #pa-conf .pa-conf-video.mirror{transform:scaleX(-1);}
@@ -124,6 +141,17 @@ const CSS = `
   #pa-conf .pa-conf-parts .p .vol-row button.muted{color:#f2a1a1;border-color:#7c2634;}
   #pa-conf .pa-conf-parts .p .vol-row input[type=range]{flex:1;min-width:0;accent-color:#c51a1b;}
   #pa-conf .pa-conf-parts .p .vol-row .pct{font-size:0.8rem;color:#adb0b2;min-width:2.6rem;text-align:right;}
+  #pa-conf .pa-conf-parts .p button.mute-all{cursor:pointer;background:#262422;border:2px solid #0a0908;
+    color:#f1efec;border-radius:0.35rem;font:0.8rem 'FS Pixel Sans',monospace;padding:0.2rem 0.4rem;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-parts .p button.mute-all:hover:not(:disabled){background:#2e2b28;}
+  #pa-conf .pa-conf-parts .p button.mute-all:disabled{opacity:0.4;cursor:default;}
+  /* Transient notice ("Ada muted you") over the stage. */
+  #pa-conf .pa-conf-toast{position:absolute;top:3.4rem;left:50%;transform:translateX(-50%);z-index:6;
+    background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:0.5rem 0.8rem;color:#f1efec;
+    font-size:0.95rem;max-width:80%;text-align:center;transition:opacity .4s;
+    box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+  #pa-conf .pa-conf-toast.out{opacity:0;}
   #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
     padding:0.6rem;background:#1c1a19;border-top:2px solid #0a0908;box-shadow:inset 0 1px 0 #2c2a28;position:relative;}
   #pa-conf .pa-conf-bar button{cursor:pointer;background:#242220;border:2px solid #0a0908;color:#f1efec;
@@ -145,10 +173,19 @@ const CSS = `
     font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
 `;
 
+/** Stage gap / padding, in px — must match #pa-conf-stage's CSS. */
+const GRID_GAP = 8;
+const GRID_PAD = 8;
+/** Tiles never shrink below this (the grid scrolls instead). */
+const MIN_TILE_W = 120;
+/** Ignore a "double-click to unfocus" this soon after the click that focused. */
+const DBLCLICK_MS = 700;
+
 export class ConferenceUI {
   private readonly root: HTMLDivElement;
+  private readonly mainEl: HTMLDivElement;
   private readonly stageEl: HTMLDivElement;
-  private readonly spotlightEl: HTMLDivElement;
+  private readonly focusEl: HTMLDivElement;
   private readonly titleEl: HTMLSpanElement;
   private readonly subEl: HTMLSpanElement;
   private readonly statusEl: HTMLSpanElement;
@@ -161,6 +198,18 @@ export class ConferenceUI {
   private readonly partRows = new Map<string, PartRow>();
   private devices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
   private state: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
+  /** The tile currently filling the stage (null → grid layout). */
+  private focused: HTMLElement | null = null;
+  /** Where the focused tile sat in the stage, so unfocusing puts it back there. */
+  private focusHome: Element | null = null;
+  /** The visible transient notice, if any (only one at a time). */
+  private toast: HTMLElement | null = null;
+  /** Event timestamp of the click that focused the current tile. */
+  private focusedAt = 0;
+  /** Screen-share tiles we've already reacted to (so each one auto-focuses once). */
+  private readonly knownScreens = new Set<string>();
+  /** Last tile width written, so a re-layout that changes nothing is a no-op. */
+  private gridTileW = 0;
 
   constructor() {
     if (!document.getElementById('pa-conf-style')) {
@@ -178,8 +227,9 @@ export class ConferenceUI {
       </div>
       <div class="pa-conf-body">
         <div class="pa-conf-main">
-          <div id="pa-conf-spotlight">
+          <div id="pa-conf-focus">
             <div class="pa-conf-spot-ctl">
+              <button data-ungrid title="Back to the grid (Esc)">▦ Grid</button>
               <button data-collapse title="Show / hide participants">👥</button>
               <button data-spotfull title="Fullscreen">⛶</button>
             </div>
@@ -211,8 +261,9 @@ export class ConferenceUI {
       </div>`;
     (document.getElementById('game') ?? document.body).appendChild(root);
     this.root = root;
+    this.mainEl = root.querySelector('.pa-conf-main')!;
     this.stageEl = root.querySelector('#pa-conf-stage')!;
-    this.spotlightEl = root.querySelector('#pa-conf-spotlight')!;
+    this.focusEl = root.querySelector('#pa-conf-focus')!;
     this.titleEl = root.querySelector('.pa-conf-head .title')!;
     this.subEl = root.querySelector('.pa-conf-head .sub')!;
     this.statusEl = root.querySelector('.pa-conf-head .status')!;
@@ -224,20 +275,98 @@ export class ConferenceUI {
     this.wire();
   }
 
-  /** The stage element LiveKitConference renders participant tiles into. */
+  /** The stage element LiveKitConference renders every tile into (cameras and
+   *  screen shares alike). Focusing only moves a tile between containers. */
   get stage(): HTMLElement {
     return this.stageEl;
   }
-  /** The spotlight element LiveKitConference renders screen shares into. */
-  get screens(): HTMLElement {
-    return this.spotlightEl;
+
+  // ── Stage layout: page-filling grid ⇄ focused tile + filmstrip ─────
+
+  /** Watch the stage for tiles coming and going, and for the window resizing. */
+  private observeStage(): void {
+    const mo = new MutationObserver(() => this.onTilesChanged());
+    mo.observe(this.stageEl, { childList: true });
+    mo.observe(this.focusEl, { childList: true }); // focused tile removed (left / stopped sharing)
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(() => this.layoutGrid()).observe(this.stageEl);
+    }
   }
 
-  /** Switch to/from the screen-share spotlight layout (screen big + people on
-   *  the right). Called when a screen share starts/stops. */
-  setSharing(active: boolean): void {
-    this.root.classList.toggle('sharing', active);
-    if (!active) this.root.classList.remove('people-collapsed');
+  private onTilesChanged(): void {
+    // A screen share takes the spotlight the moment it appears — that's what
+    // everyone came to look at. Each share does this once, so a viewer who
+    // clicks back to the grid isn't yanked into focus again.
+    const screens = [...this.mainEl.querySelectorAll<HTMLElement>('.pa-conf-tile.screen')];
+    const live = new Set<string>();
+    for (const el of screens) {
+      const key = el.dataset.focusKey ?? '';
+      live.add(key);
+      if (!this.knownScreens.has(key)) this.setFocus(el);
+    }
+    for (const key of this.knownScreens) if (!live.has(key)) this.knownScreens.delete(key);
+    for (const key of live) this.knownScreens.add(key);
+    // The focused tile's participant left (or stopped sharing) → fall back to
+    // another share if there is one, else to the grid. (setFocus sees the stale
+    // `focused` element, notices it's detached, and just drops it.)
+    if (this.focused && !this.focused.isConnected) {
+      this.setFocus(screens.find((el) => el.isConnected) ?? null);
+    }
+    this.layoutGrid();
+  }
+
+  /** Focus a tile (fills the stage) or, with null, return to the grid. */
+  private setFocus(el: HTMLElement | null): void {
+    if (this.focused === el) return;
+    const prev = this.focused;
+    if (prev) {
+      prev.classList.remove('focused');
+      if (prev.isConnected) {
+        const home = this.focusHome?.parentElement === this.stageEl ? this.focusHome : null;
+        this.stageEl.insertBefore(prev, home); // back into its old slot, not the end
+        prev.title = 'Click to focus';
+      }
+    }
+    this.focused = el;
+    this.focusHome = el?.nextElementSibling ?? null;
+    if (el) {
+      el.classList.add('focused');
+      el.title = 'Double-click to go back to the grid';
+      this.focusEl.appendChild(el);
+    }
+    this.root.classList.toggle('focus-mode', !!el);
+    if (!el) this.root.classList.remove('strip-collapsed');
+    // Moving a <video> keeps it playing, but nudge it in case a browser paused it.
+    for (const host of [prev, el]) {
+      host?.querySelectorAll('video').forEach((v) => void v.play().catch(() => undefined));
+    }
+    this.layoutGrid();
+  }
+
+  /** Size the tiles so they fill the stage: try every column count and keep the
+   *  one that makes the (16:9) tiles biggest, then let them wrap into that many
+   *  per row. CSS auto-fit can't do this — it packs as many tiles per row as fit,
+   *  so five people on a wide monitor end up as one thin row with the rest of the
+   *  page empty. */
+  private layoutGrid(): void {
+    const n = this.stageEl.querySelectorAll('.pa-conf-tile').length;
+    this.root.classList.toggle('strip-empty', n === 0); // solo focus → no empty strip
+    if (this.focused) return; // filmstrip sizes itself off its fixed height
+    const w = this.stageEl.clientWidth - GRID_PAD * 2;
+    const h = this.stageEl.clientHeight - GRID_PAD * 2;
+    if (!n || w <= 0 || h <= 0) return;
+    let bestW = 0;
+    for (let cols = 1; cols <= n; cols++) {
+      const rows = Math.ceil(n / cols);
+      const tw = Math.min((w - GRID_GAP * (cols - 1)) / cols, ((h - GRID_GAP * (rows - 1)) / rows) * (16 / 9));
+      if (tw > bestW) bestW = tw;
+    }
+    // Floor, so `cols` tiles plus their gaps can never round up past the stage
+    // and wrap one tile early.
+    const tileW = Math.max(MIN_TILE_W, Math.floor(bestW));
+    if (tileW === this.gridTileW) return; // nothing to write → no resize feedback loop
+    this.gridTileW = tileW;
+    this.stageEl.style.setProperty('--tile-w', `${tileW}px`);
   }
 
   private wire(): void {
@@ -250,10 +379,32 @@ export class ConferenceUI {
     q('[data-people]').onclick = () => this.openSide('parts');
     q('[data-dev]').onclick = () => this.devPop.classList.toggle('open');
     q('[data-full]').onclick = () => this.toggleFullscreen();
-    // Screen-share spotlight controls (overlay on the shared screen).
-    this.spotlightEl.querySelector<HTMLButtonElement>('[data-collapse]')!.onclick = () =>
-      this.root.classList.toggle('people-collapsed');
-    this.spotlightEl.querySelector<HTMLButtonElement>('[data-spotfull]')!.onclick = () => this.toggleFullscreen();
+    // Focus-mode controls (overlaid on the focused tile).
+    const f = <T extends HTMLElement>(sel: string): T => this.focusEl.querySelector<T>(sel)!;
+    f<HTMLButtonElement>('[data-ungrid]').onclick = () => this.setFocus(null);
+    f<HTMLButtonElement>('[data-collapse]').onclick = () => this.root.classList.toggle('strip-collapsed');
+    f<HTMLButtonElement>('[data-spotfull]').onclick = () => this.toggleFullscreen();
+    // Click any tile to focus it; double-click the focused one to go back — but
+    // not when the double-click is what focused it a moment ago.
+    this.mainEl.addEventListener('click', (e) => {
+      const tile = (e.target as HTMLElement | null)?.closest<HTMLElement>('.pa-conf-tile');
+      if (tile && tile !== this.focused) {
+        this.focusedAt = e.timeStamp;
+        this.setFocus(tile);
+      }
+    });
+    this.mainEl.addEventListener('dblclick', (e) => {
+      if (!this.focused || e.timeStamp - this.focusedAt < DBLCLICK_MS) return;
+      if ((e.target as HTMLElement | null)?.closest('.pa-conf-tile') === this.focused) this.setFocus(null);
+    });
+    // Esc leaves focus mode — but only once it's no longer closing fullscreen.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || this.root.style.display === 'none') return;
+      if (!this.focused || document.fullscreenElement) return;
+      e.stopPropagation();
+      this.setFocus(null);
+    });
+    this.observeStage();
     this.root.querySelectorAll<HTMLButtonElement>('.pa-conf-tabs button').forEach((b) => {
       b.onclick = () => this.openSide(b.dataset.tab as 'chat' | 'parts');
     });
@@ -296,17 +447,29 @@ export class ConferenceUI {
     this.partsEl.innerHTML = '';
     this.partRows.clear();
     this.devPop.classList.remove('open');
+    this.resetStage();
     this.root.style.display = 'flex';
   }
 
   close(): void {
     if (document.fullscreenElement === this.root) void document.exitFullscreen().catch(() => undefined);
     this.root.style.display = 'none';
-    this.root.classList.remove('sharing', 'people-collapsed');
+    this.resetStage();
     this.handlers = null;
     this.chatLog.innerHTML = '';
     this.partsEl.innerHTML = '';
     this.partRows.clear();
+  }
+
+  /** Back to a clean grid — the tiles themselves belong to LiveKitConference. */
+  private resetStage(): void {
+    this.toast?.remove();
+    this.toast = null;
+    this.focused = null;
+    this.focusHome = null;
+    this.knownScreens.clear();
+    this.gridTileW = 0;
+    this.root.classList.remove('focus-mode', 'strip-collapsed', 'strip-empty');
   }
 
   setState(s: ConferenceState): void {
@@ -377,6 +540,8 @@ export class ConferenceUI {
         e.mute.classList.toggle('muted', p.mutedLocally);
         e.mute.title = p.mutedLocally ? 'Unmute for me' : 'Mute for me';
       }
+      // Nothing to ask for once their mic is already off.
+      if (e.muteAll) e.muteAll.disabled = !p.micOn;
       // Don't stomp a slider the user is actively dragging (its input handler
       // keeps the value + % readout current). Refresh others from state.
       if (e.vol && e.pct && document.activeElement !== e.vol) {
@@ -393,8 +558,11 @@ export class ConferenceUI {
     }
   }
 
-  /** One People row: name + mic/cam status, plus (remote only) a local
-   *  mute-for-me button and a 0–100% playback volume slider. */
+  /** One People row: name + mic/cam status and a "mute for everyone" button,
+   *  plus (remote only) a local mute-for-me button and a 0–100% playback volume
+   *  slider. The two mutes are deliberately different: the slider and 🔊 change
+   *  only what *this* viewer hears, "Mute for all" turns their mic off in the
+   *  actual call (and they can turn it back on). */
   private createPartRow(identity: string, local: boolean): PartRow {
     const row = document.createElement('div');
     row.className = 'p';
@@ -404,6 +572,13 @@ export class ConferenceUI {
     icons.className = 'i';
     row.append(nm, icons);
     if (local) return { row, nm, icons };
+
+    const muteAll = document.createElement('button');
+    muteAll.className = 'mute-all';
+    muteAll.textContent = 'Mute for all';
+    muteAll.title = 'Turn their microphone off for everyone (they can unmute themselves)';
+    muteAll.onclick = () => this.handlers?.muteForAll(identity);
+    row.appendChild(muteAll);
 
     const volRow = document.createElement('div');
     volRow.className = 'vol-row';
@@ -422,7 +597,22 @@ export class ConferenceUI {
     };
     volRow.append(mute, vol, pct);
     row.appendChild(volRow);
-    return { row, nm, icons, mute, vol, pct };
+    return { row, nm, icons, mute, muteAll, vol, pct };
+  }
+
+  /** Show a transient banner over the stage (mute requests and the like). */
+  notice(text: string): void {
+    this.toast?.remove();
+    const el = document.createElement('div');
+    el.className = 'pa-conf-toast';
+    el.textContent = text;
+    this.root.appendChild(el);
+    this.toast = el;
+    window.setTimeout(() => el.classList.add('out'), 4000);
+    window.setTimeout(() => {
+      el.remove();
+      if (this.toast === el) this.toast = null;
+    }, 4500);
   }
 
   addChat(m: ConferenceChatMsg): void {
