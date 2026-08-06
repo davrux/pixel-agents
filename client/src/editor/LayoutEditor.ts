@@ -92,7 +92,7 @@ const ACTION_TILE_FILL = 0.18;
 const TILE_ACTION_CHOICES: Array<{ label: string; make: () => Action | Promise<Action | null> }> = [
   { label: 'Meeting (video)', make: () => ({ kind: 'meetingRoom', video: true }) },
   { label: 'Meeting (audio only)', make: () => ({ kind: 'meetingRoom', video: false }) },
-  { label: 'Link kiosk', make: () => ({ kind: 'linkManager' }) },
+  { label: 'AdHoc Meeting Kiosk', make: () => ({ kind: 'linkManager' }) },
   {
     label: 'Open link (iframe)',
     make: async () => {
@@ -1466,7 +1466,7 @@ export class LayoutEditor {
           ? 'Meeting (video)'
           : 'Meeting (audio only)'
         : cur.kind === 'linkManager'
-          ? 'Link kiosk'
+          ? 'AdHoc Meeting Kiosk'
           : cur.kind === 'iframe'
             ? 'Open link (iframe)'
             : cur.kind === 'arcade'
