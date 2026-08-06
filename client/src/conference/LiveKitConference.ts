@@ -9,6 +9,13 @@
  * ConferenceUI owns the layout on top of that (grid vs. focused tile) and picks
  * tiles up by watching the stage, so nothing here needs to know about it.
  *
+ * Camera/mic permission is treated as something that routinely goes wrong, which
+ * on Firefox it does — it forgets a grant as soon as capture stops, so it prompts
+ * again on every join. Hence: one combined getUserMedia for the single prompt,
+ * a join that degrades to mic-only (or watch-only) instead of failing whole,
+ * camOn/micOn that only claim what is actually published, and device
+ * enumeration that never triggers a permission request of its own.
+ *
  * The surrounding shell (control bar, chat/participants sidebars, fullscreen)
  * lives in ConferenceUI; this class only manages media + data. All of it is
  * outside the game's authoritative state — only call membership is server-synced.
@@ -133,16 +140,84 @@ export class LiveKitConference {
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
-      await room.localParticipant.setCameraEnabled(true);
-      await room.localParticipant.setMicrophoneEnabled(true);
-      this.ensureTile(room.localParticipant, true);
-      for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
-      this.notify();
-      this.emitParticipants();
-      await this.emitDevices(); // labels are available now that permission is granted
     } catch (e) {
       this.notify((e as Error)?.message || 'connection failed');
       throw e;
+    }
+    // Only the connect above is fatal. Publishing is best-effort: a blocked,
+    // missing or busy camera must not take the whole meeting — and the
+    // microphone — down with it.
+    await this.publishLocalMedia();
+    this.ensureTile(room.localParticipant, true);
+    for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
+    this.notify();
+    this.emitParticipants();
+    await this.emitDevices(); // whatever labels the publish above unlocked
+  }
+
+  // ── Local media (one permission prompt, and no all-or-nothing join) ─
+
+  /** Publish camera + mic from a **single** getUserMedia
+   *  (`enableCameraAndMicrophone`), so the browser shows one permission prompt
+   *  instead of two. Firefox re-asks on every join unless the member ticked
+   *  "Remember this decision", so the second prompt isn't hypothetical there.
+   *
+   *  Whatever fails, we stay in the call with what works and report honest
+   *  camOn/micOn — the control bar must not show 📷/🎙 lit while nothing is
+   *  published. */
+  private async publishLocalMedia(): Promise<void> {
+    const lp = this.room?.localParticipant;
+    if (!lp) return;
+    // No mediaDevices at all = insecure origin (plain http on anything but
+    // localhost). Watching and listening still works, so it's a notice, not an
+    // error.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.camOn = false;
+      this.micOn = false;
+      this.cb.onNotice?.('Camera and microphone need an https connection — you can watch and listen, but not publish.');
+      return;
+    }
+    try {
+      await lp.enableCameraAndMicrophone();
+      return;
+    } catch (e) {
+      const err = e as Error;
+      if (err?.name === 'NotAllowedError') {
+        // Permission refused. getUserMedia is all-or-nothing, so somebody who
+        // keeps their camera permanently blocked (Firefox remembers a "Block",
+        // and then never even shows a prompt) lands here with a perfectly good
+        // microphone — so ask for the mic on its own, once. The camera is not
+        // asked for again: they said no, and the Cam button is there for later.
+        this.camOn = false;
+        this.micOn = await this.tryPublish('mic');
+        this.cb.onNotice?.(
+          this.micOn
+            ? `Camera blocked — joined with microphone only. ${grantHint()}`
+            : `Camera and microphone blocked. ${grantHint()}`,
+        );
+        return;
+      }
+      // A device-level problem instead — none present, already in use by
+      // another app, unsupported constraints. The combined request fails as a
+      // unit, so retry the two separately and keep whatever works. Mic first: a
+      // meeting survives without a picture, not without sound.
+      this.micOn = await this.tryPublish('mic');
+      this.camOn = await this.tryPublish('cam');
+      const dead = [!this.camOn ? 'camera' : '', !this.micOn ? 'microphone' : ''].filter(Boolean).join(' or ');
+      if (dead) this.cb.onNotice?.(`No ${dead}: ${err?.message || 'device unavailable'}`);
+    }
+  }
+
+  /** Enable one device, reporting failure instead of throwing. */
+  private async tryPublish(kind: 'cam' | 'mic'): Promise<boolean> {
+    const lp = this.room?.localParticipant;
+    if (!lp) return false;
+    try {
+      if (kind === 'cam') await lp.setCameraEnabled(true);
+      else await lp.setMicrophoneEnabled(true);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -327,7 +402,7 @@ export class LiveKitConference {
   private async muteSelf(by: string): Promise<void> {
     if (!this.micOn) return;
     this.micOn = false;
-    await this.room?.localParticipant.setMicrophoneEnabled(false);
+    await this.room?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
     this.notify();
     this.emitParticipants();
     this.cb.onNotice?.(`${by} muted you. Press 🎙 Mic to unmute.`);
@@ -402,15 +477,31 @@ export class LiveKitConference {
   // ── Controls ───────────────────────────────────────────────────────
 
   async toggleCam(): Promise<void> {
-    this.camOn = !this.camOn;
-    await this.room?.localParticipant.setCameraEnabled(this.camOn);
+    const next = !this.camOn;
+    try {
+      await this.room?.localParticipant.setCameraEnabled(next);
+      this.camOn = next;
+    } catch {
+      // Switching the camera back on re-runs getUserMedia — LiveKit stops the
+      // camera track on mute so the hardware light goes out, and unmuting has to
+      // re-acquire it. In Firefox that's a fresh permission prompt every time,
+      // and a dismissed one lands here. Stay off rather than claim to be live.
+      this.camOn = false;
+      this.cb.onNotice?.(`Camera unavailable. ${grantHint()}`);
+    }
     this.notify();
     this.emitParticipants();
   }
 
   async toggleMic(): Promise<void> {
-    this.micOn = !this.micOn;
-    await this.room?.localParticipant.setMicrophoneEnabled(this.micOn);
+    const next = !this.micOn;
+    try {
+      await this.room?.localParticipant.setMicrophoneEnabled(next);
+      this.micOn = next;
+    } catch {
+      this.micOn = false;
+      this.cb.onNotice?.(`Microphone unavailable. ${grantHint()}`);
+    }
     this.notify();
     this.emitParticipants();
   }
@@ -430,9 +521,18 @@ export class LiveKitConference {
     const room = this.room;
     if (!room || !this.cb.onDevices) return;
     try {
-      const cameras = await Room.getLocalDevices('videoinput');
-      const mics = await Room.getLocalDevices('audioinput');
-      const speakers = await Room.getLocalDevices('audiooutput');
+      // requestPermissions: false. The default (true) makes LiveKit fire *another*
+      // getUserMedia whenever a kind's list is empty or any label is blank — i.e.
+      // another Firefox prompt, and one that grabs the mic just to read labels.
+      // Firefox's speaker list is routinely empty (it gates audiooutput
+      // enumeration), so the default would re-prompt on every enumeration: on
+      // join, on every devicechange, and after every device switch. Our own
+      // publish already unlocked whatever labels we're going to get.
+      const [cameras, mics, speakers] = await Promise.all([
+        Room.getLocalDevices('videoinput', false),
+        Room.getLocalDevices('audioinput', false),
+        Room.getLocalDevices('audiooutput', false),
+      ]);
       this.cb.onDevices({
         cameras,
         mics,
@@ -495,6 +595,17 @@ export class LiveKitConference {
   private notify(error?: string): void {
     this.cb.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
   }
+}
+
+/** How to get the permission back, worded for the browser in front of us.
+ *  Firefox drops a camera/mic grant the moment capture stops, so it re-asks on
+ *  every join and every camera re-enable unless "Remember this decision" was
+ *  ticked — worth saying out loud, because the prompt is easy to miss. */
+function grantHint(): string {
+  const ff = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+  return ff
+    ? 'Allow it in the address-bar prompt, and tick "Remember this decision" so Firefox stops asking each time.'
+    : 'Allow it in the address-bar prompt.';
 }
 
 /** Route a media element to a specific output device (where supported). */

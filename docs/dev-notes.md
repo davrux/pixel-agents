@@ -146,8 +146,19 @@ Add a matching command for any new destination (see AGENTS.md convention).
   into one stage; ConferenceUI owns the layout on top of it: a page-filling grid
   (tile size solved in JS, since CSS auto-fit strands everyone in one row) or one
   focused tile plus a filmstrip. Click a tile to focus it, "▦ Grid"/Esc/double-click
-  to go back; a new screen share focuses itself once. **Zone voice** = per-zone
-  WebRTC + proximity.
+  to go back; a new screen share focuses itself once.
+  Camera/mic permission is assumed to fail regularly, because on Firefox it does
+  — Firefox drops a grant as soon as capture stops, so it re-prompts on every
+  join (and on every Cam re-enable, since LiveKit stops the camera track on mute
+  to kill the hardware light and has to re-acquire it). Hence: one combined
+  `enableCameraAndMicrophone()` for a single prompt, a join that degrades to
+  mic-only or watch-only instead of failing whole (a refused camera used to take
+  the mic with it — `getUserMedia` is all-or-nothing), `camOn`/`micOn` that only
+  claim what is really published, and `Room.getLocalDevices(kind, false)` so
+  enumerating devices never fires a permission request of its own (the default
+  `true` re-prompts whenever a label is blank or a list is empty — Firefox's
+  speaker list usually is). **Zone voice** = per-zone WebRTC + proximity, and it
+  defers `getUserMedia` until the first unmute, so joining a zone never prompts.
 - **Mumble (desktop only)** — a real Mumble client, split across the two processes:
   - `desktop/src/mumble/` is main-process: `varint.ts` (Mumble's own big-endian
     varint — **not** protobuf's LEB128, which is in `protobuf.ts`), `protocol.ts`

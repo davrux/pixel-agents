@@ -498,13 +498,15 @@ export class ConferenceUI {
       const wrap = document.createElement('label');
       wrap.textContent = icon;
       const sel = document.createElement('select');
-      for (const dev of list) {
+      list.forEach((dev, i) => {
         const o = document.createElement('option');
         o.value = dev.deviceId;
-        o.textContent = dev.label || icon;
+        // Firefox leaves labels blank for a kind it has no permission for, and
+        // every option reading "📷 Camera" is unusable — number them instead.
+        o.textContent = dev.label || `${icon} ${i + 1}`;
         if (dev.deviceId === active) o.selected = true;
         sel.appendChild(o);
-      }
+      });
       sel.onchange = () => on(sel.value);
       wrap.appendChild(sel);
       return wrap;
