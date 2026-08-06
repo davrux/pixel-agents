@@ -52,7 +52,7 @@ export interface EditorDeps {
   openAssetEditor?: (type: string) => void;
 }
 
-type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'eyedropper';
+type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'meeting' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
@@ -64,6 +64,7 @@ const VOID_OUTLINE = { color: 0xffffff, alpha: 0.08 };
 const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
 const BLOCKED_TILE = { color: 0xe0342a, stroke: 0.6, fill: 0.22 };
+const MEETING_AREA_TILE = { color: 0x2ac9c9, stroke: 0.6, fill: 0.18 };
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;
@@ -163,6 +164,9 @@ export class LayoutEditor {
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
     }
+    if (!this.layout.tilePrivateArea) {
+      this.layout.tilePrivateArea = new Array(this.layout.cols * this.layout.rows).fill(false);
+    }
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
     this.undoStack = [];
@@ -234,7 +238,15 @@ export class LayoutEditor {
       this.rotate(e.shiftKey ? 'ccw' : 'cw');
       e.preventDefault();
     } else if (!typing) {
-      const map: Record<string, Tool> = { '1': 'select', '2': 'furniture', '3': 'floor', '4': 'wall', '5': 'block', '6': 'eyedropper' };
+      const map: Record<string, Tool> = {
+        '1': 'select',
+        '2': 'furniture',
+        '3': 'floor',
+        '4': 'wall',
+        '5': 'block',
+        '6': 'meeting',
+        '7': 'eyedropper',
+      };
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
     }
@@ -278,6 +290,9 @@ export class LayoutEditor {
       case 'block':
         this.paintBlocked(col, row, true);
         break;
+      case 'meeting':
+        this.paintMeetingArea(col, row, true);
+        break;
       case 'eyedropper':
         this.eyedrop(wx, wy);
         break;
@@ -291,13 +306,15 @@ export class LayoutEditor {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
     } else if (this.tool === 'block') {
       this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
+    } else if (this.tool === 'meeting') {
+      this.paintMeetingArea(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
     }
   }
 
-  /** Floor/Wall/Block are paint tools — the scene lets you drag-paint with them
-   *  (and pans with the middle mouse instead of the left button). */
+  /** Floor/Wall/Block/Meeting are paint tools — the scene lets you drag-paint
+   *  with them (and pans with the middle mouse instead of the left button). */
   isPaintTool(): boolean {
-    return this.tool === 'floor' || this.tool === 'wall' || this.tool === 'block';
+    return this.tool === 'floor' || this.tool === 'wall' || this.tool === 'block' || this.tool === 'meeting';
   }
 
   /** Begin a drag-paint stroke: reset the per-tile dedup and snapshot for undo
@@ -530,6 +547,20 @@ export class LayoutEditor {
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
     if (!this.layout.tileBlocked) this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
     this.layout.tileBlocked[row * this.layout.cols + col] = blocked;
+    this.drawGrid();
+    this.deps.onEdit(this.layout, false);
+  }
+
+  /** Paint (or clear) the "meeting area" flag on one tile (see
+   *  OfficeLayout.tilePrivateArea) — which area id this becomes is derived
+   *  by flood fill on the server, not decided here; painting just marks the
+   *  tile as part of *some* area. No sprite/tileMap change, just the
+   *  edit-mode overlay (drawGrid) and autosave. */
+  private paintMeetingArea(col: number, row: number, on: boolean): void {
+    if (!this.layout) return;
+    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
+    if (!this.layout.tilePrivateArea) this.layout.tilePrivateArea = new Array(this.layout.cols * this.layout.rows).fill(false);
+    this.layout.tilePrivateArea[row * this.layout.cols + col] = on;
     this.drawGrid();
     this.deps.onEdit(this.layout, false);
   }
@@ -768,6 +799,25 @@ export class LayoutEditor {
       }
     }
 
+    // Meeting areas (layout.tilePrivateArea) — a teal fill + border (no
+    // diagonal cross, unlike Block's red hatch, so the two read as distinct:
+    // "a zone" rather than "forbidden"). Which area id a tile ends up in is
+    // decided server-side by flood fill, not shown here — the overlay just
+    // marks "part of some meeting area."
+    if (this.layout.tilePrivateArea) {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (!this.layout.tilePrivateArea[r * cols + c]) continue;
+          const x = c * s;
+          const y = r * s;
+          g.fillStyle(MEETING_AREA_TILE.color, MEETING_AREA_TILE.fill);
+          g.fillRect(x, y, s, s);
+          g.lineStyle(lw, MEETING_AREA_TILE.color, MEETING_AREA_TILE.stroke);
+          g.strokeRect(x, y, s, s);
+        }
+      }
+    }
+
     // Ghost-border expansion ring (one tile around the bounds) for floor/wall.
     if (this.tool === 'floor' || this.tool === 'wall') {
       const ring: Array<{ c: number; r: number }> = [];
@@ -855,6 +905,7 @@ export class LayoutEditor {
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
+    const tilePrivateArea = this.layout.tilePrivateArea ?? new Array(tiles.length).fill(false);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -873,6 +924,7 @@ export class LayoutEditor {
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
     const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
+    const newPrivateArea: boolean[] = new Array(newCols * newRows).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
@@ -880,6 +932,7 @@ export class LayoutEditor {
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
+        newPrivateArea[newIdx] = tilePrivateArea[oldIdx];
       }
     }
     this.layout.cols = newCols;
@@ -887,6 +940,7 @@ export class LayoutEditor {
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
     this.layout.tileBlocked = newBlocked;
+    this.layout.tilePrivateArea = newPrivateArea;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
@@ -1171,6 +1225,7 @@ export class LayoutEditor {
       floor: 'Floor — left-click paint, right-click erase',
       wall: 'Wall — left-click paint, right-click erase',
       block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
+      meeting: 'Meeting area — left-click marks a tile as part of a walk-in meeting area, right-click clears it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
     this.hint.textContent = labels[t];
@@ -1243,7 +1298,15 @@ export class LayoutEditor {
 
     const tools = document.createElement('div');
     tools.className = 'tools';
-    for (const [t, label] of [['select', 'Select'], ['furniture', 'Furn'], ['floor', 'Floor'], ['wall', 'Wall'], ['block', 'Block'], ['eyedropper', 'Pick']] as const) {
+    for (const [t, label] of [
+      ['select', 'Select'],
+      ['furniture', 'Furn'],
+      ['floor', 'Floor'],
+      ['wall', 'Wall'],
+      ['block', 'Block'],
+      ['meeting', 'Meeting'],
+      ['eyedropper', 'Pick'],
+    ] as const) {
       const b = document.createElement('button');
       b.className = 'pa-tool';
       b.dataset.tool = t;

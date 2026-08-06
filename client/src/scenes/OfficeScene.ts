@@ -36,6 +36,7 @@ import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
+import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { MumbleSettingsUI } from '../voice/MumbleSettingsUI.js';
@@ -192,6 +193,11 @@ export class OfficeScene extends Phaser.Scene {
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
+  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — participant popup
+   *  + on-the-fly camera/screen-share, layered on the same ZoneVoice
+   *  connection as ambient zone audio. Each character's current area comes
+   *  from its synced areaId (RenderChar.areaId, see applyChar). */
+  private meetingArea?: MeetingAreaUI;
   private mumble?: MumbleUI;
   private mumblePanel?: HTMLDivElement;
   private mumbleBtn?: HTMLButtonElement;
@@ -474,6 +480,7 @@ export class OfficeScene extends Phaser.Scene {
           this.micBarEqEl.style.setProperty('--l', (st?.connected && st.micOn) ? String(level) : '0');
         },
       });
+      this.meetingArea = new MeetingAreaUI(this.zoneVoice.voice);
     }
     // Mumble owns its own panel. Desktop-only: in the browser MumbleUI renders
     // nothing, so the panel and its bar button simply stay hidden.
@@ -770,6 +777,8 @@ export class OfficeScene extends Phaser.Scene {
     rc.inputTokens = cs.inputTokens as number;
     rc.outputTokens = cs.outputTokens as number;
     rc.activity = (cs.activity as string) ?? '';
+    const areaId = cs.areaId as number;
+    rc.areaId = areaId === -1 ? null : areaId;
   }
 
   private applyPet(rp: RenderPet, ps: Record<string, unknown>): void {
@@ -1474,6 +1483,20 @@ export class OfficeScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (!this.room) return;
     const t0 = this.perfEnabled ? performance.now() : 0;
+    // Meeting areas: unconditional (not gated by the idle-throttle below) since
+    // a solo player standing still inside one must keep seeing its popup.
+    if (this.meetingArea) {
+      const myAreaId = this.myPlayerId !== null ? this.characters.get(this.myPlayerId)?.areaId ?? null : null;
+      const others: Array<{ id: number; name: string }> = [];
+      if (myAreaId !== null) {
+        for (const ch of this.characters.values()) {
+          if (ch.id !== this.myPlayerId && ch.areaId === myAreaId) {
+            others.push({ id: ch.id, name: ch.folderName || ch.agentName || `Player ${ch.id}` });
+          }
+        }
+      }
+      this.meetingArea.update(myAreaId, others);
+    }
     // Close the destination picker once the avatar moves off the portal tile.
     if (this.portalPickerTile) {
       const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;

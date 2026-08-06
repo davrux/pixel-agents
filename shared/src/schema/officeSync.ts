@@ -51,6 +51,11 @@ export class CharacterSync extends EntitySync {
   /** Player set themselves away (/afk) — shows an "afk" marker; clears on move.
    *  Appended last (schema-evolution safe: never shift existing field indices). */
   @type('boolean') afk = false;
+  /** Which meeting area (OfficeState.areaIdAt) this character's tile is
+   *  currently in; -1 = none. Re-derived every sync tick, not a persisted
+   *  character property — see SimRoom.syncCharacters. Appended last, same
+   *  schema-evolution reason as afk above. */
+  @type('int32') areaId = -1;
 }
 
 export class PetSync extends EntitySync {

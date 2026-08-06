@@ -1736,6 +1736,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.activity = this.activity.get(ch.id) ?? '';
       cs.inputTokens = ch.inputTokens;
       cs.outputTokens = ch.outputTokens;
+      cs.areaId = this.os.areaIdAt(ch.tileCol, ch.tileRow) ?? -1;
     }
     for (const key of [...this.state.characters.keys()]) {
       if (!live.has(key)) this.state.characters.delete(key);

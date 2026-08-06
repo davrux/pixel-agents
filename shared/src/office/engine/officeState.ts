@@ -32,6 +32,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
+import { computePrivateAreaIds, privateAreaIdAt } from '../layout/privateAreas.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -79,6 +80,9 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
+  /** Flood-filled meeting-area id per tile (see computePrivateAreaIds) — read
+   *  via areaIdAt(), never mutated in place. */
+  private privateAreaIds: Int32Array;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
   furniturePlacements: PlacedFurniture[] = [];
@@ -138,6 +142,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
+    this.privateAreaIds = computePrivateAreaIds(this.layout);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -158,6 +163,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
+    this.privateAreaIds = computePrivateAreaIds(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -251,6 +257,13 @@ export class OfficeState {
 
   getLayout(): OfficeLayout {
     return this.layout;
+  }
+
+  /** Which meeting area (if any) a tile belongs to — see computePrivateAreaIds.
+   *  The room re-derives each character's areaId from this every sync tick
+   *  (SimRoom.syncCharacters); nothing here is cached per-character. */
+  areaIdAt(col: number, row: number): number | null {
+    return privateAreaIdAt(this.privateAreaIds, this.layout.cols, this.layout.rows, col, row);
   }
 
   /** Get the blocked-tile key for a character's own seat, or null */

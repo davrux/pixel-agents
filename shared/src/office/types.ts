@@ -277,6 +277,16 @@ export interface OfficeLayout {
    *  false/missing = normal. Painted with the editor's Block tool; merged into
    *  officeState's blockedTiles alongside furniture footprints. */
   tileBlocked?: boolean[];
+  /** Per-tile "meeting area" flag, parallel to tiles array — painted with the
+   *  editor's Meeting tool. Every maximal 4-connected group of true tiles is
+   *  one meeting area (id assigned by flood fill at layout-build time, see
+   *  computePrivateAreaIds — never stored, always derived, so ids stay
+   *  unique/contiguous by construction and two areas painted separately then
+   *  later bridged just merge into one on the next rebuild). Standing on a
+   *  tile in the same area as another player groups you for the walk-in
+   *  meeting UI (participant popup, on-the-fly video/screen-share) —
+   *  independent of the click-to-join MEETING_KIOSK conference. */
+  tilePrivateArea?: boolean[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }
@@ -287,6 +297,13 @@ export interface Character {
   /** Animation pose (server-computed, synced). Optional on the engine side; the
    *  renderer reads it, falling back to deriving from state when absent. */
   pose?: CharacterPose;
+  /** Which private/meeting area (see OfficeLayout.tilePrivateArea) this
+   *  character's current tile belongs to, or null outside any. Not
+   *  maintained by the engine itself — computed on demand from tileCol/
+   *  tileRow via OfficeState.areaIdAt() each sync tick (see SimRoom's
+   *  syncCharacters); present here only so the synced client-side copy has
+   *  somewhere to live. */
+  areaId?: number | null;
   dir: Direction;
   /** Pixel position */
   x: number;
