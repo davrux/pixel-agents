@@ -193,11 +193,25 @@ export class OfficeScene extends Phaser.Scene {
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
-  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — participant popup
-   *  + on-the-fly camera/screen-share, layered on the same ZoneVoice
-   *  connection as ambient zone audio. Each character's current area comes
-   *  from its synced areaId (RenderChar.areaId, see applyChar). */
+  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — a small popup
+   *  ("who's here" + Join video) driven by meetingAreaMembers broadcasts.
+   *  The actual call reuses ConferenceUI/LiveKitConference wholesale, one
+   *  dedicated LiveKit room per area (see onMeetingAreaToken), exactly like
+   *  a conference monitor. */
   private meetingArea?: MeetingAreaUI;
+  /** The meeting area (anchor "col,row" key) our tile is currently in, or
+   *  null — purely reactive to meetingAreaMembers broadcasts (no explicit
+   *  join/leave message; standing on the tile *is* server-side membership,
+   *  see SimRoom's updateMeetingAreaMembership). Drives the popup. */
+  private myMeetingAreaKey: string | null = null;
+  /** The meeting area (anchor tile) whose video CALL we're connected to, or
+   *  null — separate from membership above: you can stand in an area
+   *  without joining its call. */
+  private myMeetingArea: { col: number; row: number } | null = null;
+  /** Meeting-area rosters by "col,row" anchor key (from the server). */
+  private readonly meetingAreaMembers = new Map<string, Array<{ id: number; name: string }>>();
+  /** Active LiveKit connection for the joined meeting area, or undefined. */
+  private meetingConf?: LiveKitConference;
   private mumble?: MumbleUI;
   private mumblePanel?: HTMLDivElement;
   private mumbleBtn?: HTMLButtonElement;
@@ -373,6 +387,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createSettingsPanel();
     this.createChat();
     this.confUI = new ConferenceUI();
+    this.meetingArea = new MeetingAreaUI();
     this.arcadeUI = ArcadeUI.get();
     this.charEditor = new CharacterEditor({
       categories: [
@@ -480,7 +495,6 @@ export class OfficeScene extends Phaser.Scene {
           this.micBarEqEl.style.setProperty('--l', (st?.connected && st.micOn) ? String(level) : '0');
         },
       });
-      this.meetingArea = new MeetingAreaUI(this.zoneVoice.voice);
     }
     // Mumble owns its own panel. Desktop-only: in the browser MumbleUI renders
     // nothing, so the panel and its bar button simply stay hidden.
@@ -567,6 +581,8 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
         else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
         else if (m.type === 'conferenceToken') this.onConferenceToken(m);
+        else if (m.type === 'meetingAreaMembers') this.onMeetingAreaMembers(m);
+        else if (m.type === 'meetingAreaToken') this.onMeetingAreaToken(m);
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
         else if (m.type === 'meetingRoomList') this.onMeetingRoomList(m);
@@ -777,8 +793,6 @@ export class OfficeScene extends Phaser.Scene {
     rc.inputTokens = cs.inputTokens as number;
     rc.outputTokens = cs.outputTokens as number;
     rc.activity = (cs.activity as string) ?? '';
-    const areaId = cs.areaId as number;
-    rc.areaId = areaId === -1 ? null : areaId;
   }
 
   private applyPet(rp: RenderPet, ps: Record<string, unknown>): void {
@@ -1483,20 +1497,6 @@ export class OfficeScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (!this.room) return;
     const t0 = this.perfEnabled ? performance.now() : 0;
-    // Meeting areas: unconditional (not gated by the idle-throttle below) since
-    // a solo player standing still inside one must keep seeing its popup.
-    if (this.meetingArea) {
-      const myAreaId = this.myPlayerId !== null ? this.characters.get(this.myPlayerId)?.areaId ?? null : null;
-      const others: Array<{ id: number; name: string }> = [];
-      if (myAreaId !== null) {
-        for (const ch of this.characters.values()) {
-          if (ch.id !== this.myPlayerId && ch.areaId === myAreaId) {
-            others.push({ id: ch.id, name: ch.folderName || ch.agentName || `Player ${ch.id}` });
-          }
-        }
-      }
-      this.meetingArea.update(myAreaId, others);
-    }
     // Close the destination picker once the avatar moves off the portal tile.
     if (this.portalPickerTile) {
       const me = this.myPlayerId !== null ? this.characters.get(this.myPlayerId) : undefined;
@@ -2923,11 +2923,13 @@ export class OfficeScene extends Phaser.Scene {
     const label = conferenceLabel(anchor.name, anchor.col, anchor.row);
     if (!(await confirmDialog(`Join the conference “${label}”?`, { confirmLabel: 'Join' }))) return;
     // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
-    // then we connect the media. Leave any current call.
+    // then we connect the media. Leave any current call (conference or meeting area —
+    // they share the one ConferenceUI window/stage).
     if (this.myConference) {
       this.room?.send('conferenceLeave', this.myConference);
       this.leaveConferenceLocal();
     }
+    if (this.myMeetingArea) this.leaveMeetingAreaLocal();
     this.pendingConference = { ...anchor };
     this.room?.send('conferenceApproach', { col: anchor.col, row: anchor.row });
   }
@@ -3022,6 +3024,102 @@ export class OfficeScene extends Phaser.Scene {
       leave: () => {
         if (this.myConference) void this.toggleConference(this.myConference);
       },
+    };
+  }
+
+  // ── Meeting areas (walk-in, automatic membership) ────────────────
+
+  /** Server broadcast: current roster of a meeting area (by its anchor
+   *  "col,row" key). Drives the small popup entirely — there's no per-frame
+   *  poll, unlike the old areaId-sync design; membership only ever changes
+   *  when this message arrives. */
+  private onMeetingAreaMembers(m: Record<string, unknown>): void {
+    const key = `${m.col},${m.row}`;
+    const members = (m.members as Array<{ id: number; name: string }>) ?? [];
+    if (members.length) this.meetingAreaMembers.set(key, members);
+    else this.meetingAreaMembers.delete(key);
+    const iAmIn = this.myPlayerId !== null && members.some((p) => p.id === this.myPlayerId);
+    if (iAmIn) {
+      this.myMeetingAreaKey = key;
+      const anchor = { col: m.col as number, row: m.row as number };
+      const others = members.filter((p) => p.id !== this.myPlayerId);
+      this.meetingArea?.update(others, { onJoin: () => this.joinMeetingAreaVideo(anchor) });
+    } else if (this.myMeetingAreaKey === key) {
+      this.myMeetingAreaKey = null;
+      this.meetingArea?.update(null, null);
+    }
+    // If the server dropped us from our own call's area (walked out, despawn, …), tear down.
+    if (this.myMeetingArea && `${this.myMeetingArea.col},${this.myMeetingArea.row}` === key && !iAmIn) {
+      this.leaveMeetingAreaLocal();
+    }
+  }
+
+  /** "Join video" clicked in the popup — request a token for this area's own
+   *  LiveKit room (one per area, keyed by its anchor tile). */
+  private joinMeetingAreaVideo(anchor: { col: number; row: number }): void {
+    if (this.myMeetingArea && `${this.myMeetingArea.col},${this.myMeetingArea.row}` === `${anchor.col},${anchor.row}`) return;
+    if (this.myConference) {
+      this.room?.send('conferenceLeave', this.myConference);
+      this.leaveConferenceLocal();
+    }
+    this.myMeetingArea = { ...anchor };
+    this.meetingArea?.setInCall(true);
+    this.room?.send('meetingAreaToken', anchor);
+  }
+
+  /** Tear down the local call (disconnect LiveKit) and clear our membership. */
+  private leaveMeetingAreaLocal(): void {
+    this.myMeetingArea = null;
+    void this.meetingConf?.disconnect();
+    this.meetingConf = undefined;
+    this.confUI.close();
+    this.meetingArea?.setInCall(false);
+    this.zoneVoice?.voice.resume('meetingArea');
+    this.mumble?.voice?.resume('meetingArea');
+  }
+
+  /** Server minted a LiveKit token (or reported it's unconfigured) for our
+   *  meeting area's call. Mirrors onConferenceToken exactly. */
+  private onMeetingAreaToken(m: Record<string, unknown>): void {
+    const c = this.myMeetingArea;
+    if (!c || `${c.col},${c.row}` !== `${m.col},${m.row}`) return;
+    if (m.error === 'not-configured' || typeof m.url !== 'string' || typeof m.token !== 'string') {
+      this.confUI.open('Meeting area', this.meetingAreaHandlers());
+      this.confUI.setState({ connected: false, camOn: true, micOn: true, screenOn: false, error: 'Video not configured on the server.' });
+      return;
+    }
+    // Open the window first (it owns the stage element the tiles render into),
+    // then connect the media into it.
+    this.confUI.open('Meeting area', this.meetingAreaHandlers());
+    this.meetingConf = new LiveKitConference(this.confUI.stage, this.confUI.screens, {
+      onState: (s) => this.confUI.setState(s),
+      onDevices: (d) => this.confUI.setDevices(d),
+      onChat: (msg) => this.confUI.addChat(msg),
+      onParticipants: (list) => this.confUI.setParticipants(list),
+      onScreens: (n) => this.confUI.setSharing(n > 0),
+    });
+    // You can't be in two voice calls at once — pause zone voice while in the
+    // meeting (resumed in leaveMeetingAreaLocal).
+    this.zoneVoice?.voice.suspend('meetingArea');
+    this.mumble?.voice?.suspend('meetingArea');
+    void this.meetingConf.connect(m.url as string, m.token as string).catch(() => {
+      /* connect() reports via the state callback */
+    });
+  }
+
+  /** Control-bar handlers for the meeting-area call window (delegate to the live call). */
+  private meetingAreaHandlers(): import('../conference/ConferenceUI.js').ConferenceUIHandlers {
+    return {
+      toggleMic: () => void this.meetingConf?.toggleMic(),
+      toggleCam: () => void this.meetingConf?.toggleCam(),
+      toggleScreen: () => void this.meetingConf?.toggleScreen(),
+      switchCamera: (id) => void this.meetingConf?.switchCamera(id),
+      switchMic: (id) => void this.meetingConf?.switchMic(id),
+      switchSpeaker: (id) => void this.meetingConf?.switchSpeaker(id),
+      setVolume: (identity, v) => this.meetingConf?.setParticipantVolume(identity, v),
+      setMuted: (identity, muted) => this.meetingConf?.setParticipantMuted(identity, muted),
+      sendChat: (text) => this.meetingConf?.sendChat(text),
+      leave: () => this.leaveMeetingAreaLocal(),
     };
   }
 

@@ -24,18 +24,6 @@ const NEAR_PX = 32; // within ~2 tiles → full volume
 const FAR_PX = 256; // beyond ~16 tiles → silent
 const PROXIMITY_TICK_MS = 150;
 
-/** Video/screen-share callbacks — separate from ZoneVoiceHooks (which every
- *  existing caller already implements) since video is opt-in per caller (see
- *  setVideoHandlers). Elements are LiveKit's own `track.attach()` output
- *  (plain <video>, autoplay/muted-as-needed already configured); the caller
- *  owns placing/removing them in the DOM. `null` means "this track ended". */
-export interface ZoneVoiceVideoHandlers {
-  onLocalCamera(el: HTMLVideoElement | null): void;
-  onRemoteCamera(identity: string, el: HTMLVideoElement | null): void;
-  onLocalScreenShare(el: HTMLVideoElement | null): void;
-  onRemoteScreenShare(identity: string, el: HTMLVideoElement | null): void;
-}
-
 export interface ZoneVoiceHooks {
   /** Ask the server for a token (OfficeScene sends 'zoneVoiceToken'). */
   requestToken(): void;
@@ -105,11 +93,6 @@ export class ZoneVoice {
    *  (display name, else identity) and persisted, so they survive leaving/
    *  rejoining voice, zone switches, and reloads. */
   private readonly savedPeerVolumes = new Map<string, number>();
-  /** Set by the meeting-area UI while a walk-in area is active; unset (null)
-   *  the rest of the time, when camera()/screenShare() are simply no-ops. */
-  private videoHandlers: ZoneVoiceVideoHandlers | null = null;
-  private cameraOn = false;
-  private screenShareOn = false;
 
   private enabled = false; // user intent (Join/Leave)
   // Temporarily off while something else owns the mic (a conference, Mumble) —
@@ -235,7 +218,7 @@ export class ZoneVoice {
     this.room = room;
     room
       .on(RoomEvent.TrackSubscribed, (t, _p, participant) => this.onTrack(t, participant))
-      .on(RoomEvent.TrackUnsubscribed, (t, _p, participant) => this.onTrackGone(t, participant))
+      .on(RoomEvent.TrackUnsubscribed, (t) => this.onTrackGone(t))
       .on(RoomEvent.ParticipantConnected, (p) => this.addPeer(p))
       .on(RoomEvent.ParticipantDisconnected, (p) => this.removePeer(p.identity))
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.onActiveSpeakers(speakers))
@@ -288,12 +271,6 @@ export class ZoneVoice {
     this.audioBin.replaceChildren();
     this.room = null;
     this.connecting = false;
-    // The room itself is gone (LiveKit already tore down our published
-    // tracks with it) — just reset the local flags; onLocalCamera/
-    // onLocalScreenShare aren't fired here since the meeting-area UI clears
-    // itself on the same area-exit that triggers a disconnect.
-    this.cameraOn = false;
-    this.screenShareOn = false;
     this.onPeers([]);
     this.onDevices({ mics: [], speakers: [] });
     this.hooks.onSpeakers(new Set()); // clear talking indicators
@@ -374,16 +351,6 @@ export class ZoneVoice {
   }
 
   private onTrack(track: RemoteTrack, p: RemoteParticipant): void {
-    if (track.kind === Track.Kind.Video) {
-      this.addPeer(p);
-      const el = track.attach() as HTMLVideoElement;
-      el.style.width = '100%';
-      el.style.height = '100%';
-      el.style.objectFit = 'cover';
-      if (track.source === Track.Source.ScreenShare) this.videoHandlers?.onRemoteScreenShare(p.identity, el);
-      else this.videoHandlers?.onRemoteCamera(p.identity, el);
-      return;
-    }
     if (track.kind !== Track.Kind.Audio) return;
     this.addPeer(p);
     const ctx = this.ensureOutCtx();
@@ -411,13 +378,7 @@ export class ZoneVoice {
     this.applyVolume(p.identity);
   }
 
-  private onTrackGone(track: RemoteTrack, p: RemoteParticipant): void {
-    if (track.kind === Track.Kind.Video) {
-      track.detach().forEach((el) => el.remove());
-      if (track.source === Track.Source.ScreenShare) this.videoHandlers?.onRemoteScreenShare(p.identity, null);
-      else this.videoHandlers?.onRemoteCamera(p.identity, null);
-      return;
-    }
+  private onTrackGone(track: RemoteTrack): void {
     for (const [identity, pa] of this.peerAudio) {
       if (pa.track === track) {
         this.teardownPeerAudio(pa);
@@ -480,79 +441,6 @@ export class ZoneVoice {
     if (this.proximityTimer !== null) {
       clearInterval(this.proximityTimer);
       this.proximityTimer = null;
-    }
-  }
-
-  // ---- video / screen-share (meeting areas only — see ZoneVoiceVideoHandlers) ----
-
-  /** Register/clear the meeting-area UI's video callbacks. Clearing (null)
-   *  while a camera/share is live turns it off too — leaving a meeting area
-   *  must not keep streaming your webcam to the whole zone. */
-  setVideoHandlers(handlers: ZoneVoiceVideoHandlers | null): void {
-    if (!handlers) {
-      if (this.cameraOn) void this.setCameraEnabled(false);
-      if (this.screenShareOn) void this.setScreenShareEnabled(false);
-    }
-    this.videoHandlers = handlers;
-  }
-
-  get isCameraOn(): boolean {
-    return this.cameraOn;
-  }
-
-  get isScreenShareOn(): boolean {
-    return this.screenShareOn;
-  }
-
-  /** Publish/unpublish our webcam (LiveKit owns capture — no custom Web Audio-
-   *  style graph needed here, unlike the mic path, since video has no gain to
-   *  process). */
-  async setCameraEnabled(on: boolean): Promise<void> {
-    if (!this.room) return;
-    try {
-      await this.room.localParticipant.setCameraEnabled(on);
-      this.cameraOn = on;
-      if (on) {
-        const pub = this.room.localParticipant.getTrackPublication(Track.Source.Camera);
-        const el = (pub?.videoTrack?.attach() as HTMLVideoElement | undefined) ?? null;
-        if (el) {
-          el.style.width = '100%';
-          el.style.height = '100%';
-          el.style.objectFit = 'cover';
-        }
-        this.videoHandlers?.onLocalCamera(el);
-      } else {
-        this.videoHandlers?.onLocalCamera(null);
-      }
-    } catch (e) {
-      this.emitState(`camera unavailable: ${(e as Error)?.message ?? e}`);
-    }
-  }
-
-  /** Publish/unpublish a screen share (LiveKit's own getDisplayMedia flow —
-   *  the browser's own picker UI, no extra prompt of ours needed). */
-  async setScreenShareEnabled(on: boolean): Promise<void> {
-    if (!this.room) return;
-    try {
-      await this.room.localParticipant.setScreenShareEnabled(on);
-      this.screenShareOn = on;
-      if (on) {
-        const pub = this.room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
-        const el = (pub?.videoTrack?.attach() as HTMLVideoElement | undefined) ?? null;
-        if (el) {
-          el.style.width = '100%';
-          el.style.height = '100%';
-          el.style.objectFit = 'contain';
-        }
-        this.videoHandlers?.onLocalScreenShare(el);
-      } else {
-        this.videoHandlers?.onLocalScreenShare(null);
-      }
-    } catch (e) {
-      // Includes the user cancelling the browser's screen-picker — not an error worth surfacing loudly.
-      this.screenShareOn = false;
-      this.videoHandlers?.onLocalScreenShare(null);
-      if ((e as Error)?.name !== 'NotAllowedError') this.emitState(`screen share unavailable: ${(e as Error)?.message ?? e}`);
     }
   }
 
@@ -822,9 +710,7 @@ export class ZoneVoice {
   }
 }
 
-/** A LiveKit identity is `p<playerId>` — map it back to the avatar id (used by
- *  MeetingAreaUI too, to match video-track identities against area members). */
-export function parsePlayerId(identity: string): number | null {
+function parsePlayerId(identity: string): number | null {
   const m = /^p(\d+)$/.exec(identity);
   return m ? Number(m[1]) : null;
 }

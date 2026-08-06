@@ -297,13 +297,6 @@ export interface Character {
   /** Animation pose (server-computed, synced). Optional on the engine side; the
    *  renderer reads it, falling back to deriving from state when absent. */
   pose?: CharacterPose;
-  /** Which private/meeting area (see OfficeLayout.tilePrivateArea) this
-   *  character's current tile belongs to, or null outside any. Not
-   *  maintained by the engine itself — computed on demand from tileCol/
-   *  tileRow via OfficeState.areaIdAt() each sync tick (see SimRoom's
-   *  syncCharacters); present here only so the synced client-side copy has
-   *  somewhere to live. */
-  areaId?: number | null;
   dir: Direction;
   /** Pixel position */
   x: number;

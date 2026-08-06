@@ -121,6 +121,16 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private readonly lastVoiceEventAt = new Map<string, number>();
   /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
   private readonly conferences = new Map<string, Set<number>>();
+  /** Walk-in meeting-area membership: "col,row" anchor (the area's stable
+   *  flood-fill anchor tile, see OfficeState.areaAnchor) → set of player
+   *  avatar ids. Unlike conferences (explicit join/leave, click-to-join),
+   *  this is maintained automatically every tick from tile position — see
+   *  updateMeetingAreaMembership, called from syncCharacters. */
+  private readonly meetingAreas = new Map<string, Set<number>>();
+  /** Each player's current meeting-area key (the map above's keys), or
+   *  absent — so updateMeetingAreaMembership can detect enter/exit without
+   *  re-deriving "was I in one before" from the sets themselves. */
+  private readonly lastMeetingArea = new Map<number, string>();
   /** Per-deployment prefix for LiveKit room names (env override, else a stable
    *  random id from the DB) so dev + prod never share a voice room. */
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
@@ -439,6 +449,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     client.send('m', this.zoneListMessage());
     client.send('m', { type: 'chatHistory', messages: this.chatLog });
     for (const key of this.conferences.keys()) client.send('m', this.conferenceMembersMsg(key));
+    for (const key of this.meetingAreas.keys()) client.send('m', this.meetingAreaMembersMsg(key));
 
     // This viewer's identity: userId keys all per-user state; username is the
     // (free) display name shown on the avatar.
@@ -524,6 +535,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.broadcast('m', { type: 'system', text: `${this.chatNameFor(client)} left the zone.` });
       }
       this.leaveAllConferences(playerId);
+      this.leaveAllMeetingAreas(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }
@@ -584,6 +596,44 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return { type: 'conferenceMembers', col, row, members };
   }
 
+  /** Current members of a meeting area (by its anchor "col,row" key), for
+   *  broadcast — same shape as conferenceMembersMsg so the client reuses the
+   *  identical "am I a member of this key" pattern. */
+  private meetingAreaMembersMsg(key: string): Record<string, unknown> {
+    const [col, row] = key.split(',').map(Number);
+    const ids = this.meetingAreas.get(key) ?? new Set<number>();
+    const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
+    return { type: 'meetingAreaMembers', col, row, members };
+  }
+
+  /** Recompute which meeting area (if any) a player's current tile belongs
+   *  to and update membership + broadcast on any change. Called once per
+   *  player per tick from syncCharacters — unlike conferences, there's no
+   *  explicit join/leave message; standing on the tile *is* the membership. */
+  private updateMeetingAreaMembership(playerId: number, col: number, row: number): void {
+    const areaId = this.os.areaIdAt(col, row);
+    const anchor = areaId !== null ? this.os.areaAnchor(areaId) : null;
+    const newKey = anchor ? `${anchor.col},${anchor.row}` : null;
+    const oldKey = this.lastMeetingArea.get(playerId) ?? null;
+    if (newKey === oldKey) return;
+    if (oldKey) {
+      const set = this.meetingAreas.get(oldKey);
+      if (set?.delete(playerId)) {
+        if (set.size === 0) this.meetingAreas.delete(oldKey);
+        this.broadcast('m', this.meetingAreaMembersMsg(oldKey));
+      }
+    }
+    if (newKey) {
+      let set = this.meetingAreas.get(newKey);
+      if (!set) this.meetingAreas.set(newKey, (set = new Set<number>()));
+      set.add(playerId);
+      this.lastMeetingArea.set(playerId, newKey);
+      this.broadcast('m', this.meetingAreaMembersMsg(newKey));
+    } else {
+      this.lastMeetingArea.delete(playerId);
+    }
+  }
+
   /** Namespaced + sanitised LiveKit room name (prevents cross-deployment clashes). */
   private voiceRoom(suffix: string): string {
     return voiceRoomName(this.voiceNs, suffix);
@@ -605,6 +655,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Remove a player from every conference (on leave / despawn / zone change). */
   private leaveAllConferences(playerId: number): void {
     for (const key of [...this.conferences.keys()]) this.leaveConference(playerId, key);
+  }
+
+  /** Remove a player from their meeting area, if any (on leave / despawn /
+   *  zone change) — updateMeetingAreaMembership only runs from a live
+   *  character's tick, so a departing player needs this explicit cleanup. */
+  private leaveAllMeetingAreas(playerId: number): void {
+    const key = this.lastMeetingArea.get(playerId);
+    if (!key) return;
+    this.lastMeetingArea.delete(playerId);
+    const set = this.meetingAreas.get(key);
+    if (set?.delete(playerId)) {
+      if (set.size === 0) this.meetingAreas.delete(key);
+      this.broadcast('m', this.meetingAreaMembersMsg(key));
+    }
   }
 
   /** Display name for a chatter: their avatar's name, else display name, else Guest. */
@@ -935,6 +999,33 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const token = await this.mintVoiceToken(id, room);
       if (!token) return;
       client.send('m', { type: 'conferenceToken', col, row, url, token, room });
+    });
+
+    // Mint a LiveKit access token for a meeting area's call — only for a player
+    // who is currently standing in that area (server-authoritative gate; no
+    // password concept here, membership is automatic tile presence, not an
+    // explicit join). The room name is keyed by the area's stable anchor tile
+    // (see OfficeState.areaAnchor) so it survives a layout rebuild as long as
+    // the area's shape doesn't change, mirroring a conference monitor's own
+    // name-or-position room key.
+    this.onMessage('meetingAreaToken', async (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      const key = `${col},${row}`;
+      if (!this.meetingAreas.get(key)?.has(id)) return; // not a member → no token
+      const url = process.env.LIVEKIT_URL;
+      const apiKey = process.env.LIVEKIT_API_KEY;
+      const apiSecret = process.env.LIVEKIT_API_SECRET;
+      if (!url || !apiKey || !apiSecret) {
+        client.send('m', { type: 'meetingAreaToken', col, row, error: 'not-configured' });
+        return;
+      }
+      const room = this.voiceRoom(`${this.zone.id}-meet:${key}`);
+      const token = await this.mintVoiceToken(id, room);
+      if (!token) return;
+      client.send('m', { type: 'meetingAreaToken', col, row, url, token, room });
     });
 
     // Zone voice: one LiveKit room per zone. Any player with a visible avatar can
@@ -1342,6 +1433,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // The client reloads into the target zone with the arrival flag set, so the
       // target room's onJoin lands the player at its arrival tile.
       this.leaveAllConferences(id);
+      this.leaveAllMeetingAreas(id);
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
       client.send('m', { type: 'zoneTransition', zone: target.id });
@@ -1736,7 +1828,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.activity = this.activity.get(ch.id) ?? '';
       cs.inputTokens = ch.inputTokens;
       cs.outputTokens = ch.outputTokens;
-      cs.areaId = this.os.areaIdAt(ch.tileCol, ch.tileRow) ?? -1;
+      if (ch.isPlayer) this.updateMeetingAreaMembership(ch.id, ch.tileCol, ch.tileRow);
     }
     for (const key of [...this.state.characters.keys()]) {
       if (!live.has(key)) this.state.characters.delete(key);
