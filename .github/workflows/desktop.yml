@@ -81,7 +81,10 @@ jobs:
       # --publish never: electron-builder soll nichts von sich aus hochladen, die
       # Assets hängen die Schritte unten an.
       - name: Build AppImage
-        run: pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
+        # vendor:mediapipe zuerst: die Konferenz-Hintergrundfilter (Blur / virtueller
+        # Hintergrund) laden ihren Segmenter aus client/dist/mediapipe — im Desktop-App
+        # wird das Bundle lokal über app:// serviert, ein CDN gibt es nicht.
+        run: pnpm run vendor:mediapipe && pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
 
       - name: Upload als Workflow-Artifact
         uses: actions/upload-artifact@v7

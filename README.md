@@ -98,9 +98,16 @@ and the agents are labelled generically.
 ### Build & run (single server, single port)
 
 ```bash
+pnpm vendor:mediapipe   # once: self-hosted segmenter for the video background
+                        # filters (~19 MB into client/public/mediapipe, gitignored)
 pnpm build          # type-checks + builds the client into client/dist
 pnpm start          # one server: viewer, Colyseus and /feed all on one port
 ```
+
+`vendor:mediapipe` is optional but recommended: it is what makes the conference
+**Filter** button (background blur / virtual background) work, self-hosted with no
+CDN. Without it everything else runs and the picker says how to install it. The
+Docker image and the AppImage workflow run it for you.
 
 In production there is **no separate client server** — `pnpm start` (and the
 Docker image) serve the built client from the same origin. A viewer only needs

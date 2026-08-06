@@ -201,6 +201,8 @@ function openCall(room: string, url: string, token: string, displayName: string)
     setMuted: (identity, muted) => conf?.setParticipantMuted(identity, muted),
     muteForAll: (identity) => conf?.requestMute(identity),
     sendChat: (text) => conf?.sendChat(text),
+    sendReaction: (id) => conf?.sendReaction(id),
+    setVideoFilter: (id) => void conf?.setVideoFilter(id),
     leave: () => {
       void conf?.disconnect();
       confUI.close();
@@ -217,6 +219,8 @@ function openCall(room: string, url: string, token: string, displayName: string)
     onChat: (m) => confUI.addChat(m),
     onParticipants: (list) => confUI.setParticipants(list),
     onNotice: (text) => confUI.notice(text),
+    onReaction: (reaction, from) => confUI.playReaction(reaction, from),
+    onVideoFilter: (id) => confUI.setVideoFilter(id),
   });
   void conf.connect(url, token).catch(() => {
     /* connect() reports failures via the state callback */

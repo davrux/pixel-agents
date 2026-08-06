@@ -5,9 +5,9 @@
  * beside something else) — same surface whether it's opened over the pixel
  * world (a monitor) or on the standalone /meet page: a tiled participant stage,
  * a toggleable side panel (Chat / Participants), and a bottom control bar (mic,
- * cam, screen, chat, participants, devices, fullscreen, leave). The "Fullscreen"
- * button still calls the browser's Fullscreen API on top of that, to additionally
- * hide the tab/address bar.
+ * cam, screen, reactions, camera filters, chat, participants, devices, fullscreen,
+ * leave). The "Fullscreen" button still calls the browser's Fullscreen API on top
+ * of that, to additionally hide the tab/address bar.
  *
  * Two stage layouts, both owned here:
  *  - **Grid** (default): every tile — cameras *and* shared screens — is laid out
@@ -16,12 +16,22 @@
  *    handful of participants in one thin line across a wide window.
  *  - **Focus**: one tile fills the stage with the rest as a filmstrip below it.
  *    Any tile can be focused by clicking it (a new screen share focuses itself);
- *    "▦ Grid", Esc, or a double-click goes back.
+ *    the ▦ button, Esc, or a double-click goes back.
  *
  * Media + the in-meeting chat transport live in LiveKitConference; this class is
  * pure UI, driven by handlers + update calls from OfficeScene. Tiles are created
  * by LiveKitConference into `stage`; this class only moves and sizes them, and
  * watches for tiles coming and going with a MutationObserver.
+ *
+ * Every control-bar button is one shape — a fixed box with a centred icon over a
+ * centred label — because a bar of bare emoji is a bar of *differently sized*
+ * emoji: colour-emoji glyphs (🎙️ 📷) draw noticeably bigger than text glyphs
+ * (⛶ ▦) at the same font-size. So icons live in a fixed `.pa-conf-ico` box, an
+ * explicit emoji font stack keeps the emoji from being drawn by the pixel font,
+ * and the two text glyphs get `.glyph` to size them up to match.
+ *
+ * Three popovers hang off the bar (only ever one open): devices, reactions, and
+ * camera background filters.
  */
 import type {
   ConferenceState,
@@ -29,6 +39,19 @@ import type {
   ConferenceParticipant,
   ConferenceChatMsg,
 } from './LiveKitConference.js';
+import { REACTIONS, REACTION_CSS, playReactionEffect, primeReactionAudio, type Reaction } from './reactions.js';
+import {
+  VIDEO_FILTERS,
+  backgroundUrl,
+  filterPreset,
+  browserSupportsFilters,
+  customBackground,
+  probeAssets,
+  setCustomBackgroundFromFile,
+  MISSING_ASSETS_HINT,
+  UNSUPPORTED_HINT,
+  type VideoFilterId,
+} from './videoFilters.js';
 
 export interface ConferenceUIHandlers {
   toggleMic: () => void;
@@ -41,6 +64,10 @@ export interface ConferenceUIHandlers {
   setMuted: (identity: string, muted: boolean) => void; // for me only
   muteForAll: (identity: string) => void; // asks them to switch their mic off
   sendChat: (text: string) => void;
+  /** One of the five reaction ids from reactions.ts. */
+  sendReaction: (id: string) => void;
+  /** Camera background filter (blur / virtual background). */
+  setVideoFilter: (id: VideoFilterId) => void;
   leave: () => void;
 }
 
@@ -62,7 +89,10 @@ interface PartRow {
 const CSS = `
   #pa-conf{position:fixed;inset:0;z-index:120;display:none;
     width:100%;height:100%;flex-direction:column;background:#1c1a19;
-    color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;}
+    color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;overflow:hidden;
+    /* Draw every emoji with a real emoji font: the pixel UI font has none, and the
+       fallback each browser picks on its own is a different size per glyph. */
+    --emoji:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Twemoji Mozilla',sans-serif;}
   #pa-conf .pa-conf-head{display:flex;align-items:center;gap:0.6rem;padding:0.6rem 0.85rem;background:#1c1a19;
     border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
   #pa-conf .pa-conf-head .title{font-size:1.2rem;color:#f5f3f0;font-weight:600;letter-spacing:.3px;}
@@ -97,9 +127,11 @@ const CSS = `
   #pa-conf.focus-mode.strip-empty #pa-conf-stage{display:none;}
   #pa-conf .pa-conf-tile.focused{width:100%;height:100%;aspect-ratio:auto;cursor:default;}
   #pa-conf .pa-conf-tile.focused .pa-conf-video{object-fit:contain;background:#000;}
+  /* Overlay controls on the focused tile — same square box for each, icon centred. */
   .pa-conf-spot-ctl{position:absolute;top:0.55rem;right:0.55rem;z-index:3;display:flex;gap:0.35rem;}
   .pa-conf-spot-ctl button{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
-    border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.32rem 0.55rem;
+    border-radius:0.35rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0;width:2.4rem;height:2.4rem;
+    display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   .pa-conf-spot-ctl button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-media{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;}
@@ -116,7 +148,8 @@ const CSS = `
   #pa-conf.side-open .pa-conf-side{display:flex;}
   #pa-conf .pa-conf-tabs{display:flex;gap:0.35rem;padding:0.35rem;background:#141312;border-bottom:2px solid #0a0908;}
   #pa-conf .pa-conf-tabs button{flex:1;background:transparent;border:0;color:#adb0b2;cursor:pointer;border-radius:0.35rem;
-    font:0.95rem 'FS Pixel Sans',monospace;padding:0.45rem 0.3rem;}
+    font:0.95rem 'FS Pixel Sans',monospace;padding:0.45rem 0.3rem;
+    display:inline-flex;align-items:center;justify-content:center;gap:0.3rem;}
   #pa-conf .pa-conf-tabs button.on{color:#fff;background:#37342f;
     box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
   #pa-conf .pa-conf-chat,#pa-conf .pa-conf-parts{flex:1;min-height:0;display:none;flex-direction:column;}
@@ -132,10 +165,10 @@ const CSS = `
   #pa-conf .pa-conf-parts .p{display:flex;align-items:center;flex-wrap:wrap;gap:0.5rem;padding:0.4rem 0.5rem;
     font-size:0.95rem;border-bottom:1px solid #2c2a28;}
   #pa-conf .pa-conf-parts .p .n{flex:1;}
-  #pa-conf .pa-conf-parts .p .i{opacity:0.85;}
+  #pa-conf .pa-conf-parts .p .i{opacity:0.85;font-family:var(--emoji);letter-spacing:0.15em;}
   #pa-conf .pa-conf-parts .p .vol-row{display:flex;align-items:center;gap:0.4rem;width:100%;}
   #pa-conf .pa-conf-parts .p .vol-row button{cursor:pointer;background:#262422;border:2px solid #0a0908;
-    color:#f1efec;border-radius:0.35rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.2rem 0.4rem;
+    color:#f1efec;border-radius:0.35rem;font:0.85rem var(--emoji);padding:0.2rem 0.4rem;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-parts .p .vol-row button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-parts .p .vol-row button.muted{color:#f2a1a1;border-color:#7c2634;}
@@ -152,11 +185,16 @@ const CSS = `
     font-size:0.95rem;max-width:80%;text-align:center;transition:opacity .4s;
     box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
   #pa-conf .pa-conf-toast.out{opacity:0;}
-  #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.5rem;flex-wrap:wrap;
+  /* ── Control bar: every button the same box, contents centred ──────
+     One fixed size for all of them (including Leave), a fixed icon box and a
+     label under it, so no glyph can make its button taller or wider than the
+     neighbours'. The bar itself centres the row and wraps on narrow windows. */
+  #pa-conf .pa-conf-bar{display:flex;align-items:center;justify-content:center;gap:0.4rem;flex-wrap:wrap;
     padding:0.6rem;background:#1c1a19;border-top:2px solid #0a0908;box-shadow:inset 0 1px 0 #2c2a28;position:relative;}
   #pa-conf .pa-conf-bar button{cursor:pointer;background:#242220;border:2px solid #0a0908;color:#f1efec;
-    border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.5rem 0.3rem;
-    width:5.5rem;box-sizing:border-box;text-align:center;white-space:nowrap;
+    border-radius:0.45rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0;
+    width:4.9rem;height:3.5rem;flex:0 0 auto;box-sizing:border-box;white-space:nowrap;
+    display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:0.16rem;
     box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
   #pa-conf .pa-conf-bar button:hover{background:#2e2b28;}
   #pa-conf .pa-conf-bar button.off{opacity:0.5;}
@@ -164,14 +202,60 @@ const CSS = `
     box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
   #pa-conf .pa-conf-bar button.leave{background:#7c2634;border-color:#0a0908;color:#f1d0d6;
     box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
-  #pa-conf .pa-conf-dev{position:absolute;bottom:3.6rem;left:50%;transform:translateX(-50%);background:#1c1a19;
-    border:2px solid #0a0908;border-radius:0.6rem;padding:0.7rem;display:none;flex-direction:column;gap:0.45rem;
-    min-width:16rem;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
-  #pa-conf .pa-conf-dev.open{display:flex;}
+  /* Icons: a fixed box, and an explicit emoji font so the pixel font never draws
+     them (it has no emoji, and the fallback it picks is a different size). */
+  #pa-conf .pa-conf-ico{display:flex;align-items:center;justify-content:center;
+    width:1.6rem;height:1.6rem;font-size:1.15rem;line-height:1;
+    font-family:var(--emoji);}
+  /* ⛶ ▦ and friends are text glyphs, drawn by the UI font and visually smaller
+     than a colour emoji at the same size — size them up to match. */
+  #pa-conf .pa-conf-ico.glyph{font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:1.45rem;}
+  #pa-conf .pa-conf-lbl{font-size:0.72rem;line-height:1;letter-spacing:0.2px;}
+  /* ── Popovers over the bar (devices / reactions / filters) ────────── */
+  #pa-conf .pa-conf-pop{position:absolute;bottom:4.2rem;left:50%;transform:translateX(-50%);background:#1c1a19;
+    border:2px solid #0a0908;border-radius:0.6rem;padding:0.7rem;display:none;flex-direction:column;gap:0.5rem;
+    z-index:9;max-width:min(30rem,92vw);
+    box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+  #pa-conf .pa-conf-pop.open{display:flex;}
+  #pa-conf .pa-conf-pop .pop-title{font-size:0.72rem;letter-spacing:1px;color:#818586;text-transform:uppercase;}
+  #pa-conf .pa-conf-dev{min-width:16rem;}
   #pa-conf .pa-conf-dev label{font-size:0.72rem;letter-spacing:1px;color:#818586;text-transform:uppercase;}
   #pa-conf .pa-conf-dev select{background:#262422;border:2px solid #0a0908;color:#f1efec;border-radius:0.35rem;
     font:0.9rem 'FS Pixel Sans',monospace;padding:0.4rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-`;
+  /* Reactions: five equal squares. */
+  #pa-conf .pa-conf-reacts{display:flex;gap:0.4rem;}
+  #pa-conf .pa-conf-reacts button{cursor:pointer;width:3.3rem;height:3.3rem;padding:0;flex:0 0 auto;
+    display:inline-flex;align-items:center;justify-content:center;background:#262422;border:2px solid #0a0908;
+    border-radius:0.45rem;box-sizing:border-box;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-reacts button:hover{background:#37342f;transform:translateY(-2px);}
+  #pa-conf .pa-conf-reacts button:active{transform:translateY(1px);}
+  #pa-conf .pa-conf-reacts button .pa-conf-ico{width:2.1rem;height:2.1rem;font-size:1.85rem;}
+  /* Filters: equal cards, each with a preview of what it does. */
+  #pa-conf .pa-conf-filters{display:grid;grid-template-columns:repeat(4,5.4rem);gap:0.4rem;}
+  #pa-conf .pa-conf-filters button{cursor:pointer;width:5.4rem;height:5rem;padding:0.25rem;flex:0 0 auto;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.25rem;
+    background:#262422;border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;box-sizing:border-box;
+    font:0.7rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-filters button:hover{background:#37342f;}
+  #pa-conf .pa-conf-filters button.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+  #pa-conf .pa-conf-filters button:disabled{opacity:0.45;cursor:default;}
+  #pa-conf .pa-conf-filters .prev{position:relative;overflow:hidden;
+    width:100%;height:2.4rem;border:2px solid #0a0908;border-radius:0.3rem;
+    background:#141312 center/cover no-repeat;display:flex;align-items:center;justify-content:center;
+    font-size:1.25rem;font-family:var(--emoji);}
+  /* Blur presets preview themselves: a backdrop blurred by (roughly) their radius.
+     Inset past the edges so blur() can't soften the preview's own border. */
+  #pa-conf .pa-conf-filters .prev .blurred{position:absolute;inset:-0.5rem;background:center/cover no-repeat;}
+  #pa-conf .pa-conf-filters .cap{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;}
+  /* Full-width row button inside a popover — width/height are spelled out because
+     the bar's uniform button box (fixed 4.9rem × 3.5rem) would otherwise apply. */
+  #pa-conf .pa-conf-pop .wide{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
+    border-radius:0.4rem;font:0.85rem 'FS Pixel Sans',monospace;padding:0.45rem 0.5rem;
+    width:100%;height:auto;flex-direction:row;gap:0.4rem;box-sizing:border-box;
+    box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+  #pa-conf .pa-conf-pop .wide:hover{background:#2e2b28;}
+  #pa-conf .pa-conf-pop .note{font-size:0.78rem;color:#f2a1a1;max-width:20rem;line-height:1.35;}
+${REACTION_CSS}`;
 
 /** Stage gap / padding, in px — must match #pa-conf-stage's CSS. */
 const GRID_GAP = 8;
@@ -194,6 +278,16 @@ export class ConferenceUI {
   private readonly partsEl: HTMLDivElement;
   private readonly bar: HTMLDivElement;
   private readonly devPop: HTMLDivElement;
+  private readonly reactPop: HTMLDivElement;
+  private readonly filterPop: HTMLDivElement;
+  private readonly filterGrid: HTMLDivElement;
+  private readonly filterNote: HTMLElement;
+  /** Full-window layer the reaction effect draws into. */
+  private readonly fxEl: HTMLDivElement;
+  /** Hidden <input type=file> behind "Choose an image…". */
+  private readonly imgInput: HTMLInputElement;
+  /** The camera filter currently in force (as reported by the media layer). */
+  private filter: VideoFilterId = 'none';
   private handlers: ConferenceUIHandlers | null = null;
   private readonly partRows = new Map<string, PartRow>();
   private devices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
@@ -229,17 +323,17 @@ export class ConferenceUI {
         <div class="pa-conf-main">
           <div id="pa-conf-focus">
             <div class="pa-conf-spot-ctl">
-              <button data-ungrid title="Back to the grid (Esc)">▦ Grid</button>
-              <button data-collapse title="Show / hide participants">👥</button>
-              <button data-spotfull title="Fullscreen">⛶</button>
+              <button data-ungrid title="Back to the grid (Esc)"><span class="pa-conf-ico glyph">▦</span></button>
+              <button data-collapse title="Show / hide participants"><span class="pa-conf-ico">👥</span></button>
+              <button data-spotfull title="Fullscreen"><span class="pa-conf-ico glyph">⛶</span></button>
             </div>
           </div>
           <div id="pa-conf-stage"></div>
         </div>
         <div class="pa-conf-side">
           <div class="pa-conf-tabs">
-            <button data-tab="chat" class="on">💬 Chat</button>
-            <button data-tab="parts">👥 People</button>
+            <button data-tab="chat" class="on"><span class="pa-conf-ico">💬</span> Chat</button>
+            <button data-tab="parts"><span class="pa-conf-ico">👥</span> People</button>
           </div>
           <div class="pa-conf-chat">
             <div class="pa-conf-chatlog"></div>
@@ -249,16 +343,29 @@ export class ConferenceUI {
         </div>
       </div>
       <div class="pa-conf-bar">
-        <button data-mic>🎙 Mic</button>
-        <button data-cam>📷 Cam</button>
-        <button data-screen>🖥 Share</button>
-        <button data-chat>💬 Chat</button>
-        <button data-people>👥 People</button>
-        <button data-dev title="Devices">⚙</button>
-        <button data-full title="Fullscreen">⛶</button>
-        <button data-leave class="leave">Leave</button>
-        <div class="pa-conf-dev"></div>
-      </div>`;
+        <button data-mic title="Microphone"><span class="pa-conf-ico">🎙️</span><span class="pa-conf-lbl">Mic</span></button>
+        <button data-cam title="Camera"><span class="pa-conf-ico">📷</span><span class="pa-conf-lbl">Cam</span></button>
+        <button data-screen title="Share your screen"><span class="pa-conf-ico">🖥️</span><span class="pa-conf-lbl">Share</span></button>
+        <button data-react title="Send a reaction"><span class="pa-conf-ico">😃</span><span class="pa-conf-lbl">React</span></button>
+        <button data-filters title="Background blur / virtual background"><span class="pa-conf-ico">🌫️</span><span class="pa-conf-lbl">Filter</span></button>
+        <button data-chat title="Meeting chat"><span class="pa-conf-ico">💬</span><span class="pa-conf-lbl">Chat</span></button>
+        <button data-people title="Participants"><span class="pa-conf-ico">👥</span><span class="pa-conf-lbl">People</span></button>
+        <button data-dev title="Devices"><span class="pa-conf-ico">⚙️</span><span class="pa-conf-lbl">Devices</span></button>
+        <button data-full title="Fullscreen"><span class="pa-conf-ico glyph">⛶</span><span class="pa-conf-lbl">Full</span></button>
+        <button data-leave class="leave" title="Leave the meeting"><span class="pa-conf-ico">🚪</span><span class="pa-conf-lbl">Leave</span></button>
+        <div class="pa-conf-pop pa-conf-dev"></div>
+        <div class="pa-conf-pop pa-conf-react-pop">
+          <span class="pop-title">Reaction</span>
+          <div class="pa-conf-reacts"></div>
+        </div>
+        <div class="pa-conf-pop pa-conf-filter-pop">
+          <span class="pop-title">Camera background</span>
+          <div class="pa-conf-filters"></div>
+          <button class="wide" data-pickimg>🖼️ Choose an image…</button>
+          <span class="note"></span>
+        </div>
+      </div>
+      <div class="pa-conf-fx"></div>`;
     (document.getElementById('game') ?? document.body).appendChild(root);
     this.root = root;
     this.mainEl = root.querySelector('.pa-conf-main')!;
@@ -272,6 +379,18 @@ export class ConferenceUI {
     this.partsEl = root.querySelector('.pa-conf-parts')!;
     this.bar = root.querySelector('.pa-conf-bar')!;
     this.devPop = root.querySelector('.pa-conf-dev')!;
+    this.reactPop = root.querySelector('.pa-conf-react-pop')!;
+    this.filterPop = root.querySelector('.pa-conf-filter-pop')!;
+    this.filterGrid = root.querySelector('.pa-conf-filters')!;
+    this.filterNote = root.querySelector('.pa-conf-filter-pop .note')!;
+    this.fxEl = root.querySelector('.pa-conf-fx')!;
+    this.imgInput = document.createElement('input');
+    this.imgInput.type = 'file';
+    this.imgInput.accept = 'image/*';
+    this.imgInput.style.display = 'none';
+    root.appendChild(this.imgInput);
+    this.buildReactions();
+    this.buildFilters();
     this.wire();
   }
 
@@ -377,8 +496,18 @@ export class ConferenceUI {
     q('[data-leave]').onclick = () => this.handlers?.leave();
     q('[data-chat]').onclick = () => this.openSide('chat');
     q('[data-people]').onclick = () => this.openSide('parts');
-    q('[data-dev]').onclick = () => this.devPop.classList.toggle('open');
+    q('[data-dev]').onclick = () => this.togglePop(this.devPop);
+    q('[data-react]').onclick = () => this.togglePop(this.reactPop);
+    q('[data-filters]').onclick = () => this.togglePop(this.filterPop);
     q('[data-full]').onclick = () => this.toggleFullscreen();
+    this.filterPop.querySelector<HTMLButtonElement>('[data-pickimg]')!.onclick = () => this.imgInput.click();
+    this.imgInput.onchange = () => void this.onCustomImagePicked();
+    // A popover closes on the next click outside it (and on Esc, below).
+    this.root.addEventListener('click', (e) => {
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('.pa-conf-pop') || t?.closest('[data-dev],[data-react],[data-filters]')) return;
+      this.closePops();
+    });
     // Focus-mode controls (overlaid on the focused tile).
     const f = <T extends HTMLElement>(sel: string): T => this.focusEl.querySelector<T>(sel)!;
     f<HTMLButtonElement>('[data-ungrid]').onclick = () => this.setFocus(null);
@@ -397,10 +526,16 @@ export class ConferenceUI {
       if (!this.focused || e.timeStamp - this.focusedAt < DBLCLICK_MS) return;
       if ((e.target as HTMLElement | null)?.closest('.pa-conf-tile') === this.focused) this.setFocus(null);
     });
-    // Esc leaves focus mode — but only once it's no longer closing fullscreen.
+    // Esc closes an open popover, else leaves focus mode — but only once it's no
+    // longer closing fullscreen.
     document.addEventListener('keydown', (e) => {
-      if (e.key !== 'Escape' || this.root.style.display === 'none') return;
-      if (!this.focused || document.fullscreenElement) return;
+      if (e.key !== 'Escape' || this.root.style.display === 'none' || document.fullscreenElement) return;
+      if (this.bar.querySelector('.pa-conf-pop.open')) {
+        e.stopPropagation();
+        this.closePops();
+        return;
+      }
+      if (!this.focused) return;
       e.stopPropagation();
       this.setFocus(null);
     });
@@ -417,6 +552,150 @@ export class ConferenceUI {
       }
     };
     document.addEventListener('fullscreenchange', () => this.syncFullscreenBtn());
+  }
+
+  // ── Popovers (devices / reactions / filters — one open at a time) ──
+
+  private togglePop(pop: HTMLElement): void {
+    const open = pop.classList.contains('open');
+    this.closePops();
+    // The filter cards render their own preview images, so build them the first
+    // time the picker is opened rather than on every join.
+    if (!open && pop === this.filterPop && !this.filterGrid.childElementCount) this.buildFilters();
+    if (!open && pop === this.reactPop) primeReactionAudio();
+    pop.classList.toggle('open', !open);
+    for (const [sel, el] of [
+      ['[data-dev]', this.devPop],
+      ['[data-react]', this.reactPop],
+      ['[data-filters]', this.filterPop],
+    ] as const) {
+      this.bar.querySelector<HTMLButtonElement>(sel)?.classList.toggle('on', el.classList.contains('open'));
+    }
+  }
+
+  private closePops(): void {
+    for (const el of this.bar.querySelectorAll('.pa-conf-pop.open')) el.classList.remove('open');
+    for (const sel of ['[data-dev]', '[data-react]', '[data-filters]']) {
+      this.bar.querySelector<HTMLButtonElement>(sel)?.classList.remove('on');
+    }
+    // Filter lit = a filter is running; that outlives the popover being open.
+    this.bar
+      .querySelector<HTMLButtonElement>('[data-filters]')
+      ?.classList.toggle('on', this.filter !== 'none');
+  }
+
+  // ── Reactions ──────────────────────────────────────────────────────
+
+  /** The five reaction buttons (fixed set — see reactions.ts). */
+  private buildReactions(): void {
+    const row = this.reactPop.querySelector('.pa-conf-reacts')!;
+    for (const r of REACTIONS) {
+      const b = document.createElement('button');
+      b.title = r.label;
+      b.setAttribute('aria-label', r.label);
+      const ico = document.createElement('span');
+      ico.className = 'pa-conf-ico';
+      ico.textContent = r.emoji;
+      b.appendChild(ico);
+      b.onclick = () => {
+        this.handlers?.sendReaction(r.id);
+        this.closePops(); // one tap, one reaction — like Jitsi's picker
+      };
+      row.appendChild(b);
+    }
+  }
+
+  /** Play a reaction over the whole window (sender's own included — the media
+   *  layer calls this for both). */
+  playReaction(reaction: Reaction, from: string): void {
+    playReactionEffect(this.fxEl, reaction, from);
+  }
+
+  // ── Camera background filters ──────────────────────────────────────
+
+  /** The filter cards. Image presets preview the actual background, blur presets
+   *  show their icon; all of them are the same box either way. */
+  private buildFilters(): void {
+    this.filterGrid.innerHTML = '';
+    const supported = browserSupportsFilters();
+    for (const preset of VIDEO_FILTERS) {
+      const b = document.createElement('button');
+      b.dataset.filter = preset.id;
+      b.title = preset.label;
+      const prev = document.createElement('span');
+      prev.className = 'prev';
+      const custom = preset.id === 'bg-custom';
+      const url = preset.kind === 'image' ? backgroundUrl(preset) : null;
+      const scene = preset.kind === 'blur' ? backgroundUrl(filterPreset('bg-office')) : null;
+      if (url) {
+        prev.style.backgroundImage = `url(${url})`;
+      } else if (scene) {
+        // Show what the filter does rather than a symbol for it: a stand-in scene,
+        // blurred by about what MediaPipe will do to the real one.
+        const blurred = document.createElement('span');
+        blurred.className = 'blurred';
+        blurred.style.backgroundImage = `url(${scene})`;
+        blurred.style.filter = `blur(${((preset.blurRadius ?? 10) / 6).toFixed(1)}px)`;
+        prev.appendChild(blurred);
+      } else {
+        prev.textContent = preset.icon;
+      }
+      const cap = document.createElement('span');
+      cap.className = 'cap';
+      cap.textContent = custom && !url ? 'Pick…' : preset.label;
+      b.append(prev, cap);
+      // "No filter" always works; everything else needs a browser that can segment.
+      b.disabled = !supported && preset.kind !== 'none';
+      b.onclick = () => {
+        if (custom && !customBackground()) {
+          this.imgInput.click(); // nothing stored yet → ask for an image first
+          return;
+        }
+        this.handlers?.setVideoFilter(preset.id);
+        this.closePops();
+      };
+      this.filterGrid.appendChild(b);
+    }
+    this.filterNote.textContent = supported ? '' : UNSUPPORTED_HINT;
+    // Say the assets are missing *before* somebody picks a filter that can't start
+    // (the probe is cached, so this costs one HEAD per page).
+    if (supported) {
+      void probeAssets().then((ok) => {
+        if (!ok) this.filterNote.textContent = MISSING_ASSETS_HINT;
+      });
+    }
+    this.markFilter();
+  }
+
+  /** Reflect the filter actually in force (the media layer decides — a filter that
+   *  fails to start falls back to "No filter"). */
+  setVideoFilter(id: VideoFilterId): void {
+    this.filter = id;
+    this.markFilter();
+    const b = this.bar.querySelector<HTMLButtonElement>('[data-filters]');
+    // Lit while a filter is on — unless its popover is what's currently open.
+    if (b && !this.filterPop.classList.contains('open')) b.classList.toggle('on', id !== 'none');
+  }
+
+  private markFilter(): void {
+    for (const b of this.filterGrid.querySelectorAll<HTMLButtonElement>('button')) {
+      b.classList.toggle('on', b.dataset.filter === this.filter);
+    }
+  }
+
+  private async onCustomImagePicked(): Promise<void> {
+    const file = this.imgInput.files?.[0];
+    this.imgInput.value = ''; // so picking the same file again fires onchange
+    if (!file) return;
+    try {
+      await setCustomBackgroundFromFile(file);
+    } catch {
+      this.notice('That image could not be used as a background.');
+      return;
+    }
+    this.buildFilters(); // re-render so the card shows the new thumbnail
+    this.handlers?.setVideoFilter('bg-custom');
+    this.closePops();
   }
 
   private openSide(tab: 'chat' | 'parts'): void {
@@ -446,7 +725,8 @@ export class ConferenceUI {
     this.chatLog.innerHTML = '';
     this.partsEl.innerHTML = '';
     this.partRows.clear();
-    this.devPop.classList.remove('open');
+    this.closePops();
+    this.filterGrid.innerHTML = ''; // rebuilt on first use, with whatever image is stored
     this.resetStage();
     this.root.style.display = 'flex';
   }
@@ -454,6 +734,7 @@ export class ConferenceUI {
   close(): void {
     if (document.fullscreenElement === this.root) void document.exitFullscreen().catch(() => undefined);
     this.root.style.display = 'none';
+    this.closePops();
     this.resetStage();
     this.handlers = null;
     this.chatLog.innerHTML = '';
@@ -465,6 +746,7 @@ export class ConferenceUI {
   private resetStage(): void {
     this.toast?.remove();
     this.toast = null;
+    this.fxEl.innerHTML = ''; // drop any reaction still in flight
     this.focused = null;
     this.focusHome = null;
     this.knownScreens.clear();
@@ -476,19 +758,18 @@ export class ConferenceUI {
     this.state = s;
     this.statusEl.textContent = s.error ? s.error : s.connected ? '● live' : '… connecting';
     this.statusEl.classList.toggle('err', !!s.error);
-    const set = (sel: string, active: boolean, on: string, off: string): void => {
+    // Only the icon and the label change — never the button's box, so the row
+    // never reflows when somebody mutes.
+    const paint = (sel: string, icon: string, label: string): HTMLButtonElement | null => {
       const b = this.bar.querySelector<HTMLButtonElement>(sel);
-      if (!b) return;
-      b.textContent = active ? on : off;
-      b.classList.toggle('off', !active);
+      if (!b) return null;
+      b.querySelector('.pa-conf-ico')!.textContent = icon;
+      b.querySelector('.pa-conf-lbl')!.textContent = label;
+      return b;
     };
-    set('[data-mic]', s.micOn, '🎙 Mic', '🔇 Mic');
-    set('[data-cam]', s.camOn, '📷 Cam', '🚫 Cam');
-    const screen = this.bar.querySelector<HTMLButtonElement>('[data-screen]');
-    if (screen) {
-      screen.textContent = s.screenOn ? '🖥 Stop' : '🖥 Share';
-      screen.classList.toggle('on', s.screenOn);
-    }
+    paint('[data-mic]', s.micOn ? '🎙️' : '🔇', 'Mic')?.classList.toggle('off', !s.micOn);
+    paint('[data-cam]', s.camOn ? '📷' : '🚫', 'Cam')?.classList.toggle('off', !s.camOn);
+    paint('[data-screen]', '🖥️', s.screenOn ? 'Stop' : 'Share')?.classList.toggle('on', s.screenOn);
   }
 
   setDevices(d: ConferenceDevices): void {

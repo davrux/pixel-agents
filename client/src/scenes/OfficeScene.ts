@@ -2957,6 +2957,8 @@ export class OfficeScene extends Phaser.Scene {
       onChat: (msg) => this.confUI.addChat(msg),
       onParticipants: (list) => this.confUI.setParticipants(list),
       onNotice: (text) => this.confUI.notice(text),
+      onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
+      onVideoFilter: (id) => this.confUI.setVideoFilter(id),
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
@@ -2980,6 +2982,8 @@ export class OfficeScene extends Phaser.Scene {
       setMuted: (identity, muted) => this.conf?.setParticipantMuted(identity, muted),
       muteForAll: (identity) => this.conf?.requestMute(identity),
       sendChat: (text) => this.conf?.sendChat(text),
+      sendReaction: (id) => this.conf?.sendReaction(id),
+      setVideoFilter: (id) => void this.conf?.setVideoFilter(id),
       leave: () => {
         if (this.myConference) void this.toggleConference(this.myConference);
       },

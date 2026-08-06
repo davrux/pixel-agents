@@ -16,6 +16,7 @@
     "build": "pnpm --filter @pixel/client run build",
     "build:arcade": "node scripts/build-shareware-bundles.mjs",
     "vendor:emulatorjs": "node scripts/vendor-emulatorjs.mjs",
+    "vendor:mediapipe": "node scripts/vendor-mediapipe.mjs",
     "build:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build",
     "dev:desktop": "pnpm run build && pnpm --filter @pixel/desktop run build && pnpm --filter @pixel/desktop run dev",
     "dist:desktop": "pnpm run build:desktop && pnpm --filter @pixel/desktop run dist",

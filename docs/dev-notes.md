@@ -147,6 +147,35 @@ Add a matching command for any new destination (see AGENTS.md convention).
   (tile size solved in JS, since CSS auto-fit strands everyone in one row) or one
   focused tile plus a filmstrip. Click a tile to focus it, "▦ Grid"/Esc/double-click
   to go back; a new screen share focuses itself once.
+  Every control-bar button is one fixed box (icon over label) with the icon in a
+  fixed `.pa-conf-ico` and an explicit emoji font (`--emoji`): colour-emoji glyphs
+  draw bigger than text glyphs (⛶ ▦) at the same font-size, which is what made the
+  old bar look ragged — the two text glyphs carry `.glyph` to size up to match.
+  - **Reactions** (`conference/reactions.ts`) — exactly **five**, and the wire
+    format is the *id*, never the emoji: `{t:'react', r:'up'}` over the LiveKit
+    data channel, looked up through `reactionById()` on receipt, so a hostile
+    client can't inject a glyph or markup, and rate-limited per sender
+    (`REACTION_GAP_MS`, ours included). The effect is Jitsi-style: the emoji rises
+    across the whole window (CSS keyframes on throwaway nodes, capped count) plus a
+    "who reacted" hero and a badge on that member's tile. Sound is synthesized in
+    `sound.ts` (`playNotes`) — no audio files — so the viewer's sound toggle and
+    master volume apply.
+  - **Background filters** (`conference/videoFilters.ts`) — blur / virtual
+    background via `@livekit/track-processors` (MediaPipe selfie segmenter),
+    attached to the **local camera track**, so what everybody receives is already
+    filtered. Backgrounds are generated on a canvas (no image files) plus an
+    uploaded "your image" kept in localStorage. **Self-hosted like the arcade
+    engines**: assets come from `/mediapipe/` — `pnpm vendor:mediapipe`
+    (`scripts/vendor-mediapipe.mjs`: copies the tasks-vision WASM out of
+    node_modules, downloads the `.tflite` model; ~19 MB, gitignored, also run in
+    the Dockerfile + the AppImage workflow) — **never** LiveKit's default jsdelivr /
+    Google-model-store URLs. Skipping the vendor step is survivable: `probeAssets()`
+    HEADs the model and the picker says how to install it. The heavy import is
+    dynamic, so MediaPipe is a lazy chunk, and `browserSupportsFilters()` greys the
+    picker out where WebCodecs/WebGL2 are missing (Chromium uses
+    MediaStreamTrackProcessor, Firefox the canvas.captureStream fallback). The
+    filter is re-attached on every `LocalTrackPublished` for the camera, because a
+    Cam toggle or a device switch publishes a *new*, unfiltered track.
   Camera/mic permission is assumed to fail regularly, because on Firefox it does
   — Firefox drops a grant as soon as capture stops, so it re-prompts on every
   join (and on every Cam re-enable, since LiveKit stops the camera track on mute

@@ -25,11 +25,14 @@ import {
   RoomEvent,
   Track,
   DataPacket_Kind,
+  type LocalVideoTrack,
   type Participant,
   type RemoteParticipant,
   type Track as LkTrack,
   type TrackPublication,
 } from 'livekit-client';
+import { reactionById, type Reaction } from './reactions.js';
+import { CameraFilters, type VideoFilterId } from './videoFilters.js';
 
 export interface ConferenceState {
   connected: boolean;
@@ -74,6 +77,10 @@ export interface ConferenceCallbacks {
   onParticipants?: (list: ConferenceParticipant[]) => void;
   /** Transient message for the viewer (e.g. "Ada muted you"). */
   onNotice?: (text: string) => void;
+  /** Somebody (possibly us) sent a reaction — play it over the whole window. */
+  onReaction?: (r: Reaction, from: string) => void;
+  /** The camera filter actually in force changed (a failed one falls back to 'none'). */
+  onVideoFilter?: (id: VideoFilterId) => void;
 }
 
 interface PTile {
@@ -85,6 +92,12 @@ interface PTile {
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
+
+/** Smallest gap between two reactions from the same participant. Reactions cover
+ *  the whole window, so an unthrottled sender could blind everyone else — and the
+ *  sender is another client, i.e. untrusted (AGENTS.md rule 7). Ours is throttled
+ *  on the way out too, so our own effect matches what others see. */
+const REACTION_GAP_MS = 900;
 
 export class LiveKitConference {
   private room: Room | null = null;
@@ -100,6 +113,10 @@ export class LiveKitConference {
   private readonly peerMuted = new Set<string>();
   /** Persisted volumes, keyed by display name (else identity) — survives reloads. */
   private readonly savedVolumes = new Map<string, number>();
+  /** Last reaction time per identity (own identity included) — rate limiting. */
+  private readonly lastReaction = new Map<string, number>();
+  /** Background blur / virtual background for our own camera track. */
+  private readonly filters: CameraFilters;
   private camOn = true;
   private micOn = true;
   private screenOn = false;
@@ -110,6 +127,7 @@ export class LiveKitConference {
     private readonly cb: ConferenceCallbacks,
   ) {
     this.loadSavedVolumes();
+    this.filters = new CameraFilters((text) => this.cb.onNotice?.(text));
   }
 
   async connect(url: string, token: string): Promise<void> {
@@ -120,6 +138,9 @@ export class LiveKitConference {
       .on(RoomEvent.TrackUnsubscribed, (track, _pub, p) => this.removeTrack(track, p))
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
+        // Every fresh camera track starts unfiltered — publishing on join, turning
+        // the camera back on, switching device. Re-apply the chosen filter to it.
+        if (pub.source === Track.Source.Camera) void this.applyFilterToCamera();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.track) this.removeTrack(pub.track, room.localParticipant);
@@ -152,6 +173,7 @@ export class LiveKitConference {
     for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
     this.notify();
     this.emitParticipants();
+    this.cb.onVideoFilter?.(this.filters.current); // show the remembered filter as picked
     await this.emitDevices(); // whatever labels the publish above unlocked
   }
 
@@ -364,7 +386,13 @@ export class LiveKitConference {
 
   private onData(payload: Uint8Array, p?: RemoteParticipant): void {
     try {
-      const msg = JSON.parse(dec.decode(payload)) as { t?: string; text?: string; at?: number; target?: string };
+      const msg = JSON.parse(dec.decode(payload)) as {
+        t?: string;
+        text?: string;
+        at?: number;
+        target?: string;
+        r?: unknown;
+      };
       if (msg.t === 'chat' && typeof msg.text === 'string') {
         this.cb.onChat?.({
           from: p?.name || p?.identity || '?',
@@ -374,9 +402,81 @@ export class LiveKitConference {
         });
       } else if (msg.t === 'mute' && msg.target === this.room?.localParticipant.identity) {
         void this.muteSelf(p?.name || p?.identity || 'Someone');
+      } else if (msg.t === 'react') {
+        // Untrusted: only a known reaction id plays, and only every
+        // REACTION_GAP_MS per sender. Anything else is dropped silently.
+        const reaction = reactionById(msg.r);
+        const identity = p?.identity ?? '?';
+        if (reaction && this.allowReaction(identity)) {
+          this.playReaction(reaction, p?.name || identity, identity);
+        }
       }
     } catch {
       /* ignore malformed data */
+    }
+  }
+
+  // ── Reactions (whole-window emoji + sound, like Jitsi) ─────────────
+
+  /** Send one of the five reactions to everybody, and play it here too (the data
+   *  channel doesn't loop back). Ignored while throttled or when the id is bogus. */
+  sendReaction(id: string): void {
+    const room = this.room;
+    const reaction = reactionById(id);
+    if (!room || !reaction) return;
+    const me = room.localParticipant.identity;
+    if (!this.allowReaction(me)) return;
+    room.localParticipant.publishData(enc.encode(JSON.stringify({ t: 'react', r: reaction.id })), {
+      reliable: true,
+    });
+    this.playReaction(reaction, 'You', me);
+  }
+
+  /** Rate limit per participant — see REACTION_GAP_MS. */
+  private allowReaction(identity: string): boolean {
+    const now = Date.now();
+    const last = this.lastReaction.get(identity) ?? 0;
+    if (now - last < REACTION_GAP_MS) return false;
+    this.lastReaction.set(identity, now);
+    return true;
+  }
+
+  /** The window-wide effect (owned by ConferenceUI) plus a badge on the sender's
+   *  own tile, so a busy call still shows *who* reacted. */
+  private playReaction(reaction: Reaction, who: string, identity: string): void {
+    this.cb.onReaction?.(reaction, who);
+    const tile = this.tiles.get(identity);
+    if (!tile) return;
+    tile.root.querySelector('.pa-conf-react')?.remove();
+    const badge = document.createElement('span');
+    badge.className = 'pa-conf-react';
+    badge.textContent = reaction.emoji;
+    badge.addEventListener('animationend', () => badge.remove());
+    tile.root.appendChild(badge);
+    window.setTimeout(() => badge.remove(), 2600);
+  }
+
+  // ── Camera background filters (blur / virtual background) ──────────
+
+  /** Our own camera track, if one is published (LiveKit replaces it whenever the
+   *  camera is toggled or the device switched). */
+  private cameraTrack(): LocalVideoTrack | undefined {
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.Camera);
+    return pub?.track as LocalVideoTrack | undefined;
+  }
+
+  private async applyFilterToCamera(): Promise<void> {
+    await this.filters.attach(this.cameraTrack());
+    this.cb.onVideoFilter?.(this.filters.current);
+  }
+
+  /** Pick a background filter. Reports back the one actually in force — applying
+   *  can fail (unsupported browser, missing assets), and then it's 'none'. */
+  async setVideoFilter(id: VideoFilterId): Promise<void> {
+    const effective = await this.filters.select(id, this.cameraTrack());
+    this.cb.onVideoFilter?.(effective);
+    if (effective !== 'none' && !this.cameraTrack()) {
+      this.cb.onNotice?.('Filter saved — it applies as soon as your camera is on.');
     }
   }
 
@@ -577,11 +677,15 @@ export class LiveKitConference {
   async disconnect(): Promise<void> {
     const r = this.room;
     this.room = null;
+    // Free the segmenter's WASM/WebGL before the track goes away — a leftover
+    // processor would keep decoding frames from a camera nobody is watching.
+    await this.filters.destroy();
     await r?.disconnect();
     this.cleanup();
   }
 
   private cleanup(): void {
+    void this.filters.destroy(); // also covers a drop we didn't initiate (idempotent)
     for (const t of this.tiles.values()) t.root.remove();
     this.tiles.clear();
     for (const el of this.screens.values()) el.remove();
@@ -590,6 +694,7 @@ export class LiveKitConference {
     this.audios.clear();
     this.peerVolumes.clear();
     this.peerMuted.clear();
+    this.lastReaction.clear();
   }
 
   private notify(error?: string): void {
