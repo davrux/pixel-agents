@@ -48,11 +48,16 @@ export function isForbiddenError(err: unknown): boolean {
 }
 
 /** Did the room reject the join because the session cookie is missing/invalid?
- *  Colyseus maps ANY onAuth throw to ErrorCode.AUTH_FAILED, so the more specific
- *  room-entry rejections (locked / forbidden) are excluded here. Compared against
- *  the SDK's own constant rather than a literal: 0.17 renumbered the matchmaking
- *  error codes (AUTH_FAILED moved 4215 → 525), and a hardcoded number would fail
- *  silently — the viewer would never be sent to the login page. */
+ *  The more specific room-entry rejections (locked / forbidden) are excluded
+ *  first, since they share the generic error code below.
+ *
+ *  On 0.17 a SimRoom onAuth throw actually reaches us as APPLICATION_ERROR (526)
+ *  carrying the thrown message, so the `message` test — not the code — is what
+ *  classifies it; the AUTH_FAILED check still covers the auth failures Colyseus
+ *  raises itself. Both are compared against the SDK's constants rather than
+ *  literals: 0.17 renumbered these codes (AUTH_FAILED 4215 → 525), and a
+ *  hardcoded number fails silently, never sending the viewer to the login page.
+ *  server/src/matchmaking.int.test.ts pins the reject-on-join behaviour. */
 export function isAuthError(err: unknown): boolean {
   const e = err as { code?: number; message?: string } | undefined;
   const msg = errMsg(err);
