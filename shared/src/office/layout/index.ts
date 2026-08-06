@@ -12,4 +12,4 @@ export {
   serializeLayout,
 } from './layoutSerializer.js';
 export { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from './tileMap.js';
-export { computePrivateAreaIds, privateAreaAnchor, privateAreaIdAt, type PrivateAreaMap } from './privateAreas.js';
+export { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from './actionAreas.js';

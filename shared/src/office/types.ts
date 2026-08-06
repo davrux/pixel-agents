@@ -414,17 +414,17 @@ export interface Character {
   /** When walking to a seat (click-to-sit), the direction to face on arrival;
    *  null = no pending sit. Server-only intent. */
   pendingSitFacing?: Direction | null;
-  /** When walking to a conference monitor, the monitor key to join + the facing
-   *  on arrival; null = none. Server-only intent. */
-  pendingConference?: { key: string; facing: Direction } | null;
+  /** When walking to a furniture item's action (conference monitor,
+   *  link-manager kiosk, arcade cabinet, iframe sprite, …), what to notify
+   *  the room of on arrival (the room then tells the owning client to open
+   *  its local UI, or — for 'meetingRoom' — adds them to that room's
+   *  membership; see officeState.walkPlayerToAction); null = none.
+   *  Server-only intent. Appliances are a separate field (pendingAppliance)
+   *  since they use the pre-built station/occupancy system, not this. */
+  pendingAction?: { action: Action; col: number; row: number; facing: Direction } | null;
   /** When walking to an appliance (e.g. coffee machine), the station to start
    *  standing at + the facing on arrival; null = none. Server-only intent. */
   pendingAppliance?: { stationUid: string; facing: Direction } | null;
-  /** When walking to an arcade cabinet or meeting-room kiosk, what to notify
-   *  the room of on arrival (the room then tells the owning client to open its
-   *  local UI — see officeState.walkPlayerToInteraction); null = none.
-   *  Server-only intent. */
-  pendingInteraction?: { kind: 'arcade' | 'meetingRoom'; col: number; row: number; facing: Direction } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

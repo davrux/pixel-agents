@@ -24,6 +24,7 @@ import {
   CharacterState,
   Direction,
   TILE_SIZE,
+  type Action,
   type Character,
   type FurnitureInstance,
   type OfficeLayout,
@@ -31,12 +32,13 @@ import {
   type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getActiveCategories, getCatalogByCategory, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { getActiveCategories, getCatalogByCategory, getCatalogEntry, effectiveAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
 import { MeetingAreaUI } from '../ui/meetingArea.js';
+import { openActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { MumbleSettingsUI } from '../voice/MumbleSettingsUI.js';
@@ -157,7 +159,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
-  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number; name?: string }> = [];
+  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number; name?: string; action?: Action }> = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -199,16 +201,16 @@ export class OfficeScene extends Phaser.Scene {
   private conf?: LiveKitConference;
   /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
   private zoneVoice?: ZoneVoiceUI;
-  /** Walk-in meeting areas (OfficeLayout.tilePrivateArea) — standing on the
-   *  tile auto-connects (mirrors WorkAdventure's proximity bubble) into a
-   *  small ambient popup with live camera tiles, reusing LiveKitConference's
-   *  own tile rendering. One dedicated LiveKit room per area (see
-   *  onMeetingAreaToken), exactly like a conference monitor. */
+  /** Walk-in meeting areas (a 'meetingRoom' tile action, see shared Action) —
+   *  standing on the tile auto-connects (mirrors WorkAdventure's proximity
+   *  bubble) into a small ambient popup with live camera tiles, reusing
+   *  LiveKitConference's own tile rendering. One dedicated LiveKit room per
+   *  area (see onMeetingAreaToken), exactly like a conference monitor. */
   private meetingArea?: MeetingAreaUI;
   /** The meeting area (anchor "col,row" key) our tile is currently in, or
-   *  null — purely reactive to meetingAreaMembers broadcasts (no explicit
+   *  null — purely reactive to meetingRoomMembers broadcasts (no explicit
    *  join/leave message; standing on the tile *is* server-side membership,
-   *  see SimRoom's updateMeetingAreaMembership). Drives auto-join. */
+   *  see SimRoom's updateMeetingRoomMembership). Drives auto-join. */
   private myMeetingAreaKey: string | null = null;
   /** The meeting area (anchor tile) whose video CALL we're connected to, or
    *  null — separate from membership above: you can hang up and keep
@@ -594,10 +596,14 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'chat') this.onChat(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
-        else if (m.type === 'conferenceMembers') this.onConferenceMembers(m);
-        else if (m.type === 'conferenceToken') this.onConferenceToken(m);
-        else if (m.type === 'meetingAreaMembers') this.onMeetingAreaMembers(m);
-        else if (m.type === 'meetingAreaToken') this.onMeetingAreaToken(m);
+        else if (m.type === 'meetingRoomMembers') {
+          if (m.source === 'tile') this.onMeetingAreaMembers(m);
+          else this.onConferenceMembers(m);
+        }
+        else if (m.type === 'meetingRoomToken') {
+          if (m.source === 'tile') this.onMeetingAreaToken(m);
+          else this.onConferenceToken(m);
+        }
         else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
         else if (m.type === 'meetingRoomList') this.onMeetingRoomList(m);
@@ -659,13 +665,16 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'settingsLoaded') this.applySettings(m);
         else if (m.type === 'portalOptions') this.showPortalPicker(m.zones as Array<{ id: string; label: string }>);
         else if (m.type === 'zoneTransition') this.goToZone(m.zone as string); // walked into a portal (P5)
-        else if (m.type === 'interactionReady') {
-          // Arrived at an arcade cabinet or meeting-room kiosk we clicked
-          // (server picked the stand tile — see officeState.walkPlayerToInteraction).
+        else if (m.type === 'actionReady') {
+          // Arrived at a furniture action we clicked (server picked the
+          // stand tile — see officeState.walkPlayerToAction). 'meetingRoom'
+          // arrivals don't come through here — the room adds us straight to
+          // its membership (see onMeetingRoomMembers).
           const col = m.col as number;
           const row = m.row as number;
           if (m.kind === 'arcade') this.openArcade({ col, row });
-          else if (m.kind === 'meetingRoom') this.openMeetingRoomManageDialog({ col, row });
+          else if (m.kind === 'linkManager') this.openMeetingRoomManageDialog({ col, row });
+          else if (m.kind === 'iframe') openActionIframe(m.url as string);
         }
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
@@ -826,9 +835,19 @@ export class OfficeScene extends Phaser.Scene {
 
   private rebuildFurniture(): void {
     const arr = (this.room!.state as {
-      furniture: Array<{ type: string; col: number; row: number; name?: string }>;
+      furniture: Array<{ type: string; col: number; row: number; name?: string; action?: string }>;
     }).furniture;
-    this.furniturePlacements = arr.map((f, i) => ({ uid: `f${i}`, type: f.type, col: f.col, row: f.row, name: f.name }));
+    this.furniturePlacements = arr.map((f, i) => {
+      let action: Action | undefined;
+      if (f.action) {
+        try {
+          action = JSON.parse(f.action) as Action;
+        } catch {
+          /* malformed — treat as no override */
+        }
+      }
+      return { uid: `f${i}`, type: f.type, col: f.col, row: f.row, name: f.name, action };
+    });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }
 
@@ -846,15 +865,19 @@ export class OfficeScene extends Phaser.Scene {
     return false;
   }
 
-  /** If the tile is covered by a conference monitor, its anchor tile (used as the
-   *  monitor's stable id), else null. */
-  private conferenceAnchorAt(col: number, row: number): { col: number; row: number; name?: string } | null {
+  /** If the tile is covered by a furniture item that has an action (see
+   *  Action) — conference monitor, link-manager kiosk, arcade cabinet, or
+   *  any iframe/meetingRoom override — its anchor tile + the action itself,
+   *  else null. Mirrors the server's actionAt/effectiveAction. Appliances
+   *  are NOT included (see applianceAt) — they go through their own
+   *  applianceApproach, not the unified actionApproach. */
+  private actionAt(col: number, row: number): { col: number; row: number; action: Action; name?: string } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
-      if (!entry?.conference) continue;
-      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row, name: f.name };
-      }
+      if (!entry) continue;
+      if (col < f.col || col >= f.col + entry.footprintW || row < f.row || row >= f.row + entry.footprintH) continue;
+      const action = effectiveAction(f, entry);
+      if (action && action.kind !== 'appliance') return { col: f.col, row: f.row, action, name: f.name };
     }
     return null;
   }
@@ -864,30 +887,6 @@ export class OfficeScene extends Phaser.Scene {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
       if (!entry?.appliance) continue;
-      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row };
-      }
-    }
-    return null;
-  }
-
-  /** If the tile is covered by an arcade cabinet, its anchor, else null. */
-  private arcadeAt(col: number, row: number): { col: number; row: number } | null {
-    for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.type);
-      if (!entry?.arcade) continue;
-      if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
-        return { col: f.col, row: f.row };
-      }
-    }
-    return null;
-  }
-
-  /** If the tile is covered by a meeting-room kiosk, its anchor, else null. */
-  private meetingKioskAt(col: number, row: number): { col: number; row: number } | null {
-    for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.type);
-      if (!entry?.meetingRoom) continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
         return { col: f.col, row: f.row };
       }
@@ -1298,22 +1297,21 @@ export class OfficeScene extends Phaser.Scene {
           if (this.myPlayerId !== null && p.leftButtonReleased()) {
             const col = Math.floor(p.worldX / TILE_SIZE);
             const row = Math.floor(p.worldY / TILE_SIZE);
-            const conf = this.conferenceAnchorAt(col, row);
-            const cab = this.arcadeAt(col, row);
-            const kiosk = this.meetingKioskAt(col, row);
+            const action = this.actionAt(col, row);
             const appliance = this.applianceAt(col, row);
-            if (cab) {
-              // Server-authoritative walk-then-open, like conference monitors and
-              // appliances: it picks a (random, so simultaneous visitors spread
-              // out) stand tile, walks the avatar, then tells us to open the
-              // picker once arrived (see onInteractionReady / 'interactionReady').
+            if (action && action.action.kind === 'meetingRoom') {
+              // Click a monitor (or any other 'meetingRoom'-action sprite) →
+              // toggle join/leave, same as before (see toggleConference).
+              void this.toggleConference({ col: action.col, row: action.row, name: action.name });
+            } else if (action) {
+              // Server-authoritative walk-then-open (link-manager kiosk,
+              // arcade cabinet, iframe sprite): it picks a (random, so
+              // simultaneous visitors spread out) stand tile, walks the
+              // avatar, then tells us to open the local UI once arrived —
+              // see onActionReady / 'actionReady'.
               this.pendingConference = null;
-              this.room?.send('arcadeApproach', { col: cab.col, row: cab.row });
-            } else if (kiosk) {
-              this.pendingConference = null;
-              this.room?.send('meetingRoomApproach', { col: kiosk.col, row: kiosk.row });
-            } else if (conf) void this.toggleConference(conf);
-            else if (appliance) {
+              this.room?.send('actionApproach', { col: action.col, row: action.row });
+            } else if (appliance) {
               // Same server-authoritative walk-then-use (see officeState's useAppliance).
               this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
             } else {
@@ -2959,23 +2957,23 @@ export class OfficeScene extends Phaser.Scene {
   private async toggleConference(anchor: { col: number; row: number; name?: string }): Promise<void> {
     const key = `${anchor.col},${anchor.row}`;
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key) {
-      this.room?.send('conferenceLeave', { col: anchor.col, row: anchor.row });
+      this.room?.send('meetingRoomLeave', { col: anchor.col, row: anchor.row });
       this.leaveConferenceLocal();
       return;
     }
     // Confirm before joining (it turns your camera/mic on).
     const label = conferenceLabel(anchor.name, anchor.col, anchor.row);
     if (!(await confirmDialog(`Join the conference “${label}”?`, { confirmLabel: 'Join' }))) return;
-    // Walk to the monitor first; the server joins us on arrival (→ conferenceMembers),
+    // Walk to the monitor first; the server joins us on arrival (→ meetingRoomMembers),
     // then we connect the media. Leave any current call (conference or meeting area —
     // they share the one ConferenceUI window/stage).
     if (this.myConference) {
-      this.room?.send('conferenceLeave', this.myConference);
+      this.room?.send('meetingRoomLeave', this.myConference);
       this.leaveConferenceLocal();
     }
     if (this.myMeetingArea) this.leaveMeetingAreaLocal();
     this.pendingConference = { ...anchor };
-    this.room?.send('conferenceApproach', { col: anchor.col, row: anchor.row });
+    this.room?.send('actionApproach', { col: anchor.col, row: anchor.row });
   }
 
   /** Tear down the local call (disconnect LiveKit) and clear our membership. */
@@ -3005,7 +3003,7 @@ export class OfficeScene extends Phaser.Scene {
     ) {
       this.myConference = this.pendingConference;
       this.pendingConference = null;
-      this.room?.send('conferenceToken', this.myConference); // → media
+      this.room?.send('meetingRoomToken', { ...this.myConference, source: 'furniture' }); // → media
     }
     // If the server dropped us from our call (despawn, zone change, …), tear down.
     if (this.myConference && `${this.myConference.col},${this.myConference.row}` === key && !iAmIn) {
@@ -3048,7 +3046,7 @@ export class OfficeScene extends Phaser.Scene {
     // meeting (resumed in leaveConferenceLocal).
     this.zoneVoice?.voice.suspend('conference');
     this.mumble?.voice?.suspend('conference');
-    void this.conf.connect(m.url as string, m.token as string).catch(() => {
+    void this.conf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {
       /* connect() reports via the state callback */
     });
   }
@@ -3102,14 +3100,14 @@ export class OfficeScene extends Phaser.Scene {
   private joinMeetingAreaVideo(anchor: { col: number; row: number }): void {
     if (this.myMeetingArea && `${this.myMeetingArea.col},${this.myMeetingArea.row}` === `${anchor.col},${anchor.row}`) return;
     if (this.myConference) {
-      this.room?.send('conferenceLeave', this.myConference);
+      this.room?.send('meetingRoomLeave', this.myConference);
       this.leaveConferenceLocal();
     }
     this.myMeetingArea = { ...anchor };
     this.meetingAreaExpanded = false;
     this.meetingArea?.setVisible(true);
     this.meetingArea?.setHandlers(this.meetingAreaMiniHandlers());
-    this.room?.send('meetingAreaToken', anchor);
+    this.room?.send('meetingRoomToken', { ...anchor, source: 'tile' });
   }
 
   /** Tear down the local call (disconnect LiveKit) and clear our membership.
@@ -3182,7 +3180,7 @@ export class OfficeScene extends Phaser.Scene {
     // meeting (resumed in leaveMeetingAreaLocal).
     this.zoneVoice?.voice.suspend('meetingArea');
     this.mumble?.voice?.suspend('meetingArea');
-    void this.meetingConf.connect(m.url as string, m.token as string).catch(() => {
+    void this.meetingConf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {
       /* connect() reports via the state callback */
     });
   }

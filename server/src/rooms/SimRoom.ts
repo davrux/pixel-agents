@@ -21,10 +21,10 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
-import { Direction, PetKind } from '@pixel/shared/office/types.js';
+import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
 import {
@@ -144,6 +144,62 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
   return layout;
 }
 
+const MAX_IFRAME_URL_LEN = 500;
+
+/** Parse+validate one Action (from an untrusted save payload) — https://
+ *  only for iframe, closed sets of literal kinds elsewhere. Returns null for
+ *  anything malformed (dropped, not defaulted). */
+function sanitizeAction(raw: unknown): Action | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const rec = raw as Record<string, unknown>;
+  switch (rec.kind) {
+    case 'meetingRoom':
+      return { kind: 'meetingRoom', video: rec.video !== false };
+    case 'linkManager':
+      return { kind: 'linkManager' };
+    case 'iframe': {
+      const url = typeof rec.url === 'string' ? rec.url.trim().slice(0, MAX_IFRAME_URL_LEN) : '';
+      return url.startsWith('https://') ? { kind: 'iframe', url } : null;
+    }
+    case 'appliance':
+      return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
+    case 'arcade':
+      return { kind: 'arcade' };
+    default:
+      return null;
+  }
+}
+
+/** Validate/clamp a saved layout's tile actions (OfficeLayout.tileActions)
+ *  and any per-instance furniture action overrides — the same kind of
+ *  save-time content check as sanitizeLayoutTexts, for the same reason
+ *  (furniture/tiles otherwise have none; this mirrors the client's own
+ *  Action-tool validation in case a client is patched or malicious).
+ *  Mutates and returns the same object; other fields pass through untouched. */
+function sanitizeLayoutActions(layout: Record<string, unknown>): Record<string, unknown> {
+  const cols = typeof layout.cols === 'number' ? layout.cols : 0;
+  const rows = typeof layout.rows === 'number' ? layout.rows : 0;
+  const tileActions = layout.tileActions;
+  if (Array.isArray(tileActions)) {
+    const total = cols * rows;
+    const clean: Array<Action | null> = new Array(total).fill(null);
+    for (let i = 0; i < Math.min(total, tileActions.length); i++) clean[i] = sanitizeAction(tileActions[i]);
+    layout.tileActions = clean;
+  }
+  const furniture = layout.furniture;
+  if (Array.isArray(furniture)) {
+    for (const item of furniture) {
+      if (!item || typeof item !== 'object') continue;
+      const rec = item as Record<string, unknown>;
+      if (rec.action === undefined) continue;
+      const action = sanitizeAction(rec.action);
+      if (action) rec.action = action;
+      else delete rec.action;
+    }
+  }
+  return layout;
+}
+
 export class SimRoom extends Room<{ state: RoomState }> {
   /** File defaults merged with DB asset overrides — the process-wide cached
    *  bundle from assetOverrides.ts, not recomputed per room (see getMergedBundle). */
@@ -166,18 +222,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private readonly lastChatAt = new Map<string, number>();
   /** Per-session rate limit for voice-chat announcements (join/mute/deafen). */
   private readonly lastVoiceEventAt = new Map<string, number>();
-  /** Conference monitor membership: "col,row" anchor → set of player avatar ids. */
-  private readonly conferences = new Map<string, Set<number>>();
-  /** Walk-in meeting-area membership: "col,row" anchor (the area's stable
-   *  flood-fill anchor tile, see OfficeState.areaAnchor) → set of player
-   *  avatar ids. Unlike conferences (explicit join/leave, click-to-join),
-   *  this is maintained automatically every tick from tile position — see
-   *  updateMeetingAreaMembership, called from syncCharacters. */
-  private readonly meetingAreas = new Map<string, Set<number>>();
-  /** Each player's current meeting-area key (the map above's keys), or
-   *  absent — so updateMeetingAreaMembership can detect enter/exit without
+  /** Meeting-room membership (Action's 'meetingRoom' kind) — a
+   *  "furniture:col,row" or "tile:col,row" key (disambiguates a furniture
+   *  item's own anchor tile from a tile-action area's flood-fill anchor, in
+   *  case they ever coincide — see meetingRoomKey) → set of player avatar
+   *  ids. Furniture-sourced membership is explicit (click join/leave, via
+   *  actionApproach/meetingRoomLeave); tile-sourced membership is automatic
+   *  (walk in/out), maintained every tick by updateMeetingRoomMembership,
+   *  called from syncCharacters. */
+  private readonly meetingRooms = new Map<string, Set<number>>();
+  /** Each player's current tile-sourced meeting-room key (a subset of the
+   *  map above's keys — furniture-sourced membership doesn't use this), or
+   *  absent — so updateMeetingRoomMembership can detect enter/exit without
    *  re-deriving "was I in one before" from the sets themselves. */
-  private readonly lastMeetingArea = new Map<number, string>();
+  private readonly lastMeetingRoomArea = new Map<number, string>();
   /** Per-deployment prefix for LiveKit room names (env override, else a stable
    *  random id from the DB) so dev + prod never share a voice room. */
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
@@ -495,8 +553,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     client.send('m', this.layoutListMessage());
     client.send('m', this.zoneListMessage());
     client.send('m', { type: 'chatHistory', messages: this.chatLog });
-    for (const key of this.conferences.keys()) client.send('m', this.conferenceMembersMsg(key));
-    for (const key of this.meetingAreas.keys()) client.send('m', this.meetingAreaMembersMsg(key));
+    for (const key of this.meetingRooms.keys()) client.send('m', this.meetingRoomMembersMsg(key));
 
     // This viewer's identity: userId keys all per-user state; username is the
     // (free) display name shown on the avatar.
@@ -581,8 +638,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (userId && !this.hasOtherSession(client)) {
         this.broadcast('m', { type: 'system', text: `${this.chatNameFor(client)} left the zone.` });
       }
-      this.leaveAllConferences(playerId);
-      this.leaveAllMeetingAreas(playerId);
+      this.leaveAllMeetingRooms(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
     }
@@ -603,81 +659,78 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.lastVoiceEventAt.delete(client.sessionId);
   }
 
-  /** Whether a conference monitor is placed with its anchor at this tile. */
-  private hasConferenceAt(col: number, row: number): boolean {
-    for (const item of this.os.getLayout().furniture) {
-      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.conference) return true;
-    }
-    return false;
+  /** The effective action (see Action) of the furniture item anchored
+   *  exactly at this tile, or null — mirrors effectiveAction: the placed
+   *  item's own override if set, else the catalog's legacy conference/
+   *  arcade/meetingRoom/appliance flags. Client approach messages always
+   *  carry a furniture item's own anchor col/row (never just any tile its
+   *  footprint covers), so an exact match is enough. */
+  private actionAt(col: number, row: number): Action | null {
+    const item = this.os.getLayout().furniture.find((f) => f.col === col && f.row === row);
+    return item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
   }
 
-  /** Whether an appliance (e.g. coffee machine) is placed with its anchor at this tile. */
-  private hasApplianceAt(col: number, row: number): boolean {
-    for (const item of this.os.getLayout().furniture) {
-      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.appliance) return true;
-    }
-    return false;
+  /** A meeting-room membership key, namespaced by source so a furniture
+   *  item's own anchor tile can never collide with a tile-action area's
+   *  flood-fill anchor even if they happen to share a col/row. */
+  private meetingRoomKey(source: 'furniture' | 'tile', col: number, row: number): string {
+    return `${source}:${col},${row}`;
   }
 
-  /** Whether an arcade cabinet is placed with its anchor at this tile. */
-  private hasArcadeAt(col: number, row: number): boolean {
-    for (const item of this.os.getLayout().furniture) {
-      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.arcade) return true;
-    }
-    return false;
+  private parseMeetingRoomKey(key: string): { source: 'furniture' | 'tile'; col: number; row: number } | null {
+    const m = /^(furniture|tile):(-?\d+),(-?\d+)$/.exec(key);
+    return m ? { source: m[1] as 'furniture' | 'tile', col: Number(m[2]), row: Number(m[3]) } : null;
   }
 
-  /** Whether a meeting-room kiosk is placed with its anchor at this tile. */
-  private hasMeetingRoomAt(col: number, row: number): boolean {
-    for (const item of this.os.getLayout().furniture) {
-      if (item.col === col && item.row === row && getCatalogEntry(item.type)?.meetingRoom) return true;
+  /** Whether a meeting room (by key) currently offers video — a furniture
+   *  item's own action.video, or a tile-area's anchor action.video. */
+  private videoForMeetingRoomKey(key: string): boolean {
+    const parsed = this.parseMeetingRoomKey(key);
+    if (!parsed) return true;
+    if (parsed.source === 'furniture') {
+      const action = this.actionAt(parsed.col, parsed.row);
+      return action?.kind === 'meetingRoom' ? action.video : true;
     }
-    return false;
+    const layout = this.os.getLayout();
+    const a = layout.tileActions?.[parsed.row * layout.cols + parsed.col];
+    return a?.kind === 'meetingRoom' ? a.video : true;
   }
 
-  /** Current members of a conference (by "col,row" key), for broadcast. */
-  private conferenceMembersMsg(key: string): Record<string, unknown> {
-    const [col, row] = key.split(',').map(Number);
-    const ids = this.conferences.get(key) ?? new Set<number>();
+  /** Current members of a meeting room (by its "source:col,row" key), for broadcast. */
+  private meetingRoomMembersMsg(key: string): Record<string, unknown> {
+    const parsed = this.parseMeetingRoomKey(key);
+    const ids = this.meetingRooms.get(key) ?? new Set<number>();
     const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
-    return { type: 'conferenceMembers', col, row, members };
+    return {
+      type: 'meetingRoomMembers',
+      source: parsed?.source ?? 'furniture',
+      col: parsed?.col ?? 0,
+      row: parsed?.row ?? 0,
+      video: this.videoForMeetingRoomKey(key),
+      members,
+    };
   }
 
-  /** Current members of a meeting area (by its anchor "col,row" key), for
-   *  broadcast — same shape as conferenceMembersMsg so the client reuses the
-   *  identical "am I a member of this key" pattern. */
-  private meetingAreaMembersMsg(key: string): Record<string, unknown> {
-    const [col, row] = key.split(',').map(Number);
-    const ids = this.meetingAreas.get(key) ?? new Set<number>();
-    const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
-    return { type: 'meetingAreaMembers', col, row, members };
-  }
-
-  /** Recompute which meeting area (if any) a player's current tile belongs
-   *  to and update membership + broadcast on any change. Called once per
-   *  player per tick from syncCharacters — unlike conferences, there's no
-   *  explicit join/leave message; standing on the tile *is* the membership. */
-  private updateMeetingAreaMembership(playerId: number, col: number, row: number): void {
+  /** Recompute which meeting-room tile area (if any) a player's current
+   *  tile belongs to and update membership + broadcast on any change.
+   *  Called once per player per tick from syncCharacters — unlike a
+   *  furniture-sourced meeting room, there's no explicit join/leave
+   *  message; standing on the tile *is* the membership. */
+  private updateMeetingRoomMembership(playerId: number, col: number, row: number): void {
     const areaId = this.os.areaIdAt(col, row);
     const anchor = areaId !== null ? this.os.areaAnchor(areaId) : null;
-    const newKey = anchor ? `${anchor.col},${anchor.row}` : null;
-    const oldKey = this.lastMeetingArea.get(playerId) ?? null;
+    const newKey = anchor ? this.meetingRoomKey('tile', anchor.col, anchor.row) : null;
+    const oldKey = this.lastMeetingRoomArea.get(playerId) ?? null;
     if (newKey === oldKey) return;
-    if (oldKey) {
-      const set = this.meetingAreas.get(oldKey);
-      if (set?.delete(playerId)) {
-        if (set.size === 0) this.meetingAreas.delete(oldKey);
-        this.broadcast('m', this.meetingAreaMembersMsg(oldKey));
-      }
-    }
+    if (oldKey) this.leaveMeetingRoom(playerId, oldKey);
     if (newKey) {
-      let set = this.meetingAreas.get(newKey);
-      if (!set) this.meetingAreas.set(newKey, (set = new Set<number>()));
+      let set = this.meetingRooms.get(newKey);
+      if (!set) this.meetingRooms.set(newKey, (set = new Set<number>()));
       set.add(playerId);
-      this.lastMeetingArea.set(playerId, newKey);
-      this.broadcast('m', this.meetingAreaMembersMsg(newKey));
+      this.lastMeetingRoomArea.set(playerId, newKey);
+      this.broadcast('m', this.meetingRoomMembersMsg(newKey));
     } else {
-      this.lastMeetingArea.delete(playerId);
+      this.lastMeetingRoomArea.delete(playerId);
     }
   }
 
@@ -691,31 +744,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return mintVoiceToken(`p${id}`, this.os.getCharacter(id)?.folderName || `Guest-${id}`, room);
   }
 
-  /** Remove a player from one conference (by key) + broadcast the new roster. */
-  private leaveConference(playerId: number, key: string): void {
-    const set = this.conferences.get(key);
+  /** Remove a player from one meeting room (furniture- or tile-sourced) +
+   *  broadcast the new roster. */
+  private leaveMeetingRoom(playerId: number, key: string): void {
+    const set = this.meetingRooms.get(key);
     if (!set || !set.delete(playerId)) return;
-    if (set.size === 0) this.conferences.delete(key);
-    this.broadcast('m', this.conferenceMembersMsg(key));
+    if (set.size === 0) this.meetingRooms.delete(key);
+    this.broadcast('m', this.meetingRoomMembersMsg(key));
   }
 
-  /** Remove a player from every conference (on leave / despawn / zone change). */
-  private leaveAllConferences(playerId: number): void {
-    for (const key of [...this.conferences.keys()]) this.leaveConference(playerId, key);
-  }
-
-  /** Remove a player from their meeting area, if any (on leave / despawn /
-   *  zone change) — updateMeetingAreaMembership only runs from a live
-   *  character's tick, so a departing player needs this explicit cleanup. */
-  private leaveAllMeetingAreas(playerId: number): void {
-    const key = this.lastMeetingArea.get(playerId);
-    if (!key) return;
-    this.lastMeetingArea.delete(playerId);
-    const set = this.meetingAreas.get(key);
-    if (set?.delete(playerId)) {
-      if (set.size === 0) this.meetingAreas.delete(key);
-      this.broadcast('m', this.meetingAreaMembersMsg(key));
-    }
+  /** Remove a player from every meeting room (furniture explicit-leave/
+   *  disconnect/zone-change, or tile-based cleanup — updateMeetingRoomMembership
+   *  only runs from a live character's tick, so a departing player needs this
+   *  explicit cleanup either way). */
+  private leaveAllMeetingRooms(playerId: number): void {
+    for (const key of [...this.meetingRooms.keys()]) this.leaveMeetingRoom(playerId, key);
+    this.lastMeetingRoomArea.delete(playerId);
   }
 
   /** Display name for a chatter: their avatar's name, else display name, else Guest. */
@@ -821,14 +865,16 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
-      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutTexts(msg.layout), Date.now())) this.applyActiveLayout();
+      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now())) {
+        this.applyActiveLayout();
+      }
     });
 
     this.onMessage('saveLayoutAs', (client, msg: { name?: string; layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
-        this.store.saveAs(zone, name, sanitizeLayoutTexts(msg.layout), Date.now());
+        this.store.saveAs(zone, name, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now());
         this.applyActiveLayout();
       }
     });
@@ -853,17 +899,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.broadcast('m', { type: 'chat', from, text, id, at: now });
     });
 
-    // ── Conference monitors: click a monitor → join/leave its video call. The
-    // monitor is identified by its anchor tile (stable, shared with the client). ──
-    // Click a monitor → walk the avatar in front of it, then join on arrival.
-    this.onMessage('conferenceApproach', (client, msg: { col?: number; row?: number }) => {
+    // ── Furniture actions (see Action): click → walk the avatar to a
+    // (randomly picked, so simultaneous visitors spread out) approach tile,
+    // then either add it to a 'meetingRoom's membership or tell just that
+    // client to open its own local UI once arrived — see
+    // handleActionArrivals / 'actionReady'. Covers today's conference
+    // monitor, link-manager kiosk, arcade cabinet, and any iframe/
+    // meetingRoom action attached to plain furniture. The item is
+    // identified by its own anchor tile (stable, shared with the client).
+    this.onMessage('actionApproach', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
-      if (!this.os.walkPlayerToConference(id, col, row)) {
-        client.send('m', { type: 'system', text: "Can't reach that monitor — walk up to it to join." });
+      if (!Number.isInteger(col) || !Number.isInteger(row)) return;
+      if (!this.os.walkPlayerToAction(id, col, row)) {
+        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
       }
     });
 
@@ -871,63 +922,44 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // tile, then hold a cosmetic "using it" pose (☕ over the avatar) until the
     // player walks away or sits down (no game effect — see
     // officeState.useAppliance/stationId, the same mechanism NPCs use for
-    // coffee breaks, minus their break timer).
+    // coffee breaks, minus their break timer). Kept separate from
+    // actionApproach — appliances use the pre-built station/occupancy
+    // system, not computeApproachTiles, and have no client notification.
     this.onMessage('applianceApproach', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasApplianceAt(col, row)) return;
+      if (!Number.isInteger(col) || !Number.isInteger(row)) return;
       if (!this.os.useAppliance(id, col, row)) {
         client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
       }
     });
 
-    // Arcade cabinets and meeting-room kiosks: click → walk the avatar to a
-    // (randomly picked, so simultaneous visitors spread out) tile around the
-    // cabinet, then tell just that client to open its own local UI once
-    // arrived — see handleInteractionArrivals / 'interactionReady'.
-    this.onMessage('arcadeApproach', (client, msg: { col?: number; row?: number }) => {
+    // Direct meeting-room join (no walking) — for non-spatial clients. Adds
+    // the player to the furniture item's membership so meetingRoomToken
+    // below admits them.
+    this.onMessage('meetingRoomJoin', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
       const col = Math.floor(Number(msg?.col));
       const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasArcadeAt(col, row)) return;
-      if (!this.os.walkPlayerToInteraction(id, col, row, 'arcade')) {
-        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
-      }
-    });
-
-    this.onMessage('meetingRoomApproach', (client, msg: { col?: number; row?: number }) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      const col = Math.floor(Number(msg?.col));
-      const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasMeetingRoomAt(col, row)) return;
-      if (!this.os.walkPlayerToInteraction(id, col, row, 'meetingRoom')) {
-        client.send('m', { type: 'system', text: "Can't reach that — walk up to it first." });
-      }
-    });
-
-    // Direct conference join (no walking) — for non-spatial clients. Adds the
-    // player to the monitor's membership so the conferenceToken gate below admits them.
-    this.onMessage('conferenceJoin', (client, msg: { col?: number; row?: number }) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      const col = Math.floor(Number(msg?.col));
-      const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row) || !this.hasConferenceAt(col, row)) return;
-      const key = `${col},${row}`;
-      let set = this.conferences.get(key);
-      if (!set) this.conferences.set(key, (set = new Set<number>()));
+      if (!Number.isInteger(col) || !Number.isInteger(row)) return;
+      const action = this.actionAt(col, row);
+      if (action?.kind !== 'meetingRoom') return;
+      const key = this.meetingRoomKey('furniture', col, row);
+      let set = this.meetingRooms.get(key);
+      if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
       set.add(id);
-      this.broadcast('m', this.conferenceMembersMsg(key));
+      this.broadcast('m', this.meetingRoomMembersMsg(key));
     });
 
-    this.onMessage('conferenceLeave', (client, msg: { col?: number; row?: number }) => {
+    this.onMessage('meetingRoomLeave', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;
-      this.leaveConference(id, `${Math.floor(Number(msg?.col))},${Math.floor(Number(msg?.row))}`);
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      this.leaveMeetingRoom(id, this.meetingRoomKey('furniture', col, row));
     });
 
     // Ad-hoc meeting room: clicking a "Meeting Room Kiosk" mints a fresh,
@@ -946,10 +978,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         }
         const col = Math.floor(Number(msg?.col));
         const row = Math.floor(Number(msg?.row));
-        const isKiosk = this.os
-          .getLayout()
-          .furniture.some((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.meetingRoom);
-        if (!isKiosk) return;
+        if (this.actionAt(col, row)?.kind !== 'linkManager') return;
         // Bounds how many rooms one account can have outstanding at once — without
         // this a compromised/scripted account could flood meeting_rooms forever.
         if (meetingRoomStore.countActiveByOwner(userId) >= MAX_ACTIVE_ROOMS_PER_OWNER) {
@@ -1007,73 +1036,86 @@ export class SimRoom extends Room<{ state: RoomState }> {
       client.send('m', { type: 'meetingRoomDeleted', slug });
     });
 
-    // Mint a LiveKit access token for a monitor's call — only for a player who
-    // has actually joined that monitor (server-authoritative gate). The room name
-    // is shared by everyone at the same monitor in this zone.
-    this.onMessage('conferenceToken', async (client, msg: { col?: number; row?: number; password?: string }) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      const col = Math.floor(Number(msg?.col));
-      const row = Math.floor(Number(msg?.row));
-      const key = `${col},${row}`;
-      if (!this.conferences.get(key)?.has(id)) return; // not a member → no token
-      // Password-locked monitor: the actual access gate (no token → no media).
-      // Admins and the zone's admins bypass; everyone else must supply it.
-      const me = authOf(client);
-      if (this.zones.monitorHasPassword(this.zone.id, key) && !me.isAdmin && !this.zones.isZoneAdmin(this.zone.id, me.userId)) {
-        // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
-        const tkey = `monitor:${this.zone.id}:${key}:${me.userId}`;
-        if (isThrottled(tkey) || typeof msg?.password !== 'string' || !this.zones.checkMonitorPassword(this.zone.id, key, msg.password)) {
-          if (typeof msg?.password === 'string') noteFail(tkey);
-          client.send('m', { type: 'conferenceToken', col, row, error: 'locked' });
+    // Mint a LiveKit access token for a meeting room's call — only for a
+    // player who is actually a member (server-authoritative gate). Furniture-
+    // sourced rooms may be password-locked (the actual access gate — no token,
+    // no media; admins and the zone's admins bypass); tile-sourced rooms never
+    // are (membership there is automatic tile presence, not an explicit join —
+    // there's nothing to "unlock"). The room name is the source's own stable
+    // anchor: a furniture item's name-or-position (conferenceKey) or a
+    // tile-area's flood-fill anchor (OfficeState.areaAnchor) — either way it
+    // survives the item/area moving or the layout rebuilding, as long as the
+    // shape/name doesn't change.
+    this.onMessage(
+      'meetingRoomToken',
+      async (client, msg: { source?: string; col?: number; row?: number; password?: string }) => {
+        const id = this.players.get(client.sessionId);
+        if (id === undefined) return;
+        const col = Math.floor(Number(msg?.col));
+        const row = Math.floor(Number(msg?.row));
+        const source = msg?.source === 'tile' ? 'tile' : 'furniture';
+        const key = this.meetingRoomKey(source, col, row);
+        if (!this.meetingRooms.get(key)?.has(id)) return; // not a member → no token
+
+        if (source === 'furniture') {
+          // Password-locked monitor: the actual access gate (no token → no media).
+          // Admins and the zone's admins bypass; everyone else must supply it.
+          const me = authOf(client);
+          const posKey = `${col},${row}`; // zones.monitorHasPassword keys by plain "col,row"
+          if (
+            this.zones.monitorHasPassword(this.zone.id, posKey) &&
+            !me.isAdmin &&
+            !this.zones.isZoneAdmin(this.zone.id, me.userId)
+          ) {
+            // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
+            const tkey = `monitor:${this.zone.id}:${posKey}:${me.userId}`;
+            if (
+              isThrottled(tkey) ||
+              typeof msg?.password !== 'string' ||
+              !this.zones.checkMonitorPassword(this.zone.id, posKey, msg.password)
+            ) {
+              if (typeof msg?.password === 'string') noteFail(tkey);
+              client.send('m', { type: 'meetingRoomToken', source, col, row, error: 'locked' });
+              return;
+            }
+            clearFails(tkey);
+          }
+        }
+
+        const url = process.env.LIVEKIT_URL;
+        const apiKey = process.env.LIVEKIT_API_KEY;
+        const apiSecret = process.env.LIVEKIT_API_SECRET;
+        if (!url || !apiKey || !apiSecret) {
+          client.send('m', { type: 'meetingRoomToken', source, col, row, error: 'not-configured' });
           return;
         }
-        clearFails(tkey);
-      }
-      const url = process.env.LIVEKIT_URL;
-      const apiKey = process.env.LIVEKIT_API_KEY;
-      const apiSecret = process.env.LIVEKIT_API_SECRET;
-      if (!url || !apiKey || !apiSecret) {
-        client.send('m', { type: 'conferenceToken', col, row, error: 'not-configured' });
-        return;
-      }
-      // Stable room from the monitor's name when set (survives moving it), else
-      // its position. Sanitised to LiveKit's allowed room-name characters.
-      const monitor = this.os
-        .getLayout()
-        .furniture.find((f) => f.col === col && f.row === row && getCatalogEntry(f.type)?.conference);
-      const room = this.voiceRoom(`${this.zone.id}-${conferenceKey(monitor?.name, col, row)}`);
-      const token = await this.mintVoiceToken(id, room);
-      if (!token) return;
-      client.send('m', { type: 'conferenceToken', col, row, url, token, room });
-    });
-
-    // Mint a LiveKit access token for a meeting area's call — only for a player
-    // who is currently standing in that area (server-authoritative gate; no
-    // password concept here, membership is automatic tile presence, not an
-    // explicit join). The room name is keyed by the area's stable anchor tile
-    // (see OfficeState.areaAnchor) so it survives a layout rebuild as long as
-    // the area's shape doesn't change, mirroring a conference monitor's own
-    // name-or-position room key.
-    this.onMessage('meetingAreaToken', async (client, msg: { col?: number; row?: number }) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      const col = Math.floor(Number(msg?.col));
-      const row = Math.floor(Number(msg?.row));
-      const key = `${col},${row}`;
-      if (!this.meetingAreas.get(key)?.has(id)) return; // not a member → no token
-      const url = process.env.LIVEKIT_URL;
-      const apiKey = process.env.LIVEKIT_API_KEY;
-      const apiSecret = process.env.LIVEKIT_API_SECRET;
-      if (!url || !apiKey || !apiSecret) {
-        client.send('m', { type: 'meetingAreaToken', col, row, error: 'not-configured' });
-        return;
-      }
-      const room = this.voiceRoom(`${this.zone.id}-meet:${key}`);
-      const token = await this.mintVoiceToken(id, room);
-      if (!token) return;
-      client.send('m', { type: 'meetingAreaToken', col, row, url, token, room });
-    });
+        // Stable room name: a furniture item's own name (survives moving it) or
+        // position, else a tile-area's own anchor. Sanitised to LiveKit's
+        // allowed room-name characters (voiceRoom).
+        const roomName =
+          source === 'furniture'
+            ? this.voiceRoom(
+                `${this.zone.id}-${conferenceKey(
+                  this.os.getLayout().furniture.find((f) => f.col === col && f.row === row)?.name,
+                  col,
+                  row,
+                )}`,
+              )
+            : this.voiceRoom(`${this.zone.id}-meet:${col},${row}`);
+        const token = await this.mintVoiceToken(id, roomName);
+        if (!token) return;
+        client.send('m', {
+          type: 'meetingRoomToken',
+          source,
+          col,
+          row,
+          url,
+          token,
+          room: roomName,
+          video: this.videoForMeetingRoomKey(key),
+        });
+      },
+    );
 
     // Zone voice: one LiveKit room per zone. Any player with a visible avatar can
     // join; entering a different zone is a different room (the client reconnects
@@ -1479,8 +1521,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (id === undefined) return;
       // The client reloads into the target zone with the arrival flag set, so the
       // target room's onJoin lands the player at its arrival tile.
-      this.leaveAllConferences(id);
-      this.leaveAllMeetingAreas(id);
+      this.leaveAllMeetingRooms(id);
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
       client.send('m', { type: 'zoneTransition', zone: target.id });
@@ -1783,8 +1824,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     if (this.clients.length === 0) return;
     this.os.update(Math.min(dt, 0.1));
     this.handlePortals();
-    this.handleConferenceArrivals();
-    this.handleInteractionArrivals();
+    this.handleActionArrivals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
@@ -1804,28 +1844,30 @@ export class SimRoom extends Room<{ state: RoomState }> {
     }
   }
 
-  /** Players who reached a conference monitor this tick → add them to its call. */
-  private handleConferenceArrivals(): void {
-    for (const { id, key } of this.os.takePendingConferenceJoins()) {
-      let set = this.conferences.get(key);
-      if (!set) {
-        set = new Set();
-        this.conferences.set(key, set);
+  /** Players who reached a furniture action's stand tile this tick — add
+   *  'meetingRoom' arrivals to that room's membership; tell just that
+   *  client to open its own local UI for everything else (game picker /
+   *  room-manage dialog / iframe — this room has no state of its own to
+   *  update for those, unlike a meeting-room join). */
+  private handleActionArrivals(): void {
+    for (const { id, action, col, row } of this.os.takePendingActionArrivals()) {
+      if (action.kind === 'meetingRoom') {
+        const key = this.meetingRoomKey('furniture', col, row);
+        let set = this.meetingRooms.get(key);
+        if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
+        set.add(id);
+        this.broadcast('m', this.meetingRoomMembersMsg(key));
+        continue;
       }
-      set.add(id);
-      this.broadcast('m', this.conferenceMembersMsg(key));
-    }
-  }
-
-  /** Players who reached an arcade cabinet's or meeting-room kiosk's stand
-   *  tile this tick → tell just that client to open its own local UI (the
-   *  game picker / room-manage dialog — this room has no state of its own to
-   *  update, unlike a conference join). */
-  private handleInteractionArrivals(): void {
-    for (const { id, kind, col, row } of this.os.takePendingInteractions()) {
       const client = this.clientForPlayer(id);
       if (!client) continue;
-      client.send('m', { type: 'interactionReady', kind, col, row });
+      client.send('m', {
+        type: 'actionReady',
+        kind: action.kind,
+        col,
+        row,
+        ...(action.kind === 'iframe' ? { url: action.url } : {}),
+      });
     }
   }
 
@@ -1875,7 +1917,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.activity = this.activity.get(ch.id) ?? '';
       cs.inputTokens = ch.inputTokens;
       cs.outputTokens = ch.outputTokens;
-      if (ch.isPlayer) this.updateMeetingAreaMembership(ch.id, ch.tileCol, ch.tileRow);
+      if (ch.isPlayer) this.updateMeetingRoomMembership(ch.id, ch.tileCol, ch.tileRow);
     }
     for (const key of [...this.state.characters.keys()]) {
       if (!live.has(key)) this.state.characters.delete(key);
@@ -1917,6 +1959,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.col = p.col;
       fs.row = p.row;
       fs.name = p.name ?? '';
+      const action = effectiveAction(p, getCatalogEntry(p.type));
+      fs.action = action ? JSON.stringify(action) : '';
       this.state.furniture.push(fs);
     }
   }

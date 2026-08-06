@@ -118,7 +118,13 @@ export class LiveKitConference {
     this.screensEl = screensEl;
   }
 
-  async connect(url: string, token: string): Promise<void> {
+  /** `video: false` (default true) skips auto-enabling the camera on connect
+   *  — for a 'meetingRoom' action with video disabled (see shared Action):
+   *  audio+chat only by default, though the usual camera toggle still works
+   *  if someone chooses to turn it on. */
+  async connect(url: string, token: string, opts?: { video?: boolean }): Promise<void> {
+    const enableCamera = opts?.video !== false;
+    this.camOn = enableCamera;
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
     room
@@ -149,7 +155,10 @@ export class LiveKitConference {
       // In parallel, not sequential — camera negotiation (device warm-up,
       // resolution/codec) is much slower than mic, and awaiting it first
       // means audio would otherwise wait behind a delay it doesn't have.
-      await Promise.all([room.localParticipant.setCameraEnabled(true), room.localParticipant.setMicrophoneEnabled(true)]);
+      await Promise.all([
+        enableCamera ? room.localParticipant.setCameraEnabled(true) : Promise.resolve(),
+        room.localParticipant.setMicrophoneEnabled(true),
+      ]);
       this.ensureTile(room.localParticipant, true);
       for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
       this.notify();

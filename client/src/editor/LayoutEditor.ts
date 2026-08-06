@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import {
+  effectiveAction,
   getActiveCategories,
   getCatalogByCategory,
   getCatalogEntry,
@@ -19,6 +20,7 @@ import {
   Direction,
   TILE_SIZE,
   TileType,
+  type Action,
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
@@ -61,7 +63,7 @@ export interface EditorDeps {
   openAssetEditor?: (type: string) => void;
 }
 
-type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'meeting' | 'text' | 'eyedropper';
+type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
@@ -73,7 +75,34 @@ const VOID_OUTLINE = { color: 0xffffff, alpha: 0.08 };
 const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
 const BLOCKED_TILE = { color: 0xe0342a, stroke: 0.6, fill: 0.22 };
-const MEETING_AREA_TILE = { color: 0x2ac9c9, stroke: 0.6, fill: 0.18 };
+/** Grid-overlay colour per tile-action kind (see Action) — 'meetingRoom'
+ *  keeps the original teal so existing meeting areas look unchanged. */
+const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
+  meetingRoom: 0x2ac9c9,
+  linkManager: 0x9b6bd8,
+  iframe: 0xd89b3a,
+  appliance: 0x6bd89b,
+  arcade: 0xd83a6b,
+};
+const ACTION_TILE_STROKE = 0.6;
+const ACTION_TILE_FILL = 0.18;
+
+/** Menu of tile-action kinds the Action tool can paint, in palette order.
+ *  'iframe' needs a URL, prompted for when picked (not per tile). */
+const TILE_ACTION_CHOICES: Array<{ label: string; make: () => Action | Promise<Action | null> }> = [
+  { label: 'Meeting (video)', make: () => ({ kind: 'meetingRoom', video: true }) },
+  { label: 'Meeting (audio only)', make: () => ({ kind: 'meetingRoom', video: false }) },
+  { label: 'Link kiosk', make: () => ({ kind: 'linkManager' }) },
+  {
+    label: 'Open link (iframe)',
+    make: async () => {
+      const url = await promptDialog('Page to open (https:// only):', 'https://');
+      return url && url.startsWith('https://') ? { kind: 'iframe', url: url.trim() } : null;
+    },
+  },
+  { label: 'Arcade cabinet', make: () => ({ kind: 'arcade' }) },
+  { label: 'Appliance (coffee)', make: () => ({ kind: 'appliance', pose: 'coffee' }) },
+];
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;
@@ -101,6 +130,9 @@ export class LayoutEditor {
   private lastSelClick = { x: -999, y: -999 };
   private floorPattern = 1;
   private wallSet = 0;
+  /** The action the Action tool paints next (picked once via palAction, then
+   *  drag-paints many tiles with it — same pattern as floorPattern/wallSet). */
+  private currentTileAction: Action = { kind: 'meetingRoom', video: true };
   private color: ColorValue = { ...NEUTRAL };
   private ghost?: Phaser.GameObjects.Image;
   private selRect?: Phaser.GameObjects.Rectangle;
@@ -133,6 +165,7 @@ export class LayoutEditor {
   private bringFrontBtnInBar!: HTMLButtonElement;
   private sendBackBtnInBar!: HTMLButtonElement;
   private editAssetBtnInBar!: HTMLButtonElement;
+  private actionBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
@@ -142,6 +175,7 @@ export class LayoutEditor {
   private palFurn!: HTMLDivElement;
   private palFloor!: HTMLDivElement;
   private palWall!: HTMLDivElement;
+  private palAction!: HTMLDivElement;
   private palBuilt = false;
   /** Floor/wall palette previews, kept so they can re-render in the picked color. */
   private floorItems: Array<{ img: HTMLImageElement; pattern: number }> = [];
@@ -176,8 +210,8 @@ export class LayoutEditor {
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
     }
-    if (!this.layout.tilePrivateArea) {
-      this.layout.tilePrivateArea = new Array(this.layout.cols * this.layout.rows).fill(false);
+    if (!this.layout.tileActions) {
+      this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
     }
     if (!this.layout.texts) this.layout.texts = [];
     this.ensureUniqueUids();
@@ -259,7 +293,7 @@ export class LayoutEditor {
         '3': 'floor',
         '4': 'wall',
         '5': 'block',
-        '6': 'meeting',
+        '6': 'action',
         '7': 'text',
         '8': 'eyedropper',
       };
@@ -306,8 +340,8 @@ export class LayoutEditor {
       case 'block':
         this.paintBlocked(col, row, true);
         break;
-      case 'meeting':
-        this.paintMeetingArea(col, row, true);
+      case 'action':
+        this.paintTileAction(col, row, this.currentTileAction);
         break;
       case 'text':
         void this.placeOrEditText(col, row);
@@ -325,17 +359,17 @@ export class LayoutEditor {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
     } else if (this.tool === 'block') {
       this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
-    } else if (this.tool === 'meeting') {
-      this.paintMeetingArea(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
+    } else if (this.tool === 'action') {
+      this.paintTileAction(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), null);
     } else if (this.tool === 'text') {
       this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
   }
 
-  /** Floor/Wall/Block/Meeting are paint tools — the scene lets you drag-paint
+  /** Floor/Wall/Block/Action are paint tools — the scene lets you drag-paint
    *  with them (and pans with the middle mouse instead of the left button). */
   isPaintTool(): boolean {
-    return this.tool === 'floor' || this.tool === 'wall' || this.tool === 'block' || this.tool === 'meeting';
+    return this.tool === 'floor' || this.tool === 'wall' || this.tool === 'block' || this.tool === 'action';
   }
 
   /** Begin a drag-paint stroke: reset the per-tile dedup and snapshot for undo
@@ -572,16 +606,17 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, false);
   }
 
-  /** Paint (or clear) the "meeting area" flag on one tile (see
-   *  OfficeLayout.tilePrivateArea) — which area id this becomes is derived
-   *  by flood fill on the server, not decided here; painting just marks the
-   *  tile as part of *some* area. No sprite/tileMap change, just the
-   *  edit-mode overlay (drawGrid) and autosave. */
-  private paintMeetingArea(col: number, row: number, on: boolean): void {
+  /** Paint (or clear, with null) the tile action on one tile (see
+   *  OfficeLayout.tileActions) — for 'meetingRoom' actions, which area id a
+   *  group of them becomes is derived by flood fill on the server, not
+   *  decided here; painting just marks the tile with *an* action. No
+   *  sprite/tileMap change, just the edit-mode overlay (drawGrid) and
+   *  autosave. */
+  private paintTileAction(col: number, row: number, action: Action | null): void {
     if (!this.layout) return;
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    if (!this.layout.tilePrivateArea) this.layout.tilePrivateArea = new Array(this.layout.cols * this.layout.rows).fill(false);
-    this.layout.tilePrivateArea[row * this.layout.cols + col] = on;
+    if (!this.layout.tileActions) this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
+    this.layout.tileActions[row * this.layout.cols + col] = action;
     this.drawGrid();
     this.deps.onEdit(this.layout, false);
   }
@@ -910,20 +945,23 @@ export class LayoutEditor {
       }
     }
 
-    // Meeting areas (layout.tilePrivateArea) — a teal fill + border (no
-    // diagonal cross, unlike Block's red hatch, so the two read as distinct:
-    // "a zone" rather than "forbidden"). Which area id a tile ends up in is
-    // decided server-side by flood fill, not shown here — the overlay just
-    // marks "part of some meeting area."
-    if (this.layout.tilePrivateArea) {
+    // Tile actions (layout.tileActions) — a fill + border colour-coded by
+    // kind (no diagonal cross, unlike Block's red hatch, so the two read as
+    // distinct: "a zone/trigger" rather than "forbidden"). For 'meetingRoom'
+    // tiles specifically, which area id a group ends up in is decided
+    // server-side by flood fill, not shown here — the overlay just marks
+    // "this tile has an action."
+    if (this.layout.tileActions) {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
-          if (!this.layout.tilePrivateArea[r * cols + c]) continue;
+          const action = this.layout.tileActions[r * cols + c];
+          if (!action) continue;
           const x = c * s;
           const y = r * s;
-          g.fillStyle(MEETING_AREA_TILE.color, MEETING_AREA_TILE.fill);
+          const color = ACTION_TILE_COLOR[action.kind];
+          g.fillStyle(color, ACTION_TILE_FILL);
           g.fillRect(x, y, s, s);
-          g.lineStyle(lw, MEETING_AREA_TILE.color, MEETING_AREA_TILE.stroke);
+          g.lineStyle(lw, color, ACTION_TILE_STROKE);
           g.strokeRect(x, y, s, s);
         }
       }
@@ -1016,7 +1054,7 @@ export class LayoutEditor {
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
-    const tilePrivateArea = this.layout.tilePrivateArea ?? new Array(tiles.length).fill(false);
+    const tileActions = this.layout.tileActions ?? new Array(tiles.length).fill(null);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -1035,7 +1073,7 @@ export class LayoutEditor {
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
     const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
-    const newPrivateArea: boolean[] = new Array(newCols * newRows).fill(false);
+    const newActions: Array<Action | null> = new Array(newCols * newRows).fill(null);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
@@ -1043,7 +1081,7 @@ export class LayoutEditor {
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
-        newPrivateArea[newIdx] = tilePrivateArea[oldIdx];
+        newActions[newIdx] = tileActions[oldIdx];
       }
     }
     this.layout.cols = newCols;
@@ -1051,10 +1089,16 @@ export class LayoutEditor {
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
     this.layout.tileBlocked = newBlocked;
-    this.layout.tilePrivateArea = newPrivateArea;
+    this.layout.tileActions = newActions;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
+    }
+    // Text labels are absolute tile coordinates too — shift them along with
+    // furniture so a left/up expand doesn't leave them behind.
+    for (const t of this.layout.texts ?? []) {
+      t.col += shiftCol;
+      t.row += shiftRow;
     }
     return { col: shiftCol, row: shiftRow };
   }
@@ -1101,7 +1145,7 @@ export class LayoutEditor {
   private async nameSelected(): Promise<void> {
     if (!this.layout || !this.selectedUid) return;
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
-    if (!f || !getCatalogEntry(f.type)?.conference) return;
+    if (!f || effectiveAction(f, getCatalogEntry(f.type))?.kind !== 'meetingRoom') return;
     const input = await promptDialog('Monitor name (its conference room id):', f.name ?? '', { maxLength: MAX_NAME_LEN });
     if (input === null) return; // cancelled
     const name = cleanName(input);
@@ -1110,6 +1154,65 @@ export class LayoutEditor {
     else delete f.name;
     this.rebuildFurniture();
     this.deps.onEdit(this.layout, true);
+  }
+
+  /** Set (or clear) the selected item's action override (see Action) — the
+   *  furniture Action… button. Overrides the catalog's legacy conference/
+   *  arcade/meetingRoom/appliance flags for this one instance only. */
+  private async chooseFurnitureAction(): Promise<void> {
+    if (!this.layout || !this.selectedUid) return;
+    const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+    if (!f) return;
+    const rect = this.actionBtnInBar.getBoundingClientRect();
+    const result = await this.chooseActionMenu(rect.left, rect.bottom + 4);
+    if (result === undefined || !this.layout) return; // dismissed, or the editor closed meanwhile
+    this.beginGesture();
+    if (result) f.action = result;
+    else delete f.action;
+    this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** One-off floating menu (the same choices as the Action tool's palette,
+   *  plus "No action") anchored near (x,y) in viewport coordinates — used by
+   *  the furniture Action… button. Resolves to the chosen Action, `null`
+   *  for "No action" (clears the override), or `undefined` if dismissed
+   *  without choosing. */
+  private chooseActionMenu(x: number, y: number): Promise<Action | null | undefined> {
+    return new Promise((resolve) => {
+      const menu = document.createElement('div');
+      menu.className = 'pa-pal pa-pal-action pa-action-menu';
+      menu.style.cssText = `position:fixed;left:${x}px;top:${y}px;z-index:90;width:14rem;max-height:70vh;overflow:auto;display:grid;`;
+      const done = (v: Action | null | undefined): void => {
+        document.removeEventListener('mousedown', onOutside, true);
+        menu.remove();
+        resolve(v);
+      };
+      const onOutside = (e: MouseEvent): void => {
+        if (!menu.contains(e.target as Node)) done(undefined);
+      };
+      for (const choice of TILE_ACTION_CHOICES) {
+        const b = document.createElement('button');
+        b.className = 'pa-pal-item pa-action-choice';
+        b.textContent = choice.label;
+        b.onclick = () => {
+          void Promise.resolve(choice.make()).then((action) => {
+            if (action) done(action);
+          });
+        };
+        menu.appendChild(b);
+      }
+      const clear = document.createElement('button');
+      clear.className = 'pa-pal-item pa-action-choice';
+      clear.style.color = '#f2a1a1';
+      clear.textContent = '✕ No action (remove)';
+      clear.onclick = () => done(null);
+      menu.appendChild(clear);
+      document.body.appendChild(menu);
+      // Defer listening for outside clicks by one tick — otherwise the same
+      // click that opened this menu (still bubbling) closes it immediately.
+      setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
+    });
   }
 
   /** Flip which side of a wall-mounted item's wall a player approaches from
@@ -1206,7 +1309,8 @@ export class LayoutEditor {
     this.actionBar.style.top = `${Math.round(sy)}px`;
     this.actionBar.style.display = 'flex';
     this.rotateBtnInBar.style.display = isRotatable(f.type) ? 'inline-block' : 'none';
-    this.nameBtnInBar.style.display = e.conference ? 'inline-block' : 'none';
+    const action = effectiveAction(f, e);
+    this.nameBtnInBar.style.display = action?.kind === 'meetingRoom' ? 'inline-block' : 'none';
     // Facing only matters for wall-mounted interactive items (the ones that
     // compute an approach tile) — and only when the wall is genuinely
     // ambiguous (floor on both sides); showing it unconditionally for every
@@ -1214,7 +1318,7 @@ export class LayoutEditor {
     // wall/furniture edits elsewhere can turn an unambiguous wall ambiguous
     // later, so it's shown whenever the item COULD need it rather than
     // trying to recompute ambiguity here too.
-    const canFace = !!e.canPlaceOnWalls && !!(e.appliance || e.conference || e.arcade || e.meetingRoom);
+    const canFace = !!e.canPlaceOnWalls && !!action;
     this.flipFacingBtnInBar.style.display = canFace ? 'inline-block' : 'none';
     if (canFace) {
       // Show which side is CURRENT, not just a static flip icon — unset/UP
@@ -1230,6 +1334,7 @@ export class LayoutEditor {
     this.bringFrontBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
     this.sendBackBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
     this.editAssetBtnInBar.style.display = this.deps.openAssetEditor ? 'inline-block' : 'none';
+    this.actionBtnInBar.style.display = 'inline-block'; // any item can get an action override
   }
 
   // ── Color ────────────────────────────────────────────────────────
@@ -1319,6 +1424,7 @@ export class LayoutEditor {
     this.palFurn.style.display = t === 'furniture' ? 'grid' : 'none';
     this.palFloor.style.display = t === 'floor' ? 'grid' : 'none';
     if (this.palWall) this.palWall.style.display = t === 'wall' ? 'grid' : 'none';
+    if (this.palAction) this.palAction.style.display = t === 'action' ? 'grid' : 'none';
     if (this.rotateBtn) this.rotateBtn.style.display = t === 'furniture' ? 'block' : 'none';
     if (t !== 'select') {
       this.selectedUid = null;
@@ -1336,7 +1442,7 @@ export class LayoutEditor {
       floor: 'Floor — left-click paint, right-click erase',
       wall: 'Wall — left-click paint, right-click erase',
       block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
-      meeting: 'Meeting area — left-click marks a tile as part of a walk-in meeting area, right-click clears it',
+      action: 'Action — pick a kind on the left, then left-click paints it onto tiles, right-click clears it',
       text: 'Text — left-click to place/edit a label (empty clears it), right-click removes it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
@@ -1350,6 +1456,25 @@ export class LayoutEditor {
 
   private highlightFloorSwatch(): void {
     this.palFloor.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.pattern) === this.floorPattern));
+  }
+
+  private highlightActionChoice(): void {
+    const cur = this.currentTileAction;
+    const label =
+      cur.kind === 'meetingRoom'
+        ? cur.video
+          ? 'Meeting (video)'
+          : 'Meeting (audio only)'
+        : cur.kind === 'linkManager'
+          ? 'Link kiosk'
+          : cur.kind === 'iframe'
+            ? 'Open link (iframe)'
+            : cur.kind === 'arcade'
+              ? 'Arcade cabinet'
+              : 'Appliance (coffee)';
+    this.palAction.querySelectorAll<HTMLButtonElement>('.pa-action-choice').forEach((b) => {
+      b.classList.toggle('sel', b.textContent === label);
+    });
   }
 
   // ── DOM ──────────────────────────────────────────────────────────
@@ -1391,6 +1516,10 @@ export class LayoutEditor {
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       .pa-pal-item.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
       .pa-pal-item img{max-width:2.75rem;max-height:2.75rem;image-rendering:pixelated;}
+      .pa-pal-action{grid-template-columns:1fr;}
+      .pa-action-choice{height:auto;justify-content:flex-start;padding:0.5rem 0.7rem;
+        font:0.85rem 'FS Pixel Sans',monospace;color:#f1efec;text-align:left;}
+      .pa-action-choice.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
     `;
     document.head.appendChild(style);
 
@@ -1416,7 +1545,7 @@ export class LayoutEditor {
       ['floor', 'Floor'],
       ['wall', 'Wall'],
       ['block', 'Block'],
-      ['meeting', 'Meeting'],
+      ['action', 'Action'],
       ['text', 'Text'],
       ['eyedropper', 'Pick'],
     ] as const) {
@@ -1488,7 +1617,26 @@ export class LayoutEditor {
     this.palFloor.style.display = 'none';
     this.palWall.style.display = 'none';
 
-    root.append(bar, tools, this.hint, this.rotateBtn, color, this.palFurn, this.palFloor, this.palWall);
+    // Action-kind picker for the Action tool — plain labeled buttons (no
+    // sprite preview; actions have no visual). Pick once, then drag-paint
+    // many tiles with it, same as the floor/wall pattern pickers above.
+    this.palAction = Object.assign(document.createElement('div'), { className: 'pa-pal pa-pal-action' });
+    this.palAction.style.display = 'none';
+    for (const choice of TILE_ACTION_CHOICES) {
+      const b = document.createElement('button');
+      b.className = 'pa-pal-item pa-action-choice';
+      b.textContent = choice.label;
+      b.onclick = async () => {
+        const action = await choice.make();
+        if (!action) return; // cancelled (iframe URL prompt)
+        this.currentTileAction = action;
+        this.highlightActionChoice();
+      };
+      this.palAction.appendChild(b);
+    }
+    this.highlightActionChoice();
+
+    root.append(bar, tools, this.hint, this.rotateBtn, color, this.palFurn, this.palFloor, this.palWall, this.palAction);
     const host = document.getElementById('game') ?? document.body;
     host.appendChild(root);
     this.root = root;
@@ -1522,6 +1670,11 @@ export class LayoutEditor {
       const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
       if (f) this.deps.openAssetEditor?.(f.type);
     });
+    this.actionBtnInBar = mkAct(
+      '⚡',
+      'Set this item’s action (meeting room, link kiosk, arcade, iframe, appliance) — overrides its catalog default',
+      () => void this.chooseFurnitureAction(),
+    );
     const delBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelected());
     delBtn.style.background = '#7c2634';
     delBtn.style.color = '#f6cdd4';
@@ -1533,6 +1686,7 @@ export class LayoutEditor {
       this.bringFrontBtnInBar,
       this.sendBackBtnInBar,
       this.editAssetBtnInBar,
+      this.actionBtnInBar,
       delBtn,
     );
     host.appendChild(this.actionBar);

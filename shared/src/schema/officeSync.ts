@@ -71,6 +71,10 @@ export class FurnitureSync extends Schema {
   @type('uint8') row = 0;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
   @type('string') name = '';
+  /** JSON-serialized Action override, or '' — see PlacedFurniture.action.
+   *  Appended last (schema-evolution safe, see the afk field's comment on
+   *  CharacterSync). */
+  @type('string') action = '';
 }
 
 export class RoomState extends Schema {

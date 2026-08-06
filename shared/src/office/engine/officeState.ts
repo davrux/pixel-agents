@@ -22,7 +22,7 @@ import {
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
 import { isPlayerAvatarSkin } from '../../protocol.js';
-import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
+import { effectiveAction, getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
   getBlockedFloorTiles,
@@ -32,7 +32,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
-import { computePrivateAreaIds, privateAreaAnchor, privateAreaIdAt, type PrivateAreaMap } from '../layout/privateAreas.js';
+import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -41,6 +41,7 @@ import {
   getNpcPosePlaybackLength,
 } from '../sprites/spriteData.js';
 import type {
+  Action,
   Character,
   FurnitureInstance,
   InteractionPoint,
@@ -80,9 +81,9 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
-  /** Flood-filled meeting areas (see computePrivateAreaIds) — read via
-   *  areaIdAt()/areaAnchor(), never mutated in place. */
-  private privateAreas: PrivateAreaMap;
+  /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
+   *  via areaIdAt()/areaAnchor(), never mutated in place. */
+  private actionAreas: ActionAreaMap;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
   furniturePlacements: PlacedFurniture[] = [];
@@ -126,13 +127,10 @@ export class OfficeState {
    *  that just stepped on one (drained by the room → destination picker). */
   private portalTiles: Set<string> = new Set();
   private pendingPortals: number[] = [];
-  /** Players who reached a conference monitor (walk-to-join), drained by the room
-   *  → conference membership. {id, key=monitor anchor "col,row"}. */
-  private pendingConferenceJoins: Array<{ id: number; key: string }> = [];
-  /** Players who reached an arcade cabinet's or meeting-room kiosk's stand
-   *  tile (walk-then-use), drained by the room → tells that one client to
-   *  open its local UI (see walkPlayerToInteraction / 'interactionReady'). */
-  private pendingInteractions: Array<{ id: number; kind: 'arcade' | 'meetingRoom'; col: number; row: number }> = [];
+  /** Players who reached a furniture action's stand tile (walk-then-
+   *  trigger), drained by the room — see takePendingActionArrivals /
+   *  walkPlayerToAction / SimRoom.handleActionArrivals. */
+  private pendingActionArrivals: Array<{ id: number; action: Action; col: number; row: number }> = [];
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -142,7 +140,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
-    this.privateAreas = computePrivateAreaIds(this.layout);
+    this.actionAreas = computeActionAreas(this.layout);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -163,7 +161,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
-    this.privateAreas = computePrivateAreaIds(layout);
+    this.actionAreas = computeActionAreas(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -260,19 +258,20 @@ export class OfficeState {
     return this.layout;
   }
 
-  /** Which meeting area (if any) a tile belongs to — see computePrivateAreaIds.
-   *  The room re-derives each character's area from this every tick
-   *  (SimRoom's meeting-area membership tracking); nothing here is cached
-   *  per-character. */
+  /** Which meeting-room area (if any) a tile belongs to — see
+   *  computeActionAreas. The room re-derives each character's area from this
+   *  every tick (SimRoom's meeting-area membership tracking); nothing here
+   *  is cached per-character. */
   areaIdAt(col: number, row: number): number | null {
-    return privateAreaIdAt(this.privateAreas, this.layout.cols, this.layout.rows, col, row);
+    return actionAreaIdAt(this.actionAreas, this.layout.cols, this.layout.rows, col, row);
   }
 
-  /** An area id's stable anchor tile — the per-area room name is derived from
-   *  this (mirrors a conference monitor falling back to its own anchor tile
-   *  when it has no explicit name; see conferenceKey). */
+  /** An area id's stable anchor tile — the per-area room name (and its
+   *  video:boolean setting, via layout.tileActions at this tile) is derived
+   *  from this (mirrors a conference monitor falling back to its own anchor
+   *  tile when it has no explicit name; see conferenceKey). */
   areaAnchor(areaId: number): { col: number; row: number } | null {
-    return privateAreaAnchor(this.privateAreas, areaId);
+    return actionAreaAnchor(this.actionAreas, areaId);
   }
 
   /** Walkable tiles minus any meeting area — nobody should ever spawn/land
@@ -803,9 +802,8 @@ export class OfficeState {
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
-    ch.pendingConference = null; // …and a pending walk-to-monitor
+    ch.pendingAction = null; // …and a pending walk-to-action (monitor/kiosk/arcade/…)
     ch.pendingAppliance = null; // …and a pending walk-to-appliance
-    ch.pendingInteraction = null; // …and a pending walk-to-arcade/kiosk
     ch.afk = false; // moving clears the afk marker
     ch.path = path;
     ch.moveProgress = 0;
@@ -831,9 +829,8 @@ export class OfficeState {
     if (!seat) return false;
     ch.heldDir = null;
     ch.afk = false; // moving to a seat clears the afk marker
-    ch.pendingConference = null; // a click-to-sit cancels a pending walk-to-monitor
+    ch.pendingAction = null; // a click-to-sit cancels a pending walk-to-action
     ch.pendingAppliance = null; // …and a pending walk-to-appliance
-    ch.pendingInteraction = null; // …and a pending walk-to-arcade/kiosk
     if (ch.tileCol === col && ch.tileRow === row) {
       ch.path = [];
       ch.moveProgress = 0;
@@ -866,9 +863,8 @@ export class OfficeState {
     if (dir !== null && ch.state === CharacterState.SIT) ch.state = CharacterState.IDLE; // stand up to move
     if (dir !== null) {
       ch.pendingSitFacing = null; // cancel a walk-to-seat
-      ch.pendingConference = null; // …and a walk-to-monitor
+      ch.pendingAction = null; // …and a walk-to-action
       ch.pendingAppliance = null; // …and a walk-to-appliance
-      ch.pendingInteraction = null; // …and a walk-to-arcade/kiosk
       ch.afk = false; // moving clears the afk marker
     }
     ch.heldDir = dir;
@@ -887,9 +883,8 @@ export class OfficeState {
       ch.path = [];
       ch.heldDir = null;
       ch.pendingSitFacing = null;
-      ch.pendingConference = null;
+      ch.pendingAction = null;
       ch.pendingAppliance = null;
-      ch.pendingInteraction = null;
       ch.moveProgress = 0;
       snapToTile(ch);
       ch.state = CharacterState.SIT;
@@ -957,72 +952,62 @@ export class OfficeState {
     return out;
   }
 
-  /** Drain players who reached a conference monitor this tick (room adds them to
-   *  the call). */
-  takePendingConferenceJoins(): Array<{ id: number; key: string }> {
-    if (this.pendingConferenceJoins.length === 0) return [];
-    const out = this.pendingConferenceJoins;
-    this.pendingConferenceJoins = [];
+  /** Drain players who reached a furniture action's stand tile this tick —
+   *  the room adds 'meetingRoom' arrivals to that room's membership, and
+   *  tells the client to open its own local UI for everything else (see
+   *  SimRoom.handleActionArrivals). */
+  takePendingActionArrivals(): Array<{ id: number; action: Action; col: number; row: number }> {
+    if (this.pendingActionArrivals.length === 0) return [];
+    const out = this.pendingActionArrivals;
+    this.pendingActionArrivals = [];
     return out;
   }
 
-  /** Drain players who reached an arcade cabinet's or meeting-room kiosk's
-   *  stand tile this tick (room tells that client to open its own UI). */
-  takePendingInteractions(): Array<{ id: number; kind: 'arcade' | 'meetingRoom'; col: number; row: number }> {
-    if (this.pendingInteractions.length === 0) return [];
-    const out = this.pendingInteractions;
-    this.pendingInteractions = [];
-    return out;
-  }
-
-  /** Walk a player to one of the walkable tiles around a conference monitor
-   *  (anchor tile), facing it, then queue them to join on arrival. Joins in
-   *  place if already at any approach tile. Picks randomly among the reachable
-   *  approach tiles otherwise — so simultaneous joiners don't all converge on
-   *  the exact same spot. Returns false if there's no furniture there. */
-  walkPlayerToConference(id: number, anchorCol: number, anchorRow: number): boolean {
+  /** Walk a player to one of the walkable tiles around a furniture item's
+   *  action (conference monitor, link-manager kiosk, arcade cabinet, iframe
+   *  sprite, or a 'meetingRoom' override on plain furniture — see Action),
+   *  facing it, then queue the arrival notification. Triggers in place if
+   *  already at any approach tile; otherwise picks randomly among the
+   *  reachable ones, so simultaneous visitors don't all converge on one
+   *  fixed tile. Returns false if there's no (non-appliance) action at that
+   *  tile or nowhere reachable to stand — appliances go through
+   *  useAppliance instead (they use the pre-built station/occupancy system,
+   *  not computeApproachTiles). */
+  walkPlayerToAction(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     const item = this.layout.furniture.find((f) => f.col === anchorCol && f.row === anchorRow);
-    if (!item) return false;
-    const entry = getCatalogEntry(item.type);
+    const action = item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
+    if (!action || action.kind === 'appliance') return false;
+    const entry = getCatalogEntry(item!.type);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
-    const key = `${anchorCol},${anchorRow}`;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
     ch.pendingAppliance = null;
-    ch.pendingInteraction = null;
+    ch.pendingAction = null;
 
-    const approaches = this.computeApproachTiles(item.col, item.row, fw, fh, item.facing);
+    const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.facing);
 
-    // Strict proximity: you only join a monitor's call by actually standing at
+    // Strict proximity: you only trigger an action by actually standing at
     // one of its approach tiles (now, or on arrival after walking there). No
-    // join-in-place fallback — an unreachable / neighbour-less monitor can't be
-    // joined from afar.
+    // trigger-in-place fallback from afar.
     const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
     if (here) {
       ch.dir = here.facing;
-      ch.pendingConference = null;
-      this.pendingConferenceJoins.push({ id, key }); // already at the monitor → join now
+      this.pendingActionArrivals.push({ id, action, col: anchorCol, row: anchorRow }); // already there → fire now
       return true;
     }
-    if (approaches.length === 0) {
-      ch.pendingConference = null;
-      return false; // no walkable spot at the monitor → can't join
-    }
+    if (approaches.length === 0) return false; // no walkable spot at the item → can't reach it
     const reachable = approaches
       .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles) }))
       .filter((r) => r.path.length > 0);
-    if (reachable.length === 0) {
-      ch.pendingConference = null;
-      return false; // unreachable from here → can't join
-    }
+    if (reachable.length === 0) return false; // unreachable from here
     const pick = reachable[Math.floor(Math.random() * reachable.length)];
     ch.path = pick.path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
-    ch.pendingConference = { key, facing: pick.a.facing };
+    ch.pendingAction = { action, col: anchorCol, row: anchorRow, facing: pick.a.facing };
     return true;
   }
 
@@ -1053,8 +1038,7 @@ export class OfficeState {
     if (spots.length === 0) return false;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
-    ch.pendingConference = null;
-    ch.pendingInteraction = null;
+    ch.pendingAction = null;
 
     const here = spots.find(([, s]) => s.col === ch.tileCol && s.row === ch.tileRow);
     if (here) {
@@ -1077,55 +1061,6 @@ export class OfficeState {
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
     ch.pendingAppliance = { stationUid: pick.uid, facing: pick.s.facingDir };
-    return true;
-  }
-
-  /** Walk a player to one of the walkable tiles around an arcade cabinet's or
-   *  meeting-room kiosk's footprint (anchor tile), facing it, then tell the
-   *  room to open the caller's local UI on arrival (see takePendingInteractions
-   *  / SimRoom's 'interactionReady') — same shape as walkPlayerToConference,
-   *  just without a server-side effect of its own (the client owns the arcade
-   *  game picker / room-manage dialog). Triggers immediately if already at any
-   *  approach tile; otherwise picks randomly among the reachable ones, so
-   *  simultaneous visitors don't all converge on one fixed tile. Returns false
-   *  if there's no matching furniture there or nowhere reachable to stand. */
-  walkPlayerToInteraction(id: number, anchorCol: number, anchorRow: number, kind: 'arcade' | 'meetingRoom'): boolean {
-    const ch = this.characters.get(id);
-    if (!ch || !ch.isPlayer) return false;
-    const item = this.layout.furniture.find(
-      (f) => f.col === anchorCol && f.row === anchorRow && getCatalogEntry(f.type)?.[kind],
-    );
-    if (!item) return false;
-    const entry = getCatalogEntry(item.type)!;
-    ch.heldDir = null;
-    ch.pendingSitFacing = null;
-    ch.pendingConference = null;
-    ch.pendingAppliance = null;
-
-    const approaches = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing);
-    const here = approaches.find((a) => a.col === ch.tileCol && a.row === ch.tileRow);
-    if (here) {
-      ch.dir = here.facing;
-      ch.pendingInteraction = null;
-      this.pendingInteractions.push({ id, kind, col: anchorCol, row: anchorRow });
-      return true;
-    }
-    if (approaches.length === 0) {
-      ch.pendingInteraction = null;
-      return false;
-    }
-    const reachable = approaches
-      .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles) }))
-      .filter((r) => r.path.length > 0);
-    if (reachable.length === 0) {
-      ch.pendingInteraction = null;
-      return false;
-    }
-    const pick = reachable[Math.floor(Math.random() * reachable.length)];
-    ch.path = pick.path;
-    ch.moveProgress = 0;
-    ch.state = CharacterState.WALK;
-    ch.pendingInteraction = { kind, col: anchorCol, row: anchorRow, facing: pick.a.facing };
     return true;
   }
 
@@ -1157,12 +1092,15 @@ export class OfficeState {
       // Chain the next held step so continuous walking has no per-tile idle frame.
       this.tryStepHeldDir(ch);
       if (ch.path.length === 0) {
-        if (ch.pendingConference) {
-          // Reached a conference monitor → face it + queue the join (room adds us).
-          ch.dir = ch.pendingConference.facing;
+        if (ch.pendingAction) {
+          // Reached a furniture action's stand tile → face it + queue the
+          // arrival (room adds us to a 'meetingRoom's membership, or tells
+          // us to open our own local UI for anything else — see
+          // SimRoom.handleActionArrivals / 'actionReady').
+          ch.dir = ch.pendingAction.facing;
           ch.state = CharacterState.IDLE;
-          this.pendingConferenceJoins.push({ id: ch.id, key: ch.pendingConference.key });
-          ch.pendingConference = null;
+          this.pendingActionArrivals.push({ id: ch.id, action: ch.pendingAction.action, col: ch.pendingAction.col, row: ch.pendingAction.row });
+          ch.pendingAction = null;
         } else if (ch.pendingAppliance) {
           // Reached an appliance's stand tile → face it, claim it, hold the pose.
           ch.dir = ch.pendingAppliance.facing;
@@ -1172,19 +1110,6 @@ export class OfficeState {
           if (claimed) claimed.occupantId = ch.id;
           ch.stationTimer = 0; // held until the player moves away (no timeout)
           ch.pendingAppliance = null;
-        } else if (ch.pendingInteraction) {
-          // Reached an arcade cabinet's or meeting-room kiosk's stand tile →
-          // face it and tell the room, which opens the caller's own local UI
-          // (see SimRoom.handleInteractionArrivals / 'interactionReady').
-          ch.dir = ch.pendingInteraction.facing;
-          ch.state = CharacterState.IDLE;
-          this.pendingInteractions.push({
-            id: ch.id,
-            kind: ch.pendingInteraction.kind,
-            col: ch.pendingInteraction.col,
-            row: ch.pendingInteraction.row,
-          });
-          ch.pendingInteraction = null;
         } else if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
           // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
           ch.dir = ch.pendingSitFacing;
@@ -1195,6 +1120,14 @@ export class OfficeState {
           // Came to rest on a portal tile → queue it (room offers a destination
           // picker). Only on arrival/rest, so walking across doesn't spam it.
           if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+          // A tile action other than 'meetingRoom' (which is automatic
+          // membership-by-position, tracked separately every tick — see
+          // SimRoom's meeting-room membership update) fires once on arrival,
+          // same as a portal above.
+          const tileAction = this.layout.tileActions?.[ch.tileRow * this.layout.cols + ch.tileCol];
+          if (tileAction && tileAction.kind !== 'meetingRoom') {
+            this.pendingActionArrivals.push({ id: ch.id, action: tileAction, col: ch.tileCol, row: ch.tileRow });
+          }
         }
       }
     }

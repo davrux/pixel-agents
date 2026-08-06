@@ -1,11 +1,14 @@
 import type { OfficeLayout } from '../types.js';
 
 /** A meeting area's own room needs a name that survives a layout rebuild even
- *  though the numeric ids below don't (see PrivateAreaMap.ids) — the anchor
+ *  though the numeric ids below don't (see ActionAreaMap.ids) — the anchor
  *  tile (this area's raster-scan-first tile, i.e. lowest row then lowest col)
  *  fills that role, mirroring how a conference monitor's room name falls back
- *  to its own anchor tile when it has no explicit name (see conferenceKey). */
-export interface PrivateAreaMap {
+ *  to its own anchor tile when it has no explicit name (see conferenceKey).
+ *  The anchor's own tileActions entry also carries the area's effective
+ *  settings (e.g. video:boolean) — a deliberate simplification if adjacent
+ *  tiles were ever painted with different settings. */
+export interface ActionAreaMap {
   /** Flat `cols*rows` array parallel to `layout.tiles`; -1 = not in any area,
    *  else an index into `anchors`. Recomputed on every layout build/rebuild —
    *  never authored or persisted, so two areas painted separately can never
@@ -16,19 +19,23 @@ export interface PrivateAreaMap {
   anchors: Array<{ col: number; row: number }>;
 }
 
-/** Flood-fill every maximal 4-connected group of `layout.tilePrivateArea`
- *  tiles into its own area. Use {@link privateAreaIdAt} for a bounds-checked
- *  (col,row) → area-id lookup, and {@link privateAreaAnchor} to get an area's
- *  stable anchor tile back out. */
-export function computePrivateAreaIds(layout: OfficeLayout): PrivateAreaMap {
-  const { cols, rows, tilePrivateArea } = layout;
+/** Flood-fill every maximal 4-connected group of `layout.tileActions` tiles
+ *  whose action is `kind: 'meetingRoom'` into its own area — the ONLY action
+ *  kind that groups into areas; every other tile action kind is a per-tile
+ *  point-trigger (see OfficeState.walkPlayerToAction / SimRoom's tile-action
+ *  arrival check), not something that needs a shared id at all. Use
+ *  {@link actionAreaIdAt} for a bounds-checked (col,row) → area-id lookup,
+ *  and {@link actionAreaAnchor} to get an area's stable anchor tile back out. */
+export function computeActionAreas(layout: OfficeLayout): ActionAreaMap {
+  const { cols, rows, tileActions } = layout;
   const ids = new Int32Array(cols * rows).fill(-1);
   const anchors: Array<{ col: number; row: number }> = [];
-  if (!tilePrivateArea) return { ids, anchors };
+  if (!tileActions) return { ids, anchors };
+  const isMeetingTile = (i: number): boolean => tileActions[i]?.kind === 'meetingRoom';
 
   const stack: number[] = [];
   for (let start = 0; start < cols * rows; start++) {
-    if (!tilePrivateArea[start] || ids[start] !== -1) continue;
+    if (!isMeetingTile(start) || ids[start] !== -1) continue;
     // `start` is the first unvisited area tile in raster-scan order, i.e. the
     // raster-minimal (lowest row, then lowest col) tile of this component —
     // exactly the deterministic anchor this area keeps across rebuilds as
@@ -48,7 +55,7 @@ export function computePrivateAreaIds(layout: OfficeLayout): PrivateAreaMap {
         c < cols - 1 ? idx + 1 : -1,
       ];
       for (const n of neighbors) {
-        if (n >= 0 && tilePrivateArea[n] && ids[n] === -1) {
+        if (n >= 0 && isMeetingTile(n) && ids[n] === -1) {
           ids[n] = id;
           stack.push(n);
         }
@@ -59,14 +66,14 @@ export function computePrivateAreaIds(layout: OfficeLayout): PrivateAreaMap {
 }
 
 /** Bounds-checked (col,row) → area-id lookup. */
-export function privateAreaIdAt(map: PrivateAreaMap, cols: number, rows: number, col: number, row: number): number | null {
+export function actionAreaIdAt(map: ActionAreaMap, cols: number, rows: number, col: number, row: number): number | null {
   if (col < 0 || col >= cols || row < 0 || row >= rows) return null;
   const id = map.ids[row * cols + col];
   return id >= 0 ? id : null;
 }
 
-/** An area id's stable anchor tile (for a per-area room name), or null for an
- *  out-of-range id (e.g. a stale id from before a layout rebuild). */
-export function privateAreaAnchor(map: PrivateAreaMap, areaId: number): { col: number; row: number } | null {
+/** An area id's stable anchor tile (for a per-area room name/settings), or
+ *  null for an out-of-range id (e.g. a stale id from before a layout rebuild). */
+export function actionAreaAnchor(map: ActionAreaMap, areaId: number): { col: number; row: number } | null {
   return map.anchors[areaId] ?? null;
 }
