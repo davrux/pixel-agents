@@ -246,18 +246,41 @@ async function main(): Promise<void> {
   if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
   gameServer.define(WORLD_ROOM, SimRoom, { authRequired: true, version }).filterBy(['zone']);
 
+  // Fail safe: with no admin token there is no login and no gate — the whole HTTP
+  // surface would be public. Refuse to expose that beyond loopback (a forgotten
+  // PIXEL_ADMIN_TOKEN in production must not silently open the app to the network).
+  const isLoopback = (h: string): boolean => h === '127.0.0.1' || h === 'localhost' || h === '::1';
+  const bindHost = ADMIN_TOKEN || isLoopback(HOST) ? HOST : '127.0.0.1';
+  if (!ADMIN_TOKEN && bindHost !== HOST) {
+    console.warn(`[server] SECURITY: no PIXEL_ADMIN_TOKEN → no login/gate; binding to 127.0.0.1 instead of ${HOST} so the open app is not network-reachable. Set a token to serve publicly.`);
+  }
+
   // Colyseus 0.17 binds the /matchmake/* HTTP routes and publishes the global
-  // transport in this step, which 0.16 did when the transport was constructed
-  // with `{ server }`. We own the http server and call listen() ourselves (TLS
-  // + the shared /feed upgrade path), so serverless() is the entry point that
-  // prepares those routes without binding a port — skip it and every join fails
-  // with a 404 from express. It also registers the websocket upgrade listener,
-  // so it must run before attachFeedServer below.
+  // transport in whichever of listen()/serverless() runs bindRoutes(), which
+  // 0.16 did when the transport was constructed with `{ server }`. We own the
+  // http server (TLS + the shared /feed upgrade path), so gameServer.listen()
+  // — not serverless() — is the right entry point: serverless() is for the
+  // Vercel-style "export default server, no listen()" case and, to make req.body
+  // available synchronously there, unconditionally pre-reads and caches every
+  // request body raw *before* Express's own body-parsing middleware runs —
+  // which left every body-parser (express.urlencoded() for /login included)
+  // seeing an already-set req.body and skipping its own parse, so req.body was
+  // left as an unparsed raw string. gameServer.listen() binds routes the same
+  // way without that side effect, and — since the transport was constructed
+  // with our own `httpServer` — binds ITS port, so this fully replaces the
+  // plain httpServer.listen() call below rather than running alongside it.
+  // It also registers the websocket upgrade listener, so it must run before
+  // attachFeedServer below.
   //
   // Note the matchmaking routes land ahead of the middleware registered above,
   // so — as in 0.16 — they do NOT pass through registerAuth's gate and SimRoom's
   // onAuth remains the sole room-entry gate.
-  await gameServer.serverless();
+  await gameServer.listen(PORT, bindHost, undefined, () => {
+    const scheme = useTls ? 'https' : 'http';
+    console.log(`[server] pixel-agents ${version}`);
+    console.log(`[server] listening on ${scheme}://${bindHost}:${PORT} (viewer + Colyseus + /feed)`);
+    if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
+  });
 
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
@@ -268,22 +291,6 @@ async function main(): Promise<void> {
       ? '[server] arcade IPX: TURN relay configured (NAT-to-NAT play enabled)'
       : '[server] arcade IPX: no TURN configured — set ARCADE_TURN_URLS + ARCADE_TURN_SECRET for internet play behind NAT (STUN-only otherwise)',
   );
-
-  // Fail safe: with no admin token there is no login and no gate — the whole HTTP
-  // surface would be public. Refuse to expose that beyond loopback (a forgotten
-  // PIXEL_ADMIN_TOKEN in production must not silently open the app to the network).
-  const isLoopback = (h: string): boolean => h === '127.0.0.1' || h === 'localhost' || h === '::1';
-  const bindHost = ADMIN_TOKEN || isLoopback(HOST) ? HOST : '127.0.0.1';
-  if (!ADMIN_TOKEN && bindHost !== HOST) {
-    console.warn(`[server] SECURITY: no PIXEL_ADMIN_TOKEN → no login/gate; binding to 127.0.0.1 instead of ${HOST} so the open app is not network-reachable. Set a token to serve publicly.`);
-  }
-
-  httpServer.listen(PORT, bindHost, () => {
-    const scheme = useTls ? 'https' : 'http';
-    console.log(`[server] pixel-agents ${version}`);
-    console.log(`[server] listening on ${scheme}://${bindHost}:${PORT} (viewer + Colyseus + /feed)`);
-    if (useTls) console.log(`[server] TLS enabled (cert: ${certPath})`);
-  });
 
   if (MOCK > 0) startMockDriver(MOCK);
 }
