@@ -74,6 +74,13 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
+    // Manual stacking override ("bring to front" / "send to back" in the
+    // editor) — a large multiplier so any nonzero offset decisively wins over
+    // the position-based heuristics above (which only ever differ by single
+    // digits / fractions of a tile), while the default (unset = 0) leaves
+    // every existing layout's ordering completely unchanged.
+    if (item.zOffset) zY += item.zOffset * 100_000;
+
     // Colorize sprite if this furniture has a color override
     let sprite = entry.sprite;
     if (item.color) {

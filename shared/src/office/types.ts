@@ -254,6 +254,13 @@ export interface PlacedFurniture {
    *  engine's long-standing default. Editable via LayoutEditor's flip-facing
    *  control (shown for wall-mountable, interactive items). */
   facing?: Direction;
+  /** Manual stacking override for items sharing a tile (e.g. a table, a cup on
+   *  it, and a wall TV all overlapping) — a relative layer index among the
+   *  overlapping group, not an absolute depth. Positive = closer to front,
+   *  negative = further back. Set via LayoutEditor's "bring to front"/"send
+   *  to back" controls (shown only when the selection overlaps another
+   *  item); unset (0) leaves the normal position-based sort order untouched. */
+  zOffset?: number;
 }
 
 export interface OfficeLayout {

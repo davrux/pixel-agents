@@ -21,6 +21,7 @@ import {
   TileType,
   type FurnitureInstance,
   type OfficeLayout,
+  type PlacedFurniture,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
@@ -44,6 +45,11 @@ export interface EditorDeps {
   onEdit: (layout: OfficeLayout, immediate: boolean) => void;
   /** Notify the scene when edit mode starts/stops (e.g. to disable other menus). */
   onEditingChange: (editing: boolean) => void;
+  /** Jump to the Asset editor for a furniture type, scoped straight to that
+   *  item — WITHOUT leaving layout-edit mode (the undo stack, unsaved paint
+   *  strokes, etc. all survive). Optional: the action-bar button that uses
+   *  this is hidden when omitted. */
+  openAssetEditor?: (type: string) => void;
 }
 
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'eyedropper';
@@ -111,6 +117,9 @@ export class LayoutEditor {
   private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
   private flipFacingBtnInBar!: HTMLButtonElement;
+  private bringFrontBtnInBar!: HTMLButtonElement;
+  private sendBackBtnInBar!: HTMLButtonElement;
+  private editAssetBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
@@ -952,6 +961,42 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
+  /** Other placed furniture whose footprint overlaps `f`'s — the "stacked on
+   *  the same tile(s)" set that bring-to-front/send-to-back reorder against. */
+  private overlappingFurniture(f: PlacedFurniture): PlacedFurniture[] {
+    if (!this.layout) return [];
+    const e = getCatalogEntry(f.type);
+    if (!e) return [];
+    return this.layout.furniture.filter((other) => {
+      if (other.uid === f.uid) return false;
+      const oe = getCatalogEntry(other.type);
+      if (!oe) return false;
+      return (
+        f.col < other.col + oe.footprintW &&
+        f.col + e.footprintW > other.col &&
+        f.row < other.row + oe.footprintH &&
+        f.row + e.footprintH > other.row
+      );
+    });
+  }
+
+  /** Bring/send the selected item relative to whatever it overlaps —
+   *  PlacedFurniture.zOffset, a layer index among just that overlapping
+   *  group (see layoutToFurnitureInstances). No-op with nothing to reorder
+   *  against (the action-bar buttons are hidden in that case anyway). */
+  private restackSelected(toFront: boolean): void {
+    if (!this.layout || !this.selectedUid) return;
+    const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+    if (!f) return;
+    const overlapping = this.overlappingFurniture(f);
+    if (overlapping.length === 0) return;
+    const offsets = overlapping.map((o) => o.zOffset ?? 0);
+    this.beginGesture();
+    f.zOffset = toFront ? Math.max(0, ...offsets) + 1 : Math.min(0, ...offsets) - 1;
+    this.rebuildFurniture();
+    this.deps.onEdit(this.layout, true);
+  }
+
   private deleteSelected(): void {
     if (!this.layout || !this.selectedUid) return;
     const i = this.layout.furniture.findIndex((x) => x.uid === this.selectedUid);
@@ -1006,6 +1051,20 @@ export class LayoutEditor {
     // trying to recompute ambiguity here too.
     const canFace = !!e.canPlaceOnWalls && !!(e.appliance || e.conference || e.arcade || e.meetingRoom);
     this.flipFacingBtnInBar.style.display = canFace ? 'inline-block' : 'none';
+    if (canFace) {
+      // Show which side is CURRENT, not just a static flip icon — unset/UP
+      // approaches from the far/south side (glyph points south); DOWN flips
+      // to the art/north side (glyph points north). See computeApproachTiles.
+      const southSide = f.facing !== Direction.DOWN;
+      this.flipFacingBtnInBar.textContent = southSide ? '⬇' : '⬆';
+      this.flipFacingBtnInBar.title = southSide
+        ? 'Approaching from the south — click to flip to the north side'
+        : 'Approaching from the north — click to flip to the south side';
+    }
+    const overlapping = this.overlappingFurniture(f);
+    this.bringFrontBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
+    this.sendBackBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
+    this.editAssetBtnInBar.style.display = this.deps.openAssetEditor ? 'inline-block' : 'none';
   }
 
   // ── Color ────────────────────────────────────────────────────────
@@ -1281,11 +1340,25 @@ export class LayoutEditor {
       "Flip which side to approach from (only matters on a wall with floor on both sides)",
       () => this.flipFacingSelected(),
     );
+    this.bringFrontBtnInBar = mkAct('🔼', 'Bring to front (of what it overlaps)', () => this.restackSelected(true));
+    this.sendBackBtnInBar = mkAct('🔽', 'Send to back (of what it overlaps)', () => this.restackSelected(false));
+    this.editAssetBtnInBar = mkAct('🎨', 'Edit this asset (stays in layout-edit mode)', () => {
+      const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
+      if (f) this.deps.openAssetEditor?.(f.type);
+    });
     const delBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelected());
     delBtn.style.background = '#7c2634';
     delBtn.style.color = '#f6cdd4';
     delBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
-    this.actionBar.append(this.rotateBtnInBar, this.nameBtnInBar, this.flipFacingBtnInBar, delBtn);
+    this.actionBar.append(
+      this.rotateBtnInBar,
+      this.nameBtnInBar,
+      this.flipFacingBtnInBar,
+      this.bringFrontBtnInBar,
+      this.sendBackBtnInBar,
+      this.editAssetBtnInBar,
+      delBtn,
+    );
     host.appendChild(this.actionBar);
 
     this.selectTool('select');

@@ -331,6 +331,19 @@ export class OfficeScene extends Phaser.Scene {
       rebuildStatic: () => this.view.buildStatic(),
       onEdit: (layout, immediate) => this.autosaveLayout(layout, immediate),
       onEditingChange: (editing) => this.setEditMode(editing),
+      // Opens the Asset editor without going through setMenu (which would
+      // force-close layout-edit mode — see setEditMode/setMenu) — the two
+      // editors don't share any state, so they can coexist. Still runs the
+      // same unsaved-edit guard setMenu's flow would have. The onBack
+      // override makes Back/Reset just close the panel instead of the
+      // constructor's default (setMenu('assets')) — this open didn't come
+      // from the Assets panel, so returning to it would pop open a panel the
+      // user never had open, on top of the layout editor.
+      openAssetEditor: (type) => {
+        void this.furnEditor.confirmLeave().then((ok) => {
+          if (ok) this.furnEditor.edit(type, () => this.furnEditor.forceClose());
+        });
+      },
     });
     // A name/character chosen in Settings (remembered per browser).
     try {

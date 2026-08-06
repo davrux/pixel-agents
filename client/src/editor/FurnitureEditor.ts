@@ -122,6 +122,11 @@ export class FurnitureEditor {
   /** Catalog ids of frames removed since load — deleted (override-reset) on save. */
   private removedIds = new Set<string>();
   private work: FurnWork = this.blank();
+  /** Per-open override for opts.onBack — set by edit()'s second argument when
+   *  opened from somewhere other than the Assets panel (e.g. LayoutEditor's
+   *  "edit this asset" button), so Back/Reset there don't reopen a panel the
+   *  caller never had open in the first place. Cleared on every open. */
+  private backOverride: (() => void) | undefined;
 
   constructor(private readonly opts: FurnitureEditorOpts) {
     this.build();
@@ -140,12 +145,18 @@ export class FurnitureEditor {
   }
   show(): void {
     this.open = true;
+    this.backOverride = undefined;
     this.panel.style.display = 'block';
     this.showGallery();
   }
-  /** Open straight into editing one catalog item (used by the Assets browser). */
-  edit(id: string): void {
+  /** Open straight into editing one catalog item (used by the Assets browser,
+   *  and any other caller that wants a specific item pre-selected). `onBack`
+   *  overrides opts.onBack for just this open — pass one when the caller
+   *  didn't itself come from wherever opts.onBack normally returns to (e.g.
+   *  LayoutEditor opening this mid-layout-edit, not from the Assets panel). */
+  edit(id: string, onBack?: () => void): void {
     this.open = true;
+    this.backOverride = onBack;
     this.panel.style.display = 'block';
     this.loadItem(id);
     this.showEdit();
@@ -153,6 +164,7 @@ export class FurnitureEditor {
   /** Open straight into a new blank item (Assets "＋ New furniture"). */
   newItem(): void {
     this.open = true;
+    this.backOverride = undefined;
     this.panel.style.display = 'block';
     this.loadNew();
     this.showEdit();
@@ -342,8 +354,9 @@ export class FurnitureEditor {
     };
     this.field('#pa-f-galclose').onclick = () => this.close();
     this.field('#pa-f-back').onclick = async () => {
-      if (this.opts.onBack) {
-        this.opts.onBack();
+      const back = this.backOverride ?? this.opts.onBack;
+      if (back) {
+        back();
         return;
       }
       if (await this.confirmDiscard()) this.showGallery();
@@ -704,7 +717,8 @@ export class FurnitureEditor {
     this.opts.reset(this.work.id);
     this.dirty = false;
     this.showStatus(`Reset ${this.work.id} ✓`);
-    window.setTimeout(() => (this.opts.onBack ? this.opts.onBack() : this.showGallery()), 250);
+    const back = this.backOverride ?? this.opts.onBack;
+    window.setTimeout(() => (back ? back() : this.showGallery()), 250);
   }
 
   // ── Rendering ────────────────────────────────────────────────────
