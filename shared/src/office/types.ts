@@ -239,19 +239,14 @@ export interface FurnitureCatalogEntry {
   sprite: SpriteData;
   isDesk: boolean;
   category?: string;
-  /** Interaction station this furniture provides (coffee, …), or undefined. */
-  appliance?: ApplianceKind;
   /** Whether this furniture is a zone portal (door / beam pad): walking to it
    *  offers a destination picker. */
   portal?: boolean;
-  /** Whether this furniture is a conference monitor: clicking it joins a
-   *  per-monitor video call (WebRTC). */
-  conference?: boolean;
-  /** Whether this furniture is an arcade cabinet: clicking it launches a DOS game. */
-  arcade?: boolean;
-  /** Whether this furniture creates ad-hoc meeting rooms: clicking it opens a
-   *  dialog to mint a random-link, password-optional, expiring video/audio room. */
-  meetingRoom?: boolean;
+  /** This type's default Action (see effectiveAction) — every placed instance
+   *  gets this unless it carries its own PlacedFurniture.action override. Set
+   *  via FurnitureEditor's Action picker (the same TILE_ACTION_CHOICES list
+   *  LayoutEditor uses for per-instance overrides). */
+  action?: Action;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
   /** Whether this item can be placed on top of desk/table surfaces */
@@ -300,7 +295,7 @@ export interface PlacedFurniture {
    *  item); unset (0) leaves the normal position-based sort order untouched. */
   zOffset?: number;
   /** Per-instance action override (see Action) — takes priority over the
-   *  catalog's legacy conference/arcade/meetingRoom/appliance flags (see
+   *  catalog entry's own default action (FurnitureCatalogEntry.action; see
    *  effectiveAction in furnitureCatalog.ts). Lets any placed item carry any
    *  action, e.g. turning a specific arcade cabinet into a link-manager
    *  kiosk instead, without a new catalog type. */

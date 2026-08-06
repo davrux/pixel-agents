@@ -18,8 +18,14 @@ export interface LoadedAssetData {
     canPlaceOnWalls?: boolean;
     canPlaceOnFloor?: boolean;
     mirrorSide?: boolean;
-    appliance?: string; // interaction station kind ('coffee', …)
     portal?: boolean; // zone portal (door / beam pad)
+    /** This type's default Action (see FurnitureCatalogEntry.action). */
+    action?: Action;
+    /** @deprecated legacy per-kind flags, still read as a fallback when
+     *  `action` is absent (see legacyCatalogAction) — old manifests, DB
+     *  overrides, and the hand-generated conference/arcade/meetingRoom
+     *  assets still set these instead of `action` directly. */
+    appliance?: string; // interaction station kind ('coffee', …)
     conference?: boolean; // conference monitor (click → join a video call)
     arcade?: boolean; // arcade cabinet (click → launch a DOS game)
     meetingRoom?: boolean; // meeting-room kiosk (click → mint an ad-hoc video room link)
@@ -76,6 +82,20 @@ let internalCatalog: CatalogEntryWithCategory[] | null = null;
 let dynamicCatalog: CatalogEntryWithCategory[] | null = null;
 let dynamicCategories: FurnitureCategory[] | null = null;
 
+/** Fallback Action for a catalog asset that hasn't been migrated to the
+ *  single `action` field yet — the catalog-level counterpart of
+ *  effectiveAction's old per-flag fallback (one default per TYPE here,
+ *  rather than per placed instance). An explicit appliance value (incl. ''
+ *  to disable) wins; when never set, the bundled COFFEE_MACHINE legacy-
+ *  defaults to coffee. */
+function legacyCatalogAction(asset: LoadedAssetData['catalog'][number]): Action | null {
+  if (asset.conference) return { kind: 'meetingRoom', video: true };
+  if (asset.meetingRoom) return { kind: 'linkManager' };
+  if (asset.arcade) return { kind: 'arcade' };
+  const pose = typeof asset.appliance === 'string' ? asset.appliance : asset.id === 'COFFEE_MACHINE' ? 'coffee' : '';
+  return pose ? { kind: 'appliance', pose: pose as ApplianceKind } : null;
+}
+
 /**
  * Build catalog from loaded assets. Returns true if successful.
  * Once built, all getCatalog* functions use the dynamic catalog.
@@ -106,16 +126,16 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
         ...(asset.canPlaceOnFloor ? { canPlaceOnFloor: true } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
-        // Appliance station kind. An explicit value (incl. '' to disable) wins;
-        // when never set, the bundled COFFEE_MACHINE legacy-defaults to coffee.
-        ...(() => {
-          const a = typeof asset.appliance === 'string' ? asset.appliance : asset.id === 'COFFEE_MACHINE' ? 'coffee' : '';
-          return a ? { appliance: a as ApplianceKind } : {};
-        })(),
         ...(asset.portal ? { portal: true } : {}),
-        ...(asset.conference ? { conference: true } : {}),
-        ...(asset.arcade ? { arcade: true } : {}),
-        ...(asset.meetingRoom ? { meetingRoom: true } : {}),
+        // A direct `action` wins; else fall back to the legacy per-kind flags
+        // (old manifests/DB overrides, and the hand-generated conference/
+        // arcade/meetingRoom assets, still only set those) — see
+        // legacyCatalogAction. Same one-field-supersedes-many-flags shape as
+        // effectiveAction's item.action vs. entry.action, one level up.
+        ...(() => {
+          const action = asset.action ?? legacyCatalogAction(asset);
+          return action ? { action } : {};
+        })(),
       };
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);
@@ -349,17 +369,12 @@ export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryW
 }
 
 /** A placed item's effective action (see Action): its own override
- *  (`item.action`) if set, else whatever the catalog's legacy flags
- *  (conference/arcade/meetingRoom/appliance) imply — so every item placed
- *  before the Action system existed keeps working with zero data changes. */
+ *  (`item.action`) if set, else the catalog type's own default
+ *  (`entry.action`, itself already resolved from any legacy per-kind flags
+ *  — see legacyCatalogAction) — so every item placed before the Action
+ *  system existed keeps working with zero data changes. */
 export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): Action | null {
-  if (item.action) return item.action;
-  if (!entry) return null;
-  if (entry.conference) return { kind: 'meetingRoom', video: true };
-  if (entry.meetingRoom) return { kind: 'linkManager' };
-  if (entry.arcade) return { kind: 'arcade' };
-  if (entry.appliance) return { kind: 'appliance', pose: entry.appliance };
-  return null;
+  return item.action ?? entry?.action ?? null;
 }
 
 /* Currently unused since the editor palette is organized by category. */

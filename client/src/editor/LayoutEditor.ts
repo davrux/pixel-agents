@@ -33,6 +33,7 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog } from '../ui/dialog.js';
+import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
 import {
   cleanName,
   MAX_NAME_LEN,
@@ -75,70 +76,8 @@ const VOID_OUTLINE = { color: 0xffffff, alpha: 0.08 };
 const GHOST_RING = { color: 0xffffff, alpha: 0.06 };
 const GHOST_HOVER = { color: 0x3c82dc, stroke: 0.5, fill: 0.25 };
 const BLOCKED_TILE = { color: 0xe0342a, stroke: 0.6, fill: 0.22 };
-/** Grid-overlay colour per tile-action kind (see Action) — 'meetingRoom'
- *  keeps the original teal (video on) so existing meeting areas look mostly
- *  unchanged; audio-only gets its own blue so the two read as visibly
- *  distinct at a glance, not just "the same teal, trust me". */
-const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
-  meetingRoom: 0x2ac9c9,
-  linkManager: 0x9b6bd8,
-  iframe: 0xd89b3a,
-  appliance: 0x6bd89b,
-  arcade: 0xd83a6b,
-};
-const MEETING_ROOM_NO_VIDEO_COLOR = 0x3a7fd8;
-/** Colour for one specific action, distinguishing meetingRoom's video/no-video
- *  split (both otherwise share 'meetingRoom' in ACTION_TILE_COLOR). */
-function actionTileColor(action: Action): number {
-  if (action.kind === 'meetingRoom' && !action.video) return MEETING_ROOM_NO_VIDEO_COLOR;
-  return ACTION_TILE_COLOR[action.kind];
-}
 const ACTION_TILE_STROKE = 0.95;
 const ACTION_TILE_FILL = 0.42;
-
-/** Menu of tile-action kinds the Action tool can paint, in palette order.
- *  'iframe' needs a URL, prompted for when picked (not per tile). `swatch` is
- *  the exact colour that kind paints onto the grid (see actionTileColor) —
- *  shown next to the label in both the palette and the furniture popup menu
- *  so a choice's colour is known before picking it, not just after. */
-const TILE_ACTION_CHOICES: Array<{ label: string; swatch: number; make: () => Action | Promise<Action | null> }> = [
-  { label: 'Meeting (video)', swatch: actionTileColor({ kind: 'meetingRoom', video: true }), make: () => ({ kind: 'meetingRoom', video: true }) },
-  { label: 'Meeting (audio only)', swatch: actionTileColor({ kind: 'meetingRoom', video: false }), make: () => ({ kind: 'meetingRoom', video: false }) },
-  { label: 'AdHoc Meeting Kiosk', swatch: actionTileColor({ kind: 'linkManager' }), make: () => ({ kind: 'linkManager' }) },
-  {
-    label: 'Open link (iframe)',
-    swatch: actionTileColor({ kind: 'iframe', url: '' }),
-    make: async () => {
-      const url = await promptDialog('Page to open (https:// only):', 'https://');
-      return url && url.startsWith('https://') ? { kind: 'iframe', url: url.trim() } : null;
-    },
-  },
-  { label: 'Arcade cabinet', swatch: actionTileColor({ kind: 'arcade' }), make: () => ({ kind: 'arcade' }) },
-  { label: 'Appliance (coffee)', swatch: actionTileColor({ kind: 'appliance', pose: 'coffee' }), make: () => ({ kind: 'appliance', pose: 'coffee' }) },
-];
-
-/** '#rrggbb' for a swatch colour — same numbers drawGrid paints with. */
-function swatchHex(n: number): string {
-  return `#${n.toString(16).padStart(6, '0')}`;
-}
-
-/** The TILE_ACTION_CHOICES label matching a given Action — used to highlight
- *  "this one is currently active" in both the persistent tile-tool palette
- *  and the furniture popup menu, so picking isn't blind trial and error. */
-function actionChoiceLabel(a: Action): string {
-  switch (a.kind) {
-    case 'meetingRoom':
-      return a.video ? 'Meeting (video)' : 'Meeting (audio only)';
-    case 'linkManager':
-      return 'AdHoc Meeting Kiosk';
-    case 'iframe':
-      return 'Open link (iframe)';
-    case 'arcade':
-      return 'Arcade cabinet';
-    case 'appliance':
-      return 'Appliance (coffee)';
-  }
-}
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;

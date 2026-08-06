@@ -6,9 +6,10 @@ import {
   getCatalogEntry,
   getOnStateType,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import type { SpriteData } from '@pixel/shared/office/types.js';
+import type { Action, SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
 import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
+import { actionChoiceLabel, TILE_ACTION_CHOICES } from './actionChoices.js';
 
 /** A raw catalog item (the buildDynamicCatalog INPUT shape, keyed by `id`). It
  *  carries group fields (groupId/orientation/state/…) we must preserve on edit. */
@@ -76,14 +77,9 @@ interface FurnWork {
    *  ALSO go on ordinary floor tiles, instead of requiring a wall. */
   canPlaceOnFloor: boolean;
   backgroundTiles: number;
-  /** Interaction station this furniture provides ('' = none, 'coffee', …). */
-  appliance: string;
-  /** Click → join a per-instance video call. */
-  conference: boolean;
-  /** Click → launch a DOS game. */
-  arcade: boolean;
-  /** Click → mint an ad-hoc video-room link. */
-  meetingRoom: boolean;
+  /** This type's default Action (see FurnitureCatalogEntry.action) — the same
+   *  TILE_ACTION_CHOICES list LayoutEditor uses for a per-instance override. */
+  action?: Action;
   /** Animation frames (length 1 for a static item). */
   frames: FurnFrame[];
   /** Selected frame index. */
@@ -219,10 +215,7 @@ export class FurnitureEditor {
       canPlaceOnWalls: false,
       canPlaceOnFloor: false,
       backgroundTiles: 0,
-      appliance: '',
-      conference: false,
-      arcade: false,
-      meetingRoom: false,
+      action: undefined,
       frames: [{ id: '', sprite }],
       frameIdx: 0,
       animGroup: null,
@@ -278,6 +271,12 @@ export class FurnitureEditor {
     btn.onclick = () => (this.opts.requestToggle ? this.opts.requestToggle() : this.toggle());
 
     const catOpts = FURNITURE_CATEGORIES.map((c) => `<option value="${c.id}">${c.label}</option>`).join('');
+    // Same choices (and order) as LayoutEditor's Action tool/popup — this is
+    // this TYPE's default, not a per-instance override, so 'iframe' is just
+    // as valid here (every instance gets that default URL unless overridden).
+    const actionOpts =
+      '<option value="">None</option>' +
+      TILE_ACTION_CHOICES.map((c, i) => `<option value="${i}">${c.label}</option>`).join('');
     const panel = document.createElement('div');
     panel.id = 'pa-furn';
     panel.className = 'pa-ui';
@@ -305,13 +304,7 @@ export class FurnitureEditor {
           <input id="pa-f-floor" type="checkbox"> Also on floor</label>
       </div>
       <div class="row"><label class="f" for="pa-f-appliance">Action</label>
-        <select id="pa-f-appliance" style="flex:1;">
-          <option value="">None</option>
-          <option value="coffee">Coffee (NPCs visit)</option>
-          <option value="conference">Conference monitor (click → join video call)</option>
-          <option value="arcade">Arcade cabinet (click → launch a game)</option>
-          <option value="meetingRoom">Meeting room kiosk (click → mint a video link)</option>
-        </select></div>
+        <select id="pa-f-appliance" style="flex:1;">${actionOpts}</select></div>
       <div class="row">
         <input id="pa-f-color" type="color" value="${this.color}">
         <button id="pa-f-paint" class="on">✏ Paint</button>
@@ -401,14 +394,20 @@ export class FurnitureEditor {
       this.work.canPlaceOnFloor = (e.target as HTMLInputElement).checked;
       this.dirty = true;
     };
-    this.field('#pa-f-appliance').onchange = (e) => {
-      // One "Action" picker backs four independent, mutually-exclusive catalog
-      // fields — clear the other three whichever one gets picked.
-      const v = (e.target as HTMLSelectElement).value;
-      this.work.appliance = v === 'coffee' ? 'coffee' : '';
-      this.work.conference = v === 'conference';
-      this.work.arcade = v === 'arcade';
-      this.work.meetingRoom = v === 'meetingRoom';
+    this.field<HTMLSelectElement>('#pa-f-appliance').onchange = async (e) => {
+      const sel = e.target as HTMLSelectElement;
+      if (sel.value === '') {
+        this.work.action = undefined;
+        this.dirty = true;
+        return;
+      }
+      const choice = TILE_ACTION_CHOICES[Number(sel.value)];
+      const action = await choice.make(); // 'iframe' prompts for a URL here
+      if (!action) {
+        sel.value = this.actionSelectValue(); // cancelled — revert the dropdown
+        return;
+      }
+      this.work.action = action;
       this.dirty = true;
     };
     const colorEl = this.field('#pa-f-color');
@@ -557,11 +556,8 @@ export class FurnitureEditor {
       canPlaceOnWalls: !!entry?.canPlaceOnWalls,
       canPlaceOnFloor: !!entry?.canPlaceOnFloor,
       backgroundTiles: entry?.backgroundTiles ?? 0,
-      // Resolved entry includes the bundled coffee-machine legacy default.
-      appliance: entry?.appliance ?? '',
-      conference: !!entry?.conference,
-      arcade: !!entry?.arcade,
-      meetingRoom: !!entry?.meetingRoom,
+      // Resolved entry already includes the bundled coffee-machine legacy default.
+      action: entry?.action,
       frames,
       frameIdx: 0,
       animGroup,
@@ -632,14 +628,18 @@ export class FurnitureEditor {
     (this.field('#pa-f-surf')).checked = this.work.canPlaceOnSurfaces;
     (this.field('#pa-f-wall')).checked = this.work.canPlaceOnWalls;
     (this.field('#pa-f-floor')).checked = this.work.canPlaceOnFloor;
-    const action = this.work.conference
-      ? 'conference'
-      : this.work.arcade
-        ? 'arcade'
-        : this.work.meetingRoom
-          ? 'meetingRoom'
-          : this.work.appliance;
-    this.field<HTMLSelectElement>('#pa-f-appliance').value = action;
+    this.field<HTMLSelectElement>('#pa-f-appliance').value = this.actionSelectValue();
+  }
+
+  /** The Action <select>'s value for the current work.action — its index into
+   *  TILE_ACTION_CHOICES (matched by label, since two Actions of the same
+   *  kind can differ only in a field the select doesn't itself encode, e.g.
+   *  an iframe's url), or '' for "None". */
+  private actionSelectValue(): string {
+    if (!this.work.action) return '';
+    const label = actionChoiceLabel(this.work.action);
+    const idx = TILE_ACTION_CHOICES.findIndex((c) => c.label === label);
+    return idx >= 0 ? String(idx) : '';
   }
 
   private onFootprintChange(): void {
@@ -690,10 +690,13 @@ export class FurnitureEditor {
         canPlaceOnWalls: w.canPlaceOnWalls,
         canPlaceOnFloor: w.canPlaceOnFloor,
         backgroundTiles: w.backgroundTiles,
-        appliance: w.appliance, // '' clears any station; 'coffee' = NPCs visit
-        conference: w.conference,
-        arcade: w.arcade,
-        meetingRoom: w.meetingRoom,
+        action: w.action, // undefined clears it — same for the legacy flags below,
+        // in case `base` (spread above) still carries them from before this
+        // type was migrated to the single `action` field.
+        appliance: undefined,
+        conference: undefined,
+        arcade: undefined,
+        meetingRoom: undefined,
       };
       if (animated && w.animGroup) {
         catalog.animationGroup = w.animGroup;

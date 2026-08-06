@@ -1784,6 +1784,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (c.appliance !== undefined && (typeof c.appliance !== 'string' || c.appliance.length > 32)) {
         return false;
       }
+      // This type's default Action (see FurnitureCatalogEntry.action) — same
+      // shape/validation as a per-instance override, just one level up.
+      if (c.action !== undefined && !sanitizeAction(c.action)) return false;
     }
     return true;
   }
