@@ -52,17 +52,19 @@ const FLOOR_DEPTH = -100000;
 const BUBBLE_DEPTH = 1_000_000;
 
 // Head markers (☕ / 💤 afk / crossed mic — see markerIcons.ts). Sizes are WORLD
-// pixels, picked so they read like the DOM icons they replaced did at the default
-// fit zoom; being world-space, they now keep that size relative to the avatar.
+// pixels; being world-space, they keep that size relative to the avatar. They
+// started out matching the DOM icons they replaced, which read too small next to
+// a character, so the whole row is 1.5× that now.
 const MARKER_DEPTH = BUBBLE_DEPTH + 1;
-const MARKER_SIZE_COFFEE = 5;
-const MARKER_SIZE_AFK = 4;
-const MARKER_SIZE_VOICE = 3.5;
+const MARKER_SIZE_COFFEE = 7.5;
+const MARKER_SIZE_AFK = 6;
+const MARKER_SIZE_VOICE = 5.25;
 const MARKER_AFK_COLOR = '#ffd98a';
 /** Bottom of the marker row: 34px above the feet of a baseline (32px) character,
- *  scaled for taller sprites — where the old DOM afk/coffee overlays sat. */
+ *  scaled for taller sprites — where the old DOM afk/coffee overlays sat. The row
+ *  is bottom-anchored, so the bigger glyphs grow upwards from this line. */
 const MARKER_ROW_OFFSET_PX = 34;
-const MARKER_GAP_PX = 1;
+const MARKER_GAP_PX = 1.5;
 /** Coffee sip loop length, matching the CSS keyframes this replaces. */
 const SIP_PERIOD_MS = 2200;
 /** Shared empty list — most characters carry no marker on any given frame. */
