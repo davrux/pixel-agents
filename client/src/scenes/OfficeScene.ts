@@ -882,11 +882,14 @@ export class OfficeScene extends Phaser.Scene {
     return null;
   }
 
-  /** If the tile is covered by an appliance (e.g. coffee machine), its anchor, else null. */
+  /** If the tile is covered by an appliance (e.g. coffee machine, or any item
+   *  with an 'appliance' Action override — see effectiveAction), its anchor,
+   *  else null. */
   private applianceAt(col: number, row: number): { col: number; row: number } | null {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.type);
-      if (!entry?.appliance) continue;
+      if (!entry) continue;
+      if (effectiveAction(f, entry)?.kind !== 'appliance') continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
         return { col: f.col, row: f.row };
       }

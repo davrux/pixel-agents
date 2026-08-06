@@ -418,7 +418,11 @@ export class OfficeState {
     this.stations = new Map();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.type);
-      if (!entry?.appliance) continue; // data-driven: only furniture marked as an appliance
+      if (!entry) continue;
+      // effectiveAction, not the raw catalog flag — an item's own Action
+      // override (the editor's Action… button) must be able to turn ANY
+      // furniture into a station, not just ones the catalog itself flags.
+      if (effectiveAction(item, entry)?.kind !== 'appliance') continue;
       const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing).filter(
         (c) => !this.isStationTile(c.col, c.row),
       );
@@ -1054,10 +1058,11 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     // An appliance can share its tile with the surface it sits on (e.g. a
-    // coffee machine placed atop a counter) — match the appliance-flagged
-    // item specifically, not just whatever's first at that tile.
+    // coffee machine placed atop a counter) — match the appliance item
+    // specifically (effectiveAction, so an override counts too — see
+    // buildStations), not just whatever's first at that tile.
     const item = this.layout.furniture.find(
-      (f) => f.col === anchorCol && f.row === anchorRow && getCatalogEntry(f.type)?.appliance,
+      (f) => f.col === anchorCol && f.row === anchorRow && effectiveAction(f, getCatalogEntry(f.type))?.kind === 'appliance',
     );
     if (!item) return false;
     const prefix = `station:${item.uid}:`;
