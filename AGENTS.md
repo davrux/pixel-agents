@@ -85,10 +85,11 @@ New features must extend these, not grow a parallel mechanism beside them.
 
 ## Tech stack (the basis for all extensions)
 
-- **Server: [Colyseus](https://colyseus.io/) 0.16** (`@colyseus/core`,
-  `@colyseus/ws-transport`, `@colyseus/schema` 3.x) — authoritative simulation +
+- **Server: [Colyseus](https://colyseus.io/) 0.17** (`@colyseus/core`,
+  `@colyseus/ws-transport`, `@colyseus/schema` 4.x) — authoritative simulation +
   state sync. Runs from TypeScript via **tsx** (no bundling).
-- **Client: [Phaser](https://phaser.io/) 3.90** + `colyseus.js` 0.16, built with
+- **Client: [Phaser](https://phaser.io/) 3.90** + `@colyseus/sdk` 0.17 (the
+  successor to the `colyseus.js` package, which stopped at 0.16), built with
   **Vite**. The client is a **pure renderer** of synced state.
 - **pnpm workspace**, three packages:
   - `shared/` (`@pixel/shared`) — the office engine (FSM, characters, pets,

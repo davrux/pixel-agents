@@ -246,6 +246,19 @@ async function main(): Promise<void> {
   if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
   gameServer.define(WORLD_ROOM, SimRoom, { authRequired: true, version }).filterBy(['zone']);
 
+  // Colyseus 0.17 binds the /matchmake/* HTTP routes and publishes the global
+  // transport in this step, which 0.16 did when the transport was constructed
+  // with `{ server }`. We own the http server and call listen() ourselves (TLS
+  // + the shared /feed upgrade path), so serverless() is the entry point that
+  // prepares those routes without binding a port — skip it and every join fails
+  // with a 404 from express. It also registers the websocket upgrade listener,
+  // so it must run before attachFeedServer below.
+  //
+  // Note the matchmaking routes land ahead of the middleware registered above,
+  // so — as in 0.16 — they do NOT pass through registerAuth's gate and SimRoom's
+  // onAuth remains the sole room-entry gate.
+  await gameServer.serverless();
+
   // Mount the agent feed (/feed) on the same http server (after Colyseus has
   // registered its upgrade listener, so the dispatcher can delegate to it).
   attachFeedServer(httpServer, { authRequired: true });

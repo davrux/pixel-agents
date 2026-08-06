@@ -2,7 +2,7 @@ import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
 
 /**
  * Authoritative, synced render-state. The server runs the office simulation and
- * writes these every tick; clients read them (via colyseus.js reflection) and
+ * writes these every tick; clients read them (via @colyseus/sdk reflection) and
  * render — so every viewer sees the exact same world. Field names/encodings are
  * chosen so the client can rebuild a render-only Character/Pet cheaply.
  */

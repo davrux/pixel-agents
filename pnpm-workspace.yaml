@@ -20,5 +20,6 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - electron@43.0.0
+  - '@colyseus/core@0.17.47'
 
 verifyDepsBeforeRun: false

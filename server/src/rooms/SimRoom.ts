@@ -97,7 +97,7 @@ function authOf(client: Client): AuthInfo {
   };
 }
 
-export class SimRoom extends Room<RoomState> {
+export class SimRoom extends Room<{ state: RoomState }> {
   /** File defaults merged with DB asset overrides — the process-wide cached
    *  bundle from assetOverrides.ts, not recomputed per room (see getMergedBundle). */
   private bundle!: AssetBundle;
@@ -286,7 +286,10 @@ export class SimRoom extends Room<RoomState> {
    *  resolved through the SAME session store + identity resolution as the cookie. */
   onAuth(_client: Client, options: unknown, context: AuthContext): AuthInfo {
     if (!this.authRequired) return { userId: '', username: '', isAdmin: false, role: 'user' };
-    const cookie = (context?.headers as Record<string, string | undefined> | undefined)?.cookie;
+    // Colyseus 0.17 exposes a WHATWG `Headers` here (0.16 handed over a plain
+    // object), so the cookie is read via .get() — which yields null, not
+    // undefined, when absent.
+    const cookie = context?.headers?.get('cookie') ?? undefined;
     // NB: only the zone password is read from client options. Identity and role
     // are resolved server-side (client is untrusted).
     const opts = (options ?? {}) as { zonePassword?: string };

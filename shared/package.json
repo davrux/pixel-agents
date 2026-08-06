@@ -14,9 +14,9 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@colyseus/schema": "^3.0.0"
+    "@colyseus/schema": "^4.0.30"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "typescript": "^7.0.2"
   }
 }

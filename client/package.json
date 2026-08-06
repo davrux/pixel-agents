@@ -10,13 +10,13 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
+    "@colyseus/sdk": "^0.17.43",
     "@pixel/shared": "workspace:*",
-    "colyseus.js": "^0.16.22",
-    "livekit-client": "^2.20.0",
-    "phaser": "^4.1.0"
+    "livekit-client": "^2.21.0",
+    "phaser": "^4.2.1"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
-    "vite": "^6.0.0"
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0"
   }
 }

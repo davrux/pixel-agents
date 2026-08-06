@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { getStateCallbacks, type Room } from 'colyseus.js';
+import { getStateCallbacks, type Room } from '@colyseus/sdk';
 
 import { OfficeState } from '@pixel/shared/office/engine/index.js';
 import {
