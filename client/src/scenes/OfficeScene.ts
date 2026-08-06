@@ -53,7 +53,6 @@ import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
-import { renderZoneMonitorsWidget } from '../shared/zoneMonitorsWidget.js';
 import { generatePassword } from '../shared/generatePassword.js';
 import {
   filterUserDatalist as filterSharedUserDatalist,
@@ -2187,7 +2186,7 @@ export class OfficeScene extends Phaser.Scene {
           ['🌐 Space → Zones', 'Create a zone, or travel to any of them'],
           ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which NPCs spawn, or delete a zone'],
           ['📍 Set arrival point', 'Where new arrivals land in this zone (zone admin)'],
-          ['⚙ next to your zone', 'Privacy, access list, invites, entry password, monitor passwords'],
+          ['⚙ next to your zone', 'Privacy, access list, invites, entry password'],
           ['👤 next to your zone', 'Grant or revoke zone-admins (who may edit its layout)'],
         ],
       },
@@ -2814,10 +2813,6 @@ export class OfficeScene extends Phaser.Scene {
       <div class="fld"><label>Entry password</label>
         <div data-password-widget></div>
         <div data-password-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
-      </div>
-      <div class="fld"><label>Monitors</label>
-        <div data-monitors-widget></div>
-        <div data-monitors-msg style="min-height:1.1rem;margin-top:.35rem;font-size:.85rem;"></div>
       </div>`;
 
     const membersEl = body.querySelector<HTMLDivElement>('[data-members]')!;
@@ -2883,10 +2878,9 @@ export class OfficeScene extends Phaser.Scene {
       inviteMsg.style.color = '';
     };
 
-    // Entry password + monitors — owner's call too (see server's
-    // zoneCapabilityAuth), REST-backed via the shared widgets (same routes
-    // the admin website's Zones tab uses; see shared/zonePasswordWidget.ts
-    // and shared/zoneMonitorsWidget.ts).
+    // Entry password — owner's call too (see server's zoneCapabilityAuth),
+    // REST-backed via the shared widget (same routes the admin website's
+    // Zones tab uses; see shared/zonePasswordWidget.ts).
     const passwordEl = body.querySelector<HTMLDivElement>('[data-password-widget]')!;
     const passwordMsgEl = body.querySelector<HTMLDivElement>('[data-password-msg]')!;
     renderZonePasswordWidget(passwordEl, zone.id, !!zone.locked, {
@@ -2895,15 +2889,6 @@ export class OfficeScene extends Phaser.Scene {
         passwordMsgEl.style.color = '#f0a6a2';
       },
       classNames: { button: 'pa-b', primaryButton: 'pa-b primary', dangerButton: 'pa-b danger' },
-    });
-    const monitorsEl = body.querySelector<HTMLDivElement>('[data-monitors-widget]')!;
-    const monitorsMsgEl = body.querySelector<HTMLDivElement>('[data-monitors-msg]')!;
-    renderZoneMonitorsWidget(monitorsEl, zone.id, {
-      onError: (action, error) => {
-        monitorsMsgEl.textContent = `${action} failed${error ? `: ${error}` : ''}.`;
-        monitorsMsgEl.style.color = '#f0a6a2';
-      },
-      classNames: { button: 'pa-b', primaryButton: 'pa-b primary' },
     });
 
     openPaDialog({ title: `Zone settings — ${zone.label}`, body, buttons: [] });
@@ -4166,8 +4151,10 @@ export class OfficeScene extends Phaser.Scene {
     this.tip.style.left = `${Math.round(sx)}px`;
     this.tip.style.top = `${Math.round(sy)}px`;
 
+    // Players get just their nickname — the activity line ("Working…", "Idle",
+    // …) only means something for an agent's task state.
     const act = ch.isPlayer
-      ? 'Player'
+      ? null
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
@@ -4180,7 +4167,7 @@ export class OfficeScene extends Phaser.Scene {
 
     this.tip.innerHTML =
       `<div class="row">${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}` +
-      `<div><div class="act">${esc(act)}</div><div class="name">${esc(name)}</div></div></div>` +
+      `<div>${act ? `<div class="act">${esc(act)}</div>` : ''}<div class="name">${esc(name)}</div></div></div>` +
       (total > 0
         ? `<div class="fuel"><div style="width:${Math.min(ratio * 100, 100)}%;background:${fuelColor(ratio)}"></div></div>`
         : '');

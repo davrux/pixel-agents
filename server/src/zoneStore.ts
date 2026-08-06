@@ -57,11 +57,6 @@ export class ZoneStore {
       CREATE TABLE IF NOT EXISTS zone_admins (
         zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
       );
-      -- Password-locked conference monitors, keyed by their anchor tile "col,row".
-      CREATE TABLE IF NOT EXISTS monitor_locks (
-        zone_id TEXT NOT NULL, monitor_key TEXT NOT NULL, pw_hash TEXT NOT NULL,
-        PRIMARY KEY (zone_id, monitor_key)
-      );
       -- Private-zone allow-list: who besides the owner/admins may enter.
       CREATE TABLE IF NOT EXISTS zone_acl (
         zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
@@ -96,39 +91,6 @@ export class ZoneStore {
     if (!r) return false;
     if (!r.pw_hash) return true; // not locked
     return verifyHash(r.pw_hash, password);
-  }
-
-  // ── Monitor passwords ────────────────────────────────────────────
-  // Conference monitors can be locked independently of the zone, keyed by their
-  // anchor tile ("col,row"). Joining the call requires the monitor password.
-  monitorHasPassword(zoneId: string, monitorKey: string): boolean {
-    return this.db.prepare('SELECT 1 FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?').get(zoneId, monitorKey) !== undefined;
-  }
-  setMonitorPassword(zoneId: string, monitorKey: string, password: string | null): void {
-    if (!zoneId || !monitorKey) return;
-    if (password) {
-      this.db
-        .prepare(
-          'INSERT INTO monitor_locks(zone_id, monitor_key, pw_hash) VALUES(?,?,?) ON CONFLICT(zone_id, monitor_key) DO UPDATE SET pw_hash=excluded.pw_hash',
-        )
-        .run(zoneId, monitorKey, hashPassword(password));
-    } else {
-      this.db.prepare('DELETE FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?').run(zoneId, monitorKey);
-    }
-  }
-  checkMonitorPassword(zoneId: string, monitorKey: string, password: string): boolean {
-    const r = this.db
-      .prepare('SELECT pw_hash FROM monitor_locks WHERE zone_id = ? AND monitor_key = ?')
-      .get(zoneId, monitorKey) as { pw_hash: string } | undefined;
-    if (!r) return true; // not locked
-    return verifyHash(r.pw_hash, password);
-  }
-  /** Monitor keys ("col,row") that are locked in a zone. */
-  lockedMonitors(zoneId: string): string[] {
-    const rows = this.db
-      .prepare('SELECT monitor_key FROM monitor_locks WHERE zone_id = ?')
-      .all(zoneId) as Array<{ monitor_key: string }>;
-    return rows.map((r) => r.monitor_key);
   }
 
   // ── Arcade cabinet game overrides ─────────────────────────────────
@@ -366,8 +328,8 @@ export class ZoneStore {
   }
 
   /** Delete a zone. Read-only zones (the office) can never be deleted. Also
-   *  clears the zone-keyed rows in zone_admins/zone_acl/monitor_locks/arcade_cabinet_games — these
-   *  aren't foreign-keyed to zones, so a plain `DELETE FROM zones` would
+   *  clears the zone-keyed rows in zone_admins/zone_acl/arcade_cabinet_games —
+   *  these aren't foreign-keyed to zones, so a plain `DELETE FROM zones` would
    *  otherwise leave them orphaned (harmless zombie rows a zone id could
    *  later collide with if reused, and clutter in the tables regardless). */
   delete(id: string): boolean {
@@ -377,7 +339,6 @@ export class ZoneStore {
     if (!r || r.read_only) return false;
     this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ?').run(id);
-    this.db.prepare('DELETE FROM monitor_locks WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM arcade_cabinet_games WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zones WHERE id = ?').run(id);
     return true;

@@ -11,8 +11,8 @@
  * Staying on the same document keeps all of that alive.
  *
  * Users: create / delete / change role / reset password. Rooms: set or clear a
- * room's entry password and each monitor's call password (stored hashed
- * server-side). The last admin can't be deleted/demoted.
+ * room's entry password (stored hashed server-side). The last admin can't be
+ * deleted/demoted.
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
 import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type AdminArcadeCabinet, type Role } from './api.js';
@@ -20,7 +20,6 @@ import type { ArcadeGame } from '@pixel/shared';
 import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
 import { renderZonePasswordWidget } from '../shared/zonePasswordWidget.js';
-import { renderZoneMonitorsWidget } from '../shared/zoneMonitorsWidget.js';
 import { filterUserDatalist as filterDatalist, wireUserAutocomplete as wireAutocomplete, type AutocompleteUser } from '../shared/userAutocomplete.js';
 
 let users: AdminUser[] = [];
@@ -465,8 +464,8 @@ async function renderZones(): Promise<void> {
   view.innerHTML = '';
   const intro = el('div', 'pa-adm-card');
   intro.innerHTML =
-    '<h2>Zones</h2><div class="muted">Click a zone to manage its owner, password, privacy, access list and ' +
-    'monitors. A password locks a zone — anyone but admins and its zone-admins must enter it; making it private ' +
+    '<h2>Zones</h2><div class="muted">Click a zone to manage its owner, password, privacy, and access list. ' +
+    'A password locks a zone — anyone but admins and its zone-admins must enter it; making it private ' +
     'is a stronger, identity-based lock (an access list instead of a shared secret). Ownership can be taken, ' +
     'transferred or cleared by an admin at any time.</div>';
   view.appendChild(intro);
@@ -555,12 +554,12 @@ async function refreshZoneRow(zoneId: string): Promise<void> {
 }
 
 /** The full management panel for one zone — owner / privacy fields, the
- *  entry password, zone admins, who-has-access, and monitors. Built once when
- *  its row is expanded. The Owner/Privacy fields render as one table (Field |
- *  Value | Actions), matching the Zones/Users tables instead of a bespoke
- *  layout; Password/Zone admins/Monitors are shared widgets (also callable by
- *  that zone's owner, not just a global admin), so they render as their own
- *  sections rather than table rows. */
+ *  entry password, zone admins, and who-has-access. Built once when its row
+ *  is expanded. The Owner/Privacy fields render as one table (Field | Value |
+ *  Actions), matching the Zones/Users tables instead of a bespoke layout;
+ *  Password/Zone admins are shared widgets (also callable by that zone's
+ *  owner, not just a global admin), so they render as their own sections
+ *  rather than table rows. */
 function zoneDetailPanel(z: AdminZone): HTMLElement {
   const card = el('div');
 
@@ -611,18 +610,6 @@ function zoneDetailPanel(z: AdminZone): HTMLElement {
     card.appendChild(membersBlock);
     void renderMembersTable(membersBlock, z);
   }
-
-  // Conference monitors — owner's call too (see server's
-  // zoneCapabilityAuth('zone.manageMonitors')), shared with Pixels' own Zones
-  // panel (same widget, same REST routes — see shared/zoneMonitorsWidget.ts).
-  card.appendChild(el('div', 'section-title', 'Monitors'));
-  const monitorsBlock = el('div', 'table-block');
-  monitorsBlock.style.padding = '.65rem .8rem';
-  card.appendChild(monitorsBlock);
-  renderZoneMonitorsWidget(monitorsBlock, z.id, {
-    onError: (action, error) => fail(action, error),
-    classNames: { button: 'act', primaryButton: 'act primary' },
-  });
 
   // Arcade cabinets — admin-only (see renderZoneArcadeCabinets), so unlike the
   // sections above this isn't a shared widget with any in-game panel.
@@ -855,8 +842,8 @@ function meetingRow(m: AdminMeetingRoom): HTMLTableRowElement {
 // ── Arcade — global default game list ─────────────────────────────────────
 // Admin-only (server's PUT/GET /admin/arcade/default-games use the plain
 // admin() guard, not zoneCapabilityAuth) — a zone owner does not get this,
-// unlike Monitors/Password, so it's not a shared widget with any in-game
-// panel; it only ever renders here.
+// unlike Password, so it's not a shared widget with any in-game panel; it
+// only ever renders here.
 async function renderArcade(): Promise<void> {
   const [games, def] = await Promise.all([ensureArcadeGames(), adminApi.getArcadeDefaultGames()]);
   if (def.status === 401) return redirectToLogin();
@@ -904,9 +891,9 @@ async function renderArcade(): Promise<void> {
 }
 
 // ── Arcade cabinets (per zone) ─────────────────────────────────────────────
-// Rendered inline in zoneDetailPanel, right after Monitors — but NOT a shared
-// widget: unlike Monitors, this is admin-only (see renderArcade's note above),
-// so there's no in-game consumer to share it with.
+// Rendered inline in zoneDetailPanel — but NOT a shared widget: this is
+// admin-only (see renderArcade's note above), so there's no in-game consumer
+// to share it with.
 async function renderZoneArcadeCabinets(container: HTMLElement, zoneId: string): Promise<void> {
   const [games, res] = await Promise.all([ensureArcadeGames(), adminApi.listArcadeCabinets(zoneId)]);
   container.innerHTML = '';

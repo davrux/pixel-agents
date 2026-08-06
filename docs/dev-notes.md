@@ -29,8 +29,10 @@ Auth/users/sessions/zones/voice/conference/chat are **shared server-side** (sing
   needs `allow_pixels` (portal join is a non-spatial "spectator"); no agents (feed
   rejects them); no arcade WAD endpoints. Zone lists + portal options are
   filtered per customer. Shown in-world as "Customer".
-- **Passwords** (scrypt, `server/src/pwhash.ts`): per-zone entry password + per-
-  monitor call password (`zoneStore`); admins/zone-admins/assigned customers bypass.
+- **Passwords** (scrypt, `server/src/pwhash.ts`): per-zone entry password
+  (`zoneStore`); admins/zone-admins/assigned customers bypass. Ad-hoc meeting
+  rooms (linkManager kiosk) have their own independent password, in
+  `meetingRoomStore.ts`.
 - **Admin REST API** `server/src/adminApi.ts` (`/admin/*`, admin-gated) backs
   `admin.html`. Login redirects customers → `/rooms.html`.
 

@@ -14,6 +14,7 @@ import {
   MAX_TEXT_LABELS,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
+  sanitizeTextLabelFontFamily,
   type CommandSpec,
 } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -120,7 +121,7 @@ function authOf(client: Client): AuthInfo {
 function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
   const texts = layout.texts;
   if (!Array.isArray(texts)) return layout;
-  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number; angle?: number }> = [];
+  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number; fontFamily?: string; angle?: number }> = [];
   for (const t of texts) {
     if (clean.length >= MAX_TEXT_LABELS) break;
     if (!t || typeof t !== 'object') continue;
@@ -128,7 +129,7 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
     if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
     const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
     if (!text) continue;
-    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number; angle?: number } = {
+    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number; fontFamily?: string; angle?: number } = {
       uid: rec.uid,
       col: rec.col,
       row: rec.row,
@@ -138,6 +139,8 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
       const size = clampTextLabelFontSize(rec.fontSize);
       if (size !== TEXT_LABEL_DEFAULT_FONT_SIZE) entry.fontSize = size;
     }
+    const fontFamily = sanitizeTextLabelFontFamily(rec.fontFamily);
+    if (fontFamily) entry.fontFamily = fontFamily;
     if (typeof rec.angle === 'number' && Number.isFinite(rec.angle)) {
       const angle = ((rec.angle % 360) + 360) % 360;
       if (angle !== 0) entry.angle = angle;
@@ -625,10 +628,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       playerId,
       version: this.version,
     });
-    // Which conference monitors in this zone are password-locked (so clients can
-    // show a 🔒 and prompt). Refreshed on each join.
-    const lockedMon = this.zones.lockedMonitors(this.zone.id);
-    if (lockedMon.length) client.send('m', { type: 'monitorLocks', keys: lockedMon });
     // Personal viewer prefs (per user; anonymous viewers get the defaults).
     const vs = userId
       ? appStore.getViewerSettings(userId)
@@ -1050,15 +1049,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
     });
 
     // Mint a LiveKit access token for a meeting room's call — only for a
-    // player who is actually a member (server-authoritative gate). Furniture-
-    // sourced rooms may be password-locked (the actual access gate — no token,
-    // no media; admins and the zone's admins bypass); tile-sourced rooms never
-    // are (membership there is automatic tile presence, not an explicit join —
-    // there's nothing to "unlock"). The room name is the source's own stable
-    // anchor: a furniture item's name-or-position (conferenceKey) or a
-    // tile-area's flood-fill anchor (OfficeState.areaAnchor) — either way it
-    // survives the item/area moving or the layout rebuilding, as long as the
-    // shape/name doesn't change.
+    // player who is actually a member (server-authoritative gate; no
+    // password gate of its own — a furniture item wanting one uses the
+    // 'linkManager' kiosk action instead, which mints its own password-
+    // protected /meet/<slug> room via meetingRoomStore.ts). The room name is
+    // the source's own stable anchor: a furniture item's name-or-position
+    // (conferenceKey) or a tile-area's flood-fill anchor
+    // (OfficeState.areaAnchor) — either way it survives the item/area moving
+    // or the layout rebuilding, as long as the shape/name doesn't change.
     this.onMessage(
       'meetingRoomToken',
       async (client, msg: { source?: string; col?: number; row?: number; password?: string }) => {
@@ -1069,31 +1067,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
         const source = msg?.source === 'tile' ? 'tile' : 'furniture';
         const key = this.meetingRoomKey(source, col, row);
         if (!this.meetingRooms.get(key)?.has(id)) return; // not a member → no token
-
-        if (source === 'furniture') {
-          // Password-locked monitor: the actual access gate (no token → no media).
-          // Admins and the zone's admins bypass; everyone else must supply it.
-          const me = authOf(client);
-          const posKey = `${col},${row}`; // zones.monitorHasPassword keys by plain "col,row"
-          if (
-            this.zones.monitorHasPassword(this.zone.id, posKey) &&
-            !me.isAdmin &&
-            !this.zones.isZoneAdmin(this.zone.id, me.userId)
-          ) {
-            // Throttle wrong guesses (each does a full scrypt) to bound brute-force + CPU-DoS.
-            const tkey = `monitor:${this.zone.id}:${posKey}:${me.userId}`;
-            if (
-              isThrottled(tkey) ||
-              typeof msg?.password !== 'string' ||
-              !this.zones.checkMonitorPassword(this.zone.id, posKey, msg.password)
-            ) {
-              if (typeof msg?.password === 'string') noteFail(tkey);
-              client.send('m', { type: 'meetingRoomToken', source, col, row, error: 'locked' });
-              return;
-            }
-            clearFails(tkey);
-          }
-        }
 
         const url = process.env.LIVEKIT_URL;
         const apiKey = process.env.LIVEKIT_API_KEY;

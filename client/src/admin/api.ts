@@ -34,11 +34,6 @@ export interface AdminZoneMembers {
   admins: AdminZoneAclMember[];
   acl: AdminZoneAclMember[];
 }
-export interface AdminMonitor {
-  key: string;
-  name: string;
-  locked: boolean;
-}
 export interface AdminArcadeCabinet {
   key: string;
   name: string;
@@ -127,11 +122,6 @@ export const adminApi = {
     req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/admins`, { userId }),
   revokeZoneAdmin: (id: string, userId: string) =>
     req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`),
-
-  listMonitors: (zoneId: string) =>
-    req<{ monitors: AdminMonitor[] }>('GET', `/admin/zone/${encodeURIComponent(zoneId)}/monitors`),
-  setMonitorPassword: (zoneId: string, key: string, password: string) =>
-    req<{ locked: boolean }>('PUT', `/admin/zone/${encodeURIComponent(zoneId)}/monitor`, { key, password }),
 
   listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
   deleteMeetingRoom: (slug: string) =>

@@ -59,7 +59,7 @@ export function registerAdminApi(app: Express): void {
     req: Request,
     res: Response,
     zoneId: string,
-    capability: 'zone.grantAdmin' | 'zone.managePassword' | 'zone.manageMonitors' | 'zone.managePrivacy',
+    capability: 'zone.grantAdmin' | 'zone.managePassword' | 'zone.managePrivacy',
   ): { userId: string } | null => {
     const uid = reqUserId(req);
     if (!uid) {
@@ -309,35 +309,6 @@ export function registerAdminApi(app: Express): void {
     if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
     zones.setZonePassword(id, password || null);
     res.json({ ok: true, locked: zones.zoneHasPassword(id) });
-  });
-
-  // ── Conference monitors (per zone) ────────────────────────────────────────
-  // Monitors come from the zone's active saved layout (where admins place them in
-  // the editor). Zones still on the pristine generated default list none here.
-  app.get('/admin/zone/:id/monitors', (req, res) => {
-    const id = req.params.id;
-    if (!zoneCapabilityAuth(req, res, id, 'zone.manageMonitors')) return;
-    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
-    const locked = new Set(zones.lockedMonitors(id));
-    const layout = layouts.getActiveLayout(id) as { furniture?: PlacedFurniture[] } | null;
-    const monitors = (layout?.furniture ?? [])
-      .filter((f) => effectiveAction(f, getCatalogEntry(f.type))?.kind === 'meetingRoom')
-      .map((f) => ({ key: `${f.col},${f.row}`, name: f.name ?? '', locked: locked.has(`${f.col},${f.row}`) }));
-    res.json({ monitors });
-  });
-
-  // Set/clear a monitor's call password (key = "col,row"). Owner or global admin.
-  app.put('/admin/zone/:id/monitor', json, (req, res) => {
-    const id = req.params.id;
-    if (!zoneCapabilityAuth(req, res, id, 'zone.manageMonitors')) return;
-    if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
-    const body = (req.body ?? {}) as { key?: unknown; password?: unknown };
-    const key = typeof body.key === 'string' && /^\d+,\d+$/.test(body.key) ? body.key : '';
-    if (!key) return void res.status(400).json({ error: 'bad monitor key' });
-    const password = typeof body.password === 'string' ? body.password : '';
-    if (password && !isValidPassword(password)) return void res.status(400).json({ error: 'weak password' });
-    zones.setMonitorPassword(id, key, password || null);
-    res.json({ ok: true, locked: zones.monitorHasPassword(id, key) });
   });
 
   // ── Meeting rooms (ad-hoc /meet/<slug> video calls) ─────────────────────────

@@ -30,7 +30,6 @@ export type Capability =
   | 'zone.edit' // layout / arrival / rename / NPC spawn set of one zone
   | 'zone.managePrivacy' // toggle private + manage its ACL/invites — OWNER only, not zone-admins
   | 'zone.managePassword' // set/clear the zone's entry password — OWNER only, not zone-admins
-  | 'zone.manageMonitors' // set/clear per-monitor call passwords — OWNER only, not zone-admins
   | 'zone.setOwner'; // take/transfer/clear ownership — GLOBAL ADMIN only, not even the current owner
 
 export interface PolicyEnv {
@@ -57,15 +56,10 @@ export function can(
   if (capability === 'zone.edit' || capability === 'zone.delete') {
     return !!principal.userId && !!ctx.zoneId && env.isZoneAdmin(ctx.zoneId, principal.userId);
   }
-  // Privacy/ACL/invite, the entry password, and monitor call-passwords are all
-  // the OWNER's call, not any zone-admin co-editor's — a co-editor can reshape
-  // the room but shouldn't be able to lock people out of it, add strangers to
-  // its ACL, or gate its conference monitors.
-  if (
-    capability === 'zone.managePrivacy' ||
-    capability === 'zone.managePassword' ||
-    capability === 'zone.manageMonitors'
-  ) {
+  // Privacy/ACL/invite and the entry password are the OWNER's call, not any
+  // zone-admin co-editor's — a co-editor can reshape the room but shouldn't
+  // be able to lock people out of it or add strangers to its ACL.
+  if (capability === 'zone.managePrivacy' || capability === 'zone.managePassword') {
     return !!principal.userId && !!ctx.zoneId && env.zoneOwner?.(ctx.zoneId) === principal.userId;
   }
   // Zone-admin grants are the owner's call too (plus global admins, above) — a
