@@ -337,8 +337,14 @@ export class OfficeState {
         for (const [nc, nr, approachFacing] of cands) {
           const k = `${nc},${nr}`;
           const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
-          if (ambiguous && nr === artRow && wantFacing !== Direction.DOWN) continue;
-          if (ambiguous && nr === farRow && wantFacing !== Direction.UP) continue;
+          // Ambiguous case: reject the whole wrong side, not just the tile
+          // directly above/below the footprint — a *lateral* neighbor of the
+          // sprite's own body row (e.g. standing beside a narrow cabinet, at
+          // the same height as its screen) is on the art side exactly as much
+          // as the tile straight above it, and both must lose equally to
+          // whichever side `facing` actually picked.
+          if (ambiguous && nr < wallRow && wantFacing !== Direction.DOWN) continue;
+          if (ambiguous && nr > wallRow && wantFacing !== Direction.UP) continue;
           if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
           seen.add(k);
           approaches.push({ col: nc, row: nr, facing: approachFacing });
