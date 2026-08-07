@@ -10,7 +10,9 @@
     "check-types": "tsc --noEmit",
     "test": "node --import tsx --test \"src/**/*.int.test.ts\"",
     "generate:tiled": "tsx src/scripts/generateTiledTilesets.ts",
-    "generate:tiled-furniture": "tsx src/scripts/generateTiledFurnitureTileset.ts"
+    "generate:tiled-furniture": "tsx src/scripts/generateTiledFurnitureTileset.ts",
+    "tiled:export": "tsx src/scripts/tiled/exportLayoutToTmj.ts",
+    "tiled:import": "tsx src/scripts/tiled/importTmjToLayout.ts"
   },
   "dependencies": {
     "@colyseus/core": "^0.17.47",
