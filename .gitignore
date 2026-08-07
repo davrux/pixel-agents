@@ -45,3 +45,7 @@ client/public/emulatorjs/
 # WASM + the selfie-segmenter model, vendored via scripts/vendor-mediapipe.mjs.
 client/public/mediapipe/
 
+# Generated Tiled tilesets (floor/wall pattern×color bakes) — reproducible via
+# server/src/scripts/generateTiledTilesets.ts (pnpm --filter @pixel/server run generate:tiled).
+assets/tiled/
+
