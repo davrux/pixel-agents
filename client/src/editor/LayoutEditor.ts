@@ -1923,7 +1923,12 @@ export class LayoutEditor {
     for (const t of tiles) {
       this.deps.saveFurnitureAsset(t.id, {
         sprite: t.sprite,
-        catalog: { category: 'imported', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
+        // 'misc' — not 'imported': FurnitureCategory is a closed 8-value union
+        // (see FURNITURE_CATEGORIES) and getActiveCategories() only ever shows
+        // those 8, so an unlisted category string saves fine server-side (it
+        // just checks it's *a* string) but never renders in the palette —
+        // invisible, unplaceable furniture.
+        catalog: { category: 'misc', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
       });
     }
     this.hint.textContent = `Imported ${tiles.length} furniture item(s) from the tileset — check the Furniture palette.`;

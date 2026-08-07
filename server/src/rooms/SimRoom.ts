@@ -25,7 +25,7 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, effectiveAction, getCatalogEntry, FURNITURE_CATEGORIES } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
 import {
@@ -1757,7 +1757,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) {
         return false;
       }
-      if (typeof c.category !== 'string') return false;
+      // A category outside the closed FurnitureCategory union would save fine
+      // (nothing else here checks it) but getActiveCategories() only ever
+      // shows the 8 known ones — an unlisted category is invisible,
+      // unplaceable furniture, not a validation gap to let through silently.
+      if (typeof c.category !== 'string' || !FURNITURE_CATEGORIES.some((fc) => fc.id === c.category)) return false;
       if (c.appliance !== undefined && (typeof c.appliance !== 'string' || c.appliance.length > 32)) {
         return false;
       }
