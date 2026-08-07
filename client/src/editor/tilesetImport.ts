@@ -13,6 +13,7 @@
  * Node, just client-side against File objects instead of fs).
  */
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
+import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
 export interface ImportedTile {
@@ -27,6 +28,20 @@ export interface ImportedTile {
 function sanitizeId(raw: string): string {
   const cleaned = raw.replace(/[^A-Za-z0-9_:-]/g, '_').slice(0, 40);
   return cleaned || 'IMPORTED';
+}
+
+/** Saving a furniture override for an id that already exists in the catalog is
+ *  a full replace of that entry, not a merge (see server/src/assetOverrides.ts)
+ *  — so importing a tileset whose tile "type" happens to reuse an existing id
+ *  (e.g. re-importing an exported copy of our own furniture) would silently
+ *  wipe that item's placement/rotation/state/action metadata down to just a
+ *  sprite. Every imported id must be one the catalog doesn't already know. */
+function uniqueId(base: string): string {
+  if (!getCatalogEntry(base)) return base;
+  let n = 2;
+  let id = `${base}_${n}`;
+  while (getCatalogEntry(id)) id = `${base}_${++n}`;
+  return id;
 }
 
 function attr(tag: string, name: string): string | undefined {
@@ -120,7 +135,7 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
       const bitmap = await imageFor(source);
       const props = tilePropsOf(body);
       tiles.push({
-        id: sanitizeId(props.type || `${tilesetName}_${id}`),
+        id: uniqueId(sanitizeId(props.type || `${tilesetName}_${id}`)),
         label: props.label || props.type || `${tilesetName} ${id}`,
         footprintW: footprintOf(w),
         footprintH: footprintOf(h),
@@ -143,7 +158,7 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
       const row = Math.floor(i / cols);
       const props = propsById.get(i) ?? {};
       tiles.push({
-        id: sanitizeId(props.type || `${tilesetName}_${i}`),
+        id: uniqueId(sanitizeId(props.type || `${tilesetName}_${i}`)),
         label: props.label || props.type || `${tilesetName} ${i}`,
         footprintW: footprintOf(tw),
         footprintH: footprintOf(th),

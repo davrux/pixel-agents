@@ -549,7 +549,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private async open(): Promise<void> {
-    const assetBridge = createAssetBridge(this.os, (layout) => this.onLayout(layout));
+    const assetBridge = createAssetBridge(this.os, (layout, activeLayout) => this.onLayout(layout, activeLayout));
     try {
       const zone = currentZone();
       try {
@@ -1183,7 +1183,12 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  private onLayout(layout: OfficeLayout): void {
+  private onLayout(layout: OfficeLayout, activeLayout: string): void {
+    // The full layout list (for the Space panel) only arrives once the user opens
+    // it (requestLayouts), but the active name is already known right here — seed
+    // it now so an edit-mode auto-enter (editor.html) never mistakes a real active
+    // layout for the never-fetched default and needlessly prompts to fork one.
+    this.layoutListData.active = activeLayout;
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
     this.maybeAutoEnterEditMode();
