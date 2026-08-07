@@ -12,8 +12,9 @@
 
 import { colorizeToPalette } from './colorize.js';
 import { TILE_COLOR_PALETTE, resolveTileColor } from './tileColorPalette.js';
-import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
-import { TILE_SIZE, TileType } from './types.js';
+import { isWall, tileColorIndexOf } from './tileGid.js';
+import type { FurnitureInstance, SpriteData, TileGid } from './types.js';
+import { TILE_SIZE } from './types.js';
 
 /** Wall tile sets: each set has 16 sprites indexed by bitmask (0-15) */
 let wallSets: SpriteData[][] = [];
@@ -48,48 +49,29 @@ export function getWallSetPreviewSprite(setIndex: number): SpriteData | null {
 /**
  * Build the 4-bit neighbor bitmask for a wall tile at (col, row).
  */
-function buildWallMask(col: number, row: number, tileMap: TileTypeVal[][]): number {
+function buildWallMask(col: number, row: number, tileMap: TileGid[][]): number {
   const tmRows = tileMap.length;
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
 
   let mask = 0;
-  if (row > 0 && tileMap[row - 1][col] === TileType.WALL) mask |= 1; // N
-  if (col < tmCols - 1 && tileMap[row][col + 1] === TileType.WALL) mask |= 2; // E
-  if (row < tmRows - 1 && tileMap[row + 1][col] === TileType.WALL) mask |= 4; // S
-  if (col > 0 && tileMap[row][col - 1] === TileType.WALL) mask |= 8; // W
+  if (row > 0 && isWall(tileMap[row - 1][col])) mask |= 1; // N
+  if (col < tmCols - 1 && isWall(tileMap[row][col + 1])) mask |= 2; // E
+  if (row < tmRows - 1 && isWall(tileMap[row + 1][col])) mask |= 4; // S
+  if (col > 0 && isWall(tileMap[row][col - 1])) mask |= 8; // W
   return mask;
 }
 
 /**
- * Get the wall sprite for a tile based on its cardinal neighbors.
- * Returns the sprite + Y offset, or null to fall back to solid WALL_COLOR.
- */
-function getWallSprite(
-  col: number,
-  row: number,
-  tileMap: TileTypeVal[][],
-  setIndex = 0,
-): { sprite: SpriteData; offsetY: number } | null {
-  if (wallSets.length === 0) return null;
-  const sprites = wallSets[setIndex] ?? wallSets[0];
-
-  const mask = buildWallMask(col, row, tileMap);
-  const sprite = sprites[mask];
-  if (!sprite) return null;
-
-  // Anchor sprite at bottom of tile — tall sprites extend upward
-  return { sprite, offsetY: TILE_SIZE - sprite.length };
-}
-
-/**
  * Get a wall sprite tinted with one TILE_COLOR_PALETTE swatch (see
- * colorizeToPalette), for a tile based on its cardinal neighbors.
+ * colorizeToPalette), for a tile based on its cardinal neighbors. Falls back
+ * to the untinted piece if `colorIndex` doesn't resolve (shouldn't happen for
+ * a real wall gid — every one carries a valid index by construction).
  * Returns the tinted sprite + Y offset, or null if no wall sprites loaded.
  */
 function getPaletteWallSprite(
   col: number,
   row: number,
-  tileMap: TileTypeVal[][],
+  tileMap: TileGid[][],
   colorIndex: number,
   setIndex = 0,
 ): { sprite: SpriteData; offsetY: number } | null {
@@ -117,23 +99,17 @@ function getPaletteWallSprite(
  * Build FurnitureInstance-like objects for all wall tiles so they can participate
  * in z-sorting with furniture and characters.
  */
-export function getWallInstances(
-  tileMap: TileTypeVal[][],
-  tileColorIndex?: Array<number | null>,
-  cols?: number,
-): FurnitureInstance[] {
+export function getWallInstances(tileMap: TileGid[][]): FurnitureInstance[] {
   if (wallSets.length === 0) return [];
   const tmRows = tileMap.length;
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
-  const layoutCols = cols ?? tmCols;
   const instances: FurnitureInstance[] = [];
   for (let r = 0; r < tmRows; r++) {
     for (let c = 0; c < tmCols; c++) {
-      if (tileMap[r][c] !== TileType.WALL) continue;
-      const posIdx = r * layoutCols + c;
-      const colorIndex = tileColorIndex?.[posIdx];
-      const wallInfo =
-        colorIndex != null ? getPaletteWallSprite(c, r, tileMap, colorIndex) : getWallSprite(c, r, tileMap);
+      const gid = tileMap[r][c];
+      if (!isWall(gid)) continue;
+      const colorIndex = tileColorIndexOf(gid) ?? 0;
+      const wallInfo = getPaletteWallSprite(c, r, tileMap, colorIndex);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,

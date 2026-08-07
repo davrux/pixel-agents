@@ -7,22 +7,12 @@ export {
   TILE_SIZE,
 } from './constants.js';
 
-export const TileType = {
-  WALL: 0,
-  FLOOR_1: 1,
-  FLOOR_2: 2,
-  FLOOR_3: 3,
-  FLOOR_4: 4,
-  FLOOR_5: 5,
-  FLOOR_6: 6,
-  FLOOR_7: 7,
-  FLOOR_8: 8,
-  FLOOR_9: 9,
-  FLOOR_10: 10, // grass (garden/outside zones) — floors/floor_9.png
-  FLOOR_11: 11, // water (ponds) — floors/floor_10.png
-  VOID: 255,
-} as const;
-export type TileType = (typeof TileType)[keyof typeof TileType];
+/** A cell's full identity — floor pattern+color, wall+color, or void — see
+ *  tileGid.ts for the numbering scheme and helpers (tileKind/isWall/isVoid/
+ *  floorGid/wallGid/floorPatternOf/tileColorIndexOf). Replaces the old
+ *  TileType enum + the separate tileColorIndex array: one gid per cell now
+ *  carries both "what" and "what color", matching a Tiled tile layer. */
+export type TileGid = number;
 
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from './colorTypes.js';
@@ -337,15 +327,12 @@ export interface TileAction {
 }
 
 export interface OfficeLayout {
-  version: 2;
+  version: 3;
   cols: number;
   rows: number;
-  tiles: TileType[];
+  /** Flat cols*rows array of gids — see TileGid/tileGid.ts. */
+  tiles: TileGid[];
   furniture: PlacedFurniture[];
-  /** Per-tile tint, parallel to tiles array — an index into TILE_COLOR_PALETTE
-   *  (tileColorPalette.ts), not a free color; null/missing = no tint. Applies
-   *  to both floor and wall tiles (see PhaserRenderer/wallTiles). */
-  tileColorIndex?: Array<number | null>;
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;

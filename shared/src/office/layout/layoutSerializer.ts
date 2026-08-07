@@ -1,6 +1,7 @@
 import { getColorizedSprite } from '../colorize.js';
-import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
-import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
+import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileGid as TileTypeVal } from '../types.js';
+import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE } from '../types.js';
+import { floorGid, wallGid } from '../tileGid.js';
 import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
@@ -254,36 +255,30 @@ export function getSeatTiles(seats: Map<string, Seat>): Set<string> {
   return tiles;
 }
 
-/** Default floor color swatches for the two rooms (see TILE_COLOR_PALETTE) */
-const DEFAULT_LEFT_ROOM_COLOR_INDEX = 2; // h=45, warm beige-ish
-const DEFAULT_RIGHT_ROOM_COLOR_INDEX = 1; // h=22.5, warm brown-ish
+/** Default floor/wall color swatches (see TILE_COLOR_PALETTE — DawnBringer DB32) */
+const DEFAULT_LEFT_ROOM_COLOR_INDEX = 2; // #45283C, warm beige-ish
+const DEFAULT_RIGHT_ROOM_COLOR_INDEX = 1; // #222034, warm brown-ish
+const DEFAULT_WALL_COLOR_INDEX = 15; // #3F3F74, close to the old flat WALL_COLOR
+const DEFAULT_FLOOR_COLOR_INDEX = 23; // #847E87, neutral gray
 
 /** Create a minimal fallback layout (used only when no default-layout.json exists) */
 export function createDefaultLayout(): OfficeLayout {
-  const W = TileType.WALL;
-  const F1 = TileType.FLOOR_1;
-  const F2 = TileType.FLOOR_2;
-
   const tiles: TileTypeVal[] = [];
-  const tileColorIndex: Array<number | null> = [];
 
   for (let r = 0; r < DEFAULT_ROWS; r++) {
     for (let c = 0; c < DEFAULT_COLS; c++) {
       if (r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1) {
-        tiles.push(W);
-        tileColorIndex.push(null);
+        tiles.push(wallGid(DEFAULT_WALL_COLOR_INDEX));
       } else if (c < 10) {
-        tiles.push(F1);
-        tileColorIndex.push(DEFAULT_LEFT_ROOM_COLOR_INDEX);
+        tiles.push(floorGid(1, DEFAULT_LEFT_ROOM_COLOR_INDEX));
       } else {
-        tiles.push(F2);
-        tileColorIndex.push(DEFAULT_RIGHT_ROOM_COLOR_INDEX);
+        tiles.push(floorGid(2, DEFAULT_RIGHT_ROOM_COLOR_INDEX));
       }
     }
   }
 
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 2, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColorIndex, furniture: [] };
+  return { version: 3, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, furniture: [] };
 }
 
 /** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
@@ -295,15 +290,13 @@ export function createBlankZoneLayout(
   furniture: OfficeLayout['furniture'] = [],
 ): OfficeLayout {
   const tiles: TileTypeVal[] = [];
-  const tileColorIndex: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
-      tiles.push(edge ? TileType.WALL : TileType.FLOOR_3);
-      tileColorIndex.push(null);
+      tiles.push(edge ? wallGid(DEFAULT_WALL_COLOR_INDEX) : floorGid(3, DEFAULT_FLOOR_COLOR_INDEX));
     }
   }
-  return { version: 2, cols, rows, tiles, tileColorIndex, furniture };
+  return { version: 3, cols, rows, tiles, furniture };
 }
 
 /** The plaza: the second builtin zone, with a beam pad (walk onto it → zone
@@ -326,7 +319,7 @@ export function serializeLayout(layout: OfficeLayout): string {
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
-    if (obj && obj.version === 2 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
+    if (obj && obj.version === 3 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
       return obj as OfficeLayout;
     }
   } catch {

@@ -1,5 +1,6 @@
-/** Closed set of floor/wall tint choices (OfficeLayout.tileColorIndex) — a
- *  fixed palette instead of the free h/s/b/c sliders this replaced, so a
+/** Closed set of floor/wall tint choices (baked into OfficeLayout.tiles gids —
+ *  see tileGid.ts) — a fixed palette instead of the free h/s/b/c sliders this
+ *  originally replaced, so a
  *  tile's color is "which swatch" rather than an arbitrary continuous value.
  *  This is what makes tile coloring map onto a real Tiled tileset later (one
  *  pre-baked tile per pattern×swatch, chosen like any other tile) instead of
@@ -49,7 +50,8 @@ export const TILE_COLOR_PALETTE: readonly string[] = [
   '#8A6F30',
 ];
 
-/** Resolve a stored palette index (OfficeLayout.tileColorIndex entry) to its
+/** Resolve a stored palette index (decoded from a tile gid — see tileGid.ts's
+ *  tileColorIndexOf) to its
  *  hex color — null/out-of-range (e.g. a stale index after a palette shrink)
  *  resolves to null, same as "no tint". */
 export function resolveTileColor(index: number | null | undefined): string | null {

@@ -19,19 +19,19 @@ import { getWallSetCount, getWallSetPreviewSprite, paletteWallColorToHex } from 
 import {
   Direction,
   TILE_SIZE,
-  TileType,
   type Action,
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
   type PlacedText,
-  type TileType as TileTypeVal,
+  type TileGid as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { setTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
 import { getColorizedSprite, colorizeToPalette } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 import { TILE_COLOR_PALETTE, resolveTileColor } from '@pixel/shared/office/tileColorPalette.js';
+import { VOID_GID, floorGid, wallGid, isWall, isVoid, isFloor, floorPatternOf, tileColorIndexOf } from '@pixel/shared/office/tileGid.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog, textLabelDialog } from '../ui/dialog.js';
@@ -192,9 +192,6 @@ export class LayoutEditor {
   private enter(): void {
     this.populatePalettes();
     this.layout = structuredClone(this.deps.getLayout());
-    if (!this.layout.tileColorIndex) {
-      this.layout.tileColorIndex = new Array(this.layout.cols * this.layout.rows).fill(null);
-    }
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
     }
@@ -318,12 +315,12 @@ export class LayoutEditor {
       case 'floor': {
         // Painting on the ghost-border ring grows the office by one tile.
         const adj = this.maybeExpand(col, row);
-        this.paintTile(adj?.col ?? col, adj?.row ?? row, this.floorPattern);
+        this.paintTile(adj?.col ?? col, adj?.row ?? row, floorGid(this.floorPattern, this.tileColorIdx));
         break;
       }
       case 'wall': {
         const adj = this.maybeExpand(col, row);
-        this.paintTile(adj?.col ?? col, adj?.row ?? row, TileType.WALL);
+        this.paintTile(adj?.col ?? col, adj?.row ?? row, wallGid(this.tileColorIdx));
         break;
       }
       case 'block':
@@ -345,7 +342,7 @@ export class LayoutEditor {
     if (!this.editing || !this.layout) return;
     if (this.tool === 'furniture') this.deleteFurnitureAt(wx, wy);
     else if (this.tool === 'floor' || this.tool === 'wall') {
-      this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
+      this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), VOID_GID);
     } else if (this.tool === 'block') {
       this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
     } else if (this.tool === 'action') {
@@ -568,7 +565,7 @@ export class LayoutEditor {
     const bottom = row + h - 1;
     if (bottom < 0 || bottom >= this.layout.rows) return false;
     for (let dc = 0; dc < w; dc++) {
-      if (this.tileMap[bottom]?.[col + dc] !== TileType.WALL) return false;
+      if (!isWall(this.tileMap[bottom]?.[col + dc] ?? VOID_GID)) return false;
     }
     return true;
   }
@@ -581,7 +578,7 @@ export class LayoutEditor {
     for (let dr = bg; dr < h; dr++) {
       for (let dc = 0; dc < w; dc++) {
         const t = this.tileMap[row + dr]?.[col + dc];
-        if (t === TileType.VOID || t === undefined || t === TileType.WALL) return false;
+        if (t === undefined || !isFloor(t)) return false;
       }
     }
     return true;
@@ -600,14 +597,14 @@ export class LayoutEditor {
     }
   }
 
-  /** Paint one tile. Called within a paint stroke (the stroke owns the undo
-   *  snapshot via beginStroke/endStroke); autosave is scheduled debounced. */
-  private paintTile(col: number, row: number, tile: number): void {
+  /** Paint one tile — `gid` is a full tile identity (floorGid/wallGid/VOID_GID),
+   *  already carrying color. Called within a paint stroke (the stroke owns the
+   *  undo snapshot via beginStroke/endStroke); autosave is scheduled debounced. */
+  private paintTile(col: number, row: number, gid: number): void {
     if (!this.layout) return;
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
     const idx = row * this.layout.cols + col;
-    this.layout.tiles[idx] = tile as TileTypeVal;
-    this.layout.tileColorIndex![idx] = tile === TileType.VOID ? null : this.tileColorIdx;
+    this.layout.tiles[idx] = gid as TileTypeVal;
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
     this.drawGrid();
@@ -702,14 +699,15 @@ export class LayoutEditor {
     const col = Math.floor(wx / TILE_SIZE);
     const row = Math.floor(wy / TILE_SIZE);
     const idx = row * this.layout.cols + col;
-    const t = this.layout.tiles[idx];
-    if (t === TileType.WALL) this.selectTool('wall');
-    else if (t !== TileType.VOID) {
-      this.floorPattern = t;
+    const gid = this.layout.tiles[idx];
+    if (isWall(gid)) {
+      this.selectTool('wall');
+    } else if (isFloor(gid)) {
+      this.floorPattern = floorPatternOf(gid);
       this.selectTool('floor');
       this.highlightFloorSwatch();
     }
-    const ci = this.layout.tileColorIndex?.[idx];
+    const ci = tileColorIndexOf(gid);
     if (ci != null) {
       this.tileColorIdx = ci;
       this.highlightTileColorSwatch();
@@ -948,7 +946,7 @@ export class LayoutEditor {
     // Dashed outlines on VOID tiles inside the bounds.
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        if (this.tileMap[r]?.[c] === TileType.VOID) {
+        if (isVoid(this.tileMap[r]?.[c] ?? VOID_GID)) {
           this.dashedRect(g, c * s, r * s, s, s, VOID_OUTLINE.color, VOID_OUTLINE.alpha, lw);
         }
       }
@@ -1082,7 +1080,6 @@ export class LayoutEditor {
   private expand(direction: ExpandDirection): { col: number; row: number } | null {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
-    const tileColorIndex = this.layout.tileColorIndex ?? new Array(tiles.length).fill(null);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
     let newCols = cols;
     let newRows = rows;
@@ -1099,22 +1096,19 @@ export class LayoutEditor {
     }
     if (newCols > MAX_COLS || newRows > MAX_ROWS) return null;
 
-    const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
-    const newColorIndex: Array<number | null> = new Array(newCols * newRows).fill(null);
+    const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(VOID_GID as TileTypeVal);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
         const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
         newTiles[newIdx] = tiles[oldIdx];
-        newColorIndex[newIdx] = tileColorIndex[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
       }
     }
     this.layout.cols = newCols;
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
-    this.layout.tileColorIndex = newColorIndex;
     this.layout.tileBlocked = newBlocked;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;

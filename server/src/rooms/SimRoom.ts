@@ -809,7 +809,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // No migration path from older schema versions — a stale (pre-Tiled-schema)
     // save is treated as absent, same as a zone with nothing saved yet, rather
     // than risk misreading its old field shapes as the current ones.
-    return raw && raw.version === 2 ? raw : undefined;
+    return raw && raw.version === 3 ? raw : undefined;
   }
 
   /** This zone's builtin/read-only Default layout, for generated zones. The

@@ -95,7 +95,7 @@ function generateFloorTileset(): void {
   const tileEntries: string[] = [];
 
   patternFiles.forEach((match, patternRow) => {
-    const patternNumber = patternRow + 1; // FLOOR_1..FLOOR_N (see shared/src/office/types.ts TileType)
+    const patternNumber = patternRow + 1; // 1-based, matches tileGid.ts's floorGid(pattern, ...)
     const base = decodeFloorPng(fs.readFileSync(path.join(floorsDir, match[0])));
     TILE_COLOR_PALETTE.forEach((hex, colorIndex) => {
       const tinted = colorizeToPalette(base, hex, TILE_COLOR_PALETTE);

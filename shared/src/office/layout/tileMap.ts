@@ -1,24 +1,25 @@
-import { TileType } from '../types.js';
+import type { TileGid } from '../types.js';
+import { isFloor } from '../tileGid.js';
 
 /** Check if a tile is walkable (floor, carpet, or doorway, and not blocked by furniture) */
 export function isWalkable(
   col: number,
   row: number,
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
 ): boolean {
   const rows = tileMap.length;
   const cols = rows > 0 ? tileMap[0].length : 0;
   if (row < 0 || row >= rows || col < 0 || col >= cols) return false;
   const t = tileMap[row][col];
-  if (t === TileType.WALL || t === TileType.VOID) return false;
+  if (!isFloor(t)) return false;
   if (blockedTiles.has(`${col},${row}`)) return false;
   return true;
 }
 
 /** Get walkable tile positions (grid coords) for wandering */
 export function getWalkableTiles(
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
 ): Array<{ col: number; row: number }> {
   const rows = tileMap.length;
@@ -42,7 +43,7 @@ export function getWalkableTiles(
 export function nearestWalkableTile(
   col: number,
   row: number,
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
 ): { col: number; row: number } | null {
   if (isWalkable(col, row, tileMap, blockedTiles)) return { col, row };
@@ -77,7 +78,7 @@ function bfsPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
 ): Array<{ col: number; row: number }> {
   const key = (c: number, r: number) => `${c},${r}`;
@@ -135,7 +136,7 @@ function dijkstraPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
   avoidTiles: Set<string>,
 ): Array<{ col: number; row: number }> {
@@ -221,7 +222,7 @@ export function findPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: TileGid[][],
   blockedTiles: Set<string>,
   avoidTiles?: Set<string>,
 ): Array<{ col: number; row: number }> {

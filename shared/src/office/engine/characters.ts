@@ -22,7 +22,7 @@ import type {
   InteractionPoint,
   Seat,
   SpriteData,
-  TileType as TileTypeVal,
+  TileGid as TileTypeVal,
 } from '../types.js';
 import { CharacterPose as Pose, CharacterState, Direction } from '../types.js';
 

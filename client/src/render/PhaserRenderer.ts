@@ -2,12 +2,12 @@ import Phaser from 'phaser';
 
 import {
   TILE_SIZE,
-  TileType,
   CharacterState,
   PetState,
   type Character,
   type Pet,
 } from '@pixel/shared/office/types.js';
+import { isVoid, isWall, isFloor, floorPatternOf, tileColorIndexOf } from '@pixel/shared/office/tileGid.js';
 import {
   BUBBLE_FADE_DURATION_SEC,
   BUBBLE_SITTING_OFFSET_PX,
@@ -26,7 +26,7 @@ import type {
   FurnitureInstance,
   OfficeLayout,
   SpriteData,
-  TileType as TileTypeVal,
+  TileGid as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 
 /** Everything the renderer reads — backed by synced state on the client and by
@@ -163,24 +163,20 @@ export class PhaserRenderer {
 
     const layout = this.state.getLayout();
     const tileMap = this.state.tileMap;
-    const tileColorIndex = layout.tileColorIndex;
-    const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
     // Floor + wall base color.
     for (let r = 0; r < tileMap.length; r++) {
       for (let c = 0; c < tileMap[r].length; c++) {
-        const tile = tileMap[r][c];
-        if (tile === TileType.VOID) continue;
+        const gid = tileMap[r][c];
+        if (isVoid(gid)) continue;
         const px = c * TILE_SIZE;
         const py = r * TILE_SIZE;
-        if (tile === TileType.WALL || !useFloors) {
-          const colorIdx = tile === TileType.WALL ? tileColorIndex?.[r * cols + c] : null;
-          const hex = tile === TileType.WALL ? (colorIdx != null ? (paletteWallColorToHex(colorIdx) ?? WALL_COLOR) : WALL_COLOR) : '#808080';
+        if (isWall(gid) || !useFloors) {
+          const hex = isWall(gid) ? (paletteWallColorToHex(tileColorIndexOf(gid)!) ?? WALL_COLOR) : '#808080';
           this.statics.push(this.solid(px, py, hex, FLOOR_DEPTH));
-        } else {
-          const colorIdx = tileColorIndex?.[r * cols + c] ?? null;
-          const tex = spriteTexture(this.scene, getPaletteFloorSprite(tile, colorIdx));
+        } else if (isFloor(gid)) {
+          const tex = spriteTexture(this.scene, getPaletteFloorSprite(floorPatternOf(gid), tileColorIndexOf(gid)));
           this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
         }
       }
@@ -188,7 +184,7 @@ export class PhaserRenderer {
 
     // Wall sprite instances (auto-tiled) — participate in depth sort.
     if (hasWallSprites()) {
-      for (const w of getWallInstances(tileMap, tileColorIndex, cols)) {
+      for (const w of getWallInstances(tileMap)) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.

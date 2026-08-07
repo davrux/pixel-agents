@@ -251,11 +251,19 @@ function nearestPaletteHex(hex: string, palette: readonly string[]): string {
  *  actually in `palette`. The output therefore only ever contains real
  *  palette colors — no off-palette blend — while the shading still reads as
  *  "this pattern, tinted", because different source lightness values quantize
- *  to different (but genuine) nearby palette entries. */
+ *  to different (but genuine) nearby palette entries.
+ *
+ *  The brightness shift centers the source's lightness on the target color's
+ *  own lightness (not just its hue/saturation) — without it, a flat/low-
+ *  contrast pattern (no shading of its own to work with) tints to whatever
+ *  the source's fixed lightness happens to produce, which can quantize to a
+ *  palette entry that looks nothing like the intended color (e.g. a dark
+ *  target color on a light flat pattern landing on a bright, unrelated hue). */
 export function colorizeToPalette(sprite: SpriteData, targetHex: string, palette: readonly string[]): SpriteData {
   const [r, g, b] = hexToRgb(targetHex);
-  const [h, s] = rgbToHsl(r, g, b);
-  const tinted = colorizeSprite(sprite, { h, s: s * 100, b: 0, c: 0, colorize: true });
+  const [h, s, l] = rgbToHsl(r, g, b);
+  const brightnessShift = (l - 0.5) * 200; // colorizeSprite's b is added as lightness + b/200
+  const tinted = colorizeSprite(sprite, { h, s: s * 100, b: brightnessShift, c: 0, colorize: true });
   return tinted.map((row) =>
     row.map((pixel) => {
       if (pixel === '') return '';

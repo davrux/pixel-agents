@@ -51,7 +51,7 @@ import type {
   PetKind,
   PlacedFurniture,
   Seat,
-  TileType as TileTypeVal,
+  TileGid as TileTypeVal,
 } from '../types.js';
 import {
   CharacterState,
@@ -60,8 +60,8 @@ import {
   PetKind as PetKindEnum,
   PetState,
   TILE_SIZE,
-  TileType,
 } from '../types.js';
+import { isVoid, isWall } from '../tileGid.js';
 import { createCharacter, releaseStation, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
@@ -368,7 +368,8 @@ export class OfficeState {
     const wallRow = row + h - 1;
     let wallMounted = true;
     for (let dc = 0; dc < w && wallMounted; dc++) {
-      if (this.tileMap[wallRow]?.[col + dc] !== TileType.WALL) wallMounted = false;
+      const neighborGid = this.tileMap[wallRow]?.[col + dc];
+      if (neighborGid === undefined || !isWall(neighborGid)) wallMounted = false;
     }
     const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
     const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side
@@ -832,7 +833,7 @@ export class OfficeState {
     // tile (a wall, furniture) still resolves to the nearest walkable spot,
     // same as before — this only rejects clicks that hit no tile at all.
     const clicked = this.tileMap[row]?.[col];
-    if (clicked === undefined || clicked === TileType.VOID) return false;
+    if (clicked === undefined || isVoid(clicked)) return false;
     const target = nearestWalkableTile(col, row, this.tileMap, this.blockedTiles);
     if (!target) return false;
     // Route around tile actions when a detour exists (see computeActionTileKeys)
