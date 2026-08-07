@@ -1,6 +1,6 @@
 {
   "name": "bubble-waiting",
-  "description": "Waiting bubble: white square with green checkmark, and a tail pointer (11x13)",
+  "description": "Waiting bubble: white square with a green question mark, and a tail pointer (11x13)",
   "width": 11,
   "height": 13,
   "palette": {
@@ -12,13 +12,13 @@
   "pixels": [
     ["_","B","B","B","B","B","B","B","B","B","_"],
     ["B","F","F","F","F","F","F","F","F","F","B"],
-    ["B","F","F","F","F","F","F","F","F","F","B"],
-    ["B","F","F","F","F","F","F","F","G","F","B"],
+    ["B","F","F","F","G","G","G","F","F","F","B"],
+    ["B","F","F","G","F","F","F","G","F","F","B"],
     ["B","F","F","F","F","F","F","G","F","F","B"],
-    ["B","F","F","G","F","F","G","F","F","F","B"],
-    ["B","F","F","F","G","G","F","F","F","F","B"],
+    ["B","F","F","F","F","F","G","F","F","F","B"],
+    ["B","F","F","F","F","G","F","F","F","F","B"],
     ["B","F","F","F","F","F","F","F","F","F","B"],
-    ["B","F","F","F","F","F","F","F","F","F","B"],
+    ["B","F","F","F","F","G","F","F","F","F","B"],
     ["_","B","B","B","B","B","B","B","B","B","_"],
     ["_","_","_","_","B","B","B","_","_","_","_"],
     ["_","_","_","_","_","B","_","_","_","_","_"],

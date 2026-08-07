@@ -199,7 +199,10 @@ function openCall(room: string, url: string, token: string, displayName: string)
     switchSpeaker: (id) => void conf?.switchSpeaker(id),
     setVolume: (identity, v) => conf?.setParticipantVolume(identity, v),
     setMuted: (identity, muted) => conf?.setParticipantMuted(identity, muted),
+    muteForAll: (identity) => conf?.requestMute(identity),
     sendChat: (text) => conf?.sendChat(text),
+    sendReaction: (id) => conf?.sendReaction(id),
+    setVideoFilter: (id) => void conf?.setVideoFilter(id),
     leave: () => {
       void conf?.disconnect();
       confUI.close();
@@ -210,12 +213,14 @@ function openCall(room: string, url: string, token: string, displayName: string)
   };
   document.title = `Meeting — ${room}`;
   confUI.open(`Meeting room (${displayName})`, handlers);
-  conf = new LiveKitConference(confUI.stage, confUI.screens, {
+  conf = new LiveKitConference(confUI.stage, confUI.stage, {
     onState: (s) => confUI.setState(s),
     onDevices: (d) => confUI.setDevices(d),
     onChat: (m) => confUI.addChat(m),
     onParticipants: (list) => confUI.setParticipants(list),
-    onScreens: (n) => confUI.setSharing(n > 0),
+    onNotice: (text) => confUI.notice(text),
+    onReaction: (reaction, from) => confUI.playReaction(reaction, from),
+    onVideoFilter: (id) => confUI.setVideoFilter(id),
   });
   void conf.connect(url, token).catch(() => {
     /* connect() reports failures via the state callback */

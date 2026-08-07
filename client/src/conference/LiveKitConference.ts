@@ -1,9 +1,20 @@
 /**
  * LiveKit media layer for the in-world conference monitors. Owns the room
- * lifecycle and renders **one tile per participant** into a stage grid (video,
- * or an initials placeholder when the camera is off), plus separate "spotlight"
- * tiles for screen shares. Also carries an ephemeral in-meeting chat over the
- * LiveKit data channel and surfaces participant / active-speaker changes.
+ * lifecycle and renders **one tile per participant** into the stage (video, or
+ * an initials placeholder when the camera is off) plus one tile per screen
+ * share. Also carries an ephemeral in-meeting chat over the LiveKit data
+ * channel and surfaces participant / active-speaker changes.
+ *
+ * Every tile carries a `data-focus-key` and lands in the same stage element:
+ * ConferenceUI owns the layout on top of that (grid vs. focused tile) and picks
+ * tiles up by watching the stage, so nothing here needs to know about it.
+ *
+ * Camera/mic permission is treated as something that routinely goes wrong, which
+ * on Firefox it does — it forgets a grant as soon as capture stops, so it prompts
+ * again on every join. Hence: one combined getUserMedia for the single prompt,
+ * a join that degrades to mic-only (or watch-only) instead of failing whole,
+ * camOn/micOn that only claim what is actually published, and device
+ * enumeration that never triggers a permission request of its own.
  *
  * The surrounding shell (control bar, chat/participants sidebars, fullscreen)
  * lives in ConferenceUI; this class only manages media + data. All of it is
@@ -14,11 +25,14 @@ import {
   RoomEvent,
   Track,
   DataPacket_Kind,
+  type LocalVideoTrack,
   type Participant,
   type RemoteParticipant,
   type Track as LkTrack,
   type TrackPublication,
 } from 'livekit-client';
+import { reactionById, type Reaction } from './reactions.js';
+import { CameraFilters, type VideoFilterId } from './videoFilters.js';
 
 export interface ConferenceState {
   connected: boolean;
@@ -61,7 +75,13 @@ export interface ConferenceCallbacks {
   onDevices?: (d: ConferenceDevices) => void;
   onChat?: (m: ConferenceChatMsg) => void;
   onParticipants?: (list: ConferenceParticipant[]) => void;
-  /** Number of active screen shares changed (drives the spotlight layout). */
+  /** Transient message for the viewer (e.g. "Ada muted you"). */
+  onNotice?: (text: string) => void;
+  /** Somebody (possibly us) sent a reaction — play it over the whole window. */
+  onReaction?: (r: Reaction, from: string) => void;
+  /** The camera filter actually in force changed (a failed one falls back to 'none'). */
+  onVideoFilter?: (id: VideoFilterId) => void;
+  /** Number of active screen-shares changed (0 → nobody sharing). */
   onScreens?: (count: number) => void;
 }
 
@@ -77,11 +97,17 @@ interface PTile {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** Smallest gap between two reactions from the same participant. Reactions cover
+ *  the whole window, so an unthrottled sender could blind everyone else — and the
+ *  sender is another client, i.e. untrusted (AGENTS.md rule 7). Ours is throttled
+ *  on the way out too, so our own effect matches what others see. */
+const REACTION_GAP_MS = 900;
+
 export class LiveKitConference {
   private room: Room | null = null;
   /** One tile per participant identity (camera / placeholder). */
   private readonly tiles = new Map<string, PTile>();
-  /** Screen-share spotlight tiles, keyed by track sid. */
+  /** Screen-share tiles, keyed by track sid. */
   private readonly screens = new Map<string, HTMLElement>();
   /** Hidden remote audio elements, keyed by track sid. */
   private readonly audios = new Map<string, { el: HTMLMediaElement; identity: string }>();
@@ -91,6 +117,10 @@ export class LiveKitConference {
   private readonly peerMuted = new Set<string>();
   /** Persisted volumes, keyed by display name (else identity) — survives reloads. */
   private readonly savedVolumes = new Map<string, number>();
+  /** Last reaction time per identity (own identity included) — rate limiting. */
+  private readonly lastReaction = new Map<string, number>();
+  /** Background blur / virtual background for our own camera track. */
+  private readonly filters: CameraFilters;
   private camOn = true;
   private micOn = true;
   private screenOn = false;
@@ -102,6 +132,7 @@ export class LiveKitConference {
     private readonly cb: ConferenceCallbacks,
   ) {
     this.loadSavedVolumes();
+    this.filters = new CameraFilters((text) => this.cb.onNotice?.(text));
   }
 
   /** Move every currently-rendered tile / screen-share / audio element from
@@ -132,6 +163,9 @@ export class LiveKitConference {
       .on(RoomEvent.TrackUnsubscribed, (track, _pub, p) => this.removeTrack(track, p))
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.track) this.addTrack(pub.track, room.localParticipant, true);
+        // Every fresh camera track starts unfiltered — publishing on join, turning
+        // the camera back on, switching device. Re-apply the chosen filter to it.
+        if (pub.source === Track.Source.Camera) void this.applyFilterToCamera();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.track) this.removeTrack(pub.track, room.localParticipant);
@@ -152,21 +186,95 @@ export class LiveKitConference {
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
-      // In parallel, not sequential — camera negotiation (device warm-up,
-      // resolution/codec) is much slower than mic, and awaiting it first
-      // means audio would otherwise wait behind a delay it doesn't have.
-      await Promise.all([
-        enableCamera ? room.localParticipant.setCameraEnabled(true) : Promise.resolve(),
-        room.localParticipant.setMicrophoneEnabled(true),
-      ]);
-      this.ensureTile(room.localParticipant, true);
-      for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
-      this.notify();
-      this.emitParticipants();
-      await this.emitDevices(); // labels are available now that permission is granted
     } catch (e) {
       this.notify((e as Error)?.message || 'connection failed');
       throw e;
+    }
+    // Only the connect above is fatal. Publishing is best-effort: a blocked,
+    // missing or busy camera must not take the whole meeting — and the
+    // microphone — down with it.
+    await this.publishLocalMedia(enableCamera);
+    this.ensureTile(room.localParticipant, true);
+    for (const p of room.remoteParticipants.values()) this.ensureTile(p, false);
+    this.notify();
+    this.emitParticipants();
+    this.cb.onVideoFilter?.(this.filters.current); // show the remembered filter as picked
+    await this.emitDevices(); // whatever labels the publish above unlocked
+  }
+
+  // ── Local media (one permission prompt, and no all-or-nothing join) ─
+
+  /** Publish camera + mic from a **single** getUserMedia
+   *  (`enableCameraAndMicrophone`), so the browser shows one permission prompt
+   *  instead of two. Firefox re-asks on every join unless the member ticked
+   *  "Remember this decision", so the second prompt isn't hypothetical there.
+   *
+   *  Whatever fails, we stay in the call with what works and report honest
+   *  camOn/micOn — the control bar must not show 📷/🎙 lit while nothing is
+   *  published.
+   *
+   *  `enableCamera: false` skips the camera outright (a 'meetingRoom' action
+   *  with video disabled) — only the microphone is requested, so there's
+   *  still just the one permission prompt. */
+  private async publishLocalMedia(enableCamera: boolean): Promise<void> {
+    const lp = this.room?.localParticipant;
+    if (!lp) return;
+    // No mediaDevices at all = insecure origin (plain http on anything but
+    // localhost). Watching and listening still works, so it's a notice, not an
+    // error.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.camOn = false;
+      this.micOn = false;
+      this.cb.onNotice?.('Camera and microphone need an https connection — you can watch and listen, but not publish.');
+      return;
+    }
+    if (!enableCamera) {
+      this.camOn = false;
+      this.micOn = await this.tryPublish('mic');
+      if (!this.micOn) this.cb.onNotice?.('No microphone: device unavailable.');
+      return;
+    }
+    try {
+      await lp.enableCameraAndMicrophone();
+      return;
+    } catch (e) {
+      const err = e as Error;
+      if (err?.name === 'NotAllowedError') {
+        // Permission refused. getUserMedia is all-or-nothing, so somebody who
+        // keeps their camera permanently blocked (Firefox remembers a "Block",
+        // and then never even shows a prompt) lands here with a perfectly good
+        // microphone — so ask for the mic on its own, once. The camera is not
+        // asked for again: they said no, and the Cam button is there for later.
+        this.camOn = false;
+        this.micOn = await this.tryPublish('mic');
+        this.cb.onNotice?.(
+          this.micOn
+            ? `Camera blocked — joined with microphone only. ${grantHint()}`
+            : `Camera and microphone blocked. ${grantHint()}`,
+        );
+        return;
+      }
+      // A device-level problem instead — none present, already in use by
+      // another app, unsupported constraints. The combined request fails as a
+      // unit, so retry the two separately and keep whatever works. Mic first: a
+      // meeting survives without a picture, not without sound.
+      this.micOn = await this.tryPublish('mic');
+      this.camOn = await this.tryPublish('cam');
+      const dead = [!this.camOn ? 'camera' : '', !this.micOn ? 'microphone' : ''].filter(Boolean).join(' or ');
+      if (dead) this.cb.onNotice?.(`No ${dead}: ${err?.message || 'device unavailable'}`);
+    }
+  }
+
+  /** Enable one device, reporting failure instead of throwing. */
+  private async tryPublish(kind: 'cam' | 'mic'): Promise<boolean> {
+    const lp = this.room?.localParticipant;
+    if (!lp) return false;
+    try {
+      if (kind === 'cam') await lp.setCameraEnabled(true);
+      else await lp.setMicrophoneEnabled(true);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -182,6 +290,8 @@ export class LiveKitConference {
     const root = document.createElement('div');
     root.className = 'pa-conf-tile';
     root.dataset.identity = p.identity;
+    root.dataset.focusKey = `p:${p.identity}`;
+    root.title = 'Click to focus';
     const media = document.createElement('div');
     media.className = 'pa-conf-media';
     const placeholder = document.createElement('div');
@@ -211,7 +321,9 @@ export class LiveKitConference {
       if (isScreen) {
         const sid = track.sid || `${p.identity}-screen`;
         const tile = document.createElement('div');
-        tile.className = 'pa-conf-tile pa-conf-screen';
+        tile.className = 'pa-conf-tile screen';
+        tile.dataset.focusKey = `s:${sid}`;
+        tile.title = 'Click to focus';
         const tag = document.createElement('span');
         tag.className = 'pa-conf-name';
         tag.textContent = `🖥 ${local ? 'You' : p.name || p.identity}`;
@@ -315,7 +427,13 @@ export class LiveKitConference {
 
   private onData(payload: Uint8Array, p?: RemoteParticipant): void {
     try {
-      const msg = JSON.parse(dec.decode(payload)) as { t?: string; text?: string; at?: number };
+      const msg = JSON.parse(dec.decode(payload)) as {
+        t?: string;
+        text?: string;
+        at?: number;
+        target?: string;
+        r?: unknown;
+      };
       if (msg.t === 'chat' && typeof msg.text === 'string') {
         this.cb.onChat?.({
           from: p?.name || p?.identity || '?',
@@ -323,10 +441,112 @@ export class LiveKitConference {
           at: typeof msg.at === 'number' ? msg.at : Date.now(),
           local: false,
         });
+      } else if (msg.t === 'mute' && msg.target === this.room?.localParticipant.identity) {
+        void this.muteSelf(p?.name || p?.identity || 'Someone');
+      } else if (msg.t === 'react') {
+        // Untrusted: only a known reaction id plays, and only every
+        // REACTION_GAP_MS per sender. Anything else is dropped silently.
+        const reaction = reactionById(msg.r);
+        const identity = p?.identity ?? '?';
+        if (reaction && this.allowReaction(identity)) {
+          this.playReaction(reaction, p?.name || identity, identity);
+        }
       }
     } catch {
       /* ignore malformed data */
     }
+  }
+
+  // ── Reactions (whole-window emoji + sound, like Jitsi) ─────────────
+
+  /** Send one of the five reactions to everybody, and play it here too (the data
+   *  channel doesn't loop back). Ignored while throttled or when the id is bogus. */
+  sendReaction(id: string): void {
+    const room = this.room;
+    const reaction = reactionById(id);
+    if (!room || !reaction) return;
+    const me = room.localParticipant.identity;
+    if (!this.allowReaction(me)) return;
+    room.localParticipant.publishData(enc.encode(JSON.stringify({ t: 'react', r: reaction.id })), {
+      reliable: true,
+    });
+    this.playReaction(reaction, 'You', me);
+  }
+
+  /** Rate limit per participant — see REACTION_GAP_MS. */
+  private allowReaction(identity: string): boolean {
+    const now = Date.now();
+    const last = this.lastReaction.get(identity) ?? 0;
+    if (now - last < REACTION_GAP_MS) return false;
+    this.lastReaction.set(identity, now);
+    return true;
+  }
+
+  /** The window-wide effect (owned by ConferenceUI) plus a badge on the sender's
+   *  own tile, so a busy call still shows *who* reacted. */
+  private playReaction(reaction: Reaction, who: string, identity: string): void {
+    this.cb.onReaction?.(reaction, who);
+    const tile = this.tiles.get(identity);
+    if (!tile) return;
+    tile.root.querySelector('.pa-conf-react')?.remove();
+    const badge = document.createElement('span');
+    badge.className = 'pa-conf-react';
+    badge.textContent = reaction.emoji;
+    badge.addEventListener('animationend', () => badge.remove());
+    tile.root.appendChild(badge);
+    window.setTimeout(() => badge.remove(), 2600);
+  }
+
+  // ── Camera background filters (blur / virtual background) ──────────
+
+  /** Our own camera track, if one is published (LiveKit replaces it whenever the
+   *  camera is toggled or the device switched). */
+  private cameraTrack(): LocalVideoTrack | undefined {
+    const pub = this.room?.localParticipant.getTrackPublication(Track.Source.Camera);
+    return pub?.track as LocalVideoTrack | undefined;
+  }
+
+  private async applyFilterToCamera(): Promise<void> {
+    await this.filters.attach(this.cameraTrack());
+    this.cb.onVideoFilter?.(this.filters.current);
+  }
+
+  /** Pick a background filter. Reports back the one actually in force — applying
+   *  can fail (unsupported browser, missing assets), and then it's 'none'. */
+  async setVideoFilter(id: VideoFilterId): Promise<void> {
+    const effective = await this.filters.select(id, this.cameraTrack());
+    this.cb.onVideoFilter?.(effective);
+    if (effective !== 'none' && !this.cameraTrack()) {
+      this.cb.onNotice?.('Filter saved — it applies as soon as your camera is on.');
+    }
+  }
+
+  // ── Mute for everyone (a request, not an enforcement) ──────────────
+
+  /** Ask a member to switch their microphone off. It's their own client that
+   *  does the muting, so the mic really is off at the source — everyone stops
+   *  hearing them, not just us — and they can turn it back on whenever they
+   *  like with their own Mic button. (Anyone in the call may do this; there are
+   *  no moderators here, same as the rest of the office.) */
+  requestMute(identity: string): void {
+    const room = this.room;
+    if (!room || identity === room.localParticipant.identity) return;
+    room.localParticipant.publishData(enc.encode(JSON.stringify({ t: 'mute', target: identity })), {
+      reliable: true,
+      destinationIdentities: [identity], // nobody else needs to see the request
+    });
+    const name = room.remoteParticipants.get(identity)?.name || identity;
+    this.cb.onNotice?.(`Asked ${name} to mute.`);
+  }
+
+  /** Someone asked us to mute — comply, and say who so it isn't a mystery. */
+  private async muteSelf(by: string): Promise<void> {
+    if (!this.micOn) return;
+    this.micOn = false;
+    await this.room?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+    this.notify();
+    this.emitParticipants();
+    this.cb.onNotice?.(`${by} muted you. Press 🎙 Mic to unmute.`);
   }
 
   // ── Participants ───────────────────────────────────────────────────
@@ -404,15 +624,31 @@ export class LiveKitConference {
   // ── Controls ───────────────────────────────────────────────────────
 
   async toggleCam(): Promise<void> {
-    this.camOn = !this.camOn;
-    await this.room?.localParticipant.setCameraEnabled(this.camOn);
+    const next = !this.camOn;
+    try {
+      await this.room?.localParticipant.setCameraEnabled(next);
+      this.camOn = next;
+    } catch {
+      // Switching the camera back on re-runs getUserMedia — LiveKit stops the
+      // camera track on mute so the hardware light goes out, and unmuting has to
+      // re-acquire it. In Firefox that's a fresh permission prompt every time,
+      // and a dismissed one lands here. Stay off rather than claim to be live.
+      this.camOn = false;
+      this.cb.onNotice?.(`Camera unavailable. ${grantHint()}`);
+    }
     this.notify();
     this.emitParticipants();
   }
 
   async toggleMic(): Promise<void> {
-    this.micOn = !this.micOn;
-    await this.room?.localParticipant.setMicrophoneEnabled(this.micOn);
+    const next = !this.micOn;
+    try {
+      await this.room?.localParticipant.setMicrophoneEnabled(next);
+      this.micOn = next;
+    } catch {
+      this.micOn = false;
+      this.cb.onNotice?.(`Microphone unavailable. ${grantHint()}`);
+    }
     this.notify();
     this.emitParticipants();
   }
@@ -432,9 +668,18 @@ export class LiveKitConference {
     const room = this.room;
     if (!room || !this.cb.onDevices) return;
     try {
-      const cameras = await Room.getLocalDevices('videoinput');
-      const mics = await Room.getLocalDevices('audioinput');
-      const speakers = await Room.getLocalDevices('audiooutput');
+      // requestPermissions: false. The default (true) makes LiveKit fire *another*
+      // getUserMedia whenever a kind's list is empty or any label is blank — i.e.
+      // another Firefox prompt, and one that grabs the mic just to read labels.
+      // Firefox's speaker list is routinely empty (it gates audiooutput
+      // enumeration), so the default would re-prompt on every enumeration: on
+      // join, on every devicechange, and after every device switch. Our own
+      // publish already unlocked whatever labels we're going to get.
+      const [cameras, mics, speakers] = await Promise.all([
+        Room.getLocalDevices('videoinput', false),
+        Room.getLocalDevices('audioinput', false),
+        Room.getLocalDevices('audiooutput', false),
+      ]);
       this.cb.onDevices({
         cameras,
         mics,
@@ -479,11 +724,15 @@ export class LiveKitConference {
   async disconnect(): Promise<void> {
     const r = this.room;
     this.room = null;
+    // Free the segmenter's WASM/WebGL before the track goes away — a leftover
+    // processor would keep decoding frames from a camera nobody is watching.
+    await this.filters.destroy();
     await r?.disconnect();
     this.cleanup();
   }
 
   private cleanup(): void {
+    void this.filters.destroy(); // also covers a drop we didn't initiate (idempotent)
     for (const t of this.tiles.values()) t.root.remove();
     this.tiles.clear();
     for (const el of this.screens.values()) el.remove();
@@ -492,11 +741,23 @@ export class LiveKitConference {
     this.audios.clear();
     this.peerVolumes.clear();
     this.peerMuted.clear();
+    this.lastReaction.clear();
   }
 
   private notify(error?: string): void {
     this.cb.onState({ connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn, error });
   }
+}
+
+/** How to get the permission back, worded for the browser in front of us.
+ *  Firefox drops a camera/mic grant the moment capture stops, so it re-asks on
+ *  every join and every camera re-enable unless "Remember this decision" was
+ *  ticked — worth saying out loud, because the prompt is easy to miss. */
+function grantHint(): string {
+  const ff = typeof navigator !== 'undefined' && navigator.userAgent.includes('Firefox');
+  return ff
+    ? 'Allow it in the address-bar prompt, and tick "Remember this decision" so Firefox stops asking each time.'
+    : 'Allow it in the address-bar prompt.';
 }
 
 /** Route a media element to a specific output device (where supported). */

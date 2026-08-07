@@ -138,8 +138,58 @@ Add a matching command for any new destination (see AGENTS.md convention).
     array). Env: `ARCADE_TURN_URLS` (comma list), `ARCADE_TURN_SECRET`,
     `ARCADE_TURN_TTL` (default 12h), optional `ARCADE_STUN_URLS`. Unset → STUN-only
     (LAN/same-machine only). Operator must run coturn on the public host.
-- **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit); per-member
-  volume/mute. **Zone voice** = per-zone WebRTC + proximity.
+- **Conference** = WebEx-style monitor calls (ConferenceUI + LiveKit). The People
+  panel carries two different mutes per member: 🔊 + the slider are **local**
+  (this viewer's playback only, volume persisted by name in localStorage), while
+  "Mute for all" sends a `{t:'mute'}` data message to that member, whose own
+  client switches its mic off — so it's off at the source for everyone, and they
+  can unmute themselves again with their Mic button. No moderator role, no
+  server enforcement. LiveKitConference drops every tile — cameras *and* screen shares —
+  into one stage; ConferenceUI owns the layout on top of it: a page-filling grid
+  (tile size solved in JS, since CSS auto-fit strands everyone in one row) or one
+  focused tile plus a filmstrip. Click a tile to focus it, "▦ Grid"/Esc/double-click
+  to go back; a new screen share focuses itself once.
+  Every control-bar button is one fixed box (icon over label) with the icon in a
+  fixed `.pa-conf-ico` and an explicit emoji font (`--emoji`): colour-emoji glyphs
+  draw bigger than text glyphs (⛶ ▦) at the same font-size, which is what made the
+  old bar look ragged — the two text glyphs carry `.glyph` to size up to match.
+  - **Reactions** (`conference/reactions.ts`) — exactly **five**, and the wire
+    format is the *id*, never the emoji: `{t:'react', r:'up'}` over the LiveKit
+    data channel, looked up through `reactionById()` on receipt, so a hostile
+    client can't inject a glyph or markup, and rate-limited per sender
+    (`REACTION_GAP_MS`, ours included). The effect is Jitsi-style: the emoji rises
+    across the whole window (CSS keyframes on throwaway nodes, capped count) plus a
+    "who reacted" hero and a badge on that member's tile. Sound is synthesized in
+    `sound.ts` (`playNotes`) — no audio files — so the viewer's sound toggle and
+    master volume apply.
+  - **Background filters** (`conference/videoFilters.ts`) — blur / virtual
+    background via `@livekit/track-processors` (MediaPipe selfie segmenter),
+    attached to the **local camera track**, so what everybody receives is already
+    filtered. Backgrounds are generated on a canvas (no image files) plus an
+    uploaded "your image" kept in localStorage. **Self-hosted like the arcade
+    engines**: assets come from `/mediapipe/` — `pnpm vendor:mediapipe`
+    (`scripts/vendor-mediapipe.mjs`: copies the tasks-vision WASM out of
+    node_modules, downloads the `.tflite` model; ~19 MB, gitignored, also run in
+    the Dockerfile + the AppImage workflow) — **never** LiveKit's default jsdelivr /
+    Google-model-store URLs. Skipping the vendor step is survivable: `probeAssets()`
+    HEADs the model and the picker says how to install it. The heavy import is
+    dynamic, so MediaPipe is a lazy chunk, and `browserSupportsFilters()` greys the
+    picker out where WebCodecs/WebGL2 are missing (Chromium uses
+    MediaStreamTrackProcessor, Firefox the canvas.captureStream fallback). The
+    filter is re-attached on every `LocalTrackPublished` for the camera, because a
+    Cam toggle or a device switch publishes a *new*, unfiltered track.
+  Camera/mic permission is assumed to fail regularly, because on Firefox it does
+  — Firefox drops a grant as soon as capture stops, so it re-prompts on every
+  join (and on every Cam re-enable, since LiveKit stops the camera track on mute
+  to kill the hardware light and has to re-acquire it). Hence: one combined
+  `enableCameraAndMicrophone()` for a single prompt, a join that degrades to
+  mic-only or watch-only instead of failing whole (a refused camera used to take
+  the mic with it — `getUserMedia` is all-or-nothing), `camOn`/`micOn` that only
+  claim what is really published, and `Room.getLocalDevices(kind, false)` so
+  enumerating devices never fires a permission request of its own (the default
+  `true` re-prompts whenever a label is blank or a list is empty — Firefox's
+  speaker list usually is). **Zone voice** = per-zone WebRTC + proximity, and it
+  defers `getUserMedia` until the first unmute, so joining a zone never prompts.
 - **Mumble (desktop only)** — a real Mumble client, split across the two processes:
   - `desktop/src/mumble/` is main-process: `varint.ts` (Mumble's own big-endian
     varint — **not** protobuf's LEB128, which is in `protobuf.ts`), `protocol.ts`

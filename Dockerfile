@@ -37,7 +37,10 @@ RUN pnpm install --frozen-lockfile
 # bind-mount), so the image stays free of copyrighted bytes and safe to publish.
 # Build the content once with `pnpm build:arcade` and mount it (see docs/dev-notes.md
 # + tmp/docker-compose.yml).
-RUN pnpm run vendor:emulatorjs && pnpm run build
+# vendor:mediapipe joins it for the same reason: the conference background filters
+# (blur / virtual background) run a self-hosted MediaPipe segmenter — free engine
+# code + model, no runtime CDN. Skipping it only costs the Filters button.
+RUN pnpm run vendor:emulatorjs && pnpm run vendor:mediapipe && pnpm run build
 
 # ── Runtime: node + the whole workspace tree (source, deps, client/dist, assets)
 # tsx (a server devDependency) runs the TypeScript server in place.

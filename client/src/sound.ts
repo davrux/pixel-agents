@@ -43,14 +43,23 @@ export function unlockAudio(): void {
   }
 }
 
-function note(freq: number, start: number, dur: number, vol: number): void {
+/** One synthesized note: when (seconds from now), how long, how loud, what shape. */
+export interface Note {
+  freq: number;
+  start: number;
+  dur: number;
+  vol: number;
+  type?: OscillatorType;
+}
+
+function note(freq: number, start: number, dur: number, vol: number, type: OscillatorType = 'sine'): void {
   if (!ctx) return;
   const peak = vol * alertVolume;
   if (peak <= 0) return;
   const t = ctx.currentTime + start;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
-  osc.type = 'sine';
+  osc.type = type;
   osc.frequency.setValueAtTime(freq, t);
   gain.gain.setValueAtTime(peak, t);
   gain.gain.exponentialRampToValueAtTime(0.001, t + dur);
@@ -81,4 +90,12 @@ export async function playPermissionSound(): Promise<void> {
   if (!(await ensure())) return;
   note(NOTE.perm1, 0, NOTE.permDur, NOTE.permVol);
   note(NOTE.perm2, NOTE.perm2Start, NOTE.permDur, NOTE.permVol);
+}
+
+/** Play an arbitrary little motif through the same gate + master volume as the
+ *  chimes above (used by the conference reaction sounds, which need one distinct
+ *  jingle per emoji rather than the two fixed chimes). */
+export async function playNotes(notes: readonly Note[]): Promise<void> {
+  if (!(await ensure())) return;
+  for (const n of notes) note(n.freq, n.start, n.dur, n.vol, n.type);
 }

@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@colyseus/sdk": "^0.17.43",
+    "@livekit/track-processors": "^0.7.2",
+    "@mediapipe/tasks-vision": "0.10.14",
     "@pixel/shared": "workspace:*",
     "livekit-client": "^2.21.0",
     "phaser": "^4.2.1"

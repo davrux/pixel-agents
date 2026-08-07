@@ -41,3 +41,7 @@ client/public/jsdos/bundles/
 # scripts/vendor-emulatorjs.mjs (not committed).
 client/public/emulatorjs/
 
+# Self-hosted MediaPipe segmentation (conference background filters) — ~19 MB of
+# WASM + the selfie-segmenter model, vendored via scripts/vendor-mediapipe.mjs.
+client/public/mediapipe/
+
