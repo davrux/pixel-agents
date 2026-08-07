@@ -1,4 +1,3 @@
-import type { ColorValue } from '../colorTypes.js';
 import { getColorizedSprite } from '../colorize.js';
 import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
@@ -255,9 +254,9 @@ export function getSeatTiles(seats: Map<string, Seat>): Set<string> {
   return tiles;
 }
 
-/** Default floor colors for the two rooms */
-const DEFAULT_LEFT_ROOM_COLOR: ColorValue = { h: 35, s: 30, b: 15, c: 0 }; // warm beige
-const DEFAULT_RIGHT_ROOM_COLOR: ColorValue = { h: 25, s: 45, b: 5, c: 10 }; // warm brown
+/** Default floor color swatches for the two rooms (see TILE_COLOR_PALETTE) */
+const DEFAULT_LEFT_ROOM_COLOR_INDEX = 2; // h=45, warm beige-ish
+const DEFAULT_RIGHT_ROOM_COLOR_INDEX = 1; // h=22.5, warm brown-ish
 
 /** Create a minimal fallback layout (used only when no default-layout.json exists) */
 export function createDefaultLayout(): OfficeLayout {
@@ -266,25 +265,25 @@ export function createDefaultLayout(): OfficeLayout {
   const F2 = TileType.FLOOR_2;
 
   const tiles: TileTypeVal[] = [];
-  const tileColors: Array<ColorValue | null> = [];
+  const tileColorIndex: Array<number | null> = [];
 
   for (let r = 0; r < DEFAULT_ROWS; r++) {
     for (let c = 0; c < DEFAULT_COLS; c++) {
       if (r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1) {
         tiles.push(W);
-        tileColors.push(null);
+        tileColorIndex.push(null);
       } else if (c < 10) {
         tiles.push(F1);
-        tileColors.push(DEFAULT_LEFT_ROOM_COLOR);
+        tileColorIndex.push(DEFAULT_LEFT_ROOM_COLOR_INDEX);
       } else {
         tiles.push(F2);
-        tileColors.push(DEFAULT_RIGHT_ROOM_COLOR);
+        tileColorIndex.push(DEFAULT_RIGHT_ROOM_COLOR_INDEX);
       }
     }
   }
 
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 2, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
+  return { version: 2, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColorIndex, furniture: [] };
 }
 
 /** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
@@ -296,15 +295,15 @@ export function createBlankZoneLayout(
   furniture: OfficeLayout['furniture'] = [],
 ): OfficeLayout {
   const tiles: TileTypeVal[] = [];
-  const tileColors: Array<ColorValue | null> = [];
+  const tileColorIndex: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
       tiles.push(edge ? TileType.WALL : TileType.FLOOR_3);
-      tileColors.push(null);
+      tileColorIndex.push(null);
     }
   }
-  return { version: 2, cols, rows, tiles, tileColors, furniture };
+  return { version: 2, cols, rows, tiles, tileColorIndex, furniture };
 }
 
 /** The plaza: the second builtin zone, with a beam pad (walk onto it → zone

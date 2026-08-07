@@ -342,8 +342,10 @@ export interface OfficeLayout {
   rows: number;
   tiles: TileType[];
   furniture: PlacedFurniture[];
-  /** Per-tile color settings, parallel to tiles array. null = wall/no color */
-  tileColors?: Array<ColorValue | null>;
+  /** Per-tile tint, parallel to tiles array — an index into TILE_COLOR_PALETTE
+   *  (tileColorPalette.ts), not a free color; null/missing = no tint. Applies
+   *  to both floor and wall tiles (see PhaserRenderer/wallTiles). */
+  tileColorIndex?: Array<number | null>;
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;

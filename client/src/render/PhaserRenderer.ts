@@ -20,6 +20,7 @@ import {
   WALL_COLOR,
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
+import { resolveTileColor } from '@pixel/shared/office/tileColorPalette.js';
 import { getCharacterSprite } from '@pixel/shared/office/engine/index.js';
 import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
@@ -163,7 +164,7 @@ export class PhaserRenderer {
 
     const layout = this.state.getLayout();
     const tileMap = this.state.tileMap;
-    const tileColors = layout.tileColors;
+    const tileColors = layout.tileColorIndex?.map((i) => resolveTileColor(i));
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 

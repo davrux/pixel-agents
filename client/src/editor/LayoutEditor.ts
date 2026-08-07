@@ -31,6 +31,7 @@ import { setTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
+import { TILE_COLOR_PALETTE, resolveTileColor } from '@pixel/shared/office/tileColorPalette.js';
 
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog, textLabelDialog } from '../ui/dialog.js';
@@ -110,6 +111,11 @@ export class LayoutEditor {
   /** The action the Action tool paints next (picked once via palAction, then
    *  drag-paints many tiles with it — same pattern as floorPattern/wallSet). */
   private currentTileAction: Action = { kind: 'meetingRoom', video: true };
+  /** The floor/wall tool's current tint — an index into TILE_COLOR_PALETTE,
+   *  picked once via palTileColor, then drag-paints many tiles with it (same
+   *  pattern as floorPattern/wallSet). Independent of `color` below, which is
+   *  furniture's own continuous h/s/b/c picker. */
+  private tileColorIdx = 0;
   private color: ColorValue = { ...NEUTRAL };
   private ghost?: Phaser.GameObjects.Image;
   private selRect?: Phaser.GameObjects.Rectangle;
@@ -154,6 +160,10 @@ export class LayoutEditor {
   private palFloor!: HTMLDivElement;
   private palWall!: HTMLDivElement;
   private palAction!: HTMLDivElement;
+  private palTileColor!: HTMLDivElement;
+  /** Furniture's h/s/b/c slider panel — shown for Select/Furniture, hidden for
+   *  Floor/Wall (which use palTileColor instead, see selectTool). */
+  private colorPanel!: HTMLDivElement;
   private palBuilt = false;
   /** Floor/wall palette previews, kept so they can re-render in the picked color. */
   private floorItems: Array<{ img: HTMLImageElement; pattern: number }> = [];
@@ -182,8 +192,8 @@ export class LayoutEditor {
   private enter(): void {
     this.populatePalettes();
     this.layout = structuredClone(this.deps.getLayout());
-    if (!this.layout.tileColors) {
-      this.layout.tileColors = new Array(this.layout.cols * this.layout.rows).fill(null);
+    if (!this.layout.tileColorIndex) {
+      this.layout.tileColorIndex = new Array(this.layout.cols * this.layout.rows).fill(null);
     }
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
@@ -461,15 +471,15 @@ export class LayoutEditor {
       }
     }
     if (this.tool === 'floor') {
-      // Preview the floor tile in the chosen colour (live as sliders move).
-      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, this.activeColor() ?? NEUTRAL));
+      // Preview the floor tile in the chosen swatch.
+      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, resolveTileColor(this.tileColorIdx) ?? NEUTRAL));
       this.ghost.setTexture(tex).setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xffffff).setVisible(true);
       return;
     }
     if (this.tool === 'wall') {
-      // Preview the wall tile tinted with the chosen wall colour.
-      const tint = hexToTint(wallColorToHex(this.color));
+      // Preview the wall tile tinted with the chosen swatch.
+      const tint = hexToTint(wallColorToHex(resolveTileColor(this.tileColorIdx) ?? NEUTRAL));
       this.ghost.setTexture('__WHITE').setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(tint).setVisible(true);
       return;
@@ -597,7 +607,7 @@ export class LayoutEditor {
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
     const idx = row * this.layout.cols + col;
     this.layout.tiles[idx] = tile as TileTypeVal;
-    this.layout.tileColors![idx] = tile === TileType.VOID ? null : { ...this.color };
+    this.layout.tileColorIndex![idx] = tile === TileType.VOID ? null : this.tileColorIdx;
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
     this.drawGrid();
@@ -699,8 +709,12 @@ export class LayoutEditor {
       this.selectTool('floor');
       this.highlightFloorSwatch();
     }
-    const c = this.layout.tileColors?.[idx];
-    if (c) this.applyColor(c);
+    const ci = this.layout.tileColorIndex?.[idx];
+    if (ci != null) {
+      this.tileColorIdx = ci;
+      this.highlightTileColorSwatch();
+      this.refreshPalettePreviews();
+    }
   }
 
   private rebuildFurniture(): void {
@@ -1068,7 +1082,7 @@ export class LayoutEditor {
   private expand(direction: ExpandDirection): { col: number; row: number } | null {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
-    const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
+    const tileColorIndex = this.layout.tileColorIndex ?? new Array(tiles.length).fill(null);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
     let newCols = cols;
     let newRows = rows;
@@ -1086,21 +1100,21 @@ export class LayoutEditor {
     if (newCols > MAX_COLS || newRows > MAX_ROWS) return null;
 
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
-    const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+    const newColorIndex: Array<number | null> = new Array(newCols * newRows).fill(null);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
         const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
         newTiles[newIdx] = tiles[oldIdx];
-        newColors[newIdx] = tileColors[oldIdx];
+        newColorIndex[newIdx] = tileColorIndex[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
       }
     }
     this.layout.cols = newCols;
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
-    this.layout.tileColors = newColors;
+    this.layout.tileColorIndex = newColorIndex;
     this.layout.tileBlocked = newBlocked;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
@@ -1543,7 +1557,7 @@ export class LayoutEditor {
         this.rebuildFurniture();
         this.deps.onEdit(this.layout, false);
       }
-    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
+    } else if (this.tool === 'furniture') {
       // Live-preview the chosen colour on the placement/paint ghost + palette.
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
       this.refreshPalettePreviews();
@@ -1584,7 +1598,7 @@ export class LayoutEditor {
         this.rebuildFurniture();
         this.deps.onEdit(this.layout, true);
       }
-    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
+    } else if (this.tool === 'furniture') {
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
       this.refreshPalettePreviews();
     }
@@ -1606,6 +1620,8 @@ export class LayoutEditor {
     this.palFloor.style.display = t === 'floor' ? 'grid' : 'none';
     if (this.palWall) this.palWall.style.display = t === 'wall' ? 'grid' : 'none';
     if (this.palAction) this.palAction.style.display = t === 'action' ? 'grid' : 'none';
+    if (this.palTileColor) this.palTileColor.style.display = t === 'floor' || t === 'wall' ? 'grid' : 'none';
+    if (this.colorPanel) this.colorPanel.style.display = t === 'floor' || t === 'wall' ? 'none' : '';
     if (this.rotateBtn) this.rotateBtn.style.display = t === 'furniture' ? 'block' : 'none';
     if (t !== 'select') {
       this.selectedUid = null;
@@ -1639,6 +1655,10 @@ export class LayoutEditor {
 
   private highlightFloorSwatch(): void {
     this.palFloor.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.pattern) === this.floorPattern));
+  }
+
+  private highlightTileColorSwatch(): void {
+    this.palTileColor.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.colorIdx) === this.tileColorIdx));
   }
 
   private highlightActionChoice(): void {
@@ -1745,6 +1765,7 @@ export class LayoutEditor {
     // Color controls
     const color = document.createElement('div');
     color.className = 'color';
+    this.colorPanel = color;
     const mkRange = (label: string, min: number, max: number, val: number) => {
       const row = document.createElement('div');
       row.className = 'rowc';
@@ -1810,7 +1831,28 @@ export class LayoutEditor {
     }
     this.highlightActionChoice();
 
-    root.append(bar, tools, this.hint, this.rotateBtn, color, this.palFurn, this.palFloor, this.palWall, this.palAction);
+    // Tile-tint picker for the Floor/Wall tools — a fixed 16-swatch palette
+    // (TILE_COLOR_PALETTE) instead of the furniture sliders above, so a
+    // tile's color is "which swatch" rather than a free h/s/b/c value (see
+    // tileColorPalette.ts for why — Tiled-format compatibility).
+    this.palTileColor = Object.assign(document.createElement('div'), { className: 'pa-pal pa-pal-tilecolor' });
+    this.palTileColor.style.display = 'none';
+    TILE_COLOR_PALETTE.forEach((swatch, i) => {
+      const b = document.createElement('button');
+      b.className = 'pa-pal-item pa-tilecolor-swatch';
+      b.dataset.colorIdx = String(i);
+      b.style.background = `hsl(${swatch.h} ${swatch.s}% ${55 + swatch.b / 2}%)`;
+      b.onclick = () => {
+        this.tileColorIdx = i;
+        this.highlightTileColorSwatch();
+        this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
+        this.refreshPalettePreviews();
+      };
+      this.palTileColor.appendChild(b);
+    });
+    this.highlightTileColorSwatch();
+
+    root.append(bar, tools, this.hint, this.rotateBtn, color, this.palFurn, this.palFloor, this.palWall, this.palAction, this.palTileColor);
     const host = document.getElementById('game') ?? document.body;
     host.appendChild(root);
     this.root = root;
@@ -1937,7 +1979,7 @@ export class LayoutEditor {
    * palette is refreshed (floor or wall tool).
    */
   private refreshPalettePreviews(): void {
-    const c = this.color;
+    const c = resolveTileColor(this.tileColorIdx) ?? NEUTRAL;
     if (this.tool === 'floor') {
       for (const { img, pattern } of this.floorItems) {
         img.src = spriteToDataURL(getColorizedFloorSprite(pattern, c));
