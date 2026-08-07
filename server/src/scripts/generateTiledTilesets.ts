@@ -18,6 +18,11 @@
  * carries custom properties (pattern/colorIndex or wallSet/mask/colorIndex)
  * so a future import script can read a placed tile's meaning directly from
  * Tiled instead of relying on its position in the sheet.
+ *
+ * Also bakes a one-tile collision-tileset.{png,tsx} — a translucent hazard-
+ * stripe marker used by exportLayoutToTmj's "Collision" layer to represent
+ * OfficeLayout.tileBlocked (a manual per-cell walkability override that has
+ * no other native Tiled equivalent).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -172,6 +177,36 @@ function generateWallTilesets(): void {
   }
 }
 
+function generateCollisionTileset(): void {
+  const size = TILE_W;
+  const png = new PNG({ width: size, height: size });
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const stripe = ((x + y) >> 2) % 2 === 0;
+      png.data[i] = 237;
+      png.data[i + 1] = 28;
+      png.data[i + 2] = 36;
+      png.data[i + 3] = stripe ? 160 : 0;
+    }
+  }
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.writeFileSync(path.join(OUT_DIR, 'collision-tileset.png'), PNG.sync.write(png));
+  writeTsx(path.join(OUT_DIR, 'collision-tileset.tsx'), {
+    name: 'Collision',
+    tileW: size,
+    tileH: size,
+    columns: 1,
+    tileCount: 1,
+    imageFile: 'collision-tileset.png',
+    imageW: size,
+    imageH: size,
+    tiles: [`  <tile id="0">\n${tileProperties({ blocked: 1 })}\n  </tile>`],
+  });
+  console.log(`[tiled] collision-tileset.png: 1 marker tile (${size}x${size}px)`);
+}
+
 generateFloorTileset();
 generateWallTilesets();
+generateCollisionTileset();
 console.log(`[tiled] done -> ${path.relative(REPO_ROOT, OUT_DIR)}`);

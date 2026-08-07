@@ -1,10 +1,10 @@
 /**
  * Import a Tiled map (.tmj) back into a saved OfficeLayout — the reverse of
- * exportLayoutToTmj.ts. Assumes the map still references the same three
+ * exportLayoutToTmj.ts. Assumes the map still references the same four
  * canonical tilesets in assets/tiled/ (floor-tileset.tsx, wall-0-tileset.tsx,
- * furniture-tileset.tsx) that export always produces; a .tmj built from
- * scratch in Tiled against those same tilesets works just as well as a
- * round-tripped one.
+ * furniture-tileset.tsx, collision-tileset.tsx) that export always produces;
+ * a .tmj built from scratch in Tiled against those same tilesets works just
+ * as well as a round-tripped one.
  *
  * Usage:
  *   pnpm --filter @pixel/server run tiled:import -- <inFile.tmj> <layoutName>
@@ -14,9 +14,6 @@
  * does — this is a trusted local dev/admin tool, not a path a live client
  * ever reaches, so it applies only light validation, not the full
  * SimRoom.ts sanitizers (which are private to that module).
- *
- * Known gap: OfficeLayout.tileBlocked has no Tiled representation (see
- * exportLayoutToTmj.ts) — importing never restores it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +24,8 @@ import { loadAssetBundle } from '../../assets.js';
 import { loadTilesetInfo } from './tilesetInfo.js';
 import { VOID_GID, floorGid, wallGid } from '@pixel/shared/office/tileGid.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
-import type { OfficeLayout, PlacedFurniture, PlacedText, TileAction, Action } from '@pixel/shared/office/types.js';
+import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
+import type { OfficeLayout, PlacedFurniture, PlacedText, TileAction, Action, ColorValue, Direction } from '@pixel/shared/office/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -61,6 +59,34 @@ function propsToRecord(obj: TiledObjectIn): Record<string, unknown> {
   return rec;
 }
 
+/** Mirror of exportLayoutToTmj.ts's furnitureOverrideProps — reads the same
+ *  real, individually-named/typed custom properties back into overrides,
+ *  rather than an opaque JSON blob. */
+function parseFurnitureOverrides(obj: TiledObjectIn, props: Record<string, unknown>): Partial<PlacedFurniture> {
+  const overrides: Partial<PlacedFurniture> = {};
+  if (obj.name) overrides.name = obj.name;
+  if (typeof props.colorH === 'number') {
+    const color: ColorValue = {
+      h: props.colorH,
+      s: typeof props.colorS === 'number' ? props.colorS : 0,
+      b: typeof props.colorB === 'number' ? props.colorB : 0,
+      c: typeof props.colorC === 'number' ? props.colorC : 0,
+    };
+    if (props.colorColorize === true) color.colorize = true;
+    overrides.color = color;
+  }
+  if (typeof props.facing === 'number') overrides.facing = props.facing as Direction;
+  if (typeof props.approachSides === 'string' && props.approachSides.length > 0) {
+    overrides.approachSides = props.approachSides.split(',').filter(Boolean) as Array<'N' | 'S' | 'E' | 'W'>;
+  }
+  if (typeof props.zOffset === 'number' && props.zOffset !== 0) overrides.zOffset = props.zOffset;
+  if (typeof props.kind === 'string') {
+    const action = parseAction(props.kind, props);
+    if (action) overrides.action = action;
+  }
+  return overrides;
+}
+
 function parseAction(kind: string, props: Record<string, unknown>): Action | null {
   switch (kind) {
     case 'meetingRoom':
@@ -86,9 +112,9 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
   const rows = map.height as number;
   const layers = map.layers as Array<Record<string, unknown>>;
 
-  const tileLayer = layers.find((l) => l.type === 'tilelayer');
-  if (!tileLayer) throw new Error('no tile layer found in map');
-  const rawData = tileLayer.data as number[];
+  const tileLayers = new Map(layers.filter((l) => l.type === 'tilelayer').map((l) => [l.name as string, l.data as number[]]));
+  const rawData = tileLayers.get('Floor & Walls');
+  if (!rawData) throw new Error('no "Floor & Walls" tile layer found in map');
   const tiles = rawData.map((gid, i) => {
     if (gid === 0) return VOID_GID;
     if (gid >= info.floor.firstGid && gid < info.floor.firstGid + info.floor.tileCount) {
@@ -106,6 +132,9 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     return VOID_GID;
   });
 
+  const collisionData = tileLayers.get('Collision');
+  const tileBlocked = collisionData?.some((gid) => gid !== 0) ? collisionData.map((gid) => gid !== 0) : undefined;
+
   const objectLayers = new Map(layers.filter((l) => l.type === 'objectgroup').map((l) => [l.name as string, (l.objects ?? []) as TiledObjectIn[]]));
 
   const furniture: PlacedFurniture[] = [];
@@ -122,7 +151,7 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     const type = mirrored ? `${baseType}:left` : baseType;
     const props = propsToRecord(obj);
     const uid = typeof props.uid === 'string' ? props.uid : `f-${Date.now()}-${obj.id}`;
-    const overrides = typeof props.paOverrides === 'string' ? (JSON.parse(props.paOverrides) as Record<string, unknown>) : {};
+    const overrides = parseFurnitureOverrides(obj, props);
     const col = Math.round(obj.x / TILE_SIZE);
     const row = Math.round((obj.y - obj.height) / TILE_SIZE);
     furniture.push({ uid, type, col, row, ...overrides } as PlacedFurniture);
@@ -151,13 +180,13 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     const col = Math.floor(obj.x / TILE_SIZE);
     const row = Math.floor(obj.y / TILE_SIZE);
     const entry: PlacedText = { uid, col, row, text: obj.text.text.slice(0, MAX_TEXT_LABEL_LEN) };
-    if (obj.text.pixelsize) entry.fontSize = obj.text.pixelsize;
-    if (obj.text.fontfamily) entry.fontFamily = obj.text.fontfamily;
+    if (obj.text.pixelsize && obj.text.pixelsize !== TEXT_LABEL_DEFAULT_FONT_SIZE) entry.fontSize = obj.text.pixelsize;
+    if (obj.text.fontfamily && obj.text.fontfamily !== TEXT_LABEL_DEFAULT_FONT_FAMILY) entry.fontFamily = obj.text.fontfamily;
     if (obj.rotation) entry.angle = ((obj.rotation % 360) + 360) % 360;
     texts.push(entry);
   }
 
-  return { version: 3, cols, rows, tiles, furniture, tileActions, texts };
+  return { version: 3, cols, rows, tiles, furniture, tileActions, texts, ...(tileBlocked ? { tileBlocked } : {}) };
 }
 
 async function main(): Promise<void> {

@@ -1,8 +1,9 @@
 /**
  * Export a saved OfficeLayout to a real Tiled map (.tmj — Tiled's JSON map
- * format) that opens directly in Tiled, referencing the three baked tilesets
- * (floor-tileset.tsx, wall-0-tileset.tsx, furniture-tileset.tsx — run
- * generate:tiled / generate:tiled-furniture first if they're missing).
+ * format) that opens directly in Tiled, referencing the four baked tilesets
+ * (floor-tileset.tsx, wall-0-tileset.tsx, collision-tileset.tsx,
+ * furniture-tileset.tsx — run generate:tiled / generate:tiled-furniture
+ * first if they're missing).
  *
  * Usage:
  *   pnpm --filter @pixel/server run tiled:export -- <layoutName> [outFile]
@@ -11,10 +12,10 @@
  * <layoutName> is a name from the office zone's layout list ("Default", or
  * any saved name) — same names shown in the in-game Layouts panel.
  *
- * Known gap: OfficeLayout.tileBlocked (the Block tool's manual walkability
- * override) has no Tiled representation yet — round-tripping through Tiled
- * currently drops it. Everything else (tiles, furniture, tile actions, text
- * labels) round-trips losslessly with importFromTmj.ts.
+ * Everything OfficeLayout can express round-trips losslessly with
+ * importTmjToLayout.ts: tiles, furniture (incl. per-instance overrides as
+ * real Tiled custom properties, not an opaque JSON blob), tile actions,
+ * text labels, and tileBlocked (via the "Collision" tile layer).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,6 +26,7 @@ import { loadAssetBundle } from '../../assets.js';
 import { loadTilesetInfo } from './tilesetInfo.js';
 import { isVoid, isWall, isFloor, floorPatternOf, tileColorIndexOf } from '@pixel/shared/office/tileGid.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
+import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
 import type { OfficeLayout, PlacedFurniture, PlacedText, TileAction, Action } from '@pixel/shared/office/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -64,19 +66,27 @@ function strProp(name: string, value: string): TiledProperty {
 function intProp(name: string, value: number): TiledProperty {
   return { name, type: 'int', value };
 }
+function floatProp(name: string, value: number): TiledProperty {
+  return { name, type: 'float', value };
+}
 function boolProp(name: string, value: boolean): TiledProperty {
   return { name, type: 'bool', value };
 }
 
-/** Furniture overrides Tiled can't natively represent (color tint,
- *  approachSides, zOffset, action, the deprecated facing) are preserved as
- *  opaque JSON in one custom property, so importFromTmj.ts can restore them
- *  exactly even though Tiled itself won't render/edit them meaningfully. */
+/** Furniture overrides, as real individually-named/typed Tiled custom
+ *  properties — editable in Tiled itself, not an opaque JSON blob. `name`
+ *  uses Tiled's own native object `name` field instead of a property (see
+ *  call site below). */
 function furnitureOverrideProps(item: PlacedFurniture): TiledProperty[] {
-  const { uid, type: _type, col: _col, row: _row, ...overrides } = item;
-  const props = [strProp('uid', uid)];
-  const hasOverrides = Object.keys(overrides).length > 0;
-  if (hasOverrides) props.push(strProp('paOverrides', JSON.stringify(overrides)));
+  const props: TiledProperty[] = [strProp('uid', item.uid)];
+  if (item.color) {
+    props.push(floatProp('colorH', item.color.h), floatProp('colorS', item.color.s), floatProp('colorB', item.color.b), floatProp('colorC', item.color.c));
+    if (item.color.colorize) props.push(boolProp('colorColorize', true));
+  }
+  if (item.facing !== undefined) props.push(intProp('facing', item.facing));
+  if (item.approachSides && item.approachSides.length > 0) props.push(strProp('approachSides', item.approachSides.join(',')));
+  if (item.zOffset) props.push(intProp('zOffset', item.zOffset));
+  if (item.action) props.push(...actionProps(item.action));
   return props;
 }
 
@@ -127,6 +137,15 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
       } else {
         data[idx] = 0;
       }
+    }
+  }
+
+  // ── Collision: one marker gid per blocked cell, an overlay layer so a
+  //    mapmaker can see/paint tileBlocked directly in Tiled. ──
+  const collisionData: number[] = new Array(cols * rows).fill(0);
+  if (layout.tileBlocked) {
+    for (let i = 0; i < collisionData.length; i++) {
+      if (layout.tileBlocked[i]) collisionData[i] = info.collision.firstGid;
     }
   }
 
@@ -189,8 +208,8 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
     visible: true,
     text: {
       text: pt.text,
-      pixelsize: pt.fontSize ?? 8,
-      fontfamily: pt.fontFamily ?? "'FS Pixel Sans', monospace",
+      pixelsize: pt.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE,
+      fontfamily: pt.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY,
       halign: 'center',
       valign: 'bottom',
       wrap: false,
@@ -210,12 +229,13 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
     tilewidth: TILE_SIZE,
     tileheight: TILE_SIZE,
     infinite: false,
-    nextlayerid: 5,
+    nextlayerid: 6,
     nextobjectid: nextObjectId,
     tilesets: [
       { firstgid: info.floor.firstGid, source: info.floor.source },
       { firstgid: info.wall.firstGid, source: info.wall.source },
       { firstgid: info.furniture.firstGid, source: info.furniture.source },
+      { firstgid: info.collision.firstGid, source: info.collision.source },
     ],
     layers: [
       {
@@ -262,6 +282,18 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
         opacity: 1,
         draworder: 'topdown',
         objects: textObjects,
+      },
+      {
+        id: 5,
+        name: 'Collision',
+        type: 'tilelayer',
+        x: 0,
+        y: 0,
+        width: cols,
+        height: rows,
+        visible: true,
+        opacity: 0.5,
+        data: collisionData,
       },
     ],
   };
