@@ -165,6 +165,12 @@ export const MAX_TEXT_LABEL_LEN = 48;
  *  bounded cap against an unbounded editor-side loop or a malformed save. */
 export const MAX_TEXT_LABELS = 200;
 
+/** Max number of action/blocked areas (OfficeLayout.actionAreas /
+ *  .blockedAreas) one layout may have, each — same rationale as
+ *  MAX_TEXT_LABELS. */
+export const MAX_ACTION_AREAS = 200;
+export const MAX_BLOCKED_AREAS = 200;
+
 /** Default/min/max font size (px) for a placed free-text label. */
 export const TEXT_LABEL_DEFAULT_FONT_SIZE = 8;
 export const TEXT_LABEL_MIN_FONT_SIZE = 6;

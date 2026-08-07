@@ -21,12 +21,17 @@ import {
   TILE_SIZE,
   TileType,
   type Action,
+  type ActionArea,
+  type BlockedArea,
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
   type PlacedText,
+  type SpriteData,
   type TileType as TileTypeVal,
+  type TileRect,
 } from '@pixel/shared/office/types.js';
+import { rectsOverlap, rectContains } from '@pixel/shared/office/layout/actionAreas.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
@@ -34,6 +39,7 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog, textLabelDialog } from '../ui/dialog.js';
 import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
+import { parseTilesetFiles } from './tilesetImport.js';
 import {
   cleanName,
   MAX_NAME_LEN,
@@ -60,6 +66,11 @@ export interface EditorDeps {
    *  strokes, etc. all survive). Optional: the action-bar button that uses
    *  this is hidden when omitted. */
   openAssetEditor?: (type: string) => void;
+  /** Persist a new furniture catalog entry (see tilesetImport.ts's "Import
+   *  Tileset…" button) — same save path the Furniture asset editor itself
+   *  uses (room.send('saveAsset', ...)), just invoked directly with a
+   *  ready-made sprite instead of from FurnitureEditor's own drawing UI. */
+  saveFurnitureAsset: (name: string, data: { sprite: SpriteData; catalog: Record<string, unknown> }) => void;
 }
 
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'eyedropper';
@@ -120,6 +131,26 @@ export class LayoutEditor {
   private lastPaint = { col: NaN, row: NaN };
   private ghostWorld = { x: 0, y: 0 };
   private uid = 0;
+  /** Live drag-rectangle state for the Action/Block tools — a whole drag
+   *  gesture commits ONE ActionArea/BlockedArea rect, rather than one edit
+   *  per visited tile (see actionAreas.ts). Set on the first strokePaint
+   *  call of a stroke, grown as the cursor moves, committed in endStroke. */
+  private areaDragStart: { col: number; row: number } | null = null;
+  private areaDragRect: TileRect | null = null;
+  private areaDragErase = false;
+  /** `a<n>` counter for ActionArea/BlockedArea ids — separate from furniture/
+   *  text's `e<n>` uid counter (see nextUid) since areas are never looked up
+   *  in the same namespace. */
+  private areaUid = 0;
+  /** Select tool: the selected area's kind + id, mutually exclusive with
+   *  selectedUid/selectedTextUid. */
+  private selectedAreaKind: 'action' | 'blocked' | null = null;
+  private selectedAreaId: string | null = null;
+  private areaActionBar!: HTMLDivElement;
+  private areaFrontBtnInBar!: HTMLButtonElement;
+  private areaBackBtnInBar!: HTMLButtonElement;
+  private areaActionBtnInBar!: HTMLButtonElement;
+  private areaDeleteBtnInBar!: HTMLButtonElement;
   /** Undo/redo are full-layout snapshots (v1 model); capped at MAX_HISTORY. */
   private undoStack: OfficeLayout[] = [];
   private redoStack: OfficeLayout[] = [];
@@ -184,12 +215,8 @@ export class LayoutEditor {
     if (!this.layout.tileColors) {
       this.layout.tileColors = new Array(this.layout.cols * this.layout.rows).fill(null);
     }
-    if (!this.layout.tileBlocked) {
-      this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
-    }
-    if (!this.layout.tileActions) {
-      this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
-    }
+    if (!this.layout.blockedAreas) this.layout.blockedAreas = [];
+    if (!this.layout.actionAreas) this.layout.actionAreas = [];
     if (!this.layout.texts) this.layout.texts = [];
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
@@ -223,9 +250,12 @@ export class LayoutEditor {
     this.layout = null;
     this.selectedUid = null;
     this.selectedTextUid = null;
+    this.selectedAreaKind = null;
+    this.selectedAreaId = null;
     this.root.style.display = 'none';
     this.actionBar.style.display = 'none';
     this.textActionBar.style.display = 'none';
+    this.areaActionBar.style.display = 'none';
     this.ghost?.destroy();
     this.ghost = undefined;
     this.selRect?.destroy();
@@ -279,6 +309,7 @@ export class LayoutEditor {
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedTextUid) this.deleteSelectedText();
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedAreaId) this.deleteSelectedArea();
     }
   }
 
@@ -318,11 +349,8 @@ export class LayoutEditor {
         break;
       }
       case 'block':
-        this.paintBlocked(col, row, true);
-        break;
       case 'action':
-        this.paintTileAction(col, row, this.currentTileAction);
-        break;
+        break; // handled as a drag-rectangle by strokePaint/endStroke — see commitAreaDrag
       case 'text':
         void this.placeOrEditText(col, row);
         break;
@@ -337,13 +365,11 @@ export class LayoutEditor {
     if (this.tool === 'furniture') this.deleteFurnitureAt(wx, wy);
     else if (this.tool === 'floor' || this.tool === 'wall') {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), TileType.VOID);
-    } else if (this.tool === 'block') {
-      this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
-    } else if (this.tool === 'action') {
-      this.paintTileAction(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), null);
     } else if (this.tool === 'text') {
       this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
+    // 'block'/'action' erase is handled as a drag-rectangle by strokePaint/
+    // endStroke — see commitAreaDrag.
   }
 
   /** Floor/Wall/Block/Action are paint tools — the scene lets you drag-paint
@@ -356,24 +382,72 @@ export class LayoutEditor {
    *  (the whole stroke is one undo step). */
   beginStroke(): void {
     this.lastPaint = { col: NaN, row: NaN };
+    this.areaDragStart = null;
+    this.areaDragRect = null;
     this.beginGesture();
   }
 
-  /** End a paint stroke — flush the autosave for the completed stroke. */
+  /** End a paint stroke — for Action/Block, commits the drag rectangle
+   *  accumulated since beginStroke (see commitAreaDrag); for Floor/Wall,
+   *  nothing more to do, every tile was already painted live. Either way,
+   *  flush the autosave for the completed stroke. */
   endStroke(): void {
+    if ((this.tool === 'action' || this.tool === 'block') && this.areaDragRect) {
+      this.commitAreaDrag(this.areaDragRect, this.areaDragErase);
+    }
+    this.areaDragStart = null;
+    this.areaDragRect = null;
     if (this.layout) this.deps.onEdit(this.layout, true);
   }
 
-  /** Paint (or erase) the tile under the cursor during a drag, skipping tiles
-   *  already painted this stroke so a stroke maps to one edit per tile. */
+  /** Paint (or erase) the tile under the cursor during a drag. Floor/Wall
+   *  paint every tile the cursor crosses (skipping ones already painted this
+   *  stroke). Action/Block instead grow a live rectangle from the stroke's
+   *  first tile to the cursor's current tile — see endStroke/commitAreaDrag —
+   *  since those two are areas, not per-tile paint. */
   strokePaint(wx: number, wy: number, erase: boolean): void {
     if (!this.editing || !this.layout) return;
     const col = Math.floor(wx / TILE_SIZE);
     const row = Math.floor(wy / TILE_SIZE);
+    if (this.tool === 'action' || this.tool === 'block') {
+      if (!this.areaDragStart) {
+        this.areaDragStart = { col, row };
+        this.areaDragErase = erase;
+      }
+      const s = this.areaDragStart;
+      const c0 = Math.min(s.col, col);
+      const r0 = Math.min(s.row, row);
+      this.areaDragRect = { col: c0, row: r0, w: Math.abs(col - s.col) + 1, h: Math.abs(row - s.row) + 1 };
+      this.drawGrid();
+      return;
+    }
     if (col === this.lastPaint.col && row === this.lastPaint.row) return;
     this.lastPaint = { col, row };
     if (erase) this.handleRightClick(wx, wy);
     else this.handleLeftClick(wx, wy);
+  }
+
+  /** A fresh `a<n>` id for a new ActionArea/BlockedArea — see areaUid. */
+  private nextAreaUid(): string {
+    return `a${++this.areaUid}`;
+  }
+
+  /** Commit the Action/Block tool's drag rectangle: erase removes every
+   *  existing area of that kind overlapping the dragged rect; otherwise adds
+   *  one new area covering it (a plain click with no drag is just a 1x1
+   *  rect, covering the single-tile case with no special path). */
+  private commitAreaDrag(rect: TileRect, erase: boolean): void {
+    if (!this.layout) return;
+    if (this.tool === 'action') {
+      const areas = this.layout.actionAreas ?? [];
+      this.layout.actionAreas = erase
+        ? areas.filter((a) => !rectsOverlap(a, rect))
+        : [...areas, { ...rect, id: this.nextAreaUid(), action: this.currentTileAction }];
+    } else if (this.tool === 'block') {
+      const areas = this.layout.blockedAreas ?? [];
+      this.layout.blockedAreas = erase ? areas.filter((a) => !rectsOverlap(a, rect)) : [...areas, { ...rect, id: this.nextAreaUid() }];
+    }
+    this.drawGrid();
   }
 
   /** Pixel-accurate furniture pick: the visually top-most item whose (un-
@@ -601,33 +675,6 @@ export class LayoutEditor {
     this.layout.tileColors![idx] = tile === TileType.VOID ? null : { ...this.color };
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
-    this.drawGrid();
-    this.deps.onEdit(this.layout, false);
-  }
-
-  /** Paint (or clear) the "blocks movement" flag on one tile — independent of
-   *  floor pattern (see OfficeLayout.tileBlocked). No sprite/tileMap change,
-   *  just the edit-mode overlay (drawGrid) and autosave. */
-  private paintBlocked(col: number, row: number, blocked: boolean): void {
-    if (!this.layout) return;
-    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    if (!this.layout.tileBlocked) this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
-    this.layout.tileBlocked[row * this.layout.cols + col] = blocked;
-    this.drawGrid();
-    this.deps.onEdit(this.layout, false);
-  }
-
-  /** Paint (or clear, with null) the tile action on one tile (see
-   *  OfficeLayout.tileActions) — for 'meetingRoom' actions, which area id a
-   *  group of them becomes is derived by flood fill on the server, not
-   *  decided here; painting just marks the tile with *an* action. No
-   *  sprite/tileMap change, just the edit-mode overlay (drawGrid) and
-   *  autosave. */
-  private paintTileAction(col: number, row: number, action: Action | null): void {
-    if (!this.layout) return;
-    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    if (!this.layout.tileActions) this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
-    this.layout.tileActions[row * this.layout.cols + col] = action;
     this.drawGrid();
     this.deps.onEdit(this.layout, false);
   }
@@ -900,6 +947,19 @@ export class LayoutEditor {
       if (!f.uid || seen.has(f.uid)) f.uid = this.nextUid();
       seen.add(f.uid);
     }
+
+    const areas: Array<{ id: string }> = [...(this.layout.actionAreas ?? []), ...(this.layout.blockedAreas ?? [])];
+    let areaMax = 0;
+    for (const a of areas) {
+      const m = /^a(\d+)$/.exec(a.id ?? '');
+      if (m) areaMax = Math.max(areaMax, Number(m[1]));
+    }
+    this.areaUid = areaMax;
+    const seenAreas = new Set<string>();
+    for (const a of areas) {
+      if (!a.id || seenAreas.has(a.id)) a.id = this.nextAreaUid();
+      seenAreas.add(a.id);
+    }
   }
 
   // ── Grid + expansion (ported from the pre-Phaser editor) ─────────
@@ -942,51 +1002,59 @@ export class LayoutEditor {
       }
     }
 
-    // Tiles marked non-walkable (layout.tileBlocked, independent of floor
-    // pattern) — a red hatch so it's visible while editing no matter which
-    // tool is active, same as the VOID outline above.
-    if (this.layout.tileBlocked) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (!this.layout.tileBlocked[r * cols + c]) continue;
-          const x = c * s;
-          const y = r * s;
-          g.fillStyle(BLOCKED_TILE.color, BLOCKED_TILE.fill);
-          g.fillRect(x, y, s, s);
-          g.lineStyle(lw, BLOCKED_TILE.color, BLOCKED_TILE.stroke);
-          g.beginPath();
-          g.moveTo(x, y);
-          g.lineTo(x + s, y + s);
-          g.moveTo(x + s, y);
-          g.lineTo(x, y + s);
-          g.strokePath();
-        }
+    // Blocked areas (layout.blockedAreas, independent of floor pattern) — a
+    // red hatch so it's visible while editing no matter which tool is
+    // active, same as the VOID outline above.
+    for (const a of this.layout.blockedAreas ?? []) {
+      const x = a.col * s;
+      const y = a.row * s;
+      const w = a.w * s;
+      const h = a.h * s;
+      g.fillStyle(BLOCKED_TILE.color, BLOCKED_TILE.fill);
+      g.fillRect(x, y, w, h);
+      g.lineStyle(lw, BLOCKED_TILE.color, BLOCKED_TILE.stroke);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + w, y + h);
+      g.moveTo(x + w, y);
+      g.lineTo(x, y + h);
+      g.strokePath();
+      g.strokeRect(x, y, w, h);
+      if (this.selectedAreaKind === 'blocked' && this.selectedAreaId === a.id) {
+        g.lineStyle(lw * 3, 0xffd24a, 1);
+        g.strokeRect(x, y, w, h);
       }
     }
 
-    // Tile actions (layout.tileActions) — a fill + border colour-coded by
+    // Action areas (layout.actionAreas) — a fill + border colour-coded by
     // kind (no diagonal cross, unlike Block's red hatch, so the two read as
-    // distinct: "a zone/trigger" rather than "forbidden"). For 'meetingRoom'
-    // tiles specifically, which area id a group ends up in is decided
-    // server-side by flood fill, not shown here — the overlay just marks
-    // "this tile has an action."
-    if (this.layout.tileActions) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const action = this.layout.tileActions[r * cols + c];
-          if (!action) continue;
-          const x = c * s;
-          const y = r * s;
-          const color = actionTileColor(action);
-          g.fillStyle(color, ACTION_TILE_FILL);
-          g.fillRect(x, y, s, s);
-          // A thicker border than the fill alone — the fill blends with
-          // whatever's painted underneath (floor colour), but a bold, near-
-          // opaque border stays true to the action's own colour either way.
-          g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
-          g.strokeRect(x, y, s, s);
-        }
+    // distinct: "a zone/trigger" rather than "forbidden").
+    for (const a of this.layout.actionAreas ?? []) {
+      const x = a.col * s;
+      const y = a.row * s;
+      const w = a.w * s;
+      const h = a.h * s;
+      const color = actionTileColor(a.action);
+      g.fillStyle(color, ACTION_TILE_FILL);
+      g.fillRect(x, y, w, h);
+      // A thicker border than the fill alone — the fill blends with
+      // whatever's painted underneath (floor colour), but a bold, near-
+      // opaque border stays true to the action's own colour either way.
+      g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
+      g.strokeRect(x, y, w, h);
+      if (this.selectedAreaKind === 'action' && this.selectedAreaId === a.id) {
+        g.lineStyle(lw * 3, 0xffd24a, 1);
+        g.strokeRect(x, y, w, h);
       }
+    }
+
+    // Live preview of an in-progress Action/Block drag (see strokePaint) —
+    // dashed, in the tool's own colour, so the rectangle-to-be is visible
+    // before the drag commits.
+    if (this.areaDragRect && (this.tool === 'action' || this.tool === 'block')) {
+      const a = this.areaDragRect;
+      const color = this.tool === 'block' ? BLOCKED_TILE.color : actionTileColor(this.currentTileAction);
+      this.dashedRect(g, a.col * s, a.row * s, a.w * s, a.h * s, color, 0.9, lw * 2);
     }
 
     // Ghost-border expansion ring (one tile around the bounds) for floor/wall.
@@ -1075,8 +1143,6 @@ export class LayoutEditor {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
-    const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
-    const tileActions = this.layout.tileActions ?? new Array(tiles.length).fill(null);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -1094,38 +1160,55 @@ export class LayoutEditor {
 
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
     const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
-    const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
-    const newActions: Array<Action | null> = new Array(newCols * newRows).fill(null);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
         const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
-        newBlocked[newIdx] = tileBlocked[oldIdx];
-        newActions[newIdx] = tileActions[oldIdx];
       }
     }
     this.layout.cols = newCols;
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
-    this.layout.tileBlocked = newBlocked;
-    this.layout.tileActions = newActions;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
     }
-    // Text labels are absolute tile coordinates too — shift them along with
-    // furniture so a left/up expand doesn't leave them behind.
+    // Text labels and areas are absolute tile coordinates too — shift them
+    // along with furniture so a left/up expand doesn't leave them behind.
     for (const t of this.layout.texts ?? []) {
       t.col += shiftCol;
       t.row += shiftRow;
+    }
+    for (const a of this.layout.actionAreas ?? []) {
+      a.col += shiftCol;
+      a.row += shiftRow;
+    }
+    for (const a of this.layout.blockedAreas ?? []) {
+      a.col += shiftCol;
+      a.row += shiftRow;
     }
     return { col: shiftCol, row: shiftRow };
   }
 
   // ── Select / floating actions (rotate + delete above the object) ──
+
+  /** Every Action/Blocked area covering (col,row), topmost first — Action
+   *  areas sorted by zIndex (highest first, matching meetingAreaAt/
+   *  buildActionByTile's own resolution), Blocked areas after (no zIndex to
+   *  sort by). Used for click-to-select + cycling, same pattern as
+   *  furnitureHitsAt. */
+  private areaHitsAt(col: number, row: number): Array<{ kind: 'action' | 'blocked'; id: string }> {
+    if (!this.layout) return [];
+    const actionHits = (this.layout.actionAreas ?? [])
+      .filter((a) => rectContains(a, col, row))
+      .sort((a, b) => (b.zIndex ?? 0) - (a.zIndex ?? 0))
+      .map((a) => ({ kind: 'action' as const, id: a.id }));
+    const blockedHits = (this.layout.blockedAreas ?? []).filter((a) => rectContains(a, col, row)).map((a) => ({ kind: 'blocked' as const, id: a.id }));
+    return [...actionHits, ...blockedHits];
+  }
 
   private selectAt(wx: number, wy: number): void {
     this.commitColorGesture(); // finalize any color edit on the previous selection
@@ -1133,12 +1216,31 @@ export class LayoutEditor {
     const hits = this.furnitureHitsAt(wx, wy); // top-most first
     if (hits.length === 0) {
       this.selectedUid = null;
-      this.lastSelClick = { x: wx, y: wy };
       this.actionBar.style.display = 'none';
-      this.textActionBar.style.display = 'none';
-      this.selRect?.setVisible(false);
+      const areaHits = this.areaHitsAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
+      if (areaHits.length === 0) {
+        this.selectedAreaKind = null;
+        this.selectedAreaId = null;
+        this.lastSelClick = { x: wx, y: wy };
+        this.textActionBar.style.display = 'none';
+        this.areaActionBar.style.display = 'none';
+        this.selRect?.setVisible(false);
+        return;
+      }
+      const samePlace = Math.abs(wx - this.lastSelClick.x) < 3 && Math.abs(wy - this.lastSelClick.y) < 3;
+      this.lastSelClick = { x: wx, y: wy };
+      let idx = 0;
+      if (samePlace && this.selectedAreaId) {
+        const cur = areaHits.findIndex((h) => h.id === this.selectedAreaId);
+        idx = cur >= 0 ? (cur + 1) % areaHits.length : 0;
+      }
+      this.selectedAreaKind = areaHits[idx].kind;
+      this.selectedAreaId = areaHits[idx].id;
+      this.drawGrid();
       return;
     }
+    this.selectedAreaKind = null;
+    this.selectedAreaId = null;
     // Clicking the same spot again cycles down to the object beneath — so an
     // item on a surface (e.g. a goldfish bowl on a table) doesn't trap the click.
     const samePlace = Math.abs(wx - this.lastSelClick.x) < 3 && Math.abs(wy - this.lastSelClick.y) < 3;
@@ -1384,6 +1486,61 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
+  /** Bring/send the selected ActionArea relative to every OTHER ActionArea
+   *  covering at least one of its own cells — see ActionArea's own doc
+   *  comment on zIndex (highest wins at an overlapping cell). No-op for a
+   *  BlockedArea (no zIndex there — see BlockedArea's own doc comment) or
+   *  with nothing to reorder against. */
+  private restackAreaSelected(toFront: boolean): void {
+    if (!this.layout || this.selectedAreaKind !== 'action' || !this.selectedAreaId) return;
+    const areas = this.layout.actionAreas ?? [];
+    const a = areas.find((x) => x.id === this.selectedAreaId);
+    if (!a) return;
+    const overlapping = areas.filter((o) => o !== a && rectsOverlap(o, a));
+    if (overlapping.length === 0) return;
+    const zs = overlapping.map((o) => o.zIndex ?? 0);
+    this.beginGesture();
+    a.zIndex = toFront ? Math.max(0, ...zs) + 1 : Math.min(0, ...zs) - 1;
+    this.drawGrid();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** Set (or clear) the selected ActionArea's action — reuses the same
+   *  floating menu as the furniture Action… button (chooseActionMenu). */
+  private async chooseAreaAction(): Promise<void> {
+    if (!this.layout || this.selectedAreaKind !== 'action' || !this.selectedAreaId) return;
+    const a = this.layout.actionAreas?.find((x) => x.id === this.selectedAreaId);
+    if (!a) return;
+    const rect = this.areaActionBtnInBar.getBoundingClientRect();
+    const result = await this.chooseActionMenu(rect.left, rect.bottom + 4, a.action);
+    if (result === undefined || result === null || !this.layout) return; // dismissed, or "no action" (an ActionArea always has one)
+    this.beginGesture();
+    a.action = result;
+    this.drawGrid();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  private deleteSelectedArea(): void {
+    if (!this.layout || !this.selectedAreaKind || !this.selectedAreaId) return;
+    if (this.selectedAreaKind === 'action') {
+      const i = (this.layout.actionAreas ?? []).findIndex((x) => x.id === this.selectedAreaId);
+      if (i < 0) return;
+      this.beginGesture();
+      this.layout.actionAreas!.splice(i, 1);
+    } else {
+      const i = (this.layout.blockedAreas ?? []).findIndex((x) => x.id === this.selectedAreaId);
+      if (i < 0) return;
+      this.beginGesture();
+      this.layout.blockedAreas!.splice(i, 1);
+    }
+    this.selectedAreaKind = null;
+    this.selectedAreaId = null;
+    this.areaActionBar.style.display = 'none';
+    this.selRect?.setVisible(false);
+    this.drawGrid();
+    this.deps.onEdit(this.layout, true);
+  }
+
   /** Edit the selected text label's content/font size — same two prompts as
    *  placeOrEditText, but against the current Select-tool selection rather
    *  than a clicked tile. Clearing the text deletes the label, same as there. */
@@ -1456,11 +1613,13 @@ export class LayoutEditor {
     if (!this.editing || this.tool !== 'select' || !this.layout) {
       this.actionBar.style.display = 'none';
       this.textActionBar.style.display = 'none';
+      this.areaActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
       return;
     }
     if (this.selectedTextUid) {
       this.actionBar.style.display = 'none';
+      this.areaActionBar.style.display = 'none';
       const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
       if (!t) {
         this.textActionBar.style.display = 'none';
@@ -1480,6 +1639,34 @@ export class LayoutEditor {
       return;
     }
     this.textActionBar.style.display = 'none';
+    if (this.selectedAreaKind && this.selectedAreaId) {
+      this.actionBar.style.display = 'none';
+      const a =
+        this.selectedAreaKind === 'action'
+          ? this.layout.actionAreas?.find((x) => x.id === this.selectedAreaId)
+          : this.layout.blockedAreas?.find((x) => x.id === this.selectedAreaId);
+      if (!a) {
+        this.areaActionBar.style.display = 'none';
+        this.selRect?.setVisible(false);
+        return;
+      }
+      const wpx = a.col * TILE_SIZE;
+      const wpy = a.row * TILE_SIZE;
+      this.selRect?.setPosition(wpx, wpy).setSize(a.w * TILE_SIZE, a.h * TILE_SIZE).setVisible(true);
+      const cam = this.scene.cameras.main;
+      const wv = cam.worldView;
+      const sx = (wpx + (a.w * TILE_SIZE) / 2 - wv.x) * cam.zoom;
+      const sy = (wpy - wv.y) * cam.zoom;
+      this.areaActionBar.style.left = `${Math.round(sx)}px`;
+      this.areaActionBar.style.top = `${Math.round(sy)}px`;
+      this.areaActionBar.style.display = 'flex';
+      const isAction = this.selectedAreaKind === 'action';
+      this.areaActionBtnInBar.style.display = isAction ? 'inline-block' : 'none';
+      this.areaFrontBtnInBar.style.display = isAction ? 'inline-block' : 'none';
+      this.areaBackBtnInBar.style.display = isAction ? 'inline-block' : 'none';
+      return;
+    }
+    this.areaActionBar.style.display = 'none';
     if (!this.selectedUid) {
       this.actionBar.style.display = 'none';
       this.selRect?.setVisible(false);
@@ -1616,8 +1803,11 @@ export class LayoutEditor {
     if (t !== 'select') {
       this.selectedUid = null;
       this.selectedTextUid = null;
+      this.selectedAreaKind = null;
+      this.selectedAreaId = null;
       if (this.actionBar) this.actionBar.style.display = 'none';
       if (this.textActionBar) this.textActionBar.style.display = 'none';
+      if (this.areaActionBar) this.areaActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
     }
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
@@ -1630,8 +1820,8 @@ export class LayoutEditor {
       furniture: 'Furniture — left-click place, right-click remove',
       floor: 'Floor — left-click paint, right-click erase',
       wall: 'Wall — left-click paint, right-click erase',
-      block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
-      action: 'Action — pick a kind on the left, then left-click paints it onto tiles, right-click clears it',
+      block: 'Block — drag a rectangle to mark it not walkable (independent of floor pattern); right-drag clears',
+      action: 'Action — pick a kind on the left, then drag a rectangle to place an area; right-drag clears',
       text: 'Text — left-click to place/edit a label (empty clears it), right-click removes it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
@@ -1713,9 +1903,23 @@ export class LayoutEditor {
     this.undoBtn.onclick = () => this.undo();
     this.redoBtn = Object.assign(document.createElement('button'), { textContent: '↷ Redo', title: 'Redo (Ctrl+Y)' });
     this.redoBtn.onclick = () => this.redo();
+    const importBtn = Object.assign(document.createElement('button'), {
+      textContent: '📥 Import Tileset…',
+      title: 'Import an external Tiled tileset (.tsx + its image file(s)) as new furniture',
+    });
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.tsx,image/png';
+    importInput.multiple = true;
+    importInput.style.display = 'none';
+    importInput.onchange = () => {
+      if (importInput.files?.length) void this.importTilesetFiles(importInput.files);
+      importInput.value = '';
+    };
+    importBtn.onclick = () => importInput.click();
     const doneBtn = Object.assign(document.createElement('button'), { className: 'save', textContent: '✓ Done' });
     doneBtn.onclick = () => this.exit();
-    bar.append(this.undoBtn, this.redoBtn, doneBtn);
+    bar.append(this.undoBtn, this.redoBtn, importBtn, importInput, doneBtn);
 
     const tools = document.createElement('div');
     tools.className = 'tools';
@@ -1881,8 +2085,70 @@ export class LayoutEditor {
     this.textActionBar.append(textEditBtn, textRotateBtn, textDelBtn);
     host.appendChild(this.textActionBar);
 
+    // An Action/Blocked area's own floating bar — reorder (z-index, Action
+    // areas only) + change-action (Action areas only) + delete.
+    this.areaActionBar = document.createElement('div');
+    this.areaActionBar.style.cssText = this.actionBar.style.cssText;
+    this.areaFrontBtnInBar = mkAct('🔼', 'Bring to front (wins over overlapping areas)', () => this.restackAreaSelected(true));
+    this.areaBackBtnInBar = mkAct('🔽', 'Send to back', () => this.restackAreaSelected(false));
+    this.areaActionBtnInBar = mkAct('⚡', 'Change this area’s action', () => void this.chooseAreaAction());
+    const areaDelBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelectedArea());
+    areaDelBtn.style.background = '#7c2634';
+    areaDelBtn.style.color = '#f6cdd4';
+    areaDelBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
+    this.areaDeleteBtnInBar = areaDelBtn;
+    this.areaActionBar.append(this.areaFrontBtnInBar, this.areaBackBtnInBar, this.areaActionBtnInBar, this.areaDeleteBtnInBar);
+    host.appendChild(this.areaActionBar);
+
     this.selectTool('select');
     this.updateSwatch();
+  }
+
+  /** "Import Tileset…" — reads an external Tiled tileset (.tsx + image(s))
+   *  picked from disk and saves each tile as a new furniture catalog entry,
+   *  via the same save path the Furniture asset editor itself uses. Bringing
+   *  in outside art this way, not by painting with arbitrary Tiled gids — we
+   *  keep our own semantic model (see tilesetImport.ts's own doc comment). */
+  private async importTilesetFiles(files: FileList): Promise<void> {
+    this.hint.textContent = 'Importing tileset…';
+    let tiles;
+    try {
+      tiles = await parseTilesetFiles(files);
+    } catch (err) {
+      this.hint.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    for (const t of tiles) {
+      this.deps.saveFurnitureAsset(t.id, {
+        sprite: t.sprite,
+        catalog: { category: 'imported', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
+      });
+    }
+    this.hint.textContent = `Imported ${tiles.length} furniture item(s) from the tileset — check the Furniture palette.`;
+    // The save round-trips through the server (persist → rebroadcast → local
+    // catalog rebuild) before getCatalogByCategory sees the new entries — a
+    // short delay is simpler than wiring a completion callback through
+    // EditorDeps for what's an occasional, non-hot-path action.
+    setTimeout(() => this.refreshFurniturePalette(), 800);
+  }
+
+  /** Rebuild just the furniture palette grid (see importTilesetFiles) —
+   *  unlike populatePalettes this always re-reads the catalog, since it's
+   *  called specifically because the catalog just changed. */
+  private refreshFurniturePalette(): void {
+    this.palFurn.innerHTML = '';
+    for (const cat of getActiveCategories()) {
+      for (const entry of getCatalogByCategory(cat.id)) {
+        const item = document.createElement('div');
+        item.className = 'pa-pal-item';
+        item.dataset.type = entry.type;
+        item.title = entry.label;
+        const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(entry.sprite) });
+        item.appendChild(img);
+        item.onclick = () => this.setSelected(entry.type);
+        this.palFurn.appendChild(item);
+      }
+    }
   }
 
   private populatePalettes(): void {

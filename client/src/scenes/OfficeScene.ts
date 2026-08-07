@@ -377,6 +377,7 @@ export class OfficeScene extends Phaser.Scene {
           if (ok) this.furnEditor.edit(type, () => this.furnEditor.forceClose());
         });
       },
+      saveFurnitureAsset: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
     });
     // A name/character chosen in Settings (remembered per browser).
     try {
@@ -1185,6 +1186,20 @@ export class OfficeScene extends Phaser.Scene {
   private onLayout(layout: OfficeLayout): void {
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
+    this.maybeAutoEnterEditMode();
+  }
+
+  /** The standalone editor page (editor.html) opens straight into edit mode —
+   *  no avatar to walk around and open a menu with. Gated behind an explicit
+   *  query param so this is a no-op for the normal game page; fires once,
+   *  on the first layout load, same trigger point fitCamera uses for "the
+   *  office is now known". */
+  private autoEnteredEditMode = false;
+  private maybeAutoEnterEditMode(): void {
+    if (this.autoEnteredEditMode || this.editor.isEditing()) return;
+    if (new URLSearchParams(location.search).get('edit') !== '1') return;
+    this.autoEnteredEditMode = true;
+    void this.toggleEditMode();
   }
 
   /** Always update bounds (cheap, harmless), but only set zoom/center on the
@@ -1223,7 +1238,18 @@ export class OfficeScene extends Phaser.Scene {
   private setupInput(): void {
     const cam = this.cameras.main;
     this.input.mouse?.disableContextMenu();
-    this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
+    // While editing, a plain two-finger trackpad scroll (no modifier) pans —
+    // the same convention as Tiled/Figma/Photoshop — since building a map
+    // means panning around it constantly; Ctrl/Cmd+scroll (also how a
+    // trackpad pinch-zoom is reported) still zooms. Outside the editor,
+    // gameplay keeps its original plain-scroll-zooms feel unchanged.
+    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, dx: number, dy: number) => {
+      const ev = p.event as WheelEvent | undefined;
+      if (this.editor.isEditing() && !(ev?.ctrlKey || ev?.metaKey)) {
+        cam.scrollX += dx / cam.zoom;
+        cam.scrollY += dy / cam.zoom;
+        return;
+      }
       cam.setZoom(Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 1, 14));
     });
     let dragging = false;

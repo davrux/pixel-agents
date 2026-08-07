@@ -32,7 +32,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
-import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
+import { buildActionByTile, actionAreaTileKeys, meetingAreaAt as findMeetingAreaAt } from '../layout/actionAreas.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -42,6 +42,7 @@ import {
 } from '../sprites/spriteData.js';
 import type {
   Action,
+  ActionArea,
   Character,
   FurnitureInstance,
   InteractionPoint,
@@ -68,26 +69,10 @@ import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
 /** Union of every source of non-walkable tiles: furniture footprints and
- *  tiles the layout itself marks blocked (layout.tileBlocked, independent of
+ *  areas the layout itself marks blocked (layout.blockedAreas, independent of
  *  floor pattern). The single Set isWalkable checks. */
 function computeBlockedTiles(layout: OfficeLayout): Set<string> {
   return new Set([...getBlockedTiles(layout.furniture), ...getBlockedFloorTiles(layout)]);
-}
-
-/** "col,row" keys of every tile carrying a tile action (any kind) — a plain
- *  click-to-move walk should route around these when it can (see walkPlayer),
- *  rather than cutting through a meeting room/kiosk/etc. on its way somewhere
- *  else. Furniture-sourced actions don't need an equivalent set: their tiles
- *  are already non-walkable via computeBlockedTiles (you approach them, you
- *  don't cut through them). */
-function computeActionTileKeys(layout: OfficeLayout): Set<string> {
-  const keys = new Set<string>();
-  const actions = layout.tileActions;
-  if (!actions) return keys;
-  for (let i = 0; i < actions.length; i++) {
-    if (actions[i]) keys.add(`${i % layout.cols},${Math.floor(i / layout.cols)}`);
-  }
-  return keys;
 }
 
 export class OfficeState {
@@ -97,14 +82,16 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
-  /** "col,row" of every tile carrying a tile action — see computeActionTileKeys.
+  /** "col,row" of every tile covered by an ActionArea — see actionAreaTileKeys.
    *  Only walkPlayer's plain click-to-move consults this (a soft detour cost
    *  in findPath, not a hard block); NPC wandering, seats, and appliance/
    *  action approach paths ignore it entirely. */
   private actionTileKeys: Set<string>;
-  /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
-   *  via areaIdAt()/areaAnchor(), never mutated in place. */
-  private actionAreas: ActionAreaMap;
+  /** "col,row" → Action, built once per layout (re)build (see
+   *  buildActionByTile) — O(1) lookup for the per-character arrival check
+   *  in updatePlayerMovement, instead of scanning layout.actionAreas per call.
+   *  Already resolves overlapping/nested areas by zIndex. */
+  private actionByTile: Map<string, Action>;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
   furniturePlacements: PlacedFurniture[] = [];
@@ -161,8 +148,8 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
-    this.actionAreas = computeActionAreas(this.layout);
-    this.actionTileKeys = computeActionTileKeys(this.layout);
+    this.actionTileKeys = actionAreaTileKeys(this.layout);
+    this.actionByTile = buildActionByTile(this.layout);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -183,8 +170,8 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
-    this.actionAreas = computeActionAreas(layout);
-    this.actionTileKeys = computeActionTileKeys(layout);
+    this.actionTileKeys = actionAreaTileKeys(layout);
+    this.actionByTile = buildActionByTile(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -281,20 +268,16 @@ export class OfficeState {
     return this.layout;
   }
 
-  /** Which meeting-room area (if any) a tile belongs to — see
-   *  computeActionAreas. The room re-derives each character's area from this
-   *  every tick (SimRoom's meeting-area membership tracking); nothing here
-   *  is cached per-character. */
-  areaIdAt(col: number, row: number): number | null {
-    return actionAreaIdAt(this.actionAreas, this.layout.cols, this.layout.rows, col, row);
-  }
-
-  /** An area id's stable anchor tile — the per-area room name (and its
-   *  video:boolean setting, via layout.tileActions at this tile) is derived
-   *  from this (mirrors a conference monitor falling back to its own anchor
-   *  tile when it has no explicit name; see conferenceKey). */
-  areaAnchor(areaId: number): { col: number; row: number } | null {
-    return actionAreaAnchor(this.actionAreas, areaId);
+  /** The meeting-room ActionArea (if any) a tile belongs to — see
+   *  meetingAreaAt. The room re-derives each character's area from this every
+   *  tick (SimRoom's meeting-area membership tracking); nothing here is
+   *  cached per-character. The area's own `id`/`col`/`row` (stable across
+   *  edits unless the rect itself is moved/resized) is what SimRoom keys
+   *  membership on — see SimRoom.updateMeetingRoomMembership. Areas may
+   *  overlap/nest — the highest zIndex wins (see ActionArea's own doc
+   *  comment). */
+  meetingAreaAt(col: number, row: number): ActionArea | null {
+    return findMeetingAreaAt(this.layout, col, row);
   }
 
   /** Walkable tiles minus any meeting area — nobody should ever spawn/land
@@ -303,7 +286,7 @@ export class OfficeState {
    *  walkable set if meeting areas somehow cover the whole map, so a spawn
    *  is never simply impossible. */
   private spawnableTiles(): Array<{ col: number; row: number }> {
-    const pool = this.walkableTiles.filter((t) => this.areaIdAt(t.col, t.row) === null);
+    const pool = this.walkableTiles.filter((t) => this.meetingAreaAt(t.col, t.row) === null);
     return pool.length > 0 ? pool : this.walkableTiles;
   }
 
@@ -786,7 +769,7 @@ export class OfficeState {
     const isFree = (t: { col: number; row: number }): boolean =>
       isWalkable(t.col, t.row, this.tileMap, this.blockedTiles) &&
       !occupied.has(`${t.col},${t.row}`) &&
-      this.areaIdAt(t.col, t.row) === null;
+      this.meetingAreaAt(t.col, t.row) === null;
 
     if (preferred && isFree(preferred)) return preferred;
     const free = this.spawnableTiles().filter(isFree);
@@ -1187,7 +1170,7 @@ export class OfficeState {
           // membership-by-position, tracked separately every tick — see
           // SimRoom's meeting-room membership update) fires once on arrival,
           // same as a portal above.
-          const tileAction = this.layout.tileActions?.[ch.tileRow * this.layout.cols + ch.tileCol];
+          const tileAction = this.actionByTile.get(`${ch.tileCol},${ch.tileRow}`);
           if (tileAction && tileAction.kind !== 'meetingRoom') {
             this.pendingActionArrivals.push({ id: ch.id, action: tileAction, col: ch.tileCol, row: ch.tileRow });
           }

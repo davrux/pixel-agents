@@ -35,12 +35,16 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // Multi-page: the 2D game (index.html) and the standalone ad-hoc
-      // meeting-room join page. The admin panel is an in-game overlay
-      // (client/src/admin/main.ts, dynamically imported), not its own page.
+      // Multi-page: the 2D game (index.html), the standalone ad-hoc
+      // meeting-room join page, and the standalone map editor (loads the
+      // same bundle as index.html, but with ?edit=1 — see editor.html and
+      // OfficeScene.maybeAutoEnterEditMode). The admin panel is an in-game
+      // overlay (client/src/admin/main.ts, dynamically imported), not its
+      // own page.
       input: {
         main: resolve(import.meta.dirname,'index.html'),
         meet: resolve(import.meta.dirname,'meet.html'),
+        editor: resolve(import.meta.dirname,'editor.html'),
       },
     },
   },

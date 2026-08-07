@@ -200,18 +200,17 @@ export type ApplianceKind = 'coffee';
 
 /**
  * A generic action attachable to any placed furniture instance
- * (`PlacedFurniture.action`) or any tile (`OfficeLayout.tileActions`) —
- * replaces the old per-feature furniture-catalog flags (conference/arcade/
- * meetingRoom/appliance) and the tile-only `tilePrivateArea` boolean with one
- * model. Player-only: NPCs/agents never trigger any of these (enforced once,
- * server-side, in OfficeState.walkPlayerToAction's `ch.isPlayer` check).
+ * (`PlacedFurniture.action`) or any ActionArea (`OfficeLayout.actionAreas`) —
+ * one model for every "walk up to/into something and it does a thing"
+ * mechanic. Player-only: NPCs/agents never trigger any of these (enforced
+ * once, server-side, in OfficeState.walkPlayerToAction's `ch.isPlayer`
+ * check).
  *
  * Trigger rule: a furniture action requires an explicit click (walk-then-
- * open, like today's arcade/kiosk/conference); a tile action fires the
- * moment a player's tile matches it (like today's portals and meeting
- * areas) — 'meetingRoom' on a tile is membership-by-position (join/leave by
- * walking in/out, no explicit trigger), everything else on a tile is
- * edge-triggered once on arrival.
+ * open, like today's arcade/kiosk/conference); an ActionArea fires the
+ * moment a player's tile enters its rect (like today's portals) —
+ * 'meetingRoom' is membership-by-position (join/leave by walking in/out, no
+ * explicit trigger), everything else is edge-triggered once on arrival.
  */
 export type Action =
   /** In-world video/audio call via ConferenceUI/LiveKitConference — on
@@ -323,35 +322,58 @@ export interface PlacedText {
   angle?: number;
 }
 
+/** A rectangular area, in tile coordinates — the shape every ActionArea and
+ *  BlockedArea is built from. Rectangle-only by design: covers the
+ *  overwhelming majority of real areas (meeting rooms, blocked zones), not
+ *  built speculatively for a shape need we don't have. Minimum size is
+ *  1x1 — a single tile is just a 1x1 rect, no separate representation. */
+export interface TileRect {
+  col: number;
+  row: number;
+  w: number;
+  h: number;
+}
+
+/** A rectangular area that carries one Action, drawn once in the editor (or
+ *  resized/moved as a whole) rather than painted tile-by-tile. A stable `id`
+ *  survives edits and is what SimRoom keys meeting-room membership on — see
+ *  OfficeState.meetingAreaAt. For 'meetingRoom' areas, standing anywhere in
+ *  the rect is automatic membership (no explicit click); every other action
+ *  kind fires once when a player's tile enters the rect (edge-triggered,
+ *  like a portal).
+ *
+ *  Areas may overlap, or nest one inside another (e.g. a small 'arcade'
+ *  area carved out inside a bigger 'meetingRoom' area) — `zIndex` resolves
+ *  which action applies at a cell covered by more than one area: the
+ *  highest zIndex wins; ties break by array order (the later-listed area
+ *  wins). Unset zIndex is 0. */
+export interface ActionArea extends TileRect {
+  id: string;
+  action: Action;
+  zIndex?: number;
+}
+
+/** A rectangular area that blocks movement, independent of floor pattern
+ *  (e.g. a puddle painted with the same pattern as the rest of the room, but
+ *  this area shouldn't be walkable). Merged into officeState's blockedTiles
+ *  alongside furniture footprints. No zIndex: overlapping blocked areas are
+ *  a plain union, there's no "which one wins" question to resolve. */
+export interface BlockedArea extends TileRect {
+  id: string;
+}
+
 export interface OfficeLayout {
-  version: 1;
+  version: 2;
   cols: number;
   rows: number;
   tiles: TileType[];
   furniture: PlacedFurniture[];
   /** Per-tile color settings, parallel to tiles array. null = wall/no color */
   tileColors?: Array<ColorValue | null>;
-  /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
-   *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
-   *  the room, but this one tile shouldn't be walkable). true = blocked;
-   *  false/missing = normal. Painted with the editor's Block tool; merged into
-   *  officeState's blockedTiles alongside furniture footprints. */
-  tileBlocked?: boolean[];
-  /** @deprecated superseded by tileActions (a 'meetingRoom' action on the
-   *  same tiles) — kept only so migrateLayout can upgrade old saved layouts
-   *  on load; nothing else reads this field anymore. */
-  tilePrivateArea?: boolean[];
-  /** Per-tile action (see Action), parallel to tiles array — painted with the
-   *  editor's Action tool. For 'meetingRoom' tiles, every maximal
-   *  4-connected group of same-kind tiles is one area (id assigned by flood
-   *  fill at layout-build time, see computeActionAreas — never stored,
-   *  always derived, so ids stay unique/contiguous by construction and two
-   *  areas painted separately then later bridged just merge into one on the
-   *  next rebuild); standing in one automatically joins you (no explicit
-   *  click), independent of a furniture 'meetingRoom' action's explicit
-   *  join/leave click. Every other action kind fires once when a player's
-   *  tile matches it (edge-triggered, like a portal). */
-  tileActions?: Array<Action | null>;
+  /** Areas that block movement — see BlockedArea. */
+  blockedAreas?: BlockedArea[];
+  /** Areas that carry an Action — see ActionArea. */
+  actionAreas?: ActionArea[];
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */

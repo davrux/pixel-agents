@@ -12,6 +12,8 @@ import {
   DEFAULT_ZONE,
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
+  MAX_ACTION_AREAS,
+  MAX_BLOCKED_AREAS,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
@@ -22,17 +24,13 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
-import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
+import { Direction, PetKind, type Action, type ActionArea, type BlockedArea } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
-import {
-  createBlankZoneLayout,
-  createPlazaLayout,
-  migrateLayoutColors,
-} from '@pixel/shared/office/layout/layoutSerializer.js';
+import { createBlankZoneLayout, createPlazaLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
@@ -177,21 +175,66 @@ function sanitizeAction(raw: unknown): Action | null {
   }
 }
 
-/** Validate/clamp a saved layout's tile actions (OfficeLayout.tileActions)
- *  and any per-instance furniture action overrides — the same kind of
- *  save-time content check as sanitizeLayoutTexts, for the same reason
- *  (furniture/tiles otherwise have none; this mirrors the client's own
- *  Action-tool validation in case a client is patched or malicious).
- *  Mutates and returns the same object; other fields pass through untouched. */
+/** Parse+validate one rect's col/row/w/h against the layout bounds — shared
+ *  by ActionArea and BlockedArea sanitization below. Returns null for a
+ *  malformed or degenerate (w/h < 1) rect. */
+function sanitizeRect(rec: Record<string, unknown>, cols: number, rows: number): { col: number; row: number; w: number; h: number } | null {
+  const col = rec.col;
+  const row = rec.row;
+  const w = rec.w;
+  const h = rec.h;
+  if (typeof col !== 'number' || typeof row !== 'number' || typeof w !== 'number' || typeof h !== 'number') return null;
+  if (!Number.isInteger(col) || !Number.isInteger(row) || !Number.isInteger(w) || !Number.isInteger(h)) return null;
+  if (w < 1 || h < 1 || col < 0 || row < 0 || col + w > cols || row + h > rows) return null;
+  return { col, row, w, h };
+}
+
+/** A fresh id for a save that arrives without one (e.g. an old client, or a
+ *  hand-crafted payload) — Date.now()+index, unique within one save without
+ *  any shared mutable counter (mirrors the furniture uid fallback pattern
+ *  used elsewhere in this file). */
+function sanitizeAreaId(rec: Record<string, unknown>, index: number): string {
+  return typeof rec.id === 'string' && rec.id ? rec.id : `a-${Date.now()}-${index}`;
+}
+
+/** Validate/clamp a saved layout's action/blocked areas (OfficeLayout.
+ *  actionAreas / .blockedAreas) and any per-instance furniture action
+ *  overrides — the same kind of save-time content check as
+ *  sanitizeLayoutTexts, for the same reason (furniture/tiles otherwise have
+ *  none; this mirrors the client's own Action-tool validation in case a
+ *  client is patched or malicious). Mutates and returns the same object;
+ *  other fields pass through untouched. */
 function sanitizeLayoutActions(layout: Record<string, unknown>): Record<string, unknown> {
   const cols = typeof layout.cols === 'number' ? layout.cols : 0;
   const rows = typeof layout.rows === 'number' ? layout.rows : 0;
-  const tileActions = layout.tileActions;
-  if (Array.isArray(tileActions)) {
-    const total = cols * rows;
-    const clean: Array<Action | null> = new Array(total).fill(null);
-    for (let i = 0; i < Math.min(total, tileActions.length); i++) clean[i] = sanitizeAction(tileActions[i]);
-    layout.tileActions = clean;
+  const actionAreas = layout.actionAreas;
+  if (Array.isArray(actionAreas)) {
+    const clean: ActionArea[] = [];
+    for (const raw of actionAreas) {
+      if (clean.length >= MAX_ACTION_AREAS) break;
+      if (!raw || typeof raw !== 'object') continue;
+      const rec = raw as Record<string, unknown>;
+      const rect = sanitizeRect(rec, cols, rows);
+      if (!rect) continue;
+      const action = sanitizeAction(rec.action);
+      if (!action) continue;
+      const zIndex = typeof rec.zIndex === 'number' && Number.isFinite(rec.zIndex) ? rec.zIndex : undefined;
+      clean.push({ ...rect, id: sanitizeAreaId(rec, clean.length), action, ...(zIndex !== undefined ? { zIndex } : {}) });
+    }
+    layout.actionAreas = clean;
+  }
+  const blockedAreas = layout.blockedAreas;
+  if (Array.isArray(blockedAreas)) {
+    const clean: BlockedArea[] = [];
+    for (const raw of blockedAreas) {
+      if (clean.length >= MAX_BLOCKED_AREAS) break;
+      if (!raw || typeof raw !== 'object') continue;
+      const rec = raw as Record<string, unknown>;
+      const rect = sanitizeRect(rec, cols, rows);
+      if (!rect) continue;
+      clean.push({ ...rect, id: sanitizeAreaId(rec, clean.length) });
+    }
+    layout.blockedAreas = clean;
   }
   const furniture = layout.furniture;
   if (Array.isArray(furniture)) {
@@ -703,9 +746,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const action = this.actionAt(parsed.col, parsed.row);
       return action?.kind === 'meetingRoom' ? action.video : true;
     }
-    const layout = this.os.getLayout();
-    const a = layout.tileActions?.[parsed.row * layout.cols + parsed.col];
-    return a?.kind === 'meetingRoom' ? a.video : true;
+    const area = this.os.meetingAreaAt(parsed.col, parsed.row);
+    return area && area.action.kind === 'meetingRoom' ? area.action.video : true;
   }
 
   /** Current members of a meeting room (by its "source:col,row" key), for broadcast. */
@@ -729,9 +771,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  furniture-sourced meeting room, there's no explicit join/leave
    *  message; standing on the tile *is* the membership. */
   private updateMeetingRoomMembership(playerId: number, col: number, row: number): void {
-    const areaId = this.os.areaIdAt(col, row);
-    const anchor = areaId !== null ? this.os.areaAnchor(areaId) : null;
-    const newKey = anchor ? this.meetingRoomKey('tile', anchor.col, anchor.row) : null;
+    const area = this.os.meetingAreaAt(col, row);
+    const newKey = area ? this.meetingRoomKey('tile', area.col, area.row) : null;
     const oldKey = this.lastMeetingRoomArea.get(playerId) ?? null;
     if (newKey === oldKey) return;
     if (oldKey) this.leaveMeetingRoom(playerId, oldKey);
@@ -793,9 +834,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Layout management (server-authoritative) ─────────────────────
 
-  private migratedActiveLayout(): OfficeLayout | undefined {
+  private loadActiveLayout(): OfficeLayout | undefined {
     const raw = this.store.getActiveLayout(this.zone.id) as OfficeLayout | null;
-    return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
+    // No migration path from older schema versions — a stale save is treated
+    // as absent, same as a zone with nothing saved yet, rather than risk
+    // misreading its old field shapes as the current ones.
+    return raw && raw.version === 2 ? raw : undefined;
   }
 
   /** This zone's builtin/read-only Default layout, for generated zones. The
@@ -811,7 +855,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Layout this room's zone simulates: its active layout, falling back to the
    *  zone's read-only builtin Default. Each zone is independent. */
   private zoneLayout(): OfficeLayout | undefined {
-    return this.migratedActiveLayout();
+    return this.loadActiveLayout();
   }
 
   /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
@@ -1054,9 +1098,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // 'linkManager' kiosk action instead, which mints its own password-
     // protected /meet/<slug> room via meetingRoomStore.ts). The room name is
     // the source's own stable anchor: a furniture item's name-or-position
-    // (conferenceKey) or a tile-area's flood-fill anchor
-    // (OfficeState.areaAnchor) — either way it survives the item/area moving
-    // or the layout rebuilding, as long as the shape/name doesn't change.
+    // (conferenceKey) or an ActionArea's own (col,row) — either way it
+    // survives the layout rebuilding, as long as the area itself isn't
+    // moved/resized.
     this.onMessage(
       'meetingRoomToken',
       async (client, msg: { source?: string; col?: number; row?: number; password?: string }) => {
@@ -1794,7 +1838,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
           sprites: this.bundle.raw.furnitureSprites as never,
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
-        this.os.rebuildFromLayout(this.migratedActiveLayout() ?? this.os.layout);
+        this.os.rebuildFromLayout(this.loadActiveLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
       // floor/wall are client-render only — just rebroadcast below.
