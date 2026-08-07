@@ -10,7 +10,7 @@ export function injectPaSkin(): void {
   style.textContent = `
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
       /* Grouped top bar: Audio · Zone · Space · Assets  … ☰ (design). */
-      #pa-menubar{position:fixed;top:0.6rem;left:0.75rem;right:0.75rem;z-index:60;display:flex;align-items:center;gap:0.55rem;}
+      #pa-menubar{position:fixed;top:0.6rem;left:0.75rem;right:calc(0.75rem + var(--pa-side-panel-w, 0px));z-index:60;display:flex;align-items:center;gap:0.55rem;}
       .pa-btn{display:inline-flex;align-items:center;gap:0.45rem;cursor:pointer;position:relative;white-space:nowrap;
         background:#242220;border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;
         font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.8rem;
@@ -47,12 +47,12 @@ export function injectPaSkin(): void {
         background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;color:#f1efec;
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
       .pa-panel.left{left:0.75rem;}
-      .pa-panel.right{right:0.75rem;}
+      .pa-panel.right{right:calc(0.75rem + var(--pa-side-panel-w, 0px));}
       /* A pinned Mumble panel stays docked on the right, so the other right-hand
          popovers step aside for it. Only where there is room — on a narrow
          window they overlap as before rather than being pushed off-screen. */
       @media (min-width: 56rem) {
-        body.pa-mumble-pinned .pa-panel.right:not(#pa-mumble-panel){right:25.5rem;}
+        body.pa-mumble-pinned .pa-panel.right:not(#pa-mumble-panel){right:calc(25.5rem + var(--pa-side-panel-w, 0px));}
       }
       .pa-panel .pa-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
         padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;

@@ -16,7 +16,15 @@
       /* UI scale: 1rem grows with the viewport so every rem-based overlay scales
          with the display (and is comfortably larger than the old fixed sizes). */
       :root { font-size: clamp(17px, 0.5vw + 13px, 26px); }
-      #game { width: 100vw; height: 100vh; }
+      /* --pa-side-panel-w is set/cleared from JS (see ui/actionIframe.ts) when
+         a docked side panel (an 'iframe' action) opens — every other fixed,
+         right-anchored piece of UI (the ☰ menubar, its popovers, the ambient
+         meeting-area widget — see paSkin.ts / meetingArea.ts) reads the same
+         variable so they step aside instead of sliding underneath the panel.
+         #game itself shrinking is what Phaser's Scale.RESIZE mode picks up
+         via its ResizeObserver and resizes the canvas + camera to match, no
+         manual game.scale call needed. */
+      #game { width: calc(100vw - var(--pa-side-panel-w, 0px)); height: 100vh; transition: width 0.18s ease; }
       #status {
         position: fixed; top: 0.5rem; left: 0.5rem; z-index: 10;
         font: 0.85rem/1.4 'FS Pixel Sans', ui-monospace, monospace; color: #adb0b2;
