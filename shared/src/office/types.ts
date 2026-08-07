@@ -323,8 +323,21 @@ export interface PlacedText {
   angle?: number;
 }
 
+/** One tile's Action (see Action), positioned by its own (col,row) — sparse:
+ *  only tiles that actually carry an action have an entry, unlike the old
+ *  dense-array field this replaced (most tiles never do). This shape is
+ *  also what makes the format map cleanly onto a Tiled object layer, where
+ *  every entry is naturally "an object with a position" rather than a slot
+ *  in a per-cell grid (see OfficeLayout.tileActions). At most one entry per
+ *  (col,row) — a second paint at the same tile replaces the first. */
+export interface TileAction {
+  col: number;
+  row: number;
+  action: Action;
+}
+
 export interface OfficeLayout {
-  version: 1;
+  version: 2;
   cols: number;
   rows: number;
   tiles: TileType[];
@@ -337,21 +350,17 @@ export interface OfficeLayout {
    *  false/missing = normal. Painted with the editor's Block tool; merged into
    *  officeState's blockedTiles alongside furniture footprints. */
   tileBlocked?: boolean[];
-  /** @deprecated superseded by tileActions (a 'meetingRoom' action on the
-   *  same tiles) — kept only so migrateLayout can upgrade old saved layouts
-   *  on load; nothing else reads this field anymore. */
-  tilePrivateArea?: boolean[];
-  /** Per-tile action (see Action), parallel to tiles array — painted with the
-   *  editor's Action tool. For 'meetingRoom' tiles, every maximal
-   *  4-connected group of same-kind tiles is one area (id assigned by flood
-   *  fill at layout-build time, see computeActionAreas — never stored,
-   *  always derived, so ids stay unique/contiguous by construction and two
-   *  areas painted separately then later bridged just merge into one on the
-   *  next rebuild); standing in one automatically joins you (no explicit
-   *  click), independent of a furniture 'meetingRoom' action's explicit
-   *  join/leave click. Every other action kind fires once when a player's
-   *  tile matches it (edge-triggered, like a portal). */
-  tileActions?: Array<Action | null>;
+  /** Per-tile action (see Action and TileAction) — painted with the editor's
+   *  Action tool. For 'meetingRoom' tiles, every maximal 4-connected group of
+   *  same-kind tiles is one area (id assigned by flood fill at layout-build
+   *  time, see computeActionAreas — never stored, always derived, so ids stay
+   *  unique/contiguous by construction and two areas painted separately then
+   *  later bridged just merge into one on the next rebuild); standing in one
+   *  automatically joins you (no explicit click), independent of a furniture
+   *  'meetingRoom' action's explicit join/leave click. Every other action
+   *  kind fires once when a player's tile matches it (edge-triggered, like a
+   *  portal). */
+  tileActions?: TileAction[];
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */

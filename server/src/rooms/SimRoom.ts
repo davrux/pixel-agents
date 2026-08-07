@@ -12,6 +12,7 @@ import {
   DEFAULT_ZONE,
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
+  MAX_TILE_ACTIONS,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
@@ -26,14 +27,11 @@ import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
 import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { getTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
-import {
-  createBlankZoneLayout,
-  createPlazaLayout,
-  migrateLayoutColors,
-} from '@pixel/shared/office/layout/layoutSerializer.js';
-import type { OfficeLayout } from '@pixel/shared/office/types.js';
+import { createBlankZoneLayout, createPlazaLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
+import type { OfficeLayout, TileAction } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
 import { director, type AgentInfo } from '../sim/director.js';
@@ -188,9 +186,23 @@ function sanitizeLayoutActions(layout: Record<string, unknown>): Record<string, 
   const rows = typeof layout.rows === 'number' ? layout.rows : 0;
   const tileActions = layout.tileActions;
   if (Array.isArray(tileActions)) {
-    const total = cols * rows;
-    const clean: Array<Action | null> = new Array(total).fill(null);
-    for (let i = 0; i < Math.min(total, tileActions.length); i++) clean[i] = sanitizeAction(tileActions[i]);
+    const clean: TileAction[] = [];
+    const seen = new Set<string>();
+    for (const raw of tileActions) {
+      if (clean.length >= MAX_TILE_ACTIONS) break;
+      if (!raw || typeof raw !== 'object') continue;
+      const rec = raw as Record<string, unknown>;
+      const col = rec.col;
+      const row = rec.row;
+      if (typeof col !== 'number' || typeof row !== 'number') continue;
+      if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
+      const action = sanitizeAction(rec.action);
+      if (!action) continue;
+      const key = `${col},${row}`;
+      if (seen.has(key)) continue; // last-wins would need a second pass; first-wins is simpler and just as valid
+      seen.add(key);
+      clean.push({ col, row, action });
+    }
     layout.tileActions = clean;
   }
   const furniture = layout.furniture;
@@ -703,8 +715,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const action = this.actionAt(parsed.col, parsed.row);
       return action?.kind === 'meetingRoom' ? action.video : true;
     }
-    const layout = this.os.getLayout();
-    const a = layout.tileActions?.[parsed.row * layout.cols + parsed.col];
+    const a = getTileActionAt(this.os.getLayout().tileActions, parsed.col, parsed.row);
     return a?.kind === 'meetingRoom' ? a.video : true;
   }
 
@@ -793,9 +804,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Layout management (server-authoritative) ─────────────────────
 
-  private migratedActiveLayout(): OfficeLayout | undefined {
+  private loadActiveLayout(): OfficeLayout | undefined {
     const raw = this.store.getActiveLayout(this.zone.id) as OfficeLayout | null;
-    return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
+    // No migration path from older schema versions — a stale (pre-Tiled-schema)
+    // save is treated as absent, same as a zone with nothing saved yet, rather
+    // than risk misreading its old field shapes as the current ones.
+    return raw && raw.version === 2 ? raw : undefined;
   }
 
   /** This zone's builtin/read-only Default layout, for generated zones. The
@@ -811,7 +825,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Layout this room's zone simulates: its active layout, falling back to the
    *  zone's read-only builtin Default. Each zone is independent. */
   private zoneLayout(): OfficeLayout | undefined {
-    return this.migratedActiveLayout();
+    return this.loadActiveLayout();
   }
 
   /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
@@ -1794,7 +1808,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
           sprites: this.bundle.raw.furnitureSprites as never,
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
-        this.os.rebuildFromLayout(this.migratedActiveLayout() ?? this.os.layout);
+        this.os.rebuildFromLayout(this.loadActiveLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
       // floor/wall are client-render only — just rebroadcast below.

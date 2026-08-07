@@ -30,8 +30,10 @@ export function computeActionAreas(layout: OfficeLayout): ActionAreaMap {
   const { cols, rows, tileActions } = layout;
   const ids = new Int32Array(cols * rows).fill(-1);
   const anchors: Array<{ col: number; row: number }> = [];
-  if (!tileActions) return { ids, anchors };
-  const isMeetingTile = (i: number): boolean => tileActions[i]?.kind === 'meetingRoom';
+  if (!tileActions || tileActions.length === 0) return { ids, anchors };
+  const meetingTiles = new Set<number>();
+  for (const t of tileActions) if (t.action.kind === 'meetingRoom') meetingTiles.add(t.row * cols + t.col);
+  const isMeetingTile = (i: number): boolean => meetingTiles.has(i);
 
   const stack: number[] = [];
   for (let start = 0; start < cols * rows; start++) {

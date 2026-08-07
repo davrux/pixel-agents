@@ -33,6 +33,7 @@ import {
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
+import { buildTileActionIndex } from '../layout/tileActionMap.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -82,11 +83,7 @@ function computeBlockedTiles(layout: OfficeLayout): Set<string> {
  *  don't cut through them). */
 function computeActionTileKeys(layout: OfficeLayout): Set<string> {
   const keys = new Set<string>();
-  const actions = layout.tileActions;
-  if (!actions) return keys;
-  for (let i = 0; i < actions.length; i++) {
-    if (actions[i]) keys.add(`${i % layout.cols},${Math.floor(i / layout.cols)}`);
-  }
+  if (layout.tileActions) for (const t of layout.tileActions) keys.add(`${t.col},${t.row}`);
   return keys;
 }
 
@@ -105,6 +102,10 @@ export class OfficeState {
   /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
    *  via areaIdAt()/areaAnchor(), never mutated in place. */
   private actionAreas: ActionAreaMap;
+  /** "col,row" → Action, built once per layout (re)build (see
+   *  buildTileActionIndex) — O(1) lookup for the per-character arrival check
+   *  in updatePlayerMovement, instead of scanning layout.tileActions per call. */
+  private actionByTile: Map<string, Action>;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
   furniturePlacements: PlacedFurniture[] = [];
@@ -163,6 +164,7 @@ export class OfficeState {
     this.blockedTiles = computeBlockedTiles(this.layout);
     this.actionAreas = computeActionAreas(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
+    this.actionByTile = buildTileActionIndex(this.layout.tileActions);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
@@ -185,6 +187,7 @@ export class OfficeState {
     this.blockedTiles = computeBlockedTiles(layout);
     this.actionAreas = computeActionAreas(layout);
     this.actionTileKeys = computeActionTileKeys(layout);
+    this.actionByTile = buildTileActionIndex(layout.tileActions);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -1187,7 +1190,7 @@ export class OfficeState {
           // membership-by-position, tracked separately every tick — see
           // SimRoom's meeting-room membership update) fires once on arrival,
           // same as a portal above.
-          const tileAction = this.layout.tileActions?.[ch.tileRow * this.layout.cols + ch.tileCol];
+          const tileAction = this.actionByTile.get(`${ch.tileCol},${ch.tileRow}`);
           if (tileAction && tileAction.kind !== 'meetingRoom') {
             this.pendingActionArrivals.push({ id: ch.id, action: tileAction, col: ch.tileCol, row: ch.tileRow });
           }

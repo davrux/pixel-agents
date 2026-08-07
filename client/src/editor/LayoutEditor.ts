@@ -27,6 +27,7 @@ import {
   type PlacedText,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
+import { setTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
@@ -187,9 +188,7 @@ export class LayoutEditor {
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
     }
-    if (!this.layout.tileActions) {
-      this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
-    }
+    if (!this.layout.tileActions) this.layout.tileActions = [];
     if (!this.layout.texts) this.layout.texts = [];
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
@@ -626,8 +625,7 @@ export class LayoutEditor {
   private paintTileAction(col: number, row: number, action: Action | null): void {
     if (!this.layout) return;
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    if (!this.layout.tileActions) this.layout.tileActions = new Array(this.layout.cols * this.layout.rows).fill(null);
-    this.layout.tileActions[row * this.layout.cols + col] = action;
+    this.layout.tileActions = setTileActionAt(this.layout.tileActions, col, row, action);
     this.drawGrid();
     this.deps.onEdit(this.layout, false);
   }
@@ -971,21 +969,17 @@ export class LayoutEditor {
     // server-side by flood fill, not shown here — the overlay just marks
     // "this tile has an action."
     if (this.layout.tileActions) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const action = this.layout.tileActions[r * cols + c];
-          if (!action) continue;
-          const x = c * s;
-          const y = r * s;
-          const color = actionTileColor(action);
-          g.fillStyle(color, ACTION_TILE_FILL);
-          g.fillRect(x, y, s, s);
-          // A thicker border than the fill alone — the fill blends with
-          // whatever's painted underneath (floor colour), but a bold, near-
-          // opaque border stays true to the action's own colour either way.
-          g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
-          g.strokeRect(x, y, s, s);
-        }
+      for (const t of this.layout.tileActions) {
+        const x = t.col * s;
+        const y = t.row * s;
+        const color = actionTileColor(t.action);
+        g.fillStyle(color, ACTION_TILE_FILL);
+        g.fillRect(x, y, s, s);
+        // A thicker border than the fill alone — the fill blends with
+        // whatever's painted underneath (floor colour), but a bold, near-
+        // opaque border stays true to the action's own colour either way.
+        g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
+        g.strokeRect(x, y, s, s);
       }
     }
 
@@ -1076,7 +1070,6 @@ export class LayoutEditor {
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
-    const tileActions = this.layout.tileActions ?? new Array(tiles.length).fill(null);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -1095,7 +1088,6 @@ export class LayoutEditor {
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
     const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
-    const newActions: Array<Action | null> = new Array(newCols * newRows).fill(null);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const oldIdx = r * cols + c;
@@ -1103,7 +1095,6 @@ export class LayoutEditor {
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
-        newActions[newIdx] = tileActions[oldIdx];
       }
     }
     this.layout.cols = newCols;
@@ -1111,16 +1102,19 @@ export class LayoutEditor {
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
     this.layout.tileBlocked = newBlocked;
-    this.layout.tileActions = newActions;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
     }
-    // Text labels are absolute tile coordinates too — shift them along with
-    // furniture so a left/up expand doesn't leave them behind.
+    // Text labels and tile actions are absolute tile coordinates too — shift
+    // them along with furniture so a left/up expand doesn't leave them behind.
     for (const t of this.layout.texts ?? []) {
       t.col += shiftCol;
       t.row += shiftRow;
+    }
+    for (const a of this.layout.tileActions ?? []) {
+      a.col += shiftCol;
+      a.row += shiftRow;
     }
     return { col: shiftCol, row: shiftRow };
   }

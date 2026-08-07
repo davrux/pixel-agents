@@ -165,6 +165,10 @@ export const MAX_TEXT_LABEL_LEN = 48;
  *  bounded cap against an unbounded editor-side loop or a malformed save. */
 export const MAX_TEXT_LABELS = 200;
 
+/** Max number of tile actions (OfficeLayout.tileActions) one layout may
+ *  have — same rationale as MAX_TEXT_LABELS. */
+export const MAX_TILE_ACTIONS = 200;
+
 /** Default/min/max font size (px) for a placed free-text label. */
 export const TEXT_LABEL_DEFAULT_FONT_SIZE = 8;
 export const TEXT_LABEL_MIN_FONT_SIZE = 6;
