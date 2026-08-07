@@ -631,7 +631,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Personal viewer prefs (per user; anonymous viewers get the defaults).
     const vs = userId
       ? appStore.getViewerSettings(userId)
-      : { soundEnabled: true, alwaysShowLabels: false, alertVolume: 1 };
+      : { soundEnabled: true, alwaysShowLabels: false, alertVolume: 1, cameraFollow: true };
     client.send('m', { type: 'settingsLoaded', ...vs });
   }
 
@@ -1356,6 +1356,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('setAlwaysShowLabels', (client, msg: { enabled?: boolean }) => {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'alwaysShowLabels', !!msg?.enabled);
+    });
+    this.onMessage('setCameraFollow', (client, msg: { enabled?: boolean }) => {
+      const { userId } = authOf(client);
+      if (userId) appStore.setViewerSetting(userId, 'cameraFollow', !!msg?.enabled);
     });
     this.onMessage('setAlertVolume', (client, msg: { volume?: number }) => {
       const { userId } = authOf(client);

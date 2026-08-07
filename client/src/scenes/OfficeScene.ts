@@ -310,6 +310,9 @@ export class OfficeScene extends Phaser.Scene {
    *  is the player's own editable copy — not a gallery template. */
   private myAvatarId: string | null = null;
   private alwaysShowLabels = false;
+  /** Settings: recenter the camera on the player as they move (see update()).
+   *  Off = the old, pre-follow behavior — the camera stays wherever you leave it. */
+  private cameraFollowEnabled = true;
   private soundOn = true;
   private volume = 1;
   private settingsPanel!: HTMLDivElement;
@@ -1524,8 +1527,9 @@ export class OfficeScene extends Phaser.Scene {
     // catches up immediately once the player's own position is first known),
     // unless a manual drag has detached it — in which case check whether the
     // player has since moved (any cause: walk, sit, portal) and re-engage the
-    // moment they have. Never while editing (its own free-camera feel stays).
-    if (!this.editor.isEditing()) {
+    // moment they have. Never while editing (its own free-camera feel stays),
+    // nor when the user turned it off in Settings (the old, pre-follow feel).
+    if (!this.editor.isEditing() && this.cameraFollowEnabled) {
       const pos = this.playerPosition(this.myPlayerId);
       if (pos) {
         if (this.cameraFollowDetached) {
@@ -3316,6 +3320,7 @@ export class OfficeScene extends Phaser.Scene {
     this.soundOn = m.soundEnabled !== false;
     this.volume = typeof m.alertVolume === 'number' ? (m.alertVolume as number) : 1;
     this.alwaysShowLabels = !!m.alwaysShowLabels;
+    this.cameraFollowEnabled = m.cameraFollow !== false;
     setSoundEnabled(this.soundOn);
     setAlertVolume(this.volume);
     this.syncSettingsInputs();
@@ -3395,6 +3400,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <button id="pa-change-server">Change server</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
@@ -3472,6 +3478,7 @@ export class OfficeScene extends Phaser.Scene {
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
+    const camFollow = panel.querySelector<HTMLInputElement>('#pa-camfollow')!;
     name.onchange = () => {
       const v = name.value.trim().slice(0, 32);
       this.viewerUsername = v;
@@ -3508,6 +3515,14 @@ export class OfficeScene extends Phaser.Scene {
       this.alwaysShowLabels = lbl.checked;
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
+    };
+    camFollow.onchange = () => {
+      this.cameraFollowEnabled = camFollow.checked;
+      // Re-engaging: drop any stale manual-pan detach so it recenters right away
+      // instead of waiting for the next walk step.
+      this.cameraFollowDetached = false;
+      this.cameraDetachAt = null;
+      this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
     };
     // "Change server" is a desktop-only concern (the browser build's server is
     // its own origin, not user-configurable), so it is hidden in the browser.
@@ -3797,6 +3812,7 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
+    this.settingsPanel.querySelector<HTMLInputElement>('#pa-camfollow')!.checked = this.cameraFollowEnabled;
     // Account section: only for logged-in users; reflect the current agent token.
     const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
     if (account) account.style.display = this.myUserId ? '' : 'none';
