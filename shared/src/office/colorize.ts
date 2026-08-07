@@ -44,7 +44,7 @@ export function clearColorizeCache(): void {
  * 4. Create HSL color with user's hue + saturation
  * 5. Convert HSL -> RGB -> hex
  */
-function colorizeSprite(sprite: SpriteData, color: ColorValue): SpriteData {
+export function colorizeSprite(sprite: SpriteData, color: ColorValue): SpriteData {
   const { h, s, b, c } = color;
   const result: SpriteData = [];
 
@@ -220,4 +220,48 @@ export function adjustSprite(sprite: SpriteData, color: ColorValue): SpriteData 
   }
 
   return result;
+}
+
+// ── Closed-palette tinting (floor/wall tile colors) ──────────────────
+
+function hexToRgb(hex: string): [number, number, number] {
+  return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16)];
+}
+
+/** The palette entry closest (by RGB distance) to `hex` — used to snap a
+ *  computed pixel onto a real palette color instead of an arbitrary blend. */
+function nearestPaletteHex(hex: string, palette: readonly string[]): string {
+  const [r, g, b] = hexToRgb(hex);
+  let best = palette[0];
+  let bestDist = Infinity;
+  for (const candidate of palette) {
+    const [cr, cg, cb] = hexToRgb(candidate);
+    const dist = (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/** Tint a grayscale sprite toward `targetHex`'s hue (same Colorize algorithm
+ *  as colorizeSprite, so the source pattern's own shading is preserved as a
+ *  lightness gradient), then snap every resulting pixel to the nearest color
+ *  actually in `palette`. The output therefore only ever contains real
+ *  palette colors — no off-palette blend — while the shading still reads as
+ *  "this pattern, tinted", because different source lightness values quantize
+ *  to different (but genuine) nearby palette entries. */
+export function colorizeToPalette(sprite: SpriteData, targetHex: string, palette: readonly string[]): SpriteData {
+  const [r, g, b] = hexToRgb(targetHex);
+  const [h, s] = rgbToHsl(r, g, b);
+  const tinted = colorizeSprite(sprite, { h, s: s * 100, b: 0, c: 0, colorize: true });
+  return tinted.map((row) =>
+    row.map((pixel) => {
+      if (pixel === '') return '';
+      const alpha = extractAlpha(pixel);
+      const snapped = nearestPaletteHex(`#${pixel.slice(1, 7)}`, palette);
+      return appendAlpha(snapped, alpha);
+    }),
+  );
 }

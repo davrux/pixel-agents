@@ -10,17 +10,22 @@
  * Bitmask convention: N=1, E=2, S=4, W=8. Out-of-bounds = NOT wall.
  */
 
-import type { ColorValue } from './colorTypes.js';
-import { getColorizedSprite } from './colorize.js';
+import { colorizeToPalette } from './colorize.js';
+import { TILE_COLOR_PALETTE, resolveTileColor } from './tileColorPalette.js';
 import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
 import { TILE_SIZE, TileType } from './types.js';
 
 /** Wall tile sets: each set has 16 sprites indexed by bitmask (0-15) */
 let wallSets: SpriteData[][] = [];
 
+/** Baked (setIndex, mask, colorIndex) -> tinted SpriteData — see floorTiles.ts's
+ *  paletteCache for why caching forever is fine (bounded set). */
+const paletteCache = new Map<string, SpriteData>();
+
 /** Set wall tile sets (called once when extension sends wallTilesLoaded) */
 export function setWallSprites(sets: SpriteData[][]): void {
   wallSets = sets;
+  paletteCache.clear();
 }
 
 /** Check if wall sprites have been loaded */
@@ -77,15 +82,15 @@ function getWallSprite(
 }
 
 /**
- * Get a colorized wall sprite for a tile based on its cardinal neighbors.
- * Uses Colorize mode (grayscale → HSL) like floor tiles.
- * Returns the colorized sprite + Y offset, or null if no wall sprites loaded.
+ * Get a wall sprite tinted with one TILE_COLOR_PALETTE swatch (see
+ * colorizeToPalette), for a tile based on its cardinal neighbors.
+ * Returns the tinted sprite + Y offset, or null if no wall sprites loaded.
  */
-function getColorizedWallSprite(
+function getPaletteWallSprite(
   col: number,
   row: number,
   tileMap: TileTypeVal[][],
-  color: ColorValue,
+  colorIndex: number,
   setIndex = 0,
 ): { sprite: SpriteData; offsetY: number } | null {
   if (wallSets.length === 0) return null;
@@ -95,12 +100,17 @@ function getColorizedWallSprite(
   const sprite = sprites[mask];
   if (!sprite) return null;
 
-  // Walls always colorize: the wall sprite is a light grey, so only colorize
-  // (grayscale → hue) tints it — "adjust" mode would leave it grey.
-  const cacheKey = `wall-${setIndex}-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
-  const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true });
+  const targetHex = resolveTileColor(colorIndex);
+  if (!targetHex) return { sprite, offsetY: TILE_SIZE - sprite.length };
 
-  return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
+  const cacheKey = `${setIndex}-${mask}-${colorIndex}`;
+  let tinted = paletteCache.get(cacheKey);
+  if (!tinted) {
+    tinted = colorizeToPalette(sprite, targetHex, TILE_COLOR_PALETTE);
+    paletteCache.set(cacheKey, tinted);
+  }
+
+  return { sprite: tinted, offsetY: TILE_SIZE - sprite.length };
 }
 
 /**
@@ -109,7 +119,7 @@ function getColorizedWallSprite(
  */
 export function getWallInstances(
   tileMap: TileTypeVal[][],
-  tileColors?: Array<ColorValue | null>,
+  tileColorIndex?: Array<number | null>,
   cols?: number,
 ): FurnitureInstance[] {
   if (wallSets.length === 0) return [];
@@ -120,11 +130,10 @@ export function getWallInstances(
   for (let r = 0; r < tmRows; r++) {
     for (let c = 0; c < tmCols; c++) {
       if (tileMap[r][c] !== TileType.WALL) continue;
-      const colorIdx = r * layoutCols + c;
-      const wallColor = tileColors?.[colorIdx];
-      const wallInfo = wallColor
-        ? getColorizedWallSprite(c, r, tileMap, wallColor)
-        : getWallSprite(c, r, tileMap);
+      const posIdx = r * layoutCols + c;
+      const colorIndex = tileColorIndex?.[posIdx];
+      const wallInfo =
+        colorIndex != null ? getPaletteWallSprite(c, r, tileMap, colorIndex) : getWallSprite(c, r, tileMap);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,
@@ -138,64 +147,11 @@ export function getWallInstances(
 }
 
 /**
- * Compute the flat fill hex color for a wall tile with a given ColorValue.
- * Uses same Colorize algorithm as floor tiles: 50% gray → HSL.
+ * The flat fill hex color for a wall tile with a given palette swatch — used
+ * as the pre-wall-sprite background rect, so it's just the swatch's real
+ * color directly (no gradient to compute: a flat fill has no shading to
+ * preserve, unlike the per-pixel wall sprite tinting above).
  */
-export function wallColorToHex(color: ColorValue): string {
-  const { h, s, b, c } = color;
-  // Start with 50% gray (wall base)
-  let lightness = 0.5;
-
-  // Apply contrast
-  if (c !== 0) {
-    const factor = (100 + c) / 100;
-    lightness = 0.5 + (lightness - 0.5) * factor;
-  }
-
-  // Apply brightness
-  if (b !== 0) {
-    lightness = lightness + b / 200;
-  }
-
-  lightness = Math.max(0, Math.min(1, lightness));
-
-  // HSL to hex (same as colorize.ts hslToHex)
-  const satFrac = s / 100;
-  const ch = (1 - Math.abs(2 * lightness - 1)) * satFrac;
-  const hp = h / 60;
-  const x = ch * (1 - Math.abs((hp % 2) - 1));
-  let r1 = 0,
-    g1 = 0,
-    b1 = 0;
-
-  if (hp < 1) {
-    r1 = ch;
-    g1 = x;
-    b1 = 0;
-  } else if (hp < 2) {
-    r1 = x;
-    g1 = ch;
-    b1 = 0;
-  } else if (hp < 3) {
-    r1 = 0;
-    g1 = ch;
-    b1 = x;
-  } else if (hp < 4) {
-    r1 = 0;
-    g1 = x;
-    b1 = ch;
-  } else if (hp < 5) {
-    r1 = x;
-    g1 = 0;
-    b1 = ch;
-  } else {
-    r1 = ch;
-    g1 = 0;
-    b1 = x;
-  }
-
-  const m = lightness - ch / 2;
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round((v + m) * 255)));
-
-  return `#${clamp(r1).toString(16).padStart(2, '0')}${clamp(g1).toString(16).padStart(2, '0')}${clamp(b1).toString(16).padStart(2, '0')}`;
+export function paletteWallColorToHex(colorIndex: number): string | null {
+  return resolveTileColor(colorIndex);
 }

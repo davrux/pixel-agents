@@ -20,7 +20,6 @@ import {
   WALL_COLOR,
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
-import { resolveTileColor } from '@pixel/shared/office/tileColorPalette.js';
 import { getCharacterSprite } from '@pixel/shared/office/engine/index.js';
 import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
@@ -39,8 +38,8 @@ export interface RenderSource {
   getLayout(): OfficeLayout;
   tileMap: TileTypeVal[][];
 }
-import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
-import { getWallInstances, hasWallSprites, wallColorToHex } from '@pixel/shared/office/wallTiles.js';
+import { getPaletteFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { getWallInstances, hasWallSprites, paletteWallColorToHex } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
@@ -164,7 +163,7 @@ export class PhaserRenderer {
 
     const layout = this.state.getLayout();
     const tileMap = this.state.tileMap;
-    const tileColors = layout.tileColorIndex?.map((i) => resolveTileColor(i));
+    const tileColorIndex = layout.tileColorIndex;
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
@@ -176,12 +175,12 @@ export class PhaserRenderer {
         const px = c * TILE_SIZE;
         const py = r * TILE_SIZE;
         if (tile === TileType.WALL || !useFloors) {
-          const wallColor = tile === TileType.WALL ? tileColors?.[r * cols + c] : null;
-          const hex = tile === TileType.WALL ? (wallColor ? wallColorToHex(wallColor) : WALL_COLOR) : '#808080';
+          const colorIdx = tile === TileType.WALL ? tileColorIndex?.[r * cols + c] : null;
+          const hex = tile === TileType.WALL ? (colorIdx != null ? (paletteWallColorToHex(colorIdx) ?? WALL_COLOR) : WALL_COLOR) : '#808080';
           this.statics.push(this.solid(px, py, hex, FLOOR_DEPTH));
         } else {
-          const color = tileColors?.[r * cols + c] ?? { h: 0, s: 0, b: 0, c: 0 };
-          const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, color));
+          const colorIdx = tileColorIndex?.[r * cols + c] ?? null;
+          const tex = spriteTexture(this.scene, getPaletteFloorSprite(tile, colorIdx));
           this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
         }
       }
@@ -189,7 +188,7 @@ export class PhaserRenderer {
 
     // Wall sprite instances (auto-tiled) — participate in depth sort.
     if (hasWallSprites()) {
-      for (const w of getWallInstances(tileMap, tileColors, cols)) {
+      for (const w of getWallInstances(tileMap, tileColorIndex, cols)) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.

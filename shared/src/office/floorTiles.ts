@@ -6,9 +6,9 @@
  * Caches colorized SpriteData by (pattern, h, s, b, c) key.
  */
 
-import type { ColorValue } from './colorTypes.js';
 import { CANVAS_ERROR_TILE_COLOR, FALLBACK_FLOOR_COLOR, TILE_SIZE } from './constants.js';
-import { clearColorizeCache, getColorizedSprite } from './colorize.js';
+import { clearColorizeCache, colorizeToPalette } from './colorize.js';
+import { TILE_COLOR_PALETTE, resolveTileColor } from './tileColorPalette.js';
 import type { SpriteData } from './types.js';
 
 /** Default solid gray 16×16 tile used when floor tile PNGs are not loaded */
@@ -20,6 +20,12 @@ const DEFAULT_FLOOR_SPRITE: SpriteData = Array.from(
 /** Module-level storage for floor tile sprites (set once on load) */
 let floorSprites: SpriteData[] = [];
 
+/** Baked (pattern, colorIndex) -> tinted SpriteData, cleared alongside the
+ *  base sprites on reload. Bounded (patterns × TILE_COLOR_PALETTE.length),
+ *  so caching forever is fine — unlike the old free-h/s/b/c cache, this can
+ *  never grow unbounded. */
+const paletteCache = new Map<string, SpriteData>();
+
 // Re-export WALL_COLOR from constants for backward compatibility
 export { WALL_COLOR } from './constants.js';
 
@@ -27,6 +33,7 @@ export { WALL_COLOR } from './constants.js';
 export function setFloorSprites(sprites: SpriteData[]): void {
   floorSprites = sprites;
   clearColorizeCache();
+  paletteCache.clear();
 }
 
 /** Get the raw (grayscale) floor sprite for a pattern index (1-7 -> array index 0-6).
@@ -56,22 +63,24 @@ export function getFloorPatternCount(): number {
 // }
 
 /**
- * Get a colorized version of a floor sprite.
- * Uses Photoshop-style Colorize: grayscale -> HSL with given hue/saturation,
- * then brightness/contrast adjustment.
+ * Get a floor sprite tinted with one TILE_COLOR_PALETTE swatch (see
+ * colorizeToPalette) — null colorIndex returns the plain grayscale pattern
+ * untinted (a wall/void tile, or a tile explicitly painted without a swatch).
  */
-export function getColorizedFloorSprite(patternIndex: number, color: ColorValue): SpriteData {
-  const key = `floor-${patternIndex}-${color.h}-${color.s}-${color.b}-${color.c}`;
-
+export function getPaletteFloorSprite(patternIndex: number, colorIndex: number | null): SpriteData {
   const base = getFloorSprite(patternIndex);
   if (!base) {
     // Return a 16x16 magenta error tile
-    const err: SpriteData = Array.from({ length: 16 }, () =>
-      Array(16).fill(CANVAS_ERROR_TILE_COLOR),
-    );
+    const err: SpriteData = Array.from({ length: 16 }, () => Array(16).fill(CANVAS_ERROR_TILE_COLOR));
     return err;
   }
+  const targetHex = resolveTileColor(colorIndex);
+  if (!targetHex) return base;
 
-  // Floor tiles are always colorized (grayscale patterns need Photoshop-style Colorize)
-  return getColorizedSprite(key, base, { ...color, colorize: true });
+  const key = `${patternIndex}-${colorIndex}`;
+  const cached = paletteCache.get(key);
+  if (cached) return cached;
+  const result = colorizeToPalette(base, targetHex, TILE_COLOR_PALETTE);
+  paletteCache.set(key, result);
+  return result;
 }

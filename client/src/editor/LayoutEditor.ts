@@ -14,8 +14,8 @@ import {
   layoutToFurnitureInstances,
   layoutToTileMap,
 } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getColorizedFloorSprite, getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
-import { getWallSetCount, getWallSetPreviewSprite, wallColorToHex } from '@pixel/shared/office/wallTiles.js';
+import { getPaletteFloorSprite, getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
+import { getWallSetCount, getWallSetPreviewSprite, paletteWallColorToHex } from '@pixel/shared/office/wallTiles.js';
 import {
   Direction,
   TILE_SIZE,
@@ -28,7 +28,7 @@ import {
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { setTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
-import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
+import { getColorizedSprite, colorizeToPalette } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 import { TILE_COLOR_PALETTE, resolveTileColor } from '@pixel/shared/office/tileColorPalette.js';
@@ -472,14 +472,14 @@ export class LayoutEditor {
     }
     if (this.tool === 'floor') {
       // Preview the floor tile in the chosen swatch.
-      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, resolveTileColor(this.tileColorIdx) ?? NEUTRAL));
+      const tex = spriteTexture(this.scene, getPaletteFloorSprite(this.floorPattern, this.tileColorIdx));
       this.ghost.setTexture(tex).setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xffffff).setVisible(true);
       return;
     }
     if (this.tool === 'wall') {
       // Preview the wall tile tinted with the chosen swatch.
-      const tint = hexToTint(wallColorToHex(resolveTileColor(this.tileColorIdx) ?? NEUTRAL));
+      const tint = hexToTint(paletteWallColorToHex(this.tileColorIdx) ?? '#808080');
       this.ghost.setTexture('__WHITE').setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(tint).setVisible(true);
       return;
@@ -1831,17 +1831,17 @@ export class LayoutEditor {
     }
     this.highlightActionChoice();
 
-    // Tile-tint picker for the Floor/Wall tools — a fixed 16-swatch palette
-    // (TILE_COLOR_PALETTE) instead of the furniture sliders above, so a
-    // tile's color is "which swatch" rather than a free h/s/b/c value (see
-    // tileColorPalette.ts for why — Tiled-format compatibility).
+    // Tile-tint picker for the Floor/Wall tools — a fixed palette
+    // (TILE_COLOR_PALETTE, DawnBringer DB32) instead of the furniture sliders
+    // above, so a tile's color is "which swatch" rather than a free h/s/b/c
+    // value (see tileColorPalette.ts for why — Tiled-format compatibility).
     this.palTileColor = Object.assign(document.createElement('div'), { className: 'pa-pal pa-pal-tilecolor' });
     this.palTileColor.style.display = 'none';
-    TILE_COLOR_PALETTE.forEach((swatch, i) => {
+    TILE_COLOR_PALETTE.forEach((hex, i) => {
       const b = document.createElement('button');
       b.className = 'pa-pal-item pa-tilecolor-swatch';
       b.dataset.colorIdx = String(i);
-      b.style.background = `hsl(${swatch.h} ${swatch.s}% ${55 + swatch.b / 2}%)`;
+      b.style.background = hex;
       b.onclick = () => {
         this.tileColorIdx = i;
         this.highlightTileColorSwatch();
@@ -1942,7 +1942,7 @@ export class LayoutEditor {
       const item = document.createElement('div');
       item.className = 'pa-pal-item';
       item.dataset.pattern = String(p);
-      const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(getColorizedFloorSprite(p, NEUTRAL)) });
+      const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(getPaletteFloorSprite(p, null)) });
       item.appendChild(img);
       item.onclick = () => {
         this.floorPattern = p;
@@ -1979,17 +1979,16 @@ export class LayoutEditor {
    * palette is refreshed (floor or wall tool).
    */
   private refreshPalettePreviews(): void {
-    const c = resolveTileColor(this.tileColorIdx) ?? NEUTRAL;
     if (this.tool === 'floor') {
       for (const { img, pattern } of this.floorItems) {
-        img.src = spriteToDataURL(getColorizedFloorSprite(pattern, c));
+        img.src = spriteToDataURL(getPaletteFloorSprite(pattern, this.tileColorIdx));
       }
     } else if (this.tool === 'wall') {
+      const targetHex = resolveTileColor(this.tileColorIdx);
       for (const { img, set } of this.wallItems) {
         const base = getWallSetPreviewSprite(set);
-        if (!base) continue;
-        const key = `wallprev-${set}-${c.h}-${c.s}-${c.b}-${c.c}`;
-        img.src = spriteToDataURL(getColorizedSprite(key, base, { ...c, colorize: true }));
+        if (!base || !targetHex) continue;
+        img.src = spriteToDataURL(colorizeToPalette(base, targetHex, TILE_COLOR_PALETTE));
       }
     }
   }
