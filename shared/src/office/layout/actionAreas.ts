@@ -1,81 +1,89 @@
-import type { OfficeLayout } from '../types.js';
+import type { Action, ActionArea, BlockedArea, OfficeLayout, TileRect } from '../types.js';
 
-/** A meeting area's own room needs a name that survives a layout rebuild even
- *  though the numeric ids below don't (see ActionAreaMap.ids) — the anchor
- *  tile (this area's raster-scan-first tile, i.e. lowest row then lowest col)
- *  fills that role, mirroring how a conference monitor's room name falls back
- *  to its own anchor tile when it has no explicit name (see conferenceKey).
- *  The anchor's own tileActions entry also carries the area's effective
- *  settings (e.g. video:boolean) — a deliberate simplification if adjacent
- *  tiles were ever painted with different settings. */
-export interface ActionAreaMap {
-  /** Flat `cols*rows` array parallel to `layout.tiles`; -1 = not in any area,
-   *  else an index into `anchors`. Recomputed on every layout build/rebuild —
-   *  never authored or persisted, so two areas painted separately can never
-   *  collide, and bridging them with one more tile merges them into a single
-   *  id (and a single anchor/room) on the next rebuild. */
-  ids: Int32Array;
-  /** Stable per-area anchor tile, indexed the same as the ids above. */
-  anchors: Array<{ col: number; row: number }>;
+/** "col,row" key, shared by every lookup/index in this file. */
+function key(col: number, row: number): string {
+  return `${col},${row}`;
 }
 
-/** Flood-fill every maximal 4-connected group of `layout.tileActions` tiles
- *  whose action is `kind: 'meetingRoom'` into its own area — the ONLY action
- *  kind that groups into areas; every other tile action kind is a per-tile
- *  point-trigger (see OfficeState.walkPlayerToAction / SimRoom's tile-action
- *  arrival check), not something that needs a shared id at all. Use
- *  {@link actionAreaIdAt} for a bounds-checked (col,row) → area-id lookup,
- *  and {@link actionAreaAnchor} to get an area's stable anchor tile back out. */
-export function computeActionAreas(layout: OfficeLayout): ActionAreaMap {
-  const { cols, rows, tileActions } = layout;
-  const ids = new Int32Array(cols * rows).fill(-1);
-  const anchors: Array<{ col: number; row: number }> = [];
-  if (!tileActions || tileActions.length === 0) return { ids, anchors };
-  const meetingTiles = new Set<number>();
-  for (const t of tileActions) if (t.action.kind === 'meetingRoom') meetingTiles.add(t.row * cols + t.col);
-  const isMeetingTile = (i: number): boolean => meetingTiles.has(i);
+/** Every (col,row) cell covered by a rect, clamped to the layout bounds (an
+ *  area dragged/imported past the edge just loses its out-of-bounds cells,
+ *  rather than being rejected outright). */
+function* cellsOf(rect: TileRect, cols: number, rows: number): Generator<{ col: number; row: number }> {
+  const c0 = Math.max(0, rect.col);
+  const r0 = Math.max(0, rect.row);
+  const c1 = Math.min(cols, rect.col + rect.w);
+  const r1 = Math.min(rows, rect.row + rect.h);
+  for (let r = r0; r < r1; r++) {
+    for (let c = c0; c < c1; c++) yield { col: c, row: r };
+  }
+}
 
-  const stack: number[] = [];
-  for (let start = 0; start < cols * rows; start++) {
-    if (!isMeetingTile(start) || ids[start] !== -1) continue;
-    // `start` is the first unvisited area tile in raster-scan order, i.e. the
-    // raster-minimal (lowest row, then lowest col) tile of this component —
-    // exactly the deterministic anchor this area keeps across rebuilds as
-    // long as its shape doesn't change.
-    const id = anchors.length;
-    anchors.push({ col: start % cols, row: Math.floor(start / cols) });
-    ids[start] = id;
-    stack.push(start);
-    while (stack.length > 0) {
-      const idx = stack.pop()!;
-      const c = idx % cols;
-      const r = Math.floor(idx / cols);
-      const neighbors = [
-        r > 0 ? idx - cols : -1,
-        r < rows - 1 ? idx + cols : -1,
-        c > 0 ? idx - 1 : -1,
-        c < cols - 1 ? idx + 1 : -1,
-      ];
-      for (const n of neighbors) {
-        if (n >= 0 && isMeetingTile(n) && ids[n] === -1) {
-          ids[n] = id;
-          stack.push(n);
-        }
-      }
+/** Whether a rect contains (col,row). */
+export function rectContains(rect: TileRect, col: number, row: number): boolean {
+  return col >= rect.col && col < rect.col + rect.w && row >= rect.row && row < rect.row + rect.h;
+}
+
+/** Whether two rects share at least one cell. */
+export function rectsOverlap(a: TileRect, b: TileRect): boolean {
+  return a.col < b.col + b.w && b.col < a.col + a.w && a.row < b.row + b.h && b.row < a.row + a.h;
+}
+
+/** "col,row" → Action, built once per layout (re)build — O(1) lookup for the
+ *  per-character tile-arrival check (see OfficeState.actionByTile). Every
+ *  cell an ActionArea's rect covers maps to that area's own Action; areas
+ *  never merge with each other (each is independently authored — see
+ *  ActionArea's own doc comment), so an overlap between two areas resolves
+ *  to whichever is listed first. */
+export function buildActionByTile(layout: OfficeLayout): Map<string, Action> {
+  const index = new Map<string, Action>();
+  for (const area of layout.actionAreas ?? []) {
+    for (const { col, row } of cellsOf(area, layout.cols, layout.rows)) {
+      const k = key(col, row);
+      if (!index.has(k)) index.set(k, area.action);
     }
   }
-  return { ids, anchors };
+  return index;
 }
 
-/** Bounds-checked (col,row) → area-id lookup. */
-export function actionAreaIdAt(map: ActionAreaMap, cols: number, rows: number, col: number, row: number): number | null {
-  if (col < 0 || col >= cols || row < 0 || row >= rows) return null;
-  const id = map.ids[row * cols + col];
-  return id >= 0 ? id : null;
+/** "col,row" keys of every tile covered by an ActionArea, of any kind — used
+ *  to route plain click-to-move walks around them (see OfficeState.walkPlayer)
+ *  rather than cutting through a meeting room/kiosk/etc. on the way somewhere
+ *  else. */
+export function actionAreaTileKeys(layout: OfficeLayout): Set<string> {
+  const keys = new Set<string>();
+  for (const area of layout.actionAreas ?? []) {
+    for (const { col, row } of cellsOf(area, layout.cols, layout.rows)) keys.add(key(col, row));
+  }
+  return keys;
 }
 
-/** An area id's stable anchor tile (for a per-area room name/settings), or
- *  null for an out-of-range id (e.g. a stale id from before a layout rebuild). */
-export function actionAreaAnchor(map: ActionAreaMap, areaId: number): { col: number; row: number } | null {
-  return map.anchors[areaId] ?? null;
+/** Tiles covered by any BlockedArea — independent of floor pattern, merged
+ *  into officeState's blockedTiles alongside furniture footprints. */
+export function blockedAreaTiles(layout: OfficeLayout): Set<string> {
+  const tiles = new Set<string>();
+  for (const area of layout.blockedAreas ?? []) {
+    for (const { col, row } of cellsOf(area, layout.cols, layout.rows)) tiles.add(key(col, row));
+  }
+  return tiles;
+}
+
+/** The 'meetingRoom'-kind ActionArea (if any) covering (col,row) — the ONLY
+ *  action kind with membership-by-position semantics (see ActionArea); every
+ *  other kind is a per-tile point-trigger via buildActionByTile, not
+ *  something a caller needs to look up an *area* for. First match wins if
+ *  areas overlap (an authoring edge case, not a supported pattern). */
+export function meetingAreaAt(layout: OfficeLayout, col: number, row: number): ActionArea | null {
+  for (const area of layout.actionAreas ?? []) {
+    if (area.action.kind === 'meetingRoom' && rectContains(area, col, row)) return area;
+  }
+  return null;
+}
+
+/** The BlockedArea (if any) whose rect contains (col,row) — used by the
+ *  editor's erase gesture (see LayoutEditor.commitAreaDrag). */
+export function blockedAreaAt(layout: OfficeLayout, col: number, row: number): BlockedArea | null {
+  for (const area of layout.blockedAreas ?? []) {
+    if (rectContains(area, col, row)) return area;
+  }
+  return null;
 }

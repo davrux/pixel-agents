@@ -60,7 +60,7 @@ export function createAssetBridge(
         break;
       case 'layoutLoaded': {
         const raw = msg.layout as OfficeLayout | null;
-        const layout = raw && raw.version === 3 ? raw : null;
+        const layout = raw && raw.version === 4 ? raw : null;
         if (layout) {
           os.rebuildFromLayout(layout);
           onLayout(os.getLayout());

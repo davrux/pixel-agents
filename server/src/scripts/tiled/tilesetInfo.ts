@@ -1,5 +1,5 @@
 /**
- * Reads the three tileset files generateTiledTilesets.ts / generateTiledFurnitureTileset.ts
+ * Reads the tileset files generateTiledTilesets.ts / generateTiledFurnitureTileset.ts
  * already baked (assets/tiled/floor-tileset.tsx, wall-0-tileset.tsx,
  * furniture-tileset.tsx) and works out the global-gid ranges + furniture
  * type<->local-id lookups a .tmj map needs to reference them.
@@ -16,8 +16,6 @@ export interface TilesetInfo {
   /** Tiled's global gid space: [firstGid, firstGid+tileCount) for each tileset. */
   floor: { firstGid: number; tileCount: number; source: string };
   wall: { firstGid: number; tileCount: number; source: string };
-  /** One-tile hazard-stripe marker representing OfficeLayout.tileBlocked. */
-  collision: { firstGid: number; tileCount: number; source: string };
   furniture: {
     firstGid: number;
     tileCount: number;
@@ -62,13 +60,12 @@ function readFurnitureTiles(tsxPath: string): { localIdToType: Map<number, strin
   return { localIdToType, sizeByType };
 }
 
-/** @param tiledDir assets/tiled/ — where the three generated tilesets live. */
+/** @param tiledDir assets/tiled/ — where the generated tilesets live. */
 export function loadTilesetInfo(tiledDir: string): TilesetInfo {
   const floorPath = path.join(tiledDir, 'floor-tileset.tsx');
   const wallPath = path.join(tiledDir, 'wall-0-tileset.tsx');
-  const collisionPath = path.join(tiledDir, 'collision-tileset.tsx');
   const furniturePath = path.join(tiledDir, 'furniture-tileset.tsx');
-  for (const p of [floorPath, wallPath, collisionPath, furniturePath]) {
+  for (const p of [floorPath, wallPath, furniturePath]) {
     if (!fs.existsSync(p)) {
       throw new Error(
         `${p} not found — run "pnpm --filter @pixel/server run generate:tiled" and ` +
@@ -79,7 +76,6 @@ export function loadTilesetInfo(tiledDir: string): TilesetInfo {
 
   const floorTileCount = readTileCount(floorPath);
   const wallTileCount = readTileCount(wallPath);
-  const collisionTileCount = readTileCount(collisionPath);
   const furnitureTileCount = readTileCount(furniturePath);
   const { localIdToType, sizeByType } = readFurnitureTiles(furniturePath);
   const typeToLocalId = new Map<string, number>();
@@ -89,12 +85,10 @@ export function loadTilesetInfo(tiledDir: string): TilesetInfo {
   const floorFirstGid = 1;
   const wallFirstGid = floorFirstGid + floorTileCount;
   const furnitureFirstGid = wallFirstGid + wallTileCount;
-  const collisionFirstGid = furnitureFirstGid + furnitureTileCount;
 
   return {
     floor: { firstGid: floorFirstGid, tileCount: floorTileCount, source: 'floor-tileset.tsx' },
     wall: { firstGid: wallFirstGid, tileCount: wallTileCount, source: 'wall-0-tileset.tsx' },
-    collision: { firstGid: collisionFirstGid, tileCount: collisionTileCount, source: 'collision-tileset.tsx' },
     furniture: {
       firstGid: furnitureFirstGid,
       tileCount: furnitureTileCount,

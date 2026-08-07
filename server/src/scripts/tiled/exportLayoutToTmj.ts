@@ -1,9 +1,8 @@
 /**
  * Export a saved OfficeLayout to a real Tiled map (.tmj — Tiled's JSON map
- * format) that opens directly in Tiled, referencing the four baked tilesets
- * (floor-tileset.tsx, wall-0-tileset.tsx, collision-tileset.tsx,
- * furniture-tileset.tsx — run generate:tiled / generate:tiled-furniture
- * first if they're missing).
+ * format) that opens directly in Tiled, referencing the three baked tilesets
+ * (floor-tileset.tsx, wall-0-tileset.tsx, furniture-tileset.tsx — run
+ * generate:tiled / generate:tiled-furniture first if they're missing).
  *
  * Usage:
  *   pnpm --filter @pixel/server run tiled:export -- <layoutName> [outFile]
@@ -12,10 +11,11 @@
  * <layoutName> is a name from the office zone's layout list ("Default", or
  * any saved name) — same names shown in the in-game Layouts panel.
  *
- * Everything OfficeLayout can express round-trips losslessly with
- * importTmjToLayout.ts: tiles, furniture (incl. per-instance overrides as
- * real Tiled custom properties, not an opaque JSON blob), tile actions,
- * text labels, and tileBlocked (via the "Collision" tile layer).
+ * Tiles are terrain only (floor + wall); everything else — furniture,
+ * ActionArea, BlockedArea, text labels — is a Tiled Object, so a mapmaker
+ * draws/resizes a whole meeting room or blocked zone as ONE rectangle in
+ * Tiled instead of painting individual cells. Everything OfficeLayout can
+ * express round-trips losslessly with importTmjToLayout.ts.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,7 +27,7 @@ import { loadTilesetInfo } from './tilesetInfo.js';
 import { isVoid, isWall, isFloor, floorPatternOf, tileColorIndexOf } from '@pixel/shared/office/tileGid.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
-import type { OfficeLayout, PlacedFurniture, PlacedText, TileAction, Action } from '@pixel/shared/office/types.js';
+import type { ActionArea, BlockedArea, OfficeLayout, PlacedFurniture, PlacedText, Action } from '@pixel/shared/office/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -111,7 +111,8 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
   const info = loadTilesetInfo(TILED_DIR);
   const { cols, rows, tiles } = layout;
 
-  // ── Tile layer: floor + wall, one real Tiled gid per cell ──
+  // ── Tile layer: floor + wall, one real Tiled gid per cell — terrain only.
+  //    Everything else (furniture, areas, text) is a Tiled Object below. ──
   const data: number[] = new Array(cols * rows);
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -137,15 +138,6 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
       } else {
         data[idx] = 0;
       }
-    }
-  }
-
-  // ── Collision: one marker gid per blocked cell, an overlay layer so a
-  //    mapmaker can see/paint tileBlocked directly in Tiled. ──
-  const collisionData: number[] = new Array(cols * rows).fill(0);
-  if (layout.tileBlocked) {
-    for (let i = 0; i < collisionData.length; i++) {
-      if (layout.tileBlocked[i]) collisionData[i] = info.collision.firstGid;
     }
   }
 
@@ -181,19 +173,34 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
     });
   }
 
-  // ── Tile actions: plain rectangle objects (top-left anchored), one per
-  //    tile, class = action kind, fields as properties. ──
-  const actionObjects: TiledObject[] = (layout.tileActions ?? []).map((t: TileAction) => ({
+  // ── Action areas: one plain rectangle object per ActionArea (top-left
+  //    anchored, spanning w*h tiles — a whole meeting room is ONE object),
+  //    class = action kind, fields as properties. ──
+  const actionObjects: TiledObject[] = (layout.actionAreas ?? []).map((a: ActionArea) => ({
     id: nextObjectId++,
     name: '',
-    class: t.action.kind,
-    x: t.col * TILE_SIZE,
-    y: t.row * TILE_SIZE,
-    width: TILE_SIZE,
-    height: TILE_SIZE,
+    class: a.action.kind,
+    x: a.col * TILE_SIZE,
+    y: a.row * TILE_SIZE,
+    width: a.w * TILE_SIZE,
+    height: a.h * TILE_SIZE,
     rotation: 0,
     visible: true,
-    properties: actionProps(t.action),
+    properties: [strProp('paId', a.id), ...actionProps(a.action)],
+  }));
+
+  // ── Blocked areas: plain rectangle objects, no fields beyond the id
+  //    needed to round-trip. ──
+  const blockedObjects: TiledObject[] = (layout.blockedAreas ?? []).map((a: BlockedArea) => ({
+    id: nextObjectId++,
+    name: '',
+    x: a.col * TILE_SIZE,
+    y: a.row * TILE_SIZE,
+    width: a.w * TILE_SIZE,
+    height: a.h * TILE_SIZE,
+    rotation: 0,
+    visible: true,
+    properties: [strProp('paId', a.id)],
   }));
 
   // ── Text labels: Tiled's native text object type. ──
@@ -235,7 +242,6 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
       { firstgid: info.floor.firstGid, source: info.floor.source },
       { firstgid: info.wall.firstGid, source: info.wall.source },
       { firstgid: info.furniture.firstGid, source: info.furniture.source },
-      { firstgid: info.collision.firstGid, source: info.collision.source },
     ],
     layers: [
       {
@@ -285,23 +291,18 @@ export function exportLayoutToTmj(layout: OfficeLayout): TiledObject {
       },
       {
         id: 5,
-        name: 'Collision',
-        type: 'tilelayer',
+        name: 'NonWalkable',
+        type: 'objectgroup',
         x: 0,
         y: 0,
-        width: cols,
-        height: rows,
         visible: true,
         opacity: 0.5,
-        data: collisionData,
+        draworder: 'topdown',
+        objects: blockedObjects,
       },
     ],
   };
   return map;
-}
-
-function row_unused(r: number): number {
-  return r;
 }
 
 async function main(): Promise<void> {
@@ -318,8 +319,8 @@ async function main(): Promise<void> {
     console.error(`[tiled:export] no layout named "${layoutName}" in zone "${ZONE}"`);
     process.exit(1);
   }
-  if (raw.version !== 3) {
-    console.error(`[tiled:export] layout "${layoutName}" is schema version ${raw.version as number}, expected 3 — resave it in the editor first.`);
+  if (raw.version !== 4) {
+    console.error(`[tiled:export] layout "${layoutName}" is schema version ${raw.version as number}, expected 4 — resave it in the editor first.`);
     process.exit(1);
   }
 

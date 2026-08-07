@@ -1,10 +1,10 @@
 /**
  * Import a Tiled map (.tmj) back into a saved OfficeLayout — the reverse of
- * exportLayoutToTmj.ts. Assumes the map still references the same four
+ * exportLayoutToTmj.ts. Assumes the map still references the same three
  * canonical tilesets in assets/tiled/ (floor-tileset.tsx, wall-0-tileset.tsx,
- * furniture-tileset.tsx, collision-tileset.tsx) that export always produces;
- * a .tmj built from scratch in Tiled against those same tilesets works just
- * as well as a round-tripped one.
+ * furniture-tileset.tsx) that export always produces; a .tmj built from
+ * scratch in Tiled against those same tilesets works just as well as a
+ * round-tripped one.
  *
  * Usage:
  *   pnpm --filter @pixel/server run tiled:import -- <inFile.tmj> <layoutName>
@@ -14,6 +14,10 @@
  * does — this is a trusted local dev/admin tool, not a path a live client
  * ever reaches, so it applies only light validation, not the full
  * SimRoom.ts sanitizers (which are private to that module).
+ *
+ * ActionArea/BlockedArea are rectangle-only (see TileRect's own doc comment)
+ * — a Tiled ellipse or polygon object in the "Actions"/"NonWalkable" layers
+ * is rejected with a warning rather than approximated.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -25,7 +29,7 @@ import { loadTilesetInfo } from './tilesetInfo.js';
 import { VOID_GID, floorGid, wallGid } from '@pixel/shared/office/tileGid.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
-import type { OfficeLayout, PlacedFurniture, PlacedText, TileAction, Action, ColorValue, Direction } from '@pixel/shared/office/types.js';
+import type { ActionArea, BlockedArea, OfficeLayout, PlacedFurniture, PlacedText, Action, ColorValue, Direction, TileRect } from '@pixel/shared/office/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -49,6 +53,10 @@ interface TiledObjectIn {
   width: number;
   height: number;
   rotation?: number;
+  ellipse?: boolean;
+  polygon?: unknown;
+  polyline?: unknown;
+  point?: boolean;
   text?: { text: string; pixelsize?: number; fontfamily?: string };
   properties?: Array<{ name: string; type: string; value: unknown }>;
 }
@@ -57,6 +65,26 @@ function propsToRecord(obj: TiledObjectIn): Record<string, unknown> {
   const rec: Record<string, unknown> = {};
   for (const p of obj.properties ?? []) rec[p.name] = p.value;
   return rec;
+}
+
+/** A rectangle-only shape, snapped to the tile grid (see maybeExpand's own
+ *  grid-snap precedent in the editor) — null (with a warning) for a
+ *  Tiled ellipse/polygon/polyline/point object, or a degenerate/out-of-
+ *  bounds rect. */
+function rectOf(obj: TiledObjectIn, cols: number, rows: number, label: string): TileRect | null {
+  if (obj.ellipse || obj.polygon || obj.polyline || obj.point) {
+    console.warn(`[tiled:import] ${label} object ${obj.id} is not a plain rectangle — only rectangles are supported, skipped`);
+    return null;
+  }
+  const col = Math.round(obj.x / TILE_SIZE);
+  const row = Math.round(obj.y / TILE_SIZE);
+  const w = Math.max(1, Math.round(obj.width / TILE_SIZE));
+  const h = Math.max(1, Math.round(obj.height / TILE_SIZE));
+  if (col < 0 || row < 0 || col + w > cols || row + h > rows) {
+    console.warn(`[tiled:import] ${label} object ${obj.id} is out of bounds — skipped`);
+    return null;
+  }
+  return { col, row, w, h };
 }
 
 /** Mirror of exportLayoutToTmj.ts's furnitureOverrideProps — reads the same
@@ -106,6 +134,14 @@ function parseAction(kind: string, props: Record<string, unknown>): Action | nul
   }
 }
 
+/** A fresh id for an area imported without its own `paId` property (e.g. a
+ *  hand-drawn Tiled object never exported by us) — falls back to the Tiled
+ *  object's own id, already unique within the map. See ActionArea/
+ *  BlockedArea's own doc comments on why a stable id matters. */
+function areaId(props: Record<string, unknown>, objId: number): string {
+  return typeof props.paId === 'string' && props.paId ? props.paId : `a${objId}`;
+}
+
 export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
   const info = loadTilesetInfo(TILED_DIR);
   const cols = map.width as number;
@@ -132,9 +168,6 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     return VOID_GID;
   });
 
-  const collisionData = tileLayers.get('Collision');
-  const tileBlocked = collisionData?.some((gid) => gid !== 0) ? collisionData.map((gid) => gid !== 0) : undefined;
-
   const objectLayers = new Map(layers.filter((l) => l.type === 'objectgroup').map((l) => [l.name as string, (l.objects ?? []) as TiledObjectIn[]]));
 
   const furniture: PlacedFurniture[] = [];
@@ -157,19 +190,26 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     furniture.push({ uid, type, col, row, ...overrides } as PlacedFurniture);
   }
 
-  const tileActions: TileAction[] = [];
+  const actionAreas: ActionArea[] = [];
   for (const obj of objectLayers.get('Actions') ?? []) {
     const kind = obj.class ?? obj.type;
     if (!kind) continue;
-    const action = parseAction(kind, propsToRecord(obj));
+    const props = propsToRecord(obj);
+    const action = parseAction(kind, props);
     if (!action) {
       console.warn(`[tiled:import] action object ${obj.id} (kind "${kind}") is invalid — skipped`);
       continue;
     }
-    const col = Math.floor(obj.x / TILE_SIZE);
-    const row = Math.floor(obj.y / TILE_SIZE);
-    if (col < 0 || row < 0 || col >= cols || row >= rows) continue;
-    tileActions.push({ col, row, action });
+    const rect = rectOf(obj, cols, rows, 'action');
+    if (!rect) continue;
+    actionAreas.push({ ...rect, id: areaId(props, obj.id), action });
+  }
+
+  const blockedAreas: BlockedArea[] = [];
+  for (const obj of objectLayers.get('NonWalkable') ?? []) {
+    const rect = rectOf(obj, cols, rows, 'blocked');
+    if (!rect) continue;
+    blockedAreas.push({ ...rect, id: areaId(propsToRecord(obj), obj.id) });
   }
 
   const texts: PlacedText[] = [];
@@ -186,7 +226,7 @@ export function importTmjToLayout(map: Record<string, unknown>): OfficeLayout {
     texts.push(entry);
   }
 
-  return { version: 3, cols, rows, tiles, furniture, tileActions, texts, ...(tileBlocked ? { tileBlocked } : {}) };
+  return { version: 4, cols, rows, tiles, furniture, actionAreas, blockedAreas, texts };
 }
 
 async function main(): Promise<void> {
@@ -203,7 +243,8 @@ async function main(): Promise<void> {
   store.saveAs(ZONE, layoutName, layout as unknown as Record<string, unknown>, Date.now());
   console.log(
     `[tiled:import] saved "${layoutName}" in zone "${ZONE}" (${layout.furniture.length} furniture, ` +
-      `${layout.tileActions?.length ?? 0} actions, ${layout.texts?.length ?? 0} texts) — now active`,
+      `${layout.actionAreas?.length ?? 0} action areas, ${layout.blockedAreas?.length ?? 0} blocked areas, ` +
+      `${layout.texts?.length ?? 0} texts) — now active`,
   );
 }
 

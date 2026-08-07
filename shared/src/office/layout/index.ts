@@ -12,5 +12,12 @@ export {
   serializeLayout,
 } from './layoutSerializer.js';
 export { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from './tileMap.js';
-export { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from './actionAreas.js';
-export { getTileActionAt, buildTileActionIndex, setTileActionAt, tileActionKeys } from './tileActionMap.js';
+export {
+  buildActionByTile,
+  actionAreaTileKeys,
+  blockedAreaTiles,
+  meetingAreaAt,
+  blockedAreaAt,
+  rectContains,
+  rectsOverlap,
+} from './actionAreas.js';

@@ -20,13 +20,16 @@ import {
   Direction,
   TILE_SIZE,
   type Action,
+  type ActionArea,
+  type BlockedArea,
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
   type PlacedText,
   type TileGid as TileTypeVal,
+  type TileRect,
 } from '@pixel/shared/office/types.js';
-import { setTileActionAt } from '@pixel/shared/office/layout/tileActionMap.js';
+import { rectsOverlap } from '@pixel/shared/office/layout/actionAreas.js';
 import { getColorizedSprite, colorizeToPalette } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
@@ -125,6 +128,17 @@ export class LayoutEditor {
   private ghostHover = { col: -999, row: -999 };
   /** Last tile painted in the current drag-paint stroke (per-tile dedup). */
   private lastPaint = { col: NaN, row: NaN };
+  /** Live drag-rectangle state for the Action/Block tools — a whole drag
+   *  gesture commits ONE ActionArea/BlockedArea rect, rather than one edit
+   *  per visited tile (see actionAreas.ts). Set on the first strokePaint
+   *  call of a stroke, grown as the cursor moves, committed in endStroke. */
+  private areaDragStart: { col: number; row: number } | null = null;
+  private areaDragRect: TileRect | null = null;
+  private areaDragErase = false;
+  /** `a<n>` counter for ActionArea/BlockedArea ids — separate from furniture/
+   *  text's `e<n>` uid counter (see nextUid) since areas are never looked up
+   *  in the same namespace. */
+  private areaUid = 0;
   private ghostWorld = { x: 0, y: 0 };
   private uid = 0;
   /** Undo/redo are full-layout snapshots (v1 model); capped at MAX_HISTORY. */
@@ -192,10 +206,8 @@ export class LayoutEditor {
   private enter(): void {
     this.populatePalettes();
     this.layout = structuredClone(this.deps.getLayout());
-    if (!this.layout.tileBlocked) {
-      this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
-    }
-    if (!this.layout.tileActions) this.layout.tileActions = [];
+    if (!this.layout.blockedAreas) this.layout.blockedAreas = [];
+    if (!this.layout.actionAreas) this.layout.actionAreas = [];
     if (!this.layout.texts) this.layout.texts = [];
     this.ensureUniqueUids();
     this.tileMap = layoutToTileMap(this.layout);
@@ -324,11 +336,8 @@ export class LayoutEditor {
         break;
       }
       case 'block':
-        this.paintBlocked(col, row, true);
-        break;
       case 'action':
-        this.paintTileAction(col, row, this.currentTileAction);
-        break;
+        break; // handled as a drag-rectangle by strokePaint/endStroke — see commitAreaDrag
       case 'text':
         void this.placeOrEditText(col, row);
         break;
@@ -343,13 +352,11 @@ export class LayoutEditor {
     if (this.tool === 'furniture') this.deleteFurnitureAt(wx, wy);
     else if (this.tool === 'floor' || this.tool === 'wall') {
       this.paintTile(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), VOID_GID);
-    } else if (this.tool === 'block') {
-      this.paintBlocked(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), false);
-    } else if (this.tool === 'action') {
-      this.paintTileAction(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), null);
     } else if (this.tool === 'text') {
       this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
+    // 'block'/'action' erase is handled as a drag-rectangle by strokePaint/
+    // endStroke — see commitAreaDrag.
   }
 
   /** Floor/Wall/Block/Action are paint tools — the scene lets you drag-paint
@@ -362,24 +369,72 @@ export class LayoutEditor {
    *  (the whole stroke is one undo step). */
   beginStroke(): void {
     this.lastPaint = { col: NaN, row: NaN };
+    this.areaDragStart = null;
+    this.areaDragRect = null;
     this.beginGesture();
   }
 
-  /** End a paint stroke — flush the autosave for the completed stroke. */
+  /** End a paint stroke — for Action/Block, commits the drag rectangle
+   *  accumulated since beginStroke (see commitAreaDrag); for Floor/Wall,
+   *  nothing more to do, every tile was already painted live. Either way,
+   *  flush the autosave for the completed stroke. */
   endStroke(): void {
+    if ((this.tool === 'action' || this.tool === 'block') && this.areaDragRect) {
+      this.commitAreaDrag(this.areaDragRect, this.areaDragErase);
+    }
+    this.areaDragStart = null;
+    this.areaDragRect = null;
     if (this.layout) this.deps.onEdit(this.layout, true);
   }
 
-  /** Paint (or erase) the tile under the cursor during a drag, skipping tiles
-   *  already painted this stroke so a stroke maps to one edit per tile. */
+  /** Paint (or erase) the tile under the cursor during a drag. Floor/Wall
+   *  paint every tile the cursor crosses (skipping ones already painted this
+   *  stroke). Action/Block instead grow a live rectangle from the stroke's
+   *  first tile to the cursor's current tile — see endStroke/commitAreaDrag —
+   *  since those two are areas, not per-tile paint. */
   strokePaint(wx: number, wy: number, erase: boolean): void {
     if (!this.editing || !this.layout) return;
     const col = Math.floor(wx / TILE_SIZE);
     const row = Math.floor(wy / TILE_SIZE);
+    if (this.tool === 'action' || this.tool === 'block') {
+      if (!this.areaDragStart) {
+        this.areaDragStart = { col, row };
+        this.areaDragErase = erase;
+      }
+      const s = this.areaDragStart;
+      const c0 = Math.min(s.col, col);
+      const r0 = Math.min(s.row, row);
+      this.areaDragRect = { col: c0, row: r0, w: Math.abs(col - s.col) + 1, h: Math.abs(row - s.row) + 1 };
+      this.drawGrid();
+      return;
+    }
     if (col === this.lastPaint.col && row === this.lastPaint.row) return;
     this.lastPaint = { col, row };
     if (erase) this.handleRightClick(wx, wy);
     else this.handleLeftClick(wx, wy);
+  }
+
+  /** A fresh `a<n>` id for a new ActionArea/BlockedArea — see areaUid. */
+  private nextAreaUid(): string {
+    return `a${++this.areaUid}`;
+  }
+
+  /** Commit the Action/Block tool's drag rectangle: erase removes every
+   *  existing area of that kind overlapping the dragged rect; otherwise adds
+   *  one new area covering it (a plain click with no drag is just a 1x1
+   *  rect, covering today's single-tile case with no special path). */
+  private commitAreaDrag(rect: TileRect, erase: boolean): void {
+    if (!this.layout) return;
+    if (this.tool === 'action') {
+      const areas = this.layout.actionAreas ?? [];
+      this.layout.actionAreas = erase
+        ? areas.filter((a) => !rectsOverlap(a, rect))
+        : [...areas, { ...rect, id: this.nextAreaUid(), action: this.currentTileAction }];
+    } else if (this.tool === 'block') {
+      const areas = this.layout.blockedAreas ?? [];
+      this.layout.blockedAreas = erase ? areas.filter((a) => !rectsOverlap(a, rect)) : [...areas, { ...rect, id: this.nextAreaUid() }];
+    }
+    this.drawGrid();
   }
 
   /** Pixel-accurate furniture pick: the visually top-most item whose (un-
@@ -607,32 +662,6 @@ export class LayoutEditor {
     this.layout.tiles[idx] = gid as TileTypeVal;
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
-    this.drawGrid();
-    this.deps.onEdit(this.layout, false);
-  }
-
-  /** Paint (or clear) the "blocks movement" flag on one tile — independent of
-   *  floor pattern (see OfficeLayout.tileBlocked). No sprite/tileMap change,
-   *  just the edit-mode overlay (drawGrid) and autosave. */
-  private paintBlocked(col: number, row: number, blocked: boolean): void {
-    if (!this.layout) return;
-    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    if (!this.layout.tileBlocked) this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
-    this.layout.tileBlocked[row * this.layout.cols + col] = blocked;
-    this.drawGrid();
-    this.deps.onEdit(this.layout, false);
-  }
-
-  /** Paint (or clear, with null) the tile action on one tile (see
-   *  OfficeLayout.tileActions) — for 'meetingRoom' actions, which area id a
-   *  group of them becomes is derived by flood fill on the server, not
-   *  decided here; painting just marks the tile with *an* action. No
-   *  sprite/tileMap change, just the edit-mode overlay (drawGrid) and
-   *  autosave. */
-  private paintTileAction(col: number, row: number, action: Action | null): void {
-    if (!this.layout) return;
-    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    this.layout.tileActions = setTileActionAt(this.layout.tileActions, col, row, action);
     this.drawGrid();
     this.deps.onEdit(this.layout, false);
   }
@@ -910,6 +939,19 @@ export class LayoutEditor {
       if (!f.uid || seen.has(f.uid)) f.uid = this.nextUid();
       seen.add(f.uid);
     }
+
+    const areas: Array<{ id: string }> = [...(this.layout.actionAreas ?? []), ...(this.layout.blockedAreas ?? [])];
+    let areaMax = 0;
+    for (const a of areas) {
+      const m = /^a(\d+)$/.exec(a.id ?? '');
+      if (m) areaMax = Math.max(areaMax, Number(m[1]));
+    }
+    this.areaUid = areaMax;
+    const seenAreas = new Set<string>();
+    for (const a of areas) {
+      if (!a.id || seenAreas.has(a.id)) a.id = this.nextAreaUid();
+      seenAreas.add(a.id);
+    }
   }
 
   // ── Grid + expansion (ported from the pre-Phaser editor) ─────────
@@ -952,47 +994,51 @@ export class LayoutEditor {
       }
     }
 
-    // Tiles marked non-walkable (layout.tileBlocked, independent of floor
-    // pattern) — a red hatch so it's visible while editing no matter which
-    // tool is active, same as the VOID outline above.
-    if (this.layout.tileBlocked) {
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          if (!this.layout.tileBlocked[r * cols + c]) continue;
-          const x = c * s;
-          const y = r * s;
-          g.fillStyle(BLOCKED_TILE.color, BLOCKED_TILE.fill);
-          g.fillRect(x, y, s, s);
-          g.lineStyle(lw, BLOCKED_TILE.color, BLOCKED_TILE.stroke);
-          g.beginPath();
-          g.moveTo(x, y);
-          g.lineTo(x + s, y + s);
-          g.moveTo(x + s, y);
-          g.lineTo(x, y + s);
-          g.strokePath();
-        }
-      }
+    // Blocked areas (layout.blockedAreas, independent of floor pattern) — a
+    // red hatch so it's visible while editing no matter which tool is
+    // active, same as the VOID outline above.
+    for (const a of this.layout.blockedAreas ?? []) {
+      const x = a.col * s;
+      const y = a.row * s;
+      const w = a.w * s;
+      const h = a.h * s;
+      g.fillStyle(BLOCKED_TILE.color, BLOCKED_TILE.fill);
+      g.fillRect(x, y, w, h);
+      g.lineStyle(lw, BLOCKED_TILE.color, BLOCKED_TILE.stroke);
+      g.beginPath();
+      g.moveTo(x, y);
+      g.lineTo(x + w, y + h);
+      g.moveTo(x + w, y);
+      g.lineTo(x, y + h);
+      g.strokePath();
+      g.strokeRect(x, y, w, h);
     }
 
-    // Tile actions (layout.tileActions) — a fill + border colour-coded by
+    // Action areas (layout.actionAreas) — a fill + border colour-coded by
     // kind (no diagonal cross, unlike Block's red hatch, so the two read as
-    // distinct: "a zone/trigger" rather than "forbidden"). For 'meetingRoom'
-    // tiles specifically, which area id a group ends up in is decided
-    // server-side by flood fill, not shown here — the overlay just marks
-    // "this tile has an action."
-    if (this.layout.tileActions) {
-      for (const t of this.layout.tileActions) {
-        const x = t.col * s;
-        const y = t.row * s;
-        const color = actionTileColor(t.action);
-        g.fillStyle(color, ACTION_TILE_FILL);
-        g.fillRect(x, y, s, s);
-        // A thicker border than the fill alone — the fill blends with
-        // whatever's painted underneath (floor colour), but a bold, near-
-        // opaque border stays true to the action's own colour either way.
-        g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
-        g.strokeRect(x, y, s, s);
-      }
+    // distinct: "a zone/trigger" rather than "forbidden").
+    for (const a of this.layout.actionAreas ?? []) {
+      const x = a.col * s;
+      const y = a.row * s;
+      const w = a.w * s;
+      const h = a.h * s;
+      const color = actionTileColor(a.action);
+      g.fillStyle(color, ACTION_TILE_FILL);
+      g.fillRect(x, y, w, h);
+      // A thicker border than the fill alone — the fill blends with
+      // whatever's painted underneath (floor colour), but a bold, near-
+      // opaque border stays true to the action's own colour either way.
+      g.lineStyle(lw * 2, color, ACTION_TILE_STROKE);
+      g.strokeRect(x, y, w, h);
+    }
+
+    // Live preview of an in-progress Action/Block drag (see strokePaint) —
+    // dashed, in the tool's own colour, so the rectangle-to-be is visible
+    // before the drag commits.
+    if (this.areaDragRect && (this.tool === 'action' || this.tool === 'block')) {
+      const a = this.areaDragRect;
+      const color = this.tool === 'block' ? BLOCKED_TILE.color : actionTileColor(this.currentTileAction);
+      this.dashedRect(g, a.col * s, a.row * s, a.w * s, a.h * s, color, 0.9, lw * 2);
     }
 
     // Ghost-border expansion ring (one tile around the bounds) for floor/wall.
@@ -1080,7 +1126,6 @@ export class LayoutEditor {
   private expand(direction: ExpandDirection): { col: number; row: number } | null {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
-    const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
     let newCols = cols;
     let newRows = rows;
     let shiftCol = 0;
@@ -1097,30 +1142,29 @@ export class LayoutEditor {
     if (newCols > MAX_COLS || newRows > MAX_ROWS) return null;
 
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(VOID_GID as TileTypeVal);
-    const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const oldIdx = r * cols + c;
-        const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
-        newTiles[newIdx] = tiles[oldIdx];
-        newBlocked[newIdx] = tileBlocked[oldIdx];
+        newTiles[(r + shiftRow) * newCols + (c + shiftCol)] = tiles[r * cols + c];
       }
     }
     this.layout.cols = newCols;
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
-    this.layout.tileBlocked = newBlocked;
     for (const f of this.layout.furniture) {
       f.col += shiftCol;
       f.row += shiftRow;
     }
-    // Text labels and tile actions are absolute tile coordinates too — shift
-    // them along with furniture so a left/up expand doesn't leave them behind.
+    // Text labels and areas are absolute tile coordinates too — shift them
+    // along with furniture so a left/up expand doesn't leave them behind.
     for (const t of this.layout.texts ?? []) {
       t.col += shiftCol;
       t.row += shiftRow;
     }
-    for (const a of this.layout.tileActions ?? []) {
+    for (const a of this.layout.actionAreas ?? []) {
+      a.col += shiftCol;
+      a.row += shiftRow;
+    }
+    for (const a of this.layout.blockedAreas ?? []) {
       a.col += shiftCol;
       a.row += shiftRow;
     }

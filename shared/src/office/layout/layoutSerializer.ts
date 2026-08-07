@@ -2,6 +2,7 @@ import { getColorizedSprite } from '../colorize.js';
 import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileGid as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE } from '../types.js';
 import { floorGid, wallGid } from '../tileGid.js';
+import { blockedAreaTiles } from './actionAreas.js';
 import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
@@ -123,18 +124,11 @@ export function getBlockedTiles(
   return tiles;
 }
 
-/** Tiles explicitly marked non-walkable in the layout itself (layout.tileBlocked),
+/** Tiles explicitly marked non-walkable in the layout itself (layout.blockedAreas),
  *  independent of floor pattern — e.g. a puddle painted with an ordinary floor
- *  pattern. Empty when the layout has no such tiles. */
+ *  pattern. Empty when the layout has no such areas. */
 export function getBlockedFloorTiles(layout: OfficeLayout): Set<string> {
-  const tiles = new Set<string>();
-  const blocked = layout.tileBlocked;
-  if (!blocked) return tiles;
-  for (let i = 0; i < blocked.length; i++) {
-    if (!blocked[i]) continue;
-    tiles.add(`${i % layout.cols},${Math.floor(i / layout.cols)}`);
-  }
-  return tiles;
+  return blockedAreaTiles(layout);
 }
 
 /** Get tiles blocked for placement purposes — skips top backgroundTiles rows per item */
@@ -278,7 +272,7 @@ export function createDefaultLayout(): OfficeLayout {
   }
 
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 3, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, furniture: [] };
+  return { version: 4, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, furniture: [] };
 }
 
 /** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
@@ -296,7 +290,7 @@ export function createBlankZoneLayout(
       tiles.push(edge ? wallGid(DEFAULT_WALL_COLOR_INDEX) : floorGid(3, DEFAULT_FLOOR_COLOR_INDEX));
     }
   }
-  return { version: 3, cols, rows, tiles, furniture };
+  return { version: 4, cols, rows, tiles, furniture };
 }
 
 /** The plaza: the second builtin zone, with a beam pad (walk onto it → zone
@@ -319,7 +313,7 @@ export function serializeLayout(layout: OfficeLayout): string {
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
-    if (obj && obj.version === 3 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
+    if (obj && obj.version === 4 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
       return obj as OfficeLayout;
     }
   } catch {

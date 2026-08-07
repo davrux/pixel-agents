@@ -313,43 +313,53 @@ export interface PlacedText {
   angle?: number;
 }
 
-/** One tile's Action (see Action), positioned by its own (col,row) — sparse:
- *  only tiles that actually carry an action have an entry, unlike the old
- *  dense-array field this replaced (most tiles never do). This shape is
- *  also what makes the format map cleanly onto a Tiled object layer, where
- *  every entry is naturally "an object with a position" rather than a slot
- *  in a per-cell grid (see OfficeLayout.tileActions). At most one entry per
- *  (col,row) — a second paint at the same tile replaces the first. */
-export interface TileAction {
+/** A rectangular area, in tile coordinates — the shape every ActionArea and
+ *  BlockedArea is built from (see OfficeLayout). Rectangle-only by design:
+ *  covers the overwhelming majority of real areas (meeting rooms, blocked
+ *  zones), and Tiled's own circle/polygon objects aren't supported on
+ *  import (see importTmjToLayout.ts) rather than built speculatively ahead
+ *  of an actual need. */
+export interface TileRect {
   col: number;
   row: number;
+  w: number;
+  h: number;
+}
+
+/** A rectangular area that carries one Action — replaces the old per-tile
+ *  `TileAction` list + server-side flood-fill grouping: the area's extent is
+ *  now explicit data (drawn once in the editor, or as one Tiled rectangle
+ *  object), not inferred from adjacency. A stable `id` survives edits (moving/
+ *  resizing the rect) and is what SimRoom keys meeting-room membership on —
+ *  see OfficeState.meetingAreaAt. For 'meetingRoom' areas, standing anywhere
+ *  in the rect is automatic membership (no explicit click); every other
+ *  action kind fires once when a player's tile enters the rect (edge-
+ *  triggered, like a portal). A 1x1 rect covers today's "single tile"
+ *  case — no separate representation needed. */
+export interface ActionArea extends TileRect {
+  id: string;
   action: Action;
 }
 
+/** A rectangular area that blocks movement, independent of floor pattern
+ *  (e.g. a puddle painted with the same pattern as the rest of the room, but
+ *  this area shouldn't be walkable). Merged into officeState's blockedTiles
+ *  alongside furniture footprints. Painted with the editor's Block tool. */
+export interface BlockedArea extends TileRect {
+  id: string;
+}
+
 export interface OfficeLayout {
-  version: 3;
+  version: 4;
   cols: number;
   rows: number;
   /** Flat cols*rows array of gids — see TileGid/tileGid.ts. */
   tiles: TileGid[];
   furniture: PlacedFurniture[];
-  /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
-   *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
-   *  the room, but this one tile shouldn't be walkable). true = blocked;
-   *  false/missing = normal. Painted with the editor's Block tool; merged into
-   *  officeState's blockedTiles alongside furniture footprints. */
-  tileBlocked?: boolean[];
-  /** Per-tile action (see Action and TileAction) — painted with the editor's
-   *  Action tool. For 'meetingRoom' tiles, every maximal 4-connected group of
-   *  same-kind tiles is one area (id assigned by flood fill at layout-build
-   *  time, see computeActionAreas — never stored, always derived, so ids stay
-   *  unique/contiguous by construction and two areas painted separately then
-   *  later bridged just merge into one on the next rebuild); standing in one
-   *  automatically joins you (no explicit click), independent of a furniture
-   *  'meetingRoom' action's explicit join/leave click. Every other action
-   *  kind fires once when a player's tile matches it (edge-triggered, like a
-   *  portal). */
-  tileActions?: TileAction[];
+  /** Areas that block movement — see BlockedArea. */
+  blockedAreas?: BlockedArea[];
+  /** Areas that carry an Action — see ActionArea. */
+  actionAreas?: ActionArea[];
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
