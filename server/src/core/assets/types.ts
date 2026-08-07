@@ -52,4 +52,5 @@ export interface CatalogEntry {
   rotationScheme?: string;
   animationGroup?: string;
   frame?: number;
+  durationMs?: number;
 }

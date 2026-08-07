@@ -13,7 +13,7 @@
  * Node, just client-side against File objects instead of fs).
  */
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
-import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { DEFAULT_ANIMATION_FRAME_MS, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
 export interface ImportedTile {
@@ -22,7 +22,9 @@ export interface ImportedTile {
   label: string;
   footprintW: number;
   footprintH: number;
-  sprite: SpriteData;
+  /** One frame for a static tile; 2+ for a tile carrying a Tiled
+   *  `<animation>` — each with its own duration, exactly as Tiled stores it. */
+  frames: Array<{ sprite: SpriteData; durationMs: number }>;
 }
 
 function sanitizeId(raw: string): string {
@@ -103,6 +105,19 @@ function tilePropsOf(body: string): { type?: string; label?: string } {
   return { type, label };
 }
 
+/** A tile's Tiled `<animation><frame tileid=".." duration=".."/>…</animation>`,
+ *  or null if it has none. Each `tileid` names another tile in the SAME
+ *  tileset (by numeric id) whose own image/slice supplies that frame. */
+function animationFramesOf(body: string): Array<{ tileid: number; durationMs: number }> | null {
+  const block = /<animation>([\s\S]*?)<\/animation>/.exec(body)?.[1];
+  if (!block) return null;
+  const frames = [...block.matchAll(/<frame\s+tileid="(\d+)"\s+duration="(\d+)"\s*\/>/g)].map((m) => ({
+    tileid: Number(m[1]),
+    durationMs: Number(m[2]),
+  }));
+  return frames.length > 0 ? frames : null;
+}
+
 /** @param files The .tsx plus every image it references, picked together in
  *  one file-input selection. */
 export async function parseTilesetFiles(files: FileList | File[]): Promise<ImportedTile[]> {
@@ -122,25 +137,63 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
   };
 
   const tileBlocks = [...xml.matchAll(/<tile id="(\d+)">([\s\S]*?)<\/tile>/g)].map((m) => ({ id: Number(m[1]), body: m[2] }));
+  const blockById = new Map(tileBlocks.map((t) => [t.id, t]));
   const isCollectionOfImages = tileBlocks.some((t) => /<image\b/.test(t.body));
+
+  // A tile referenced only as a frame of another tile's <animation> is a
+  // component, not a placeable item of its own — skip it at the top level
+  // (mirrors how our own catalog hides non-first animation frames).
+  const frameComponentIds = new Set<number>();
+  for (const t of tileBlocks) {
+    const anim = animationFramesOf(t.body);
+    if (anim) for (const f of anim) frameComponentIds.add(f.tileid);
+  }
 
   const tiles: ImportedTile[] = [];
   if (isCollectionOfImages) {
-    for (const { id, body } of tileBlocks) {
+    const spriteOf = async (body: string): Promise<{ sprite: SpriteData; footprintW: number; footprintH: number } | null> => {
       const img = /<image source="([^"]*)" width="(\d+)" height="(\d+)"\/>/.exec(body);
-      if (!img) continue;
+      if (!img) return null;
       const [, source, wStr, hStr] = img;
       const w = Number(wStr);
       const h = Number(hStr);
       const bitmap = await imageFor(source);
+      return { sprite: imageToSprite(bitmap, 0, 0, w, h), footprintW: footprintOf(w), footprintH: footprintOf(h) };
+    };
+    for (const { id, body } of tileBlocks) {
+      const anim = animationFramesOf(body);
+      if (!anim && frameComponentIds.has(id)) continue;
       const props = tilePropsOf(body);
-      tiles.push({
-        id: uniqueId(sanitizeId(props.type || `${tilesetName}_${id}`)),
-        label: props.label || props.type || `${tilesetName} ${id}`,
-        footprintW: footprintOf(w),
-        footprintH: footprintOf(h),
-        sprite: imageToSprite(bitmap, 0, 0, w, h),
-      });
+      const baseId = uniqueId(sanitizeId(props.type || `${tilesetName}_${id}`));
+      const label = props.label || props.type || `${tilesetName} ${id}`;
+      if (anim) {
+        const frames: ImportedTile['frames'] = [];
+        let fw = 1;
+        let fh = 1;
+        for (const fr of anim) {
+          const fb = blockById.get(fr.tileid);
+          if (!fb) continue;
+          const got = await spriteOf(fb.body);
+          if (!got) continue;
+          if (frames.length === 0) {
+            fw = got.footprintW;
+            fh = got.footprintH;
+          }
+          frames.push({ sprite: got.sprite, durationMs: fr.durationMs });
+        }
+        if (frames.length === 0) continue;
+        tiles.push({ id: baseId, label, footprintW: fw, footprintH: fh, frames });
+      } else {
+        const got = await spriteOf(body);
+        if (!got) continue;
+        tiles.push({
+          id: baseId,
+          label,
+          footprintW: got.footprintW,
+          footprintH: got.footprintH,
+          frames: [{ sprite: got.sprite, durationMs: DEFAULT_ANIMATION_FRAME_MS }],
+        });
+      }
     }
   } else {
     const tw = Number(attr(setTag, 'tilewidth'));
@@ -152,18 +205,22 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
       throw new Error('Could not read tile size/count/columns/image from the .tsx.');
     }
     const bitmap = await imageFor(imgTag[1]);
-    const propsById = new Map(tileBlocks.map((t) => [t.id, tilePropsOf(t.body)]));
+    const spriteOf = (n: number): SpriteData => {
+      const col = n % cols;
+      const row = Math.floor(n / cols);
+      return imageToSprite(bitmap, col * tw, row * th, tw, th);
+    };
     for (let i = 0; i < count; i++) {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const props = propsById.get(i) ?? {};
-      tiles.push({
-        id: uniqueId(sanitizeId(props.type || `${tilesetName}_${i}`)),
-        label: props.label || props.type || `${tilesetName} ${i}`,
-        footprintW: footprintOf(tw),
-        footprintH: footprintOf(th),
-        sprite: imageToSprite(bitmap, col * tw, row * th, tw, th),
-      });
+      const tb = blockById.get(i);
+      const anim = tb ? animationFramesOf(tb.body) : null;
+      if (!anim && frameComponentIds.has(i)) continue;
+      const props = tb ? tilePropsOf(tb.body) : {};
+      const baseId = uniqueId(sanitizeId(props.type || `${tilesetName}_${i}`));
+      const label = props.label || props.type || `${tilesetName} ${i}`;
+      const frames: ImportedTile['frames'] = anim
+        ? anim.map((fr) => ({ sprite: spriteOf(fr.tileid), durationMs: fr.durationMs }))
+        : [{ sprite: spriteOf(i), durationMs: DEFAULT_ANIMATION_FRAME_MS }];
+      tiles.push({ id: baseId, label, footprintW: footprintOf(tw), footprintH: footprintOf(th), frames });
     }
   }
   if (tiles.length === 0) throw new Error('No tiles found in that tileset.');

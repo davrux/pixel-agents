@@ -32,9 +32,17 @@ export interface LoadedAssetData {
     rotationScheme?: string;
     animationGroup?: string;
     frame?: number;
+    /** How long (ms) this frame shows before advancing — Tiled's own
+     *  `<frame duration=".."/>` unit. Missing on older data → DEFAULT_ANIMATION_FRAME_MS. */
+    durationMs?: number;
   }>;
   sprites: Record<string, SpriteData>;
 }
+
+/** Fallback per-frame duration for animation data saved before per-frame
+ *  timing existed (or that simply omits it) — keeps old content playing at
+ *  the same speed it always has. */
+export const DEFAULT_ANIMATION_FRAME_MS = 200;
 
 export type FurnitureCategory =
   | 'desks'
@@ -71,8 +79,12 @@ const offToOn = new Map<string, string>(); // off asset → on asset
 const onToOff = new Map<string, string>(); // on asset → off asset
 
 // ── Animation groups ────────────────────────────────────────────
-// Maps animation group ID → ordered list of asset IDs by frame index
-const animationGroups = new Map<string, string[]>();
+export interface AnimationFrameInfo {
+  id: string;
+  durationMs: number;
+}
+// Maps animation group ID → ordered {id, durationMs} by frame index
+const animationGroups = new Map<string, AnimationFrameInfo[]>();
 
 // Internal catalog (includes all variants for getCatalogEntry lookups)
 let internalCatalog: CatalogEntryWithCategory[] | null = null;
@@ -295,7 +307,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   }
 
   // Phase 4: Build animation groups
-  const animGroupCollector = new Map<string, Array<{ id: string; frame: number }>>();
+  const animGroupCollector = new Map<string, Array<{ id: string; frame: number; durationMs: number }>>();
   for (const asset of assets.catalog) {
     if (asset.animationGroup && asset.frame !== undefined) {
       let frames = animGroupCollector.get(asset.animationGroup);
@@ -303,14 +315,14 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         frames = [];
         animGroupCollector.set(asset.animationGroup, frames);
       }
-      frames.push({ id: asset.id, frame: asset.frame });
+      frames.push({ id: asset.id, frame: asset.frame, durationMs: asset.durationMs ?? DEFAULT_ANIMATION_FRAME_MS });
     }
   }
   for (const [groupId, frames] of animGroupCollector) {
     frames.sort((a, b) => a.frame - b.frame);
     animationGroups.set(
       groupId,
-      frames.map((f) => f.id),
+      frames.map((f) => ({ id: f.id, durationMs: f.durationMs })),
     );
   }
 
@@ -433,13 +445,35 @@ export function isRotatable(type: string): boolean {
   return rotationGroups.has(type);
 }
 
-/** Get ordered animation frame asset IDs for a given type, or null if not animated. */
-export function getAnimationFrames(type: string): string[] | null {
-  // Find the animation group this type belongs to
+/** Get the ordered {id, durationMs} animation frames for a given type, or
+ *  null if it isn't part of any animation group. */
+export function getAnimationFrameData(type: string): AnimationFrameInfo[] | null {
   for (const [, frames] of animationGroups) {
-    if (frames.includes(type)) return frames;
+    if (frames.some((f) => f.id === type)) return frames;
   }
   return null;
+}
+
+/** Get ordered animation frame asset IDs for a given type, or null if not animated. */
+export function getAnimationFrames(type: string): string[] | null {
+  return getAnimationFrameData(type)?.map((f) => f.id) ?? null;
+}
+
+/** Which frame of `type`'s animation group is showing at `elapsedMs` — the
+ *  standard way engines play back a Tiled `<animation>` (accumulate elapsed
+ *  time, loop it against the group's total duration, walk each frame's own
+ *  duration to find where that lands). Returns null if `type` isn't animated. */
+export function animationFrameAt(type: string, elapsedMs: number): string | null {
+  const frames = getAnimationFrameData(type);
+  if (!frames || frames.length === 0) return null;
+  const total = frames.reduce((sum, f) => sum + f.durationMs, 0);
+  if (total <= 0) return frames[0].id;
+  let t = elapsedMs % total;
+  for (const f of frames) {
+    if (t < f.durationMs) return f.id;
+    t -= f.durationMs;
+  }
+  return frames[frames.length - 1].id;
 }
 
 /**

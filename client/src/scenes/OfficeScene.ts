@@ -49,6 +49,7 @@ import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
+import { parseTilesetFiles } from '../editor/tilesetImport.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -377,7 +378,6 @@ export class OfficeScene extends Phaser.Scene {
           if (ok) this.furnEditor.edit(type, () => this.furnEditor.forceClose());
         });
       },
-      saveFurnitureAsset: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
     });
     // A name/character chosen in Settings (remembered per browser).
     try {
@@ -2430,6 +2430,26 @@ export class OfficeScene extends Phaser.Scene {
     };
     body.appendChild(add);
 
+    const importBtn = document.createElement('button');
+    importBtn.className = 'pa-b wide';
+    importBtn.textContent = '📥 Import Tileset…';
+    importBtn.title =
+      'Import an external Tiled tileset (.tsx + its image file(s)) as new furniture — including any Tiled <animation>';
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    importInput.accept = '.tsx,image/png';
+    importInput.multiple = true;
+    importInput.style.display = 'none';
+    const importStatus = document.createElement('div');
+    importStatus.className = 'muted';
+    importStatus.style.margin = '0.3rem 0';
+    importInput.onchange = () => {
+      if (importInput.files?.length) void this.importTilesetFiles(importInput.files, importStatus);
+      importInput.value = '';
+    };
+    importBtn.onclick = () => importInput.click();
+    body.append(importBtn, importInput, importStatus);
+
     for (const cat of getActiveCategories()) {
       const entries = getCatalogByCategory(cat.id);
       if (!entries.length) continue;
@@ -2465,6 +2485,64 @@ export class OfficeScene extends Phaser.Scene {
         body.appendChild(row);
       }
     }
+  }
+
+  /** "Import Tileset…" — reads an external Tiled tileset (.tsx + image(s))
+   *  picked from disk and saves each tile as a new furniture catalog entry,
+   *  via the same save path the Furniture asset editor itself uses. A tile
+   *  carrying a Tiled `<animation>` becomes a proper multi-frame catalog
+   *  entry (animationGroup + per-frame durationMs), the same shape the
+   *  Goldfish/PC's own bundled animations use — see tilesetImport.ts. This
+   *  lives in Assets, not the Layout editor: importing adds to the catalog,
+   *  which is catalog management (same category as New/Edit/Reset above) —
+   *  the Layout editor only ever arranges what's already in the catalog. */
+  private async importTilesetFiles(files: FileList, status: HTMLElement): Promise<void> {
+    status.textContent = 'Importing tileset…';
+    let tiles;
+    try {
+      tiles = await parseTilesetFiles(files);
+    } catch (err) {
+      status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    for (const t of tiles) {
+      if (t.frames.length === 1) {
+        this.room?.send('saveAsset', {
+          assetType: 'furniture',
+          name: t.id,
+          data: {
+            sprite: t.frames[0].sprite,
+            catalog: { category: 'misc', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
+          },
+        });
+        continue;
+      }
+      const animationGroup = t.id;
+      t.frames.forEach((f, i) => {
+        const name = i === 0 ? t.id : `${t.id}__f${i}`;
+        this.room?.send('saveAsset', {
+          assetType: 'furniture',
+          name,
+          data: {
+            sprite: f.sprite,
+            catalog: {
+              category: 'misc',
+              footprintW: t.footprintW,
+              footprintH: t.footprintH,
+              label: t.label,
+              animationGroup,
+              frame: i,
+              durationMs: f.durationMs,
+            },
+          },
+        });
+      });
+    }
+    status.textContent = `Imported ${tiles.length} furniture item(s) — see the list below.`;
+    // The save round-trips through the server (persist → rebroadcast → local
+    // catalog rebuild) before getCatalogByCategory sees the new entries — a
+    // short delay is simpler than wiring a completion callback through.
+    window.setTimeout(() => this.renderAssetsPanel(), 800);
   }
 
   /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */

@@ -18,6 +18,9 @@ export interface ManifestAsset {
   orientation?: string;
   state?: string;
   frame?: number;
+  /** How long (ms) this frame shows before advancing — Tiled's own
+   *  `<frame duration=".."/>` unit — only meaningful alongside `frame`. */
+  duration?: number;
   mirrorSide?: boolean;
 }
 
@@ -87,6 +90,7 @@ export interface FurnitureAsset {
   rotationScheme?: string;
   animationGroup?: string;
   frame?: number;
+  durationMs?: number;
 }
 
 /**
@@ -121,6 +125,7 @@ export function flattenManifest(node: ManifestNode, inherited: InheritedProps): 
         ...(inherited.rotationScheme ? { rotationScheme: inherited.rotationScheme } : {}),
         ...(inherited.animationGroup ? { animationGroup: inherited.animationGroup } : {}),
         ...(asset.frame !== undefined ? { frame: asset.frame } : {}),
+        ...(asset.duration !== undefined ? { durationMs: asset.duration } : {}),
       },
     ];
   }

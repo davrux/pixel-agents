@@ -1,7 +1,8 @@
 import {
+  DEFAULT_ANIMATION_FRAME_MS,
   FURNITURE_CATEGORIES,
   getActiveCategories,
-  getAnimationFrames,
+  getAnimationFrameData,
   getCatalogByCategory,
   getCatalogEntry,
   getOnStateType,
@@ -60,8 +61,14 @@ interface FurnFrame {
   id: string;
   sprite: SpriteData;
   base?: RawCatalogItem;
-  /** Set for on/off state variants (PC, laptop) instead of animation frames. */
+  /** Set for an on/off state variant (PC, laptop) — the "off" pose is always a
+   *  single static frame; "on" may itself be a multi-frame animation, tagged
+   *  on every frame that belongs to it. */
   state?: 'on' | 'off';
+  /** Tiled-style per-frame duration (ms) — only meaningful for a frame that's
+   *  actually part of an animation group (ambient, or the "on" side of a
+   *  state pair). */
+  durationMs?: number;
 }
 
 interface FurnWork {
@@ -239,10 +246,15 @@ export class FurnitureEditor {
       #pa-furn input[type=number]{flex:0 0 4rem;}
       #pa-furn button.on{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-furn button:disabled{opacity:0.4;cursor:not-allowed;}
+      #pa-furn #pa-f-stateseg{display:flex;gap:0.3rem;flex:0 0 auto;}
+      #pa-furn #pa-f-stateseg button{padding:0.3rem 0.6rem;font-size:0.85rem;}
       #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
+      #pa-furn #pa-f-frames .framecell{display:flex;flex-direction:column;align-items:center;gap:0.15rem;}
       #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#141312;
         border:2px solid #0a0908;border-radius:0.25rem;cursor:pointer;}
       #pa-furn #pa-f-frames canvas.on{border-color:#e2585a;}
+      #pa-furn #pa-f-frames .framecell input[type=number]{flex:0 0 auto;width:3.4rem;padding:0.1rem 0.25rem;
+        font-size:0.7rem;text-align:center;}
       #pa-furn #pa-f-paintarea{display:flex;justify-content:center;margin:0.5rem 0;}
       #pa-furn #pa-f-canvas{image-rendering:pixelated;background:
         repeating-conic-gradient(#262422 0% 25%, #201e1c 0% 50%) 0/1rem 1rem;border:2px solid #0a0908;cursor:crosshair;touch-action:none;}
@@ -315,6 +327,7 @@ export class FurnitureEditor {
       </div>
       <div class="row" id="pa-f-framesrow">
         <span class="f" id="pa-f-frameslabel" style="flex:0 0 auto;">Frames</span>
+        <div id="pa-f-stateseg" style="display:none;"></div>
         <div id="pa-f-frames"></div>
         <button id="pa-f-addframe" title="Add an animation frame">＋</button>
         <button id="pa-f-delframe" title="Remove the selected frame">－</button>
@@ -525,22 +538,44 @@ export class FurnitureEditor {
       const e = getCatalogEntry(id);
       return e?.sprite ? e.sprite.map((r) => r.slice()) : emptySprite(fw * TILE, fh * TILE);
     };
-    // Members to edit: animation frames, else on/off state variants, else just
-    // this single sprite.
-    const animMembers = getAnimationFrames(type);
+    // Members to edit: an ambient animation, else on/off state variants (whose
+    // "on" side may itself be animated — PC, laptop), else just this one sprite.
+    const animMembers = getAnimationFrameData(type);
     const onType = getOnStateType(type);
     let frames: FurnFrame[];
     let animGroup: string | null;
     if (animMembers) {
-      frames = animMembers.map((id) => ({ id, sprite: cloneOf(id), base: rawOf(id) }));
+      frames = animMembers.map((f) => ({
+        id: f.id,
+        sprite: cloneOf(f.id),
+        base: rawOf(f.id),
+        durationMs: f.durationMs,
+      }));
       animGroup = (raw?.animationGroup as string | undefined) ?? type;
     } else if (onType !== type) {
-      // Stateful item (PC/laptop): edit both the off (visible) and on variants.
-      frames = [
-        { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
-        { id: onType, sprite: cloneOf(onType), base: rawOf(onType), state: 'on' },
-      ];
-      animGroup = null;
+      // Stateful item (PC/laptop): "off" is always a single static pose; "on"
+      // is either a single pose too, or (like Tiled: a plain tile vs. one
+      // carrying an <animation>) its own multi-frame animation.
+      const onFrames = getAnimationFrameData(onType);
+      if (onFrames) {
+        frames = [
+          { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
+          ...onFrames.map((f) => ({
+            id: f.id,
+            sprite: cloneOf(f.id),
+            base: rawOf(f.id),
+            state: 'on' as const,
+            durationMs: f.durationMs,
+          })),
+        ];
+        animGroup = (rawOf(onType)?.animationGroup as string | undefined) ?? onType;
+      } else {
+        frames = [
+          { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
+          { id: onType, sprite: cloneOf(onType), base: rawOf(onType), state: 'on' },
+        ];
+        animGroup = null;
+      }
     } else {
       frames = [{ id: type, sprite: cloneOf(type), base: raw }];
       animGroup = null;
@@ -580,40 +615,50 @@ export class FurnitureEditor {
     this.render();
   }
 
-  /** Append a blank animation frame (turning a static item into an animation on
-   *  the first add). Frame 0 keeps the item's id so existing placements survive;
-   *  added frames get `${animGroup}_N` ids. */
+  /** Append a blank animation frame to whichever track is currently selected
+   *  (turning a static item into an animation on the first add, for a plain
+   *  item; or growing the "on" side's animation, for a state pair — the "off"
+   *  pose never animates, like a plain Tiled tile vs. one with an
+   *  <animation>). Frame 0 keeps the item's id so existing placements
+   *  survive; added frames get `${animGroup}_N` ids. */
   private addFrame(): void {
     this.stopPlay();
     const w = this.work;
-    if (w.frames.some((f) => f.state)) return; // state pairs aren't frame animations
+    const curState = w.frames[w.frameIdx]?.state;
+    if (curState === 'off') return; // the static pose never animates
     if (!w.frames[0].id) w.frames[0].id = w.id; // a fresh blank item
     if (!w.animGroup) w.animGroup = w.frames[0].id || w.id || 'ANIM';
     const used = new Set(w.frames.map((f) => f.id));
-    let n = w.frames.length;
+    let n = w.frames.filter((f) => f.state === curState).length;
     let id = `${w.animGroup}_${n}`;
     while (used.has(id) || getCatalogEntry(id)) id = `${w.animGroup}_${++n}`;
     const cur = w.frames[w.frameIdx].sprite;
     const h = cur.length;
     const width = h > 0 ? cur[0].length : TILE;
-    w.frames.push({ id, sprite: emptySprite(width, h) });
+    w.frames.push({ id, sprite: emptySprite(width, h), state: curState, durationMs: DEFAULT_ANIMATION_FRAME_MS });
     this.dirty = true;
     this.selectFrame(w.frames.length - 1);
   }
 
-  /** Remove the selected frame (≥2 required). A previously-saved member is
-   *  queued for override-deletion on save; dropping to one frame reverts to a
-   *  static item. (Removing a bundled frame can't fully delete it — the bundle
-   *  re-asserts it; works for user-added/overridden frames.) */
+  /** Remove the selected frame (≥2 required in its track). A previously-saved
+   *  member is queued for override-deletion on save; dropping an ambient
+   *  animation to one frame reverts it to a static item. The "off" pose can
+   *  never be removed — it's always exactly one static frame. (Removing a
+   *  bundled frame can't fully delete it — the bundle re-asserts it; works
+   *  for user-added/overridden frames.) */
   private removeFrame(): void {
     this.stopPlay();
     const w = this.work;
-    if (w.frames.length <= 1) return;
+    const cur = w.frames[w.frameIdx];
+    if (!cur || cur.state === 'off') return;
+    const trackLen = w.frames.filter((f) => f.state === cur.state).length;
+    if (trackLen <= 1) return;
     const [removed] = w.frames.splice(w.frameIdx, 1);
     if (removed.base || getCatalogEntry(removed.id)) this.removedIds.add(removed.id);
-    if (w.frames.length === 1) w.animGroup = null; // back to a static item
+    if (!cur.state && w.frames.length === 1) w.animGroup = null; // ambient anim back to a static item
     this.dirty = true;
-    this.selectFrame(Math.min(w.frameIdx, w.frames.length - 1));
+    const sameTrack = w.frames.findIndex((f) => f.state === cur.state);
+    this.selectFrame(sameTrack >= 0 ? sameTrack : Math.min(w.frameIdx, w.frames.length - 1));
   }
 
   private syncFields(isNew: boolean): void {
@@ -670,9 +715,14 @@ export class FurnitureEditor {
       return;
     }
     const w = this.work;
-    const animated = w.frames.length > 1;
+    // Only the "on" track (or the whole thing, for a plain ambient animation
+    // with no state split) is ever a Tiled-style multi-frame animation — the
+    // "off" pose is always a single static frame and never gets
+    // animationGroup/frame/durationMs, exactly like PC_FRONT_OFF's manifest.
+    const animFrames = w.frames.filter((f) => f.state !== 'off');
+    const animated = animFrames.length > 1;
     // Save every animation frame as its own catalog member; static items save one.
-    w.frames.forEach((f, i) => {
+    w.frames.forEach((f) => {
       const id = f.id || w.id; // a fresh blank item has no per-frame id yet
       const h = f.sprite.length;
       const width = h > 0 ? f.sprite[0].length : 0;
@@ -698,9 +748,14 @@ export class FurnitureEditor {
         arcade: undefined,
         meetingRoom: undefined,
       };
-      if (animated && w.animGroup) {
+      if (animated && w.animGroup && f.state !== 'off') {
         catalog.animationGroup = w.animGroup;
-        catalog.frame = i;
+        catalog.frame = animFrames.indexOf(f);
+        catalog.durationMs = f.durationMs ?? DEFAULT_ANIMATION_FRAME_MS;
+      } else {
+        catalog.animationGroup = undefined;
+        catalog.frame = undefined;
+        catalog.durationMs = undefined;
       }
       this.opts.save(id, { sprite: f.sprite, catalog });
     });
@@ -782,46 +837,107 @@ export class FurnitureEditor {
     this.showStatus('Pasted ✓');
   }
 
-  /** Render the animation frame strip (one thumbnail per frame, selected one
-   *  highlighted; click to edit). Hidden for single-frame static items. */
+  /** Render the current track's frame strip (Tiled-style: one thumbnail per
+   *  frame, a duration-ms input under each if it's actually an animation,
+   *  selected frame highlighted; click a thumbnail to edit it). For a state
+   *  pair (PC, laptop) — like Tiled modelling "off" as a plain tile and "on"
+   *  as a tile carrying an <animation> — an Off/On toggle picks which track
+   *  is shown; "off" is always a single, non-animated frame. */
   private renderFrames(): void {
     const host = this.field<HTMLDivElement>('#pa-f-frames');
+    const stateHost = this.field<HTMLDivElement>('#pa-f-stateseg');
     const w = this.work;
-    const isState = w.frames.some((f) => f.state);
-    const isAnim = !!w.animGroup;
+    const hasState = w.frames.some((f) => f.state);
+    const curState = w.frames[w.frameIdx]?.state ?? null;
+    const track = hasState ? w.frames.filter((f) => f.state === curState) : w.frames;
+    const isAnim = track.length > 1;
+
+    stateHost.style.display = hasState ? 'flex' : 'none';
+    stateHost.innerHTML = '';
+    if (hasState) {
+      for (const s of ['off', 'on'] as const) {
+        if (!w.frames.some((f) => f.state === s)) continue;
+        const b = document.createElement('button');
+        b.textContent = s === 'off' ? 'Off' : 'On';
+        b.className = s === curState ? 'on' : '';
+        b.onclick = () => {
+          const idx = w.frames.findIndex((f) => f.state === s);
+          if (idx >= 0) {
+            this.stopPlay();
+            this.selectFrame(idx);
+          }
+        };
+        stateHost.appendChild(b);
+      }
+    }
+
     host.innerHTML = '';
-    w.frames.forEach((f, i) => {
+    for (const f of track) {
+      const i = w.frames.indexOf(f);
+      const cell = document.createElement('div');
+      cell.className = 'framecell';
       const cv = document.createElement('canvas');
       this.drawThumb(cv, f.sprite);
       cv.classList.toggle('on', i === w.frameIdx);
-      cv.title = f.state ? f.state.toUpperCase() : `Frame ${i + 1}`;
+      cv.title = f.state ? f.state.toUpperCase() : `Frame ${track.indexOf(f) + 1}`;
       cv.onclick = () => {
         this.stopPlay();
         this.selectFrame(i);
       };
-      host.appendChild(cv);
-    });
-    this.field<HTMLSpanElement>('#pa-f-frameslabel').textContent = isState ? 'States' : 'Frames';
-    (this.field('#pa-f-addframe')).disabled = isState; // can't add frames to a state pair
-    (this.field('#pa-f-delframe')).disabled = isState || w.frames.length <= 1;
+      cell.appendChild(cv);
+      if (isAnim) {
+        const dur = document.createElement('input');
+        dur.type = 'number';
+        dur.min = '16';
+        dur.max = '10000';
+        dur.step = '10';
+        dur.title = "Frame duration (ms) — like Tiled's tile animation editor";
+        dur.value = String(f.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
+        dur.onchange = () => {
+          f.durationMs = Math.max(16, Math.min(10000, Math.floor(Number(dur.value)) || DEFAULT_ANIMATION_FRAME_MS));
+          dur.value = String(f.durationMs);
+          this.dirty = true;
+        };
+        cell.appendChild(dur);
+      }
+      host.appendChild(cell);
+    }
+    this.field<HTMLSpanElement>('#pa-f-frameslabel').textContent = hasState
+      ? curState === 'off'
+        ? 'Off'
+        : 'On frames'
+      : 'Frames';
+    const lockedTrack = curState === 'off'; // the static pose never animates
+    (this.field('#pa-f-addframe')).disabled = lockedTrack;
+    (this.field('#pa-f-delframe')).disabled = lockedTrack || track.length <= 1;
     (this.field('#pa-f-play')).disabled = !isAnim; // only time-animations play
   }
 
+  /** Play the current track's frames back-to-back using each frame's own
+   *  duration — the same way Tiled's own animation editor previews it. */
   private togglePlay(): void {
     if (this.playTimer !== null) {
       this.stopPlay();
       return;
     }
-    if (this.work.frames.length < 2) return;
+    const w = this.work;
+    const curState = w.frames[w.frameIdx]?.state ?? null;
+    const track = curState !== null ? w.frames.filter((f) => f.state === curState) : w.frames;
+    if (track.length < 2) return;
     this.field('#pa-f-play').textContent = '⏸';
-    this.playTimer = window.setInterval(() => {
-      this.selectFrame((this.work.frameIdx + 1) % this.work.frames.length);
-    }, 250);
+    const step = (): void => {
+      const i = track.indexOf(this.work.frames[this.work.frameIdx]);
+      const next = track[(i + 1) % track.length];
+      this.selectFrame(this.work.frames.indexOf(next));
+      this.playTimer = window.setTimeout(step, next.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
+    };
+    const first = track[(track.indexOf(w.frames[w.frameIdx]) + 1) % track.length];
+    this.playTimer = window.setTimeout(step, first?.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
   }
 
   private stopPlay(): void {
     if (this.playTimer === null) return;
-    window.clearInterval(this.playTimer);
+    window.clearTimeout(this.playTimer);
     this.playTimer = null;
     this.field('#pa-f-play').textContent = '▶';
   }

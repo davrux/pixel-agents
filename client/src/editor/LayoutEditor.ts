@@ -25,7 +25,6 @@ import {
   type OfficeLayout,
   type PlacedFurniture,
   type PlacedText,
-  type SpriteData,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
@@ -35,7 +34,6 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
 import { promptDialog, textLabelDialog } from '../ui/dialog.js';
 import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
-import { parseTilesetFiles } from './tilesetImport.js';
 import {
   cleanName,
   MAX_NAME_LEN,
@@ -62,11 +60,6 @@ export interface EditorDeps {
    *  strokes, etc. all survive). Optional: the action-bar button that uses
    *  this is hidden when omitted. */
   openAssetEditor?: (type: string) => void;
-  /** Persist a new furniture catalog entry (see tilesetImport.ts's "Import
-   *  Tileset…" button) — same save path the Furniture asset editor itself
-   *  uses (room.send('saveAsset', ...)), just invoked directly with a
-   *  ready-made sprite instead of from FurnitureEditor's own drawing UI. */
-  saveFurnitureAsset: (name: string, data: { sprite: SpriteData; catalog: Record<string, unknown> }) => void;
 }
 
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'eyedropper';
@@ -1720,23 +1713,9 @@ export class LayoutEditor {
     this.undoBtn.onclick = () => this.undo();
     this.redoBtn = Object.assign(document.createElement('button'), { textContent: '↷ Redo', title: 'Redo (Ctrl+Y)' });
     this.redoBtn.onclick = () => this.redo();
-    const importBtn = Object.assign(document.createElement('button'), {
-      textContent: '📥 Import Tileset…',
-      title: 'Import an external Tiled tileset (.tsx + its image file(s)) as new furniture',
-    });
-    const importInput = document.createElement('input');
-    importInput.type = 'file';
-    importInput.accept = '.tsx,image/png';
-    importInput.multiple = true;
-    importInput.style.display = 'none';
-    importInput.onchange = () => {
-      if (importInput.files?.length) void this.importTilesetFiles(importInput.files);
-      importInput.value = '';
-    };
-    importBtn.onclick = () => importInput.click();
     const doneBtn = Object.assign(document.createElement('button'), { className: 'save', textContent: '✓ Done' });
     doneBtn.onclick = () => this.exit();
-    bar.append(this.undoBtn, this.redoBtn, importBtn, importInput, doneBtn);
+    bar.append(this.undoBtn, this.redoBtn, doneBtn);
 
     const tools = document.createElement('div');
     tools.className = 'tools';
@@ -1904,58 +1883,6 @@ export class LayoutEditor {
 
     this.selectTool('select');
     this.updateSwatch();
-  }
-
-  /** "Import Tileset…" — reads an external Tiled tileset (.tsx + image(s))
-   *  picked from disk and saves each tile as a new furniture catalog entry,
-   *  via the same save path the Furniture asset editor itself uses. Bringing
-   *  in outside art this way, not by painting with arbitrary Tiled gids — we
-   *  keep our own semantic model (see tilesetImport.ts's own doc comment). */
-  private async importTilesetFiles(files: FileList): Promise<void> {
-    this.hint.textContent = 'Importing tileset…';
-    let tiles;
-    try {
-      tiles = await parseTilesetFiles(files);
-    } catch (err) {
-      this.hint.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
-      return;
-    }
-    for (const t of tiles) {
-      this.deps.saveFurnitureAsset(t.id, {
-        sprite: t.sprite,
-        // 'misc' — not 'imported': FurnitureCategory is a closed 8-value union
-        // (see FURNITURE_CATEGORIES) and getActiveCategories() only ever shows
-        // those 8, so an unlisted category string saves fine server-side (it
-        // just checks it's *a* string) but never renders in the palette —
-        // invisible, unplaceable furniture.
-        catalog: { category: 'misc', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
-      });
-    }
-    this.hint.textContent = `Imported ${tiles.length} furniture item(s) from the tileset — check the Furniture palette.`;
-    // The save round-trips through the server (persist → rebroadcast → local
-    // catalog rebuild) before getCatalogByCategory sees the new entries — a
-    // short delay is simpler than wiring a completion callback through
-    // EditorDeps for what's an occasional, non-hot-path action.
-    setTimeout(() => this.refreshFurniturePalette(), 800);
-  }
-
-  /** Rebuild just the furniture palette grid (see importTilesetFiles) —
-   *  unlike populatePalettes this always re-reads the catalog, since it's
-   *  called specifically because the catalog just changed. */
-  private refreshFurniturePalette(): void {
-    this.palFurn.innerHTML = '';
-    for (const cat of getActiveCategories()) {
-      for (const entry of getCatalogByCategory(cat.id)) {
-        const item = document.createElement('div');
-        item.className = 'pa-pal-item';
-        item.dataset.type = entry.type;
-        item.title = entry.label;
-        const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(entry.sprite) });
-        item.appendChild(img);
-        item.onclick = () => this.setSelected(entry.type);
-        this.palFurn.appendChild(item);
-      }
-    }
   }
 
   private populatePalettes(): void {

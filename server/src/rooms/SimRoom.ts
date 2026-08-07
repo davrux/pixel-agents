@@ -1768,6 +1768,21 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // This type's default Action (see FurnitureCatalogEntry.action) — same
       // shape/validation as a per-instance override, just one level up.
       if (c.action !== undefined && !sanitizeAction(c.action)) return false;
+      // Animation membership (Tiled-style per-frame timing — see
+      // furnitureCatalog.ts's animationFrameAt): a frame index and a bounded
+      // per-frame duration, same range the Furniture editor itself clamps to.
+      if (c.animationGroup !== undefined && (typeof c.animationGroup !== 'string' || c.animationGroup.length > 64)) {
+        return false;
+      }
+      if (c.frame !== undefined && (!Number.isInteger(c.frame) || (c.frame as number) < 0 || (c.frame as number) > 64)) {
+        return false;
+      }
+      if (
+        c.durationMs !== undefined &&
+        (!Number.isInteger(c.durationMs) || (c.durationMs as number) < 16 || (c.durationMs as number) > 10000)
+      ) {
+        return false;
+      }
     }
     return true;
   }

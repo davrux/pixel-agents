@@ -10,7 +10,6 @@ import {
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
   DISMISS_BUBBLE_FAST_FADE_SEC,
-  FURNITURE_ANIM_INTERVAL_SEC,
   HUE_SHIFT_MIN_DEG,
   HUE_SHIFT_RANGE_DEG,
   INACTIVE_SEAT_TIMER_MIN_SEC,
@@ -22,7 +21,7 @@ import {
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
 import { isPlayerAvatarSkin } from '../../protocol.js';
-import { effectiveAction, getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
+import { animationFrameAt, effectiveAction, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
   getBlockedFloorTiles,
@@ -110,8 +109,10 @@ export class OfficeState {
   furniturePlacements: PlacedFurniture[] = [];
   walkableTiles: Array<{ col: number; row: number }>;
   characters: Map<number, Character> = new Map();
-  /** Accumulated time for furniture animation frame cycling */
-  furnitureAnimTimer = 0;
+  /** Accumulated elapsed time (ms) for furniture animation playback — each
+   *  animation group loops against its own total duration (see
+   *  animationFrameAt), so this is one shared clock, not a shared frame index. */
+  furnitureAnimElapsedMs = 0;
   selectedAgentId: number | null = null;
   cameraFollowId: number | null = null;
   hoveredAgentId: number | null = null;
@@ -1429,6 +1430,27 @@ export class OfficeState {
     }
   }
 
+  /** Cheap fingerprint of "what would every animated item look like right
+   *  now" — distinct types only (cost scales with catalog diversity, not
+   *  placement count). Used solely to detect whether elapsed time crossing
+   *  forward actually changed anything; doesn't need to know which types are
+   *  currently visually "on" (a harmless extra rebuild when an unused
+   *  on-animation ticks over is fine, and far simpler than duplicating the
+   *  auto-on facing check here too). */
+  private animationSignature(elapsedMs: number): string {
+    const seen = new Set<string>();
+    let sig = '';
+    for (const item of this.layout.furniture) {
+      const onType = getOnStateType(item.type);
+      const animType = onType !== item.type ? onType : item.type;
+      if (seen.has(animType)) continue;
+      seen.add(animType);
+      const frame = animationFrameAt(animType, elapsedMs);
+      if (frame) sig += `${animType}:${frame}|`;
+    }
+    return sig;
+  }
+
   /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
   private rebuildFurnitureInstances(): void {
     // Collect tiles where active agents face desks
@@ -1464,7 +1486,7 @@ export class OfficeState {
     }
 
     // Build modified furniture list with auto-state and animation applied
-    const animFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
+    const elapsedMs = this.furnitureAnimElapsedMs;
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item) => {
       const entry = getCatalogEntry(item.type);
       if (!entry) return item;
@@ -1472,9 +1494,9 @@ export class OfficeState {
       // Ambient (always-on) animation: a stateless animation member, e.g. the
       // goldfish bowl. Excludes state-paired members (PC), whose placed type is
       // the "off" variant and therefore has no animation frames of its own.
-      const ambientFrames = getAnimationFrames(item.type);
-      if (ambientFrames && ambientFrames.length > 1 && getOnStateType(item.type) === item.type) {
-        return { ...item, type: ambientFrames[animFrame % ambientFrames.length] };
+      if (getOnStateType(item.type) === item.type) {
+        const frame = animationFrameAt(item.type, elapsedMs);
+        if (frame) return { ...item, type: frame };
       }
 
       // Auto-on: an active agent seated facing this furniture turns it "on".
@@ -1484,10 +1506,7 @@ export class OfficeState {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
               let onType = getOnStateType(item.type);
               if (onType !== item.type) {
-                const frames = getAnimationFrames(onType);
-                if (frames && frames.length > 1) {
-                  onType = frames[animFrame % frames.length];
-                }
+                onType = animationFrameAt(onType, elapsedMs) ?? onType;
                 return { ...item, type: onType };
               }
               return item;
@@ -1573,11 +1592,14 @@ export class OfficeState {
   }
 
   update(dt: number): void {
-    // Furniture animation cycling
-    const prevFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
-    this.furnitureAnimTimer += dt;
-    const newFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
-    if (newFrame !== prevFrame) {
+    // Furniture animation cycling — each animation group loops on its own
+    // total duration now (Tiled-style per-frame timing), so there's no single
+    // shared frame index to compare anymore. Snapshot which frame every
+    // distinct animated type would show before vs. after advancing the clock;
+    // only pay for a full rebuild when something actually changed.
+    const prevSig = this.animationSignature(this.furnitureAnimElapsedMs);
+    this.furnitureAnimElapsedMs += dt * 1000;
+    if (this.animationSignature(this.furnitureAnimElapsedMs) !== prevSig) {
       this.rebuildFurnitureInstances();
     }
 
