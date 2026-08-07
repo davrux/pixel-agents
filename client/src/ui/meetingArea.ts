@@ -25,8 +25,8 @@ export interface MeetingAreaDevices {
 }
 
 /**
- * Walk-in meeting areas (a 'meetingRoom' ActionArea in OfficeLayout.actionAreas
- * — see OfficeState.meetingAreaAt). Standing anywhere in the rect
+ * Walk-in meeting areas (a 'meetingRoom' tile action in OfficeLayout.tileActions,
+ * flood-filled into area ids server-side — see OfficeState.areaIdAt). Standing on the tile
  * auto-connects (mirrors WorkAdventure's proximity bubble: no explicit join
  * step) and this small ambient panel IS the call — live camera tiles with a
  * "speaking" glow and a muted-mic placeholder, reusing LiveKitConference's own
