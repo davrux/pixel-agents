@@ -1,16 +1,20 @@
 /**
- * Read an external Tiled tileset (.tsx + its image file(s), picked together
- * from disk) into new furniture catalog entries — a way to bring in outside
- * art without needing our own pipeline, NOT a way to paint with arbitrary
- * Tiled gids (we keep our own semantic floor/wall/furniture model — see the
- * office/custom-editor branch's own design notes). Supports both tileset
- * shapes Tiled produces: a single shared sheet (tilewidth/tileheight/columns/
- * tilecount + one <image>), and a "Collection of Images" set (one <image>
- * per <tile>, our own furniture-tileset.tsx shape).
+ * Two ways to bring in outside art without our own pipeline, NOT to paint
+ * with arbitrary Tiled gids (we keep our own semantic floor/wall/furniture
+ * model — see the office/custom-editor branch's own design notes):
  *
- * Pure regex parsing (browser has no XML-to-DOM need here — this mirrors the
- * same technique server/src/scripts/tiled/tilesetInfo.ts already uses on
- * Node, just client-side against File objects instead of fs).
+ * - parseTilesetFiles: an external Tiled tileset (.tsx + its image file(s),
+ *   picked together from disk). Supports both shapes Tiled produces: a
+ *   single shared sheet (tilewidth/tileheight/columns/tilecount + one
+ *   <image>), and a "Collection of Images" set (one <image> per <tile>, our
+ *   own furniture-tileset.tsx shape). Carries names, per-tile footprints, and
+ *   Tiled <animation> data through.
+ * - parseSpritesheetFile: a single plain PNG + a tile size, no Tiled
+ *   involved at all — simpler, but no names/per-tile footprint/animation.
+ *
+ * Pure regex parsing for the Tiled path (browser has no XML-to-DOM need here
+ * — this mirrors the same technique server/src/scripts/tiled/tilesetInfo.ts
+ * already uses on Node, just client-side against File objects instead of fs).
  */
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { DEFAULT_ANIMATION_FRAME_MS, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
@@ -237,5 +241,40 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
     }
   }
   if (tiles.length === 0) throw new Error('No tiles found in that tileset.');
+  return tiles;
+}
+
+/** Import a plain PNG sprite sheet with no Tiled metadata at all — just a
+ *  tile size, sliced left-to-right/top-to-bottom. A simpler, Tiled-
+ *  independent alternative to parseTilesetFiles for anyone who'd rather not
+ *  touch Tiled: no per-tile names or footprint overrides, and no animation
+ *  (there's no metadata to carry any of that) — every cell becomes one
+ *  static tile. Fully-transparent cells are skipped, so gaps in the sheet
+ *  don't become empty, unplaceable items. */
+export async function parseSpritesheetFile(file: File, tileW: number, tileH: number): Promise<ImportedTile[]> {
+  const img = await loadImage(file);
+  const cols = Math.max(1, Math.floor(img.width / tileW));
+  const rows = Math.max(1, Math.floor(img.height / tileH));
+  const source = file.name.replace(/\.[^.]+$/, '');
+  const baseName = sanitizeId(source.toUpperCase());
+  const footprintW = footprintOf(tileW);
+  const footprintH = footprintOf(tileH);
+  const tiles: ImportedTile[] = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const sprite = imageToSprite(img, col * tileW, row * tileH, tileW, tileH);
+      if (sprite.every((r) => r.every((c) => !c))) continue; // fully transparent — skip
+      const i = row * cols + col;
+      tiles.push({
+        id: `${baseName}_${i}`,
+        source,
+        label: `${source} ${i}`,
+        footprintW,
+        footprintH,
+        frames: [{ sprite, durationMs: DEFAULT_ANIMATION_FRAME_MS }],
+      });
+    }
+  }
+  if (tiles.length === 0) throw new Error('No non-empty tiles found at that size.');
   return tiles;
 }

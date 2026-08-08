@@ -58,7 +58,7 @@ import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
-import { parseTilesetFiles, uniqueId } from '../editor/tilesetImport.js';
+import { parseTilesetFiles, parseSpritesheetFile, uniqueId, type ImportedTile } from '../editor/tilesetImport.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -1197,27 +1197,13 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private onLayout(layout: OfficeLayout, activeLayout: string): void {
-    // The full layout list (for the Space panel) only arrives once the user opens
-    // it (requestLayouts), but the active name is already known right here — seed
-    // it now so an edit-mode auto-enter (editor.html) never mistakes a real active
+    // The full layout list (for the Space panel) only arrives once the user
+    // opens it (requestLayouts), but the active name is already known right
+    // here — seed it now so toggleEditMode never mistakes a real active
     // layout for the never-fetched default and needlessly prompts to fork one.
     this.layoutListData.active = activeLayout;
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
-    this.maybeAutoEnterEditMode();
-  }
-
-  /** The standalone editor page (editor.html) opens straight into edit mode —
-   *  no avatar to walk around and open a menu with. Gated behind an explicit
-   *  query param so this is a no-op for the normal game page; fires once,
-   *  on the first layout load, same trigger point fitCamera uses for "the
-   *  office is now known". */
-  private autoEnteredEditMode = false;
-  private maybeAutoEnterEditMode(): void {
-    if (this.autoEnteredEditMode || this.editor.isEditing()) return;
-    if (new URLSearchParams(location.search).get('edit') !== '1') return;
-    this.autoEnteredEditMode = true;
-    void this.toggleEditMode();
   }
 
   /** Always update bounds (cheap, harmless), but only set zoom/center on the
@@ -2445,15 +2431,19 @@ export class OfficeScene extends Phaser.Scene {
 
     const importBtn = document.createElement('button');
     importBtn.className = 'pa-b wide';
-    importBtn.textContent = '📥 Import Tileset…';
+    importBtn.textContent = '📥 Import Tileset Folder…';
     importBtn.title =
-      'Import an external Tiled tileset (.tsx + its image file(s)) as new furniture — including any Tiled <animation>';
+      'Pick the folder containing a Tiled tileset (.tsx) and its image file(s) — subfolders are included, so the .tsx and its images can live at different levels, as long as both are somewhere under the folder you pick';
     const importInput = document.createElement('input');
     importInput.type = 'file';
-    importInput.accept = '.tsx,image/png';
-    importInput.multiple = true;
+    // Folder pick, not multi-file: matching by filename alone (see
+    // tilesetImport.ts's imageFor) already tolerates the .tsx and its images
+    // living at different levels, and a folder can't accidentally miss one of
+    // the referenced files the way a manual multi-select could.
+    importInput.webkitdirectory = true;
     importInput.style.display = 'none';
     const importStatus = document.createElement('div');
+    importStatus.id = 'pa-import-status';
     importStatus.className = 'muted';
     importStatus.style.margin = '0.3rem 0';
     importInput.onchange = () => {
@@ -2461,7 +2451,15 @@ export class OfficeScene extends Phaser.Scene {
       importInput.value = '';
     };
     importBtn.onclick = () => importInput.click();
-    body.append(importBtn, importInput, importStatus);
+
+    const spriteBtn = document.createElement('button');
+    spriteBtn.className = 'pa-b wide';
+    spriteBtn.textContent = '🖼️ Import Spritesheet…';
+    spriteBtn.title =
+      'Import a plain PNG sprite sheet by tile size — no Tiled needed, but no per-tile names or animation either';
+    spriteBtn.onclick = () => this.openSpritesheetImportDialog(importStatus);
+
+    body.append(importBtn, spriteBtn, importInput, importStatus);
 
     // Category (curated, default) vs. Source (grouped by which Tiled tileset
     // an import came from) — only worth showing the toggle once something's
@@ -2543,31 +2541,91 @@ export class OfficeScene extends Phaser.Scene {
     return row;
   }
 
-  /** "Import Tileset…" — reads an external Tiled tileset (.tsx + image(s))
-   *  picked from disk and saves each tile as a new furniture catalog entry,
-   *  via the same save path the Furniture asset editor itself uses. A tile
+  /** "Import Tileset Folder…" — reads an external Tiled tileset (.tsx + its
+   *  image file(s), found anywhere under the picked folder) and commits each
+   *  tile as a furniture catalog entry (see commitImportedTiles). A tile
    *  carrying a Tiled `<animation>` becomes a proper multi-frame catalog
    *  entry (animationGroup + per-frame durationMs), the same shape the
    *  Goldfish/PC's own bundled animations use — see tilesetImport.ts. This
    *  lives in Assets, not the Layout editor: importing adds to the catalog,
    *  which is catalog management (same category as New/Edit/Reset above) —
-   *  the Layout editor only ever arranges what's already in the catalog.
-   *
-   *  Re-importing the same tileset UPDATES matching tiles in place (found
-   *  via findBySourceKey — same source tileset + same tile identity within
-   *  it) instead of piling up duplicates. A tile no longer present in the
-   *  source is deliberately left alone — re-import only adds/updates, never
-   *  removes, so it can never break something you've already placed just
-   *  because you cleaned up your Tiled file. */
+   *  the Layout editor only ever arranges what's already in the catalog. */
   private async importTilesetFiles(files: FileList, status: HTMLElement): Promise<void> {
     status.textContent = 'Importing tileset…';
-    let tiles;
+    let tiles: ImportedTile[];
     try {
       tiles = await parseTilesetFiles(files);
     } catch (err) {
       status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
       return;
     }
+    await this.commitImportedTiles(tiles, status);
+  }
+
+  /** "Import Spritesheet…" — a plain PNG + a tile size, no Tiled involved at
+   *  all (see tilesetImport.ts's parseSpritesheetFile): simpler, at the cost
+   *  of no per-tile names/footprint/animation. Asks for the tile size first,
+   *  then opens a single-file picker for the PNG. */
+  private openSpritesheetImportDialog(status: HTMLElement): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Tile size (px)</label>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile width">
+          <span class="muted">×</span>
+          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile height">
+        </div>
+      </div>`;
+    const [wIn, hIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
+    openPaDialog({
+      title: 'Import Spritesheet',
+      body,
+      buttons: [
+        {
+          label: 'Choose PNG…',
+          kind: 'primary',
+          onClick: () => {
+            const tileW = Math.max(1, Math.floor(Number(wIn.value) || 16));
+            const tileH = Math.max(1, Math.floor(Number(hIn.value) || 16));
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png';
+            input.style.display = 'none';
+            input.onchange = () => {
+              const file = input.files?.[0];
+              if (file) void this.importSpritesheetFile(file, tileW, tileH, status);
+              input.remove();
+            };
+            document.body.appendChild(input);
+            input.click();
+          },
+        },
+      ],
+    });
+  }
+
+  private async importSpritesheetFile(file: File, tileW: number, tileH: number, status: HTMLElement): Promise<void> {
+    status.textContent = 'Importing spritesheet…';
+    let tiles: ImportedTile[];
+    try {
+      tiles = await parseSpritesheetFile(file, tileW, tileH);
+    } catch (err) {
+      status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    await this.commitImportedTiles(tiles, status);
+  }
+
+  /** Save parsed tiles (from either import path above) as furniture catalog
+   *  entries, via the same save path the Furniture asset editor itself uses.
+   *
+   *  Re-importing the same source UPDATES matching tiles in place (found via
+   *  findBySourceKey — same source + same tile identity within it) instead
+   *  of piling up duplicates. A tile no longer present in the source is
+   *  deliberately left alone — re-import only adds/updates, never removes,
+   *  so it can never break something you've already placed just because you
+   *  cleaned up the source file. */
+  private async commitImportedTiles(tiles: ImportedTile[], status: HTMLElement): Promise<void> {
     let added = 0;
     let replaced = 0;
     for (const t of tiles) {
