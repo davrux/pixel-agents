@@ -1539,6 +1539,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
+      // A floor pattern is just one sprite grid — same light shape check
+      // furniture's own sprite field gets (see validFurnitureData), plus a
+      // sane size bound.
+      if (type === 'floor' && !this.validFloorData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1745,6 +1749,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
     }
     return true;
+  }
+
+  /** Sanity-check a floor pattern override: just a sprite grid (see
+   *  FurnitureAsset's own `sprite` check — same shallow shape check, no
+   *  catalog metadata applies here), with a sane size bound. */
+  private validFloorData(data: unknown): boolean {
+    return Array.isArray(data) && data.length > 0 && data.length <= 64 && data.every((row) => Array.isArray(row) && row.length <= 64);
   }
 
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */

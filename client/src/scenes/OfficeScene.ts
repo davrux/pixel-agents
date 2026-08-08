@@ -42,6 +42,7 @@ import {
   getImportSources,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -2463,9 +2464,21 @@ export class OfficeScene extends Phaser.Scene {
     spriteBtn.textContent = '🖼️ Import Spritesheet…';
     spriteBtn.title =
       'Import a plain PNG sprite sheet by tile size — no Tiled needed, but no per-tile names or animation either';
-    spriteBtn.onclick = () => this.openSpritesheetImportDialog(importStatus);
+    spriteBtn.onclick = () =>
+      this.openSpritesheetImportDialog('Import Spritesheet', (file, tileW, tileH) =>
+        void this.importSpritesheetFile(file, tileW, tileH, importStatus),
+      );
 
-    body.append(importBtn, spriteBtn, importInput, importStatus);
+    const floorBtn = document.createElement('button');
+    floorBtn.className = 'pa-b wide';
+    floorBtn.textContent = '🧱 Import Floor Spritesheet…';
+    floorBtn.title = 'Import a plain PNG sprite sheet by tile size, added as new floor patterns (see the Floor tool)';
+    floorBtn.onclick = () =>
+      this.openSpritesheetImportDialog('Import Floor Spritesheet', (file, tileW, tileH) =>
+        void this.importFloorSpritesheetFile(file, tileW, tileH, importStatus),
+      );
+
+    body.append(importBtn, spriteBtn, floorBtn, importInput, importStatus);
 
     // Category (curated, default) vs. Source (grouped by which Tiled tileset
     // an import came from) — only worth showing the toggle once something's
@@ -2651,11 +2664,12 @@ export class OfficeScene extends Phaser.Scene {
     await this.commitImportedTiles(tiles, status);
   }
 
-  /** "Import Spritesheet…" — a plain PNG + a tile size, no Tiled involved at
-   *  all (see tilesetImport.ts's parseSpritesheetFile): simpler, at the cost
-   *  of no per-tile names/footprint/animation. Asks for the tile size first,
-   *  then opens a single-file picker for the PNG. */
-  private openSpritesheetImportDialog(status: HTMLElement): void {
+  /** A plain PNG + a tile size, no Tiled involved at all (see
+   *  tilesetImport.ts's parseSpritesheetFile) — asks for the tile size, then
+   *  opens a single-file picker for the PNG and hands both to `onFile`.
+   *  Shared by the Furniture and Floor spritesheet imports below; they only
+   *  differ in what happens to the sliced tiles once picked. */
+  private openSpritesheetImportDialog(title: string, onFile: (file: File, tileW: number, tileH: number) => void): void {
     const body = document.createElement('div');
     body.innerHTML = `
       <div class="fld"><label>Tile size (px)</label>
@@ -2667,7 +2681,7 @@ export class OfficeScene extends Phaser.Scene {
       </div>`;
     const [wIn, hIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
     openPaDialog({
-      title: 'Import Spritesheet',
+      title,
       body,
       buttons: [
         {
@@ -2682,7 +2696,7 @@ export class OfficeScene extends Phaser.Scene {
             input.style.display = 'none';
             input.onchange = () => {
               const file = input.files?.[0];
-              if (file) void this.importSpritesheetFile(file, tileW, tileH, status);
+              if (file) onFile(file, tileW, tileH);
               input.remove();
             };
             document.body.appendChild(input);
@@ -2703,6 +2717,30 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     await this.commitImportedTiles(tiles, status);
+  }
+
+  /** Import a plain PNG sprite sheet as new floor patterns instead of
+   *  furniture — a floor asset is just one sprite per pattern index
+   *  (floor_<i>, see server/src/assetOverrides.ts), no footprint/category/
+   *  animation to carry, so this reuses the same slicing (incl. duplicate-
+   *  and blank-cell filtering) and just appends each result after whatever
+   *  floor patterns already exist. New patterns show up immediately in the
+   *  Layout editor's Floor tool. */
+  private async importFloorSpritesheetFile(file: File, tileW: number, tileH: number, status: HTMLElement): Promise<void> {
+    status.textContent = 'Importing floor patterns…';
+    let tiles: ImportedTile[];
+    try {
+      tiles = await parseSpritesheetFile(file, tileW, tileH);
+    } catch (err) {
+      status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    let next = getFloorPatternCount();
+    for (const t of tiles) {
+      this.room?.send('saveAsset', { assetType: 'floor', name: `floor_${next}`, data: t.frames[0].sprite });
+      next++;
+    }
+    status.textContent = `Imported ${tiles.length} floor pattern(s) — see the Floor tool in the Layout editor.`;
   }
 
   /** Save parsed tiles (from either import path above) as furniture catalog
