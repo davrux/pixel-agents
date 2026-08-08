@@ -21,7 +21,13 @@ import {
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
 import { isPlayerAvatarSkin } from '../../protocol.js';
-import { animationFrameAt, effectiveAction, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
+import {
+  animationFrameAt,
+  effectiveAction,
+  getCatalogEntry,
+  getOnStateType,
+  getOnTrigger,
+} from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
   getBlockedFloorTiles,
@@ -113,6 +119,10 @@ export class OfficeState {
    *  animation group loops against its own total duration (see
    *  animationFrameAt), so this is one shared clock, not a shared frame index. */
   furnitureAnimElapsedMs = 0;
+  /** Furniture uids currently switched on via the click-to-toggle Action (see
+   *  toggleFurniture) — ephemeral, like auto-on-facing: never written to the
+   *  saved layout, resets to "off" on reload. */
+  private manuallyToggledOn = new Set<string>();
   selectedAgentId: number | null = null;
   cameraFollowId: number | null = null;
   hoveredAgentId: number | null = null;
@@ -1499,8 +1509,20 @@ export class OfficeState {
         if (frame) return { ...item, type: frame };
       }
 
-      // Auto-on: an active agent seated facing this furniture turns it "on".
-      if (autoOnTiles.size > 0) {
+      // Manually toggled (click-to-toggle) on/off — independent of seating;
+      // only ever set for onTrigger:'click' items (see toggleFurniture).
+      if (this.manuallyToggledOn.has(item.uid)) {
+        let onType = getOnStateType(item.type);
+        if (onType !== item.type) {
+          onType = animationFrameAt(onType, elapsedMs) ?? onType;
+          return { ...item, type: onType };
+        }
+      }
+
+      // Auto-on: an active agent seated facing this furniture turns it "on" —
+      // only for the default/auto-facing trigger; a click-toggle item only
+      // responds to toggleFurniture(), never to who's sitting nearby.
+      if (autoOnTiles.size > 0 && getOnTrigger(item.type) !== 'click') {
         for (let dr = 0; dr < entry.footprintH; dr++) {
           for (let dc = 0; dc < entry.footprintW; dc++) {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
@@ -1519,6 +1541,23 @@ export class OfficeState {
 
     this.furniturePlacements = modifiedFurniture;
     this.furniture = layoutToFurnitureInstances(modifiedFurniture);
+  }
+
+  /** Flip a click-to-toggle item's on/off state (the 'toggle' Action) — a
+   *  literal light-switch. `anchorCol/anchorRow` is the same anchor tile
+   *  walkPlayerToAction resolved the action from; re-find the item there
+   *  (same candidate rule: the topmost item that actually has an action)
+   *  rather than threading its uid through the whole arrival-queue payload.
+   *  No-ops if that item isn't actually an onTrigger:'click' state pair. */
+  toggleFurniture(anchorCol: number, anchorRow: number): void {
+    const item = this.layout.furniture.find((f) => {
+      if (f.col !== anchorCol || f.row !== anchorRow) return false;
+      return effectiveAction(f, getCatalogEntry(f.type))?.kind === 'toggle';
+    });
+    if (!item || getOnTrigger(item.type) !== 'click') return;
+    if (this.manuallyToggledOn.has(item.uid)) this.manuallyToggledOn.delete(item.uid);
+    else this.manuallyToggledOn.add(item.uid);
+    this.rebuildFurnitureInstances();
   }
 
   setAgentTool(id: number, tool: string | null): void {

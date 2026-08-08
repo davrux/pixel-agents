@@ -32,7 +32,16 @@ import {
   type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getActiveCategories, getCatalogByCategory, getCatalogEntry, effectiveAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import {
+  getActiveCategories,
+  getCatalogByCategory,
+  getCatalogEntry,
+  effectiveAction,
+  findBySourceKey,
+  getAnimationFrameData,
+  getImportSources,
+  type CatalogEntryWithCategory,
+} from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -49,7 +58,7 @@ import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
-import { parseTilesetFiles } from '../editor/tilesetImport.js';
+import { parseTilesetFiles, uniqueId } from '../editor/tilesetImport.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -277,6 +286,10 @@ export class OfficeScene extends Phaser.Scene {
   private spaceTab: 'layouts' | 'zones' = 'layouts';
   private assetsTab: 'chars' | 'furniture' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
+  /** How the Furniture assets list is grouped — by curated category (today's
+   *  default), or by import source (see getImportSources) so imports don't
+   *  just pile into "Misc" with no way to find what came from where. */
+  private furnAssetsView: 'category' | 'source' = 'category';
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -2450,6 +2463,45 @@ export class OfficeScene extends Phaser.Scene {
     importBtn.onclick = () => importInput.click();
     body.append(importBtn, importInput, importStatus);
 
+    // Category (curated, default) vs. Source (grouped by which Tiled tileset
+    // an import came from) — only worth showing the toggle once something's
+    // actually been imported; otherwise every item is already well-organized
+    // by category and a second, empty view would just be noise.
+    const sources = getImportSources();
+    if (sources.length > 0) {
+      const seg = document.createElement('div');
+      seg.className = 'pa-seg';
+      const mkViewSeg = (label: string, on: boolean, onClick: () => void): HTMLElement => {
+        const s = document.createElement('div');
+        s.className = 'seg' + (on ? ' on' : '');
+        s.textContent = label;
+        s.onclick = onClick;
+        return s;
+      };
+      seg.append(
+        mkViewSeg('Category', this.furnAssetsView === 'category', () => {
+          this.furnAssetsView = 'category';
+          this.renderAssetsPanel();
+        }),
+        mkViewSeg('Import source', this.furnAssetsView === 'source', () => {
+          this.furnAssetsView = 'source';
+          this.renderAssetsPanel();
+        }),
+      );
+      body.appendChild(seg);
+    }
+
+    if (this.furnAssetsView === 'source' && sources.length > 0) {
+      for (const { source, entries } of sources) {
+        const head = document.createElement('div');
+        head.className = 'grouplbl';
+        head.textContent = `${source} (${entries.length})`;
+        body.appendChild(head);
+        for (const e of entries) body.appendChild(this.mkFurnRow(e));
+      }
+      return;
+    }
+
     for (const cat of getActiveCategories()) {
       const entries = getCatalogByCategory(cat.id);
       if (!entries.length) continue;
@@ -2457,34 +2509,38 @@ export class OfficeScene extends Phaser.Scene {
       head.className = 'grouplbl';
       head.textContent = cat.label;
       body.appendChild(head);
-      for (const e of entries) {
-        const row = document.createElement('div');
-        row.className = 'pa-list-row';
-        row.appendChild(this.mkThumb(e.sprite));
-        const nm = document.createElement('span');
-        nm.className = 'nm';
-        nm.textContent = e.label;
-        row.appendChild(nm);
-        const edit = document.createElement('button');
-        edit.className = 'pa-b';
-        edit.textContent = 'Edit';
-        edit.onclick = () => {
-          void this.setMenu(null);
-          this.furnEditor.edit(e.type);
-        };
-        const reset = document.createElement('button');
-        reset.className = 'pa-b';
-        reset.textContent = 'Reset';
-        reset.title = 'Revert to the bundled default (or delete a custom item)';
-        reset.onclick = async () => {
-          if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-          this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
-          window.setTimeout(() => this.renderAssetsPanel(), 250);
-        };
-        row.append(edit, reset);
-        body.appendChild(row);
-      }
+      for (const e of entries) body.appendChild(this.mkFurnRow(e));
     }
+  }
+
+  /** One Furniture-assets list row: thumbnail, label, Edit, Reset — shared by
+   *  the category and import-source views (see renderFurnAssets). */
+  private mkFurnRow(e: CatalogEntryWithCategory): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'pa-list-row';
+    row.appendChild(this.mkThumb(e.sprite));
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = e.label;
+    row.appendChild(nm);
+    const edit = document.createElement('button');
+    edit.className = 'pa-b';
+    edit.textContent = 'Edit';
+    edit.onclick = () => {
+      void this.setMenu(null);
+      this.furnEditor.edit(e.type);
+    };
+    const reset = document.createElement('button');
+    reset.className = 'pa-b';
+    reset.textContent = 'Reset';
+    reset.title = 'Revert to the bundled default (or delete a custom item)';
+    reset.onclick = async () => {
+      if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+      this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
+      window.setTimeout(() => this.renderAssetsPanel(), 250);
+    };
+    row.append(edit, reset);
+    return row;
   }
 
   /** "Import Tileset…" — reads an external Tiled tileset (.tsx + image(s))
@@ -2495,7 +2551,14 @@ export class OfficeScene extends Phaser.Scene {
    *  Goldfish/PC's own bundled animations use — see tilesetImport.ts. This
    *  lives in Assets, not the Layout editor: importing adds to the catalog,
    *  which is catalog management (same category as New/Edit/Reset above) —
-   *  the Layout editor only ever arranges what's already in the catalog. */
+   *  the Layout editor only ever arranges what's already in the catalog.
+   *
+   *  Re-importing the same tileset UPDATES matching tiles in place (found
+   *  via findBySourceKey — same source tileset + same tile identity within
+   *  it) instead of piling up duplicates. A tile no longer present in the
+   *  source is deliberately left alone — re-import only adds/updates, never
+   *  removes, so it can never break something you've already placed just
+   *  because you cleaned up your Tiled file. */
   private async importTilesetFiles(files: FileList, status: HTMLElement): Promise<void> {
     status.textContent = 'Importing tileset…';
     let tiles;
@@ -2505,21 +2568,43 @@ export class OfficeScene extends Phaser.Scene {
       status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
       return;
     }
+    let added = 0;
+    let replaced = 0;
     for (const t of tiles) {
+      const existing = findBySourceKey(t.source, t.id);
+      const baseId = existing ? existing.type : uniqueId(t.id);
+      if (existing) replaced++;
+      else added++;
+      // Shrinking an animation on replace: drop the now-unused trailing
+      // frame ids of THIS item — not a blanket "remove missing tiles" (see
+      // above), just cleaning up after the one entry being actively updated.
+      if (existing) {
+        const oldFrameCount = getAnimationFrameData(existing.type)?.length ?? 1;
+        for (let i = t.frames.length; i < oldFrameCount; i++) {
+          this.room?.send('deleteAsset', { assetType: 'furniture', name: i === 0 ? baseId : `${baseId}__f${i}` });
+        }
+      }
       if (t.frames.length === 1) {
         this.room?.send('saveAsset', {
           assetType: 'furniture',
-          name: t.id,
+          name: baseId,
           data: {
             sprite: t.frames[0].sprite,
-            catalog: { category: 'misc', footprintW: t.footprintW, footprintH: t.footprintH, label: t.label },
+            catalog: {
+              category: 'misc',
+              footprintW: t.footprintW,
+              footprintH: t.footprintH,
+              label: t.label,
+              source: t.source,
+              sourceKey: t.id,
+            },
           },
         });
         continue;
       }
-      const animationGroup = t.id;
+      const animationGroup = baseId;
       t.frames.forEach((f, i) => {
-        const name = i === 0 ? t.id : `${t.id}__f${i}`;
+        const name = i === 0 ? baseId : `${baseId}__f${i}`;
         this.room?.send('saveAsset', {
           assetType: 'furniture',
           name,
@@ -2530,6 +2615,8 @@ export class OfficeScene extends Phaser.Scene {
               footprintW: t.footprintW,
               footprintH: t.footprintH,
               label: t.label,
+              source: t.source,
+              sourceKey: t.id,
               animationGroup,
               frame: i,
               durationMs: f.durationMs,
@@ -2538,7 +2625,7 @@ export class OfficeScene extends Phaser.Scene {
         });
       });
     }
-    status.textContent = `Imported ${tiles.length} furniture item(s) — see the list below.`;
+    status.textContent = `Imported: ${added} new, ${replaced} updated.`;
     // The save round-trips through the server (persist → rebroadcast → local
     // catalog rebuild) before getCatalogByCategory sees the new entries — a
     // short delay is simpler than wiring a completion callback through.

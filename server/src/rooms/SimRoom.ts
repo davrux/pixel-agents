@@ -172,6 +172,8 @@ function sanitizeAction(raw: unknown): Action | null {
       return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
     case 'arcade':
       return { kind: 'arcade' };
+    case 'toggle':
+      return { kind: 'toggle' };
     default:
       return null;
   }
@@ -1783,6 +1785,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ) {
         return false;
       }
+      // On/off trigger (see FurnitureCatalogEntry.onTrigger) — one of exactly
+      // two known values, not an arbitrary string.
+      if (c.onTrigger !== undefined && c.onTrigger !== 'autoFacing' && c.onTrigger !== 'click') return false;
+      // Import provenance (see FurnitureCatalogEntry.source/sourceKey) — free
+      // text, just bounded.
+      if (c.source !== undefined && (typeof c.source !== 'string' || c.source.length > 64)) return false;
+      if (c.sourceKey !== undefined && (typeof c.sourceKey !== 'string' || c.sourceKey.length > 64)) return false;
     }
     return true;
   }
@@ -1869,6 +1878,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
         if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
         set.add(id);
         this.broadcast('m', this.meetingRoomMembersMsg(key));
+        continue;
+      }
+      if (action.kind === 'toggle') {
+        // A light-switch: flip it server-side, no client notification — the
+        // resulting type swap reaches everyone through the normal furniture
+        // sync, same as auto-on-facing already does.
+        this.os.toggleFurniture(col, row);
         continue;
       }
       const client = this.clientForPlayer(id);

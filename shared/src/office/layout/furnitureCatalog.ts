@@ -13,6 +13,8 @@ export interface LoadedAssetData {
     groupId?: string;
     orientation?: string; // 'front' | 'back' | 'left' | 'right' | 'side'
     state?: string; // 'on' | 'off'
+    /** On a state-pair item: what turns it on — see FurnitureCatalogEntry.onTrigger. */
+    onTrigger?: 'autoFacing' | 'click';
     canPlaceOnSurfaces?: boolean;
     backgroundTiles?: number;
     canPlaceOnWalls?: boolean;
@@ -35,6 +37,9 @@ export interface LoadedAssetData {
     /** How long (ms) this frame shows before advancing — Tiled's own
      *  `<frame duration=".."/>` unit. Missing on older data → DEFAULT_ANIMATION_FRAME_MS. */
     durationMs?: number;
+    /** Imported-tileset provenance — see FurnitureCatalogEntry.source/sourceKey. */
+    source?: string;
+    sourceKey?: string;
   }>;
   sprites: Record<string, SpriteData>;
 }
@@ -77,6 +82,8 @@ const stateGroups = new Map<string, string>();
 // Directional maps for getOnStateType / getOffStateType
 const offToOn = new Map<string, string>(); // off asset → on asset
 const onToOff = new Map<string, string>(); // on asset → off asset
+// Maps EITHER side of a state pair → what turns it on (see getOnTrigger)
+const onTriggerByType = new Map<string, 'autoFacing' | 'click'>();
 
 // ── Animation groups ────────────────────────────────────────────
 export interface AnimationFrameInfo {
@@ -139,6 +146,9 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.canPlaceOnFloor ? { canPlaceOnFloor: true } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         ...(asset.portal ? { portal: true } : {}),
+        ...(asset.onTrigger ? { onTrigger: asset.onTrigger } : {}),
+        ...(asset.source ? { source: asset.source } : {}),
+        ...(asset.sourceKey ? { sourceKey: asset.sourceKey } : {}),
         // A direct `action` wins; else fall back to the legacy per-kind flags
         // (old manifests/DB overrides, and the hand-generated conference/
         // arcade/meetingRoom assets, still only set those) — see
@@ -175,6 +185,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   stateGroups.clear();
   offToOn.clear();
   onToOff.clear();
+  onTriggerByType.clear();
   animationGroups.clear();
 
   // Phase 1: Collect orientations per group (only "off" or stateless variants for rotation)
@@ -249,6 +260,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
 
   // Phase 3: Build state groups (on ↔ off pairs within same groupId + orientation)
   const stateMap = new Map<string, Map<string, string>>(); // "groupId|orientation" → (state → assetId)
+  const triggerMap = new Map<string, 'autoFacing' | 'click'>(); // same key → onTrigger, if set
   for (const asset of assets.catalog) {
     if (asset.groupId && asset.state) {
       const key = `${asset.groupId}|${asset.orientation || ''}`;
@@ -257,12 +269,13 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         sm = new Map();
         stateMap.set(key, sm);
       }
+      if (asset.onTrigger && !triggerMap.has(key)) triggerMap.set(key, asset.onTrigger);
       // For animation groups, use the first frame as the "on" representative
       if (asset.animationGroup && asset.frame !== undefined && asset.frame > 0) continue;
       sm.set(asset.state, asset.id);
     }
   }
-  for (const sm of stateMap.values()) {
+  for (const [key, sm] of stateMap) {
     const onId = sm.get('on');
     const offId = sm.get('off');
     if (onId && offId) {
@@ -270,6 +283,11 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
       stateGroups.set(offId, onId);
       offToOn.set(offId, onId);
       onToOff.set(onId, offId);
+      const trigger = triggerMap.get(key);
+      if (trigger) {
+        onTriggerByType.set(onId, trigger);
+        onTriggerByType.set(offId, trigger);
+      }
     }
   }
 
@@ -380,6 +398,33 @@ export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryW
   return catalog.filter((e) => e.category === category);
 }
 
+/** Find a previously-imported entry by its (source tileset, tile-within-that-
+ *  tileset) identity, regardless of what catalog id it ended up with — lets a
+ *  re-import update this exact entry in place instead of creating a
+ *  duplicate. Only the visible catalog is searched (frame>0 members of a
+ *  multi-frame import share the same source/sourceKey as their frame-0
+ *  entry, so matching against the internal catalog would find the wrong,
+ *  non-representative member first). */
+export function findBySourceKey(source: string, sourceKey: string): CatalogEntryWithCategory | undefined {
+  return (dynamicCatalog ?? []).find((e) => e.source === source && e.sourceKey === sourceKey);
+}
+
+/** Every distinct import source (tileset name) currently in the catalog,
+ *  each with its member entries — for the Assets panel's "group by import
+ *  source" view. */
+export function getImportSources(): Array<{ source: string; entries: CatalogEntryWithCategory[] }> {
+  const bySource = new Map<string, CatalogEntryWithCategory[]>();
+  for (const e of dynamicCatalog ?? []) {
+    if (!e.source) continue;
+    let list = bySource.get(e.source);
+    if (!list) bySource.set(e.source, (list = []));
+    list.push(e);
+  }
+  return Array.from(bySource, ([source, entries]) => ({ source, entries })).sort((a, b) =>
+    a.source.localeCompare(b.source),
+  );
+}
+
 /** A placed item's effective action (see Action): its own override
  *  (`item.action`) if set, else the catalog type's own default
  *  (`entry.action`, itself already resolved from any legacy per-kind flags
@@ -433,6 +478,15 @@ export function getToggledType(currentType: string): string | null {
 /** Returns the "on" variant if this type has one, otherwise returns the type unchanged. */
 export function getOnStateType(currentType: string): string {
   return offToOn.get(currentType) ?? currentType;
+}
+
+/** What turns an on/off state pair on (see FurnitureCatalogEntry.onTrigger) —
+ *  either side's id works. Null if `type` has no state pair at all;
+ *  'autoFacing' if it has one but never recorded an explicit trigger (old
+ *  data predating this field — keeps behaving exactly as before). */
+export function getOnTrigger(type: string): 'autoFacing' | 'click' | null {
+  if (!stateGroups.has(type)) return null;
+  return onTriggerByType.get(type) ?? 'autoFacing';
 }
 
 /** Returns the "off" variant if this type has one, otherwise returns the type unchanged - unused */

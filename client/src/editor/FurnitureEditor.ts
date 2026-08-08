@@ -6,6 +6,7 @@ import {
   getCatalogByCategory,
   getCatalogEntry,
   getOnStateType,
+  getOnTrigger,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { Action, SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
@@ -93,6 +94,11 @@ interface FurnWork {
   frameIdx: number;
   /** Animation group id when frames.length > 1, else null. */
   animGroup: string | null;
+  /** What turns an on/off pair on (see FurnitureCatalogEntry.onTrigger) — only
+   *  meaningful when frames carry a state. null = not yet chosen; Save is
+   *  blocked until it is (no implicit default — auto-facing doesn't suit
+   *  every kind of object, see addOnOffState). */
+  onTrigger: 'autoFacing' | 'click' | null;
   /** The selected frame's sprite — always === frames[frameIdx].sprite (same
    *  array ref), so paint/render keep using `work.sprite` unchanged. */
   sprite: SpriteData;
@@ -226,6 +232,7 @@ export class FurnitureEditor {
       frames: [{ id: '', sprite }],
       frameIdx: 0,
       animGroup: null,
+      onTrigger: null,
       sprite,
     };
   }
@@ -317,6 +324,15 @@ export class FurnitureEditor {
       </div>
       <div class="row"><label class="f" for="pa-f-appliance">Action</label>
         <select id="pa-f-appliance" style="flex:1;">${actionOpts}</select></div>
+      <div class="row" id="pa-f-onoffrow">
+        <label class="f" for="pa-f-trigger" id="pa-f-triggerlabel" style="display:none;">Trigger</label>
+        <select id="pa-f-trigger" style="flex:1;display:none;">
+          <option value="">— choose —</option>
+          <option value="autoFacing">Auto (seated + facing)</option>
+          <option value="click">Click to toggle</option>
+        </select>
+        <button id="pa-f-addonoff" title="Give this item a separate On/Off pose">＋ On/Off state…</button>
+      </div>
       <div class="row">
         <input id="pa-f-color" type="color" value="${this.color}">
         <button id="pa-f-paint" class="on">✏ Paint</button>
@@ -438,6 +454,16 @@ export class FurnitureEditor {
     this.field('#pa-f-play').onclick = () => this.togglePlay();
     this.field('#pa-f-addframe').onclick = () => this.addFrame();
     this.field('#pa-f-delframe').onclick = () => this.removeFrame();
+    this.field('#pa-f-addonoff').onclick = () => {
+      this.addOnOffState();
+      this.syncOnOffRow();
+    };
+    this.field<HTMLSelectElement>('#pa-f-trigger').onchange = (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      this.work.onTrigger = v === 'autoFacing' || v === 'click' ? v : null;
+      this.dirty = true;
+      this.syncOnOffRow();
+    };
 
     this.bindPaint();
   }
@@ -596,6 +622,7 @@ export class FurnitureEditor {
       frames,
       frameIdx: 0,
       animGroup,
+      onTrigger: frames.some((f) => f.state) ? getOnTrigger(type) : null,
       sprite: frames[0].sprite,
       base: raw,
     };
@@ -626,10 +653,15 @@ export class FurnitureEditor {
     const w = this.work;
     const curState = w.frames[w.frameIdx]?.state;
     if (curState === 'off') return; // the static pose never animates
-    if (!w.frames[0].id) w.frames[0].id = w.id; // a fresh blank item
-    if (!w.animGroup) w.animGroup = w.frames[0].id || w.id || 'ANIM';
+    // Seed the animation group's name from the CURRENT track's own first
+    // member — for a state pair that's the "on" frame, never the "off" one
+    // (frames[0] is only the right seed for a plain, state-less item).
+    const track = w.frames.filter((f) => f.state === curState);
+    const trackFirst = track[0] ?? w.frames[0];
+    if (!trackFirst.id) trackFirst.id = w.id; // a fresh blank item has no id yet
+    if (!w.animGroup) w.animGroup = trackFirst.id || w.id || 'ANIM';
     const used = new Set(w.frames.map((f) => f.id));
-    let n = w.frames.filter((f) => f.state === curState).length;
+    let n = track.length;
     let id = `${w.animGroup}_${n}`;
     while (used.has(id) || getCatalogEntry(id)) id = `${w.animGroup}_${++n}`;
     const cur = w.frames[w.frameIdx].sprite;
@@ -638,6 +670,25 @@ export class FurnitureEditor {
     w.frames.push({ id, sprite: emptySprite(width, h), state: curState, durationMs: DEFAULT_ANIMATION_FRAME_MS });
     this.dirty = true;
     this.selectFrame(w.frames.length - 1);
+  }
+
+  /** Turn a plain static item into an on/off pair — Off keeps the current
+   *  sprite/id, On starts as a copy to edit from. No default trigger is
+   *  picked (see FurnWork.onTrigger): Save is blocked until one is, since
+   *  auto-facing doesn't suit every kind of object (see #pa-f-trigger). */
+  private addOnOffState(): void {
+    const w = this.work;
+    if (w.frames.some((f) => f.state) || w.animGroup) return;
+    if (!w.frames[0].id) w.frames[0].id = w.id;
+    w.frames[0].state = 'off';
+    const offId = w.frames[0].id;
+    let onId = `${offId}_ON`;
+    let n = 2;
+    while (getCatalogEntry(onId)) onId = `${offId}_ON${n++}`;
+    w.frames.push({ id: onId, sprite: w.frames[0].sprite.map((r) => r.slice()), state: 'on' });
+    w.onTrigger = null;
+    this.dirty = true;
+    this.selectFrame(0);
   }
 
   /** Remove the selected frame (≥2 required in its track). A previously-saved
@@ -715,6 +766,15 @@ export class FurnitureEditor {
       return;
     }
     const w = this.work;
+    const hasState = w.frames.some((f) => f.state);
+    if (hasState && !w.onTrigger) {
+      this.showStatus('Choose a Trigger (Auto/Click) first');
+      return;
+    }
+    // A click-toggle pair's action IS the 'toggle' Action — not something to
+    // pick separately (see syncOnOffRow, which disables that dropdown for it).
+    const effectiveAction: Action | undefined =
+      hasState && w.onTrigger === 'click' ? { kind: 'toggle' } : w.action;
     // Only the "on" track (or the whole thing, for a plain ambient animation
     // with no state split) is ever a Tiled-style multi-frame animation — the
     // "off" pose is always a single static frame and never gets
@@ -740,14 +800,23 @@ export class FurnitureEditor {
         canPlaceOnWalls: w.canPlaceOnWalls,
         canPlaceOnFloor: w.canPlaceOnFloor,
         backgroundTiles: w.backgroundTiles,
-        action: w.action, // undefined clears it — same for the legacy flags below,
+        action: effectiveAction, // undefined clears it — same for the legacy flags below,
         // in case `base` (spread above) still carries them from before this
         // type was migrated to the single `action` field.
         appliance: undefined,
         conference: undefined,
         arcade: undefined,
         meetingRoom: undefined,
+        onTrigger: hasState ? w.onTrigger : undefined,
       };
+      // state/groupId link an off/on pair together (buildDynamicCatalog's
+      // Phase 3) — for an existing item `f.base` already carries them
+      // (spread above), but a pair just created via addOnOffState has no
+      // base to inherit from, so they must be set explicitly here too.
+      if (f.state) {
+        catalog.state = f.state;
+        catalog.groupId = (f.base?.groupId as string | undefined) ?? w.id;
+      }
       if (animated && w.animGroup && f.state !== 'off') {
         catalog.animationGroup = w.animGroup;
         catalog.frame = animFrames.indexOf(f);
@@ -822,6 +891,25 @@ export class FurnitureEditor {
       ctx.lineWidth = 1;
     }
     this.renderFrames();
+    this.syncOnOffRow();
+  }
+
+  /** Show/hide "＋ On/Off state…" (only for a plain, unanimated item) vs. the
+   *  Trigger picker (only once an on/off pair exists) — and disable the
+   *  generic Action dropdown for a click-toggle pair, since its action is
+   *  implicitly the 'toggle' Action, not something to pick separately. */
+  private syncOnOffRow(): void {
+    const w = this.work;
+    const hasState = w.frames.some((f) => f.state);
+    const addBtn = this.field<HTMLButtonElement>('#pa-f-addonoff');
+    const triggerSel = this.field<HTMLSelectElement>('#pa-f-trigger');
+    const triggerLabel = this.field<HTMLLabelElement>('#pa-f-triggerlabel');
+    addBtn.style.display = hasState ? 'none' : '';
+    addBtn.disabled = !!w.animGroup; // an ambient animation can't also become a state pair here
+    triggerSel.style.display = hasState ? '' : 'none';
+    triggerLabel.style.display = hasState ? '' : 'none';
+    triggerSel.value = w.onTrigger ?? '';
+    this.field<HTMLSelectElement>('#pa-f-appliance').disabled = hasState && w.onTrigger === 'click';
   }
 
   /** Paste the shared clipboard at the current selection's top-left (or 0,0). */

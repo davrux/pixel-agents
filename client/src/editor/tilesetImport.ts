@@ -17,8 +17,17 @@ import { DEFAULT_ANIMATION_FRAME_MS, getCatalogEntry } from '@pixel/shared/offic
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
 export interface ImportedTile {
-  /** Sanitized to the server's asset-id pattern (see SimRoom's saveAsset). */
+  /** Sanitized, but NOT yet disambiguated against the live catalog — the
+   *  tile's stable identity within its own tileset (its Tiled "type"
+   *  property, or a positional fallback). The caller (see OfficeScene's
+   *  importTilesetFiles) decides whether this matches something already
+   *  imported from the same source (→ replace in place, reusing that id) or
+   *  is new (→ uniqueId() it before saving) — see findBySourceKey. */
   id: string;
+  /** The tileset's own Tiled name (e.g. "Furniture") — every tile from one
+   *  import shares this; stored on each saved entry as `source` so re-
+   *  importing the same tileset can find its previous tiles again. */
+  source: string;
   label: string;
   footprintW: number;
   footprintH: number;
@@ -37,8 +46,10 @@ function sanitizeId(raw: string): string {
  *  — so importing a tileset whose tile "type" happens to reuse an existing id
  *  (e.g. re-importing an exported copy of our own furniture) would silently
  *  wipe that item's placement/rotation/state/action metadata down to just a
- *  sprite. Every imported id must be one the catalog doesn't already know. */
-function uniqueId(base: string): string {
+ *  sprite. Every FRESH imported id must be one the catalog doesn't already
+ *  know (a deliberate replace of a matched previous import reuses its id on
+ *  purpose — see findBySourceKey — and skips this). */
+export function uniqueId(base: string): string {
   if (!getCatalogEntry(base)) return base;
   let n = 2;
   let id = `${base}_${n}`;
@@ -127,7 +138,8 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
   const xml = await tsxFile.text();
 
   const setTag = /<tileset\b([^>]*)>/.exec(xml)?.[1] ?? '';
-  const tilesetName = sanitizeId((attr(setTag, 'name') ?? 'IMPORTED').toUpperCase());
+  const source = attr(setTag, 'name') ?? 'Imported';
+  const tilesetName = sanitizeId(source.toUpperCase());
 
   const imageFor = async (source: string): Promise<HTMLImageElement> => {
     const base = source.split('/').pop() ?? source;
@@ -164,7 +176,7 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
       const anim = animationFramesOf(body);
       if (!anim && frameComponentIds.has(id)) continue;
       const props = tilePropsOf(body);
-      const baseId = uniqueId(sanitizeId(props.type || `${tilesetName}_${id}`));
+      const baseId = sanitizeId(props.type || `${tilesetName}_${id}`);
       const label = props.label || props.type || `${tilesetName} ${id}`;
       if (anim) {
         const frames: ImportedTile['frames'] = [];
@@ -182,12 +194,13 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
           frames.push({ sprite: got.sprite, durationMs: fr.durationMs });
         }
         if (frames.length === 0) continue;
-        tiles.push({ id: baseId, label, footprintW: fw, footprintH: fh, frames });
+        tiles.push({ id: baseId, source, label, footprintW: fw, footprintH: fh, frames });
       } else {
         const got = await spriteOf(body);
         if (!got) continue;
         tiles.push({
           id: baseId,
+          source,
           label,
           footprintW: got.footprintW,
           footprintH: got.footprintH,
@@ -215,12 +228,12 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
       const anim = tb ? animationFramesOf(tb.body) : null;
       if (!anim && frameComponentIds.has(i)) continue;
       const props = tb ? tilePropsOf(tb.body) : {};
-      const baseId = uniqueId(sanitizeId(props.type || `${tilesetName}_${i}`));
+      const baseId = sanitizeId(props.type || `${tilesetName}_${i}`);
       const label = props.label || props.type || `${tilesetName} ${i}`;
       const frames: ImportedTile['frames'] = anim
         ? anim.map((fr) => ({ sprite: spriteOf(fr.tileid), durationMs: fr.durationMs }))
         : [{ sprite: spriteOf(i), durationMs: DEFAULT_ANIMATION_FRAME_MS }];
-      tiles.push({ id: baseId, label, footprintW: footprintOf(tw), footprintH: footprintOf(th), frames });
+      tiles.push({ id: baseId, source, label, footprintW: footprintOf(tw), footprintH: footprintOf(th), frames });
     }
   }
   if (tiles.length === 0) throw new Error('No tiles found in that tileset.');

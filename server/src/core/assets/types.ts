@@ -48,9 +48,12 @@ export interface CatalogEntry {
   groupId?: string;
   orientation?: string;
   state?: string;
+  onTrigger?: 'autoFacing' | 'click';
   mirrorSide?: boolean;
   rotationScheme?: string;
   animationGroup?: string;
   frame?: number;
   durationMs?: number;
+  source?: string;
+  sourceKey?: string;
 }
