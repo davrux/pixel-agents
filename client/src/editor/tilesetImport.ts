@@ -45,6 +45,35 @@ function sanitizeId(raw: string): string {
   return cleaned || 'IMPORTED';
 }
 
+function spriteSignature(sprite: SpriteData): string {
+  return sprite.map((row) => row.join('|')).join('\n');
+}
+
+/** A tile's full pixel identity — footprint + every frame's own pixels — so
+ *  two tiles only count as "the same" if they'd be visually indistinguishable
+ *  in every way, not just superficially similar (e.g. same size, different
+ *  colour still counts as different). */
+function tileSignature(t: ImportedTile): string {
+  return `${t.footprintW}x${t.footprintH}:${t.frames.map((f) => spriteSignature(f.sprite)).join(';')}`;
+}
+
+/** Real asset packs often repeat the exact same tile many times (filler,
+ *  padding, accidental duplicates across sheets) — importing every copy as
+ *  its own catalog entry just clutters the palette with indistinguishable
+ *  items. Keeps the first occurrence (its id/label), drops any exact repeat
+ *  within this same import — doesn't touch what's already in the catalog. */
+function dedupeIdenticalTiles(tiles: ImportedTile[]): ImportedTile[] {
+  const seen = new Set<string>();
+  const out: ImportedTile[] = [];
+  for (const t of tiles) {
+    const key = tileSignature(t);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 /** Saving a furniture override for an id that already exists in the catalog is
  *  a full replace of that entry, not a merge (see server/src/assetOverrides.ts)
  *  — so importing a tileset whose tile "type" happens to reuse an existing id
@@ -241,7 +270,7 @@ export async function parseTilesetFiles(files: FileList | File[]): Promise<Impor
     }
   }
   if (tiles.length === 0) throw new Error('No tiles found in that tileset.');
-  return tiles;
+  return dedupeIdenticalTiles(tiles);
 }
 
 /** Import a plain PNG sprite sheet with no Tiled metadata at all — just a
@@ -276,5 +305,5 @@ export async function parseSpritesheetFile(file: File, tileW: number, tileH: num
     }
   }
   if (tiles.length === 0) throw new Error('No non-empty tiles found at that size.');
-  return tiles;
+  return dedupeIdenticalTiles(tiles);
 }
