@@ -290,6 +290,12 @@ export class OfficeScene extends Phaser.Scene {
    *  default), or by import source (see getImportSources) so imports don't
    *  just pile into "Misc" with no way to find what came from where. */
   private furnAssetsView: 'category' | 'source' = 'category';
+  /** Which Furniture-assets tile is selected — drives the bottom action bar
+   *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
+  private selectedFurnAsset: string | null = null;
+  /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
+   *  often too small to make out at a glance, hence the zoom control. */
+  private furnZoom: 1 | 2 | 4 = 2;
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -2489,6 +2495,23 @@ export class OfficeScene extends Phaser.Scene {
       body.appendChild(seg);
     }
 
+    // Zoom: every tile renders at its own native size (honest relative sizing,
+    // no squeeze-to-fit), which is often too small to make out at a glance —
+    // this scales the whole grid uniformly instead of per-item.
+    const zoomSeg = document.createElement('div');
+    zoomSeg.className = 'pa-seg';
+    for (const z of [1, 2, 4] as const) {
+      const s = document.createElement('div');
+      s.className = 'seg' + (this.furnZoom === z ? ' on' : '');
+      s.textContent = `${z}×`;
+      s.onclick = () => {
+        this.furnZoom = z;
+        this.renderAssetsPanel();
+      };
+      zoomSeg.appendChild(s);
+    }
+    body.appendChild(zoomSeg);
+
     if (this.furnAssetsView === 'source' && sources.length > 0) {
       for (const { source, entries } of sources) {
         const head = document.createElement('div');
@@ -2513,20 +2536,82 @@ export class OfficeScene extends Phaser.Scene {
         };
         head.append(label, delBtn);
         body.appendChild(head);
-        for (const e of entries) body.appendChild(this.mkFurnRow(e));
+        const grid = document.createElement('div');
+        grid.className = 'pa-assetgrid';
+        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
+        body.appendChild(grid);
       }
-      return;
+    } else {
+      for (const cat of getActiveCategories()) {
+        const entries = getCatalogByCategory(cat.id);
+        if (!entries.length) continue;
+        const head = document.createElement('div');
+        head.className = 'grouplbl';
+        head.textContent = cat.label;
+        body.appendChild(head);
+        const grid = document.createElement('div');
+        grid.className = 'pa-assetgrid';
+        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
+        body.appendChild(grid);
+      }
     }
 
-    for (const cat of getActiveCategories()) {
-      const entries = getCatalogByCategory(cat.id);
-      if (!entries.length) continue;
-      const head = document.createElement('div');
-      head.className = 'grouplbl';
-      head.textContent = cat.label;
-      body.appendChild(head);
-      for (const e of entries) body.appendChild(this.mkFurnRow(e));
+    this.renderFurnActionBar(body);
+  }
+
+  /** One Furniture-assets grid tile: native-size (× furnZoom) thumbnail +
+   *  label, click to select — acted on via the bottom action bar rather than
+   *  per-tile buttons, so a big import stays a compact grid instead of a long
+   *  list (see renderFurnAssets / renderFurnActionBar). */
+  private mkFurnTile(e: CatalogEntryWithCategory): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'pa-assetgrid-item' + (e.type === this.selectedFurnAsset ? ' sel' : '');
+    item.title = e.label;
+    item.appendChild(this.mkThumb(e.sprite, this.furnZoom));
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = e.label;
+    item.appendChild(nm);
+    item.onclick = () => {
+      this.selectedFurnAsset = e.type;
+      this.renderAssetsPanel();
+    };
+    return item;
+  }
+
+  /** Sticky bottom bar for whichever tile is selected in the Furniture-assets
+   *  grid — Edit / Reset, the same actions the old per-row buttons offered. */
+  private renderFurnActionBar(body: HTMLElement): void {
+    if (!this.selectedFurnAsset) return;
+    const entry = getCatalogEntry(this.selectedFurnAsset);
+    if (!entry) {
+      this.selectedFurnAsset = null;
+      return;
     }
+    const bar = document.createElement('div');
+    bar.className = 'pa-asset-actionbar';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = entry.label;
+    const edit = document.createElement('button');
+    edit.className = 'pa-b';
+    edit.textContent = 'Edit';
+    edit.onclick = () => {
+      void this.setMenu(null);
+      this.furnEditor.edit(entry.type);
+    };
+    const reset = document.createElement('button');
+    reset.className = 'pa-b danger';
+    reset.textContent = 'Reset';
+    reset.title = 'Revert to the bundled default (or delete a custom item)';
+    reset.onclick = async () => {
+      if (!(await confirmDialog(`Reset ${entry.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+      this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.type });
+      this.selectedFurnAsset = null;
+      window.setTimeout(() => this.renderAssetsPanel(), 250);
+    };
+    bar.append(nm, edit, reset);
+    body.appendChild(bar);
   }
 
   /** Delete every item imported from one source in one go, instead of
@@ -2543,36 +2628,6 @@ export class OfficeScene extends Phaser.Scene {
         this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
       }
     }
-  }
-
-  /** One Furniture-assets list row: thumbnail, label, Edit, Reset — shared by
-   *  the category and import-source views (see renderFurnAssets). */
-  private mkFurnRow(e: CatalogEntryWithCategory): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'pa-list-row';
-    row.appendChild(this.mkThumb(e.sprite));
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = e.label;
-    row.appendChild(nm);
-    const edit = document.createElement('button');
-    edit.className = 'pa-b';
-    edit.textContent = 'Edit';
-    edit.onclick = () => {
-      void this.setMenu(null);
-      this.furnEditor.edit(e.type);
-    };
-    const reset = document.createElement('button');
-    reset.className = 'pa-b';
-    reset.textContent = 'Reset';
-    reset.title = 'Revert to the bundled default (or delete a custom item)';
-    reset.onclick = async () => {
-      if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-      this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
-      window.setTimeout(() => this.renderAssetsPanel(), 250);
-    };
-    row.append(edit, reset);
-    return row;
   }
 
   /** "Import Tileset Folder…" — reads an external Tiled tileset (.tsx + its
@@ -2725,7 +2780,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */
-  private mkThumb(sprite?: SpriteData): HTMLElement {
+  /** @param zoom CSS pixel-doubling on top of the canvas's native 1:1 size
+   *  (default: true native size, no scaling — unaffected callers keep their
+   *  existing tiny-but-honest look; the asset grid passes its zoom control). */
+  private mkThumb(sprite?: SpriteData, zoom = 1): HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'pa-thumb';
     const cv = document.createElement('canvas');
@@ -2733,6 +2791,11 @@ export class OfficeScene extends Phaser.Scene {
     const w = h > 0 ? (sprite![0]?.length ?? 0) : 0;
     cv.width = Math.max(1, w);
     cv.height = Math.max(1, h);
+    if (zoom !== 1) {
+      cv.style.width = `${cv.width * zoom}px`;
+      cv.style.height = `${cv.height * zoom}px`;
+      cv.style.imageRendering = 'pixelated';
+    }
     const ctx = cv.getContext('2d');
     if (ctx && sprite) {
       for (let y = 0; y < h; y++) {

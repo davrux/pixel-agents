@@ -75,6 +75,24 @@ export function injectPaSkin(): void {
       .pa-list-row{display:flex;align-items:center;gap:0.55rem;padding:0.5rem 0.15rem;border-bottom:1px solid #2c2a28;}
       .pa-list-row .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:1rem;color:#f0eeea;}
       .pa-list-row small{color:#818586;}
+      /* Compact tile grid — an alternative to .pa-list-row for browsing many
+         assets at once (e.g. after a big import): each item shown at its own
+         native size (times the zoom control), not squeezed into a uniform box,
+         so relative sizes stay honest. Click to select; act on the selection
+         via .pa-asset-actionbar rather than per-tile buttons. */
+      .pa-assetgrid{display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;margin-bottom:0.6rem;}
+      .pa-assetgrid-item{display:flex;flex-direction:column;align-items:center;gap:0.25rem;cursor:pointer;
+        max-width:6rem;padding:0.3rem;border:2px solid #0a0908;border-radius:0.35rem;background:#141312;}
+      .pa-assetgrid-item.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
+      .pa-assetgrid-item .nm{font-size:0.65rem;color:#818586;max-width:5.4rem;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap;}
+      /* Sticks to the bottom of the scrolling panel (like .pa-head sticks to
+         the top) so actions for the current selection stay reachable no
+         matter how far the grid above has scrolled. */
+      .pa-asset-actionbar{position:sticky;bottom:0;padding:0.6rem 0 0;margin-top:0.6rem;
+        background:#1c1a19;border-top:2px solid #0a0908;box-shadow:0 -4px 10px rgba(0,0,0,.4);
+        display:flex;align-items:center;gap:0.6rem;}
+      .pa-asset-actionbar .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:0.95rem;}
       .pa-b{padding:0.4rem 0.7rem;font-size:0.85rem;color:#f1efec;background:#262422;border:2px solid #0a0908;
         border-radius:0.35rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;font-family:inherit;}
       .pa-b.primary{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
