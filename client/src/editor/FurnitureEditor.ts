@@ -255,9 +255,14 @@ export class FurnitureEditor {
       #pa-furn button:disabled{opacity:0.4;cursor:not-allowed;}
       #pa-furn #pa-f-stateseg{display:flex;gap:0.3rem;flex:0 0 auto;}
       #pa-furn #pa-f-stateseg button{padding:0.3rem 0.6rem;font-size:0.85rem;}
-      #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
+      #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;align-items:flex-end;}
       #pa-furn #pa-f-frames .framecell{display:flex;flex-direction:column;align-items:center;gap:0.15rem;}
-      #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#141312;
+      /* Fixed box + object-fit:contain — not width/height alone, which would
+         stretch a non-square sprite (e.g. PC's 16×32 on/off frames) to fill a
+         square and distort it. This keeps every thumbnail the same visual
+         size (a tidy grid) while letterboxing tall/wide sprites correctly. */
+      #pa-furn #pa-f-frames canvas{width:2.4rem;height:2.4rem;object-fit:contain;
+        image-rendering:pixelated;background:#141312;
         border:2px solid #0a0908;border-radius:0.25rem;cursor:pointer;}
       #pa-furn #pa-f-frames canvas.on{border-color:#e2585a;}
       #pa-furn #pa-f-frames .framecell input[type=number]{flex:0 0 auto;width:3.4rem;padding:0.1rem 0.25rem;
@@ -276,7 +281,7 @@ export class FurnitureEditor {
       #pa-furn #pa-f-cards{max-height:68vh;overflow-y:auto;}
       #pa-furn #pa-f-cards .card{display:flex;align-items:center;gap:0.6rem;background:#242220;border:2px solid #0a0908;
         border-radius:0.45rem;padding:0.35rem 0.5rem;margin:0.3rem 0;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#141312;border:2px solid #0a0908;flex:0 0 auto;}
+      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;object-fit:contain;image-rendering:pixelated;background:#141312;border:2px solid #0a0908;flex:0 0 auto;}
       #pa-furn #pa-f-cards .card .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #pa-furn #pa-f-cards .card button{padding:0.3rem 0.55rem;font-size:0.9rem;flex:0 0 auto;}
       #pa-furn #pa-f-cards .card button.del{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
