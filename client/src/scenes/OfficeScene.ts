@@ -2493,7 +2493,25 @@ export class OfficeScene extends Phaser.Scene {
       for (const { source, entries } of sources) {
         const head = document.createElement('div');
         head.className = 'grouplbl';
-        head.textContent = `${source} (${entries.length})`;
+        head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;';
+        const label = document.createElement('span');
+        label.textContent = `${source} (${entries.length})`;
+        const delBtn = document.createElement('button');
+        delBtn.className = 'pa-b';
+        delBtn.textContent = '🗑 Delete import';
+        delBtn.title = `Delete all ${entries.length} item(s) imported from "${source}"`;
+        delBtn.onclick = async () => {
+          if (
+            !(await confirmDialog(`Delete all ${entries.length} item(s) imported from "${source}"?`, {
+              danger: true,
+              confirmLabel: 'Delete',
+            }))
+          )
+            return;
+          this.deleteImportSource(entries);
+          window.setTimeout(() => this.renderAssetsPanel(), 250);
+        };
+        head.append(label, delBtn);
         body.appendChild(head);
         for (const e of entries) body.appendChild(this.mkFurnRow(e));
       }
@@ -2508,6 +2526,22 @@ export class OfficeScene extends Phaser.Scene {
       head.textContent = cat.label;
       body.appendChild(head);
       for (const e of entries) body.appendChild(this.mkFurnRow(e));
+    }
+  }
+
+  /** Delete every item imported from one source in one go, instead of
+   *  clicking Reset per item (an import can be dozens of tiles). Each visible
+   *  entry is only the frame-0/representative id — an animated one has
+   *  further frame ids (see commitImportedTiles's `${baseId}__fN`) that never
+   *  show up on their own in either assets view, so they'd otherwise leak. */
+  private deleteImportSource(entries: CatalogEntryWithCategory[]): void {
+    for (const e of entries) {
+      const frames = getAnimationFrameData(e.type);
+      if (frames) {
+        for (const f of frames) this.room?.send('deleteAsset', { assetType: 'furniture', name: f.id });
+      } else {
+        this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
+      }
     }
   }
 
