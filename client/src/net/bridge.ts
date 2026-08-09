@@ -9,6 +9,7 @@ import {
   type LoadedCharacterData,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { setFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
 import { setWallSprites } from '@pixel/shared/office/wallTiles.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -52,6 +53,9 @@ export function createAssetBridge(
         break;
       case 'floorTilesLoaded':
         setFloorSprites(msg.sprites);
+        break;
+      case 'imagesLoaded':
+        setImageAssets(msg.images ?? []);
         break;
       case 'wallTilesLoaded':
         setWallSprites(msg.sets);

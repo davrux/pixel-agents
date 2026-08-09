@@ -30,6 +30,7 @@ export type ServerMessage =
   | PetSpritesLoaded
   | FloorTilesLoaded
   | WallTilesLoaded
+  | ImagesLoaded
   | SettingsLoaded
   | WorkspaceFolders
   | ViewerIdentity
@@ -258,6 +259,19 @@ export interface FloorTilesLoaded {
 export interface WallTilesLoaded {
   type: 'wallTilesLoaded';
   sets: string[][][][];
+}
+
+export interface ImagesLoaded {
+  type: 'imagesLoaded';
+  images: ImageAssetMessage[];
+}
+
+export interface ImageAssetMessage {
+  id: string;
+  label: string;
+  data: string;
+  width: number;
+  height: number;
 }
 
 export interface SettingsLoaded {

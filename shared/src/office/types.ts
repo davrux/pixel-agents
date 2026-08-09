@@ -348,6 +348,31 @@ export interface PlacedText {
   angle?: number;
 }
 
+/** A raster image (PNG) placed as pure background decoration — no footprint/
+ *  walkability effect at all (unlike furniture's backgroundTiles, which still
+ *  blocks part of its footprint; an image blocks nothing — put a floor
+ *  pattern under it if the tile should be non-walkable). Rendered at a fixed
+ *  depth just above the floor and below every (position-sorted) furniture
+ *  piece/character, so it always reads as "on the floor", never "on the
+ *  table". References a shared ImageAsset (see shared/office/imageAssets.ts)
+ *  by id. footprintW×footprintH (tiles) is always the click/select hitbox;
+ *  `fit` decides how the image fills it — placed/moved/deleted via the
+ *  editor's Image tool, draggable in the Select tool like furniture/text. */
+export interface PlacedImage {
+  uid: string;
+  col: number;
+  row: number;
+  footprintW: number;
+  footprintH: number;
+  imageId: string;
+  /** 'stretch' (default when unset) fills the footprint exactly, distorting
+   *  aspect ratio if it doesn't match — good for a rug/mural sized to a
+   *  specific area. 'center' draws the image at its own native pixel size,
+   *  centered on the footprint's middle — good for a small sticker/poster you
+   *  don't want stretched; the footprint still just governs its hitbox. */
+  fit?: 'stretch' | 'center';
+}
+
 export interface OfficeLayout {
   version: 1;
   cols: number;
@@ -379,6 +404,9 @@ export interface OfficeLayout {
   tileActions?: Array<Action | null>;
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
+  /** Background decoration images — see PlacedImage. Placed with the editor's
+   *  Image tool. */
+  images?: PlacedImage[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

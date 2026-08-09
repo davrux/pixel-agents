@@ -29,6 +29,9 @@ export interface AssetBundle {
     ducks: unknown[];
     furnitureCatalog: unknown[];
     furnitureSprites: Record<string, unknown>;
+    /** Uploaded background images (see shared/office/imageAssets.ts) — no
+     *  bundled defaults, always starts empty. */
+    images: unknown[];
     layout: Record<string, unknown> | null;
   };
 }
@@ -79,6 +82,9 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
   if (layout) {
     messages.push({ type: 'layoutLoaded', layout, activeLayout: 'Default', force: true });
   }
+  // No bundled images — always present so assetOverrides.ts's buildMerged()
+  // has a message to rebuild once the first one is uploaded.
+  messages.push({ type: 'imagesLoaded', images: [] });
 
   return {
     providerCapabilities: {
@@ -94,6 +100,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       ducks: pets?.ducks ?? [],
       furnitureCatalog,
       furnitureSprites,
+      images: [],
       layout,
     },
   };

@@ -12,6 +12,8 @@ import {
   DEFAULT_ZONE,
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
+  MAX_PLACED_IMAGES,
+  MAX_IMAGE_ASSET_BYTES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
@@ -148,6 +150,32 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
     clean.push(entry);
   }
   layout.texts = clean;
+  return layout;
+}
+
+/** Cap a saved layout's placed background images (OfficeLayout.images) — same
+ *  kind of save-time content check as sanitizeLayoutTexts. Doesn't check that
+ *  imageId references an existing uploaded image (same as furniture types
+ *  aren't checked against the catalog here either) — the renderer already
+ *  has to tolerate a missing reference (a deleted image, a stale layout). */
+function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, unknown> {
+  const images = layout.images;
+  if (!Array.isArray(images)) return layout;
+  const clean: Array<{ uid: string; col: number; row: number; footprintW: number; footprintH: number; imageId: string; fit?: 'stretch' | 'center' }> = [];
+  for (const img of images) {
+    if (clean.length >= MAX_PLACED_IMAGES) break;
+    if (!img || typeof img !== 'object') continue;
+    const rec = img as Record<string, unknown>;
+    if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
+    if (typeof rec.imageId !== 'string' || !rec.imageId) continue;
+    const fw = Number(rec.footprintW);
+    const fh = Number(rec.footprintH);
+    if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) continue;
+    const entry: (typeof clean)[number] = { uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId };
+    if (rec.fit === 'center') entry.fit = 'center';
+    clean.push(entry);
+  }
+  layout.images = clean;
   return layout;
 }
 
@@ -879,7 +907,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
-      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now())) {
+      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now())) {
         this.applyActiveLayout();
       }
     });
@@ -888,7 +916,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!this.may(client, 'zone.edit', zone)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
-        this.store.saveAs(zone, name, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now());
+        this.store.saveAs(zone, name, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now());
         this.applyActiveLayout();
       }
     });
@@ -1543,6 +1571,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // furniture's own sprite field gets (see validFurnitureData), plus a
       // sane size bound.
       if (type === 'floor' && !this.validFloorData(msg.data)) return;
+      if (type === 'image' && !this.validImageData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1756,6 +1785,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  catalog metadata applies here), with a sane size bound. */
   private validFloorData(data: unknown): boolean {
     return Array.isArray(data) && data.length > 0 && data.length <= 64 && data.every((row) => Array.isArray(row) && row.length <= 64);
+  }
+
+  /** Sanity-check an uploaded background image: a PNG data URL under the byte
+   *  cap, with sane label/dimensions. Only the data URL's *prefix* and
+   *  *length* are checked here (cheap, no decoding) — a client-supplied
+   *  width/height that doesn't match the actual image just makes for a
+   *  stretched/squashed placement, not a security issue. */
+  private validImageData(data: unknown): boolean {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as { data?: unknown; width?: unknown; height?: unknown; label?: unknown };
+    if (typeof d.data !== 'string' || !d.data.startsWith('data:image/png;base64,')) return false;
+    if (d.data.length > MAX_IMAGE_ASSET_BYTES * 1.4) return false; // base64 ≈ 4/3 the decoded size
+    if (!Number.isInteger(d.width) || !Number.isInteger(d.height) || (d.width as number) < 1 || (d.height as number) < 1) return false;
+    if ((d.width as number) > 4096 || (d.height as number) > 4096) return false;
+    if (d.label !== undefined && (typeof d.label !== 'string' || d.label.length > 64)) return false;
+    return true;
   }
 
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
