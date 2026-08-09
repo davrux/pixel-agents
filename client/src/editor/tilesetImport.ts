@@ -84,9 +84,14 @@ function dedupeIdenticalTiles(tiles: ImportedTile[]): ImportedTile[] {
  *  purpose — see findBySourceKey — and skips this). */
 export function uniqueId(base: string): string {
   if (!getCatalogEntry(base)) return base;
-  let n = 2;
-  let id = `${base}_${n}`;
-  while (getCatalogEntry(id)) id = `${base}_${++n}`;
+  // A random tag, not a sequential _2/_3 counter: two people importing the
+  // same tileset at nearly the same moment would otherwise race to compute
+  // the SAME next free slot from their own stale local catalog and silently
+  // overwrite one another (saveAsset is an unconditional replace-by-id) — a
+  // random tag makes that collision astronomically unlikely instead of a
+  // near-certainty under real concurrency.
+  let id = `${base}_${Math.random().toString(36).slice(2, 6)}`;
+  while (getCatalogEntry(id)) id = `${base}_${Math.random().toString(36).slice(2, 6)}`;
   return id;
 }
 
