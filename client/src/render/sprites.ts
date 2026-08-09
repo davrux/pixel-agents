@@ -52,3 +52,31 @@ export function spriteTexture(scene: Phaser.Scene, sprite: SpriteData): string {
   keys.set(sprite, key);
   return key;
 }
+
+/** Load (or reuse) a Phaser texture from an uploaded background image's data
+ *  URL (see shared/office/imageAssets.ts's ImageAsset) — a raster PNG, NOT a
+ *  SpriteData grid, so this uses Phaser's own base64 image decoder instead of
+ *  the manual per-pixel canvas fill above. Cached per asset id (stable across
+ *  calls, unlike SpriteData's per-reference cache — an ImageAsset's `data`
+ *  never changes without a new id). `addBase64` decodes asynchronously (an
+ *  already-in-memory data URL, so normally a handful of ms) — the returned
+ *  key may not have a real texture yet on the same tick; pass `onReady` to
+ *  react once it does (e.g. re-set a GameObject's texture/size). Safe to
+ *  call `onReady` synchronously when already loaded. */
+const pendingImageKeys = new Set<string>();
+export function ensureImageTexture(scene: Phaser.Scene, assetId: string, dataUrl: string, onReady?: (key: string) => void): string {
+  const key = `img_${assetId}`;
+  if (scene.textures.exists(key)) {
+    onReady?.(key);
+    return key;
+  }
+  if (onReady) scene.textures.once(Phaser.Textures.Events.ADD_KEY + key, () => onReady(key));
+  // Multiple PlacedImage instances can share one imageId, and buildStatic()
+  // may re-run before a prior load finished — only ever request the decode once.
+  if (!pendingImageKeys.has(key)) {
+    pendingImageKeys.add(key);
+    scene.textures.once(Phaser.Textures.Events.ADD_KEY + key, () => pendingImageKeys.delete(key));
+    scene.textures.addBase64(key, dataUrl);
+  }
+  return key;
+}

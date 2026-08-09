@@ -165,6 +165,15 @@ export const MAX_TEXT_LABEL_LEN = 48;
  *  bounded cap against an unbounded editor-side loop or a malformed save. */
 export const MAX_TEXT_LABELS = 200;
 
+/** Max number of placed background images (OfficeLayout.images) one layout
+ *  may have — same purpose as MAX_TEXT_LABELS. */
+export const MAX_PLACED_IMAGES = 100;
+
+/** Max size (bytes, decoded) of one uploaded background image — a PNG this
+ *  big is already a lot of decoration; bigger risks bloating every layout
+ *  save/broadcast that includes it. */
+export const MAX_IMAGE_ASSET_BYTES = 300_000;
+
 /** Default/min/max font size (px) for a placed free-text label. */
 export const TEXT_LABEL_DEFAULT_FONT_SIZE = 8;
 export const TEXT_LABEL_MIN_FONT_SIZE = 6;

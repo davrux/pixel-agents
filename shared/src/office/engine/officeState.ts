@@ -10,7 +10,6 @@ import {
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
   DISMISS_BUBBLE_FAST_FADE_SEC,
-  FURNITURE_ANIM_INTERVAL_SEC,
   HUE_SHIFT_MIN_DEG,
   HUE_SHIFT_RANGE_DEG,
   INACTIVE_SEAT_TIMER_MIN_SEC,
@@ -22,7 +21,13 @@ import {
   WALK_SPEED_PX_PER_SEC,
 } from '../constants.js';
 import { isPlayerAvatarSkin } from '../../protocol.js';
-import { effectiveAction, getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
+import {
+  animationFrameAt,
+  effectiveAction,
+  getCatalogEntry,
+  getOnStateType,
+  getOnTrigger,
+} from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
   getBlockedFloorTiles,
@@ -110,8 +115,14 @@ export class OfficeState {
   furniturePlacements: PlacedFurniture[] = [];
   walkableTiles: Array<{ col: number; row: number }>;
   characters: Map<number, Character> = new Map();
-  /** Accumulated time for furniture animation frame cycling */
-  furnitureAnimTimer = 0;
+  /** Accumulated elapsed time (ms) for furniture animation playback — each
+   *  animation group loops against its own total duration (see
+   *  animationFrameAt), so this is one shared clock, not a shared frame index. */
+  furnitureAnimElapsedMs = 0;
+  /** Furniture uids currently switched on via the click-to-toggle Action (see
+   *  toggleFurniture) — ephemeral, like auto-on-facing: never written to the
+   *  saved layout, resets to "off" on reload. */
+  private manuallyToggledOn = new Set<string>();
   selectedAgentId: number | null = null;
   cameraFollowId: number | null = null;
   hoveredAgentId: number | null = null;
@@ -1429,6 +1440,27 @@ export class OfficeState {
     }
   }
 
+  /** Cheap fingerprint of "what would every animated item look like right
+   *  now" — distinct types only (cost scales with catalog diversity, not
+   *  placement count). Used solely to detect whether elapsed time crossing
+   *  forward actually changed anything; doesn't need to know which types are
+   *  currently visually "on" (a harmless extra rebuild when an unused
+   *  on-animation ticks over is fine, and far simpler than duplicating the
+   *  auto-on facing check here too). */
+  private animationSignature(elapsedMs: number): string {
+    const seen = new Set<string>();
+    let sig = '';
+    for (const item of this.layout.furniture) {
+      const onType = getOnStateType(item.type);
+      const animType = onType !== item.type ? onType : item.type;
+      if (seen.has(animType)) continue;
+      seen.add(animType);
+      const frame = animationFrameAt(animType, elapsedMs);
+      if (frame) sig += `${animType}:${frame}|`;
+    }
+    return sig;
+  }
+
   /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
   private rebuildFurnitureInstances(): void {
     // Collect tiles where active agents face desks
@@ -1464,7 +1496,7 @@ export class OfficeState {
     }
 
     // Build modified furniture list with auto-state and animation applied
-    const animFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
+    const elapsedMs = this.furnitureAnimElapsedMs;
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item) => {
       const entry = getCatalogEntry(item.type);
       if (!entry) return item;
@@ -1472,22 +1504,31 @@ export class OfficeState {
       // Ambient (always-on) animation: a stateless animation member, e.g. the
       // goldfish bowl. Excludes state-paired members (PC), whose placed type is
       // the "off" variant and therefore has no animation frames of its own.
-      const ambientFrames = getAnimationFrames(item.type);
-      if (ambientFrames && ambientFrames.length > 1 && getOnStateType(item.type) === item.type) {
-        return { ...item, type: ambientFrames[animFrame % ambientFrames.length] };
+      if (getOnStateType(item.type) === item.type) {
+        const frame = animationFrameAt(item.type, elapsedMs);
+        if (frame) return { ...item, type: frame };
       }
 
-      // Auto-on: an active agent seated facing this furniture turns it "on".
-      if (autoOnTiles.size > 0) {
+      // Manually toggled (click-to-toggle) on/off — independent of seating;
+      // only ever set for onTrigger:'click' items (see toggleFurniture).
+      if (this.manuallyToggledOn.has(item.uid)) {
+        let onType = getOnStateType(item.type);
+        if (onType !== item.type) {
+          onType = animationFrameAt(onType, elapsedMs) ?? onType;
+          return { ...item, type: onType };
+        }
+      }
+
+      // Auto-on: an active agent seated facing this furniture turns it "on" —
+      // only for the default/auto-facing trigger; a click-toggle item only
+      // responds to toggleFurniture(), never to who's sitting nearby.
+      if (autoOnTiles.size > 0 && getOnTrigger(item.type) !== 'click') {
         for (let dr = 0; dr < entry.footprintH; dr++) {
           for (let dc = 0; dc < entry.footprintW; dc++) {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
               let onType = getOnStateType(item.type);
               if (onType !== item.type) {
-                const frames = getAnimationFrames(onType);
-                if (frames && frames.length > 1) {
-                  onType = frames[animFrame % frames.length];
-                }
+                onType = animationFrameAt(onType, elapsedMs) ?? onType;
                 return { ...item, type: onType };
               }
               return item;
@@ -1500,6 +1541,23 @@ export class OfficeState {
 
     this.furniturePlacements = modifiedFurniture;
     this.furniture = layoutToFurnitureInstances(modifiedFurniture);
+  }
+
+  /** Flip a click-to-toggle item's on/off state (the 'toggle' Action) — a
+   *  literal light-switch. `anchorCol/anchorRow` is the same anchor tile
+   *  walkPlayerToAction resolved the action from; re-find the item there
+   *  (same candidate rule: the topmost item that actually has an action)
+   *  rather than threading its uid through the whole arrival-queue payload.
+   *  No-ops if that item isn't actually an onTrigger:'click' state pair. */
+  toggleFurniture(anchorCol: number, anchorRow: number): void {
+    const item = this.layout.furniture.find((f) => {
+      if (f.col !== anchorCol || f.row !== anchorRow) return false;
+      return effectiveAction(f, getCatalogEntry(f.type))?.kind === 'toggle';
+    });
+    if (!item || getOnTrigger(item.type) !== 'click') return;
+    if (this.manuallyToggledOn.has(item.uid)) this.manuallyToggledOn.delete(item.uid);
+    else this.manuallyToggledOn.add(item.uid);
+    this.rebuildFurnitureInstances();
   }
 
   setAgentTool(id: number, tool: string | null): void {
@@ -1573,11 +1631,14 @@ export class OfficeState {
   }
 
   update(dt: number): void {
-    // Furniture animation cycling
-    const prevFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
-    this.furnitureAnimTimer += dt;
-    const newFrame = Math.floor(this.furnitureAnimTimer / FURNITURE_ANIM_INTERVAL_SEC);
-    if (newFrame !== prevFrame) {
+    // Furniture animation cycling — each animation group loops on its own
+    // total duration now (Tiled-style per-frame timing), so there's no single
+    // shared frame index to compare anymore. Snapshot which frame every
+    // distinct animated type would show before vs. after advancing the clock;
+    // only pay for a full rebuild when something actually changed.
+    const prevSig = this.animationSignature(this.furnitureAnimElapsedMs);
+    this.furnitureAnimElapsedMs += dt * 1000;
+    if (this.animationSignature(this.furnitureAnimElapsedMs) !== prevSig) {
       this.rebuildFurnitureInstances();
     }
 

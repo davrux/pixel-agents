@@ -229,7 +229,12 @@ export type Action =
   | { kind: 'appliance'; pose: ApplianceKind }
   /** js-dos emulator overlay with per-player saves + an optional
    *  multiplayer lobby — today's arcade cabinet. */
-  | { kind: 'arcade' };
+  | { kind: 'arcade' }
+  /** Flip an on/off state pair (see FurnitureCatalogEntry.onTrigger:'click')
+   *  between its two poses — a literal light-switch. No client notification;
+   *  the resulting type swap reaches everyone through the normal furniture
+   *  sync, same as the auto-facing on/off already does. */
+  | { kind: 'toggle' };
 
 export interface FurnitureCatalogEntry {
   type: string; // asset ID from furniture manifest
@@ -261,6 +266,26 @@ export interface FurnitureCatalogEntry {
   canPlaceOnFloor?: boolean;
   /** Whether this is a side-oriented asset that produces a mirrored "left" variant */
   mirrorSide?: boolean;
+  /** For an item with an on/off state pair: what turns it on. 'autoFacing' —
+   *  an active agent seated facing it (today's PC/laptop behaviour, unchanged).
+   *  'click' — a literal light-switch via the 'toggle' Action; walking up and
+   *  clicking flips it, nothing else does. Absent unless the item actually
+   *  has a state pair; a state pair with no explicit trigger falls back to
+   *  'autoFacing' for old data, but the Furniture editor requires an explicit
+   *  pick for any pair added through it — auto-facing doesn't suit every
+   *  kind of object. */
+  onTrigger?: 'autoFacing' | 'click';
+  /** The external Tiled tileset this entry was imported from (its own Tiled
+   *  `name`, e.g. "Furniture") — absent for built-in, non-imported items.
+   *  Lets the Assets panel group imports separately from the curated
+   *  category list instead of piling everything into one category. */
+  source?: string;
+  /** The tile's own identity within its source tileset (its Tiled "type"
+   *  property, or a positional fallback) — stable across re-imports even
+   *  though our own catalog id may have needed disambiguating. Re-importing
+   *  the same tileset matches on (source, sourceKey) to update this exact
+   *  entry in place instead of creating a duplicate. */
+  sourceKey?: string;
 }
 
 export interface PlacedFurniture {
@@ -323,6 +348,31 @@ export interface PlacedText {
   angle?: number;
 }
 
+/** A raster image (PNG) placed as pure background decoration — no footprint/
+ *  walkability effect at all (unlike furniture's backgroundTiles, which still
+ *  blocks part of its footprint; an image blocks nothing — put a floor
+ *  pattern under it if the tile should be non-walkable). Rendered at a fixed
+ *  depth just above the floor and below every (position-sorted) furniture
+ *  piece/character, so it always reads as "on the floor", never "on the
+ *  table". References a shared ImageAsset (see shared/office/imageAssets.ts)
+ *  by id. footprintW×footprintH (tiles) is always the click/select hitbox;
+ *  `fit` decides how the image fills it — placed/moved/deleted via the
+ *  editor's Image tool, draggable in the Select tool like furniture/text. */
+export interface PlacedImage {
+  uid: string;
+  col: number;
+  row: number;
+  footprintW: number;
+  footprintH: number;
+  imageId: string;
+  /** 'stretch' (default when unset) fills the footprint exactly, distorting
+   *  aspect ratio if it doesn't match — good for a rug/mural sized to a
+   *  specific area. 'center' draws the image at its own native pixel size,
+   *  centered on the footprint's middle — good for a small sticker/poster you
+   *  don't want stretched; the footprint still just governs its hitbox. */
+  fit?: 'stretch' | 'center';
+}
+
 export interface OfficeLayout {
   version: 1;
   cols: number;
@@ -354,6 +404,9 @@ export interface OfficeLayout {
   tileActions?: Array<Action | null>;
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
+  /** Background decoration images — see PlacedImage. Placed with the editor's
+   *  Image tool. */
+  images?: PlacedImage[];
   /** Bumped when the bundled default layout changes; forces a reset on existing installs */
   layoutRevision?: number;
 }

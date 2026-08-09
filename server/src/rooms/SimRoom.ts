@@ -12,6 +12,8 @@ import {
   DEFAULT_ZONE,
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
+  MAX_PLACED_IMAGES,
+  MAX_IMAGE_ASSET_BYTES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
@@ -25,7 +27,7 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, effectiveAction, getCatalogEntry, FURNITURE_CATEGORIES } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
 import {
@@ -151,6 +153,32 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
   return layout;
 }
 
+/** Cap a saved layout's placed background images (OfficeLayout.images) — same
+ *  kind of save-time content check as sanitizeLayoutTexts. Doesn't check that
+ *  imageId references an existing uploaded image (same as furniture types
+ *  aren't checked against the catalog here either) — the renderer already
+ *  has to tolerate a missing reference (a deleted image, a stale layout). */
+function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, unknown> {
+  const images = layout.images;
+  if (!Array.isArray(images)) return layout;
+  const clean: Array<{ uid: string; col: number; row: number; footprintW: number; footprintH: number; imageId: string; fit?: 'stretch' | 'center' }> = [];
+  for (const img of images) {
+    if (clean.length >= MAX_PLACED_IMAGES) break;
+    if (!img || typeof img !== 'object') continue;
+    const rec = img as Record<string, unknown>;
+    if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
+    if (typeof rec.imageId !== 'string' || !rec.imageId) continue;
+    const fw = Number(rec.footprintW);
+    const fh = Number(rec.footprintH);
+    if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) continue;
+    const entry: (typeof clean)[number] = { uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId };
+    if (rec.fit === 'center') entry.fit = 'center';
+    clean.push(entry);
+  }
+  layout.images = clean;
+  return layout;
+}
+
 const MAX_IFRAME_URL_LEN = 500;
 
 /** Parse+validate one Action (from an untrusted save payload) — https://
@@ -172,6 +200,8 @@ function sanitizeAction(raw: unknown): Action | null {
       return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
     case 'arcade':
       return { kind: 'arcade' };
+    case 'toggle':
+      return { kind: 'toggle' };
     default:
       return null;
   }
@@ -877,7 +907,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
       if (!this.may(client, 'zone.edit', zone)) return;
       // Autosave this zone's active layout (no-op on its read-only Default).
-      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now())) {
+      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now())) {
         this.applyActiveLayout();
       }
     });
@@ -886,7 +916,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!this.may(client, 'zone.edit', zone)) return;
       const name = cleanName(msg?.name);
       if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
-        this.store.saveAs(zone, name, sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout)), Date.now());
+        this.store.saveAs(zone, name, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now());
         this.applyActiveLayout();
       }
     });
@@ -1537,6 +1567,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
+      // A floor pattern is just one sprite grid — same light shape check
+      // furniture's own sprite field gets (see validFurnitureData), plus a
+      // sane size bound.
+      if (type === 'floor' && !this.validFloorData(msg.data)) return;
+      if (type === 'image' && !this.validImageData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1745,6 +1780,29 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return true;
   }
 
+  /** Sanity-check a floor pattern override: just a sprite grid (see
+   *  FurnitureAsset's own `sprite` check — same shallow shape check, no
+   *  catalog metadata applies here), with a sane size bound. */
+  private validFloorData(data: unknown): boolean {
+    return Array.isArray(data) && data.length > 0 && data.length <= 64 && data.every((row) => Array.isArray(row) && row.length <= 64);
+  }
+
+  /** Sanity-check an uploaded background image: a PNG data URL under the byte
+   *  cap, with sane label/dimensions. Only the data URL's *prefix* and
+   *  *length* are checked here (cheap, no decoding) — a client-supplied
+   *  width/height that doesn't match the actual image just makes for a
+   *  stretched/squashed placement, not a security issue. */
+  private validImageData(data: unknown): boolean {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as { data?: unknown; width?: unknown; height?: unknown; label?: unknown };
+    if (typeof d.data !== 'string' || !d.data.startsWith('data:image/png;base64,')) return false;
+    if (d.data.length > MAX_IMAGE_ASSET_BYTES * 1.4) return false; // base64 ≈ 4/3 the decoded size
+    if (!Number.isInteger(d.width) || !Number.isInteger(d.height) || (d.width as number) < 1 || (d.height as number) < 1) return false;
+    if ((d.width as number) > 4096 || (d.height as number) > 4096) return false;
+    if (d.label !== undefined && (typeof d.label !== 'string' || d.label.length > 64)) return false;
+    return true;
+  }
+
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
   private validFurnitureData(data: unknown): boolean {
     const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
@@ -1757,13 +1815,39 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) {
         return false;
       }
-      if (typeof c.category !== 'string') return false;
+      // A category outside the closed FurnitureCategory union would save fine
+      // (nothing else here checks it) but getActiveCategories() only ever
+      // shows the 8 known ones — an unlisted category is invisible,
+      // unplaceable furniture, not a validation gap to let through silently.
+      if (typeof c.category !== 'string' || !FURNITURE_CATEGORIES.some((fc) => fc.id === c.category)) return false;
       if (c.appliance !== undefined && (typeof c.appliance !== 'string' || c.appliance.length > 32)) {
         return false;
       }
       // This type's default Action (see FurnitureCatalogEntry.action) — same
       // shape/validation as a per-instance override, just one level up.
       if (c.action !== undefined && !sanitizeAction(c.action)) return false;
+      // Animation membership (Tiled-style per-frame timing — see
+      // furnitureCatalog.ts's animationFrameAt): a frame index and a bounded
+      // per-frame duration, same range the Furniture editor itself clamps to.
+      if (c.animationGroup !== undefined && (typeof c.animationGroup !== 'string' || c.animationGroup.length > 64)) {
+        return false;
+      }
+      if (c.frame !== undefined && (!Number.isInteger(c.frame) || (c.frame as number) < 0 || (c.frame as number) > 64)) {
+        return false;
+      }
+      if (
+        c.durationMs !== undefined &&
+        (!Number.isInteger(c.durationMs) || (c.durationMs as number) < 16 || (c.durationMs as number) > 10000)
+      ) {
+        return false;
+      }
+      // On/off trigger (see FurnitureCatalogEntry.onTrigger) — one of exactly
+      // two known values, not an arbitrary string.
+      if (c.onTrigger !== undefined && c.onTrigger !== 'autoFacing' && c.onTrigger !== 'click') return false;
+      // Import provenance (see FurnitureCatalogEntry.source/sourceKey) — free
+      // text, just bounded.
+      if (c.source !== undefined && (typeof c.source !== 'string' || c.source.length > 64)) return false;
+      if (c.sourceKey !== undefined && (typeof c.sourceKey !== 'string' || c.sourceKey.length > 64)) return false;
     }
     return true;
   }
@@ -1850,6 +1934,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
         if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
         set.add(id);
         this.broadcast('m', this.meetingRoomMembersMsg(key));
+        continue;
+      }
+      if (action.kind === 'toggle') {
+        // A light-switch: flip it server-side, no client notification — the
+        // resulting type swap reaches everyone through the normal furniture
+        // sync, same as auto-on-facing already does.
+        this.os.toggleFurniture(col, row);
         continue;
       }
       const client = this.clientForPlayer(id);
