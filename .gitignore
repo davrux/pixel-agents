@@ -45,3 +45,9 @@ client/public/emulatorjs/
 # WASM + the selfie-segmenter model, vendored via scripts/vendor-mediapipe.mjs.
 client/public/mediapipe/
 
+# Zone map exports (server/scripts/tiled-export-zone.mts) — live snapshots of
+# whatever a zone's active layout is right now, not fixtures; regenerate on
+# demand rather than committing a point-in-time copy of real user content.
+assets/tiled/zones/*.tmj
+assets/tiled/zones/images/
+

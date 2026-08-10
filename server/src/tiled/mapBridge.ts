@@ -1,0 +1,423 @@
+/**
+ * OfficeLayout ↔ Tiled .tmj bridge (task #157, see
+ * docs/design/tiled-editor-integration.md). OfficeLayout stays the runtime
+ * schema forever — .tmj is a pure edit-time export/import round-trip, not a
+ * second source of truth. Written fresh; does not reuse the rejected
+ * office/tiled-schema branch's scripts.
+ *
+ * Known, disclosed simplifications (not yet verified against a live Tiled
+ * instance — same caveat as task #156's Wang sets):
+ * - Tile Object Y anchor is assumed to be the tile's BOTTOM edge (Tiled's
+ *   documented convention) — see tileObjectY/rowFromTileObjectY, the one
+ *   place this assumption lives.
+ * - Furniture types with no Tiled tileset representation (the server-
+ *   generated portal/conference/arcade/meetingRoom/logo catalog entries —
+ *   drawn in code, never baked into a .tsj) export as a plain (non-tile)
+ *   rectangle Object carrying just a `type` property — round-trips exactly,
+ *   just isn't visually a real sprite inside Tiled's own canvas.
+ */
+import type {
+  Action,
+  ApplianceKind,
+  OfficeLayout,
+  PlacedFurniture,
+  PlacedImage,
+  PlacedText,
+} from '@pixel/shared/office/types.js';
+import { TileType } from '@pixel/shared/office/types.js';
+import { TILE_SIZE } from '@pixel/shared/office/constants.js';
+import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+
+import { findGid, type TiledRegistry } from './tiledRegistry.js';
+
+type TiledProp = { name: string; type: string; value: string | number | boolean };
+type PropBag = Record<string, string | number | boolean>;
+
+export interface TmjImageAsset {
+  id: string;
+  data: string; // data:image/png;base64,...
+  width: number;
+  height: number;
+}
+
+export interface TmjExportResult {
+  tmj: Record<string, unknown>;
+  /** Image files the caller should write alongside the .tmj (path is
+   *  relative to the .tmj's own directory, matching each Image Object's
+   *  `image` field). */
+  imageFiles: Array<{ relPath: string; buffer: Buffer }>;
+}
+
+function prop(name: string, value: string | number | boolean): TiledProp {
+  const type = typeof value === 'boolean' ? 'bool' : typeof value === 'number' ? 'int' : 'string';
+  return { name, type, value };
+}
+
+function actionProps(action: Action, prefix = 'action'): TiledProp[] {
+  const out = [prop(`${prefix}Kind`, action.kind)];
+  if (action.kind === 'meetingRoom') out.push(prop(`${prefix}Video`, action.video));
+  if (action.kind === 'iframe') out.push(prop(`${prefix}Url`, action.url));
+  if (action.kind === 'appliance') out.push(prop(`${prefix}Pose`, action.pose));
+  return out;
+}
+
+function actionFromProps(props: PropBag, prefix = 'action'): Action | null {
+  const kind = props[`${prefix}Kind`];
+  if (typeof kind !== 'string') return null;
+  switch (kind) {
+    case 'meetingRoom':
+      return { kind, video: props[`${prefix}Video`] === true };
+    case 'linkManager':
+    case 'arcade':
+    case 'toggle':
+      return { kind };
+    case 'iframe':
+      return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
+    case 'appliance':
+      return { kind, pose: (typeof props[`${prefix}Pose`] === 'string' ? props[`${prefix}Pose`] : 'coffee') as ApplianceKind };
+    default:
+      return null;
+  }
+}
+
+/** N=1,E=2,S=4,W=8 — same convention as shared/src/office/wallTiles.ts's
+ *  buildWallMask, reimplemented against OfficeLayout's flat tiles[] instead
+ *  of a 2D tileMap (only used to pick a human-friendly Wang-matching GID on
+ *  export; imports never read this value back — the live renderer always
+ *  recomputes the correct piece from neighbors regardless of which exact
+ *  bitmask GID a wall cell references). */
+function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
+  const { cols, rows, tiles } = layout;
+  const at = (c: number, r: number) => tiles[r * cols + c];
+  let mask = 0;
+  if (row > 0 && at(col, row - 1) === TileType.WALL) mask |= 1;
+  if (col < cols - 1 && at(col + 1, row) === TileType.WALL) mask |= 2;
+  if (row < rows - 1 && at(col, row + 1) === TileType.WALL) mask |= 4;
+  if (col > 0 && at(col - 1, row) === TileType.WALL) mask |= 8;
+  return mask;
+}
+
+/** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
+ *  corner of the tile's image, not top-left like every other object type. */
+function tileObjectY(row: number, footprintH: number): number {
+  return (row + footprintH) * TILE_SIZE;
+}
+function rowFromTileObjectY(y: number, footprintH: number): number {
+  return Math.round(y / TILE_SIZE) - footprintH;
+}
+
+export function exportLayoutToTmj(
+  layout: OfficeLayout,
+  registry: TiledRegistry,
+  imageAssets: Map<string, TmjImageAsset>,
+): TmjExportResult {
+  const { cols, rows, tiles } = layout;
+
+  // ── Ground layer: floor/wall GIDs, GID 0 = VOID ──────────────────
+  const ground: number[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const t = tiles[r * cols + c];
+      const color = layout.tileColors?.[r * cols + c] ?? null;
+      if (t === TileType.VOID) {
+        ground.push(0);
+      } else if (t === TileType.WALL) {
+        const mask = wallBitmask(layout, c, r);
+        const gid =
+          findGid(
+            registry,
+            'wall-0.tsj',
+            (p) => p.bitmask === mask && (color ? p.hue === color.h && p.sat === color.s : !('hue' in p)),
+          ) ?? findGid(registry, 'wall-0.tsj', (p) => p.bitmask === mask && !('hue' in p));
+        ground.push(gid ?? 0);
+      } else {
+        const gid =
+          findGid(
+            registry,
+            'floor.tsj',
+            (p) => p.pattern === t && (color ? p.hue === color.h && p.sat === color.s : !('hue' in p)),
+          ) ?? findGid(registry, 'floor.tsj', (p) => p.pattern === t && !('hue' in p));
+        ground.push(gid ?? 0);
+      }
+    }
+  }
+
+  // ── Collision layer: tileBlocked, parameterless marker tile ──────
+  const collisionGid = findGid(registry, 'collision.tsj', () => true) ?? 0;
+  const collision: number[] = [];
+  for (let i = 0; i < cols * rows; i++) collision.push(layout.tileBlocked?.[i] ? collisionGid : 0);
+
+  // ── Furniture: tile objects (or a plain rect fallback), list order = stacking ──
+  const orderedFurniture = [...layout.furniture]
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => (a.f.zOffset ?? 0) - (b.f.zOffset ?? 0) || a.i - b.i)
+    .map(({ f }) => f);
+
+  const furnitureObjects = orderedFurniture.map((item, idx) => {
+    const entry = getCatalogEntry(item.type);
+    const fw = entry?.footprintW ?? 1;
+    const fh = entry?.footprintH ?? 1;
+    const foundGid = findFurnitureGid(registry, item.type);
+    const properties: TiledProp[] = [prop('type', item.type), prop('uid', item.uid)];
+    if (item.name) properties.push(prop('name', item.name));
+    if (item.approachSides && item.approachSides.length) properties.push(prop('approachSides', item.approachSides.join(',')));
+    if (item.zOffset) properties.push(prop('zOffset', item.zOffset));
+    if (item.action) properties.push(...actionProps(item.action));
+
+    const base = {
+      id: idx + 1,
+      name: item.name ?? '',
+      type: '',
+      visible: true,
+      x: item.col * TILE_SIZE,
+      width: fw * TILE_SIZE,
+      height: fh * TILE_SIZE,
+      rotation: 0,
+      properties,
+    };
+    if (foundGid) {
+      return { ...base, gid: foundGid, y: tileObjectY(item.row, fh) };
+    }
+    // No Tiled tileset backs this type (server-generated furniture) — a
+    // plain rectangle placeholder, top-left anchored like every other
+    // non-tile object; round-trips via the `type` property either way.
+    return { ...base, y: item.row * TILE_SIZE };
+  });
+
+  // ── Actions: one Point object per non-null tileActions entry ─────
+  const actionObjects: Array<Record<string, unknown>> = [];
+  (layout.tileActions ?? []).forEach((action, i) => {
+    if (!action) return;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    actionObjects.push({
+      id: 0, // renumbered below
+      name: '',
+      type: '',
+      point: true,
+      x: col * TILE_SIZE + TILE_SIZE / 2,
+      y: row * TILE_SIZE + TILE_SIZE / 2,
+      width: 0,
+      height: 0,
+      rotation: 0,
+      properties: [prop('col', col), prop('row', row), ...actionProps(action)],
+    });
+  });
+  actionObjects.forEach((o, i) => (o.id = i + 1));
+
+  // ── Text: native Tiled text objects ───────────────────────────────
+  const textObjects = (layout.texts ?? []).map((t, idx) => ({
+    id: idx + 1,
+    name: '',
+    type: '',
+    x: t.col * TILE_SIZE,
+    y: t.row * TILE_SIZE,
+    width: 8 * TILE_SIZE,
+    height: 2 * TILE_SIZE,
+    rotation: t.angle ?? 0,
+    visible: true,
+    text: {
+      text: t.text,
+      ...(t.fontFamily ? { fontfamily: t.fontFamily } : {}),
+      ...(t.fontSize ? { pixelsize: t.fontSize } : {}),
+      wrap: true,
+    },
+    properties: [prop('uid', t.uid)],
+  }));
+
+  // ── Images: native Tiled image objects, PNG extracted alongside the .tmj ──
+  const imageFiles: TmjExportResult['imageFiles'] = [];
+  const imageObjects = (layout.images ?? []).flatMap((im, idx) => {
+    const asset = imageAssets.get(im.imageId);
+    if (!asset) return []; // deleted since this layout was saved — matches the live renderer's own skip
+    const relPath = `images/${im.imageId}.png`;
+    const base64 = asset.data.replace(/^data:image\/\w+;base64,/, '');
+    imageFiles.push({ relPath, buffer: Buffer.from(base64, 'base64') });
+    return [
+      {
+        id: idx + 1,
+        name: '',
+        type: '',
+        x: im.col * TILE_SIZE,
+        y: im.row * TILE_SIZE,
+        width: im.footprintW * TILE_SIZE,
+        height: im.footprintH * TILE_SIZE,
+        rotation: 0,
+        visible: true,
+        image: relPath,
+        properties: [prop('imageId', im.imageId), prop('uid', im.uid)],
+      },
+    ];
+  });
+
+  const tilesetRefs = registry.tilesets.map((ts) => ({ firstgid: ts.firstgid, source: `../${ts.file}` }));
+
+  const tmj: Record<string, unknown> = {
+    compressionlevel: -1,
+    width: cols,
+    height: rows,
+    tilewidth: TILE_SIZE,
+    tileheight: TILE_SIZE,
+    infinite: false,
+    orientation: 'orthogonal',
+    renderorder: 'right-down',
+    tiledversion: '1.11.0',
+    type: 'map',
+    version: '1.10',
+    nextlayerid: 6,
+    nextobjectid: furnitureObjects.length + actionObjects.length + textObjects.length + imageObjects.length + 1,
+    tilesets: tilesetRefs,
+    layers: [
+      { id: 1, name: 'Ground', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
+      { id: 2, name: 'Collision', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
+      { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
+      { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
+      { id: 5, name: 'Text', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: textObjects },
+      { id: 6, name: 'Images', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: imageObjects },
+    ],
+  };
+
+  return { tmj, imageFiles };
+}
+
+function findFurnitureGid(registry: TiledRegistry, type: string): number | null {
+  for (const ts of registry.tilesets) {
+    if (!ts.file.startsWith('furniture-')) continue;
+    const localId = ts.tiles.findIndex((t) => t.props.type === type);
+    if (localId >= 0) return ts.firstgid + localId;
+  }
+  return null;
+}
+
+function colorFromProps(props: PropBag): { h: number; s: number; b: number; c: number; colorize: true } | null {
+  if (typeof props.hue !== 'number' || typeof props.sat !== 'number') return null;
+  return { h: props.hue, s: props.sat, b: 0, c: 0, colorize: true };
+}
+
+export interface TmjImportResult {
+  layout: OfficeLayout;
+  /** imageId → PNG buffer for images the caller should persist as new/updated
+   *  image assets before saving the layout (matches saveAsset's 'image' type). */
+  images: Array<{ imageId: string; label: string; buffer: Buffer }>;
+}
+
+export function importTmjToLayout(
+  tmj: Record<string, unknown>,
+  registry: TiledRegistry,
+  readImageFile: (relPath: string) => Buffer | null,
+): TmjImportResult {
+  const cols = Number(tmj.width);
+  const rows = Number(tmj.height);
+  const layers = (tmj.layers as Array<Record<string, unknown>>) ?? [];
+  const byName = (name: string) => layers.find((l) => l.name === name);
+
+  const ground = (byName('Ground')?.data as number[]) ?? [];
+  const collision = (byName('Collision')?.data as number[]) ?? [];
+
+  const tiles: number[] = [];
+  const tileColors: OfficeLayout['tileColors'] = [];
+  const tileBlocked: boolean[] = [];
+  for (let i = 0; i < cols * rows; i++) {
+    const gid = ground[i] ?? 0;
+    const resolved = registry.resolve(gid);
+    if (!resolved) {
+      tiles.push(TileType.VOID);
+      tileColors.push(null);
+    } else if ('bitmask' in resolved.props) {
+      tiles.push(TileType.WALL);
+      tileColors.push(colorFromProps(resolved.props));
+    } else if (typeof resolved.props.pattern === 'number') {
+      tiles.push(resolved.props.pattern);
+      tileColors.push(colorFromProps(resolved.props));
+    } else {
+      tiles.push(TileType.VOID);
+      tileColors.push(null);
+    }
+    tileBlocked.push(!!collision[i] && collision[i] !== 0);
+  }
+
+  const furnitureLayer = byName('Furniture');
+  const furniture: PlacedFurniture[] = ((furnitureLayer?.objects as Array<Record<string, unknown>>) ?? []).map((obj) => {
+    const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const type = typeof props.type === 'string' ? props.type : '';
+    const entry = getCatalogEntry(type);
+    const fh = entry?.footprintH ?? 1;
+    const hasGid = typeof obj.gid === 'number' && (obj.gid as number) > 0;
+    const col = Math.round(Number(obj.x) / TILE_SIZE);
+    const row = hasGid ? rowFromTileObjectY(Number(obj.y), fh) : Math.round(Number(obj.y) / TILE_SIZE);
+    const item: PlacedFurniture = {
+      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
+      type,
+      col,
+      row,
+    };
+    if (typeof props.name === 'string') item.name = props.name;
+    if (typeof props.approachSides === 'string' && props.approachSides) {
+      item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
+    }
+    if (typeof props.zOffset === 'number') item.zOffset = props.zOffset;
+    const action = actionFromProps(props);
+    if (action) item.action = action;
+    return item;
+  });
+
+  const actionsLayer = byName('Actions');
+  const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
+  for (const obj of (actionsLayer?.objects as Array<Record<string, unknown>>) ?? []) {
+    const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const col = typeof props.col === 'number' ? props.col : Math.floor(Number(obj.x) / TILE_SIZE);
+    const row = typeof props.row === 'number' ? props.row : Math.floor(Number(obj.y) / TILE_SIZE);
+    const action = actionFromProps(props);
+    if (action && col >= 0 && col < cols && row >= 0 && row < rows) tileActions[row * cols + col] = action;
+  }
+
+  const textLayer = byName('Text');
+  const texts: PlacedText[] = ((textLayer?.objects as Array<Record<string, unknown>>) ?? []).map((obj) => {
+    const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const textData = (obj.text as Record<string, unknown>) ?? {};
+    const t: PlacedText = {
+      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
+      col: Math.round(Number(obj.x) / TILE_SIZE),
+      row: Math.round(Number(obj.y) / TILE_SIZE),
+      text: typeof textData.text === 'string' ? textData.text : '',
+    };
+    if (typeof textData.fontfamily === 'string') t.fontFamily = textData.fontfamily;
+    if (typeof textData.pixelsize === 'number') t.fontSize = textData.pixelsize;
+    if (typeof obj.rotation === 'number' && obj.rotation) t.angle = ((obj.rotation as number) % 360 + 360) % 360;
+    return t;
+  });
+
+  const imagesLayer = byName('Images');
+  const images: PlacedImage[] = [];
+  const importedImages: TmjImportResult['images'] = [];
+  for (const obj of (imagesLayer?.objects as Array<Record<string, unknown>>) ?? []) {
+    const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const imageId = typeof props.imageId === 'string' ? props.imageId : null;
+    const relPath = typeof obj.image === 'string' ? obj.image : null;
+    if (!imageId || !relPath) continue;
+    const buffer = readImageFile(relPath);
+    if (buffer) importedImages.push({ imageId, label: imageId, buffer });
+    images.push({
+      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
+      col: Math.round(Number(obj.x) / TILE_SIZE),
+      row: Math.round(Number(obj.y) / TILE_SIZE),
+      footprintW: Math.max(1, Math.round(Number(obj.width) / TILE_SIZE)),
+      footprintH: Math.max(1, Math.round(Number(obj.height) / TILE_SIZE)),
+      imageId,
+    });
+  }
+
+  const layout: OfficeLayout = {
+    version: 1,
+    cols,
+    rows,
+    tiles: tiles as OfficeLayout['tiles'],
+    furniture,
+    tileColors,
+    tileBlocked,
+    tileActions,
+    texts,
+    images,
+  };
+  return { layout, images: importedImages };
+}

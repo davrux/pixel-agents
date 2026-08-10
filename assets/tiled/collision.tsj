@@ -1,0 +1,27 @@
+{
+  "columns": 1,
+  "image": "png/collision.png",
+  "imagewidth": 16,
+  "imageheight": 16,
+  "margin": 0,
+  "name": "collision",
+  "spacing": 0,
+  "tilecount": 1,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "properties": [
+        {
+          "name": "blocked",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}
