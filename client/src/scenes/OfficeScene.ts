@@ -83,7 +83,7 @@ import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
 import { DockWindow } from '../ui/dockWindow.js';
 import type { MatrixClientHandle } from '../matrix/index.js';
-import { hasMatrixSession } from '../matrix/sessionProbe.js';
+import { hasMatrixSession, storedSessionUserIds } from '../matrix/sessionProbe.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -252,6 +252,10 @@ export class OfficeScene extends Phaser.Scene {
   private matrix?: MatrixClientHandle;
   private matrixLoading = false;
   private identityResolved = false;
+  /** The pixel user id the running Matrix client was started for. Kept so a
+   *  late `viewerIdentity` can notice it was started for the wrong one. */
+  private matrixPaUserId: string | null = null;
+  private matrixPagehideBound = false;
   private zoneVoiceStarted = false;
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
@@ -587,6 +591,13 @@ export class OfficeScene extends Phaser.Scene {
       if (this.mumbleWin?.wasOpen) this.setMumbleOpen(true);
     }
 
+    // Matrix, on the same footing as Mumble and for the same reason: both talk
+    // to their own server, so both belong here — before `open()` attempts the
+    // pixel-agents connection, rather than behind it. Started from a stored
+    // session alone when we cannot reach our own server; a later viewerIdentity
+    // reconciles it (see maybeAutoStartMatrix).
+    void this.maybeAutoStartMatrix();
+
     this.setupInput();
     void this.open();
   }
@@ -682,10 +693,8 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'viewerIdentity') {
           this.myUserId = (m.userId as string) ?? '';
           this.identityResolved = true;
-          if (this.matrixBtn) {
-            this.matrixBtn.disabled = false;
-            this.matrixBtn.title = 'Matrix chat';
-          }
+          // Also repaints ✉ and reconciles a client already started offline
+          // under a different pixel user.
           void this.maybeAutoStartMatrix();
           this.isAdmin = !!m.isAdmin;
           this.myRole = (m.role as typeof this.myRole) ?? 'user';
@@ -976,26 +985,80 @@ export class OfficeScene extends Phaser.Scene {
     openAdminOverlay();
   }
 
+  /**
+   * Which pixel-agents identity Matrix should run as, or null if we cannot say.
+   *
+   * Normally the server's `viewerIdentity`. But Matrix talks to a homeserver,
+   * not to us: when *our* server is unreachable that message never arrives, and
+   * gating the whole feature on it made a dependency that does not really exist
+   * — Mumble keeps working in the same outage, and Matrix reasonably should too.
+   *
+   * The identity is only needed to choose which stored session to resume, so
+   * when exactly one is on this device there is nothing left to resolve. With
+   * two or more (a shared machine) it stays null: opening the wrong person's
+   * chat is far worse than a disabled button. Signing in as someone else
+   * requires our server, so while it is down the set cannot have changed.
+   */
+  private matrixIdentity(): string | null {
+    if (this.identityResolved) return this.myUserId;
+    const stored = storedSessionUserIds();
+    return stored.length === 1 ? stored[0]! : null;
+  }
+
+  /** ✉ is enabled as soon as there is an identity to open Matrix under — which
+   *  in an outage is instead of `viewerIdentity`, not after it. */
+  private paintMatrixBtn(): void {
+    if (!this.matrixBtn) return;
+    const ready = this.matrixIdentity() !== null;
+    this.matrixBtn.disabled = !ready;
+    this.matrixBtn.title = ready ? 'Matrix chat' : 'Connecting…';
+  }
+
+  /**
+   * The server has finally told us who we are. If Matrix was started during the
+   * outage under a different pixel user — possible only on a machine whose one
+   * stored session turned out not to be this account's — it is showing the wrong
+   * person's chat. Tear it down and start again under the right identity.
+   */
+  private async reconcileMatrixIdentity(): Promise<void> {
+    if (!this.identityResolved || !this.matrix) return;
+    if (this.matrixPaUserId === this.myUserId) return;
+    const wasOpen = this.matrixWin?.isOpen === true;
+    this.matrix.destroy();
+    this.matrix = undefined;
+    this.matrixPaUserId = null;
+    this.setMatrixUnread(0);
+    await this.ensureMatrix();
+    if (wasOpen && this.matrix) this.setMatrixOpen(true);
+  }
+
   /** Load and mount the Matrix chat client into its panel body — dynamically
    *  imported (its CS-API layer + all seven views have no reason to sit in
    *  every player's initial bundle) so only someone who actually opens the
-   *  panel pays for loading it. Idempotent; waits for viewerIdentity first so
-   *  the per-user session-storage key (keyed by myUserId) is a decided value,
-   *  not a race against the identity message. */
+   *  panel pays for loading it. Idempotent. */
   private async ensureMatrix(): Promise<void> {
-    if (this.matrix || this.matrixLoading || !this.identityResolved) return;
+    if (this.matrix || this.matrixLoading) return;
+    const paUserId = this.matrixIdentity();
+    if (paUserId === null) return;
     const body = this.matrixPanel?.querySelector<HTMLElement>('.pa-body');
     if (!body) return;
     this.matrixLoading = true;
     try {
       const { createMatrixClient } = await import('../matrix/index.js');
       this.matrix = createMatrixClient(body, {
-        paUserId: this.myUserId,
+        paUserId,
         onUnreadChange: (n) => this.setMatrixUnread(n),
         onRequestClose: () => this.setMatrixOpen(false),
       });
+      this.matrixPaUserId = paUserId;
       this.matrix.setDocked(this.matrixWin?.isOpen === true);
-      window.addEventListener('pagehide', () => this.matrix?.destroy(), { once: true });
+      // Bound once, not per client: `reconcileMatrixIdentity` can replace the
+      // handle, and a second `{once:true}` listener would then destroy the
+      // replacement twice on unload.
+      if (!this.matrixPagehideBound) {
+        this.matrixPagehideBound = true;
+        window.addEventListener('pagehide', () => this.matrix?.destroy(), { once: true });
+      }
     } catch (err) {
       // A chunk-load failure (stale index.html after a redeploy, a transient
       // network blip, an app:// fetch hiccup on desktop) must not leave the
@@ -1016,8 +1079,12 @@ export class OfficeScene extends Phaser.Scene {
    *  decide, not the whole lazy chunk, when there is nothing to restore. */
   private async maybeAutoStartMatrix(): Promise<void> {
     try {
+      await this.reconcileMatrixIdentity();
+      this.paintMatrixBtn();
+      const paUserId = this.matrixIdentity();
+      if (paUserId === null) return;
       const reopen = this.matrixWin?.wasOpen === true;
-      if (!reopen && !hasMatrixSession(this.myUserId)) return;
+      if (!reopen && !hasMatrixSession(paUserId)) return;
       await this.ensureMatrix();
       // An application window comes back where you left it.
       if (reopen && this.matrix) this.setMatrixOpen(true);
@@ -2056,14 +2123,15 @@ export class OfficeScene extends Phaser.Scene {
     mumbleBtn.style.display = MumbleVoice.supported ? '' : 'none';
     this.mumbleBtn = mumbleBtn;
 
-    // Matrix chat — the left-hand window. Disabled until the server confirms
-    // our identity (viewerIdentity).
+    // Matrix chat — the left-hand window. Disabled until there is an identity to
+    // open it under: normally the server's viewerIdentity, but a single stored
+    // session is enough on its own, so an outage does not disable chat that does
+    // not depend on us (see matrixIdentity).
     const matrixBtn = this.mkBarBtn('✉', 'Matrix');
     matrixBtn.id = 'pa-matrix-btn';
-    matrixBtn.disabled = true;
-    matrixBtn.title = 'Connecting…';
     matrixBtn.onclick = () => void this.toggleMatrix();
     this.matrixBtn = matrixBtn;
+    this.paintMatrixBtn();
 
     const divider = document.createElement('span');
     divider.className = 'pa-div';
