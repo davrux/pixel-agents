@@ -34,18 +34,41 @@ export function clearColorizeCache(): void {
   colorizeCache.clear();
 }
 
+/** A sprite's own average perceived luminance across every opaque pixel
+ *  (0-1) — the recentering point colorizeSprite shades around, so a target
+ *  brightness (color.b) lands on an absolute lightness regardless of how
+ *  bright or dark the source art was naturally drawn. */
+function averageLightness(sprite: SpriteData): number {
+  let sum = 0;
+  let n = 0;
+  for (const row of sprite) {
+    for (const pixel of row) {
+      if (!pixel) continue;
+      const r = parseInt(pixel.slice(1, 3), 16);
+      const g = parseInt(pixel.slice(3, 5), 16);
+      const b = parseInt(pixel.slice(5, 7), 16);
+      sum += (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+      n++;
+    }
+  }
+  return n > 0 ? sum / n : 0.5;
+}
+
 /**
  * Colorize a sprite using HSL transformation.
  *
  * Algorithm (Photoshop Colorize-style):
  * 1. Parse each pixel's color as perceived luminance (0-1)
- * 2. Apply contrast: stretch/compress around midpoint 0.5
- * 3. Apply brightness: shift lightness up/down
- * 4. Create HSL color with user's hue + saturation
- * 5. Convert HSL -> RGB -> hex
+ * 2. Recenter around the sprite's OWN average lightness (not a flat 0.5) —
+ *    see averageLightness's own note.
+ * 3. Apply contrast: stretch/compress around midpoint 0.5
+ * 4. Apply brightness: shift lightness up/down
+ * 5. Create HSL color with user's hue + saturation
+ * 6. Convert HSL -> RGB -> hex
  */
 function colorizeSprite(sprite: SpriteData, color: ColorValue): SpriteData {
   const { h, s, b, c } = color;
+  const avgLightness = averageLightness(sprite);
   const result: SpriteData = [];
 
   for (const row of sprite) {
@@ -60,8 +83,9 @@ function colorizeSprite(sprite: SpriteData, color: ColorValue): SpriteData {
       const r = parseInt(pixel.slice(1, 3), 16);
       const g = parseInt(pixel.slice(3, 5), 16);
       const bv = parseInt(pixel.slice(5, 7), 16);
-      // Use perceived luminance for grayscale
-      let lightness = (0.299 * r + 0.587 * g + 0.114 * bv) / 255;
+      // Use perceived luminance for grayscale, recentered around this
+      // sprite's own average — see averageLightness.
+      let lightness = 0.5 + ((0.299 * r + 0.587 * g + 0.114 * bv) / 255 - avgLightness);
 
       // Apply contrast: expand/compress around 0.5
       if (c !== 0) {
@@ -150,7 +174,7 @@ function clamp255(v: number): number {
 }
 
 /** Convert RGB (0-255 each) to HSL (h: 0-360, s: 0-1, l: 0-1) */
-function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
+export function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   const rf = r / 255,
     gf = g / 255,
     bf = b / 255;

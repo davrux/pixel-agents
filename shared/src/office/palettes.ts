@@ -1,15 +1,14 @@
+import { rgbToHsl } from './colorize.js';
 import type { ColorValue } from './colorTypes.js';
 
 /** One selectable swatch: its reference hex (for the picker button's own
- *  fill) plus the hue/saturation `colorizeSprite` recolors with — brightness
- *  and contrast stay at 0 so a swatch re-hues a pattern without flattening
- *  the pattern's own light/dark texture into the swatch's exact lightness
- *  (see colorize.ts's "Colorize" mode: it recolors by hue/saturation only,
- *  keeping each pixel's own perceived luminance). Known, accepted
- *  simplification: pure black and pure white both have s=0, so — like any
- *  other zero-saturation pair — they recolor identically (the original
- *  grayscale pattern, untouched); this project doesn't need to tell them
- *  apart for a floor/wall tint. */
+ *  fill) plus the hue/saturation/lightness `colorizeSprite` recolors with —
+ *  the actual palette color, not just a tint of whatever brightness the
+ *  source art happened to be drawn at. colorizeSprite recenters each
+ *  sprite's own per-pixel shading around its average lightness before
+ *  applying this swatch's target (see colorize.ts), so the pattern's relief
+ *  (highlights/shadows) survives while the overall tile reads as this real
+ *  color — a dark swatch renders dark, a light one renders light. */
 export interface PaletteSwatch {
   hex: string;
   h: number;
@@ -80,7 +79,15 @@ export const WALL_PALETTE: PaletteSwatch[] = [
   swatch('#deeed6', 100, 41),
 ];
 
-/** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite. */
+/** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite —
+ *  `b` carries the swatch's own real lightness (derived from its hex) as a
+ *  target brightness, per colorizeSprite's recentering; see PaletteSwatch's
+ *  own doc comment for why this makes the rendered tile the actual color,
+ *  not just a hue tint. */
 export function swatchColor(s: PaletteSwatch): ColorValue {
-  return { h: s.h, s: s.s, b: 0, c: 0, colorize: true };
+  const r = parseInt(s.hex.slice(1, 3), 16);
+  const g = parseInt(s.hex.slice(3, 5), 16);
+  const bChan = parseInt(s.hex.slice(5, 7), 16);
+  const [, , l] = rgbToHsl(r, g, bChan);
+  return { h: s.h, s: s.s, b: (l - 0.5) * 200, c: 0, colorize: true };
 }
