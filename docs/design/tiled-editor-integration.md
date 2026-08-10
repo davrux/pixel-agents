@@ -41,7 +41,7 @@ where Tiled has no concept at all — not contorting our model to force a fit.
 | Approach-Sides (`PlacedFurniture.approachSides`) | one string property (`"N,E"`), not 4 bools — matches `Array<'N'\|'S'\|'E'\|'W'>` via join/split. Empty/absent = unrestricted. |
 | On/Off pairing (`groupId`+`state`, `onTrigger`) | 2-3 custom properties on two tileset tiles. The "on" side's own animation (if any) is a native Tiled tile `<animation>`. |
 | Rotation/orientation groups (`groupId`+`orientation`, `rotationScheme`) | **dropped entirely.** Affects 8/44 current types (`DESK`, `SOFA`, `PC`, `LAPTOP`, `WOODEN_CHAIR`, `CUSHIONED_CHAIR`, `SMALL_TABLE`, `KITCHEN_COUNTER`). Each orientation becomes its own independent catalog entry, placed manually, no rotate-in-place tool. Tiled's rotate handle geometrically rotates the graphic, which is wrong for perspective pixel art; a custom Tiled plugin was ruled out as disproportionate. `mirrorSide` (plain horizontal flip, e.g. wall monitors) is unrelated and stays — uses Tiled's native GID flip bit, no group linkage. |
-| Furniture recoloring (`PlacedFurniture.color`) | **dropped entirely**, not even kept as metadata. Sprites render exactly as drawn. `colorize.ts`'s `adjust` mode (furniture-only) becomes dead code. |
+| Furniture recoloring (`PlacedFurniture.color`) | **dropped entirely**, not even kept as metadata. Sprites render exactly as drawn. `colorize.ts`'s `adjustSprite` stays — turns out it's also used for character hue-shifting (`spriteData.ts`), not furniture-only as first assumed; only the furniture-specific call sites (LayoutEditor's placement/drag/select recolor) are removed. |
 | Floor/wall recoloring (`tileColors`) | **closed palette, baked as real tileset variants** (was continuous HSBC). Floor: full **DB32** (32 colors). Wall: **Dawnbringer 16** (its own established palette, not a DB32 subset) — wall tiles already carry a ×16 multiplier from the 4-neighbor autotile bitmask, so DB32 there would be 2 sets × 16 × 32 = 1024 tiles vs. 512 at 16. Floor has no such multiplier (11 patterns × 32 = 352). Since we're not keeping two parallel color systems, the in-game LayoutEditor's floor/wall picker also becomes a swatch picker over the same closed palette (not just a Tiled-side snap) — see Phase 1. |
 | `canPlaceOnWalls` / `canPlaceOnFloor` | **dropped entirely** — verified zero runtime consumers anywhere (wall-mounting is derived purely from the physical tile under the item, `officeState.ts computeApproachTiles`). Pure dead editor-time palette filters. |
 | `canPlaceOnSurfaces` | Two consumers today turned out to be the same underlying fact used twice. (1) Action-click tiebreak among 2+ stacked actionable items — **dropped, folds into native Tiled object-list order** (see zOffset below). (2) Pet logic (`occupiedDeskSurfaceTiles`) — genuine, kept. **Renamed to `occupiesSurface`** to reflect its one remaining job. |
@@ -92,8 +92,9 @@ Each phase gated by `pnpm -r run check-types`, `pnpm --filter @pixel/client run 
    - Remove rotation-group machinery from `furnitureCatalog.ts` (`rotationGroups` map,
      `getRotatedType`, `rotationScheme`/`orientation`-linking) while keeping plain
      `mirrorSide` flip support.
-   - Remove `PlacedFurniture.color`, `colorize.ts`'s `adjust` mode, furniture recolor UI in
-     `LayoutEditor`/`FurnitureEditor`.
+   - Remove `PlacedFurniture.color` and furniture recolor UI in `LayoutEditor` (placement
+     ghost, drag preview, select-tool live recolor). `colorize.ts`'s `adjustSprite` stays —
+     also used for character hue-shifting, not furniture-only.
    - Switch floor/wall `tileColors` from continuous `ColorValue{h,s,b,c}` to a closed
      palette (DB32 for floor, Dawnbringer16 for wall) — swatch picker replaces the HSBC
      sliders in `LayoutEditor` for floor/wall specifically.

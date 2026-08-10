@@ -1,5 +1,4 @@
 import type { ColorValue } from '../colorTypes.js';
-import { getColorizedSprite } from '../colorize.js';
 import type {
   Action,
   FurnitureInstance,
@@ -82,16 +81,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     // every existing layout's ordering completely unchanged.
     if (item.zOffset) zY += item.zOffset * 100_000;
 
-    // Colorize sprite if this furniture has a color override
-    let sprite = entry.sprite;
-    if (item.color) {
-      const { h, s, b: bv, c: cv } = item.color;
-      sprite = getColorizedSprite(
-        `furn-${item.type}-${h}-${s}-${bv}-${cv}-${item.color.colorize ? 1 : 0}`,
-        entry.sprite,
-        item.color,
-      );
-    }
+    const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
 
     // Determine if this instance should be mirrored (the virtual ":left" clone of a mirrorSide asset)
     const mirrored = !!entry.mirrorSide && isMirroredLeft(item.type);

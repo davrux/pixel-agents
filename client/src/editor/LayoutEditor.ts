@@ -499,13 +499,7 @@ export class LayoutEditor {
       const e = getCatalogEntry(this.selectedType);
       if (e) {
         const valid = this.canPlace(col, row, e);
-        // Preview the chosen colour live on the ghost (same colour new objects
-        // will be placed with).
-        const ac = this.activeColor();
-        const sprite = ac
-          ? getColorizedSprite(`ghost-${this.selectedType}-${ac.h}-${ac.s}-${ac.b}-${ac.c}-${ac.colorize ? 1 : 0}`, e.sprite, ac)
-          : e.sprite;
-        this.ghost.setTexture(spriteTexture(this.scene, sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
+        this.ghost.setTexture(spriteTexture(this.scene, e.sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
           .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(valid ? 0xffffff : 0xff6666).setVisible(true);
         return;
       }
@@ -558,9 +552,8 @@ export class LayoutEditor {
     if (!this.selectedType || !this.layout) return;
     const e = getCatalogEntry(this.selectedType);
     if (!e || !this.canPlace(col, row, e)) return;
-    const color = this.activeColor() ?? undefined;
     this.beginGesture();
-    this.layout.furniture.push({ uid: this.nextUid(), type: this.selectedType, col, row, color });
+    this.layout.furniture.push({ uid: this.nextUid(), type: this.selectedType, col, row });
     this.rebuildFurniture();
     this.deps.onEdit(this.layout, true);
   }
@@ -888,7 +881,6 @@ export class LayoutEditor {
     if (f) {
       this.selectTool('furniture');
       this.setSelected(f.type);
-      this.applyColor(f.color ?? { h: 0, s: 0, b: 0, c: 0, colorize: false });
       return;
     }
     const col = Math.floor(wx / TILE_SIZE);
@@ -1039,11 +1031,7 @@ export class LayoutEditor {
     const dcol = col - this.dragGrab.dc;
     const drow = row - this.dragGrab.dr;
     const valid = this.canPlace(dcol, drow, e, this.dragUid);
-    const ac = f.color;
-    const sprite = ac
-      ? getColorizedSprite(`drag-${f.type}-${ac.h}-${ac.s}-${ac.b}-${ac.c}-${ac.colorize ? 1 : 0}`, e.sprite, ac)
-      : e.sprite;
-    this.ghost.setTexture(spriteTexture(this.scene, sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
+    this.ghost.setTexture(spriteTexture(this.scene, e.sprite)).setDisplaySize(e.footprintW * TILE_SIZE, e.footprintH * TILE_SIZE)
       .setPosition(dcol * TILE_SIZE, drow * TILE_SIZE).setTint(valid ? 0xffffff : 0xff6666).setVisible(true);
     this.selRect?.setVisible(false);
   }
@@ -1395,10 +1383,6 @@ export class LayoutEditor {
       idx = cur >= 0 ? (cur + 1) % hits.length : 0;
     }
     this.selectedUid = hits[idx];
-    // Load the object's current colour into the sliders so they reflect — and
-    // then live-edit — it.
-    const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
-    this.applyColor(f?.color ?? { h: 0, s: 0, b: 0, c: 0, colorize: false });
   }
 
   /** Name the selected conference monitor — its name becomes the stable call/room
@@ -1800,22 +1784,9 @@ export class LayoutEditor {
       colorize: this.colorizeEl.checked,
     };
     this.updateSwatch();
-    // Live-recolor the currently selected object as the sliders move.
-    if (this.tool === 'select' && this.selectedUid && this.layout) {
-      const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
-      if (f) {
-        if (!this.colorGesture) {
-          this.beginGesture(); // one undo step per slider drag
-          this.colorGesture = true;
-        }
-        const ac = this.activeColor();
-        if (ac) f.color = ac;
-        else delete f.color;
-        this.rebuildFurniture();
-        this.deps.onEdit(this.layout, false);
-      }
-    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
-      // Live-preview the chosen colour on the placement/paint ghost + palette.
+    // Live-preview the chosen colour on the paint ghost + palette (floor/wall
+    // only — furniture doesn't recolor, see docs/design/tiled-editor-integration.md).
+    if (this.tool === 'floor' || this.tool === 'wall') {
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
       this.refreshPalettePreviews();
     }
@@ -1840,22 +1811,14 @@ export class LayoutEditor {
   }
   /** "Reset" button next to the sliders — back to neutral (h/s/b/c 0, no
    *  colorize). Mirrors readColor()'s live-apply so it behaves the same as
-   *  dragging every slider back to 0: recolors the current selection, or just
-   *  updates the placement ghost/palette preview for the paint tools. Needed
-   *  because the eyedropper (Pick) copies a picked object's color into these
+   *  dragging every slider back to 0: updates the floor/wall placement ghost
+   *  and palette preview. Needed because the eyedropper (Pick) copies a
+   *  picked tile's color into these
    *  same sliders, which then keeps applying to everything placed afterward
    *  until manually cleared. */
   private resetColor(): void {
     this.applyColor({ h: 0, s: 0, b: 0, c: 0, colorize: false });
-    if (this.tool === 'select' && this.selectedUid && this.layout) {
-      const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
-      if (f) {
-        this.beginGesture();
-        delete f.color;
-        this.rebuildFurniture();
-        this.deps.onEdit(this.layout, true);
-      }
-    } else if (this.tool === 'furniture' || this.tool === 'floor' || this.tool === 'wall') {
+    if (this.tool === 'floor' || this.tool === 'wall') {
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
       this.refreshPalettePreviews();
     }
@@ -1905,7 +1868,7 @@ export class LayoutEditor {
       action: 'Action — pick a kind on the left, then left-click paints it onto tiles, right-click clears it',
       text: 'Text — left-click to place/edit a label (empty clears it), right-click removes it',
       image: 'Image — pick one on the left, then left-click to place it (over the floor, under furniture), right-click removes it',
-      eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
+      eyedropper: 'Eyedropper — click furniture to copy its type, or a tile to copy its type + colour, then paint',
     };
     this.toolHintText = labels[t];
     this.hint.textContent = this.toolHintText;

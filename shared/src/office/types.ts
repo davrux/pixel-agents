@@ -293,8 +293,6 @@ export interface PlacedFurniture {
   type: string; // asset ID from furniture manifest
   col: number;
   row: number;
-  /** Optional color override for furniture */
-  color?: ColorValue;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
   name?: string;
   /** @deprecated superseded by approachSides (LayoutEditor no longer exposes
