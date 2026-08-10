@@ -1,0 +1,103 @@
+{
+    "automappingRulesFile": "",
+    "commands": [],
+    "compatibilityVersion": 1100,
+    "extensionsPath": "extensions",
+    "folders": [
+        "."
+    ],
+    "properties": [],
+    "propertyTypes": [
+        {
+            "id": 1,
+            "name": "FloorTile",
+            "type": "class",
+            "useAs": [
+                "tile"
+            ],
+            "color": "#ffa0a0a4",
+            "drawFill": true,
+            "members": [
+                { "name": "pattern", "type": "int", "value": 1 },
+                { "name": "hue", "type": "int", "value": 0 },
+                { "name": "sat", "type": "int", "value": 0 }
+            ]
+        },
+        {
+            "id": 2,
+            "name": "WallTile",
+            "type": "class",
+            "useAs": [
+                "tile"
+            ],
+            "color": "#ffa0c4ff",
+            "drawFill": true,
+            "members": [
+                { "name": "bitmask", "type": "int", "value": 0 },
+                { "name": "hue", "type": "int", "value": 0 },
+                { "name": "sat", "type": "int", "value": 0 }
+            ]
+        },
+        {
+            "id": 3,
+            "name": "FurnitureTile",
+            "type": "class",
+            "useAs": [
+                "tile"
+            ],
+            "color": "#ffa0ffa0",
+            "drawFill": true,
+            "members": [
+                { "name": "type", "type": "string", "value": "" },
+                { "name": "label", "type": "string", "value": "" },
+                { "name": "backgroundTiles", "type": "int", "value": 0 },
+                { "name": "occupiesSurface", "type": "bool", "value": false },
+                { "name": "mirrorSide", "type": "bool", "value": false },
+                { "name": "orientation", "type": "string", "value": "" },
+                { "name": "stateGroup", "type": "string", "value": "" },
+                { "name": "state", "type": "string", "value": "" },
+                { "name": "onTrigger", "type": "string", "value": "" },
+                { "name": "appliance", "type": "string", "value": "" }
+            ]
+        },
+        {
+            "id": 4,
+            "name": "FurnitureObject",
+            "type": "class",
+            "useAs": [
+                "object"
+            ],
+            "color": "#ffa0ffa0",
+            "drawFill": false,
+            "members": [
+                { "name": "type", "type": "string", "value": "" },
+                { "name": "uid", "type": "string", "value": "" },
+                { "name": "name", "type": "string", "value": "" },
+                { "name": "approachSides", "type": "string", "value": "" },
+                { "name": "zOffset", "type": "int", "value": 0 },
+                { "name": "actionKind", "type": "string", "value": "" },
+                { "name": "actionVideo", "type": "bool", "value": false },
+                { "name": "actionUrl", "type": "string", "value": "" },
+                { "name": "actionPose", "type": "string", "value": "" }
+            ]
+        },
+        {
+            "id": 5,
+            "name": "ActionPoint",
+            "type": "class",
+            "useAs": [
+                "object"
+            ],
+            "color": "#ffffd28a",
+            "drawFill": false,
+            "members": [
+                { "name": "col", "type": "int", "value": 0 },
+                { "name": "row", "type": "int", "value": 0 },
+                { "name": "actionKind", "type": "string", "value": "" },
+                { "name": "actionVideo", "type": "bool", "value": false },
+                { "name": "actionUrl", "type": "string", "value": "" },
+                { "name": "actionPose", "type": "string", "value": "" }
+            ]
+        }
+    ]
+}
