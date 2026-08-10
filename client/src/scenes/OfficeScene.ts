@@ -722,6 +722,20 @@ export class OfficeScene extends Phaser.Scene {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
           assetBridge(m);
+          // The furniture schema (state.furniture) and the catalog broadcast
+          // (furnitureAssetsLoaded, needed to resolve each entry's sprite/
+          // footprint) arrive over two independent channels with no ordering
+          // guarantee — on a fresh join the schema's initial batch commonly
+          // fires (marking furnitureDirty, see bindState) before this message
+          // is even processed, so the very first rebuildFurniture() runs
+          // against an empty catalog and silently renders nothing forever
+          // (nothing marks it dirty again until an unrelated furniture edit
+          // happens to retrigger it). Re-mark dirty here, now that
+          // assetBridge(m) has just called buildDynamicCatalog — covers the
+          // initial race AND any later catalog rebuild (e.g. task #155's
+          // Tiled tileset hot-reload) that should refresh already-placed
+          // furniture too.
+          if (m.type === 'furnitureAssetsLoaded') this.furnitureDirty = true;
           // Keep the Settings avatar preview honest after a live avatar change.
           if (m.type === 'playerAvatar' && m.id === this.myAvatarId) this.renderAvatarPreview();
         }
