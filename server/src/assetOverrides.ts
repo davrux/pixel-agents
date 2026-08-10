@@ -199,6 +199,26 @@ export function getMergedBundle(): AssetBundle {
   return cached;
 }
 
+/** Replace the FILE-DEFAULT furniture catalog/sprites in place (distinct from
+ *  invalidateMergedBundle, which only drops the DB-override merge cache — the
+ *  file defaults themselves are otherwise frozen at boot). Used by
+ *  assets.ts's watchFurnitureTilesets when a Tiled tileset file changes on
+ *  disk, so a save-in-Tiled reaches already-connected players without a
+ *  server restart. */
+export function updateFurnitureDefaults(catalog: unknown[], sprites: Record<string, unknown>): void {
+  if (!defaultsBundle) return;
+  defaultsBundle.raw.furnitureCatalog = catalog;
+  defaultsBundle.raw.furnitureSprites = sprites;
+  const msg = findMessage(defaultsBundle, 'furnitureAssetsLoaded');
+  if (msg) {
+    msg.catalog = catalog;
+    msg.sprites = sprites;
+  } else {
+    defaultsBundle.messages.push({ type: 'furnitureAssetsLoaded', catalog, sprites });
+  }
+  cached = null;
+}
+
 /** Drop the cache so the next getMergedBundle() call re-reads the DB. */
 export function invalidateMergedBundle(): void {
   cached = null;

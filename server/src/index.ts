@@ -36,7 +36,7 @@ import express, { type Request, type Response, type NextFunction, type RequestHa
 
 import { WORLD_ROOM } from '@pixel/shared';
 
-import { loadAssetBundle } from './assets.js';
+import { loadAssetBundle, watchFurnitureTilesets } from './assets.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
@@ -137,6 +137,7 @@ async function main(): Promise<void> {
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
   initAssetDefaults(bundle); // process-wide merged-bundle cache (see assetOverrides.ts)
+  watchFurnitureTilesets(); // live-reload assets/tiled/furniture-*.tsj on save (see assets.ts)
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
 
   const app = express();

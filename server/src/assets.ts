@@ -1,4 +1,5 @@
-import { dirname, resolve } from 'node:path';
+import * as fs from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -15,6 +16,8 @@ import { conferenceAssets } from './conferenceAssets.js';
 import { arcadeAssets } from './arcadeAssets.js';
 import { meetingRoomAssets } from './meetingRoomAssets.js';
 import { logoAssets } from './logoAssets.js';
+import { updateFurnitureDefaults } from './assetOverrides.js';
+import { controlBus, ASSET_CHANGED_EVENT } from './controlBus.js';
 
 /** The exact on-join message sequence the original webview expects, built once
  *  at startup. Each entry is a ready-to-send {type, ...payload} object. */
@@ -41,19 +44,18 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *  the repo root; override with PIXEL_STREAM_ASSETS_DIR for custom deployments. */
 const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolve(__dirname, '..', '..');
 
-export async function loadAssetBundle(): Promise<AssetBundle> {
-  const [characters, pets, floorTiles, wallTiles, furniture] = await Promise.all([
-    loadCharacterSprites(ASSETS_ROOT),
-    loadPetSprites(ASSETS_ROOT),
-    loadFloorTiles(ASSETS_ROOT),
-    loadWallTiles(ASSETS_ROOT),
-    loadFurnitureTilesets(ASSETS_ROOT),
-  ]);
-  const layout = loadDefaultLayout(ASSETS_ROOT);
-
-  // Inject generated furniture (portals + conference monitor + arcade cabinet +
-  // meeting-room kiosk + uponu wall logo) into the catalog so they're real,
-  // editable furniture.
+/** Furniture catalog + sprites: whatever assets/tiled/furniture-*.tsj yields,
+ *  plus the generated, non-tileset furniture (portals + conference monitor +
+ *  arcade cabinet + meeting-room kiosk + uponu wall logo) — real, editable
+ *  catalog entries built in code rather than authored in Tiled. Split out
+ *  from loadAssetBundle so watchFurnitureTilesets can re-run just this half
+ *  when a .tsj file changes on disk, without reloading characters/pets/floor/wall. */
+export async function buildFurnitureCatalogAndSprites(): Promise<{
+  catalog: unknown[];
+  sprites: Record<string, unknown>;
+  loaded: boolean;
+}> {
+  const furniture = await loadFurnitureTilesets(ASSETS_ROOT);
   const generated = [
     ...portalAssets(),
     ...conferenceAssets(),
@@ -61,22 +63,34 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
     ...meetingRoomAssets(),
     ...logoAssets(),
   ];
-  const furnitureCatalog = [...(furniture?.catalog ?? []), ...generated.map((p) => p.entry)];
-  const furnitureSprites: Record<string, unknown> = {
+  const catalog = [...(furniture?.catalog ?? []), ...generated.map((p) => p.entry)];
+  const sprites: Record<string, unknown> = {
     ...(furniture ? Object.fromEntries(furniture.sprites) : {}),
     ...Object.fromEntries(generated.map((p) => [p.entry.id as string, p.sprite])),
   };
+  return { catalog, sprites, loaded: !!furniture };
+}
+
+export async function loadAssetBundle(): Promise<AssetBundle> {
+  const [characters, pets, floorTiles, wallTiles, furniture] = await Promise.all([
+    loadCharacterSprites(ASSETS_ROOT),
+    loadPetSprites(ASSETS_ROOT),
+    loadFloorTiles(ASSETS_ROOT),
+    loadWallTiles(ASSETS_ROOT),
+    buildFurnitureCatalogAndSprites(),
+  ]);
+  const layout = loadDefaultLayout(ASSETS_ROOT);
 
   const messages: Record<string, unknown>[] = [];
   if (characters) messages.push({ type: 'characterSpritesLoaded', characters: characters.characters });
   if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats, ducks: pets.ducks });
   if (floorTiles) messages.push({ type: 'floorTilesLoaded', sprites: floorTiles.sprites });
   if (wallTiles) messages.push({ type: 'wallTilesLoaded', sets: wallTiles.sets });
-  if (furniture) {
+  if (furniture.loaded) {
     messages.push({
       type: 'furnitureAssetsLoaded',
-      catalog: furnitureCatalog,
-      sprites: furnitureSprites,
+      catalog: furniture.catalog,
+      sprites: furniture.sprites,
     });
   }
   if (layout) {
@@ -98,10 +112,45 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       dogs: pets?.dogs ?? [],
       cats: pets?.cats ?? [],
       ducks: pets?.ducks ?? [],
-      furnitureCatalog,
-      furnitureSprites,
+      furnitureCatalog: furniture.catalog,
+      furnitureSprites: furniture.sprites,
       images: [],
       layout,
     },
   };
+}
+
+const TILESET_FILENAME_RE = /^furniture-.*\.tsj$/;
+
+/** "Save in Tiled → live", no server restart: watches assets/tiled for
+ *  furniture-*.tsj changes and reloads just the furniture catalog into the
+ *  process-wide defaults (see assetOverrides.ts's updateFurnitureDefaults),
+ *  then tells every zone to re-broadcast — same path a saveAsset edit takes
+ *  (see SimRoom.ts's ASSET_CHANGED_EVENT handling). Call once at boot, after
+ *  initAssetDefaults(). No separate prod/dev flag: harmless to leave running
+ *  in any deployment, since a stable one never touches assets/tiled.
+ *  See docs/design/tiled-editor-integration.md. */
+export function watchFurnitureTilesets(): void {
+  const tiledDir = join(ASSETS_ROOT, 'assets', 'tiled');
+  if (!fs.existsSync(tiledDir)) return;
+
+  let pending: NodeJS.Timeout | null = null;
+  const reload = () => {
+    pending = null;
+    buildFurnitureCatalogAndSprites()
+      .then(({ catalog, sprites }) => {
+        updateFurnitureDefaults(catalog, sprites);
+        controlBus.emit(ASSET_CHANGED_EVENT, 'furniture');
+        console.log(`[tiled-watch] furniture catalog reloaded (${catalog.length} items)`);
+      })
+      .catch((err) => console.warn('[tiled-watch] reload failed:', err instanceof Error ? err.message : err));
+  };
+
+  // Debounced: editors commonly emit several fs events (write + rename) per save.
+  fs.watch(tiledDir, (_event, filename) => {
+    if (!filename || !TILESET_FILENAME_RE.test(filename)) return;
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(reload, 200);
+  });
+  console.log(`[tiled-watch] watching ${tiledDir} for furniture-*.tsj changes`);
 }
