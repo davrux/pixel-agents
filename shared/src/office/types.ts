@@ -275,17 +275,6 @@ export interface FurnitureCatalogEntry {
    *  pick for any pair added through it — auto-facing doesn't suit every
    *  kind of object. */
   onTrigger?: 'autoFacing' | 'click';
-  /** The external Tiled tileset this entry was imported from (its own Tiled
-   *  `name`, e.g. "Furniture") — absent for built-in, non-imported items.
-   *  Lets the Assets panel group imports separately from the curated
-   *  category list instead of piling everything into one category. */
-  source?: string;
-  /** The tile's own identity within its source tileset (its Tiled "type"
-   *  property, or a positional fallback) — stable across re-imports even
-   *  though our own catalog id may have needed disambiguating. Re-importing
-   *  the same tileset matches on (source, sourceKey) to update this exact
-   *  entry in place instead of creating a duplicate. */
-  sourceKey?: string;
 }
 
 export interface PlacedFurniture {

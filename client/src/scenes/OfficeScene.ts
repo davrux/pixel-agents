@@ -37,9 +37,6 @@ import {
   getCatalogByCategory,
   getCatalogEntry,
   effectiveAction,
-  findBySourceKey,
-  getAnimationFrameData,
-  getImportSources,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { getFloorPatternCount, getFloorSprite } from '@pixel/shared/office/floorTiles.js';
@@ -61,8 +58,7 @@ import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { FloorEditor } from '../editor/FloorEditor.js';
-import { spriteThumbCanvas, buildZoomSeg, buildViewToggle, type Zoom } from '../editor/assetGrid.js';
-import { parseTilesetFiles, parseSpritesheetFile, uniqueId, type ImportedTile } from '../editor/tilesetImport.js';
+import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -295,10 +291,6 @@ export class OfficeScene extends Phaser.Scene {
   private spaceTab: 'layouts' | 'zones' = 'layouts';
   private assetsTab: 'chars' | 'furniture' | 'floor' | 'images' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
-  /** How the Furniture assets list is grouped — by curated category (today's
-   *  default), or by import source (see getImportSources) so imports don't
-   *  just pile into "Misc" with no way to find what came from where. */
-  private furnAssetsView: 'category' | 'source' = 'category';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
   private selectedFurnAsset: string | null = null;
@@ -2486,62 +2478,6 @@ export class OfficeScene extends Phaser.Scene {
     };
     body.appendChild(add);
 
-    const importBtn = document.createElement('button');
-    importBtn.className = 'pa-b wide';
-    importBtn.textContent = '📥 Import Tileset Folder…';
-    importBtn.title =
-      'Pick the folder containing a Tiled tileset (.tsx) and its image file(s) — subfolders are included, so the .tsx and its images can live at different levels, as long as both are somewhere under the folder you pick';
-    const importInput = document.createElement('input');
-    importInput.type = 'file';
-    // Folder pick, not multi-file: matching by filename alone (see
-    // tilesetImport.ts's imageFor) already tolerates the .tsx and its images
-    // living at different levels, and a folder can't accidentally miss one of
-    // the referenced files the way a manual multi-select could.
-    importInput.webkitdirectory = true;
-    importInput.style.display = 'none';
-    const importStatus = document.createElement('div');
-    importStatus.id = 'pa-import-status';
-    importStatus.className = 'muted';
-    importStatus.style.margin = '0.3rem 0';
-    importInput.onchange = () => {
-      if (importInput.files?.length) void this.importTilesetFiles(importInput.files, importStatus);
-      importInput.value = '';
-    };
-    importBtn.onclick = () => importInput.click();
-
-    const spriteBtn = document.createElement('button');
-    spriteBtn.className = 'pa-b wide';
-    spriteBtn.textContent = '🖼️ Import Spritesheet…';
-    spriteBtn.title =
-      'Import a plain PNG sprite sheet by tile size — no Tiled needed, but no per-tile names or animation either';
-    spriteBtn.onclick = () =>
-      this.openSpritesheetImportDialog('Import Spritesheet', (files, tileW, tileH) =>
-        void this.importSpritesheetFiles(files, tileW, tileH, importStatus),
-      );
-
-    body.append(importBtn, spriteBtn, importInput, importStatus);
-
-    // Category (curated, default) vs. Source (grouped by which Tiled tileset
-    // an import came from) — only worth showing the toggle once something's
-    // actually been imported; otherwise every item is already well-organized
-    // by category and a second, empty view would just be noise.
-    const sources = getImportSources();
-    if (sources.length > 0) {
-      body.appendChild(
-        buildViewToggle(
-          [
-            { value: 'category' as const, label: 'Category' },
-            { value: 'source' as const, label: 'Import source' },
-          ],
-          this.furnAssetsView,
-          (v) => {
-            this.furnAssetsView = v;
-            this.renderAssetsPanel();
-          },
-        ),
-      );
-    }
-
     // Zoom: every tile renders at its own native size (honest relative sizing,
     // no squeeze-to-fit), which is often too small to make out at a glance —
     // this scales the whole grid uniformly instead of per-item.
@@ -2552,48 +2488,17 @@ export class OfficeScene extends Phaser.Scene {
       }),
     );
 
-    if (this.furnAssetsView === 'source' && sources.length > 0) {
-      for (const { source, entries } of sources) {
-        const head = document.createElement('div');
-        head.className = 'grouplbl';
-        head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;';
-        const label = document.createElement('span');
-        label.textContent = `${source} (${entries.length})`;
-        const delBtn = document.createElement('button');
-        delBtn.className = 'pa-b';
-        delBtn.textContent = '🗑 Delete import';
-        delBtn.title = `Delete all ${entries.length} item(s) imported from "${source}"`;
-        delBtn.onclick = async () => {
-          if (
-            !(await confirmDialog(`Delete all ${entries.length} item(s) imported from "${source}"?`, {
-              danger: true,
-              confirmLabel: 'Delete',
-            }))
-          )
-            return;
-          this.deleteImportSource(entries);
-          this.waitForSourceGone(source, () => this.renderAssetsPanel());
-        };
-        head.append(label, delBtn);
-        body.appendChild(head);
-        const grid = document.createElement('div');
-        grid.className = 'pa-assetgrid';
-        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
-        body.appendChild(grid);
-      }
-    } else {
-      for (const cat of getActiveCategories()) {
-        const entries = getCatalogByCategory(cat.id);
-        if (!entries.length) continue;
-        const head = document.createElement('div');
-        head.className = 'grouplbl';
-        head.textContent = cat.label;
-        body.appendChild(head);
-        const grid = document.createElement('div');
-        grid.className = 'pa-assetgrid';
-        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
-        body.appendChild(grid);
-      }
+    for (const cat of getActiveCategories()) {
+      const entries = getCatalogByCategory(cat.id);
+      if (!entries.length) continue;
+      const head = document.createElement('div');
+      head.className = 'grouplbl';
+      head.textContent = cat.label;
+      body.appendChild(head);
+      const grid = document.createElement('div');
+      grid.className = 'pa-assetgrid';
+      for (const e of entries) grid.appendChild(this.mkFurnTile(e));
+      body.appendChild(grid);
     }
 
     this.renderFurnActionBar(body);
@@ -2823,9 +2728,7 @@ export class OfficeScene extends Phaser.Scene {
     window.setTimeout(() => this.renderAssetsPanel(), 800);
   }
 
-  /** A fresh image asset id, distinct from anything already uploaded (same
-   *  "fresh import must not collide" reasoning as tilesetImport.ts's
-   *  uniqueId, just against the image catalog instead of furniture's). */
+  /** A fresh image asset id, distinct from anything already uploaded. */
   private uniqueImageId(base: string): string {
     const sanitized = base.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'image';
     const taken = new Set(getImageAssetList().map((a) => a.id));
@@ -2835,7 +2738,7 @@ export class OfficeScene extends Phaser.Scene {
     // SAME next free slot (each computed from their own stale local list) and
     // silently overwrite one another — a random tag makes that collision
     // astronomically unlikely instead of a near-certainty under real
-    // concurrency (see tilesetImport.ts's uniqueId, same reasoning).
+    // concurrency.
     let id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
     while (taken.has(id)) id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
     return id;
@@ -2916,191 +2819,6 @@ export class OfficeScene extends Phaser.Scene {
       bar.appendChild(toFloor);
     }
     body.appendChild(bar);
-  }
-
-  /** Delete every item imported from one source in one go, instead of
-   *  clicking Reset per item (an import can be dozens of tiles). Each visible
-   *  entry is only the frame-0/representative id — an animated one has
-   *  further frame ids (see commitImportedTiles's `${baseId}__fN`) that never
-   *  show up on their own in either assets view, so they'd otherwise leak. */
-  private deleteImportSource(entries: CatalogEntryWithCategory[]): void {
-    for (const e of entries) {
-      const frames = getAnimationFrameData(e.type);
-      if (frames) {
-        for (const f of frames) this.room?.send('deleteAsset', { assetType: 'furniture', name: f.id });
-      } else {
-        this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
-      }
-    }
-  }
-
-  /** Poll until `source` has no catalog entries left (or ~3s elapse) before
-   *  calling `done` — a bulk import-source delete can be dozens of separate
-   *  deleteAsset round-trips (each its own persist → rebroadcast → local
-   *  catalog rebuild), so a single short fixed delay (fine for a one-item
-   *  Reset elsewhere) isn't reliably enough time for ALL of them to land;
-   *  re-rendering too early left the "deleted" source still showing until a
-   *  full page reload. Checks real state instead of guessing a duration. */
-  private waitForSourceGone(source: string, done: () => void, attempt = 0): void {
-    const stillThere = getImportSources().some((s) => s.source === source);
-    if (!stillThere || attempt >= 20) {
-      done();
-      return;
-    }
-    window.setTimeout(() => this.waitForSourceGone(source, done, attempt + 1), 150);
-  }
-
-  /** "Import Tileset Folder…" — reads an external Tiled tileset (.tsx + its
-   *  image file(s), found anywhere under the picked folder) and commits each
-   *  tile as a furniture catalog entry (see commitImportedTiles). A tile
-   *  carrying a Tiled `<animation>` becomes a proper multi-frame catalog
-   *  entry (animationGroup + per-frame durationMs), the same shape the
-   *  Goldfish/PC's own bundled animations use — see tilesetImport.ts. This
-   *  lives in Assets, not the Layout editor: importing adds to the catalog,
-   *  which is catalog management (same category as New/Edit/Reset above) —
-   *  the Layout editor only ever arranges what's already in the catalog. */
-  private async importTilesetFiles(files: FileList, status: HTMLElement): Promise<void> {
-    status.textContent = 'Importing tileset…';
-    let tiles: ImportedTile[];
-    try {
-      tiles = await parseTilesetFiles(files);
-    } catch (err) {
-      status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
-      return;
-    }
-    await this.commitImportedTiles(tiles, status);
-  }
-
-  /** One or more plain PNGs + a shared tile size, no Tiled involved at all
-   *  (see tilesetImport.ts's parseSpritesheetFile) — asks for the tile size,
-   *  then opens a multi-file picker for the PNGs and hands them all to
-   *  `onFile` (each file keeps its own filename as its import "source", see
-   *  parseSpritesheetFile, so multiple sheets stay distinguishable). */
-  private openSpritesheetImportDialog(title: string, onFile: (files: File[], tileW: number, tileH: number) => void): void {
-    const body = document.createElement('div');
-    body.innerHTML = `
-      <div class="fld"><label>Tile size (px)</label>
-        <div style="display:flex;gap:.5rem;align-items:center;">
-          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile width">
-          <span class="muted">×</span>
-          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile height">
-        </div>
-      </div>`;
-    const [wIn, hIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
-    openPaDialog({
-      title,
-      body,
-      buttons: [
-        {
-          label: 'Choose PNG…',
-          kind: 'primary',
-          onClick: () => {
-            const tileW = Math.max(1, Math.floor(Number(wIn.value) || 16));
-            const tileH = Math.max(1, Math.floor(Number(hIn.value) || 16));
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = 'image/png';
-            input.multiple = true;
-            input.style.display = 'none';
-            input.onchange = () => {
-              const files = input.files ? Array.from(input.files) : [];
-              if (files.length) onFile(files, tileW, tileH);
-              input.remove();
-            };
-            document.body.appendChild(input);
-            input.click();
-          },
-        },
-      ],
-    });
-  }
-
-  private async importSpritesheetFiles(files: File[], tileW: number, tileH: number, status: HTMLElement): Promise<void> {
-    status.textContent = files.length > 1 ? `Importing ${files.length} spritesheets…` : 'Importing spritesheet…';
-    const tiles: ImportedTile[] = [];
-    for (const file of files) {
-      try {
-        tiles.push(...(await parseSpritesheetFile(file, tileW, tileH)));
-      } catch (err) {
-        status.textContent = `Import failed (${file.name}): ${err instanceof Error ? err.message : String(err)}`;
-        return;
-      }
-    }
-    await this.commitImportedTiles(tiles, status);
-  }
-
-  /** Save parsed tiles (from either import path above) as furniture catalog
-   *  entries, via the same save path the Furniture asset editor itself uses.
-   *
-   *  Re-importing the same source UPDATES matching tiles in place (found via
-   *  findBySourceKey — same source + same tile identity within it) instead
-   *  of piling up duplicates. A tile no longer present in the source is
-   *  deliberately left alone — re-import only adds/updates, never removes,
-   *  so it can never break something you've already placed just because you
-   *  cleaned up the source file. */
-  private async commitImportedTiles(tiles: ImportedTile[], status: HTMLElement): Promise<void> {
-    let added = 0;
-    let replaced = 0;
-    for (const t of tiles) {
-      const existing = findBySourceKey(t.source, t.id);
-      const baseId = existing ? existing.type : uniqueId(t.id);
-      if (existing) replaced++;
-      else added++;
-      // Shrinking an animation on replace: drop the now-unused trailing
-      // frame ids of THIS item — not a blanket "remove missing tiles" (see
-      // above), just cleaning up after the one entry being actively updated.
-      if (existing) {
-        const oldFrameCount = getAnimationFrameData(existing.type)?.length ?? 1;
-        for (let i = t.frames.length; i < oldFrameCount; i++) {
-          this.room?.send('deleteAsset', { assetType: 'furniture', name: i === 0 ? baseId : `${baseId}__f${i}` });
-        }
-      }
-      if (t.frames.length === 1) {
-        this.room?.send('saveAsset', {
-          assetType: 'furniture',
-          name: baseId,
-          data: {
-            sprite: t.frames[0].sprite,
-            catalog: {
-              category: 'misc',
-              footprintW: t.footprintW,
-              footprintH: t.footprintH,
-              label: t.label,
-              source: t.source,
-              sourceKey: t.id,
-            },
-          },
-        });
-        continue;
-      }
-      const animationGroup = baseId;
-      t.frames.forEach((f, i) => {
-        const name = i === 0 ? baseId : `${baseId}__f${i}`;
-        this.room?.send('saveAsset', {
-          assetType: 'furniture',
-          name,
-          data: {
-            sprite: f.sprite,
-            catalog: {
-              category: 'misc',
-              footprintW: t.footprintW,
-              footprintH: t.footprintH,
-              label: t.label,
-              source: t.source,
-              sourceKey: t.id,
-              animationGroup,
-              frame: i,
-              durationMs: f.durationMs,
-            },
-          },
-        });
-      });
-    }
-    status.textContent = `Imported: ${added} new, ${replaced} updated.`;
-    // The save round-trips through the server (persist → rebroadcast → local
-    // catalog rebuild) before getCatalogByCategory sees the new entries — a
-    // short delay is simpler than wiring a completion callback through.
-    window.setTimeout(() => this.renderAssetsPanel(), 800);
   }
 
   /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */

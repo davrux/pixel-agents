@@ -37,9 +37,6 @@ export interface LoadedAssetData {
     /** How long (ms) this frame shows before advancing — Tiled's own
      *  `<frame duration=".."/>` unit. Missing on older data → DEFAULT_ANIMATION_FRAME_MS. */
     durationMs?: number;
-    /** Imported-tileset provenance — see FurnitureCatalogEntry.source/sourceKey. */
-    source?: string;
-    sourceKey?: string;
   }>;
   sprites: Record<string, SpriteData>;
 }
@@ -133,8 +130,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         ...(asset.portal ? { portal: true } : {}),
         ...(asset.onTrigger ? { onTrigger: asset.onTrigger } : {}),
-        ...(asset.source ? { source: asset.source } : {}),
-        ...(asset.sourceKey ? { sourceKey: asset.sourceKey } : {}),
         // A direct `action` wins; else fall back to the legacy per-kind flags
         // (old manifests/DB overrides, and the hand-generated conference/
         // arcade/meetingRoom assets, still only set those) — see
@@ -288,33 +283,6 @@ export function getCatalogEntry(type: string): CatalogEntryWithCategory | undefi
 export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryWithCategory[] {
   const catalog = dynamicCatalog ?? [];
   return catalog.filter((e) => e.category === category);
-}
-
-/** Find a previously-imported entry by its (source tileset, tile-within-that-
- *  tileset) identity, regardless of what catalog id it ended up with — lets a
- *  re-import update this exact entry in place instead of creating a
- *  duplicate. Only the visible catalog is searched (frame>0 members of a
- *  multi-frame import share the same source/sourceKey as their frame-0
- *  entry, so matching against the internal catalog would find the wrong,
- *  non-representative member first). */
-export function findBySourceKey(source: string, sourceKey: string): CatalogEntryWithCategory | undefined {
-  return (dynamicCatalog ?? []).find((e) => e.source === source && e.sourceKey === sourceKey);
-}
-
-/** Every distinct import source (tileset name) currently in the catalog,
- *  each with its member entries — for the Assets panel's "group by import
- *  source" view. */
-export function getImportSources(): Array<{ source: string; entries: CatalogEntryWithCategory[] }> {
-  const bySource = new Map<string, CatalogEntryWithCategory[]>();
-  for (const e of dynamicCatalog ?? []) {
-    if (!e.source) continue;
-    let list = bySource.get(e.source);
-    if (!list) bySource.set(e.source, (list = []));
-    list.push(e);
-  }
-  return Array.from(bySource, ([source, entries]) => ({ source, entries })).sort((a, b) =>
-    a.source.localeCompare(b.source),
-  );
 }
 
 /** A placed item's effective action (see Action): its own override

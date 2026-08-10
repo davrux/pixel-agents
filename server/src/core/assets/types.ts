@@ -53,6 +53,4 @@ export interface CatalogEntry {
   animationGroup?: string;
   frame?: number;
   durationMs?: number;
-  source?: string;
-  sourceKey?: string;
 }

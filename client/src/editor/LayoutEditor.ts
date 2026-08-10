@@ -5,7 +5,6 @@ import {
   getActiveCategories,
   getCatalogByCategory,
   getCatalogEntry,
-  getImportSources,
   isMirroredLeft,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
@@ -35,7 +34,7 @@ import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 import { FLOOR_PALETTE, WALL_PALETTE, swatchColor, type PaletteSwatch } from '@pixel/shared/office/palettes.js';
 
 import { spriteTexture, ensureImageTexture } from '../render/sprites.js';
-import { spriteThumbCanvas, drawSpriteOnCanvas, buildZoomSeg, buildViewToggle, markSegOn, type Zoom } from './assetGrid.js';
+import { spriteThumbCanvas, drawSpriteOnCanvas, buildZoomSeg, markSegOn, type Zoom } from './assetGrid.js';
 import { confirmDialog, promptDialog, textLabelDialog } from '../ui/dialog.js';
 import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
 import {
@@ -179,11 +178,6 @@ export class LayoutEditor {
    *  OfficeScene.renderFurnAssets / assetGrid.ts's buildZoomSeg). */
   private palZoomSeg!: HTMLDivElement;
   private palZoom: Zoom = 2;
-  /** Category (default) vs. Import-source grouping for the Furniture
-   *  palette — same toggle as the Assets panel's Furniture tab (see
-   *  OfficeScene.furnAssetsView), only shown once something's been imported. */
-  private furnPalView: 'category' | 'source' = 'category';
-  private furnViewSeg!: HTMLDivElement;
   /** Sticky bar below the palette: Edit (+Reset for furniture) for whichever
    *  item is currently selected — reuses the exact same editor entry points
    *  as the Assets panel (EditorDeps.openAssetEditor/resetFurnitureAsset/
@@ -1818,7 +1812,6 @@ export class LayoutEditor {
     const isPalTool = t === 'furniture' || t === 'floor' || t === 'wall';
     this.palFurn.style.display = t === 'furniture' ? 'grid' : 'none';
     if (this.palZoomSeg) this.palZoomSeg.style.display = isPalTool ? 'flex' : 'none';
-    if (this.furnViewSeg) this.furnViewSeg.style.display = t === 'furniture' && getImportSources().length > 0 ? 'flex' : 'none';
     this.palFloor.style.display = t === 'floor' ? 'grid' : 'none';
     if (this.palWall) this.palWall.style.display = t === 'wall' ? 'grid' : 'none';
     if (this.palAction) this.palAction.style.display = t === 'action' ? 'grid' : 'none';
@@ -2010,19 +2003,6 @@ export class LayoutEditor {
     });
     this.palZoomSeg.style.display = 'none';
 
-    this.furnViewSeg = buildViewToggle(
-      [
-        { value: 'category' as const, label: 'Category' },
-        { value: 'source' as const, label: 'Import source' },
-      ],
-      this.furnPalView,
-      (v) => {
-        this.furnPalView = v;
-        this.populatePalettes();
-      },
-    );
-    this.furnViewSeg.style.display = 'none';
-
     this.palFurn = Object.assign(document.createElement('div'), { className: 'pa-pal' });
     this.palFloor = Object.assign(document.createElement('div'), { className: 'pa-pal' });
     this.palWall = Object.assign(document.createElement('div'), { className: 'pa-pal' });
@@ -2057,7 +2037,6 @@ export class LayoutEditor {
       this.hint,
       color,
       this.palZoomSeg,
-      this.furnViewSeg,
       this.palFurn,
       this.palFloor,
       this.palWall,
@@ -2157,12 +2136,9 @@ export class LayoutEditor {
     this.floorItems = [];
     this.wallItems = [];
 
-    // Furniture: Category (default) or Import-source grouping — the exact
-    // same view + toggle as the Assets panel's Furniture tab (see
-    // OfficeScene.renderFurnAssets), so an import shows up organized the
-    // same way no matter where you're looking from. Clicking a tile still
-    // only selects it for placement (unchanged) — Edit/Reset live in the
-    // action bar below instead of a per-tile control (see refreshPalActionBar).
+    // Furniture, grouped by curated category — clicking a tile only selects
+    // it for placement; Edit/Reset live in the action bar below instead of a
+    // per-tile control (see refreshPalActionBar).
     const mkFurnItem = (entry: CatalogEntryWithCategory): HTMLElement => {
       const item = document.createElement('div');
       item.className = 'pa-pal-item' + (entry.type === this.selectedType ? ' sel' : '');
@@ -2172,27 +2148,14 @@ export class LayoutEditor {
       item.onclick = () => this.setSelected(entry.type);
       return item;
     };
-    const sources = getImportSources();
-    this.furnViewSeg.style.display = sources.length > 0 && this.tool === 'furniture' ? 'flex' : 'none';
-    markSegOn(this.furnViewSeg, this.furnPalView);
-    if (this.furnPalView === 'source' && sources.length > 0) {
-      for (const { source, entries } of sources) {
-        const head = document.createElement('div');
-        head.className = 'pa-pal-grouplbl';
-        head.textContent = `${source} (${entries.length})`;
-        this.palFurn.appendChild(head);
-        for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
-      }
-    } else {
-      for (const cat of getActiveCategories()) {
-        const entries = getCatalogByCategory(cat.id);
-        if (!entries.length) continue;
-        const head = document.createElement('div');
-        head.className = 'pa-pal-grouplbl';
-        head.textContent = cat.label;
-        this.palFurn.appendChild(head);
-        for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
-      }
+    for (const cat of getActiveCategories()) {
+      const entries = getCatalogByCategory(cat.id);
+      if (!entries.length) continue;
+      const head = document.createElement('div');
+      head.className = 'pa-pal-grouplbl';
+      head.textContent = cat.label;
+      this.palFurn.appendChild(head);
+      for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
     }
 
     const patterns = Math.max(getFloorPatternCount(), 1);

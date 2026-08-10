@@ -43,9 +43,9 @@ export function spriteThumbCanvas(sprite: SpriteData | undefined, zoom: Zoom = 1
 }
 
 /** Mark whichever `.seg` child matches `value` (by its `data-value`) as
- *  `.on` — the update half of buildZoomSeg/buildViewToggle, for callers that
- *  change the underlying state elsewhere (e.g. after a re-render) and need
- *  the already-built control to reflect it without rebuilding the control
+ *  `.on` — the update half of buildZoomSeg, for callers that change the
+ *  underlying state elsewhere (e.g. after a re-render) and need the
+ *  already-built control to reflect it without rebuilding the control
  *  itself. */
 export function markSegOn(seg: HTMLElement, value: string): void {
   seg.querySelectorAll<HTMLElement>('.seg').forEach((el) => el.classList.toggle('on', el.dataset.value === value));
@@ -61,25 +61,6 @@ export function buildZoomSeg(current: Zoom, onSet: (z: Zoom) => void): HTMLDivEl
     s.textContent = `${z}×`;
     s.dataset.value = String(z);
     s.onclick = () => onSet(z);
-    seg.appendChild(s);
-  }
-  return seg;
-}
-
-/** A two-way segmented toggle (`.pa-seg`) — e.g. Category vs. Import source. */
-export function buildViewToggle<T extends string>(
-  options: Array<{ value: T; label: string }>,
-  current: T,
-  onSet: (v: T) => void,
-): HTMLDivElement {
-  const seg = document.createElement('div');
-  seg.className = 'pa-seg';
-  for (const opt of options) {
-    const s = document.createElement('div');
-    s.className = 'seg' + (current === opt.value ? ' on' : '');
-    s.textContent = opt.label;
-    s.dataset.value = opt.value;
-    s.onclick = () => onSet(opt.value);
     seg.appendChild(s);
   }
   return seg;
