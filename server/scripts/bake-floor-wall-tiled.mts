@@ -22,7 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { decodeFloorPng, parseWallPng } from '../src/core/assets/pngDecoder.js';
-import { getColorizedSprite } from '../../shared/src/office/colorize.js';
+import { averageLightness, getColorizedSprite } from '../../shared/src/office/colorize.js';
 import { FLOOR_PALETTE, WALL_PALETTE, swatchColor } from '../../shared/src/office/palettes.js';
 import type { SpriteData } from '../../shared/src/office/types.js';
 
@@ -137,6 +137,14 @@ function wangIdForMask(mask: number): number[] {
 
 function bakeWallSet(setIndex: number): void {
   const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'walls', `wall_${setIndex}.png`)));
+  // One shared brightness baseline across all 16 pieces (not per piece) —
+  // see wallTiles.ts's wallSetReferenceLightness for why: pieces vary a lot
+  // in how much of their area is "cap" vs "face", so recentering each
+  // independently breaks the "one continuous wall" illusion at piece
+  // boundaries. Must match the runtime's own reference exactly, or a tile
+  // painted from this baked tileset would render a visibly different tone
+  // than the same bitmask+color painted live.
+  const referenceLightness = averageLightness(raw.flat());
   const tiles: SpriteData[] = [];
   const props: TiledProp[][] = [];
   for (let mask = 0; mask < 16; mask++) {
@@ -145,7 +153,7 @@ function bakeWallSet(setIndex: number): void {
     props.push([{ name: 'bitmask', type: 'int', value: mask }]);
     for (let s = 0; s < WALL_PALETTE.length; s++) {
       const swatch = WALL_PALETTE[s];
-      const colorized = getColorizedSprite(`bake-wall-${setIndex}-${mask}-${swatch.h}-${swatch.s}`, piece, swatchColor(swatch));
+      const colorized = getColorizedSprite(`bake-wall-${setIndex}-${mask}-${swatch.h}-${swatch.s}`, piece, swatchColor(swatch), referenceLightness);
       tiles.push(colorized);
       props.push([
         { name: 'bitmask', type: 'int', value: mask },

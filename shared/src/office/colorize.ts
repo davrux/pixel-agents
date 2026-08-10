@@ -21,10 +21,11 @@ export function getColorizedSprite(
   cacheKey: string,
   sprite: SpriteData,
   color: ColorValue,
+  referenceLightness?: number,
 ): SpriteData {
   const cached = colorizeCache.get(cacheKey);
   if (cached) return cached;
-  const result = color.colorize ? colorizeSprite(sprite, color) : adjustSprite(sprite, color);
+  const result = color.colorize ? colorizeSprite(sprite, color, referenceLightness) : adjustSprite(sprite, color);
   colorizeCache.set(cacheKey, result);
   return result;
 }
@@ -37,8 +38,15 @@ export function clearColorizeCache(): void {
 /** A sprite's own average perceived luminance across every opaque pixel
  *  (0-1) — the recentering point colorizeSprite shades around, so a target
  *  brightness (color.b) lands on an absolute lightness regardless of how
- *  bright or dark the source art was naturally drawn. */
-function averageLightness(sprite: SpriteData): number {
+ *  bright or dark the source art was naturally drawn. Exported so a caller
+ *  whose "sprite" is really one piece of a larger set that must shade
+ *  consistently as a whole (e.g. wallTiles.ts's 16 bitmask pieces of one
+ *  wall style) can compute ONE shared reference across every piece and pass
+ *  it to getColorizedSprite explicitly — recentering each piece around its
+ *  own average instead would preserve every piece's absolute target color
+ *  but wash out the *relative* brightness differences between pieces that
+ *  a continuous wall run needs to still read as one consistent texture. */
+export function averageLightness(sprite: SpriteData): number {
   let sum = 0;
   let n = 0;
   for (const row of sprite) {
@@ -66,9 +74,9 @@ function averageLightness(sprite: SpriteData): number {
  * 5. Create HSL color with user's hue + saturation
  * 6. Convert HSL -> RGB -> hex
  */
-function colorizeSprite(sprite: SpriteData, color: ColorValue): SpriteData {
+function colorizeSprite(sprite: SpriteData, color: ColorValue, referenceLightness?: number): SpriteData {
   const { h, s, b, c } = color;
-  const avgLightness = averageLightness(sprite);
+  const avgLightness = referenceLightness ?? averageLightness(sprite);
   const result: SpriteData = [];
 
   for (const row of sprite) {

@@ -11,16 +11,28 @@
  */
 
 import type { ColorValue } from './colorTypes.js';
-import { getColorizedSprite } from './colorize.js';
+import { averageLightness, getColorizedSprite } from './colorize.js';
 import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
 import { TILE_SIZE, TileType } from './types.js';
 
 /** Wall tile sets: each set has 16 sprites indexed by bitmask (0-15) */
 let wallSets: SpriteData[][] = [];
+/** One shared brightness baseline per set, across all 16 pieces combined —
+ *  NOT per piece. A straight wall run's piece is drawn almost entirely as
+ *  the "cap" (top surface, seen from above); a piece with an open side
+ *  shows a lot more of the lighter front "face" — so their own average
+ *  lightness differs a lot (measured ~0.68 to ~0.92 across one set's 16
+ *  pieces). Recentering each piece around its own average (see colorize.ts)
+ *  hits the same absolute target color per piece, but breaks the "one
+ *  continuous wall" illusion at piece boundaries, since two adjacent pieces'
+ *  cap regions would then land at different tones. One shared baseline
+ *  keeps every piece's relative shading intact instead. */
+let wallSetReferenceLightness: number[] = [];
 
 /** Set wall tile sets (called once when extension sends wallTilesLoaded) */
 export function setWallSprites(sets: SpriteData[][]): void {
   wallSets = sets;
+  wallSetReferenceLightness = sets.map((pieces) => averageLightness(pieces.flat()));
 }
 
 /** Check if wall sprites have been loaded */
@@ -98,7 +110,8 @@ function getColorizedWallSprite(
   // Walls always colorize: the wall sprite is a light grey, so only colorize
   // (grayscale → hue) tints it — "adjust" mode would leave it grey.
   const cacheKey = `wall-${setIndex}-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
-  const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true });
+  const referenceLightness = wallSetReferenceLightness[setIndex] ?? wallSetReferenceLightness[0];
+  const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true }, referenceLightness);
 
   return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
 }
