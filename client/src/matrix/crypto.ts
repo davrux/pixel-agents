@@ -15,11 +15,16 @@
  * secret string into a field that outlives the call that received it.
  *
  * `unlock()` works whether or not the SDK currently has a `getSecretStorageKey` call outstanding
- * (`pendingBroker`). Ordinarily there IS no pending broker at unlock time — boot's `refresh()` derives
- * `'locked'` purely from `secretStorage.getDefaultKeyId()`, with nothing on the boot path calling
- * `getSecretStorageKey` — so `unlock()` fetches the key description itself via
+ * (`pendingBroker`). Ordinarily there IS no pending broker at unlock time — nothing on the boot path
+ * calls `getSecretStorageKey` — so `unlock()` fetches the key description itself via
  * `client.secretStorage.getKey()` in that case, and only defers to the broker's own `keys` map when one
  * is genuinely pending (e.g. a `bootstrapCrossSigning`/`store()` call blocked on us mid-flight).
+ *
+ * "Unlocked" is a property of the crypto STORE, not of this page load. `keyCache` is memory-only, so
+ * `refresh()` also asks the store whether it already holds the backup decryption key an unlock would
+ * have fetched (`hasCachedBackupKey`) — without that, every reload reported `'locked'` on a device that
+ * had been unlocked long ago, and zone travel is a reload. `attach()` also re-arms the backup engine for
+ * the same reason: the key being on disk is not the same as the engine using it.
  *
  * An incoming SAS verification request (§5.7, explicitly out of scope — we never accept one) has no
  * event of its own in `MatrixCryptoEventMap`; it is emitted under the informal key
@@ -279,6 +284,28 @@ export function createMatrixCrypto(): MatrixCrypto {
     sdkUnsubs.push(() => c.off(CryptoEvent.VerificationRequestReceived, onVerificationRequest));
 
     void refresh();
+
+    // Re-arm the key backup from the key already in the store. Nothing else on
+    // the boot path does this — `checkKeyBackupAndEnable()` was only ever called
+    // from `unlock()` and `setUpRecovery()` — so a reloaded page held the backup
+    // decryption key without the backup engine running: history that needed a
+    // key from the server stayed unreadable, and nothing new was backed up.
+    // Best-effort and deliberately after the first refresh(), so the panel gets
+    // a state immediately rather than waiting on a network round trip; the
+    // second refresh() folds in whatever the check changed.
+    const api = cryptoApi;
+    void (async () => {
+      try {
+        await api.checkKeyBackupAndEnable();
+      } catch {
+        /* offline, or no backup on the account — refresh() below still reports the truth */
+      }
+      // A sign-out (destroy()) can land while that request is in flight. Compare
+      // against the captured api rather than trusting the narrowing above, which
+      // TypeScript performed for `attach`'s body and not for this callback.
+      if (cryptoApi !== api) return;
+      await refresh();
+    })();
   }
 
   async function refresh(): Promise<void> {
@@ -304,15 +331,61 @@ export function createMatrixCrypto(): MatrixCrypto {
       failed = true;
     }
 
+    // `getDefaultKeyId()` is a network round trip, and a sign-out can land during
+    // it — at which point this function has no business publishing a state at
+    // all. Without this, a destroyed facade ends up reporting 'locked' (the
+    // checks below all read as "nothing cached") instead of 'unavailable'.
+    if (!client || !cryptoApi) return;
+
     if (failed) {
       setState('unknown');
     } else if (defaultKeyId === null) {
       setState('never-set-up');
     } else if (keyCache.has(defaultKeyId)) {
       setState('ready');
+    } else if (await hasCachedBackupKey()) {
+      // Unlocked on an earlier page load. `keyCache` is memory-only by design
+      // (§8.1), so it says nothing about a device that unlocked yesterday — and
+      // deriving 'locked' from it alone meant every reload asked for the
+      // recovery key again, including the reload that zone travel performs.
+      setState('ready');
     } else {
       setState('locked');
     }
+  }
+
+  /**
+   * Does this device already hold, on disk, what unlocking 4S would fetch?
+   *
+   * The backup decryption key is the right question to ask, because it is
+   * exactly what the 'locked' state gates in the UI: the room notice offering
+   * "Unlock to read older messages", the 🔒 warn tint, and the 🔐 attention dot.
+   * `unlock()` caches it into the rust crypto store (IndexedDB) via
+   * `loadSessionBackupPrivateKeyFromSecretStorage()`, so its presence *is* the
+   * durable record that this device has been unlocked.
+   *
+   * Deliberately not gated on cross-signing as well: private cross-signing keys
+   * govern verifying other devices, which this panel handles elsewhere (and SAS
+   * is out of scope, §5.7). A device that can read its history but cannot sign
+   * another device is not "locked" in any sense the reader would recognise.
+   */
+  async function hasCachedBackupKey(): Promise<boolean> {
+    if (!cryptoApi) return false;
+    let key: Uint8Array | null = null;
+    try {
+      key = await cryptoApi.getSessionBackupPrivateKey();
+    } catch {
+      // Store unreadable — say "locked" rather than claim a readiness we cannot
+      // demonstrate. The user can always unlock again.
+      return false;
+    }
+    if (!key) return false;
+    // Only existence was needed. The SDK hands back a fresh decode of the stored
+    // key (it is documented as something you may gossip to other devices), so
+    // zeroing our copy cannot disturb the store's — and §8.1 says no secret
+    // material outlives its use.
+    key.fill(0);
+    return true;
   }
 
   async function ownDevice(): Promise<MxDeviceInfo> {
