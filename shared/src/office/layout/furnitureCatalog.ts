@@ -15,10 +15,10 @@ export interface LoadedAssetData {
     state?: string; // 'on' | 'off'
     /** On a state-pair item: what turns it on — see FurnitureCatalogEntry.onTrigger. */
     onTrigger?: 'autoFacing' | 'click';
+    /** Wire/manifest name kept as-is (see FurnitureCatalogEntry.occupiesSurface
+     *  for the renamed internal field this maps to in buildDynamicCatalog). */
     canPlaceOnSurfaces?: boolean;
     backgroundTiles?: number;
-    canPlaceOnWalls?: boolean;
-    canPlaceOnFloor?: boolean;
     mirrorSide?: boolean;
     portal?: boolean; // zone portal (door / beam pad)
     /** This type's default Action (see FurnitureCatalogEntry.action). */
@@ -128,10 +128,8 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         isDesk: asset.isDesk,
         category: asset.category as FurnitureCategory,
         ...(asset.orientation ? { orientation: asset.orientation } : {}),
-        ...(asset.canPlaceOnSurfaces ? { canPlaceOnSurfaces: true } : {}),
+        ...(asset.canPlaceOnSurfaces ? { occupiesSurface: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
-        ...(asset.canPlaceOnWalls ? { canPlaceOnWalls: true } : {}),
-        ...(asset.canPlaceOnFloor ? { canPlaceOnFloor: true } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         ...(asset.portal ? { portal: true } : {}),
         ...(asset.onTrigger ? { onTrigger: asset.onTrigger } : {}),

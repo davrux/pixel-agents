@@ -80,11 +80,8 @@ interface FurnWork {
   footprintW: number;
   footprintH: number;
   isDesk: boolean;
-  canPlaceOnSurfaces: boolean;
-  canPlaceOnWalls: boolean;
-  /** Only meaningful alongside canPlaceOnWalls — lets a wall-mountable item
-   *  ALSO go on ordinary floor tiles, instead of requiring a wall. */
-  canPlaceOnFloor: boolean;
+  /** See FurnitureCatalogEntry.occupiesSurface. */
+  occupiesSurface: boolean;
   backgroundTiles: number;
   /** This type's default Action (see FurnitureCatalogEntry.action) — the same
    *  TILE_ACTION_CHOICES list LayoutEditor uses for a per-instance override. */
@@ -237,9 +234,7 @@ export class FurnitureEditor {
       footprintW: 1,
       footprintH: 1,
       isDesk: false,
-      canPlaceOnSurfaces: false,
-      canPlaceOnWalls: false,
-      canPlaceOnFloor: false,
+      occupiesSurface: false,
       backgroundTiles: 0,
       action: undefined,
       frames: [{ id: '', sprite }],
@@ -340,10 +335,7 @@ export class FurnitureEditor {
       <div class="row"><label class="f" for="pa-f-bg" title="How many footprint tile-rows counted from the TOP are walk-through — e.g. a tall shelf's overhang, or a plant's leafy top, that a character can walk behind/under. The remaining bottom rows still block movement normally. 0 = the whole footprint blocks, like a plain desk.">Walk-under rows ⓘ</label><input id="pa-f-bg" type="number" min="0" max="16" title="Top footprint tile-rows that do NOT block movement (0 = whole footprint blocks)"></div>
       <div class="row">
         <label class="chk"><input id="pa-f-desk" type="checkbox"> Seat</label>
-        <label class="chk"><input id="pa-f-surf" type="checkbox"> On surfaces</label>
-        <label class="chk"><input id="pa-f-wall" type="checkbox"> On walls</label>
-        <label class="chk" title="Only matters with &quot;On walls&quot; checked — lets it ALSO go on the floor instead of requiring a wall">
-          <input id="pa-f-floor" type="checkbox"> Also on floor</label>
+        <label class="chk" title="This item sits on top of a desk/table surface (e.g. a monitor, a mug) — affects render order and pet behavior"><input id="pa-f-surf" type="checkbox"> On surfaces</label>
       </div>
       <div class="row"><label class="f" for="pa-f-appliance">Action</label>
         <select id="pa-f-appliance" style="flex:1;">${actionOpts}</select></div>
@@ -453,15 +445,7 @@ export class FurnitureEditor {
       this.dirty = true;
     };
     this.field('#pa-f-surf').onchange = (e) => {
-      this.work.canPlaceOnSurfaces = (e.target as HTMLInputElement).checked;
-      this.dirty = true;
-    };
-    this.field('#pa-f-wall').onchange = (e) => {
-      this.work.canPlaceOnWalls = (e.target as HTMLInputElement).checked;
-      this.dirty = true;
-    };
-    this.field('#pa-f-floor').onchange = (e) => {
-      this.work.canPlaceOnFloor = (e.target as HTMLInputElement).checked;
+      this.work.occupiesSurface = (e.target as HTMLInputElement).checked;
       this.dirty = true;
     };
     this.field<HTMLSelectElement>('#pa-f-appliance').onchange = async (e) => {
@@ -689,9 +673,7 @@ export class FurnitureEditor {
       footprintW: fw,
       footprintH: fh,
       isDesk: !!entry?.isDesk,
-      canPlaceOnSurfaces: !!entry?.canPlaceOnSurfaces,
-      canPlaceOnWalls: !!entry?.canPlaceOnWalls,
-      canPlaceOnFloor: !!entry?.canPlaceOnFloor,
+      occupiesSurface: !!entry?.occupiesSurface,
       backgroundTiles: entry?.backgroundTiles ?? 0,
       // Resolved entry already includes the bundled coffee-machine legacy default.
       action: entry?.action,
@@ -816,9 +798,7 @@ export class FurnitureEditor {
     this.field('#pa-f-fh').value = String(this.work.footprintH);
     this.field('#pa-f-bg').value = String(this.work.backgroundTiles);
     (this.field('#pa-f-desk')).checked = this.work.isDesk;
-    (this.field('#pa-f-surf')).checked = this.work.canPlaceOnSurfaces;
-    (this.field('#pa-f-wall')).checked = this.work.canPlaceOnWalls;
-    (this.field('#pa-f-floor')).checked = this.work.canPlaceOnFloor;
+    (this.field('#pa-f-surf')).checked = this.work.occupiesSurface;
     this.field<HTMLSelectElement>('#pa-f-appliance').value = this.actionSelectValue();
   }
 
@@ -890,9 +870,7 @@ export class FurnitureEditor {
         footprintW: w.footprintW,
         footprintH: w.footprintH,
         isDesk: w.isDesk,
-        canPlaceOnSurfaces: w.canPlaceOnSurfaces,
-        canPlaceOnWalls: w.canPlaceOnWalls,
-        canPlaceOnFloor: w.canPlaceOnFloor,
+        canPlaceOnSurfaces: w.occupiesSurface, // wire/manifest name kept as-is, see furnitureCatalog.ts
         backgroundTiles: w.backgroundTiles,
         action: effectiveAction, // undefined clears it — same for the legacy flags below,
         // in case `base` (spread above) still carries them from before this

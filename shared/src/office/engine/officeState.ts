@@ -1026,11 +1026,12 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     // A tile can carry more than one furniture item (e.g. a cup placed on a
-    // table via canPlaceOnSurfaces) — of the ones that actually HAVE a
-    // (non-appliance) action, prefer whichever renders on top: a surface
-    // item over the desk/table it sits on, then the higher manual "bring to
-    // front" override, then whichever was placed later (the editor
-    // convention — you place the base first, decorations on top after).
+    // table via occupiesSurface) — of the ones that actually HAVE a
+    // (non-appliance) action, prefer whichever renders on top: the higher
+    // manual "bring to front" override, then whichever was placed later (the
+    // editor convention — you place the base first, decorations on top
+    // after; this is also what a Tiled object layer's own list order
+    // becomes on import, see docs/design/tiled-editor-integration.md).
     // An action-less item on top of an actioned one (e.g. a plain decoration
     // sitting on an actioned desk) does NOT shadow the action underneath —
     // only items that are themselves in the running (have an action) get
@@ -1041,9 +1042,6 @@ export class OfficeState {
       return !!a && a.kind !== 'appliance';
     });
     candidates.sort((a, b) => {
-      const aSurf = getCatalogEntry(a.type)?.canPlaceOnSurfaces ? 1 : 0;
-      const bSurf = getCatalogEntry(b.type)?.canPlaceOnSurfaces ? 1 : 0;
-      if (aSurf !== bSurf) return bSurf - aSurf;
       const aOff = a.zOffset ?? 0;
       const bOff = b.zOffset ?? 0;
       if (aOff !== bOff) return bOff - aOff;
@@ -1781,13 +1779,13 @@ export class OfficeState {
   }
 
   /** Tiles covered by an on-desk item — a computer (electronics) or a coffee mug /
-   *  other surface object (canPlaceOnSurfaces) — so a pet won't rest on that spot. */
+   *  other surface object (occupiesSurface) — so a pet won't rest on that spot. */
   private occupiedDeskSurfaceTiles(): Set<string> {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.type);
       if (!entry) continue;
-      if (entry.category !== 'electronics' && !entry.canPlaceOnSurfaces) continue;
+      if (entry.category !== 'electronics' && !entry.occupiesSurface) continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
           tiles.add(`${item.col + dc},${item.row + dr}`);

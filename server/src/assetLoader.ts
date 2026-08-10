@@ -87,7 +87,6 @@ export async function loadFurnitureAssets(workspaceRoot: string): Promise<Loaded
           groupId: manifest.id,
           name: manifest.name,
           category: manifest.category,
-          canPlaceOnWalls: manifest.canPlaceOnWalls,
           canPlaceOnSurfaces: manifest.canPlaceOnSurfaces,
           backgroundTiles: manifest.backgroundTiles,
         };
@@ -108,7 +107,6 @@ export async function loadFurnitureAssets(workspaceRoot: string): Promise<Loaded
               footprintW: manifest.footprintW!,
               footprintH: manifest.footprintH!,
               isDesk: manifest.category === 'desks',
-              canPlaceOnWalls: manifest.canPlaceOnWalls,
               canPlaceOnSurfaces: manifest.canPlaceOnSurfaces,
               backgroundTiles: manifest.backgroundTiles,
               groupId: manifest.id,

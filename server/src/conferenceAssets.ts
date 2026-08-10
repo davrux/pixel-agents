@@ -63,11 +63,6 @@ export function conferenceAssets(): ConferenceAsset[] {
         footprintH: 2,
         isDesk: false,
         conference: true,
-        // Same footprint as the whiteboard, so it sits flush in a wall band.
-        // Flexible about where it goes: floor, on top of a desk/table, or
-        // mounted on a wall.
-        canPlaceOnWalls: true,
-        canPlaceOnFloor: true,
         canPlaceOnSurfaces: true,
       },
       sprite: monitorSprite(),

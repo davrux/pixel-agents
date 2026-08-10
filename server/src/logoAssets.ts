@@ -138,9 +138,6 @@ export function logoAssets(): LogoAsset[] {
     height: 32,
     footprintH: 2,
     isDesk: false,
-    // Wall-only, same as the whiteboard — a logo plaque doesn't belong on the
-    // floor or a desk.
-    canPlaceOnWalls: true,
     canPlaceOnSurfaces: false,
   };
   // width/footprintW are per-entry: the traced wordmark needs 3 tiles, the

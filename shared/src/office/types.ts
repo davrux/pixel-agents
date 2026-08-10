@@ -254,16 +254,16 @@ export interface FurnitureCatalogEntry {
   action?: Action;
   /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
   orientation?: string;
-  /** Whether this item can be placed on top of desk/table surfaces */
-  canPlaceOnSurfaces?: boolean;
+  /** Whether this item sits ON TOP of a desk/table surface (e.g. a monitor, a
+   *  coffee mug) — drives z-sort (renders in front of the surface it's on)
+   *  and pet behavior (pets won't try to rest where one of these already
+   *  is). Renamed from canPlaceOnSurfaces: that name's other job — gating
+   *  which tool's palette an item could be placed from — had no runtime
+   *  meaning and was dropped (see docs/design/tiled-editor-integration.md);
+   *  this is the one real, remaining reason the flag exists. */
+  occupiesSurface?: boolean;
   /** Number of tile rows from the top of the footprint that are "background" (allow placement, still block walking). Default 0. */
   backgroundTiles?: number;
-  /** Whether this item can be placed on wall tiles */
-  canPlaceOnWalls?: boolean;
-  /** Whether a wall-mountable item (canPlaceOnWalls) may ALSO be placed on
-   *  ordinary floor tiles, rather than requiring a wall. No effect if
-   *  canPlaceOnWalls is false (floor is already the only option then). */
-  canPlaceOnFloor?: boolean;
   /** Whether this is a side-oriented asset that produces a mirrored "left" variant */
   mirrorSide?: boolean;
   /** For an item with an on/off state pair: what turns it on. 'autoFacing' —

@@ -41,7 +41,6 @@ export interface FurnitureManifest {
   id: string;
   name: string;
   category: string;
-  canPlaceOnWalls: boolean;
   canPlaceOnSurfaces: boolean;
   backgroundTiles: number;
   appliance?: string; // interaction station kind ('coffee', …)
@@ -62,7 +61,6 @@ export interface InheritedProps {
   groupId: string;
   name: string;
   category: string;
-  canPlaceOnWalls: boolean;
   canPlaceOnSurfaces: boolean;
   backgroundTiles: number;
   orientation?: string;
@@ -83,7 +81,6 @@ export interface FurnitureAsset {
   footprintW: number;
   footprintH: number;
   isDesk: boolean;
-  canPlaceOnWalls: boolean;
   groupId?: string;
   canPlaceOnSurfaces?: boolean;
   backgroundTiles?: number;
@@ -119,7 +116,6 @@ export function flattenManifest(node: ManifestNode, inherited: InheritedProps): 
         footprintW: asset.footprintW,
         footprintH: asset.footprintH,
         isDesk: inherited.category === 'desks',
-        canPlaceOnWalls: inherited.canPlaceOnWalls,
         canPlaceOnSurfaces: inherited.canPlaceOnSurfaces,
         backgroundTiles: inherited.backgroundTiles,
         groupId: inherited.groupId,

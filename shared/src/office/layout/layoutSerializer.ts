@@ -65,7 +65,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     }
 
     // Surface items render in front of the desk they sit on
-    if (entry.canPlaceOnSurfaces) {
+    if (entry.occupiesSurface) {
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
           const deskZ = deskZByTile.get(`${item.col + dc},${item.row + dr}`);

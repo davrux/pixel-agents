@@ -560,14 +560,15 @@ export class LayoutEditor {
 
   /**
    * Validate a furniture footprint: in-bounds, tile rules, no overlap with other
-   * items (unless it sits on surfaces). Wall-mounted items (canPlaceOnWalls)
-   * follow v1's rule — only the BOTTOM row must sit on a wall; the upper rows
-   * hang above it (over VOID, or even above the map), so e.g. a 2-tall bookshelf
-   * mounts on the wall row with its body hanging over the void above it.
-   *
-   * canPlaceOnFloor lets a wall-mountable item ALSO go on ordinary floor tiles
-   * (e.g. a monitor that can stand on the floor/a desk or hang on a wall) — the
-   * spot is valid if EITHER the wall rule or the floor rule passes.
+   * items (unless it occupies a surface). Any item may go on a wall row (v1's
+   * rule: only the BOTTOM row must sit on a WALL tile, upper rows hang above
+   * it — a void, or even above the map, so e.g. a 2-tall bookshelf mounts with
+   * its body over the void above it) OR on ordinary floor — valid if EITHER
+   * fits at the clicked spot, no catalog permission flag gates which one a
+   * mapper may attempt (dropped: canPlaceOnWalls/canPlaceOnFloor had no
+   * runtime meaning beyond this editor-time gate — see
+   * docs/design/tiled-editor-integration.md). Wall-mounted-ness itself is
+   * still derived purely from physical position at simulation time either way.
    */
   private canPlace(
     col: number,
@@ -575,9 +576,7 @@ export class LayoutEditor {
     e: {
       footprintW: number;
       footprintH: number;
-      canPlaceOnWalls?: boolean;
-      canPlaceOnFloor?: boolean;
-      canPlaceOnSurfaces?: boolean;
+      occupiesSurface?: boolean;
       backgroundTiles?: number;
     },
     excludeUid?: string,
@@ -585,21 +584,19 @@ export class LayoutEditor {
     if (!this.layout) return false;
     const { footprintW: w, footprintH: h } = e;
     const bg = e.backgroundTiles ?? 0;
-    const wallCapable = !!e.canPlaceOnWalls;
-    const floorCapable = !wallCapable || !!e.canPlaceOnFloor;
 
     if (col < 0 || col + w > this.layout.cols) return false;
-    const wallOk = wallCapable && this.wallFootprintOk(col, row, w, h);
-    const floorOk = floorCapable && this.floorFootprintOk(col, row, w, h, bg);
+    const wallOk = this.wallFootprintOk(col, row, w, h);
+    const floorOk = this.floorFootprintOk(col, row, w, h, bg);
     if (!wallOk && !floorOk) return false;
 
-    if (!e.canPlaceOnSurfaces) {
+    if (!e.occupiesSurface) {
       // Surface items (e.g. a PC on a desk) sit ON TOP of base furniture, so they
       // must not block a base item — otherwise a table can't be moved back under
       // the PC that was on it. Also exclude the piece being moved (self-collision).
       const others = this.layout.furniture.filter((f) => {
         if (f.uid === excludeUid) return false;
-        return !getCatalogEntry(f.type)?.canPlaceOnSurfaces;
+        return !getCatalogEntry(f.type)?.occupiesSurface;
       });
       const blocked = getPlacementBlockedTiles(others);
       for (let dr = bg; dr < h; dr++) {
