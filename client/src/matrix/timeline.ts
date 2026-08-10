@@ -587,6 +587,17 @@ export class TimelineView {
   private groupTimeEls: { el: HTMLElement; ts: number }[] = [];
   private lastFirstKey: string | null = null;
   private moreInteractive = false;
+  /**
+   * Whether reaching the top should load more by itself. Distinct from
+   * `moreInteractive`, which is also true in the error state — auto-retrying a
+   * failed pagination on every intersection would hammer a homeserver that is
+   * already refusing, so an error stays a deliberate click.
+   */
+  private autoPaginate = false;
+  /** Set when we ask, cleared by the render that reflects the request. Guards
+   *  the window before the store reports `loading`. */
+  private paginateRequested = false;
+  private topObserver: IntersectionObserver | null = null;
   /** Set by `pinToBottom()`, consumed by the next `render()`. See there for why
    *  this outlives the call rather than just scrolling on the spot. */
   private forceBottom = false;
@@ -653,6 +664,31 @@ export class TimelineView {
     this.el.addEventListener('click', this.onClick);
     this.el.addEventListener('keydown', this.onKeydown);
     this.el.addEventListener('scroll', this.onScroll, { passive: true });
+
+    // Infinite scrollback: the "load earlier" element doubles as the sentinel.
+    // An observer rather than a scrollTop threshold in `onScroll`, because it
+    // also fires when the loaded history is simply shorter than the panel — the
+    // case a scroll handler never sees, since there is nothing to scroll. That
+    // is what fills a tall window on open instead of leaving it half empty.
+    //
+    // It self-limits without a counter: each page is prepended and `render()`
+    // restores the scroll position, which pushes the sentinel back out of view.
+    // It only fires again once the reader scrolls up to it, or if the viewport
+    // still isn't full — and stops for good at `atStart`.
+    if (typeof IntersectionObserver === 'function') {
+      this.topObserver = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((e) => e.isIntersecting)) return;
+          if (!this.autoPaginate || this.paginateRequested) return;
+          this.paginateRequested = true;
+          this.hooks.onPaginate();
+        },
+        // Start fetching before the sentinel is actually on screen, so the reader
+        // meets loaded messages rather than a spinner.
+        { root: this.el, rootMargin: '300px 0px 0px 0px' },
+      );
+      this.topObserver.observe(this.moreEl);
+    }
 
     this.rowDeps = {
       ...hooks,
@@ -838,6 +874,8 @@ export class TimelineView {
   destroy(): void {
     this.el.removeEventListener('click', this.onClick);
     this.el.removeEventListener('scroll', this.onScroll);
+    this.topObserver?.disconnect();
+    this.topObserver = null;
     this.rows.clear();
     this.groupTimeEls = [];
   }
@@ -845,6 +883,13 @@ export class TimelineView {
   private renderMore(opts: TimelineRenderOpts): void {
     this.moreEl.replaceChildren();
     this.moreEl.removeAttribute('aria-disabled');
+    // Auto-load only while there is more to fetch and nothing is wrong: never
+    // during a load (the store is already working), never at the start of the
+    // room, and never on an error (that stays a click — see `autoPaginate`).
+    this.autoPaginate = !opts.error && !opts.loading && !opts.atStart;
+    // Once the store reports it is loading, the request we made has landed and
+    // the guard's job is done; `autoPaginate` holds the line from here.
+    if (opts.loading || opts.error || opts.atStart) this.paginateRequested = false;
     if (opts.error) {
       this.moreEl.append('Could not load messages. ');
       const errSpan = document.createElement('span');

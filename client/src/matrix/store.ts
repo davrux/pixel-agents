@@ -59,6 +59,17 @@ import { MatrixMedia, type MxImageContent } from './media.js';
 import { toHtml } from './markdown.js';
 
 const READ_DEBOUNCE_MS = 1000;
+
+/**
+ * Events per backward pagination. Was 30, which with infinite scrolling meant a
+ * request every couple of flicks of the wheel; 80 fills a tall panel in one go
+ * and still sits well under the timeline's 400-row DOM cap, so a few pages of
+ * scrollback never trims what the reader is looking at.
+ *
+ * Bigger is not free in an encrypted room: every event in the batch is a megolm
+ * decryption before it can be rendered.
+ */
+const PAGINATE_LIMIT = 80;
 const LOGOUT_HTTP_TIMEOUT_MS = 5000;
 
 /** The one reason a decrypt-failure event can reach the renderer with no
@@ -987,7 +998,7 @@ export class MatrixStore {
     this.roomErrors.set(roomId, '');
     this.emitter.emit('timeline', roomId);
     try {
-      await client.paginateEventTimeline(live, { backwards: true, limit: 30 });
+      await client.paginateEventTimeline(live, { backwards: true, limit: PAGINATE_LIMIT });
     } catch (err) {
       this.roomErrors.set(roomId, MatrixError.from(err).message);
     } finally {
