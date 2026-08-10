@@ -1,0 +1,7167 @@
+{
+  "columns": 33,
+  "image": "png/floor.png",
+  "imagewidth": 528,
+  "imageheight": 176,
+  "margin": 0,
+  "name": "floor",
+  "spacing": 0,
+  "tilecount": 363,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 79,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 91,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 92,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 94,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 96,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 98,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 3
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 112,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 118,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 121,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 122,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 123,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 124,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 125,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 126,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 127,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 128,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 129,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 4
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 132,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        }
+      ]
+    },
+    {
+      "id": 133,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 134,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 135,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 136,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 137,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 138,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 139,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 140,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 141,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 142,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 143,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 144,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 145,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 146,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 147,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 148,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 149,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 150,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 151,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 152,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 153,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 154,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 155,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 156,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 157,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 158,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 159,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 160,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 162,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 163,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 164,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 5
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 165,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        }
+      ]
+    },
+    {
+      "id": 166,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 167,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 168,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 169,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 170,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 171,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 172,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 173,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 174,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 175,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 176,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 177,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 178,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 179,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 180,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 181,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 182,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 183,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 184,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 185,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 186,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 187,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 188,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 189,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 190,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 191,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 192,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 193,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 194,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 195,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 196,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 197,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 6
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 198,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        }
+      ]
+    },
+    {
+      "id": 199,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 201,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 205,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 206,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 207,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 208,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 209,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 210,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 211,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 212,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 213,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 214,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 215,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 216,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 217,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 218,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 219,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 220,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 221,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 222,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 223,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 224,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 225,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 226,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 227,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 228,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 229,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 230,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 7
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 231,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        }
+      ]
+    },
+    {
+      "id": 232,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 233,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 234,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 235,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 236,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 237,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 238,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 239,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 240,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 241,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 242,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 243,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 244,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 245,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 246,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 247,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 248,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 249,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 250,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 251,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 252,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 253,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 254,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 255,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 256,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 257,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 258,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 259,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 260,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 261,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 262,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 263,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 8
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 264,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 265,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 266,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 267,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 268,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 269,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 270,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 271,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 272,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 273,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 274,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 275,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 276,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 277,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 278,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 279,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 280,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 281,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 282,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 283,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 284,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 285,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 286,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 287,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 288,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 289,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 290,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 291,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 292,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 293,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 294,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 295,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 296,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 297,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        }
+      ]
+    },
+    {
+      "id": 298,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 299,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 300,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 301,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 302,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 303,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 304,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 305,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 306,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 307,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 308,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 309,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 310,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 311,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 312,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 313,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 314,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 315,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 316,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 317,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 318,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 319,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 320,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 321,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 322,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 323,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 324,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 325,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 326,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 327,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 328,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 329,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 10
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    },
+    {
+      "id": 330,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        }
+      ]
+    },
+    {
+      "id": 331,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 332,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 246
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 24
+        }
+      ]
+    },
+    {
+      "id": 333,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 27
+        }
+      ]
+    },
+    {
+      "id": 334,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 9
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 335,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 19
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 42
+        }
+      ]
+    },
+    {
+      "id": 336,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 24
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 337,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 30
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 338,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 29
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 339,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 57
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 96
+        }
+      ]
+    },
+    {
+      "id": 340,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 74
+        }
+      ]
+    },
+    {
+      "id": 341,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 95
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 60
+        }
+      ]
+    },
+    {
+      "id": 342,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 155
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 343,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 91
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 38
+        }
+      ]
+    },
+    {
+      "id": 344,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 51
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 39
+        }
+      ]
+    },
+    {
+      "id": 345,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 162
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 9
+        }
+      ]
+    },
+    {
+      "id": 346,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 240
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 30
+        }
+      ]
+    },
+    {
+      "id": 347,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 205
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 46
+        }
+      ]
+    },
+    {
+      "id": 348,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 231
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 69
+        }
+      ]
+    },
+    {
+      "id": 349,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 218
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 100
+        }
+      ]
+    },
+    {
+      "id": 350,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 190
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 71
+        }
+      ]
+    },
+    {
+      "id": 351,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 220
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 89
+        }
+      ]
+    },
+    {
+      "id": 352,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 353,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 201
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 16
+        }
+      ]
+    },
+    {
+      "id": 354,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 280
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 355,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 180
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": 356,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 34
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": 357,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 283
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 35
+        }
+      ]
+    },
+    {
+      "id": 358,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 55
+        }
+      ]
+    },
+    {
+      "id": 359,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 354
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 63
+        }
+      ]
+    },
+    {
+      "id": 360,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 319
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 53
+        }
+      ]
+    },
+    {
+      "id": 361,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 66
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 34
+        }
+      ]
+    },
+    {
+      "id": 362,
+      "properties": [
+        {
+          "name": "pattern",
+          "type": "int",
+          "value": 11
+        },
+        {
+          "name": "hue",
+          "type": "int",
+          "value": 42
+        },
+        {
+          "name": "sat",
+          "type": "int",
+          "value": 48
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}
