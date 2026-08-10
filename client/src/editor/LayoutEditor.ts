@@ -32,6 +32,7 @@ import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
+import { FLOOR_PALETTE, WALL_PALETTE, swatchColor, type PaletteSwatch } from '@pixel/shared/office/palettes.js';
 
 import { spriteTexture, ensureImageTexture } from '../render/sprites.js';
 import { spriteThumbCanvas, drawSpriteOnCanvas, buildZoomSeg, buildViewToggle, markSegOn, type Zoom } from './assetGrid.js';
@@ -139,8 +140,6 @@ export class LayoutEditor {
   /** Undo/redo are full-layout snapshots (v1 model); capped at MAX_HISTORY. */
   private undoStack: OfficeLayout[] = [];
   private redoStack: OfficeLayout[] = [];
-  /** True while a color-slider drag is the active gesture (one undo per drag). */
-  private colorGesture = false;
   /** Drag-to-move state: uid being dragged (furniture or a text label) +
    *  cursor→tile grab offset (text labels have no footprint, so their grab
    *  offset is always 0,0 — the drop tile IS the new position). */
@@ -193,12 +192,7 @@ export class LayoutEditor {
   /** Floor/wall palette previews, kept so they can re-render in the picked color. */
   private floorItems: Array<{ canvas: HTMLCanvasElement; pattern: number }> = [];
   private wallItems: Array<{ canvas: HTMLCanvasElement; set: number }> = [];
-  private hueEl!: HTMLInputElement;
-  private satEl!: HTMLInputElement;
-  private briEl!: HTMLInputElement;
-  private conEl!: HTMLInputElement;
-  private colorizeEl!: HTMLInputElement;
-  private swatchEl!: HTMLDivElement;
+  private swatchGrid!: HTMLDivElement;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -231,7 +225,6 @@ export class LayoutEditor {
     this.tileMap = layoutToTileMap(this.layout);
     this.undoStack = [];
     this.redoStack = [];
-    this.colorGesture = false;
     this.dragUid = null;
     this.dragKind = null;
     this.editing = true;
@@ -250,9 +243,6 @@ export class LayoutEditor {
   }
 
   private exit(): void {
-    // Finalize any in-flight gesture so its last state is flushed by the scene.
-    if (this.colorGesture && this.layout) this.deps.onEdit(this.layout, true);
-    this.colorGesture = false;
     this.dragUid = null;
     this.dragKind = null;
     this.editing = false;
@@ -935,7 +925,6 @@ export class LayoutEditor {
     this.tileMap = layoutToTileMap(layout);
     this.selectedUid = null;
     this.selectedTextUid = null;
-    this.colorGesture = false;
     this.actionBar.style.display = 'none';
     this.textActionBar.style.display = 'none';
     this.selRect?.setVisible(false);
@@ -1358,7 +1347,6 @@ export class LayoutEditor {
   // ── Select / floating actions (rotate + delete above the object) ──
 
   private selectAt(wx: number, wy: number): void {
-    this.commitColorGesture(); // finalize any color edit on the previous selection
     this.selectedTextUid = null; // furniture/text/image selection are mutually exclusive
     this.selectedImageUid = null;
     const hits = this.furnitureHitsAt(wx, wy); // top-most first
@@ -1772,61 +1760,55 @@ export class LayoutEditor {
 
   // ── Color ────────────────────────────────────────────────────────
 
-  private readColor(): void {
-    this.color = {
-      h: Number(this.hueEl.value),
-      s: Number(this.satEl.value),
-      b: Number(this.briEl.value),
-      c: Number(this.conEl.value),
-      colorize: this.colorizeEl.checked,
-    };
-    this.updateSwatch();
-    // Live-preview the chosen colour on the paint ghost + palette (floor/wall
-    // only — furniture doesn't recolor, see docs/design/tiled-editor-integration.md).
+  /** Which closed palette the active paint tool offers — floor gets the
+   *  full DB32, wall a smaller Dawnbringer16 (its ×16 autotile-bitmask
+   *  multiplier would otherwise balloon the baked tileset — see
+   *  docs/design/tiled-editor-integration.md). */
+  private activePalette(): PaletteSwatch[] {
+    return this.tool === 'wall' ? WALL_PALETTE : FLOOR_PALETTE;
+  }
+
+  /** Pick a swatch (or the "Natural" one, no tint) — arms the floor/wall
+   *  paint brush with it, same as picking a pattern; not itself an edit,
+   *  the edit happens when the tool paints a tile. */
+  private selectColor(c: ColorValue): void {
+    this.color = c;
+    this.renderColorSwatches();
     if (this.tool === 'floor' || this.tool === 'wall') {
       this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
       this.refreshPalettePreviews();
     }
   }
 
-  /** Slider released — finalize the color-edit gesture (flush autosave). */
-  private commitColorGesture(): void {
-    if (this.colorGesture && this.layout) {
-      this.colorGesture = false;
-      this.deps.onEdit(this.layout, true);
-    }
-  }
+  /** Eyedropper support: reflect a picked tile's color in the swatch grid
+   *  (highlighting the matching swatch if it is one). */
   private applyColor(c: ColorValue): void {
     this.color = { ...c };
-    this.hueEl.value = String(c.h ?? 0);
-    this.satEl.value = String(c.s ?? 0);
-    this.briEl.value = String(c.b ?? 0);
-    this.conEl.value = String(c.c ?? 0);
-    this.colorizeEl.checked = !!c.colorize;
-    this.updateSwatch();
+    this.renderColorSwatches();
     this.refreshPalettePreviews();
   }
-  /** "Reset" button next to the sliders — back to neutral (h/s/b/c 0, no
-   *  colorize). Mirrors readColor()'s live-apply so it behaves the same as
-   *  dragging every slider back to 0: updates the floor/wall placement ghost
-   *  and palette preview. Needed because the eyedropper (Pick) copies a
-   *  picked tile's color into these
-   *  same sliders, which then keeps applying to everything placed afterward
-   *  until manually cleared. */
-  private resetColor(): void {
-    this.applyColor({ h: 0, s: 0, b: 0, c: 0, colorize: false });
-    if (this.tool === 'floor' || this.tool === 'wall') {
-      this.updateGhost(this.ghostWorld.x, this.ghostWorld.y);
-      this.refreshPalettePreviews();
+
+  private renderColorSwatches(): void {
+    this.swatchGrid.replaceChildren();
+    const active = this.activeColor();
+    const mkBtn = (background: string, title: string, c: ColorValue, selected: boolean) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'pa-color-swatch' + (selected ? ' sel' : '');
+      b.style.background = background;
+      b.title = title;
+      b.onclick = () => this.selectColor(c);
+      this.swatchGrid.appendChild(b);
+    };
+    mkBtn(
+      'repeating-conic-gradient(#4a4744 0% 25%, #322f2c 0% 50%) 0/0.5rem 0.5rem',
+      'Natural (no tint)',
+      { h: 0, s: 0, b: 0, c: 0, colorize: false },
+      active === null,
+    );
+    for (const sw of this.activePalette()) {
+      mkBtn(sw.hex, sw.hex, swatchColor(sw), !!active && active.h === sw.h && active.s === sw.s);
     }
-  }
-  private updateSwatch(): void {
-    // Truthful preview of the colorize result: saturation 0 → grey (matches the
-    // engine's s/100), lightness from brightness.
-    const h = this.color.h ?? 0;
-    const s = Math.max(0, Math.min(100, this.color.s ?? 0));
-    const l = Math.max(8, Math.min(92, 55 + (this.color.b ?? 0) / 2));
-    this.swatchEl.style.background = `hsl(${h} ${s}% ${l}%)`;
   }
 
   // ── Tool / selection UI ──────────────────────────────────────────
@@ -1853,8 +1835,13 @@ export class LayoutEditor {
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
     // The expansion ring only shows for floor/wall tools — redraw to reflect it.
     if (this.editing) this.drawGrid();
-    // Show the floor/wall palette swatches in the currently-picked colour.
-    if (t === 'floor' || t === 'wall') this.refreshPalettePreviews();
+    // Color only applies to floor/wall — furniture doesn't recolor (see
+    // docs/design/tiled-editor-integration.md).
+    this.swatchGrid.style.display = t === 'floor' || t === 'wall' ? 'grid' : 'none';
+    if (t === 'floor' || t === 'wall') {
+      this.renderColorSwatches(); // the palette itself differs (DB32 vs Dawnbringer16)
+      this.refreshPalettePreviews();
+    }
     if (this.palActionBar) this.refreshPalActionBar();
     const labels: Record<Tool, string> = {
       select: 'Select — click an object for rotate / delete buttons',
@@ -1942,15 +1929,14 @@ export class LayoutEditor {
       #pa-editor .tools .pa-tool.sel{color:#fff;background:#37342f;
         box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 2px #7fbf6a;}
       #pa-editor .hint{padding:0.15rem 0.75rem 0.55rem;font-size:0.8rem;color:#818586;line-height:1.5;}
-      #pa-editor .color{display:flex;flex-direction:column;gap:0.4rem;padding:0.6rem 0.75rem;border-top:1px solid #2c2a28;border-bottom:1px solid #2c2a28;}
-      #pa-editor .color .rowc{display:flex;align-items:center;gap:0.5rem;font-size:0.8rem;}
-      #pa-editor .color .rowc span{width:2.1rem;color:#adb0b2;}
-      #pa-editor .color input[type=range]{flex:1;accent-color:#c51a1b;}
-      #pa-editor .sw{width:1.6rem;height:1.1rem;border:2px solid #0a0908;border-radius:0.2rem;}
-      #pa-editor .pa-color-reset{cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;
-        border-radius:0.3rem;font:0.75rem 'FS Pixel Sans',monospace;padding:0.25rem 0.5rem;
-        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-      #pa-editor .pa-color-reset:hover{background:#2e2b28;}
+      /* Closed-palette swatch grid (floor: DB32, wall: Dawnbringer16) —
+         replaces the old free HSBC sliders so what's picked here is exactly
+         what a baked Tiled tileset can show (see
+         docs/design/tiled-editor-integration.md). */
+      #pa-editor .color{display:grid;grid-template-columns:repeat(8,1fr);gap:0.3rem;padding:0.6rem 0.75rem;border-top:1px solid #2c2a28;border-bottom:1px solid #2c2a28;}
+      #pa-editor .pa-color-swatch{width:100%;aspect-ratio:1;padding:0;cursor:pointer;border:2px solid #0a0908;border-radius:0.25rem;
+        box-shadow:inset 0 1px 0 rgba(255,255,255,.15);}
+      #pa-editor .pa-color-swatch.sel{box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 0 0 2px #7fbf6a;}
       .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.7rem;align-content:start;}
       /* Every item renders its canvas at native size (× palZoom) — honest
          relative sizing, no shrink-to-fit — consistent with the Assets
@@ -2011,48 +1997,11 @@ export class LayoutEditor {
 
     this.hint = Object.assign(document.createElement('div'), { className: 'hint' });
 
-    // Color controls
+    // Color controls — a closed-palette swatch grid (floor: DB32, wall:
+    // Dawnbringer16), not free HSBC sliders; see renderColorSwatches().
     const color = document.createElement('div');
     color.className = 'color';
-    const mkRange = (label: string, min: number, max: number, val: number) => {
-      const row = document.createElement('div');
-      row.className = 'rowc';
-      const span = Object.assign(document.createElement('span'), { textContent: label });
-      const input = document.createElement('input');
-      input.type = 'range';
-      input.min = String(min);
-      input.max = String(max);
-      input.value = String(val);
-      input.oninput = () => this.readColor();
-      input.onchange = () => this.commitColorGesture();
-      row.append(span, input);
-      color.appendChild(row);
-      return input;
-    };
-    this.hueEl = mkRange('Hue', 0, 360, 0);
-    this.satEl = mkRange('Sat', 0, 100, 0); // 0 = neutral/no tint, 100 = full colour
-    this.briEl = mkRange('Bright', -100, 100, 0);
-    this.conEl = mkRange('Contrast', -100, 100, 0);
-    const crow = document.createElement('div');
-    crow.className = 'rowc';
-    this.colorizeEl = document.createElement('input');
-    this.colorizeEl.type = 'checkbox';
-    this.colorizeEl.id = 'pa-colorize';
-    this.colorizeEl.onchange = () => {
-      this.readColor();
-      this.commitColorGesture();
-    };
-    const clab = Object.assign(document.createElement('label'), { textContent: 'Colorize', htmlFor: 'pa-colorize' });
-    clab.style.flex = '1';
-    this.swatchEl = Object.assign(document.createElement('div'), { className: 'sw' });
-    const resetBtn = document.createElement('button');
-    resetBtn.type = 'button';
-    resetBtn.className = 'pa-color-reset';
-    resetBtn.textContent = 'Reset';
-    resetBtn.title = 'Back to default colour (no hue/sat/bright/contrast, not colorized)';
-    resetBtn.onclick = () => this.resetColor();
-    crow.append(this.colorizeEl, clab, this.swatchEl, resetBtn);
-    color.appendChild(crow);
+    this.swatchGrid = color;
 
     this.palZoomSeg = buildZoomSeg(this.palZoom, (z) => {
       this.palZoom = z;
@@ -2193,7 +2142,7 @@ export class LayoutEditor {
     host.appendChild(this.imageActionBar);
 
     this.selectTool('select');
-    this.updateSwatch();
+    this.renderColorSwatches();
   }
 
   /** Builds every placement palette from the current catalog/floor/wall
