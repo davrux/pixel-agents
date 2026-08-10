@@ -1,6 +1,7 @@
 # electron-builder packaging config for the Pixel Agents desktop app.
-# Produces unsigned packages for all three desktops (no code-signing certs):
-# Linux AppImage, Windows NSIS installer, macOS dmg for x64 + arm64. T5.3
+# Produces packages for all three desktops with no code-signing certs: Linux
+# AppImage, Windows NSIS installer, macOS dmg for x64 + arm64 (ad-hoc signed —
+# see `mac.identity` for why that is not the same as unsigned). T5.3
 # confirms install-and-launch on real Linux; Windows and macOS have only ever
 # been built, never installed and launched by a human. The authoritative build
 # gate is T5.1.
@@ -104,10 +105,28 @@ mac:
         - arm64
   icon: build/icon.png
   category: public.app-category.social-networking
-  # Explicit, not implied: with no certificate available, tell electron-builder
-  # to skip signing rather than let it search for an identity and pick up
-  # whatever the build machine's keychain happens to hold.
-  identity: null
+  # Ad-hoc signed ("-"), NOT unsigned.
+  #
+  # This was `identity: null` (skip signing entirely), which is fine on Intel —
+  # you get the usual "unidentified developer" prompt and can right-click →
+  # Open. On Apple Silicon it is fatal: arm64 code must carry a valid signature
+  # to execute at all, so the app cannot launch and Finder reports the
+  # misleading "'Pixel Agents' is damaged and can't be opened. You should move
+  # it to the Bin." Nothing is damaged; there is simply no signature.
+  #
+  # "-" signs with no identity, which satisfies the arm64 requirement without a
+  # certificate. It is still not notarised, so a download is still quarantined
+  # and Gatekeeper still asks — but it is now the answerable kind of question
+  # (Open Anyway / xattr -dr com.apple.quarantine, see the release notes) rather
+  # than a dead end.
+  identity: "-"
+  # Required with ad-hoc signing: hardened runtime enforces library validation,
+  # which rejects Electron's pre-signed framework because it carries a different
+  # Team ID, and the app dies on launch. The alternative is an entitlements file
+  # granting com.apple.security.cs.disable-library-validation — more moving
+  # parts for something whose only purpose is to satisfy notarisation, which an
+  # unsigned build is not doing anyway.
+  hardenedRuntime: false
   notarize: false
 
 # No signing on any platform (no certs available in this environment / CI), so

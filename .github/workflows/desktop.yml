@@ -205,7 +205,7 @@ jobs:
 
           - **Linux** (\`.AppImage\`): nach dem Download ausführbar machen (\`chmod +x\`).
           - **Windows** (\`.exe\`): SmartScreen warnt vor einem unbekannten Herausgeber — \"Weitere Informationen\" → \"Trotzdem ausführen\".
-          - **macOS** (\`.dmg\`): Gatekeeper verweigert eine unsignierte App zunächst ganz. Nach dem Kopieren in \"Programme\" einmal \`xattr -dr com.apple.quarantine \"/Applications/Pixel Agents.app\"\` — oder im Finder rechtsklicken → \"Öffnen\". \`arm64\` ist für Apple Silicon, \`x64\` für Intel.
+          - **macOS** (\`.dmg\`): ad-hoc signiert, aber nicht notarisiert — Gatekeeper fragt beim ersten Start nach. Im Finder rechtsklicken → \"Öffnen\" (nicht Doppelklick), oder nach dem Kopieren in \"Programme\" einmal \`xattr -dr com.apple.quarantine \"/Applications/Pixel Agents.app\"\`. \`arm64\` ist für Apple Silicon (M1-M4), \`x64\` für Intel — die falsche Variante startet nicht.
 
           Dieses Release wird bei jedem master-Commit überschrieben; für einen festen Stand ein \`v*\`-Release nehmen."
           gh release upload latest upload/* --clobber
