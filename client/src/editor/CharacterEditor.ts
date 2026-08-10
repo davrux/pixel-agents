@@ -398,7 +398,7 @@ export class CharacterEditor {
     const style = document.createElement('style');
     // Sizing mirrors the Settings/Edit panels (rem-based, larger fonts/buttons).
     style.textContent = `
-      #pa-chars{position:fixed;top:3.7rem;right:0.75rem;z-index:61;display:none;width:26rem;background:#1c1a19;
+      #pa-chars{position:fixed;top:3.7rem;right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));z-index:61;display:none;width:26rem;background:#1c1a19;
         border:2px solid #0a0908;border-radius:0.6rem;color:#f1efec;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);box-sizing:border-box;max-height:calc(100vh - 4.7rem);overflow:auto;}
       #pa-chars h4{margin:0 0 0.6rem;font-size:1.25rem;color:#f5f3f0;}
@@ -452,7 +452,7 @@ export class CharacterEditor {
       #pa-c-newdlg .grid canvas{width:2.4rem;height:4.8rem;image-rendering:pixelated;background:#141312;border:2px solid #0a0908;}
       #pa-c-newdlg .grid .blank{width:2.4rem;height:4.8rem;display:flex;align-items:center;justify-content:center;
         background:#141312;border:2px dashed #4a4744;color:#818586;font-size:1.4rem;}
-      #pa-c-import{position:fixed;top:3.4rem;left:0.5rem;z-index:61;display:none;max-width:30rem;background:#1c1a19;
+      #pa-c-import{position:fixed;top:3.4rem;left:calc(0.5rem + var(--pa-dock-l, 0px));z-index:61;display:none;max-width:30rem;background:#1c1a19;
         border:2px solid #0a0908;border-radius:0.6rem;color:#f1efec;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);box-sizing:border-box;max-height:calc(100vh - 4rem);overflow:auto;}
       #pa-c-import .row{display:flex;align-items:center;gap:0.4rem;margin:0.45rem 0;font-size:0.95rem;flex-wrap:wrap;}

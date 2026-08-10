@@ -36,19 +36,29 @@ import {
   saveSession,
 } from './session.js';
 import { MatrixStore } from './store.js';
-import { mkAvatar } from './matrixSkin.js';
+import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { fmtRelative, TimelineView, type TimelineHooks } from './timeline.js';
 import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
+import { readNotifyPrefs, writeNotifyPrefs } from './storage.js';
+import { isDesktop } from '../desktop/bridge.js';
 import { createEncryptionView, type EncryptionViewHandle, type EncryptionViewHooks } from './EncryptionUI.js';
 
 export interface MatrixUIHooks {
   paUserId: string;
-  onPinChange(pinned: boolean): void;
   onUnreadChange(unread: number): void;
   onRequestClose(): void;
 }
 
-type ViewName = 'login' | 'rooms' | 'room' | 'members' | 'newdm' | 'newgroup' | 'join' | 'encryption';
+type ViewName =
+  | 'login'
+  | 'rooms'
+  | 'room'
+  | 'members'
+  | 'newdm'
+  | 'newgroup'
+  | 'join'
+  | 'encryption'
+  | 'notifications';
 type RoomsTab = 'people' | 'groups' | 'invites';
 
 interface ViewFrame {
@@ -73,7 +83,9 @@ export class MatrixUI {
   private currentDeviceId = '';
   private pendingReloginDeviceId: string | undefined;
 
-  private pinned = false;
+  /** Whether our window is currently docked open (the host tells us — see
+   *  setDocked): a closed window has no reason to keep polling the timeline. */
+  private docked = false;
   private stack: ViewFrame[] = [{ view: 'rooms' }];
   private openRoomId: string | null = null;
   /** Set by openDm() when called signed-out (e.g. from `/matrix @user:server`
@@ -95,8 +107,15 @@ export class MatrixUI {
   private statusLabelEl!: HTMLSpanElement;
   private retryLink!: HTMLAnchorElement;
   private meEl!: HTMLSpanElement;
-  private pinBtn!: HTMLButtonElement;
+  private meAvatarSlot!: HTMLButtonElement;
+  private avatarInput!: HTMLInputElement;
+  private roomAvatarSlot!: HTMLSpanElement;
+  private avatarBusy = false;
   private encBtn!: HTMLButtonElement;
+  /** Desktop builds only — the browser has no OS notification to configure. */
+  private notifyBtn?: HTMLButtonElement;
+  private notifyEnabledEl?: HTMLInputElement;
+  private notifyBodyEl?: HTMLInputElement;
   private cryptoWarnEl!: HTMLDivElement;
   private wipeWarnEl!: HTMLDivElement;
   private encryptionView!: EncryptionViewHandle;
@@ -189,8 +208,10 @@ export class MatrixUI {
   private toastEl?: HTMLDivElement;
   private toastTimer?: number;
 
+  /** Nothing to poll for while the tab is in the background or our window is
+   *  closed — the store's own /sync keeps the unread badge live either way. */
   private readonly onVisibilityChange = (): void => {
-    if (document.hidden && !this.isPinned) {
+    if (document.hidden || !this.docked) {
       this.stopTimelineRefresh();
     } else if (this.openRoomId) {
       this.startTimelineRefresh();
@@ -199,11 +220,6 @@ export class MatrixUI {
 
   constructor(mount: HTMLElement, hooks: MatrixUIHooks) {
     this.hooks = hooks;
-    try {
-      this.pinned = localStorage.getItem('pa-mx-pinned') === '1';
-    } catch {
-      this.pinned = false;
-    }
 
     this.root = document.createElement('div');
     this.root.id = 'pa-mx';
@@ -225,6 +241,7 @@ export class MatrixUI {
     this.buildNewGroupView();
     this.buildJoinView();
     this.buildEncryptionView();
+    if (isDesktop()) this.buildNotificationsView();
 
     mount.appendChild(this.root);
     document.addEventListener('visibilitychange', this.onVisibilityChange);
@@ -233,7 +250,6 @@ export class MatrixUI {
     if (session) {
       this.startStoreFromSession(session);
       this.restoreView();
-      if (this.pinned) this.hooks.onPinChange(true);
     }
     this.renderCurrent();
   }
@@ -242,12 +258,12 @@ export class MatrixUI {
   // Public API
   // ==================================================================
 
-  get isPinned(): boolean {
-    return this.store !== null && this.pinned;
-  }
-
-  unpin(): void {
-    if (this.pinned) this.setPinned(false);
+  /** The host's docked window opened or closed around us. Only the timeline
+   *  poll cares: a window left open in a backgrounded tab keeps refreshing,
+   *  a closed one stops. */
+  setDocked(docked: boolean): void {
+    this.docked = docked;
+    this.onVisibilityChange();
   }
 
   ownsFocus(): boolean {
@@ -287,7 +303,18 @@ export class MatrixUI {
   private startStoreFromSession(session: MxSession): void {
     this.hsBaseUrl = session.hsBaseUrl;
     this.currentDeviceId = session.deviceId;
-    this.store = new MatrixStore({ session, paUserId: this.hooks.paUserId });
+    this.store = new MatrixStore({
+      session,
+      paUserId: this.hooks.paUserId,
+      // Whether the reader can actually see chat right now. `document.hasFocus()`
+      // is the one that matters on the desktop: a docked window in an unfocused
+      // Electron window is open but unwatched, and that is exactly when a
+      // notification is worth having.
+      attention: () => ({
+        panelOpen: this.docked,
+        appFocused: !document.hidden && document.hasFocus(),
+      }),
+    });
     this.storeUnsubs.push(
       this.store.on('status', () => {
         this.renderTopStrip();
@@ -355,7 +382,6 @@ export class MatrixUI {
     // must never be inferred from `this.store` after it may have gone null.
     const store = this.store;
     this.teardownStore();
-    this.unpin();
     this.hooks.onUnreadChange(0);
     this.stack = [{ view: 'rooms' }];
     this.openRoomId = null;
@@ -456,6 +482,9 @@ export class MatrixUI {
       case 'encryption':
         this.encryptionView.render();
         break;
+      case 'notifications':
+        this.renderNotificationsView();
+        break;
     }
   }
 
@@ -505,7 +534,7 @@ export class MatrixUI {
     this.renderCurrent();
   }
 
-  private pushRootView(view: 'newdm' | 'newgroup' | 'join' | 'encryption'): void {
+  private pushRootView(view: 'newdm' | 'newgroup' | 'join' | 'encryption' | 'notifications'): void {
     this.stack = [{ view: 'rooms' }, { view }];
     this.renderCurrent();
     if (view === 'newdm') this.dmSearchInput.focus();
@@ -545,7 +574,6 @@ export class MatrixUI {
   private handleEscape(): void {
     const top = this.stack[this.stack.length - 1];
     if (!top || top.view === 'rooms' || !this.store) {
-      this.unpin();
       this.hooks.onRequestClose();
       return;
     }
@@ -553,20 +581,8 @@ export class MatrixUI {
   }
 
   // ==================================================================
-  // Pin / status strip
+  // Status strip
   // ==================================================================
-
-  private setPinned(on: boolean): void {
-    this.pinned = on;
-    try {
-      localStorage.setItem('pa-mx-pinned', on ? '1' : '0');
-    } catch {
-      /* ignore */
-    }
-    this.pinBtn.classList.toggle('on', on);
-    this.pinBtn.title = on ? 'Unpin — stop keeping this panel open' : 'Pin — keep this panel open as a docked side panel';
-    this.hooks.onPinChange(on);
-  }
 
   private buildTopStrip(): void {
     const top = document.createElement('div');
@@ -590,17 +606,33 @@ export class MatrixUI {
     });
     top.appendChild(this.retryLink);
 
+    // Your own square doubles as the control for changing it — the panel has
+    // no profile view to hang this off, and "click your own picture" is where
+    // people look first. Uses its own <input type="file"> rather than the
+    // composer's, so a half-finished message attachment can't be mistaken for
+    // a new avatar.
+    this.avatarInput = document.createElement('input');
+    this.avatarInput.type = 'file';
+    this.avatarInput.accept = 'image/png,image/jpeg,image/gif';
+    this.avatarInput.hidden = true;
+    this.avatarInput.addEventListener('change', () => {
+      const file = this.avatarInput.files?.[0];
+      this.avatarInput.value = '';
+      if (file) void this.changeMyAvatar(file);
+    });
+    top.appendChild(this.avatarInput);
+
+    this.meAvatarSlot = document.createElement('button');
+    this.meAvatarSlot.className = 'mx-av-slot mx-me-av';
+    this.meAvatarSlot.type = 'button';
+    this.meAvatarSlot.title = 'Change your profile picture';
+    this.meAvatarSlot.setAttribute('aria-label', 'Change your profile picture');
+    this.meAvatarSlot.addEventListener('click', () => this.avatarInput.click());
+    top.appendChild(this.meAvatarSlot);
+
     this.meEl = document.createElement('span');
     this.meEl.className = 'muted mx-me';
     top.appendChild(this.meEl);
-
-    this.pinBtn = document.createElement('button');
-    this.pinBtn.className = 'pa-b';
-    this.pinBtn.textContent = '📌';
-    this.pinBtn.setAttribute('aria-label', 'Pin panel');
-    this.pinBtn.title = 'Pin — keep this panel open as a docked side panel';
-    this.pinBtn.addEventListener('click', () => this.setPinned(!this.pinned));
-    top.appendChild(this.pinBtn);
 
     this.encBtn = document.createElement('button');
     this.encBtn.className = 'pa-b mx-encbtn';
@@ -614,6 +646,24 @@ export class MatrixUI {
       else this.pushRootView('encryption');
     });
     top.appendChild(this.encBtn);
+
+    // Desktop only, and hidden rather than disabled in the browser: there is no
+    // OS notification to configure there (bridge.ts's notifyDesktop is a no-op),
+    // so a settings page for it would be a page of lies.
+    if (isDesktop()) {
+      this.notifyBtn = document.createElement('button');
+      this.notifyBtn.className = 'pa-b mx-notifybtn';
+      this.notifyBtn.textContent = '🔔';
+      this.notifyBtn.setAttribute('aria-label', 'Notifications');
+      this.notifyBtn.title = 'Desktop notifications';
+      // Same toggle behaviour as 🔐 — always visible, so a second press has to
+      // be the way back out rather than a no-op re-render.
+      this.notifyBtn.addEventListener('click', () => {
+        if (this.stack[this.stack.length - 1]?.view === 'notifications') this.goRoot();
+        else this.pushRootView('notifications');
+      });
+      top.appendChild(this.notifyBtn);
+    }
 
     const signOutBtn = document.createElement('button');
     signOutBtn.className = 'pa-b';
@@ -669,8 +719,18 @@ export class MatrixUI {
     this.statusLabelEl.textContent = this.store.statusLabel;
     this.retryLink.style.display = status === 'reconnecting' || status === 'offline' ? '' : 'none';
     this.meEl.textContent = this.store.userId;
-    this.pinBtn.classList.toggle('on', this.pinned);
+    this.paintAvatarSlot(this.meAvatarSlot, this.store.userId, this.store.userId, this.store.myAvatarMxc);
     this.encBtn.classList.toggle('attn', this.store.cryptoState !== 'ready');
+    // Painted here rather than only from the notifications view, so the bell
+    // shows a muted app on first paint too — not just once you have opened it.
+    this.paintNotifyBtn();
+  }
+
+  private paintNotifyBtn(): void {
+    if (!this.notifyBtn) return;
+    const on = readNotifyPrefs().enabled;
+    this.notifyBtn.classList.toggle('off', !on);
+    this.notifyBtn.title = on ? 'Desktop notifications' : 'Desktop notifications — off';
   }
 
   /** `store.logout()` ends by emitting 'loggedOut', which `handleLoggedOut` (subscribed in
@@ -1061,7 +1121,7 @@ export class MatrixUI {
     if (room.unread > 0) row.classList.add('unread');
     if (this.openRoomId === room.roomId) row.classList.add('here');
 
-    row.appendChild(mkAvatar(room.roomId, room.name));
+    row.appendChild(mkAvatar(room.roomId, room.name, this.picture(room.avatarMxc)));
 
     const main = document.createElement('div');
     main.className = 'mx-room-main';
@@ -1177,6 +1237,10 @@ export class MatrixUI {
     back.addEventListener('click', () => this.goBack());
     subhead.appendChild(back);
 
+    this.roomAvatarSlot = document.createElement('span');
+    this.roomAvatarSlot.className = 'mx-av-slot';
+    subhead.appendChild(this.roomAvatarSlot);
+
     this.roomNameEl = document.createElement('span');
     this.roomNameEl.className = 'mx-room-name';
     subhead.appendChild(this.roomNameEl);
@@ -1214,6 +1278,8 @@ export class MatrixUI {
         }
       },
       displayName: (userId) => (this.openRoomId && this.store ? this.store.displayName(this.openRoomId, userId) : userId),
+      avatarOf: (userId) =>
+        this.picture(this.openRoomId && this.store ? this.store.memberAvatarMxc(this.openRoomId, userId) : null),
       // Both 'unlock' (no key yet) and 'verify' (sender only shares with
       // verified devices) point at the same place today — the Encryption
       // view is where both a 4S unlock and device verification live.
@@ -1333,6 +1399,7 @@ export class MatrixUI {
     const room = this.store.room(roomId);
     this.roomNameEl.textContent = room?.name ?? roomId;
     this.roomNameEl.title = room?.name ?? roomId;
+    this.paintAvatarSlot(this.roomAvatarSlot, roomId, room?.name ?? roomId, room?.avatarMxc ?? null);
 
     const nowEncrypted = !!room?.encrypted;
     const warnActive = this.cryptoLockWarn();
@@ -1606,7 +1673,7 @@ export class MatrixUI {
   private buildMemberRow(m: MxMember, dim: boolean): HTMLElement {
     const row = document.createElement('div');
     row.className = 'pa-list-row';
-    row.appendChild(mkAvatar(m.userId, m.displayName));
+    row.appendChild(mkAvatar(m.userId, m.displayName, this.picture(m.avatarMxc)));
     const nm = document.createElement('div');
     nm.className = 'nm';
     nm.textContent = m.displayName;
@@ -1805,7 +1872,7 @@ export class MatrixUI {
       if (u.userId === term) continue;
       const row = document.createElement('div');
       row.className = 'pa-list-row';
-      row.appendChild(mkAvatar(u.userId, u.displayName));
+      row.appendChild(mkAvatar(u.userId, u.displayName, this.picture(u.avatarMxc)));
       const nm = document.createElement('div');
       nm.className = 'nm';
       nm.textContent = u.displayName;
@@ -2011,6 +2078,91 @@ export class MatrixUI {
     this.joinErrEl.style.display = 'none';
   }
 
+  // ==================================================================
+  // notifications view (desktop only)
+  // ==================================================================
+
+  /** One checkbox row in the pixel style: a label wrapping its own input, so the
+   *  text is part of the hit target. */
+  private mkCheckRow(label: string, onChange: (on: boolean) => void): {
+    row: HTMLLabelElement;
+    input: HTMLInputElement;
+  } {
+    const row = document.createElement('label');
+    row.className = 'mx-chk';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.addEventListener('change', () => onChange(input.checked));
+    row.append(input, document.createTextNode(label));
+    return { row, input };
+  }
+
+  private buildNotificationsView(): void {
+    const section = document.createElement('section');
+    section.dataset.view = 'notifications';
+
+    const subhead = document.createElement('div');
+    subhead.className = 'mx-subhead';
+    const back = document.createElement('button');
+    back.className = 'pa-b';
+    back.textContent = '◀';
+    back.setAttribute('aria-label', 'Back to chats');
+    back.title = 'Back to chats';
+    back.addEventListener('click', () => this.goRoot());
+    const title = document.createElement('span');
+    title.className = 'mx-room-name';
+    title.textContent = 'Notifications';
+    subhead.append(back, title);
+    section.appendChild(subhead);
+
+    const body = document.createElement('div');
+    body.className = 'mx-encbody';
+    section.appendChild(body);
+
+    const enabled = this.mkCheckRow('Notify me about new messages', (on) => {
+      writeNotifyPrefs({ ...readNotifyPrefs(), enabled: on });
+      this.renderNotificationsView();
+    });
+    this.notifyEnabledEl = enabled.input;
+    body.appendChild(enabled.row);
+
+    const hint = document.createElement('div');
+    hint.className = 'mx-hint';
+    hint.textContent =
+      'Mentions and direct messages always notify. Other rooms only notify while this window is closed or the app is in the background — never for the room you are reading. Muted rooms stay muted: your homeserver’s notification rules are what decide, so anything you have silenced in another client is silent here too.';
+    body.appendChild(hint);
+
+    const showBody = this.mkCheckRow('Show the message text', (on) => {
+      writeNotifyPrefs({ ...readNotifyPrefs(), showBody: on });
+      this.renderNotificationsView();
+    });
+    this.notifyBodyEl = showBody.input;
+    body.appendChild(showBody.row);
+
+    // The one setting here with a real trade-off, so it gets said plainly rather
+    // than left for the user to discover.
+    const bodyHint = document.createElement('div');
+    bodyHint.className = 'mx-hint';
+    bodyHint.textContent =
+      'Off by default. A notification is handed to your desktop’s notification service, which may keep it in a log or show it on a lock screen — so for an encrypted room this puts decrypted text somewhere outside the app. Left off, notifications say only who wrote and where.';
+    body.appendChild(bodyHint);
+
+    this.sections.set('notifications', section);
+    this.root.appendChild(section);
+  }
+
+  private renderNotificationsView(): void {
+    const prefs = readNotifyPrefs();
+    if (this.notifyEnabledEl) this.notifyEnabledEl.checked = prefs.enabled;
+    if (this.notifyBodyEl) {
+      this.notifyBodyEl.checked = prefs.showBody;
+      // Nothing to say about a notification that never fires.
+      this.notifyBodyEl.disabled = !prefs.enabled;
+      this.notifyBodyEl.closest('.mx-chk')?.classList.toggle('off', !prefs.enabled);
+    }
+    this.paintNotifyBtn();
+  }
+
   private async handleJoin(): Promise<void> {
     if (!this.store) return;
     const input = this.joinInput.value.trim();
@@ -2065,6 +2217,44 @@ export class MatrixUI {
   // ==================================================================
   // shared helpers
   // ==================================================================
+
+  /** Set the account's profile picture. Toasts rather than using the
+   *  composer's status line: this is account-level and reachable from every
+   *  view, including ones with no composer. */
+  private async changeMyAvatar(file: File): Promise<void> {
+    if (!this.store || this.avatarBusy) return;
+    this.avatarBusy = true;
+    this.meAvatarSlot.disabled = true;
+    try {
+      await this.store.setMyAvatar(file);
+      this.toast('Profile picture updated.');
+      this.renderTopStrip();
+    } catch (err) {
+      this.toast(this.errText(err));
+    } finally {
+      this.avatarBusy = false;
+      this.meAvatarSlot.disabled = false;
+    }
+  }
+
+  /** Fill a persistent avatar slot (the room header, the status strip) —
+   *  places that are updated in place on every render rather than rebuilt from
+   *  a list. Rebuilding the square unconditionally would be correct but would
+   *  re-enter the loader on every sync tick, so the identity+picture pair is
+   *  stamped on the slot and an unchanged pair is left alone. */
+  private paintAvatarSlot(slot: HTMLElement, seed: string, label: string, mxc: string | null): void {
+    const key = `${seed} ${label} ${mxc ?? ''}`;
+    if (slot.dataset.avKey === key) return;
+    slot.dataset.avKey = key;
+    slot.replaceChildren(mkAvatar(seed, label, this.picture(mxc)));
+  }
+
+  /** Wrap an mxc:// (or null) into the shape `mkAvatar` wants. One place owns
+   *  the "resolve through the store, which caches per (uri, size)" half, so no
+   *  call site can accidentally fetch an avatar per render. */
+  private picture(mxc: string | null): MxAvatarPicture {
+    return { mxc, load: (uri, size) => (this.store ? this.store.avatarUrl(uri, size) : Promise.reject(new Error('no store'))) };
+  }
 
   private hsHost(): string {
     if (!this.hsBaseUrl) return '';

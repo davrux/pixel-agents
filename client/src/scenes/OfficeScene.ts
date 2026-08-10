@@ -67,6 +67,7 @@ import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, ty
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
+import { DockWindow } from '../ui/dockWindow.js';
 import type { MatrixClientHandle } from '../matrix/index.js';
 import { hasMatrixSession } from '../matrix/sessionProbe.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
@@ -84,8 +85,11 @@ type RenderChar = Partial<Character> & {
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
-/** Which grouped top-bar popover is open (null = none). */
-type MenuId = 'audio' | 'mumble' | 'matrix' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
+/** Which grouped top-bar popover is open (null = none). Matrix and Mumble are
+ *  deliberately absent: they are docked application windows beside the game
+ *  (see DockWindow), not popovers over it, so they neither close the menus nor
+ *  are closed by them. */
+type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
 
 /** Per-pose animation frame duration (ms), mirroring the engine's constants.
  *  Poses not listed (idle) are static. Drives the client-side animation clock. */
@@ -224,9 +228,13 @@ export class OfficeScene extends Phaser.Scene {
   private meetingConf?: LiveKitConference;
   private mumble?: MumbleUI;
   private mumblePanel?: HTMLDivElement;
+  /** The right-hand application window Mumble lives in. */
+  private mumbleWin?: DockWindow;
   private mumbleBtn?: HTMLButtonElement;
   private matrixBtn?: HTMLButtonElement;
   private matrixPanel?: HTMLDivElement;
+  /** The left-hand application window Matrix chat lives in. */
+  private matrixWin?: DockWindow;
   private matrix?: MatrixClientHandle;
   private matrixLoading = false;
   private identityResolved = false;
@@ -524,13 +532,11 @@ export class OfficeScene extends Phaser.Scene {
         onJoin: () => this.zoneVoice?.voice.suspend('mumble'),
         onLeave: () => this.zoneVoice?.voice.resume('mumble'),
         onOpenSettings: () => void this.setMenu('settings'),
-        onPinChange: (pinned) => {
-          if (pinned) this.matrix?.unpin();
-          this.applyDock();
-        },
       });
       this.mumble.start();
-      this.applyDock();
+      // Reopen the window if it was left open — an application window is
+      // expected back where you left it.
+      if (this.mumbleWin?.wasOpen) this.setMumbleOpen(true);
     }
 
     this.setupInput();
@@ -936,13 +942,10 @@ export class OfficeScene extends Phaser.Scene {
       const { createMatrixClient } = await import('../matrix/index.js');
       this.matrix = createMatrixClient(body, {
         paUserId: this.myUserId,
-        onPinChange: (pinned) => {
-          if (pinned) this.mumble?.unpin();
-          this.applyDock();
-        },
         onUnreadChange: (n) => this.setMatrixUnread(n),
-        onRequestClose: () => void this.setMenu(null),
+        onRequestClose: () => this.setMatrixOpen(false),
       });
+      this.matrix.setDocked(this.matrixWin?.isOpen === true);
       window.addEventListener('pagehide', () => this.matrix?.destroy(), { once: true });
     } catch (err) {
       // A chunk-load failure (stale index.html after a redeploy, a transient
@@ -958,16 +961,17 @@ export class OfficeScene extends Phaser.Scene {
 
   /** If a Matrix session was previously saved for this pixel-agents user,
    *  start the store (and its /sync loop) in the background right after
-   *  identity resolves — not just when the panel was left pinned — so the
-   *  unread badge and incoming invites are live even if the panel has never
+   *  identity resolves — not just when the window was left open — so the
+   *  unread badge and incoming invites are live even if the window has never
    *  been opened this page load. Loads only the small session module to
    *  decide, not the whole lazy chunk, when there is nothing to restore. */
   private async maybeAutoStartMatrix(): Promise<void> {
     try {
-      const pinned = localStorage.getItem('pa-mx-pinned') === '1';
-      if (!pinned && !hasMatrixSession(this.myUserId)) return;
+      const reopen = this.matrixWin?.wasOpen === true;
+      if (!reopen && !hasMatrixSession(this.myUserId)) return;
       await this.ensureMatrix();
-      this.applyDock();
+      // An application window comes back where you left it.
+      if (reopen && this.matrix) this.setMatrixOpen(true);
     } catch {
       /* private mode, or ensureMatrix already reported its own failure */
     }
@@ -975,7 +979,7 @@ export class OfficeScene extends Phaser.Scene {
 
   private async toggleMatrix(): Promise<void> {
     await this.ensureMatrix();
-    void this.setMenu(this.currentMenu === 'matrix' ? null : 'matrix');
+    this.setMatrixOpen(this.matrixWin?.isOpen !== true);
   }
 
   /** Unread-count badge on the ✉ bar button. */
@@ -1831,19 +1835,6 @@ export class OfficeScene extends Phaser.Scene {
       if (el) el.style.display = menu === id ? 'block' : 'none';
     };
     show(this.audioPanel, 'audio');
-    // A pinned Mumble panel opts out of the one-panel-at-a-time rule.
-    if (this.mumble?.isPinned) {
-      if (this.mumblePanel) this.mumblePanel.style.display = 'block';
-    } else {
-      show(this.mumblePanel, 'mumble');
-    }
-    // The Matrix panel must not go through the generic `show()` helper — it
-    // writes `display:block`, which would defeat #pa-matrix-panel's own
-    // `display:flex;flex-direction:column` and leave the timeline unsized.
-    if (this.matrixPanel) {
-      const showMx = this.matrix?.isPinned === true || menu === 'matrix';
-      this.matrixPanel.style.display = showMx ? 'flex' : 'none';
-    }
     show(this.zonePanel, 'zone');
     show(this.spacePanel, 'space');
     show(this.assetsPanel, 'assets');
@@ -1852,8 +1843,6 @@ export class OfficeScene extends Phaser.Scene {
     show(this.helpPanel, 'help');
 
     this.audioBtn?.classList.toggle('active', menu === 'audio');
-    this.mumbleBtn?.classList.toggle('active', menu === 'mumble' || this.mumble?.isPinned === true);
-    this.matrixBtn?.classList.toggle('active', menu === 'matrix' || this.matrix?.isPinned === true);
     this.zoneBtn?.classList.toggle('active', menu === 'zone');
     this.spaceBtn?.classList.toggle('active', menu === 'space');
     this.assetsBtn?.classList.toggle('active', menu === 'assets');
@@ -1874,23 +1863,28 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Reflect the right-hand dock pin (Mumble or Matrix — only one at a time):
-   * a pinned panel stays visible regardless of the current menu, and the body
-   * class shifts the other right-hand popovers left so they don't land on
-   * top of it.
-   */
-  private applyDock(): void {
-    const mumble = this.mumble?.isPinned === true;
-    const matrix = this.matrix?.isPinned === true;
-    document.body.classList.toggle('pa-dock-pinned', mumble || matrix);
-    document.body.style.setProperty('--pa-dock-w', matrix ? '27.5rem' : '25.5rem');
-    this.mumblePanel?.classList.toggle('pa-docked', mumble);
-    this.matrixPanel?.classList.toggle('pa-docked', matrix);
-    if (this.mumblePanel) this.mumblePanel.style.display = mumble || this.currentMenu === 'mumble' ? 'block' : 'none';
-    if (this.matrixPanel) this.matrixPanel.style.display = matrix || this.currentMenu === 'matrix' ? 'flex' : 'none';
-    this.mumbleBtn?.classList.toggle('active', mumble || this.currentMenu === 'mumble');
-    this.matrixBtn?.classList.toggle('active', matrix || this.currentMenu === 'matrix');
+  // ── The two docked application windows ───────────────────────────
+  // Matrix on the left, the game in the middle, Mumble on the right. Neither
+  // is part of the one-popover-at-a-time menu system: opening a menu leaves
+  // them alone, and either can be open (or both) while you play. DockWindow
+  // owns the CSS variable that shrinks #game, so nothing here resizes Phaser.
+
+  /** Open/close the right-hand Mumble window. No-ops in the browser build,
+   *  where MumbleUI renders nothing at all and the button is hidden. */
+  private setMumbleOpen(open: boolean): void {
+    if (!this.mumbleWin || !this.mumble?.voice) return;
+    this.mumbleWin.setOpen(open);
+    this.mumbleBtn?.classList.toggle('active', open);
+  }
+
+  /** Open/close the left-hand Matrix window. Opening needs the lazy chunk to
+   *  have loaded (every caller awaits ensureMatrix first) — a chunk-load
+   *  failure must leave the button dead, not open an empty window. */
+  private setMatrixOpen(open: boolean): void {
+    if (!this.matrixWin || (open && !this.matrix)) return;
+    this.matrixWin.setOpen(open);
+    this.matrix?.setDocked(open);
+    this.matrixBtn?.classList.toggle('active', open);
   }
 
   /** Edit mode owns the screen: close the menu + hide the whole top bar (it would
@@ -1975,12 +1969,14 @@ export class OfficeScene extends Phaser.Scene {
     this.deafBarBtn = deaf;
 
     // Mumble — its own top-level entry, shown only on the desktop build.
+    // Toggles the right-hand window rather than a popover.
     const mumbleBtn = this.mkBarBtn('🎧', 'Mumble');
-    mumbleBtn.onclick = () => void this.setMenu(this.currentMenu === 'mumble' ? null : 'mumble');
+    mumbleBtn.onclick = () => this.setMumbleOpen(this.mumbleWin?.isOpen !== true);
     mumbleBtn.style.display = MumbleVoice.supported ? '' : 'none';
     this.mumbleBtn = mumbleBtn;
 
-    // Matrix chat — disabled until the server confirms our identity (viewerIdentity).
+    // Matrix chat — the left-hand window. Disabled until the server confirms
+    // our identity (viewerIdentity).
     const matrixBtn = this.mkBarBtn('✉', 'Matrix');
     matrixBtn.id = 'pa-matrix-btn';
     matrixBtn.disabled = true;
@@ -2067,33 +2063,39 @@ export class OfficeScene extends Phaser.Scene {
     this.audioPanel = this.mkPanel('Audio', 'left').panel;
 
     // Mumble gets its own panel rather than living under Audio: it is a whole
-    // second client (channel tree, roster, its own devices) and it is the one
-    // panel people want kept open while they play. Docked on the right so a
-    // pinned roster doesn't sit on top of the left-hand menus.
+    // second client (channel tree, roster, its own devices) and it is one of
+    // the two you keep open while you play — so it is a docked application
+    // window on the right, with the game beside it rather than under it.
     const mb = this.mkPanel('Mumble', 'right');
     this.mumblePanel = mb.panel;
     mb.panel.id = 'pa-mumble-panel';
-    // ✕ on a pinned panel has to release the pin, or it would look broken:
-    // setMenu(null) alone leaves a pinned panel on screen by design.
+    this.mumbleWin = new DockWindow(mb.panel, {
+      side: 'right',
+      key: 'pa-mb-win',
+      defaultRem: 24,
+      // Its settings block is fixed and the channel tree scrolls under it, so
+      // the body must not be a scroller of its own.
+      fill: true,
+      compactBelowRem: 21,
+    });
     const mbClose = mb.panel.querySelector<HTMLElement>('.pa-x');
-    if (mbClose) {
-      mbClose.onclick = () => {
-        this.mumble?.unpin();
-        void this.setMenu(null);
-      };
-    }
+    if (mbClose) mbClose.onclick = () => this.setMumbleOpen(false);
 
-    // Matrix chat panel — same right dock as Mumble, loaded lazily on first open.
-    const mx = this.mkPanel('Matrix', 'right');
+    // Matrix chat — the opposite window, on the left, loaded lazily on first open.
+    const mx = this.mkPanel('Matrix', 'left');
     this.matrixPanel = mx.panel;
     mx.panel.id = 'pa-matrix-panel';
+    this.matrixWin = new DockWindow(mx.panel, {
+      side: 'left',
+      key: 'pa-mx-win',
+      defaultRem: 26,
+      minRem: 20,
+      // Every view inside pins its own chrome around its own scroller.
+      fill: true,
+      compactBelowRem: 23,
+    });
     const mxClose = mx.panel.querySelector<HTMLElement>('.pa-x');
-    if (mxClose) {
-      mxClose.onclick = () => {
-        this.matrix?.unpin();
-        void this.setMenu(null);
-      };
-    }
+    if (mxClose) mxClose.onclick = () => this.setMatrixOpen(false);
 
     // Zone travel panel.
     this.zonePanel = this.mkPanel('Travel', 'left').panel;
@@ -3532,6 +3534,8 @@ export class OfficeScene extends Phaser.Scene {
       if (!t) return;
       // Clicks inside the bar, any grouped popover, an open asset editor, its
       // PNG-import panel, the zone-NPC editor, or an in-game dialog keep the menu.
+      // The two docked windows are in this list only so a click inside one
+      // doesn't count as "outside": they are never closed by this handler.
       const panels = [
         this.audioPanel,
         this.mumblePanel,
@@ -4062,7 +4066,7 @@ export class OfficeScene extends Phaser.Scene {
           }
           void (async () => {
             await this.ensureMatrix();
-            await this.setMenu("matrix");
+            this.setMatrixOpen(true);
             if (arg) this.matrix?.openDm(arg);
           })();
           return true;

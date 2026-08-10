@@ -22,8 +22,9 @@
  * never occur again.
  */
 import { type MxDecryptAction, type MxEvent } from './types.js';
-import { mkAvatar } from './matrixSkin.js';
+import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { imageContentOf, type MxImageContent } from './media.js';
+import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
 
 /** Escape text to HTML. Copied verbatim from `client/src/ui/chatUI.ts` (module-
  *  private there) plus `'` -> `&#39;`, so the helper is also safe inside a
@@ -146,6 +147,9 @@ export interface TimelineHooks {
   onRetry(txnId: string): void;
   /** Resolve a sender's display name for a group header. */
   displayName(userId: string): string;
+  /** A sender's profile picture for a group header: the mxc:// this room knows
+   *  for them (null when they have none) plus the store's cached resolver. */
+  avatarOf(userId: string): MxAvatarPicture;
   /** The `.act` link on an undecryptable row was activated — the caller
    *  routes to whatever can actually acquire a key (design doc §4.3). */
   onDecryptAction(action: MxDecryptAction): void;
@@ -192,6 +196,60 @@ function textBodyOf(ev: MxEvent): { html: string; plain: string; isAttachment: b
     return { html: '* ' + linkify(body), plain: '', isAttachment: false };
   }
   return { html: linkify(body), plain: '', isAttachment: false };
+}
+
+/** `linkify`, but producing nodes instead of a string — this is what
+ *  `renderFormattedBody` calls for each text node it copies. It builds the
+ *  anchors directly rather than reusing `linkify` and parsing its output,
+ *  because feeding a generated string back through an HTML parser is the one
+ *  round trip the sanitiser exists to avoid. */
+function linkifyToNodes(text: string): DocumentFragment {
+  const frag = document.createDocumentFragment();
+  const re = /(https?:\/\/[^\s<]+)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+    let url = m[0];
+    const trail = url.match(/[.,!?;:]+$/);
+    const tail = trail ? trail[0] : '';
+    if (tail) url = url.slice(0, -tail.length);
+    const a = document.createElement('a');
+    a.className = 'mx-link';
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer nofollow';
+    a.textContent = url;
+    frag.appendChild(a);
+    if (tail) frag.appendChild(document.createTextNode(tail));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+  return frag;
+}
+
+/** Render an `org.matrix.custom.html` body into `txt`, returning false when
+ *  there is nothing to render that way (so the caller falls back to plain
+ *  text). The sanitised result is attached as nodes via `replaceChildren` —
+ *  `txt.innerHTML` is never assigned anything derived from a remote string. */
+function paintRichBody(txt: HTMLElement, ev: MxEvent, msgtype: string): boolean {
+  if (!hasFormattedBody(ev.content)) return false;
+  const result = renderFormattedBody(ev.content.formatted_body as string, linkifyToNodes);
+  if (!result) return false;
+
+  const nodes: Node[] = [];
+  // An emote is "* alice waves", including when it is formatted.
+  if (msgtype === 'm.emote') nodes.push(document.createTextNode('* '));
+  nodes.push(result.fragment);
+  if (result.truncated) {
+    const cut = document.createElement('div');
+    cut.className = 'mx-rich-cut';
+    cut.textContent = '(message shortened — it was too large to display in full)';
+    nodes.push(cut);
+  }
+  txt.replaceChildren(...nodes);
+  txt.classList.add('mx-rich');
+  return true;
 }
 
 /** What a row needs beyond the public hooks: a way to tell the view that its
@@ -351,6 +409,9 @@ function buildMsgRow(deps: RowDeps): MsgRow {
   const update = (ev: MxEvent): void => {
     lastEvent = ev;
     el.className = 'mx-msg';
+    // Reset here too: `.mx-rich` is added by the formatted-body path, and a row
+    // recycled onto a plain message must not keep its block spacing.
+    txt.className = 'mx-txt';
     el.removeAttribute('title');
     txt.hidden = false;
     retry.hidden = true;
@@ -407,7 +468,8 @@ function buildMsgRow(deps: RowDeps): MsgRow {
       const body = textBodyOf(ev);
       if (body.isAttachment) {
         txt.textContent = body.plain;
-      } else {
+      } else if (!paintRichBody(txt, ev, msgtype)) {
+        // No usable formatted_body — the plain-text path, unchanged.
         txt.innerHTML = body.html;
       }
     }
@@ -681,7 +743,7 @@ export class TimelineView {
     el.className = 'mx-grp';
     const head = document.createElement('div');
     head.className = 'mx-grp-head';
-    head.appendChild(mkAvatar(ev.sender, this.hooks.displayName(ev.sender)));
+    head.appendChild(mkAvatar(ev.sender, this.hooks.displayName(ev.sender), this.hooks.avatarOf(ev.sender)));
     const nm = document.createElement('span');
     nm.className = 'nm';
     nm.dir = 'auto';

@@ -27,6 +27,8 @@ const NSGEN_PREFIX = 'pa-mx-nsgen:';
 const WIPE_PENDING_KEY = 'pa-mx-wipe-pending';
 const VIEW_KEY = 'pa-mx-view';
 const DRAFT_PREFIX = 'pa-mx-draft:';
+const NOTIFY_KEY = 'pa-mx-notify';
+const NOTIFY_BODY_KEY = 'pa-mx-notify-body';
 
 const DELETE_TIMEOUT_MS = 3000;
 
@@ -139,6 +141,50 @@ function writePendingWipeNames(names: string[]): void {
     else localStorage.setItem(WIPE_PENDING_KEY, JSON.stringify(names));
   } catch {
     // best effort — see other localStorage catches in this file
+  }
+}
+
+/** Notification preferences. Device-scoped, like Mumble's join/leave alerts —
+ *  they describe this machine's desktop, not the account, so they are not part
+ *  of the sign-out wipe and carry no account data to leak. */
+export interface MxNotifyPrefs {
+  enabled: boolean;
+  showBody: boolean;
+}
+
+function readFlag(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    return raw === '1';
+  } catch {
+    return fallback; // private mode
+  }
+}
+
+/**
+ * Defaults: notifications on, message text off.
+ *
+ * The text default is the conservative one and is a privacy decision, not a
+ * taste one: a notification body leaves the app for the OS notification service,
+ * which on Linux is a daemon that may log or persist it, and for an
+ * end-to-end-encrypted room that would be decrypted content going somewhere the
+ * user never asked it to go. Notifications still say who and where by default.
+ */
+export function readNotifyPrefs(): MxNotifyPrefs {
+  return {
+    enabled: readFlag(NOTIFY_KEY, true),
+    showBody: readFlag(NOTIFY_BODY_KEY, false),
+  };
+}
+
+export function writeNotifyPrefs(prefs: MxNotifyPrefs): void {
+  try {
+    localStorage.setItem(NOTIFY_KEY, prefs.enabled ? '1' : '0');
+    localStorage.setItem(NOTIFY_BODY_KEY, prefs.showBody ? '1' : '0');
+  } catch {
+    // Private mode: the choice holds for this session and is re-read from the
+    // defaults next boot, which is the safe direction for showBody.
   }
 }
 

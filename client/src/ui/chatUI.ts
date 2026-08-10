@@ -359,7 +359,16 @@ function injectStyle(): void {
   const style = document.createElement('style');
   style.id = 'pa-chat-style';
   style.textContent = `
-    #pa-chat{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;width:24rem;max-width:46vw;
+    /* Anchored to the game's left edge, not the screen's: a docked window
+       (--pa-dock-l, see ui/dockWindow.ts) pushes the chat box across.
+       The max-width is the other half of that: being pushed off the left window
+       still leaves it running into the *right* one once both are open, and the
+       chat box sits below the window layer (z 55 vs 56), so an overlap here
+       means being covered rather than covering. It has no floor for that
+       reason — unlike a popover, this is permanent furniture, and a narrow chat
+       box you can read beats a wide one hidden under Mumble. */
+    #pa-chat{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;width:24rem;
+      max-width:min(46vw, calc(var(--pa-hud-gap, 100vw) - 1rem));
       display:flex;flex-direction:column;gap:0.35rem;font-family:'FS Pixel Sans',ui-monospace,monospace;
       transition:opacity 0.8s ease;}
     #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
@@ -375,7 +384,7 @@ function injectStyle(): void {
     #pa-chathide{flex:0 0 auto;background:rgba(23,27,43,.9);border:2px solid #0a0908;border-radius:0.4rem;
       color:#adb0b2;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chathide:hover{color:#f1efec;}
-    #pa-chatopen{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;display:none;background:rgba(23,27,43,.9);
+    #pa-chatopen{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;display:none;background:rgba(23,27,43,.9);
       border:2px solid #0a0908;border-radius:0.4rem;color:#f1efec;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#4998c0;}

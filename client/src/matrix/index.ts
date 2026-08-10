@@ -12,16 +12,15 @@ import { injectMatrixSkin } from './matrixSkin.js';
 
 export interface MatrixClientHooks {
   paUserId: string;
-  onPinChange(pinned: boolean): void;
   onUnreadChange(unread: number): void;
   /** Escape at the panel's root view (nothing left to pop): the host should
-   *  close the panel the same way its own ✕/toggle would. */
+   *  close the window the same way its own ✕/toggle would. */
   onRequestClose(): void;
 }
 
 export interface MatrixClientHandle {
-  readonly isPinned: boolean;
-  unpin(): void;
+  /** Tell the client its docked window opened or closed. */
+  setDocked(docked: boolean): void;
   ownsFocus(): boolean;
   openDm(mxid: string): void;
   destroy(): void;
@@ -32,10 +31,7 @@ export function createMatrixClient(mount: HTMLElement, hooks: MatrixClientHooks)
   const uiHooks: MatrixUIHooks = hooks;
   const ui = new MatrixUI(mount, uiHooks);
   return {
-    get isPinned() {
-      return ui.isPinned;
-    },
-    unpin: () => ui.unpin(),
+    setDocked: (docked) => ui.setDocked(docked),
     ownsFocus: () => ui.ownsFocus(),
     openDm: (mxid) => ui.openDm(mxid),
     destroy: () => ui.destroy(),

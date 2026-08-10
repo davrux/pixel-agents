@@ -114,17 +114,23 @@ export interface MxRoom {
   preview: string; // one-line plain-text preview, '' when none
   inviterId: string; // invites only, else ''
   inviteIsDirect: boolean; // invites only
+  /** mxc:// of the room's picture, or for a DM without one, the other
+   *  person's. null when there is nothing to show (the UI falls back to its
+   *  initials square). Never an http URL — resolving it is the store's job. */
+  avatarMxc: string | null;
 }
 
 export interface MxMember {
   userId: string;
   displayName: string;
   membership: 'join' | 'invite';
+  avatarMxc: string | null;
 }
 
 export interface MxDirectoryUser {
   userId: string;
   displayName: string;
+  avatarMxc: string | null;
 }
 
 export interface MxSession {

@@ -168,8 +168,12 @@ function injectMeetingAreaStyles(): void {
   const s = document.createElement('style');
   s.id = 'pa-meeting-style';
   s.textContent = `
-    #pa-meeting{position:fixed;right:calc(0.75rem + var(--pa-side-panel-w, 0px));bottom:0.75rem;z-index:59;flex-direction:column;gap:0.5rem;
-      width:14rem;background:#1c1a19;border:2px solid #0a0908;border-radius:0.5rem;
+    #pa-meeting{position:fixed;right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));bottom:0.75rem;z-index:59;flex-direction:column;gap:0.5rem;
+      /* Clamped to the room between the docked windows for the same reason the
+         chat box is (see chatUI.ts): inset from the right window only, it can
+         still reach the left one when both are open. */
+      width:14rem;max-width:calc(var(--pa-hud-gap, 100vw) - 1.5rem);
+      background:#1c1a19;border:2px solid #0a0908;border-radius:0.5rem;
       padding:0.6rem;color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.85rem;
       box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),0 4px 18px rgba(0,0,0,.45);}
     #pa-meeting .pa-meet-head{display:flex;align-items:baseline;justify-content:space-between;gap:0.4rem;font-weight:bold;}

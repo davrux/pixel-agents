@@ -57,16 +57,60 @@ export function initialsOf(label: string): string {
   return out.slice(0, 2).toUpperCase();
 }
 
-/** Builds one `.mx-av` initials square. `label` is remote (a display name or an
- *  MXID) so it is only ever assigned via `textContent`/`title` property assignment
- *  — never interpolated into markup. */
-export function mkAvatar(seed: string, label: string): HTMLDivElement {
+/** How a caller supplies a real profile picture to `mkAvatar`. `load` is the
+ *  store's cached mxc -> blob: URL resolver; the square is built and returned
+ *  synchronously either way, and the picture (if any) fades in when it
+ *  arrives. */
+export interface MxAvatarPicture {
+  mxc: string | null;
+  load(mxc: string, sizePx: number): Promise<string>;
+}
+
+/** CSS box is 2.1rem; ask for a bit more than that so the square stays sharp
+ *  on a HiDPI screen without fetching a different size per device. */
+const AVATAR_FETCH_PX = 64;
+
+/** Builds one `.mx-av` square: initials over a per-identity tint, plus the
+ *  real profile picture when there is one. `label` is remote (a display name or
+ *  an MXID) so it is only ever assigned via `textContent`/`title` property
+ *  assignment — never interpolated into markup.
+ *
+ *  The initials are always built, never replaced: the picture is layered over
+ *  them, so a slow, missing, or non-image avatar degrades to exactly what this
+ *  function returned before profile pictures existed. */
+export function mkAvatar(seed: string, label: string, picture?: MxAvatarPicture): HTMLDivElement {
   const el = document.createElement('div');
   el.className = 'mx-av';
-  el.textContent = initialsOf(label);
   el.title = label;
   el.style.boxShadow = 'inset 0 0 0 2px ' + avatarTint(seed);
   el.setAttribute('aria-hidden', 'true');
+
+  const initials = document.createElement('span');
+  initials.className = 'mx-av-i';
+  initials.textContent = initialsOf(label);
+  el.appendChild(initials);
+
+  const mxc = picture?.mxc;
+  if (picture && mxc) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.decoding = 'async';
+    picture
+      .load(mxc, AVATAR_FETCH_PX)
+      .then((url) => {
+        // Painted unconditionally, with no "is this element still in the
+        // document" guard: rows are rebuilt constantly, and a cached avatar
+        // resolves in a microtask that can run before the caller has finished
+        // appending its row. Skipping those would leave permanently blank
+        // squares for exactly the avatars that were already loaded.
+        img.src = url;
+        el.appendChild(img);
+        el.classList.add('has-img');
+      })
+      .catch(() => {
+        /* keep the initials — an unreachable or non-image avatar is not an error the reader can act on */
+      });
+  }
   return el;
 }
 
@@ -77,9 +121,13 @@ export function injectMatrixSkin(): void {
   const style = document.createElement('style');
   style.id = 'pa-mx-style';
   style.textContent = `
-#pa-matrix-panel{overflow:hidden;display:flex;flex-direction:column;height:min(36rem,calc(100vh - 4.7rem))}
-#pa-matrix-panel.pa-docked{width:26rem;height:calc(100vh - 4.7rem)}
-#pa-matrix-panel .pa-body{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:0}
+/* The panel is a docked application window (ui/dockWindow.ts owns its column:
+   full height, width, the resize grip, and — through its fill option — a body
+   that is a flex column and never scrolls as a whole, so every view inside can
+   manage its own scroller and the composer and top strip stay put). All this
+   adds is that the body carries no gutter of its own: those pinned strips have
+   to reach the panel's edges, so each view pads itself instead. */
+#pa-matrix-panel .pa-body{padding:0}
 
 #pa-mx{display:flex;flex-direction:column;flex:1;min-height:0;position:relative;font-family:'FS Pixel Sans',ui-monospace,monospace}
 
@@ -94,10 +142,10 @@ export function injectMatrixSkin(): void {
    itself must not pad or scroll — see .mx-encbody below. */
 #pa-mx > section[data-view="room"],#pa-mx > section[data-view="encryption"]{padding:0;gap:0}
 #pa-mx > section:not([data-view="room"]):not([data-view="encryption"]){padding:0.6rem 0.7rem 0.8rem}
-/* Every other view (encryption, members, …) stacks a lot more content than the panel's fixed height
-   can show at once — without its own scroller here, .pa-panel's own overflow-y:auto (paSkin.ts) is
-   overridden by #pa-matrix-panel/.pa-body's overflow:hidden above, and everything past the fold is
-   simply clipped with no scrollbar (unreachable, not just unseen). */
+/* Every other view (encryption, members, …) stacks more content than the window's height can show
+   at once — without its own scroller here, the body's overflow:hidden above (which outranks the
+   docked window's own overflow-y:auto, ui/dockWindow.ts) simply clips everything past the fold
+   with no scrollbar: unreachable, not just unseen. */
 #pa-mx > section:not([data-view="room"]):not([data-view="encryption"]){overflow-y:auto;overscroll-behavior:contain}
 /* The encryption view stacks the most content of any view; scrolling it inside the section (rather
    than scrolling the section) is what keeps its ◀ reachable from the bottom of the device list. */
@@ -123,11 +171,26 @@ export function injectMatrixSkin(): void {
 .mx-dot.off{background:#7c2634}
 
 .mx-av{
-  width:2.1rem;height:2.1rem;flex:0 0 auto;
+  width:2.1rem;height:2.1rem;flex:0 0 auto;position:relative;overflow:hidden;
   background:#141312;border:2px solid #0a0908;border-radius:0.35rem;
   color:#f1efec;display:flex;align-items:center;justify-content:center;
   font-size:0.8rem;font-weight:600;user-select:none;
 }
+/* The picture is layered over the initials rather than replacing them, so a
+   transparent PNG still reads and a failed load needs no cleanup. */
+.mx-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.mx-av.has-img .mx-av-i{visibility:hidden}
+/* A slot is an in-place holder for one square (the room header, the status
+   strip) — see paintAvatarSlot; list rows build theirs inline instead. */
+.mx-av-slot{display:inline-flex;flex:0 0 auto}
+/* The strip is a single short line, so its own square rides smaller. It is
+   also a button (click to change your picture), so the button chrome has to be
+   stripped back to just the square. */
+.mx-me-av{padding:0;margin:0;border:0;background:none;cursor:pointer}
+.mx-me-av:disabled{cursor:progress;opacity:.6}
+.mx-me-av:focus-visible{outline:2px solid #4998c0;outline-offset:2px}
+.mx-me-av .mx-av{width:1.5rem;height:1.5rem;border-width:2px;font-size:0.6rem;border-radius:0.3rem}
+.mx-subhead .mx-av{width:1.7rem;height:1.7rem;font-size:0.7rem}
 
 .mx-room.unread .nm{color:#f5f3f0;font-weight:600}
 .mx-room.here .nm{color:#e7da00}
@@ -180,6 +243,58 @@ export function injectMatrixSkin(): void {
 .mx-msg.deleted .mx-txt{color:#818586;font-style:italic}
 .mx-msg.notice .mx-txt,.mx-msg.emote .mx-txt{color:#adb0b2}
 .mx-retry{color:#4998c0;cursor:pointer;font-size:0.8rem;margin-left:0.4rem;text-decoration:underline}
+
+/* ---- formatted (org.matrix.custom.html) bodies ------------------------------
+   The panel is ~26rem wide, so the rule that matters here is that nothing may
+   widen the column: a long code line scrolls inside its own <pre>, and the
+   timeline itself never gains a horizontal scrollbar. */
+.mx-rich{white-space:normal}
+.mx-rich > :first-child{margin-top:0}
+.mx-rich > :last-child{margin-bottom:0}
+.mx-rich p{margin:0 0 0.4rem}
+.mx-rich h1,.mx-rich h2,.mx-rich h3,.mx-rich h4,.mx-rich h5,.mx-rich h6{
+  margin:0.5rem 0 0.3rem;font-size:1rem;color:#f5f3f0;font-weight:600;
+}
+.mx-rich h1{font-size:1.15rem}
+.mx-rich h2{font-size:1.08rem}
+.mx-rich ul,.mx-rich ol{margin:0.2rem 0 0.4rem;padding-left:1.3rem}
+.mx-rich li{margin:0.1rem 0}
+.mx-rich blockquote{
+  margin:0.3rem 0;padding:0.2rem 0 0.2rem 0.6rem;
+  border-left:3px solid #4a4744;color:#adb0b2;
+}
+.mx-rich hr{border:0;border-top:2px solid #0a0908;margin:0.5rem 0}
+.mx-rich a{color:#4998c0}
+.mx-rich del{color:#818586}
+/* Inline code: an inset chip, breakable so a long identifier can't push the
+   column wider. */
+.mx-rich code{
+  background:#141312;border:2px solid #0a0908;border-radius:0.25rem;
+  padding:0 0.2rem;font-family:ui-monospace,'FS Pixel Sans',monospace;font-size:0.88em;
+  overflow-wrap:anywhere;
+}
+/* Block code: the one place text must NOT wrap — a wrapped snippet is a
+   misleading snippet — so it scrolls sideways in its own well instead. */
+.mx-rich pre{
+  margin:0.35rem 0;padding:0.45rem 0.55rem;
+  background:#141312;border:2px solid #0a0908;border-radius:0.35rem;
+  box-shadow:inset 0 2px 0 #2c2a28, inset 0 -3px 0 #050505;
+  overflow-x:auto;overscroll-behavior-x:contain;max-width:100%;
+}
+.mx-rich pre code{
+  display:block;background:none;border:0;border-radius:0;padding:0;
+  white-space:pre;overflow-wrap:normal;font-size:0.85rem;line-height:1.45;color:#f1efec;
+}
+/* Tables are rare in chat but must not be the thing that breaks the column. */
+.mx-rich table{display:block;overflow-x:auto;max-width:100%;border-collapse:collapse;margin:0.35rem 0}
+.mx-rich th,.mx-rich td{border:2px solid #0a0908;padding:0.15rem 0.35rem;text-align:left}
+.mx-rich th{background:#262422}
+.mx-rich details{margin:0.3rem 0}
+.mx-rich summary{cursor:pointer;color:#adb0b2}
+/* An inline emote/sticker this client doesn't render as a picture, shown as its
+   alt text so an emote-only message is never a blank bubble. */
+.mx-inline-img{color:#818586}
+.mx-rich-cut{color:#a86a2e;font-size:0.8rem;margin-top:0.2rem}
 
 /* A picture row. The button is sized from the event's own w/h (an
    aspect-ratio set inline by timeline.ts) *before* the bytes arrive, so the
@@ -311,6 +426,51 @@ export function injectMatrixSkin(): void {
 .mx-btns .pa-b{flex:1}
 .mx-hint{font-size:0.8rem;color:#818586}
 .mx-lbl{display:block;color:#818586;font-size:0.85rem;margin:0.5rem 0 0.15rem}
+/* A checkbox row (the notifications view). The <label> wraps its own input so
+   the text is part of the hit target; same accent and same dimmed-when-inert
+   treatment as Mumble's .chk, so a checkbox reads identically across panels. */
+.mx-chk{
+  display:flex;align-items:center;gap:0.5rem;cursor:pointer;
+  color:#f1efec;font-size:0.9rem;line-height:1.4;margin:0.2rem 0;
+}
+.mx-chk input{accent-color:#c51a1b;width:0.95rem;height:0.95rem;flex:0 0 auto;cursor:pointer}
+.mx-chk.off{opacity:.45;cursor:default}
+.mx-chk.off input{cursor:default}
+/* Notifications turned off: the bell says so without opening the view, the same
+   way the 🔐 button carries its own attention dot. */
+#pa-mx-top .mx-notifybtn.off{opacity:.5}
+
+/* ---- compact column ---------------------------------------------------------
+   ui/dockWindow.ts puts .pa-compact on the panel below ~23rem of width. Note
+   what is NOT here: not one font-size, avatar box, or button size changes. Text
+   that resized as you dragged the window is the defect this replaced, so a
+   narrow column earns its room back from gutters and from the two rows that
+   repeat something already on screen — the same content, same size, less of it.
+
+   Reached through the class rather than #pa-matrix-panel so the rules hold
+   wherever the panel is mounted; dockWindow owns the class, this owns what it
+   means for chat. */
+.pa-compact #pa-mx-top{margin:0.4rem;padding:0.3rem 0.4rem;gap:0.35rem}
+/* Your own MXID: the one line in the strip that never changes, and it is still
+   on the avatar's tooltip. First to go. */
+.pa-compact .mx-me{display:none}
+.pa-compact #pa-mx > section{gap:0.4rem}
+.pa-compact #pa-mx > section:not([data-view="room"]):not([data-view="encryption"]){padding:0.45rem 0.5rem 0.6rem}
+.pa-compact .mx-encbody{padding:0.45rem 0.5rem 0.6rem;gap:0.4rem}
+.pa-compact .mx-subhead{padding:0.4rem 0.45rem;gap:0.35rem}
+.pa-compact #pa-mx-tl{padding:0.4rem 0.45rem;gap:0.45rem}
+.pa-compact .mx-composer{padding:0.4rem 0.45rem;gap:0.4rem}
+/* The room list's second line costs every row twice its height to preview a
+   message the timeline shows in full the moment you open the room. */
+.pa-compact .mx-prev{display:none}
+/* 18rem of picture in a ~20rem column would be the panel's whole width minus
+   its gutters; let it use what there is instead. */
+.pa-compact .mx-img{max-width:100%}
+/* A room name has more to lose from truncation than a timestamp does. */
+.pa-compact #pa-mx .pa-list-row small{max-width:28%}
+.pa-compact .mx-rich pre{padding:0.35rem 0.4rem}
+.pa-compact .mx-keyrow{gap:0.35rem 0.45rem}
+
 /* A fingerprint is compared visually, so it must wrap onto more than one line rather than force a
    horizontal scroll inside a single-line <input> (where word-break has no effect at all). */
 .mx-fp{

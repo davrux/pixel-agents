@@ -488,6 +488,14 @@ The word "chat" is never used unqualified in the Matrix panel; rooms are "rooms"
 
 ### 5.1 Placement and host integration
 
+> **SUPERSEDED (placement only).** The panel is no longer a right-docked, pinnable popover: Matrix is
+> now the **left** docked application window, Mumble the right one, with the game between them. There
+> is no pin, no one-dock-at-a-time rule, and no `--pa-dock-w` / `body.pa-dock-pinned` / `.pa-docked`;
+> `client/src/ui/dockWindow.ts` owns `--pa-dock-l` / `--pa-dock-r`, which inset `#game` alongside
+> `--pa-side-panel-w`. See "Docked windows" in `docs/dev-notes.md`. Everything else in this section
+> (the `viewerIdentity` gate, the lazy `ensureMatrix()` boot, `display:flex` over `block`, the
+> `sessionStorage` restore across zone travel) still holds.
+
 **A right-docked, pinnable panel in the Mumble mould.** Not an `--pa-side-panel-w` iframe dock:
 that CSS variable is owned exclusively by `client/src/ui/actionIframe.ts` (set at :50, cleared at
 :84) and shrinks `#game`; a second owner would fight it. The Mumble pin pattern already solves
@@ -1088,24 +1096,38 @@ places: after creating a DM, and after accepting an invite whose `m.room.member`
 
 ## 7. Scope Fence
 
-v1 deliberately does **not** do the following. These are decisions, not omissions:
+v1 deliberately does **not** do the following. These are decisions, not omissions.
+Entries marked **[shipped]** were v1 non-goals that have since been built; they are
+kept here (rather than deleted) because the reasoning for deferring them is still
+the reason they are shaped the way they are.
 
-- **No E2EE** — encrypted rooms are read-only and labelled (§2).
+- ~~**No E2EE**~~ **[shipped]** — full rust-crypto E2EE; see `matrix-e2ee-design.md`.
 - **No voice or video calls** (Matrix VoIP, Element Call). Voice in this app is Mumble + LiveKit zone voice.
 - **No threads, no reactions, no message editing, no replies, no redaction UI.**
 - **No read-receipt display** and no typing notifications. (We *send* our own read marker; see above.)
-- **No file/image upload and no media display** — attachments are labelled placeholders. Matrix 1.11
-  authenticated media would need a token-bearing fetch + blob lifecycle per thumbnail; not v1.
-- **No avatars from `mxc://`** — deterministic initials squares instead.
+- ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, over
+  Matrix 1.11 authenticated media with a token-bearing fetch and a per-session blob lifecycle
+  (`media.ts`). Other attachment types are still labelled placeholders.
+- ~~**No avatars from `mxc://`**~~ **[shipped]** — real profile pictures, layered over the
+  deterministic initials square so a slow or missing one degrades to what v1 drew.
 - **No Spaces** (`m.space` hierarchy), no room directory browsing, no public-room search.
 - **No SSO/OIDC/CAS login, no registration, no password reset, no 3PID/email invites.**
 - **No room settings** — no rename, topic, avatar, join rules, history visibility, power levels.
 - **No moderation** — no kick, ban, mute, or redact.
-- **No notifications** — no desktop/OS notification, no sound, no push rules. Unread badges only.
+- ~~**No notifications**~~ **[shipped, desktop only]** — OS notifications via `notify.ts` +
+  `bridge.ts`'s `notifyDesktop`. The browser build is still badges-only: it has no permission-free
+  path to a notification, and the 🔔 button and its view are not built there at all. Push rules are
+  *consumed*, never reimplemented — `getPushActionsForEvent` is the homeserver's verdict, and the
+  client only narrows it (mentions and DMs always; other rooms only while the window is closed or
+  the app is unfocused; never the room on screen). Message text is off by default: a notification
+  body leaves the app for the desktop's notification service, and for an encrypted room that would
+  put decrypted content outside it.
 - **No multi-account and no parallel homeservers** — one Matrix session per pixel-agents user
   (§3); signing in elsewhere replaces it.
 - **No cross-device session sync** and no server-side credential storage (§3).
-- **No `formatted_body` HTML rendering**, no markdown composition, no code blocks, no pills.
+- ~~**No `formatted_body` HTML rendering**, no markdown composition, no code blocks~~
+  **[shipped]** — `richHtml.ts` rebuilds an allowlisted subset of incoming `formatted_body` into
+  fresh nodes (never `innerHTML`), `markdown.ts` composes it. Still **no pills**.
 - **No background sync before the panel is opened in the current page load** (§1). A pinned dock is
   the one exception — it re-pins itself after the reload that zone travel performs.
 - **No cross-zone persistence of the panel** — `goToZone()` reloads the page; the view, the open room
@@ -1210,3 +1232,4 @@ v1 deliberately does **not** do the following. These are decisions, not omission
 | 2026-08-07 | Initial design. Transport, E2EE, credential, boundary, UX, file-plan and scope decisions recorded. |
 | 2026-08-07 | **§1 (Transport) and §2 (E2EE Position) marked SUPERSEDED** by `docs/design/matrix-e2ee-design.md`, at the repo owner's explicit request to use the official `matrix-js-sdk` with E2EE. No other section changed. |
 | 2026-08-07 | Adversarial review folded in. **Protocol corrections:** room display-name algorithm added (`summary.m.heroes`); DM classification no longer claims `m.room.create` carries `is_direct`; `unsigned.transaction_id` made the primary echo key; `account_data` filter switched from `{"limit":10}` to a `m.direct` type allowlist and a mandatory `GET` added before every write; accepting a DM invite now writes `m.direct`; members read via `/members?membership=join&membership=invite`; invite acceptance uses `/rooms/{roomId}/join`; raw room-id joins carry `server_name`; `presence` uses `not_types`. **Host corrections:** the Matrix panel bypasses `setMenu`'s `display:'block'` and uses `flex`; `--pa-dock-w` corrected to panel width + 1.5 rem (27.5 rem); `blocked()` extended for WASD/arrows; the bar button is gated on `viewerIdentity` and `destroy()` given a lifecycle owner; zone travel's full reload documented with `sessionStorage` restore. **Security:** the discovered `m.homeserver.base_url` is re-validated; the remote-content rule promoted to a hard rule covering `title`/`aria-label`/`href`/`style`; `esc()` extended with `'`. **Rendering:** gappy sync no longer wipes a back-paginated window; store and DOM caps made hard and bounded; `overflow-anchor:none` + synchronous scroll restore; `aria-live` scoped. **Scope:** `/matrix` moved into `shared/src/commands.ts` (the `/admin-site`-is-unregistered claim was false); `pa-mx-autostart`, the per-homeserver key dimension, `pa-mx-active`, `GET /profile`, `.pa-chip` and `.pa-select` removed; `.mx-av` tints drawn from existing accents; `.mx-toast` and `.mx-gap` given owners. |
+| 2026-08-10 | **§5.1 placement SUPERSEDED.** Matrix and Mumble became docked application windows either side of the game (Matrix left, Mumble right) instead of pinnable right-hand popovers. Pin state, `MatrixClientHandle.isPinned`/`unpin()`, `MumbleUI.isPinned`/`unpin()`, `onPinChange`, `applyDock()`, `--pa-dock-w`, `body.pa-dock-pinned`, `.pa-docked` and the `pa-mx-pinned`/`pa-mb-pinned` keys are all gone; `client/src/ui/dockWindow.ts` owns `--pa-dock-l`/`--pa-dock-r` (which inset `#game` alongside `--pa-side-panel-w`), a drag-to-resize grip, and the `pa-mx-win-*`/`pa-mb-win-*` width + open-state keys. `MatrixClientHandle` gains `setDocked(open)`, which replaces the pin as the timeline-poll gate. |

@@ -1661,7 +1661,9 @@ export class LayoutEditor {
     style.textContent = `
       /* Matches the grouped-menu pixel style (#1c1a19 panels, chunky #0a0908
          borders + inset bevels, red primary, red sliders, green selection). */
-      #pa-editor{position:fixed;top:0;left:0;bottom:0;z-index:55;display:none;flex-direction:column;
+      /* The rail lines up with the left edge of the game, not of the screen —
+         a docked Matrix window (--pa-dock-l, ui/dockWindow.ts) sits outboard. */
+      #pa-editor{position:fixed;top:0;left:var(--pa-dock-l, 0px);bottom:0;z-index:55;display:none;flex-direction:column;
         width:20rem;background:#1c1a19;border-right:2px solid #0a0908;color:#f1efec;
         box-shadow:inset -3px 0 0 #030303,4px 0 18px rgba(0,0,0,.45);
         font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.9rem;}

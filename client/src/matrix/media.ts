@@ -88,15 +88,29 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(s);
 }
 
+/** Unpadded standard base64 — what the spec requires for `iv` and
+ *  `hashes.sha256` ("encoded as unpadded base64").
+ *
+ *  This is not cosmetic. Element verifies the ciphertext by *string*-comparing
+ *  our `hashes.sha256` against its own re-encoding of the digest it computed,
+ *  and its encoder strips the padding. A trailing '=' here therefore fails
+ *  that comparison for bytes that are perfectly intact, and every picture we
+ *  send lands in Element as "Error decrypting image". */
+function toBase64Unpadded(bytes: Uint8Array): string {
+  return toBase64(bytes).replace(/=+$/, '');
+}
+
 function toBase64Url(bytes: Uint8Array): string {
-  return toBase64(bytes).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return toBase64Unpadded(bytes).replace(/\+/g, '-').replace(/\//g, '_');
 }
 
 /** Tolerant on purpose: other clients disagree about padding and about
  *  url-safe vs standard alphabet for these fields, and a picture failing to
- *  open because of a '=' is not an acceptable interop story. */
+ *  open because of a '=' is not an acceptable interop story. Existing padding
+ *  is dropped before re-padding, so an already-padded input can't end up
+ *  over-padded (which `atob` rejects outright). */
 function fromBase64(s: string): Uint8Array<ArrayBuffer> {
-  const norm = s.replace(/-/g, '+').replace(/_/g, '/');
+  const norm = s.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
   const padded = norm + '='.repeat((4 - (norm.length % 4)) % 4);
   const bin = atob(padded);
   const out = new Uint8Array(bin.length);
@@ -124,6 +138,28 @@ function isGif(bytes: Uint8Array): boolean {
   if (bytes.length < 10) return false;
   const sig = String.fromCharCode(...Array.from(bytes.subarray(0, 6)));
   return sig === 'GIF87a' || sig === 'GIF89a';
+}
+
+function isWebp(bytes: Uint8Array): boolean {
+  if (bytes.length < 12) return false;
+  const riff = String.fromCharCode(...Array.from(bytes.subarray(0, 4)));
+  const webp = String.fromCharCode(...Array.from(bytes.subarray(8, 12)));
+  return riff === 'RIFF' && webp === 'WEBP';
+}
+
+/** Type-only sniff, for media whose dimensions we don't need — avatars, which
+ *  are fetched at a size we chose anyway. Includes WebP (Synapse emits it for
+ *  some thumbnails) precisely because no dimension parsing is required here.
+ *
+ *  This is the gate that keeps an avatar from being a scriptable document: the
+ *  bytes must look like a known raster format or they are not rendered at all,
+ *  regardless of what Content-Type the homeserver attached. */
+export function sniffImageType(bytes: Uint8Array): string | null {
+  if (isPng(bytes)) return 'image/png';
+  if (isJpeg(bytes)) return 'image/jpeg';
+  if (isGif(bytes)) return 'image/gif';
+  if (isWebp(bytes)) return 'image/webp';
+  return null;
 }
 
 /** Identify a supported image and read its dimensions out of the header.
@@ -236,8 +272,8 @@ export async function encryptAttachment(data: ArrayBuffer): Promise<{
       // byte-identical across browsers — Firefox and Chrome do not agree on
       // which optional JWK members they emit for AES-CTR.
       key: { kty: 'oct', key_ops: ['encrypt', 'decrypt'], alg: 'A256CTR', k: toBase64Url(keyBytes), ext: true },
-      iv: toBase64(iv),
-      hashes: { sha256: toBase64(new Uint8Array(digest)) },
+      iv: toBase64Unpadded(iv),
+      hashes: { sha256: toBase64Unpadded(new Uint8Array(digest)) },
       v: 'v2',
     },
   };
@@ -358,6 +394,38 @@ export class MatrixMedia {
     return p;
   }
 
+  /** A cropped square thumbnail of a profile/room avatar, cached per
+   *  (mxc, size). Avatars are never encrypted — they are profile and room
+   *  state, readable by anyone in the room — so there is no `EncryptedFile`
+   *  path here.
+   *
+   *  Goes through the homeserver's thumbnail endpoint rather than `objectUrl`:
+   *  a room list of twenty people would otherwise pull twenty full-size
+   *  originals (megabytes each) to paint twenty 34px squares. */
+  avatarUrl(mxc: string, sizePx: number): Promise<string> {
+    const key = `${mxc}|${sizePx}`;
+    if (!mxc.startsWith('mxc://')) return Promise.reject(new MatrixError(0, '', 'Not a media address.'));
+    const cached = this.urls.get(key);
+    if (cached) return Promise.resolve(cached);
+    const running = this.inflight.get(key);
+    if (running) return running;
+
+    const p = this.downloadThumbnail(mxc, sizePx)
+      .then((url) => {
+        if (this.destroyed) {
+          URL.revokeObjectURL(url);
+          throw new MatrixError(0, '', 'Signed out.');
+        }
+        this.urls.set(key, url);
+        return url;
+      })
+      .finally(() => {
+        this.inflight.delete(key);
+      });
+    this.inflight.set(key, p);
+    return p;
+  }
+
   /** Register bytes we already hold (the file we are about to upload) under
    *  the mxc URI the server just gave it, so our own local echo renders
    *  instantly instead of downloading back what we just sent. */
@@ -448,19 +516,33 @@ export class MatrixMedia {
     return URL.createObjectURL(new Blob([plain], { type }));
   }
 
+  private async downloadThumbnail(mxc: string, sizePx: number): Promise<string> {
+    const buf = await this.fetchMedia(mxc, sizePx);
+    // No event to declare a mimetype for an avatar, so it is sniffed from the
+    // bytes. Anything unrecognised (an SVG the server couldn't thumbnail, an
+    // error page) is refused outright — the caller keeps its initials square.
+    const type = sniffImageType(new Uint8Array(buf));
+    if (!type) throw new MatrixError(0, '', 'Not a displayable picture.');
+    return URL.createObjectURL(new Blob([buf], { type }));
+  }
+
   /** Authenticated media (Matrix 1.11+) first, falling back to the legacy
    *  unauthenticated route only when the server says it doesn't know the new
    *  one. The access token goes in a header, never in a query string, so it
    *  can't end up in a server log or a Referer. */
-  private async fetchMedia(mxc: string): Promise<ArrayBuffer> {
+  private async fetchMedia(mxc: string, thumbPx?: number): Promise<ArrayBuffer> {
     const token = this.client.getAccessToken();
-    const authUrl = this.client.mxcUrlToHttp(mxc, undefined, undefined, undefined, false, true, true);
+    // Passing width/height switches mxcUrlToHttp to the /thumbnail route;
+    // 'crop' is what makes a square out of a non-square avatar (the default,
+    // 'scale', letterboxes it).
+    const method = thumbPx === undefined ? undefined : 'crop';
+    const authUrl = this.client.mxcUrlToHttp(mxc, thumbPx, thumbPx, method, false, true, true);
     if (authUrl && token) {
       const res = await doFetch(authUrl, { Authorization: `Bearer ${token}` });
       if (res.ok) return readCapped(res);
       if (res.status !== 400 && res.status !== 404 && res.status !== 401) throw mediaError(res.status);
     }
-    const legacyUrl = this.client.mxcUrlToHttp(mxc, undefined, undefined, undefined, false, true, false);
+    const legacyUrl = this.client.mxcUrlToHttp(mxc, thumbPx, thumbPx, method, false, true, false);
     if (!legacyUrl) throw new MatrixError(0, '', 'This picture has an address this client cannot read.');
     const res = await doFetch(legacyUrl, {});
     if (!res.ok) throw mediaError(res.status);

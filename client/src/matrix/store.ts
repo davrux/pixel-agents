@@ -50,9 +50,12 @@ import type {
   MxStatus,
 } from './types.js';
 import { bootMatrixClient, type MxBootState, type MxClientBoot } from './client.js';
-import { cryptoDbPrefix, drainPendingWipes, startFresh, wipeNamespace } from './storage.js';
+import { cryptoDbPrefix, drainPendingWipes, readNotifyPrefs, startFresh, wipeNamespace } from './storage.js';
+import { MatrixNotifier, type NotifyKind } from './notify.js';
+import { notifyDesktop } from '../desktop/bridge.js';
 import { createMatrixCrypto, type MatrixCrypto } from './crypto.js';
 import { MatrixMedia, type MxImageContent } from './media.js';
+import { toHtml } from './markdown.js';
 
 const READ_DEBOUNCE_MS = 1000;
 const LOGOUT_HTTP_TIMEOUT_MS = 5000;
@@ -83,6 +86,16 @@ export interface MatrixStoreEventMap {
 export interface MatrixStoreOpts {
   session: MxSession;
   paUserId: string;
+  /**
+   * What the reader is attending to, for notifications: whether the docked
+   * window is open and whether the app has focus. The store supplies the third
+   * part (which room is open) itself.
+   *
+   * Absent, it assumes you are watching the panel — the quieter of the two
+   * guesses, since a wrong "you can't see this" only costs a notification while
+   * a wrong "nobody is looking" interrupts for every message.
+   */
+  attention?: () => { panelOpen: boolean; appFocused: boolean };
 }
 
 /** Tiny typed emitter — no event-emitter package dependency, and it keeps
@@ -132,6 +145,8 @@ export class MatrixStore {
    *  silent success. Kept separate from `bootState` because that field describes a *boot*, not a
    *  sign-out outcome. */
   private lastWipeFailed_: string[] = [];
+  /** Set by `setMyAvatar` so the strip repaints before /sync catches up. */
+  private myAvatarOverride_: string | null = null;
   private bootPhase = '';
   private everPrepared = false;
   private knownDeadToken = false;
@@ -154,10 +169,28 @@ export class MatrixStore {
   private readonly onOnline = (): void => this.retryNow();
   private readonly onOffline = (): void => this.setStatus('offline');
 
+  /** Live events that arrived as ciphertext and are still being decrypted. Only
+   *  an id in here may notify when `Decrypted` fires: that event also fires for
+   *  history whose keys turn up much later, and backfilled messages from last
+   *  week must not pop notifications. */
+  private readonly awaitingDecrypt = new Set<string>();
+
+  private readonly notifier: MatrixNotifier;
+
   constructor(o: MatrixStoreOpts) {
     this.session = o.session;
     this.paUserId = o.paUserId;
     this.userId = o.session.userId;
+    this.notifier = new MatrixNotifier({
+      prefs: () => readNotifyPrefs(),
+      attention: () => ({
+        ...(o.attention?.() ?? { panelOpen: true, appFocused: true }),
+        openRoomId: this.openRoomId,
+      }),
+      // No-op in the browser build, which has no permission-free path to an OS
+      // notification (see bridge.ts) — nothing else here needs to care.
+      send: (title, body) => notifyDesktop(title, body),
+    });
     if (typeof window !== 'undefined') {
       window.addEventListener('online', this.onOnline);
       window.addEventListener('offline', this.onOffline);
@@ -320,10 +353,21 @@ export class MatrixStore {
     client.on(ClientEvent.AccountData, onAccountData);
     this.unsubs.push(() => client.off(ClientEvent.AccountData, onAccountData));
 
-    const onTimeline = (event: MatrixEvent, room: Room | undefined): void => {
+    const onTimeline = (
+      event: MatrixEvent,
+      room: Room | undefined,
+      toStartOfTimeline: boolean | undefined,
+      _removed: boolean,
+      data?: { liveEvent?: boolean },
+    ): void => {
       const roomId = room?.roomId ?? event.getRoomId();
       if (roomId) this.emitTimelineDirty(roomId);
       this.markRoomsDirty();
+      // Notifications are for messages arriving *now*: not back-pagination
+      // (toStartOfTimeline), not a timeline rewrite (liveEvent false), and not
+      // the initial sync's backlog (everPrepared).
+      if (toStartOfTimeline === true || data?.liveEvent !== true) return;
+      this.considerNotify(event, room, false);
     };
     client.on(RoomEvent.Timeline, onTimeline);
     this.unsubs.push(() => client.off(RoomEvent.Timeline, onTimeline));
@@ -349,6 +393,15 @@ export class MatrixStore {
       const roomId = event.getRoomId();
       if (roomId) this.emitTimelineDirty(roomId);
       this.markRoomsDirty();
+      // Only for an event we saw arrive live as ciphertext — otherwise this is a
+      // late key unlocking old history, which is not news. Push actions are
+      // recalculated because the ones computed over the ciphertext could not see
+      // a body to match a mention against.
+      const id = event.getId();
+      if (id && this.awaitingDecrypt.delete(id)) {
+        const room = roomId ? this.client?.getRoom(roomId) ?? undefined : undefined;
+        this.considerNotify(event, room, true);
+      }
     };
     client.on(MatrixEventEvent.Decrypted, onDecrypted);
     this.unsubs.push(() => client.off(MatrixEventEvent.Decrypted, onDecrypted));
@@ -434,6 +487,11 @@ export class MatrixStore {
     this.loadingRooms.clear();
     this.roomErrors.clear();
     this.openRoomId = null;
+    // Drop, never flush: a stop is a sign-out, a page-hide or a disconnect, and
+    // a notification arriving after the session it belongs to is gone would be
+    // both confusing and (with message text on) a leak past the wipe.
+    this.notifier.reset();
+    this.awaitingDecrypt.clear();
   }
 
   /** client.stopClient() + listener/timer cleanup. Crypto store untouched,
@@ -459,6 +517,7 @@ export class MatrixStore {
 
   /** Runs on page unload — must never delete storage. */
   destroy(): void {
+    this.notifier.destroy();
     this.teardownClient();
     if (typeof window !== 'undefined') {
       window.removeEventListener('online', this.onOnline);
@@ -493,6 +552,75 @@ export class MatrixStore {
       const ids = Array.from(this.timelineDirty);
       this.timelineDirty.clear();
       for (const id of ids) this.emitter.emit('timeline', id);
+    });
+  }
+
+  // ---- notifications -------------------------------------------------------
+
+  /**
+   * Turn one live event into a notification candidate, or drop it.
+   *
+   * The dispatch order at the top is the file header's rule, and it is
+   * load-bearing for the same reason `classify()` needs it: on a decryption
+   * failure the SDK installs a synthetic clear event that reports type
+   * `m.room.message` with its own `** Unable to decrypt: … **` string as the
+   * body. Reading `getType()`/`getContent()` first would notify "Alice sent a
+   * message" for something nobody can read, and — with the message-text
+   * preference on — would put the SDK's internal error text in an OS
+   * notification.
+   *
+   * A still-decrypting event is parked in `awaitingDecrypt` instead, and comes
+   * back through `MatrixEventEvent.Decrypted`. A permanent failure is dropped:
+   * push rules cannot be evaluated against a body nobody can read, so we cannot
+   * tell a muted room from a mention, and guessing in either direction is worse
+   * than the unread badge the room list already shows.
+   */
+  private considerNotify(ev: MatrixEvent, room: Room | undefined, recalculate: boolean): void {
+    const client = this.client;
+    if (!client || !room) return;
+    // The initial sync replays every room's recent history as live events.
+    if (!this.everPrepared) return;
+
+    if (ev.isBeingDecrypted()) {
+      const id = ev.getId();
+      // Bounded for the same reason the notifier's dedupe set is: an event that
+      // never decrypts must not pin an entry here forever.
+      if (id && this.awaitingDecrypt.size < 500) this.awaitingDecrypt.add(id);
+      return;
+    }
+    if (ev.isDecryptionFailure()) return;
+
+    const eventId = ev.getId();
+    const sender = ev.getSender();
+    if (!eventId || !sender) return;
+    // Your own message, echoed back by /sync.
+    if (sender === this.userId) return;
+    if (ev.getType() !== sdk.EventType.RoomMessage) return;
+    if (ev.isRedacted()) return;
+    // A room you have left (or only been invited to) keeps its timeline; an
+    // invite is the room list's business, not a notification's.
+    if (room.getMyMembership() !== 'join') return;
+
+    // The homeserver's own verdict, which already encodes mutes, keyword rules
+    // and per-room overrides set in any client. We only ever narrow it.
+    const actions = client.getPushActionsForEvent(ev, recalculate);
+    if (actions?.notify !== true) return;
+
+    const content = ev.getContent() as { msgtype?: unknown; body?: unknown };
+    const kind: NotifyKind = content.msgtype === 'm.image' ? 'picture' : 'message';
+    const ownEvent = room.currentState.getStateEvents(sdk.EventType.RoomMember, this.userId);
+    const ownContent = (ownEvent?.getContent() as { is_direct?: boolean } | undefined) ?? undefined;
+
+    this.notifier.consider({
+      eventId,
+      roomId: room.roomId,
+      roomName: room.name,
+      isDm: this.isDirectRoom(room, ownContent),
+      senderName: room.getMember(sender)?.name ?? sender,
+      pushNotify: true,
+      isHighlight: actions.tweaks?.highlight === true,
+      preview: typeof content.body === 'string' ? content.body : '',
+      kind,
     });
   }
 
@@ -634,7 +762,20 @@ export class MatrixStore {
       preview,
       inviterId,
       inviteIsDirect,
+      avatarMxc: this.roomAvatarMxc(room),
     };
+  }
+
+  /** A room's own picture, or for a two-person room without one, the other
+   *  member's — which is what makes a DM list look like a list of people
+   *  rather than a column of identical initials. `getAvatarFallbackMember()`
+   *  is the SDK's own "the other person" resolution (it returns nothing once a
+   *  room has more than two members, which is exactly when a per-person
+   *  picture would be misleading). */
+  private roomAvatarMxc(room: Room): string | null {
+    const own = room.getMxcAvatarUrl();
+    if (own) return own;
+    return room.getAvatarFallbackMember()?.getMxcAvatarUrl() ?? null;
   }
 
   rooms(): MxRoom[] {
@@ -671,6 +812,65 @@ export class MatrixStore {
   displayName(roomId: string, userId: string): string {
     const room = this.client?.getRoom(roomId);
     return room?.getMember(userId)?.name ?? userId;
+  }
+
+  /** A sender's picture *as of this room's member state* — the per-room
+   *  companion to `displayName`. Room-scoped on purpose: a user's avatar is
+   *  part of their membership event, so someone who changed their picture
+   *  since joining still shows the one this room knows about, which is what
+   *  every other client shows too. */
+  memberAvatarMxc(roomId: string, userId: string): string | null {
+    const room = this.client?.getRoom(roomId);
+    return room?.getMember(userId)?.getMxcAvatarUrl() ?? null;
+  }
+
+  /** Our own picture, for the panel's status strip. Three sources in order of
+   *  freshness: what we just set ourselves (the profile round-trip through
+   *  /sync takes a moment), the User object (populated from presence, which
+   *  some homeservers never send), and finally our own membership in any
+   *  joined room — the one place an avatar we set is guaranteed to appear. */
+  get myAvatarMxc(): string | null {
+    const client = this.client;
+    if (!client) return null;
+    if (this.myAvatarOverride_) return this.myAvatarOverride_;
+    const id = client.getUserId();
+    if (!id) return null;
+    const fromUser = client.getUser(id)?.avatarUrl;
+    if (fromUser) return fromUser;
+    for (const room of client.getRooms()) {
+      const mine = room.getMember(id)?.getMxcAvatarUrl();
+      if (mine) return mine;
+    }
+    return null;
+  }
+
+  /** Upload a picture and make it this account's profile picture. Unencrypted
+   *  by definition — a profile avatar is public state that every homeserver in
+   *  a room has to be able to fetch, so there is no `EncryptedFile` path and
+   *  no expectation of privacy here. Rejects with a display-ready message. */
+  async setMyAvatar(file: File): Promise<void> {
+    const client = this.client;
+    const media = this.media_;
+    if (!client || !media) throw new MatrixError(0, '', 'Not connected.');
+    const content = await media.uploadImage({ file, encrypt: false });
+    if (!content.url) throw new MatrixError(0, '', 'The homeserver did not return an address for that picture.');
+    try {
+      await client.setAvatarUrl(content.url);
+    } catch (err) {
+      throw MatrixError.from(err);
+    }
+    this.myAvatarOverride_ = content.url;
+    this.emitter.emit('status', undefined);
+    this.markRoomsDirty();
+  }
+
+  /** Resolve an mxc:// avatar to a displayable blob URL at `sizePx`, cached
+   *  per (uri, size). Rejects rather than returning a placeholder — the UI
+   *  keeps its initials square on failure. */
+  avatarUrl(mxc: string, sizePx: number): Promise<string> {
+    const media = this.media_;
+    if (!media) return Promise.reject(new MatrixError(0, '', 'Not connected.'));
+    return media.avatarUrl(mxc, sizePx);
   }
 
   existingDmWith(mxid: string): string | undefined {
@@ -774,8 +974,21 @@ export class MatrixStore {
   async send(roomId: string, body: string): Promise<void> {
     const client = this.client;
     if (!client) return;
+    // `body` stays the user's literal text in both branches — it is the
+    // fallback every client without an HTML renderer shows, so it must never
+    // become the generated markup.
+    const formatted = toHtml(body);
     try {
-      await client.sendTextMessage(roomId, body);
+      if (formatted) {
+        await client.sendMessage(roomId, {
+          msgtype: 'm.text',
+          body,
+          format: 'org.matrix.custom.html',
+          formatted_body: formatted,
+        } as unknown as RoomMessageEventContent);
+      } else {
+        await client.sendTextMessage(roomId, body);
+      }
     } catch {
       // failure surfaces as the .failed local-echo row (EventStatus.NOT_SENT)
     }
@@ -840,6 +1053,7 @@ export class MatrixStore {
       userId: m.userId,
       displayName: m.name,
       membership: m.membership === 'invite' ? 'invite' : 'join',
+      avatarMxc: m.getMxcAvatarUrl() ?? null,
     }));
     out.sort((a, b) => {
       if (a.membership !== b.membership) return a.membership === 'join' ? -1 : 1;
@@ -965,7 +1179,14 @@ export class MatrixStore {
     try {
       const res = await client.searchUserDirectory({ term, limit: 20 });
       if (signal?.aborted || generation !== this.searchGeneration) return [];
-      return res.results.map((r) => ({ userId: r.user_id, displayName: r.display_name || r.user_id }));
+      return res.results.map((r) => ({
+        userId: r.user_id,
+        displayName: r.display_name || r.user_id,
+        // The directory hands back an mxc:// directly; it is not validated
+        // here because resolving it goes through MatrixMedia, which refuses
+        // anything that isn't an mxc:// URI.
+        avatarMxc: r.avatar_url ?? null,
+      }));
     } catch (err) {
       // Let every non-abort failure (directory disabled, rate limit, a
       // network/CORS error) propagate — swallowing it made "the directory
