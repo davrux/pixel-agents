@@ -9,7 +9,7 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry, getOrientationInGroup } from './furnitureCatalog.js';
+import { getCatalogEntry, isMirroredLeft } from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -93,14 +93,8 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       );
     }
 
-    // Determine if this instance should be mirrored (side asset used in "left" orientation)
-    let mirrored = false;
-    if (entry.mirrorSide) {
-      const orientInGroup = getOrientationInGroup(item.type);
-      if (orientInGroup === 'left') {
-        mirrored = true;
-      }
-    }
+    // Determine if this instance should be mirrored (the virtual ":left" clone of a mirrorSide asset)
+    const mirrored = !!entry.mirrorSide && isMirroredLeft(item.type);
 
     instances.push({ sprite, x, y, zY, ...(mirrored ? { mirrored: true } : {}) });
   }

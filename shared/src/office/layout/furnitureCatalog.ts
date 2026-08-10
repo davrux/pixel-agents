@@ -64,18 +64,6 @@ export interface CatalogEntryWithCategory extends FurnitureCatalogEntry {
   category: FurnitureCategory;
 }
 
-// ── Rotation groups ──────────────────────────────────────────────
-// Flexible rotation: supports 2+ orientations (not just all 4)
-interface RotationGroup {
-  /** Ordered list of orientations available for this group */
-  orientations: string[];
-  /** Maps orientation → asset ID (for the default/off state) */
-  members: Record<string, string>;
-}
-
-// Maps any member asset ID → its rotation group
-const rotationGroups = new Map<string, RotationGroup>();
-
 // ── State groups ────────────────────────────────────────────────
 // Maps asset ID → its on/off counterpart (symmetric for toggle)
 const stateGroups = new Map<string, string>();
@@ -162,8 +150,12 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);
 
-  // Create virtual ":left" entries for mirrorSide assets.
-  // These share the same sprite but have a distinct type ID so rotation groups work.
+  // Create virtual ":left" entries for mirrorSide assets — a simple, standalone
+  // horizontal-flip clone (e.g. a side-view monitor also facing the other
+  // way), NOT tied to any grouping/rotation mechanism. Shows up as its own,
+  // independently-placeable catalog entry, same as any other orientation
+  // variant (see the "no rotation groups" note below) — the mapper picks
+  // whichever facing they want directly, no in-place flip tool.
   for (const asset of assets.catalog) {
     if (asset.mirrorSide && asset.orientation === 'side') {
       const sideEntry = allEntries.find((e) => e.type === asset.id);
@@ -180,85 +172,20 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
 
   if (allEntries.length === 0) return false;
 
-  // Build rotation groups from groupId + orientation metadata
-  rotationGroups.clear();
+  // No rotation-group system: every orientation variant (front/back/side/…)
+  // is its own independent, always-visible catalog entry — the mapper places
+  // whichever one they want directly, there's no in-place rotate tool. (Was
+  // groupId+orientation-linked with a hidden non-front subset; dropped since
+  // Tiled's rotate handle geometrically rotates the graphic, which is wrong
+  // for perspective pixel art — see docs/design/tiled-editor-integration.md.)
   stateGroups.clear();
   offToOn.clear();
   onToOff.clear();
   onTriggerByType.clear();
   animationGroups.clear();
 
-  // Phase 1: Collect orientations per group (only "off" or stateless variants for rotation)
-  // For mirrorSide assets with orientation "side", register as both "right" and virtual "left"
-  const groupMap = new Map<string, Map<string, string>>(); // groupId → (orientation → assetId)
-  for (const asset of assets.catalog) {
-    if (asset.groupId && asset.orientation) {
-      // For rotation groups, only use the "off" or stateless variant
-      if (asset.state && asset.state !== 'off') continue;
-      let orientMap = groupMap.get(asset.groupId);
-      if (!orientMap) {
-        orientMap = new Map();
-        groupMap.set(asset.groupId, orientMap);
-      }
-
-      if (asset.orientation === 'side') {
-        // "side" is registered as "right" in the rotation group
-        orientMap.set('right', asset.id);
-        if (asset.mirrorSide) {
-          // Register the virtual ":left" entry with a distinct type ID
-          orientMap.set('left', `${asset.id}:left`);
-        }
-      } else {
-        orientMap.set(asset.orientation, asset.id);
-      }
-    }
-  }
-
-  // For 2-way rotation schemes, "side" maps to "right" only (no left)
-  // Check rotationScheme from assets
-  const rotationSchemes = new Map<string, string>(); // groupId → rotationScheme
-  for (const asset of assets.catalog) {
-    if (asset.groupId && asset.rotationScheme) {
-      rotationSchemes.set(asset.groupId, asset.rotationScheme);
-    }
-  }
-
-  // Phase 2: Register rotation groups with 2+ orientations
-  const nonFrontIds = new Set<string>();
-  const orientationOrder = ['front', 'right', 'back', 'left'];
-  for (const [groupId, orientMap] of groupMap) {
-    if (orientMap.size < 2) continue;
-    const scheme = rotationSchemes.get(groupId);
-
-    // For 2-way scheme, only use front and right (side)
-    let allowedOrients = orientationOrder;
-    if (scheme === '2-way') {
-      allowedOrients = ['front', 'right'];
-    }
-
-    // Build ordered list of available orientations
-    const orderedOrients = allowedOrients.filter((o) => orientMap.has(o));
-    if (orderedOrients.length < 2) continue;
-    const members: Record<string, string> = {};
-    for (const o of orderedOrients) {
-      members[o] = orientMap.get(o)!;
-    }
-    const rg: RotationGroup = { orientations: orderedOrients, members };
-    // Register each unique asset ID in the rotation group
-    const registeredIds = new Set<string>();
-    for (const id of Object.values(members)) {
-      if (!registeredIds.has(id)) {
-        rotationGroups.set(id, rg);
-        registeredIds.add(id);
-      }
-    }
-    // Track non-front IDs to exclude from visible catalog
-    for (const [orient, id] of Object.entries(members)) {
-      if (orient !== 'front') nonFrontIds.add(id);
-    }
-  }
-
-  // Phase 3: Build state groups (on ↔ off pairs within same groupId + orientation)
+  // Build state groups (on ↔ off pairs within the same groupId — "orientation"
+  // in the key is vestigial from imports that still tag it, harmless either way)
   const stateMap = new Map<string, Map<string, string>>(); // "groupId|orientation" → (state → assetId)
   const triggerMap = new Map<string, 'autoFacing' | 'click'>(); // same key → onTrigger, if set
   for (const asset of assets.catalog) {
@@ -291,40 +218,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     }
   }
 
-  // Also register rotation groups for "on" state variants (so rotation works on on-state items too)
-  for (const asset of assets.catalog) {
-    if (asset.groupId && asset.orientation && asset.state === 'on') {
-      // Skip non-first animation frames
-      if (asset.animationGroup && asset.frame !== undefined && asset.frame > 0) continue;
-
-      // Find the off-variant's rotation group
-      const offCounterpart = stateGroups.get(asset.id);
-      if (offCounterpart) {
-        const offGroup = rotationGroups.get(offCounterpart);
-        if (offGroup) {
-          // Build an equivalent group for the "on" state
-          const onMembers: Record<string, string> = {};
-          for (const orient of offGroup.orientations) {
-            const offId = offGroup.members[orient];
-            const onId = stateGroups.get(offId);
-            // Use on-state variant if available, otherwise fall back to off-state
-            onMembers[orient] = onId ?? offId;
-          }
-          const onGroup: RotationGroup = {
-            orientations: offGroup.orientations,
-            members: onMembers,
-          };
-          for (const id of Object.values(onMembers)) {
-            if (!rotationGroups.has(id)) {
-              rotationGroups.set(id, onGroup);
-            }
-          }
-        }
-      }
-    }
-  }
-
-  // Phase 4: Build animation groups
+  // Build animation groups
   const animGroupCollector = new Map<string, Array<{ id: string; frame: number; durationMs: number }>>();
   for (const asset of assets.catalog) {
     if (asset.animationGroup && asset.frame !== undefined) {
@@ -357,14 +251,15 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   // Store full internal catalog (all variants — for getCatalogEntry lookups)
   internalCatalog = allEntries;
 
-  // Visible catalog: exclude non-front variants, "on" state variants, and non-first anim frames
-  const visibleEntries = allEntries.filter(
-    (e) => !nonFrontIds.has(e.type) && !onStateIds.has(e.type) && !nonFirstFrameIds.has(e.type),
-  );
+  // Visible catalog: exclude "on" state variants and non-first anim frames —
+  // every orientation variant stays visible now (no rotation groups to hide
+  // a non-front subset behind).
+  const visibleEntries = allEntries.filter((e) => !onStateIds.has(e.type) && !nonFirstFrameIds.has(e.type));
 
-  // Strip orientation/state suffix from labels for grouped variants
+  // Strip a state suffix from labels for on/off pairs (e.g. imported data
+  // still tagging "... - Off").
   for (const entry of visibleEntries) {
-    if (rotationGroups.has(entry.type) || stateGroups.has(entry.type)) {
+    if (stateGroups.has(entry.type)) {
       entry.label = entry.label
         .replace(/ - Front - Off$/, '')
         .replace(/ - Front$/, '')
@@ -377,10 +272,9 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     .filter((c): c is FurnitureCategory => !!c)
     .sort();
 
-  const rotGroupCount = new Set(Array.from(rotationGroups.values())).size;
   const animGroupCount = animationGroups.size;
   console.log(
-    `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${rotGroupCount} rotation groups, ${stateGroups.size / 2} state pairs, ${animGroupCount} animation groups)`,
+    `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${stateGroups.size / 2} state pairs, ${animGroupCount} animation groups)`,
   );
   return true;
 }
@@ -456,20 +350,6 @@ export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string 
   { id: 'misc', label: 'Misc' },
 ];
 
-// ── Rotation helpers ─────────────────────────────────────────────
-
-/** Returns the next asset ID in the rotation group (cw or ccw), or null if not rotatable. */
-export function getRotatedType(currentType: string, direction: 'cw' | 'ccw'): string | null {
-  const group = rotationGroups.get(currentType);
-  if (!group) return null;
-  const order = group.orientations.map((o) => group.members[o]);
-  const idx = order.indexOf(currentType);
-  if (idx === -1) return null;
-  const step = direction === 'cw' ? 1 : -1;
-  const nextIdx = (idx + step + order.length) % order.length;
-  return order[nextIdx];
-}
-
 /** Returns the toggled state variant (on↔off), or null if no state variant exists. */
 export function getToggledType(currentType: string): string | null {
   return stateGroups.get(currentType) ?? null;
@@ -493,11 +373,6 @@ export function getOnTrigger(type: string): 'autoFacing' | 'click' | null {
 // function getOffStateType(currentType: string): string {
 //   return onToOff.get(currentType) ?? currentType;
 // }
-
-/** Returns true if the given furniture type is part of a rotation group. */
-export function isRotatable(type: string): boolean {
-  return rotationGroups.has(type);
-}
 
 /** Get the ordered {id, durationMs} animation frames for a given type, or
  *  null if it isn't part of any animation group. */
@@ -530,15 +405,9 @@ export function animationFrameAt(type: string, elapsedMs: number): string | null
   return frames[frames.length - 1].id;
 }
 
-/**
- * Get the orientation of a type within its rotation group, or undefined if not in a group.
- * Used by the renderer to determine if a "left" orientation should be mirrored.
- */
-export function getOrientationInGroup(type: string): string | undefined {
-  const group = rotationGroups.get(type);
-  if (!group) return undefined;
-  for (const [orient, id] of Object.entries(group.members)) {
-    if (id === type) return orient;
-  }
-  return undefined;
+/** Is this the mirrored (":left") clone of a mirrorSide asset? Renderer/hit-
+ *  test use this to flip the sprite — see buildDynamicCatalog's virtual
+ *  ":left" entry, which is the only thing that ever sets orientation:'left'. */
+export function isMirroredLeft(type: string): boolean {
+  return getCatalogEntry(type)?.orientation === 'left';
 }

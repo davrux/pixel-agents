@@ -6,9 +6,7 @@ import {
   getCatalogByCategory,
   getCatalogEntry,
   getImportSources,
-  getOrientationInGroup,
-  getRotatedType,
-  isRotatable,
+  isMirroredLeft,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import {
@@ -151,11 +149,9 @@ export class LayoutEditor {
   private dragGrab = { dc: 0, dr: 0 };
   private dragMoved = false;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
-  private rotateBtn!: HTMLButtonElement;
   private actionBar!: HTMLDivElement;
   private textActionBar!: HTMLDivElement;
   private imageActionBar!: HTMLDivElement;
-  private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
   private sidesBtnInBar!: HTMLButtonElement;
   private bringFrontBtnInBar!: HTMLButtonElement;
@@ -304,9 +300,6 @@ export class LayoutEditor {
     // Shortcuts that must never fire mid-typing are all gated behind !typing.
     if (e.key === 'Escape') {
       this.exit();
-    } else if (!typing && (e.key === 'r' || e.key === 'R')) {
-      this.rotate(e.shiftKey ? 'ccw' : 'cw');
-      e.preventDefault();
     } else if (!typing) {
       const map: Record<string, Tool> = {
         '1': 'select',
@@ -323,18 +316,6 @@ export class LayoutEditor {
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedTextUid) this.deleteSelectedText();
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedImageUid) this.deleteSelectedImage();
-    }
-  }
-
-  /** Rotate the selected furniture through its orientation group (R / Shift+R). */
-  private rotate(dir: 'cw' | 'ccw'): void {
-    if (this.tool !== 'furniture' || !this.selectedType || !isRotatable(this.selectedType)) return;
-    const next = getRotatedType(this.selectedType, dir);
-    if (next) {
-      this.selectedType = next;
-      const orient = getOrientationInGroup(next);
-      this.hint.textContent = `Furniture — ${getCatalogEntry(next)?.label ?? next}${orient ? ` (${orient})` : ''} · R to rotate`;
-      this.refreshPalActionBar();
     }
   }
 
@@ -443,7 +424,7 @@ export class LayoutEditor {
       if (wx < x || wy < y || wx >= x + w || wy >= y + h) continue;
       let px = Math.floor(wx - x);
       const py = Math.floor(wy - y);
-      if (e.mirrorSide && getOrientationInGroup(f.type) === 'left') px = w - 1 - px;
+      if (e.mirrorSide && isMirroredLeft(f.type)) px = w - 1 - px;
       if (!e.sprite[py]?.[px]) continue; // transparent pixel → not a hit
       hits.push({ uid: f.uid, z: y + h });
     }
@@ -1420,15 +1401,6 @@ export class LayoutEditor {
     this.applyColor(f?.color ?? { h: 0, s: 0, b: 0, c: 0, colorize: false });
   }
 
-  private rotateSelected(): void {
-    const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
-    if (!f || !isRotatable(f.type)) return;
-    this.beginGesture();
-    f.type = getRotatedType(f.type, 'cw') ?? f.type;
-    this.rebuildFurniture();
-    this.deps.onEdit(this.layout!, true);
-  }
-
   /** Name the selected conference monitor — its name becomes the stable call/room
    *  id (so it survives the monitor being moved). Empty clears it. */
   private async nameSelected(): Promise<void> {
@@ -1799,7 +1771,6 @@ export class LayoutEditor {
     this.actionBar.style.left = `${Math.round(sx)}px`;
     this.actionBar.style.top = `${Math.round(sy)}px`;
     this.actionBar.style.display = 'flex';
-    this.rotateBtnInBar.style.display = isRotatable(f.type) ? 'inline-block' : 'none';
     const action = effectiveAction(f, e);
     this.nameBtnInBar.style.display = action?.kind === 'meetingRoom' ? 'inline-block' : 'none';
     // Approach sides only matter for items with SOME action (the ones that
@@ -1910,7 +1881,6 @@ export class LayoutEditor {
     if (this.palWall) this.palWall.style.display = t === 'wall' ? 'grid' : 'none';
     if (this.palAction) this.palAction.style.display = t === 'action' ? 'grid' : 'none';
     if (this.palImage) this.palImage.style.display = t === 'image' ? 'grid' : 'none';
-    if (this.rotateBtn) this.rotateBtn.style.display = t === 'furniture' ? 'block' : 'none';
     if (t !== 'select') {
       this.selectedUid = null;
       this.selectedTextUid = null;
@@ -2081,15 +2051,6 @@ export class LayoutEditor {
 
     this.hint = Object.assign(document.createElement('div'), { className: 'hint' });
 
-    this.rotateBtn = document.createElement('button');
-    this.rotateBtn.className = 'pa-tool';
-    this.rotateBtn.textContent = '⟳ Rotate (R)';
-    this.rotateBtn.style.cssText =
-      'margin:0 0.7rem 0.5rem;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#f1efec;' +
-      'border-radius:0.4rem;font:0.9rem "FS Pixel Sans",monospace;padding:0.5rem;' +
-      'box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;';
-    this.rotateBtn.onclick = () => this.rotate('cw');
-
     // Color controls
     const color = document.createElement('div');
     color.className = 'color';
@@ -2185,7 +2146,6 @@ export class LayoutEditor {
       bar,
       tools,
       this.hint,
-      this.rotateBtn,
       color,
       this.palZoomSeg,
       this.furnViewSeg,
@@ -2216,7 +2176,6 @@ export class LayoutEditor {
       b.onclick = onClick;
       return b;
     };
-    this.rotateBtnInBar = mkAct('⟳', 'Rotate (R)', () => this.rotateSelected());
     this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
     this.sidesBtnInBar = mkAct('🧭', 'Approach sides… (which side(s) a player may use this from)', () => this.chooseApproachSides());
     this.bringFrontBtnInBar = mkAct('🔼', 'Bring to front (of what it overlaps)', () => this.restackSelected(true));
@@ -2235,7 +2194,6 @@ export class LayoutEditor {
     delBtn.style.color = '#f6cdd4';
     delBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
     this.actionBar.append(
-      this.rotateBtnInBar,
       this.nameBtnInBar,
       this.sidesBtnInBar,
       this.bringFrontBtnInBar,
