@@ -166,21 +166,28 @@ function bakeWallSet(setIndex: number): void {
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `wall-${setIndex}.png`), buf);
   const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/wall-${setIndex}.png`, columns * TILE_W, 16 * WALL_H, props, `wall-${setIndex}`) as Record<string, unknown>;
-  // Edge Wang set over the "wall present/absent" bitmask, one shared color
-  // definition, applied via each colored tile's own wangid (Natural tiles
-  // get one too — the brush should work as well on unpainted-but-wall tiles).
-  tsj.wangsets = [
-    {
-      colors: [
-        { color: '#861616', name: 'wall', probability: 1, tile: -1 },
-        { color: '#3a3a3a', name: 'empty', probability: 1, tile: -1 },
-      ],
-      name: 'Wall autotile',
-      tile: -1,
-      type: 'edge',
-      wangtiles: props.map((_, id) => ({ tileid: id, wangid: wangIdForMask(Math.floor(id / columns)) })),
-    },
-  ];
+  // One Wang/Terrain set PER COLOR, not one set covering all colors — a Wang
+  // set's brush only knows "does this tile satisfy the required edge
+  // pattern", with no notion of color at all, so a single set spanning every
+  // swatch column would let the autotile brush freely substitute any
+  // same-bitmask tile regardless of column, silently changing color every
+  // time it paints. Splitting into 17 sets (Natural + one per swatch), each
+  // covering only its own 16 bitmask tiles, means picking e.g. "Wall — #597dce"
+  // as the active terrain keeps every painted piece that same color.
+  const colorLabels = ['Natural', ...WALL_PALETTE.map((sw) => sw.hex)];
+  tsj.wangsets = colorLabels.map((label, col) => ({
+    colors: [
+      { color: '#861616', name: 'wall', probability: 1, tile: -1 },
+      { color: '#3a3a3a', name: 'empty', probability: 1, tile: -1 },
+    ],
+    name: `Wall — ${label}`,
+    tile: -1,
+    type: 'edge',
+    wangtiles: Array.from({ length: 16 }, (_, mask) => ({
+      tileid: mask * columns + col,
+      wangid: wangIdForMask(mask),
+    })),
+  }));
   fs.writeFileSync(path.join(OUT_DIR, `wall-${setIndex}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ wall-${setIndex}.tsj + png/wall-${setIndex}.png (${tiles.length} tiles, 16 bitmasks × ${columns} colors)`);
 }
