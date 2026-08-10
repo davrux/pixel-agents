@@ -5,7 +5,7 @@ import {
   loadCharacterSprites,
   loadDefaultLayout,
   loadFloorTiles,
-  loadFurnitureAssets,
+  loadFurnitureTilesets,
   loadPetSprites,
   loadWallTiles,
 } from './assetLoader.js';
@@ -37,7 +37,7 @@ export interface AssetBundle {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Holds the `assets/` directory (assets/furniture, /floors, ...). Defaults to
+/** Holds the `assets/` directory (assets/tiled, /floors, ...). Defaults to
  *  the repo root; override with PIXEL_STREAM_ASSETS_DIR for custom deployments. */
 const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolve(__dirname, '..', '..');
 
@@ -47,7 +47,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
     loadPetSprites(ASSETS_ROOT),
     loadFloorTiles(ASSETS_ROOT),
     loadWallTiles(ASSETS_ROOT),
-    loadFurnitureAssets(ASSETS_ROOT),
+    loadFurnitureTilesets(ASSETS_ROOT),
   ]);
   const layout = loadDefaultLayout(ASSETS_ROOT);
 

@@ -1,21 +1,18 @@
 /**
- * Asset Loader - Loads furniture assets from per-folder manifests
+ * Asset Loader - Loads furniture assets from Tiled tileset files
  *
- * Scans assets/furniture/ subdirectories, reads each manifest.json,
- * and loads all PNG files into SpriteData format for use in the webview.
+ * Scans assets/tiled/furniture-*.tsj, and loads all referenced PNGs into
+ * SpriteData format for use in the webview. See
+ * server/src/core/assets/tiledFurniture.ts and
+ * docs/design/tiled-editor-integration.md.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 
 import { CAT_COUNT, DOG_COUNT, DUCK_COUNT, WALL_BITMASK_COUNT } from './core/assets/constants.js';
-import type {
-  FurnitureAsset,
-  FurnitureManifest,
-  InheritedProps,
-  ManifestGroup,
-} from './core/assets/manifestUtils.js';
-import { flattenManifest } from './core/assets/manifestUtils.js';
+import type { FurnitureAsset } from './core/assets/manifestUtils.js';
+import { FURNITURE_CATEGORY_FILES, parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
 import {
   decodeCharacterPng,
   decodeFloorPng,
@@ -43,135 +40,69 @@ export interface LoadedAssets {
 }
 
 /**
- * Load furniture assets from per-folder manifests
+ * Load the furniture catalog from assets/tiled/furniture-<category>.tsj —
+ * one Tiled tileset file per curated category (see FURNITURE_CATEGORY_FILES).
+ * Each tile's PNG path is resolved relative to the tileset file's own
+ * directory (Tiled's own convention for a "Collection of Images" tileset).
  */
-export async function loadFurnitureAssets(workspaceRoot: string): Promise<LoadedAssets | null> {
+export async function loadFurnitureTilesets(workspaceRoot: string): Promise<LoadedAssets | null> {
   try {
-    console.log(`[AssetLoader] workspaceRoot received: "${workspaceRoot}"`);
-    const furnitureDir = path.join(workspaceRoot, 'assets', 'furniture');
-    console.log(`[AssetLoader] Scanning furniture directory: ${furnitureDir}`);
+    const tiledDir = path.join(workspaceRoot, 'assets', 'tiled');
+    console.log(`[AssetLoader] Scanning Tiled furniture tilesets in: ${tiledDir}`);
 
-    if (!fs.existsSync(furnitureDir)) {
-      console.log('ℹ️  No furniture directory found at:', furnitureDir);
+    if (!fs.existsSync(tiledDir)) {
+      console.log('ℹ️  No assets/tiled directory found at:', tiledDir);
       return null;
     }
-
-    const entries = fs.readdirSync(furnitureDir, { withFileTypes: true });
-    const dirs = entries.filter((e) => e.isDirectory());
-
-    if (dirs.length === 0) {
-      console.log('ℹ️  No furniture subdirectories found');
-      return null;
-    }
-
-    console.log(`📦 Found ${dirs.length} furniture folders`);
 
     const catalog: FurnitureAsset[] = [];
     const sprites = new Map<string, string[][]>();
 
-    for (const dir of dirs) {
-      const itemDir = path.join(furnitureDir, dir.name);
-      const manifestPath = path.join(itemDir, 'manifest.json');
+    for (const [category, slug] of Object.entries(FURNITURE_CATEGORY_FILES)) {
+      const tilesetPath = path.join(tiledDir, `furniture-${slug}.tsj`);
+      if (!fs.existsSync(tilesetPath)) continue;
 
-      if (!fs.existsSync(manifestPath)) {
-        console.warn(`  ⚠️  No manifest.json in ${dir.name}`);
+      let tiled: TiledTilesetJson;
+      try {
+        tiled = JSON.parse(fs.readFileSync(tilesetPath, 'utf-8')) as TiledTilesetJson;
+      } catch (err) {
+        console.warn(`  ⚠️  Could not parse ${tilesetPath}: ${err instanceof Error ? err.message : err}`);
         continue;
       }
 
-      try {
-        const manifestContent = fs.readFileSync(manifestPath, 'utf-8');
-        const manifest = JSON.parse(manifestContent) as FurnitureManifest;
-
-        // Build the inherited props from the root manifest
-        const inherited: InheritedProps = {
-          groupId: manifest.id,
-          name: manifest.name,
-          category: manifest.category,
-          canPlaceOnSurfaces: manifest.canPlaceOnSurfaces,
-          backgroundTiles: manifest.backgroundTiles,
-        };
-
-        let assets: FurnitureAsset[];
-
-        if (manifest.type === 'asset') {
-          // Single asset manifest (no groups) — file defaults to {id}.png
-          assets = [
-            {
-              id: manifest.id,
-              name: manifest.name,
-              label: manifest.name,
-              category: manifest.category,
-              file: manifest.file ?? `${manifest.id}.png`,
-              width: manifest.width!,
-              height: manifest.height!,
-              footprintW: manifest.footprintW!,
-              footprintH: manifest.footprintH!,
-              isDesk: manifest.category === 'desks',
-              canPlaceOnSurfaces: manifest.canPlaceOnSurfaces,
-              backgroundTiles: manifest.backgroundTiles,
-              groupId: manifest.id,
-            },
-          ];
-        } else {
-          // Group manifest — flatten recursively
-          if (manifest.rotationScheme) {
-            inherited.rotationScheme = manifest.rotationScheme;
+      const tilesetDir = path.dirname(tilesetPath);
+      const entries = parseFurnitureTileset(tiled, category);
+      for (const { asset, imagePath } of entries) {
+        try {
+          const assetPath = path.join(tilesetDir, imagePath);
+          const resolvedAsset = path.resolve(assetPath);
+          const resolvedDir = path.resolve(tilesetDir);
+          if (!resolvedAsset.startsWith(resolvedDir + path.sep) && resolvedAsset !== resolvedDir) {
+            console.warn(`  [AssetLoader] Skipping tile with image path outside tileset directory: ${imagePath}`);
+            continue;
           }
-          const rootGroup: ManifestGroup = {
-            type: 'group',
-            groupType: manifest.groupType as 'rotation' | 'state' | 'animation',
-            rotationScheme: manifest.rotationScheme,
-            members: manifest.members!,
-          };
-          assets = flattenManifest(rootGroup, inherited);
-        }
-
-        // Load PNGs for each asset
-        for (const asset of assets) {
-          try {
-            const assetPath = path.join(itemDir, asset.file);
-            const resolvedAsset = path.resolve(assetPath);
-            const resolvedDir = path.resolve(itemDir);
-            if (
-              !resolvedAsset.startsWith(resolvedDir + path.sep) &&
-              resolvedAsset !== resolvedDir
-            ) {
-              console.warn(
-                `  [AssetLoader] Skipping asset with path outside directory: ${asset.file}`,
-              );
-              continue;
-            }
-            if (!fs.existsSync(assetPath)) {
-              console.warn(`  ⚠️  Asset file not found: ${asset.file} in ${dir.name}`);
-              continue;
-            }
-
-            const pngBuffer = fs.readFileSync(assetPath);
-            const spriteData = pngToSpriteData(pngBuffer, asset.width, asset.height);
-            sprites.set(asset.id, spriteData);
-          } catch (err) {
-            console.warn(
-              `  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`,
-            );
+          if (!fs.existsSync(assetPath)) {
+            console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
+            continue;
           }
+          const pngBuffer = fs.readFileSync(assetPath);
+          sprites.set(asset.id, pngToSpriteData(pngBuffer, asset.width, asset.height));
+        } catch (err) {
+          console.warn(`  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`);
         }
-
-        catalog.push(...assets);
-      } catch (err) {
-        console.warn(
-          `  ⚠️  Error processing ${dir.name}: ${err instanceof Error ? err.message : err}`,
-        );
       }
+      catalog.push(...entries.map((e) => e.asset));
     }
 
-    console.log(`  ✓ Loaded ${sprites.size} / ${catalog.length} assets`);
-    console.log(`[AssetLoader] ✅ Successfully loaded ${sprites.size} furniture sprites`);
+    if (catalog.length === 0) {
+      console.log('ℹ️  No furniture tilesets found');
+      return null;
+    }
 
+    console.log(`  ✓ Loaded ${sprites.size} / ${catalog.length} furniture assets from Tiled tilesets`);
     return { catalog, sprites };
   } catch (err) {
-    console.error(
-      `[AssetLoader] ❌ Error loading furniture assets: ${err instanceof Error ? err.message : err}`,
-    );
+    console.error(`[AssetLoader] ❌ Error loading furniture tilesets: ${err instanceof Error ? err.message : err}`);
     return null;
   }
 }

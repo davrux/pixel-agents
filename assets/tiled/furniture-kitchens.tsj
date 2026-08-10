@@ -1,0 +1,196 @@
+{
+  "columns": 0,
+  "name": "furniture-kitchens",
+  "tilecount": 8,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/kitchens/COFFEE_MACHINE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "COFFEE_MACHINE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Coffee Machine"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": "coffee"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/kitchens/FRIDGE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FRIDGE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fridge"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/kitchens/KITCHEN_COUNTER_FRONT.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "KITCHEN_COUNTER_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen Counter"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/kitchens/KITCHEN_COUNTER_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "KITCHEN_COUNTER_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen Counter"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/kitchens/KITCHEN_SINK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "KITCHEN_SINK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen Sink"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/kitchens/MICROWAVE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "MICROWAVE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Microwave"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "image": "png/furniture/kitchens/STOVE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "STOVE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Stove"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "image": "png/furniture/kitchens/TOASTER.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "TOASTER"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Toaster"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

@@ -1,0 +1,136 @@
+{
+  "columns": 0,
+  "name": "furniture-misc",
+  "tilecount": 5,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/misc/BIN.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "BIN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bin"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/misc/COFFEE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "COFFEE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Coffee"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/misc/GOLDFISH_BOWL_1.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_BOWL_1"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish Bowl"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ],
+      "animation": [
+        {
+          "tileid": 2,
+          "duration": 200
+        },
+        {
+          "tileid": 3,
+          "duration": 200
+        },
+        {
+          "tileid": 4,
+          "duration": 200
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/misc/GOLDFISH_BOWL_2.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_BOWL_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish Bowl"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/misc/GOLDFISH_BOWL_3.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_BOWL_3"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish Bowl"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

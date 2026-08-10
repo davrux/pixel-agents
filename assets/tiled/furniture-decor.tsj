@@ -1,0 +1,422 @@
+{
+  "columns": 0,
+  "name": "furniture-decor",
+  "tilecount": 17,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/decor/BUSH.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "BUSH"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bush"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/decor/CACTUS.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CACTUS"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cactus"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/decor/FLOWER_PATCH.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_PATCH"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Flower Patch"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/decor/FLOWER_PINK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_PINK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Pink Flower"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/decor/FLOWER_PURPLE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_PURPLE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Purple Flower"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/decor/FLOWER_RED.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_RED"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Red Flower"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "image": "png/furniture/decor/FLOWER_WHITE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_WHITE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "White Daisy"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "image": "png/furniture/decor/FLOWER_YELLOW.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "FLOWER_YELLOW"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Yellow Flower"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "image": "png/furniture/decor/GOLDFISH_1.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_1"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ],
+      "animation": [
+        {
+          "tileid": 8,
+          "duration": 200
+        },
+        {
+          "tileid": 9,
+          "duration": 200
+        },
+        {
+          "tileid": 10,
+          "duration": 200
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "image": "png/furniture/decor/GOLDFISH_2.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "image": "png/furniture/decor/GOLDFISH_3.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "GOLDFISH_3"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Goldfish"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "image": "png/furniture/decor/LARGE_PLANT.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LARGE_PLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Large Plant"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "image": "png/furniture/decor/PINE_TREE.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PINE_TREE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Pine Tree"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "image": "png/furniture/decor/PLANT.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "image": "png/furniture/decor/PLANT_2.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PLANT_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "image": "png/furniture/decor/POT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "POT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Pot"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "image": "png/furniture/decor/TREE.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "TREE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Tree"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

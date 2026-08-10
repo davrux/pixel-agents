@@ -1,0 +1,285 @@
+{
+  "columns": 0,
+  "name": "furniture-chairs",
+  "tilecount": 11,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/chairs/CUSHIONED_BENCH.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CUSHIONED_BENCH"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cushioned Bench"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/chairs/CUSHIONED_CHAIR_BACK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CUSHIONED_CHAIR_BACK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cushioned Chair"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "back"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/chairs/CUSHIONED_CHAIR_FRONT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CUSHIONED_CHAIR_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cushioned Chair"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/chairs/CUSHIONED_CHAIR_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CUSHIONED_CHAIR_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cushioned Chair"
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/chairs/SOFA_BACK.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SOFA_BACK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Sofa"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "back"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/chairs/SOFA_FRONT.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SOFA_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Sofa"
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "image": "png/furniture/chairs/SOFA_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SOFA_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Sofa"
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "image": "png/furniture/chairs/WOODEN_BENCH.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "WOODEN_BENCH"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Wooden Bench"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "image": "png/furniture/chairs/WOODEN_CHAIR_BACK.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "WOODEN_CHAIR_BACK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Wooden Chair"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "back"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "image": "png/furniture/chairs/WOODEN_CHAIR_FRONT.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "WOODEN_CHAIR_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Wooden Chair"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "image": "png/furniture/chairs/WOODEN_CHAIR_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "WOODEN_CHAIR_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Wooden Chair"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

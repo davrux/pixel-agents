@@ -1,0 +1,536 @@
+{
+  "columns": 0,
+  "name": "furniture-electronics",
+  "tilecount": 12,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/electronics/LAPTOP_BACK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_BACK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "back"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/electronics/LAPTOP_FRONT_OFF.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_FRONT_OFF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "LAPTOP_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "off"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_1.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_FRONT_ON_1"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "LAPTOP_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ],
+      "animation": [
+        {
+          "tileid": 2,
+          "duration": 200
+        },
+        {
+          "tileid": 3,
+          "duration": 200
+        },
+        {
+          "tileid": 4,
+          "duration": 200
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_2.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_FRONT_ON_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "LAPTOP_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_3.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_FRONT_ON_3"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "LAPTOP_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/electronics/LAPTOP_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LAPTOP_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Laptop"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "image": "png/furniture/electronics/PC_BACK.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_BACK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "back"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "image": "png/furniture/electronics/PC_FRONT_OFF.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_FRONT_OFF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "PC_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "off"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "image": "png/furniture/electronics/PC_FRONT_ON_1.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_FRONT_ON_1"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "PC_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ],
+      "animation": [
+        {
+          "tileid": 8,
+          "duration": 200
+        },
+        {
+          "tileid": 9,
+          "duration": 200
+        },
+        {
+          "tileid": 10,
+          "duration": 200
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "image": "png/furniture/electronics/PC_FRONT_ON_2.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_FRONT_ON_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "PC_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "image": "png/furniture/electronics/PC_FRONT_ON_3.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_FRONT_ON_3"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": "PC_front"
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "on"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "autoFacing"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "image": "png/furniture/electronics/PC_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "PC_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "PC"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

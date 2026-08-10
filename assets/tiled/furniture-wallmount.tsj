@@ -1,0 +1,161 @@
+{
+  "columns": 0,
+  "name": "furniture-wallmount",
+  "tilecount": 8,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/wallmount/BOOKSHELF.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "BOOKSHELF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bookshelf"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/wallmount/CLOCK.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "CLOCK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Clock"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/wallmount/DOUBLE_BOOKSHELF.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "DOUBLE_BOOKSHELF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Double Bookshelf"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/wallmount/HANGING_PLANT.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "HANGING_PLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hanging Plant"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/wallmount/LARGE_PAINTING.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "LARGE_PAINTING"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Large Painting"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/wallmount/SMALL_PAINTING.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SMALL_PAINTING"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Painting"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "image": "png/furniture/wallmount/SMALL_PAINTING_2.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SMALL_PAINTING_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Painting"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "image": "png/furniture/wallmount/WHITEBOARD.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "WHITEBOARD"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Whiteboard"
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

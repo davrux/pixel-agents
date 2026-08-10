@@ -1,0 +1,165 @@
+{
+  "columns": 0,
+  "name": "furniture-desks",
+  "tilecount": 6,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "tiles": [
+    {
+      "id": 0,
+      "image": "png/furniture/desks/COFFEE_TABLE.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "COFFEE_TABLE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Coffee Table"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "image": "png/furniture/desks/DESK_FRONT.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "DESK_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Desk"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "image": "png/furniture/desks/DESK_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "DESK_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Desk"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "image": "png/furniture/desks/SMALL_TABLE_FRONT.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SMALL_TABLE_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Table"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "front"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "image": "png/furniture/desks/SMALL_TABLE_SIDE.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "SMALL_TABLE_SIDE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Table"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "side"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "image": "png/furniture/desks/TABLE_FRONT.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "TABLE_FRONT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Table"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}
