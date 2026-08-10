@@ -352,12 +352,6 @@ export interface PlacedImage {
   footprintW: number;
   footprintH: number;
   imageId: string;
-  /** 'stretch' (default when unset) fills the footprint exactly, distorting
-   *  aspect ratio if it doesn't match — good for a rug/mural sized to a
-   *  specific area. 'center' draws the image at its own native pixel size,
-   *  centered on the footprint's middle — good for a small sticker/poster you
-   *  don't want stretched; the footprint still just governs its hitbox. */
-  fit?: 'stretch' | 'center';
 }
 
 export interface OfficeLayout {

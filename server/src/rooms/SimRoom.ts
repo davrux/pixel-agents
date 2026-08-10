@@ -161,7 +161,7 @@ function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, un
 function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, unknown> {
   const images = layout.images;
   if (!Array.isArray(images)) return layout;
-  const clean: Array<{ uid: string; col: number; row: number; footprintW: number; footprintH: number; imageId: string; fit?: 'stretch' | 'center' }> = [];
+  const clean: Array<{ uid: string; col: number; row: number; footprintW: number; footprintH: number; imageId: string }> = [];
   for (const img of images) {
     if (clean.length >= MAX_PLACED_IMAGES) break;
     if (!img || typeof img !== 'object') continue;
@@ -171,9 +171,7 @@ function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, u
     const fw = Number(rec.footprintW);
     const fh = Number(rec.footprintH);
     if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) continue;
-    const entry: (typeof clean)[number] = { uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId };
-    if (rec.fit === 'center') entry.fit = 'center';
-    clean.push(entry);
+    clean.push({ uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId });
   }
   layout.images = clean;
   return layout;

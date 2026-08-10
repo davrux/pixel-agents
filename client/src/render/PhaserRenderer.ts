@@ -200,9 +200,9 @@ export class PhaserRenderer {
 
     // Placed background images (OfficeLayout.images) — fixed depth, top-left
     // anchored footprint box like a floor tile (not bottom-center like
-    // furniture/text — an image has no "standing point"). 'stretch' (default)
-    // fills that box exactly; 'center' draws at native size, centered in it —
-    // see PlacedImage's doc comment in shared/office/types.ts.
+    // furniture/text — an image has no "standing point"), always stretched to
+    // fill the footprint (matches Tiled's own Image Object, which has no
+    // separate "native size" concept — see docs/design/tiled-editor-integration.md).
     for (const pi of layout.images ?? []) {
       const asset = getImageAsset(pi.imageId);
       if (!asset) continue; // deleted since this layout was saved — skip silently
@@ -210,18 +210,9 @@ export class PhaserRenderer {
       const y = pi.row * TILE_SIZE;
       const w = pi.footprintW * TILE_SIZE;
       const h = pi.footprintH * TILE_SIZE;
-      const img = this.scene.add.image(0, 0, '__DEFAULT').setDepth(IMAGE_DEPTH);
-      const applyFit = (): void => {
-        if (pi.fit === 'center') {
-          img.setOrigin(0.5, 0.5).setPosition(x + w / 2, y + h / 2).setDisplaySize(asset.width, asset.height);
-        } else {
-          img.setOrigin(0, 0).setPosition(x, y).setDisplaySize(w, h);
-        }
-      };
-      applyFit();
+      const img = this.scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setPosition(x, y).setDisplaySize(w, h).setDepth(IMAGE_DEPTH);
       ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
-        img.setTexture(key);
-        applyFit();
+        img.setTexture(key).setDisplaySize(w, h);
       });
       this.images.push(img);
     }

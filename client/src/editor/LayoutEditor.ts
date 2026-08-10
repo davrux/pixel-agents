@@ -156,7 +156,6 @@ export class LayoutEditor {
   private sendBackBtnInBar!: HTMLButtonElement;
   private editAssetBtnInBar!: HTMLButtonElement;
   private actionBtnInBar!: HTMLButtonElement;
-  private imageFitBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
@@ -823,20 +822,6 @@ export class LayoutEditor {
     this.beginGesture();
     im.footprintW = fw;
     im.footprintH = fh;
-    this.deps.rebuildStatic();
-    this.deps.onEdit(this.layout, true);
-  }
-
-  /** 'stretch' (default, unset) fills the footprint exactly; 'center' draws
-   *  the image at its own native size, centered on the footprint's middle —
-   *  see PlacedImage's doc comment in shared/office/types.ts. The footprint
-   *  itself (and so the click/select hitbox) doesn't change either way. */
-  private toggleSelectedImageFit(): void {
-    if (!this.layout || !this.selectedImageUid) return;
-    const im = this.layout.images?.find((x) => x.uid === this.selectedImageUid);
-    if (!im) return;
-    this.beginGesture();
-    im.fit = im.fit === 'center' ? undefined : 'center';
     this.deps.rebuildStatic();
     this.deps.onEdit(this.layout, true);
   }
@@ -1702,10 +1687,6 @@ export class LayoutEditor {
       this.imageActionBar.style.left = `${Math.round(sx)}px`;
       this.imageActionBar.style.top = `${Math.round(sy)}px`;
       this.imageActionBar.style.display = 'flex';
-      this.imageFitBtnInBar.textContent = im.fit === 'center' ? '⛶' : '▦';
-      this.imageFitBtnInBar.title = im.fit === 'center'
-        ? 'Fit: Center (native size) — click to switch to Stretch'
-        : 'Fit: Stretch (fills footprint) — click to switch to Center';
       return;
     }
     this.imageActionBar.style.display = 'none';
@@ -2112,12 +2093,11 @@ export class LayoutEditor {
     this.imageActionBar = document.createElement('div');
     this.imageActionBar.style.cssText = this.actionBar.style.cssText;
     const imageResizeBtn = mkAct('⤢', 'Resize (tiles)', () => void this.resizeSelectedImage());
-    this.imageFitBtnInBar = mkAct('▦', 'Toggle fit: stretch to footprint / center at native size', () => this.toggleSelectedImageFit());
     const imageDelBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelectedImage());
     imageDelBtn.style.background = '#7c2634';
     imageDelBtn.style.color = '#f6cdd4';
     imageDelBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
-    this.imageActionBar.append(imageResizeBtn, this.imageFitBtnInBar, imageDelBtn);
+    this.imageActionBar.append(imageResizeBtn, imageDelBtn);
     host.appendChild(this.imageActionBar);
 
     this.selectTool('select');
