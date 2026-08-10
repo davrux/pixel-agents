@@ -98,6 +98,18 @@ export interface MxEvent {
   decryptError?: MxDecryptError;
 }
 
+/**
+ * One member's read marker: they have read this room up to and including some
+ * event. Matrix gives each user exactly one read receipt per room, which is
+ * what makes "their picture sits on the newest message they have read" fall out
+ * for free rather than needing per-message bookkeeping.
+ */
+export interface MxReader {
+  userId: string;
+  displayName: string;
+  avatarMxc: string | null;
+}
+
 export type MxMembership = 'join' | 'invite' | 'leave';
 
 export interface MxRoom {

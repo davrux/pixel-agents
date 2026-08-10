@@ -21,7 +21,7 @@
  * via its own pagination, so a synthetic "messages may be missing" event can
  * never occur again.
  */
-import { type MxDecryptAction, type MxEvent } from './types.js';
+import { type MxDecryptAction, type MxEvent, type MxReader } from './types.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { imageContentOf, type MxImageContent } from './media.js';
 import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
@@ -169,6 +169,12 @@ export interface TimelineRenderOpts {
   atStart: boolean;
   loading: boolean;
   error: string;
+  /** Read markers for this room, keyed by the event each member has read up to
+   *  (see MatrixStore.readReceipts). Entries pointing outside the rendered
+   *  window are simply never matched. */
+  receipts: Map<string, MxReader[]>;
+  /** Our own mxid — only our own messages carry a "sent" check. */
+  selfUserId: string;
 }
 
 /** A single persisted `.mx-msg` row: built once per key, updated in place on
@@ -181,7 +187,26 @@ interface MsgRow {
    *  `decryptError` row whose `action` is set. */
   act: HTMLSpanElement;
   update(ev: MxEvent): void;
+  /** Paint (or clear) this row's delivery gutter — see `setStatus` in
+   *  `buildMsgRow` for why the two arguments are mutually exclusive. */
+  setStatus(status: RowStatus): void;
 }
+
+/**
+ * What the gutter at the end of a row shows. Element's model, and the one asked
+ * for here: a check on your newest confirmed message, replaced by the pictures
+ * of whoever has read up to that message.
+ */
+interface RowStatus {
+  /** This is our own newest successfully-sent message. */
+  sent: boolean;
+  /** Members whose read marker sits on this event. Wins over `sent`. */
+  readers: MxReader[];
+}
+
+/** How many reader pictures fit before the rest become "+N". A narrow column
+ *  runs out of room long before a busy room runs out of readers. */
+const MAX_RECEIPT_AVATARS = 3;
 
 function textBodyOf(ev: MxEvent): { html: string; plain: string; isAttachment: boolean } {
   const content = ev.content;
@@ -404,7 +429,64 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     el.classList.remove('mx-has-img');
   }
 
-  el.append(txt, figure, retry, act);
+  // ---- delivery gutter --------------------------------------------------
+  const status = document.createElement('div');
+  status.className = 'mx-status';
+  status.hidden = true;
+
+  /** Signature of what the gutter currently shows. Rebuilt only when this
+   *  changes: `render()` runs on every sync tick, and rebuilding avatars each
+   *  time would restart their image loads and flicker the row. */
+  let statusKey = '';
+
+  const setStatus = (next: RowStatus): void => {
+    const key = next.readers.length
+      ? `r:${next.readers.map((r) => `${r.userId}@${r.avatarMxc ?? ''}`).join(',')}`
+      : next.sent
+        ? 'sent'
+        : '';
+    if (key === statusKey) return;
+    statusKey = key;
+
+    if (key === '') {
+      status.hidden = true;
+      status.replaceChildren();
+      return;
+    }
+    status.hidden = false;
+
+    // Readers beat the check rather than joining it: once someone has read the
+    // message, "it arrived" is no longer the interesting fact.
+    if (next.readers.length) {
+      const shown = next.readers.slice(0, MAX_RECEIPT_AVATARS);
+      const nodes: Node[] = shown.map((r) =>
+        mkAvatar(r.userId, r.displayName, deps.avatarOf(r.userId)),
+      );
+      if (next.readers.length > shown.length) {
+        const more = document.createElement('span');
+        more.className = 'mx-status-more';
+        more.textContent = `+${next.readers.length - shown.length}`;
+        // The names are on the avatars' own titles; this one carries the rest.
+        more.title = next.readers
+          .slice(shown.length)
+          .map((r) => r.displayName)
+          .join('\n');
+        nodes.push(more);
+      }
+      status.replaceChildren(...nodes);
+      status.title = `Read by ${next.readers.map((r) => r.displayName).join(', ')}`;
+      return;
+    }
+
+    const check = document.createElement('span');
+    check.className = 'mx-status-check';
+    check.textContent = '✓';
+    check.setAttribute('aria-label', 'Sent');
+    status.replaceChildren(check);
+    status.title = 'Sent';
+  };
+
+  el.append(txt, figure, retry, act, status);
 
   const update = (ev: MxEvent): void => {
     lastEvent = ev;
@@ -481,7 +563,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     }
   };
 
-  return { el, txt, retry, act, update };
+  return { el, txt, retry, act, update, setStatus };
 }
 
 /** One rendered top-level item: a day separator or a sender group. Only
@@ -505,6 +587,9 @@ export class TimelineView {
   private groupTimeEls: { el: HTMLElement; ts: number }[] = [];
   private lastFirstKey: string | null = null;
   private moreInteractive = false;
+  /** Set by `pinToBottom()`, consumed by the next `render()`. See there for why
+   *  this outlives the call rather than just scrolling on the spot. */
+  private forceBottom = false;
   /** Whether a reader is pinned to the newest message. Maintained from real
    *  scrolls and from each render, so `onMediaResize` can answer "should this
    *  picture push the view down?" without measuring after the fact. */
@@ -589,6 +674,25 @@ export class TimelineView {
     this.el.scrollTop = this.el.scrollHeight;
   }
 
+  /**
+   * "I just sent something — show it to me." Jumps to the newest message even
+   * if the reader had scrolled up into history, which the normal render path
+   * deliberately does not do (it preserves your position so an arriving message
+   * never yanks the timeline out from under you).
+   *
+   * Scrolls now *and* arms the next render, because at send time the message
+   * usually isn't in the DOM yet: a text send's local echo arrives a microtask
+   * later via `LocalEchoUpdated`, and a picture's only after the upload
+   * finishes. Scrolling on the spot alone would land on the old bottom and stop
+   * a row short; the flag is what carries the intent across to the render that
+   * actually adds the row.
+   */
+  pinToBottom(): void {
+    this.forceBottom = true;
+    this.stickToBottom = true;
+    this.scrollToBottom();
+  }
+
   render(events: MxEvent[], opts: TimelineRenderOpts): void {
     const before = {
       scrollTop: this.el.scrollTop,
@@ -623,6 +727,21 @@ export class TimelineView {
     if (opts.warning !== null) {
       this.noticeEl.textContent = opts.warning;
       topNodes.push(this.noticeEl);
+    }
+
+    // The single "sent" check goes on our newest confirmed message, so it has
+    // to be picked before any row paints — hence a pass over the window rather
+    // than a flag set inside the loop below. `echo` set means the event is still
+    // in flight or failed (the row already says so through .pending/.failed),
+    // and a redacted message has nothing left to confirm.
+    let sentCheckEventId: string | null = null;
+    for (let i = trimmed.length - 1; i >= 0; i--) {
+      const ev = trimmed[i]!;
+      if (ev.sender !== opts.selfUserId) continue;
+      if (ev.echo !== undefined) continue;
+      if (ev.unsigned?.redacted_because !== undefined) continue;
+      sentCheckEventId = ev.event_id;
+      break;
     }
 
     this.groupTimeEls = [];
@@ -664,6 +783,13 @@ export class TimelineView {
       if (!row.act.hidden && ev.decryptError?.action) {
         this.decryptActionTokens.set(row.act, ev.decryptError.action);
       }
+      // Unconditional, including the empty case: a row recycled from a message
+      // that had the check (or a reader on it) must lose it here, or the marker
+      // stays behind on the wrong message.
+      row.setStatus({
+        sent: ev.event_id !== '' && ev.event_id === sentCheckEventId,
+        readers: opts.receipts.get(ev.event_id) ?? [],
+      });
       currentGroup!.body.appendChild(row.el);
       if (firstMsgKey === null) firstMsgKey = key;
     }
@@ -687,12 +813,17 @@ export class TimelineView {
 
     const prepended =
       this.lastFirstKey !== null && this.lastFirstKey !== firstMsgKey && this.rows.has(this.lastFirstKey);
-    if (before.atBottom) {
+    // One-shot: a pinned render lands at the bottom, which makes `atBottom` true
+    // for the render after it, so the pin carries itself forward until the
+    // reader scrolls away again.
+    const pinned = this.forceBottom;
+    this.forceBottom = false;
+    if (before.atBottom || pinned) {
       this.scrollToBottom();
     } else if (prepended) {
       this.el.scrollTop = before.scrollTop + (this.el.scrollHeight - before.scrollHeight);
     }
-    this.stickToBottom = before.atBottom;
+    this.stickToBottom = before.atBottom || pinned;
     this.lastFirstKey = firstMsgKey;
     this.el.removeAttribute('aria-busy');
   }

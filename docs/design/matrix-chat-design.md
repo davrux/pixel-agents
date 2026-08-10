@@ -1104,7 +1104,12 @@ the reason they are shaped the way they are.
 - ~~**No E2EE**~~ **[shipped]** — full rust-crypto E2EE; see `matrix-e2ee-design.md`.
 - **No voice or video calls** (Matrix VoIP, Element Call). Voice in this app is Mumble + LiveKit zone voice.
 - **No threads, no reactions, no message editing, no replies, no redaction UI.**
-- **No read-receipt display** and no typing notifications. (We *send* our own read marker; see above.)
+- ~~**No read-receipt display**~~ **[shipped]** — the delivery gutter at the end of a row
+  (`timeline.ts` `setStatus`): a check on your newest confirmed message, replaced by the pictures of
+  whoever has read up to that message. Matrix gives each user one read receipt per room, so
+  `getEventReadUpTo` already means "the newest event this member has read" and each reader's picture
+  lands on exactly one row with no per-message bookkeeping. Our own marker is excluded (we send it
+  ourselves, so it would put our face on everything we write). Still **no typing notifications**.
 - ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, over
   Matrix 1.11 authenticated media with a token-bearing fetch and a per-session blob lifecycle
   (`media.ts`). Other attachment types are still labelled placeholders.

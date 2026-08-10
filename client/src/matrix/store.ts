@@ -43,6 +43,7 @@ import type {
   MxEvent,
   MxEventUnsigned,
   MxMember,
+  MxReader,
   MxMembership,
   MxRoom,
   MxSession,
@@ -385,6 +386,12 @@ export class MatrixStore {
     const onRedaction = (_event: MatrixEvent, room: Room): void => this.emitTimelineDirty(room.roomId);
     client.on(RoomEvent.Redaction, onRedaction);
     this.unsubs.push(() => client.off(RoomEvent.Redaction, onRedaction));
+
+    // Somebody else read something: the only thing that moves a reader's
+    // picture from one row to another (see readReceipts).
+    const onReceipt = (_event: MatrixEvent, room: Room): void => this.emitTimelineDirty(room.roomId);
+    client.on(RoomEvent.Receipt, onReceipt);
+    this.unsubs.push(() => client.off(RoomEvent.Receipt, onReceipt));
 
     // The entire late-key path: when a key finally arrives the SDK retries
     // decryption on its own and fires this again — re-emitting 'timeline'
@@ -807,6 +814,46 @@ export class MatrixStore {
     let n = 0;
     for (const r of this.rooms()) n += r.unread;
     return n;
+  }
+
+  /**
+   * Who has read what, as `eventId -> readers`, for the timeline gutter.
+   *
+   * Matrix gives each user one read receipt per room, so `getEventReadUpTo`
+   * already answers "the newest event this member has read" — grouping those by
+   * event id puts each reader's picture on exactly one row, which is the
+   * behaviour Element shows and what the feature is asking for. No per-message
+   * state is kept anywhere.
+   *
+   * Ourselves excluded: our own read marker is always on the newest message we
+   * can see (the store sends it — see markRead), so drawing it would put our
+   * own face on every message we send the moment we look at it.
+   *
+   * A receipt can point at an event outside the loaded window (a member read
+   * something we have since trimmed, or never paginated to). Those are returned
+   * anyway and the view simply finds no row for them — better than this method
+   * pretending to know what the view has on screen.
+   */
+  readReceipts(roomId: string): Map<string, MxReader[]> {
+    const out = new Map<string, MxReader[]>();
+    const room = this.client?.getRoom(roomId);
+    if (!room) return out;
+    for (const member of room.getJoinedMembers()) {
+      if (member.userId === this.userId) continue;
+      const eventId = room.getEventReadUpTo(member.userId);
+      if (!eventId) continue;
+      const reader: MxReader = {
+        userId: member.userId,
+        displayName: member.name,
+        avatarMxc: member.getMxcAvatarUrl() ?? null,
+      };
+      const list = out.get(eventId);
+      if (list) list.push(reader);
+      else out.set(eventId, [reader]);
+    }
+    // Stable order, so a re-render never shuffles the pictures on a row.
+    for (const list of out.values()) list.sort((a, b) => a.userId.localeCompare(b.userId));
+    return out;
   }
 
   displayName(roomId: string, userId: string): string {

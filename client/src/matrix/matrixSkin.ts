@@ -244,6 +244,20 @@ export function injectMatrixSkin(): void {
 .mx-msg.notice .mx-txt,.mx-msg.emote .mx-txt{color:#adb0b2}
 .mx-retry{color:#4998c0;cursor:pointer;font-size:0.8rem;margin-left:0.4rem;text-decoration:underline}
 
+/* Delivery gutter (timeline.ts setStatus): a check on your newest confirmed
+   message, replaced by the pictures of whoever has read up to that message.
+   Right-aligned under the row rather than in a column of its own — Element can
+   afford a dedicated gutter, a 26rem panel cannot. */
+.mx-status{display:flex;justify-content:flex-end;align-items:center;gap:0.15rem;margin-top:0.1rem}
+.mx-status[hidden]{display:none}
+/* The green of the live/connected dot, so "it got there" reads the same here as
+   it does in the status strip. */
+.mx-status-check{color:#7fbf6a;font-size:0.8rem;line-height:1}
+/* Small enough that three fit beside each other at the compact width, and with
+   the border dropped to a ring so they don't read as list rows. */
+.mx-status .mx-av{width:1.05rem;height:1.05rem;font-size:0.5rem;border-width:2px;border-radius:0.25rem}
+.mx-status-more{color:#818586;font-size:0.7rem;line-height:1;margin-left:0.1rem}
+
 /* ---- formatted (org.matrix.custom.html) bodies ------------------------------
    The panel is ~26rem wide, so the rule that matters here is that nothing may
    widen the column: a long code line scrolls inside its own <pre>, and the

@@ -1468,6 +1468,8 @@ export class MatrixUI {
       atStart: this.store.atStart(roomId),
       loading: this.store.loadingTimeline(roomId),
       error: this.store.timelineError(roomId),
+      receipts: this.store.readReceipts(roomId),
+      selfUserId: this.store.userId,
     });
 
     if (!document.hidden && this.timelineView.isAtBottom()) {
@@ -1514,6 +1516,11 @@ export class MatrixUI {
     this.composerTextarea.value = '';
     this.autoGrow(this.composerTextarea);
     this.clearDraft(rid);
+    // Sending is the one action that overrides "keep the reader's position":
+    // whatever you were reading up in history, you want to see what you just
+    // wrote. Before the await, so it also applies if the send fails — the
+    // `.failed` row with its Retry link is exactly what you need to see.
+    this.timelineView.pinToBottom();
     void this.store.send(rid, body).catch(() => {
       /* the store surfaces the failure via the echo row itself */
     });
@@ -1563,11 +1570,19 @@ export class MatrixUI {
     this.uploading = true;
     this.attachBtn.disabled = true;
     this.showUploadStatus(`Sending ${file.name}…`, '');
+    // Same rule as a text send (see sendComposer): show me what I just sent.
+    // Twice, deliberately — once now so the composer's progress line is on
+    // screen while the upload runs, and once after, because a picture has no
+    // local echo until the bytes are up and the row can appear minutes later.
+    this.timelineView.pinToBottom();
     try {
       await this.store.sendImage(rid, file, (fraction) => {
         if (this.openRoomId !== rid) return;
         this.showUploadStatus(`Sending ${file.name}… ${Math.round(fraction * 100)}%`, '');
       });
+      // Only if the reader is still in the room they sent it to — otherwise this
+      // would yank a different room's timeline to the bottom.
+      if (this.openRoomId === rid) this.timelineView.pinToBottom();
       this.hideUploadStatus();
     } catch (err) {
       const msg = err instanceof Error && err.message ? err.message : "Couldn't send that picture.";
