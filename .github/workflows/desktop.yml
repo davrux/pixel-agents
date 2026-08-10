@@ -139,6 +139,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # Release anlegen / Asset hochladen
+    # Dieser Job checkt das Repo absichtlich nicht aus — er lädt nur die
+    # Artifacts der Build-Jobs herunter. `gh release` ermittelt das Repository
+    # aber sonst aus dem git-Remote und scheitert dann mit "failed to run git:
+    # fatal: not a git repository". GH_REPO ist die dafür vorgesehene Variable
+    # und billiger als ein Checkout, den wir nur für ein Remote machen würden.
+    env:
+      GH_REPO: ${{ github.repository }}
     steps:
       # merge-multiple: alle drei Artifacts flach in ein Verzeichnis, sodass die
       # Schritte unten einfach über die Dateien laufen können.
