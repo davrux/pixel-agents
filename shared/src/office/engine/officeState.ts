@@ -174,6 +174,16 @@ export class OfficeState {
     this.blockedTiles = computeBlockedTiles(this.layout);
     this.actionAreas = computeActionAreas(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
+    // No characters/manual toggles exist yet at construction, so the
+    // auto-on/toggle modifications rebuildFurnitureInstances() would apply
+    // are all no-ops right now — the raw layout furniture IS the correct
+    // initial placements. Without this, furniturePlacements stays stuck at
+    // its [] field default until something explicitly calls
+    // rebuildFromLayout() again (e.g. a loadLayout message) — SimRoom's
+    // syncFurniture() reads furniturePlacements, not furniture, so a freshly
+    // created room would sync ZERO furniture to clients despite this.furniture
+    // (used internally) being correct from the very next line.
+    this.furniturePlacements = this.layout.furniture;
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
     this.buildStations();
