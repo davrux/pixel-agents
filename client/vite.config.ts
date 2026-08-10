@@ -33,6 +33,17 @@ export default defineConfig({
     port: 5173,
     https: devHttps(),
   },
+  optimizeDeps: {
+    // matrix-js-sdk's rust-crypto wasm loader builds its fetch URL relative to whatever chunk it ends
+    // up in. When @matrix-org/matrix-sdk-crypto-wasm is itself prebundled, that URL is computed
+    // relative to node_modules/.vite/deps/ — from there the relative `../../../../` segments clamp at
+    // the dev-server root and resolve to the SPA fallback (text/html, not application/wasm), so
+    // WebAssembly.instantiateStreaming rejects and initRustCrypto() throws (both the IndexedDB and the
+    // memory-only fallback load the same wasm, so both throw — verified against a live dev server
+    // returning HTTP 200 text/html for that URL). Excluding it from prebundling keeps the URL resolving
+    // against its real node_modules location, which Vite's dev server serves with the correct MIME.
+    exclude: ['@matrix-org/matrix-sdk-crypto-wasm'],
+  },
   build: {
     rollupOptions: {
       // Multi-page: the 2D game (index.html) and the standalone ad-hoc

@@ -67,6 +67,8 @@ import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, ty
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
+import type { MatrixClientHandle } from '../matrix/index.js';
+import { hasMatrixSession } from '../matrix/sessionProbe.js';
 import { playDoneSound, playPermissionSound, setAlertVolume, setSoundEnabled, unlockAudio } from '../sound.js';
 
 /** A render-only character/pet: only the fields the renderer + tooltip read,
@@ -83,7 +85,7 @@ type RenderChar = Partial<Character> & {
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
 /** Which grouped top-bar popover is open (null = none). */
-type MenuId = 'audio' | 'mumble' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
+type MenuId = 'audio' | 'mumble' | 'matrix' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
 
 /** Per-pose animation frame duration (ms), mirroring the engine's constants.
  *  Poses not listed (idle) are static. Drives the client-side animation clock. */
@@ -223,6 +225,11 @@ export class OfficeScene extends Phaser.Scene {
   private mumble?: MumbleUI;
   private mumblePanel?: HTMLDivElement;
   private mumbleBtn?: HTMLButtonElement;
+  private matrixBtn?: HTMLButtonElement;
+  private matrixPanel?: HTMLDivElement;
+  private matrix?: MatrixClientHandle;
+  private matrixLoading = false;
+  private identityResolved = false;
   private zoneVoiceStarted = false;
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
@@ -517,10 +524,13 @@ export class OfficeScene extends Phaser.Scene {
         onJoin: () => this.zoneVoice?.voice.suspend('mumble'),
         onLeave: () => this.zoneVoice?.voice.resume('mumble'),
         onOpenSettings: () => void this.setMenu('settings'),
-        onPinChange: () => this.applyMumblePin(),
+        onPinChange: (pinned) => {
+          if (pinned) this.matrix?.unpin();
+          this.applyDock();
+        },
       });
       this.mumble.start();
-      this.applyMumblePin();
+      this.applyDock();
     }
 
     this.setupInput();
@@ -617,6 +627,12 @@ export class OfficeScene extends Phaser.Scene {
         }
         else if (m.type === 'viewerIdentity') {
           this.myUserId = (m.userId as string) ?? '';
+          this.identityResolved = true;
+          if (this.matrixBtn) {
+            this.matrixBtn.disabled = false;
+            this.matrixBtn.title = 'Matrix chat';
+          }
+          void this.maybeAutoStartMatrix();
           this.isAdmin = !!m.isAdmin;
           this.myRole = (m.role as typeof this.myRole) ?? 'user';
           this.myZoneAdmin = !!m.zoneAdmin;
@@ -903,6 +919,76 @@ export class OfficeScene extends Phaser.Scene {
   private async openAdminSite(): Promise<void> {
     const { openAdminOverlay } = await import('../admin/main.js');
     openAdminOverlay();
+  }
+
+  /** Load and mount the Matrix chat client into its panel body — dynamically
+   *  imported (its CS-API layer + all seven views have no reason to sit in
+   *  every player's initial bundle) so only someone who actually opens the
+   *  panel pays for loading it. Idempotent; waits for viewerIdentity first so
+   *  the per-user session-storage key (keyed by myUserId) is a decided value,
+   *  not a race against the identity message. */
+  private async ensureMatrix(): Promise<void> {
+    if (this.matrix || this.matrixLoading || !this.identityResolved) return;
+    const body = this.matrixPanel?.querySelector<HTMLElement>('.pa-body');
+    if (!body) return;
+    this.matrixLoading = true;
+    try {
+      const { createMatrixClient } = await import('../matrix/index.js');
+      this.matrix = createMatrixClient(body, {
+        paUserId: this.myUserId,
+        onPinChange: (pinned) => {
+          if (pinned) this.mumble?.unpin();
+          this.applyDock();
+        },
+        onUnreadChange: (n) => this.setMatrixUnread(n),
+        onRequestClose: () => void this.setMenu(null),
+      });
+      window.addEventListener('pagehide', () => this.matrix?.destroy(), { once: true });
+    } catch (err) {
+      // A chunk-load failure (stale index.html after a redeploy, a transient
+      // network blip, an app:// fetch hiccup on desktop) must not leave the
+      // ✉ button looking dead with a silent unhandled rejection — every call
+      // site below awaits this without its own catch.
+      console.error('Matrix chat failed to load', err);
+      this.chat?.addSystemLine('Could not load Matrix chat — try reloading.');
+    } finally {
+      this.matrixLoading = false;
+    }
+  }
+
+  /** If a Matrix session was previously saved for this pixel-agents user,
+   *  start the store (and its /sync loop) in the background right after
+   *  identity resolves — not just when the panel was left pinned — so the
+   *  unread badge and incoming invites are live even if the panel has never
+   *  been opened this page load. Loads only the small session module to
+   *  decide, not the whole lazy chunk, when there is nothing to restore. */
+  private async maybeAutoStartMatrix(): Promise<void> {
+    try {
+      const pinned = localStorage.getItem('pa-mx-pinned') === '1';
+      if (!pinned && !hasMatrixSession(this.myUserId)) return;
+      await this.ensureMatrix();
+      this.applyDock();
+    } catch {
+      /* private mode, or ensureMatrix already reported its own failure */
+    }
+  }
+
+  private async toggleMatrix(): Promise<void> {
+    await this.ensureMatrix();
+    void this.setMenu(this.currentMenu === 'matrix' ? null : 'matrix');
+  }
+
+  /** Unread-count badge on the ✉ bar button. */
+  private setMatrixUnread(n: number): void {
+    if (!this.matrixBtn) return;
+    let badge = this.matrixBtn.querySelector<HTMLSpanElement>('.mx-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'mx-badge';
+      this.matrixBtn.appendChild(badge);
+    }
+    badge.textContent = n > 99 ? '99+' : String(n);
+    badge.style.display = n > 0 ? '' : 'none';
   }
 
   /** Open the shared arcade overlay and boot the game. Phaser keyboard is disabled
@@ -1384,7 +1470,13 @@ export class OfficeScene extends Phaser.Scene {
       if (this.myPlayerId === null || this.editor.isEditing() || this.arcadeUI.isOpen) return true;
       const el = document.activeElement;
       const tag = el?.tagName;
-      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement)?.isContentEditable === true;
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        (el as HTMLElement)?.isContentEditable === true ||
+        this.matrix?.ownsFocus() === true
+      );
     };
 
     const flush = (): void => {
@@ -1745,6 +1837,13 @@ export class OfficeScene extends Phaser.Scene {
     } else {
       show(this.mumblePanel, 'mumble');
     }
+    // The Matrix panel must not go through the generic `show()` helper — it
+    // writes `display:block`, which would defeat #pa-matrix-panel's own
+    // `display:flex;flex-direction:column` and leave the timeline unsized.
+    if (this.matrixPanel) {
+      const showMx = this.matrix?.isPinned === true || menu === 'matrix';
+      this.matrixPanel.style.display = showMx ? 'flex' : 'none';
+    }
     show(this.zonePanel, 'zone');
     show(this.spacePanel, 'space');
     show(this.assetsPanel, 'assets');
@@ -1754,6 +1853,7 @@ export class OfficeScene extends Phaser.Scene {
 
     this.audioBtn?.classList.toggle('active', menu === 'audio');
     this.mumbleBtn?.classList.toggle('active', menu === 'mumble' || this.mumble?.isPinned === true);
+    this.matrixBtn?.classList.toggle('active', menu === 'matrix' || this.matrix?.isPinned === true);
     this.zoneBtn?.classList.toggle('active', menu === 'zone');
     this.spaceBtn?.classList.toggle('active', menu === 'space');
     this.assetsBtn?.classList.toggle('active', menu === 'assets');
@@ -1775,16 +1875,22 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * Reflect the Mumble pin: a pinned panel stays visible regardless of the
-   * current menu, and the body class shifts the other right-hand popovers left
-   * so they don't land on top of it.
+   * Reflect the right-hand dock pin (Mumble or Matrix — only one at a time):
+   * a pinned panel stays visible regardless of the current menu, and the body
+   * class shifts the other right-hand popovers left so they don't land on
+   * top of it.
    */
-  private applyMumblePin(): void {
-    const pinned = this.mumble?.isPinned === true;
-    document.body.classList.toggle('pa-mumble-pinned', pinned);
-    if (this.mumblePanel && pinned) this.mumblePanel.style.display = 'block';
-    else if (this.mumblePanel && this.currentMenu !== 'mumble') this.mumblePanel.style.display = 'none';
-    this.mumbleBtn?.classList.toggle('active', pinned || this.currentMenu === 'mumble');
+  private applyDock(): void {
+    const mumble = this.mumble?.isPinned === true;
+    const matrix = this.matrix?.isPinned === true;
+    document.body.classList.toggle('pa-dock-pinned', mumble || matrix);
+    document.body.style.setProperty('--pa-dock-w', matrix ? '27.5rem' : '25.5rem');
+    this.mumblePanel?.classList.toggle('pa-docked', mumble);
+    this.matrixPanel?.classList.toggle('pa-docked', matrix);
+    if (this.mumblePanel) this.mumblePanel.style.display = mumble || this.currentMenu === 'mumble' ? 'block' : 'none';
+    if (this.matrixPanel) this.matrixPanel.style.display = matrix || this.currentMenu === 'matrix' ? 'flex' : 'none';
+    this.mumbleBtn?.classList.toggle('active', mumble || this.currentMenu === 'mumble');
+    this.matrixBtn?.classList.toggle('active', matrix || this.currentMenu === 'matrix');
   }
 
   /** Edit mode owns the screen: close the menu + hide the whole top bar (it would
@@ -1874,6 +1980,14 @@ export class OfficeScene extends Phaser.Scene {
     mumbleBtn.style.display = MumbleVoice.supported ? '' : 'none';
     this.mumbleBtn = mumbleBtn;
 
+    // Matrix chat — disabled until the server confirms our identity (viewerIdentity).
+    const matrixBtn = this.mkBarBtn('✉', 'Matrix');
+    matrixBtn.id = 'pa-matrix-btn';
+    matrixBtn.disabled = true;
+    matrixBtn.title = 'Connecting…';
+    matrixBtn.onclick = () => void this.toggleMatrix();
+    this.matrixBtn = matrixBtn;
+
     const divider = document.createElement('span');
     divider.className = 'pa-div';
 
@@ -1914,7 +2028,7 @@ export class OfficeScene extends Phaser.Scene {
       );
     this.moreBtn = more;
 
-    bar.append(audio, mic, deaf, mumbleBtn, divider, zone, space, assets, spacer, more);
+    bar.append(audio, mic, deaf, mumbleBtn, matrixBtn, divider, zone, space, assets, spacer, more);
 
     // Desktop-only window controls. The Electron shell hides the native menu bar
     // and title-bar menus, so the HUD carries its own chrome: a DevTools toggle
@@ -1965,6 +2079,18 @@ export class OfficeScene extends Phaser.Scene {
     if (mbClose) {
       mbClose.onclick = () => {
         this.mumble?.unpin();
+        void this.setMenu(null);
+      };
+    }
+
+    // Matrix chat panel — same right dock as Mumble, loaded lazily on first open.
+    const mx = this.mkPanel('Matrix', 'right');
+    this.matrixPanel = mx.panel;
+    mx.panel.id = 'pa-matrix-panel';
+    const mxClose = mx.panel.querySelector<HTMLElement>('.pa-x');
+    if (mxClose) {
+      mxClose.onclick = () => {
+        this.matrix?.unpin();
         void this.setMenu(null);
       };
     }
@@ -3409,6 +3535,7 @@ export class OfficeScene extends Phaser.Scene {
       const panels = [
         this.audioPanel,
         this.mumblePanel,
+        this.matrixPanel,
         this.zonePanel,
         this.spacePanel,
         this.assetsPanel,
@@ -3916,11 +4043,28 @@ export class OfficeScene extends Phaser.Scene {
       sendChat: (text) => void this.room?.send("chat", { text }),
       sendCommand: (name, args) => void this.room?.send("command", { name, args }),
       isAdmin: () => this.isAdmin,
-      canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen,
-      clientCommand: (name, _args, sys) => {
+      canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen && this.matrix?.ownsFocus() !== true,
+      clientCommand: (name, args, sys) => {
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
           else void this.openAdminSite();
+          return true;
+        }
+        if (name === "matrix") {
+          if (!this.identityResolved) {
+            sys("Still connecting — try again in a moment.");
+            return true;
+          }
+          const arg = args.trim();
+          if (arg && !/^@[^:\s]+:[^:\s]+$/.test(arg)) {
+            sys("Usage: /matrix [@user:server]");
+            return true;
+          }
+          void (async () => {
+            await this.ensureMatrix();
+            await this.setMenu("matrix");
+            if (arg) this.matrix?.openDm(arg);
+          })();
           return true;
         }
         return false;

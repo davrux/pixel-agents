@@ -15,6 +15,7 @@
     "@mediapipe/tasks-vision": "0.10.14",
     "@pixel/shared": "workspace:*",
     "livekit-client": "^2.21.0",
+    "matrix-js-sdk": "^42.1.0",
     "phaser": "^4.2.1"
   },
   "devDependencies": {

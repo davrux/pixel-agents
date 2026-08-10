@@ -48,11 +48,15 @@ export function injectPaSkin(): void {
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
       .pa-panel.left{left:0.75rem;}
       .pa-panel.right{right:calc(0.75rem + var(--pa-side-panel-w, 0px));}
-      /* A pinned Mumble panel stays docked on the right, so the other right-hand
-         popovers step aside for it. Only where there is room — on a narrow
-         window they overlap as before rather than being pushed off-screen. */
+      /* A pinned right dock (Mumble or Matrix) keeps its column; the other
+         right-hand popovers step aside for it. --pa-dock-w is the pinned
+         panel's width + 1.5rem (its own 0.75rem right offset + a 0.75rem
+         gap) and is set by applyDock() in OfficeScene: 25.5rem for Mumble's
+         stock 24rem panel, 27.5rem for the 26rem Matrix panel. Only where
+         there is room — on a narrow window they overlap as before rather
+         than being pushed off-screen. */
       @media (min-width: 56rem) {
-        body.pa-mumble-pinned .pa-panel.right:not(#pa-mumble-panel){right:calc(25.5rem + var(--pa-side-panel-w, 0px));}
+        body.pa-dock-pinned .pa-panel.right:not(.pa-docked){right:calc(var(--pa-dock-w, 25.5rem) + var(--pa-side-panel-w, 0px));}
       }
       .pa-panel .pa-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
         padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;

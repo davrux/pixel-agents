@@ -84,6 +84,12 @@ export const COMMANDS: CommandSpec[] = [
     usage: '/admin-site',
     summary: 'Open the administration page (users, roles, room passwords).',
   },
+  {
+    name: 'matrix',
+    group: 'user',
+    usage: '/matrix [@user:server]',
+    summary: 'Open the Matrix chat panel (optionally start a direct chat).',
+  },
 ];
 
 /** Look up a command by name (case-insensitive, leading slash tolerated). */
