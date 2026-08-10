@@ -9,6 +9,7 @@ import {
   type LoadedCharacterData,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { setFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
 import { setWallSprites } from '@pixel/shared/office/wallTiles.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -23,7 +24,7 @@ type Msg = Record<string, any>;
  */
 export function createAssetBridge(
   os: OfficeState,
-  onLayout: (layout: OfficeLayout) => void,
+  onLayout: (layout: OfficeLayout, activeLayout: string) => void,
 ): (msg: Msg) => void {
   // Owned avatars (pa:<user>) of the players in the current zone, kept so they
   // can be re-applied after a gallery reload (setCharacterTemplates rebuilds the
@@ -53,6 +54,9 @@ export function createAssetBridge(
       case 'floorTilesLoaded':
         setFloorSprites(msg.sprites);
         break;
+      case 'imagesLoaded':
+        setImageAssets(msg.images ?? []);
+        break;
       case 'wallTilesLoaded':
         setWallSprites(msg.sets);
         break;
@@ -64,7 +68,7 @@ export function createAssetBridge(
         const layout = raw && raw.version === 1 ? migrateLayoutColors(raw) : null;
         if (layout) {
           os.rebuildFromLayout(layout);
-          onLayout(os.getLayout());
+          onLayout(os.getLayout(), typeof msg.activeLayout === 'string' ? msg.activeLayout : 'Default');
         }
         break;
       }

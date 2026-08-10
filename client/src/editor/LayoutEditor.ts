@@ -5,9 +5,11 @@ import {
   getActiveCategories,
   getCatalogByCategory,
   getCatalogEntry,
+  getImportSources,
   getOrientationInGroup,
   getRotatedType,
   isRotatable,
+  type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import {
   getPlacementBlockedTiles,
@@ -24,15 +26,18 @@ import {
   type FurnitureInstance,
   type OfficeLayout,
   type PlacedFurniture,
+  type PlacedImage,
   type PlacedText,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
 import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
+import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
 
-import { spriteTexture, spriteToDataURL } from '../render/sprites.js';
-import { promptDialog, textLabelDialog } from '../ui/dialog.js';
+import { spriteTexture, ensureImageTexture } from '../render/sprites.js';
+import { spriteThumbCanvas, drawSpriteOnCanvas, buildZoomSeg, buildViewToggle, markSegOn, type Zoom } from './assetGrid.js';
+import { confirmDialog, promptDialog, textLabelDialog } from '../ui/dialog.js';
 import { actionChoiceLabel, actionTileColor, swatchHex, TILE_ACTION_CHOICES } from './actionChoices.js';
 import {
   cleanName,
@@ -60,9 +65,16 @@ export interface EditorDeps {
    *  strokes, etc. all survive). Optional: the action-bar button that uses
    *  this is hidden when omitted. */
   openAssetEditor?: (type: string) => void;
+  /** Revert/remove a furniture override (same effect as the Assets panel's
+   *  Reset). Optional: the palette's Reset button is hidden when omitted. */
+  resetFurnitureAsset?: (type: string) => void;
+  /** Jump to the Floor pattern editor, scoped to one pattern — same
+   *  WITHOUT-leaving-layout-edit-mode deal as openAssetEditor. Optional: the
+   *  Floor palette's Edit button is hidden when omitted. */
+  openFloorEditor?: (pattern: number) => void;
 }
 
-type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'eyedropper';
+type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'image' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
 const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
@@ -99,10 +111,16 @@ export class LayoutEditor {
 
   private tool: Tool = 'select';
   private selectedType: string | null = null;
+  /** The image asset (Assets → Images) currently armed for the Image tool's
+   *  palette — placeImageAt uses this directly, same as selectedType/Furn. */
+  private selectedImageId: string | null = null;
   private selectedUid: string | null = null;
   /** The selected text label's uid, mutually exclusive with selectedUid
    *  (selecting one always clears the other) — see selectAt/endFurnitureDrag. */
   private selectedTextUid: string | null = null;
+  /** The selected placed-image's uid — mutually exclusive with selectedUid/
+   *  selectedTextUid, same as above. */
+  private selectedImageUid: string | null = null;
   private lastSelClick = { x: -999, y: -999 };
   private floorPattern = 1;
   private wallSet = 0;
@@ -129,13 +147,14 @@ export class LayoutEditor {
    *  cursor→tile grab offset (text labels have no footprint, so their grab
    *  offset is always 0,0 — the drop tile IS the new position). */
   private dragUid: string | null = null;
-  private dragKind: 'furniture' | 'text' | null = null;
+  private dragKind: 'furniture' | 'text' | 'image' | null = null;
   private dragGrab = { dc: 0, dr: 0 };
   private dragMoved = false;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
   private rotateBtn!: HTMLButtonElement;
   private actionBar!: HTMLDivElement;
   private textActionBar!: HTMLDivElement;
+  private imageActionBar!: HTMLDivElement;
   private rotateBtnInBar!: HTMLButtonElement;
   private nameBtnInBar!: HTMLButtonElement;
   private sidesBtnInBar!: HTMLButtonElement;
@@ -143,20 +162,41 @@ export class LayoutEditor {
   private sendBackBtnInBar!: HTMLButtonElement;
   private editAssetBtnInBar!: HTMLButtonElement;
   private actionBtnInBar!: HTMLButtonElement;
+  private imageFitBtnInBar!: HTMLButtonElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
 
   // DOM
   private root!: HTMLDivElement;
   private hint!: HTMLDivElement;
+  /** The current tool's normal description — flashHint restores this after a
+   *  transient warning, instead of whatever text happened to be showing
+   *  (which could itself already be a still-fading-out previous flash). */
+  private toolHintText = '';
+  private hintFlashTimer: number | null = null;
   private palFurn!: HTMLDivElement;
   private palFloor!: HTMLDivElement;
   private palWall!: HTMLDivElement;
+  private palImage!: HTMLDivElement;
   private palAction!: HTMLDivElement;
-  private palBuilt = false;
+  /** Shared 1×/2×/4× zoom control for the Furniture/Floor/Wall palettes —
+   *  same control + behaviour as the Assets panel's grids (see
+   *  OfficeScene.renderFurnAssets / assetGrid.ts's buildZoomSeg). */
+  private palZoomSeg!: HTMLDivElement;
+  private palZoom: Zoom = 2;
+  /** Category (default) vs. Import-source grouping for the Furniture
+   *  palette — same toggle as the Assets panel's Furniture tab (see
+   *  OfficeScene.furnAssetsView), only shown once something's been imported. */
+  private furnPalView: 'category' | 'source' = 'category';
+  private furnViewSeg!: HTMLDivElement;
+  /** Sticky bar below the palette: Edit (+Reset for furniture) for whichever
+   *  item is currently selected — reuses the exact same editor entry points
+   *  as the Assets panel (EditorDeps.openAssetEditor/resetFurnitureAsset/
+   *  openFloorEditor) instead of a parallel implementation. */
+  private palActionBar!: HTMLDivElement;
   /** Floor/wall palette previews, kept so they can re-render in the picked color. */
-  private floorItems: Array<{ img: HTMLImageElement; pattern: number }> = [];
-  private wallItems: Array<{ img: HTMLImageElement; set: number }> = [];
+  private floorItems: Array<{ canvas: HTMLCanvasElement; pattern: number }> = [];
+  private wallItems: Array<{ canvas: HTMLCanvasElement; set: number }> = [];
   private hueEl!: HTMLInputElement;
   private satEl!: HTMLInputElement;
   private briEl!: HTMLInputElement;
@@ -223,9 +263,11 @@ export class LayoutEditor {
     this.layout = null;
     this.selectedUid = null;
     this.selectedTextUid = null;
+    this.selectedImageUid = null;
     this.root.style.display = 'none';
     this.actionBar.style.display = 'none';
     this.textActionBar.style.display = 'none';
+    this.imageActionBar.style.display = 'none';
     this.ghost?.destroy();
     this.ghost = undefined;
     this.selRect?.destroy();
@@ -274,11 +316,13 @@ export class LayoutEditor {
         '5': 'block',
         '6': 'action',
         '7': 'text',
-        '8': 'eyedropper',
+        '8': 'image',
+        '9': 'eyedropper',
       };
       if (map[e.key]) this.selectTool(map[e.key]);
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedUid) this.deleteSelected();
       else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedTextUid) this.deleteSelectedText();
+      else if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedImageUid) this.deleteSelectedImage();
     }
   }
 
@@ -290,6 +334,7 @@ export class LayoutEditor {
       this.selectedType = next;
       const orient = getOrientationInGroup(next);
       this.hint.textContent = `Furniture — ${getCatalogEntry(next)?.label ?? next}${orient ? ` (${orient})` : ''} · R to rotate`;
+      this.refreshPalActionBar();
     }
   }
 
@@ -326,6 +371,9 @@ export class LayoutEditor {
       case 'text':
         void this.placeOrEditText(col, row);
         break;
+      case 'image':
+        this.placeImageAt(col, row);
+        break;
       case 'eyedropper':
         this.eyedrop(wx, wy);
         break;
@@ -343,6 +391,8 @@ export class LayoutEditor {
       this.paintTileAction(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), null);
     } else if (this.tool === 'text') {
       this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
+    } else if (this.tool === 'image') {
+      this.deleteImageAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
   }
 
@@ -401,32 +451,50 @@ export class LayoutEditor {
   }
 
   /** Shared offscreen 2d context for measuring a label's rendered width —
-   *  same font the renderer actually draws with, so the hit box matches what
-   *  you see rather than just the one anchor tile. */
+   *  same font family the renderer actually draws with (PhaserRenderer passes
+   *  the identical fontFamily string to its Text object, see buildStatic), so
+   *  the hit box matches what you see rather than just the one anchor tile.
+   *  Using the wrong family here (this used to hardcode the default font
+   *  regardless of the label's own choice) silently measures against
+   *  whatever generic font the canvas falls back to — usually narrower than
+   *  the actual pixel font, which shrinks the hit box in from both edges
+   *  while the visual center still lines up, so only the middle of a label
+   *  stayed clickable. A small multiplier on top covers the remaining slack
+   *  between canvas metrics and Phaser's own text rendering (stroke width,
+   *  sub-pixel rounding) even when the family matches exactly. */
   private static measureCtx: CanvasRenderingContext2D | null = null;
-  private static measureTextWidth(text: string, fontSizePx: number): number {
+  private static measureTextWidth(text: string, fontSizePx: number, fontFamily: string): number {
     if (!LayoutEditor.measureCtx) LayoutEditor.measureCtx = document.createElement('canvas').getContext('2d');
     const ctx = LayoutEditor.measureCtx;
     if (!ctx) return text.length * fontSizePx * 0.6; // no canvas 2d — rough monospace fallback
-    ctx.font = `${fontSizePx}px 'FS Pixel Sans', monospace`;
-    return ctx.measureText(text).width;
+    ctx.font = `${fontSizePx}px ${fontFamily}`;
+    return ctx.measureText(text).width * 1.15;
   }
 
   /** The text label under (wx,wy), matched against its actual rendered extent
    *  (see PhaserRenderer's text positioning: origin 0.5,1 at ((col+0.5)*TILE,
    *  (row+1)*TILE)) — not just its one anchor tile, which is far smaller than
-   *  most labels. Ignores a rotated label's angle (an axis-aligned box is a
-   *  reasonable approximation for picking, not worth exact rotated math). */
+   *  most labels. A rotated label (see PlacedText.angle) is hit-tested at its
+   *  real on-screen footprint too: the click point is rotated back by -angle
+   *  around the same pivot PhaserRenderer's setAngle rotates around (the
+   *  anchor, bottom-center), then tested against the plain upright box. */
   private textHitAt(wx: number, wy: number): PlacedText | null {
     if (!this.layout?.texts) return null;
     for (let i = this.layout.texts.length - 1; i >= 0; i--) {
       const t = this.layout.texts[i];
       const fontSize = t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE;
-      const width = LayoutEditor.measureTextWidth(t.text, fontSize);
+      const width = LayoutEditor.measureTextWidth(t.text, fontSize, t.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY);
+      const height = fontSize * 1.2;
       const cx = (t.col + 0.5) * TILE_SIZE;
       const bottom = (t.row + 1) * TILE_SIZE;
-      const top = bottom - fontSize * 1.2;
-      if (wx >= cx - width / 2 && wx <= cx + width / 2 && wy >= top && wy <= bottom) return t;
+      const angleRad = ((t.angle ?? 0) * Math.PI) / 180;
+      const dx = wx - cx;
+      const dy = wy - bottom;
+      const cos = Math.cos(angleRad);
+      const sin = Math.sin(angleRad);
+      const localX = dx * cos + dy * sin;
+      const localY = -dx * sin + dy * cos;
+      if (localX >= -width / 2 && localX <= width / 2 && localY >= -height && localY <= 0) return t;
     }
     return null;
   }
@@ -473,6 +541,24 @@ export class LayoutEditor {
       const tint = hexToTint(wallColorToHex(this.color));
       this.ghost.setTexture('__WHITE').setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(tint).setVisible(true);
+      return;
+    }
+    if (this.tool === 'image' && this.selectedImageId && this.layout) {
+      const asset = getImageAssetList().find((a) => a.id === this.selectedImageId);
+      if (asset) {
+        const fit = this.imageFootprintAt(asset, col, row);
+        const ghost = this.ghost;
+        ensureImageTexture(this.scene, asset.id, asset.data, (key) => ghost?.setTexture(key));
+        if (fit) {
+          this.ghost.setDisplaySize(fit.fw * TILE_SIZE, fit.fh * TILE_SIZE)
+            .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xffffff).setVisible(true);
+        } else {
+          // Off the map entirely — no footprint shrink helps here.
+          this.ghost.setDisplaySize(TILE_SIZE, TILE_SIZE)
+            .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xff6666).setVisible(true);
+        }
+        return;
+      }
       return;
     }
     this.ghost.setVisible(false);
@@ -649,6 +735,7 @@ export class LayoutEditor {
     );
     if (result === null || !this.layout) return; // cancelled, or the editor closed meanwhile
     const text = cleanName(result.text, MAX_TEXT_LABEL_LEN);
+    if (!text && !existing) return; // empty/whitespace-only submitted on a tile with nothing to clear — no-op, not an undo step
     this.beginGesture();
     if (!this.layout.texts) this.layout.texts = [];
     if (!text) {
@@ -676,6 +763,138 @@ export class LayoutEditor {
     if (i < 0) return;
     this.beginGesture();
     this.layout.texts.splice(i, 1);
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** The placed image under (wx,wy) — top-most (last-placed) first, axis-
+   *  aligned footprint rect (no rotation, unlike text). */
+  private imageHitAt(wx: number, wy: number): PlacedImage | null {
+    if (!this.layout?.images) return null;
+    for (let i = this.layout.images.length - 1; i >= 0; i--) {
+      const im = this.layout.images[i];
+      const x0 = im.col * TILE_SIZE;
+      const y0 = im.row * TILE_SIZE;
+      const x1 = x0 + im.footprintW * TILE_SIZE;
+      const y1 = y0 + im.footprintH * TILE_SIZE;
+      if (wx >= x0 && wx < x1 && wy >= y0 && wy < y1) return im;
+    }
+    return null;
+  }
+
+  /** The footprint (tiles) `asset` would actually place at if clicked at
+   *  (col,row) right now, or null if the anchor itself is off the map (no
+   *  amount of shrinking helps there). The "ideal" size scales the WHOLE
+   *  image down proportionally (not each axis clamped independently) so a
+   *  large upload (e.g. a 1440px-wide photo) doesn't default to a
+   *  max-both-axes 16×16 box — but if even that doesn't fit from this
+   *  particular anchor (too close to the map's right/bottom edge), shrink it
+   *  further (still aspect-preserving, down to 1×1) to whatever DOES fit
+   *  rather than rejecting the click outright — a placement always
+   *  succeeds somewhere, no "try a different tile" trial and error. Shared
+   *  by placeImageAt (the actual placement) and updateGhost (its preview),
+   *  so the ghost never promises a size the click won't deliver. */
+  private imageFootprintAt(asset: ImageAsset, col: number, row: number): { fw: number; fh: number } | null {
+    if (!this.layout) return null;
+    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return null;
+    const rawW = asset.width / TILE_SIZE;
+    const rawH = asset.height / TILE_SIZE;
+    const scale = Math.min(1, 16 / Math.max(rawW, rawH));
+    let fw = Math.max(1, Math.min(16, Math.round(rawW * scale)));
+    let fh = Math.max(1, Math.min(16, Math.round(rawH * scale)));
+    const maxW = this.layout.cols - col;
+    const maxH = this.layout.rows - row;
+    if (fw > maxW || fh > maxH) {
+      const shrink = Math.min(maxW / fw, maxH / fh);
+      fw = Math.max(1, Math.floor(fw * shrink));
+      fh = Math.max(1, Math.floor(fh * shrink));
+    }
+    return { fw, fh };
+  }
+
+  /** Place the palette-selected image on this tile — same pick-then-click
+   *  pattern as Furniture (see selectedImageId/palImage), no per-placement
+   *  dialog. Footprint defaults from the image's own pixel size (rounded to
+   *  tiles, shrunk further to fit this anchor if needed — see
+   *  imageFootprintAt); resize/fit afterwards via the Select tool's image
+   *  action bar. */
+  private placeImageAt(col: number, row: number): void {
+    if (!this.layout) return;
+    if (!this.selectedImageId) {
+      this.flashHint('Pick an image on the left first.');
+      return;
+    }
+    const asset = getImageAssetList().find((a) => a.id === this.selectedImageId);
+    if (!asset) return;
+    const fit = this.imageFootprintAt(asset, col, row);
+    if (!fit) {
+      this.flashHint('Click on the map to place it.');
+      return;
+    }
+    const { fw, fh } = fit;
+    this.beginGesture();
+    if (!this.layout.images) this.layout.images = [];
+    this.layout.images.push({ uid: this.nextUid(), col, row, footprintW: fw, footprintH: fh, imageId: asset.id });
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** Right-click with the Image tool: delete the image under this tile
+   *  (anywhere in its footprint, not just its anchor — an image can span
+   *  many tiles). */
+  private deleteImageAt(col: number, row: number): void {
+    const hit = this.imageHitAt(col * TILE_SIZE + TILE_SIZE / 2, row * TILE_SIZE + TILE_SIZE / 2);
+    if (!hit || !this.layout?.images) return;
+    this.beginGesture();
+    this.layout.images = this.layout.images.filter((im) => im !== hit);
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+
+  /** Resize the selected image's footprint (tiles) via a plain text prompt —
+   *  an image has no orientation/content to edit, just its placement size. */
+  private async resizeSelectedImage(): Promise<void> {
+    if (!this.layout || !this.selectedImageUid) return;
+    const im = this.layout.images?.find((x) => x.uid === this.selectedImageUid);
+    if (!im) return;
+    const input = await promptDialog('Footprint, "cols x rows":', `${im.footprintW}x${im.footprintH}`);
+    if (input === null || !this.layout) return; // cancelled, or the editor closed meanwhile
+    const m = /^\s*(\d+)\s*[x×,]\s*(\d+)\s*$/i.exec(input);
+    if (!m) return;
+    const fw = Math.max(1, Math.min(16, Number(m[1])));
+    const fh = Math.max(1, Math.min(16, Number(m[2])));
+    if (im.col + fw > this.layout.cols || im.row + fh > this.layout.rows) return;
+    this.beginGesture();
+    im.footprintW = fw;
+    im.footprintH = fh;
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  /** 'stretch' (default, unset) fills the footprint exactly; 'center' draws
+   *  the image at its own native size, centered on the footprint's middle —
+   *  see PlacedImage's doc comment in shared/office/types.ts. The footprint
+   *  itself (and so the click/select hitbox) doesn't change either way. */
+  private toggleSelectedImageFit(): void {
+    if (!this.layout || !this.selectedImageUid) return;
+    const im = this.layout.images?.find((x) => x.uid === this.selectedImageUid);
+    if (!im) return;
+    this.beginGesture();
+    im.fit = im.fit === 'center' ? undefined : 'center';
+    this.deps.rebuildStatic();
+    this.deps.onEdit(this.layout, true);
+  }
+
+  private deleteSelectedImage(): void {
+    if (!this.layout || !this.selectedImageUid) return;
+    const i = this.layout.images?.findIndex((x) => x.uid === this.selectedImageUid) ?? -1;
+    if (i < 0 || !this.layout.images) return;
+    this.beginGesture();
+    this.layout.images.splice(i, 1);
+    this.selectedImageUid = null;
+    this.imageActionBar.style.display = 'none';
+    this.selRect?.setVisible(false);
     this.deps.rebuildStatic();
     this.deps.onEdit(this.layout, true);
   }
@@ -792,6 +1011,16 @@ export class LayoutEditor {
       this.dragMoved = false;
       return true;
     }
+    // Images are the "backmost" clickable thing — checked last, so a table
+    // (or a label) sitting over one always wins the click.
+    const pi = this.imageHitAt(wx, wy);
+    if (pi) {
+      this.dragKind = 'image';
+      this.dragUid = pi.uid;
+      this.dragGrab = { dc: Math.floor(wx / TILE_SIZE) - pi.col, dr: Math.floor(wy / TILE_SIZE) - pi.row };
+      this.dragMoved = false;
+      return true;
+    }
     return false;
   }
 
@@ -810,6 +1039,16 @@ export class LayoutEditor {
     if (this.dragKind === 'text') {
       this.ghost?.setVisible(false);
       this.selRect?.setPosition(col * TILE_SIZE, row * TILE_SIZE).setVisible(true);
+      return;
+    }
+    if (this.dragKind === 'image') {
+      this.ghost?.setVisible(false);
+      const pi = this.layout.images?.find((x) => x.uid === this.dragUid);
+      const fw = pi?.footprintW ?? 1;
+      const fh = pi?.footprintH ?? 1;
+      const dcol = col - this.dragGrab.dc;
+      const drow = row - this.dragGrab.dr;
+      this.selRect?.setPosition(dcol * TILE_SIZE, drow * TILE_SIZE).setSize(fw * TILE_SIZE, fh * TILE_SIZE).setVisible(true);
       return;
     }
     if (!this.ghost) return;
@@ -842,6 +1081,7 @@ export class LayoutEditor {
       if (!this.dragMoved) {
         this.selectedUid = null;
         this.selectedTextUid = uid;
+        this.selectedImageUid = null;
         return;
       }
       const t = this.layout.texts?.find((x) => x.uid === uid);
@@ -850,10 +1090,34 @@ export class LayoutEditor {
       if (!t || col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
       this.selectedUid = null;
       this.selectedTextUid = uid;
+      this.selectedImageUid = null;
       if (col === t.col && row === t.row) return; // dropped back on itself — stays selected
       this.beginGesture();
       t.col = col;
       t.row = row;
+      this.deps.rebuildStatic();
+      this.deps.onEdit(this.layout, true);
+      return;
+    }
+    if (kind === 'image') {
+      this.selRect?.setVisible(false);
+      if (!this.dragMoved) {
+        this.selectedUid = null;
+        this.selectedTextUid = null;
+        this.selectedImageUid = uid;
+        return;
+      }
+      const pi = this.layout.images?.find((x) => x.uid === uid);
+      const col = Math.floor(wx / TILE_SIZE) - this.dragGrab.dc;
+      const row = Math.floor(wy / TILE_SIZE) - this.dragGrab.dr;
+      if (!pi || col < 0 || row < 0 || col + pi.footprintW > this.layout.cols || row + pi.footprintH > this.layout.rows) return;
+      this.selectedUid = null;
+      this.selectedTextUid = null;
+      this.selectedImageUid = uid;
+      if (col === pi.col && row === pi.row) return; // dropped back on itself — stays selected
+      this.beginGesture();
+      pi.col = col;
+      pi.row = row;
       this.deps.rebuildStatic();
       this.deps.onEdit(this.layout, true);
       return;
@@ -888,7 +1152,7 @@ export class LayoutEditor {
    */
   private ensureUniqueUids(): void {
     if (!this.layout) return;
-    const all = [...this.layout.furniture, ...(this.layout.texts ?? [])];
+    const all = [...this.layout.furniture, ...(this.layout.texts ?? []), ...(this.layout.images ?? [])];
     let max = 0;
     for (const f of all) {
       const m = /^e(\d+)$/.exec(f.uid ?? '');
@@ -1129,7 +1393,8 @@ export class LayoutEditor {
 
   private selectAt(wx: number, wy: number): void {
     this.commitColorGesture(); // finalize any color edit on the previous selection
-    this.selectedTextUid = null; // furniture and text selection are mutually exclusive
+    this.selectedTextUid = null; // furniture/text/image selection are mutually exclusive
+    this.selectedImageUid = null;
     const hits = this.furnitureHitsAt(wx, wy); // top-most first
     if (hits.length === 0) {
       this.selectedUid = null;
@@ -1456,11 +1721,13 @@ export class LayoutEditor {
     if (!this.editing || this.tool !== 'select' || !this.layout) {
       this.actionBar.style.display = 'none';
       this.textActionBar.style.display = 'none';
+      this.imageActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
       return;
     }
     if (this.selectedTextUid) {
       this.actionBar.style.display = 'none';
+      this.imageActionBar.style.display = 'none';
       const t = this.layout.texts?.find((x) => x.uid === this.selectedTextUid);
       if (!t) {
         this.textActionBar.style.display = 'none';
@@ -1480,6 +1747,33 @@ export class LayoutEditor {
       return;
     }
     this.textActionBar.style.display = 'none';
+    if (this.selectedImageUid) {
+      this.actionBar.style.display = 'none';
+      const im = this.layout.images?.find((x) => x.uid === this.selectedImageUid);
+      if (!im) {
+        this.imageActionBar.style.display = 'none';
+        this.selRect?.setVisible(false);
+        return;
+      }
+      const wpx = im.col * TILE_SIZE;
+      const wpy = im.row * TILE_SIZE;
+      const ww = im.footprintW * TILE_SIZE;
+      const wh = im.footprintH * TILE_SIZE;
+      this.selRect?.setPosition(wpx, wpy).setSize(ww, wh).setVisible(true);
+      const cam = this.scene.cameras.main;
+      const wv = cam.worldView;
+      const sx = (wpx + ww / 2 - wv.x) * cam.zoom;
+      const sy = (wpy - wv.y) * cam.zoom;
+      this.imageActionBar.style.left = `${Math.round(sx)}px`;
+      this.imageActionBar.style.top = `${Math.round(sy)}px`;
+      this.imageActionBar.style.display = 'flex';
+      this.imageFitBtnInBar.textContent = im.fit === 'center' ? '⛶' : '▦';
+      this.imageFitBtnInBar.title = im.fit === 'center'
+        ? 'Fit: Center (native size) — click to switch to Stretch'
+        : 'Fit: Stretch (fills footprint) — click to switch to Center';
+      return;
+    }
+    this.imageActionBar.style.display = 'none';
     if (!this.selectedUid) {
       this.actionBar.style.display = 'none';
       this.selRect?.setVisible(false);
@@ -1608,16 +1902,22 @@ export class LayoutEditor {
 
   private selectTool(t: Tool): void {
     this.tool = t;
+    const isPalTool = t === 'furniture' || t === 'floor' || t === 'wall';
     this.palFurn.style.display = t === 'furniture' ? 'grid' : 'none';
+    if (this.palZoomSeg) this.palZoomSeg.style.display = isPalTool ? 'flex' : 'none';
+    if (this.furnViewSeg) this.furnViewSeg.style.display = t === 'furniture' && getImportSources().length > 0 ? 'flex' : 'none';
     this.palFloor.style.display = t === 'floor' ? 'grid' : 'none';
     if (this.palWall) this.palWall.style.display = t === 'wall' ? 'grid' : 'none';
     if (this.palAction) this.palAction.style.display = t === 'action' ? 'grid' : 'none';
+    if (this.palImage) this.palImage.style.display = t === 'image' ? 'grid' : 'none';
     if (this.rotateBtn) this.rotateBtn.style.display = t === 'furniture' ? 'block' : 'none';
     if (t !== 'select') {
       this.selectedUid = null;
       this.selectedTextUid = null;
+      this.selectedImageUid = null;
       if (this.actionBar) this.actionBar.style.display = 'none';
       if (this.textActionBar) this.textActionBar.style.display = 'none';
+      if (this.imageActionBar) this.imageActionBar.style.display = 'none';
       this.selRect?.setVisible(false);
     }
     this.root.querySelectorAll<HTMLElement>('.pa-tool').forEach((el) => el.classList.toggle('sel', el.dataset.tool === t));
@@ -1625,6 +1925,7 @@ export class LayoutEditor {
     if (this.editing) this.drawGrid();
     // Show the floor/wall palette swatches in the currently-picked colour.
     if (t === 'floor' || t === 'wall') this.refreshPalettePreviews();
+    if (this.palActionBar) this.refreshPalActionBar();
     const labels: Record<Tool, string> = {
       select: 'Select — click an object for rotate / delete buttons',
       furniture: 'Furniture — left-click place, right-click remove',
@@ -1633,14 +1934,47 @@ export class LayoutEditor {
       block: 'Block — left-click marks a tile as not walkable (independent of floor pattern), right-click clears it',
       action: 'Action — pick a kind on the left, then left-click paints it onto tiles, right-click clears it',
       text: 'Text — left-click to place/edit a label (empty clears it), right-click removes it',
+      image: 'Image — pick one on the left, then left-click to place it (over the floor, under furniture), right-click removes it',
       eyedropper: 'Eyedropper — click a tile/object to copy its type + colour, then paint',
     };
-    this.hint.textContent = labels[t];
+    this.toolHintText = labels[t];
+    this.hint.textContent = this.toolHintText;
+  }
+
+  /** Briefly replace the tool hint with a warning (e.g. "won't fit here") —
+   *  placement silently no-op'ing on an invalid tile otherwise looks
+   *  identical to a broken click. Restores the tool's normal description
+   *  after a beat rather than whatever text was showing (which could itself
+   *  be a still-fading previous flash). */
+  private flashHint(msg: string): void {
+    if (this.hintFlashTimer !== null) window.clearTimeout(this.hintFlashTimer);
+    this.hint.textContent = msg;
+    this.hint.style.color = '#e0a83a';
+    this.hintFlashTimer = window.setTimeout(() => {
+      this.hint.textContent = this.toolHintText;
+      this.hint.style.color = '';
+      this.hintFlashTimer = null;
+    }, 1800);
+  }
+
+  /** Resize the already-built Furniture/Floor/Wall palette thumbnails to the
+   *  current palZoom without rebuilding the whole palette (see the zoom
+   *  control) — canvases keep their real pixel size (cv.width/height), only
+   *  the CSS display size changes. */
+  private applyPalZoom(): void {
+    for (const pal of [this.palFurn, this.palFloor, this.palWall]) {
+      pal.querySelectorAll<HTMLCanvasElement>('.pa-pal-item canvas').forEach((cv) => {
+        cv.style.width = `${cv.width * this.palZoom}px`;
+        cv.style.height = `${cv.height * this.palZoom}px`;
+        cv.style.imageRendering = 'pixelated';
+      });
+    }
   }
 
   private setSelected(type: string): void {
     this.selectedType = type;
     this.palFurn.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', el.dataset.type === type));
+    this.refreshPalActionBar();
   }
 
   private highlightFloorSwatch(): void {
@@ -1673,8 +2007,8 @@ export class LayoutEditor {
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-editor .bar button:hover{background:#2e2b28;}
       #pa-editor .bar button.save{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
-      #pa-editor .tools{display:flex;gap:0.4rem;padding:0.6rem 0.7rem 0.4rem;}
-      #pa-editor .tools .pa-tool{flex:1;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#adb0b2;
+      #pa-editor .tools{display:flex;flex-wrap:wrap;gap:0.4rem;padding:0.6rem 0.7rem 0.4rem;}
+      #pa-editor .tools .pa-tool{flex:1 1 4.2rem;min-width:0;cursor:pointer;background:#262422;border:2px solid #0a0908;color:#adb0b2;
         border-radius:0.4rem;font:0.9rem 'FS Pixel Sans',monospace;padding:0.5rem 0.25rem;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-editor .tools .pa-tool.sel{color:#fff;background:#37342f;
@@ -1690,11 +2024,18 @@ export class LayoutEditor {
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-editor .pa-color-reset:hover{background:#2e2b28;}
       .pa-pal{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;padding:0.7rem;align-content:start;}
-      .pa-pal-item{display:flex;align-items:center;justify-content:center;height:3.4rem;cursor:pointer;
+      /* Every item renders its canvas at native size (× palZoom) — honest
+         relative sizing, no shrink-to-fit — consistent with the Assets
+         panel's grids (see OfficeScene.mkThumb / assetGrid.ts). */
+      .pa-pal-item{display:flex;align-items:center;justify-content:center;height:auto;cursor:pointer;
         background:#141312;border:2px solid #0a0908;border-radius:0.4rem;padding:0.25rem;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       .pa-pal-item.sel{border-color:#7fbf6a;box-shadow:0 0 0 2px #7fbf6a;}
-      .pa-pal-item img{max-width:2.75rem;max-height:2.75rem;image-rendering:pixelated;}
+      .pa-pal-grouplbl{grid-column:1/-1;font-size:0.72rem;letter-spacing:1px;color:#818586;
+        margin:0.7rem 0.15rem 0.25rem;text-transform:uppercase;}
+      .pa-pal-actionbar{display:none;align-items:center;gap:0.5rem;padding:0.5rem 0.7rem;
+        border-top:2px solid #0a0908;box-shadow:0 -4px 10px rgba(0,0,0,.4);}
+      .pa-pal-actionbar .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:0.9rem;}
       .pa-pal-action{grid-template-columns:1fr;}
       .pa-action-choice{height:auto;justify-content:flex-start;padding:0.5rem 0.7rem;
         font:0.85rem 'FS Pixel Sans',monospace;color:#f1efec;text-align:left;}
@@ -1729,6 +2070,7 @@ export class LayoutEditor {
       ['block', 'Block'],
       ['action', 'Action'],
       ['text', 'Text'],
+      ['image', 'Image'],
       ['eyedropper', 'Pick'],
     ] as const) {
       const b = document.createElement('button');
@@ -1793,11 +2135,34 @@ export class LayoutEditor {
     crow.append(this.colorizeEl, clab, this.swatchEl, resetBtn);
     color.appendChild(crow);
 
+    this.palZoomSeg = buildZoomSeg(this.palZoom, (z) => {
+      this.palZoom = z;
+      markSegOn(this.palZoomSeg, String(z));
+      this.applyPalZoom();
+    });
+    this.palZoomSeg.style.display = 'none';
+
+    this.furnViewSeg = buildViewToggle(
+      [
+        { value: 'category' as const, label: 'Category' },
+        { value: 'source' as const, label: 'Import source' },
+      ],
+      this.furnPalView,
+      (v) => {
+        this.furnPalView = v;
+        this.populatePalettes();
+      },
+    );
+    this.furnViewSeg.style.display = 'none';
+
     this.palFurn = Object.assign(document.createElement('div'), { className: 'pa-pal' });
     this.palFloor = Object.assign(document.createElement('div'), { className: 'pa-pal' });
     this.palWall = Object.assign(document.createElement('div'), { className: 'pa-pal' });
+    this.palImage = Object.assign(document.createElement('div'), { className: 'pa-pal' });
     this.palFloor.style.display = 'none';
     this.palWall.style.display = 'none';
+    this.palImage.style.display = 'none';
+    this.palActionBar = Object.assign(document.createElement('div'), { className: 'pa-pal-actionbar' });
 
     // Action-kind picker for the Action tool — plain labeled buttons (no
     // sprite preview; actions have no visual). Pick once, then drag-paint
@@ -1818,7 +2183,21 @@ export class LayoutEditor {
     }
     this.highlightActionChoice();
 
-    root.append(bar, tools, this.hint, this.rotateBtn, color, this.palFurn, this.palFloor, this.palWall, this.palAction);
+    root.append(
+      bar,
+      tools,
+      this.hint,
+      this.rotateBtn,
+      color,
+      this.palZoomSeg,
+      this.furnViewSeg,
+      this.palFurn,
+      this.palFloor,
+      this.palWall,
+      this.palImage,
+      this.palActionBar,
+      this.palAction,
+    );
     const host = document.getElementById('game') ?? document.body;
     host.appendChild(root);
     this.root = root;
@@ -1883,39 +2262,88 @@ export class LayoutEditor {
     this.textActionBar.append(textEditBtn, textRotateBtn, textDelBtn);
     host.appendChild(this.textActionBar);
 
+    // A placed image's own minimal floating bar (resize / delete) — no
+    // rotate/name/facing/restack/asset-editor/action-override buttons, none
+    // of those apply to a plain background picture.
+    this.imageActionBar = document.createElement('div');
+    this.imageActionBar.style.cssText = this.actionBar.style.cssText;
+    const imageResizeBtn = mkAct('⤢', 'Resize (tiles)', () => void this.resizeSelectedImage());
+    this.imageFitBtnInBar = mkAct('▦', 'Toggle fit: stretch to footprint / center at native size', () => this.toggleSelectedImageFit());
+    const imageDelBtn = mkAct('✕', 'Delete (Del)', () => this.deleteSelectedImage());
+    imageDelBtn.style.background = '#7c2634';
+    imageDelBtn.style.color = '#f6cdd4';
+    imageDelBtn.style.boxShadow = 'inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a';
+    this.imageActionBar.append(imageResizeBtn, this.imageFitBtnInBar, imageDelBtn);
+    host.appendChild(this.imageActionBar);
+
     this.selectTool('select');
     this.updateSwatch();
   }
 
+  /** Builds every placement palette from the current catalog/floor/wall
+   *  state. Always rebuilds from scratch (cheap — it's just re-reading
+   *  already-in-memory data into fresh DOM) rather than building once ever,
+   *  so items imported/edited/reset AFTER the editor was first opened this
+   *  session actually show up next time it's (re)opened — see enter(). */
   private populatePalettes(): void {
-    if (this.palBuilt) return;
-    let count = 0;
-    for (const cat of getActiveCategories()) {
-      for (const entry of getCatalogByCategory(cat.id)) {
-        const item = document.createElement('div');
-        item.className = 'pa-pal-item';
-        item.dataset.type = entry.type;
-        item.title = entry.label;
-        const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(entry.sprite) });
-        item.appendChild(img);
-        item.onclick = () => this.setSelected(entry.type);
-        this.palFurn.appendChild(item);
-        count++;
+    this.palFurn.replaceChildren();
+    this.palFloor.replaceChildren();
+    this.palWall.replaceChildren();
+    this.floorItems = [];
+    this.wallItems = [];
+
+    // Furniture: Category (default) or Import-source grouping — the exact
+    // same view + toggle as the Assets panel's Furniture tab (see
+    // OfficeScene.renderFurnAssets), so an import shows up organized the
+    // same way no matter where you're looking from. Clicking a tile still
+    // only selects it for placement (unchanged) — Edit/Reset live in the
+    // action bar below instead of a per-tile control (see refreshPalActionBar).
+    const mkFurnItem = (entry: CatalogEntryWithCategory): HTMLElement => {
+      const item = document.createElement('div');
+      item.className = 'pa-pal-item' + (entry.type === this.selectedType ? ' sel' : '');
+      item.dataset.type = entry.type;
+      item.title = entry.label;
+      item.appendChild(spriteThumbCanvas(entry.sprite, this.palZoom));
+      item.onclick = () => this.setSelected(entry.type);
+      return item;
+    };
+    const sources = getImportSources();
+    this.furnViewSeg.style.display = sources.length > 0 && this.tool === 'furniture' ? 'flex' : 'none';
+    markSegOn(this.furnViewSeg, this.furnPalView);
+    if (this.furnPalView === 'source' && sources.length > 0) {
+      for (const { source, entries } of sources) {
+        const head = document.createElement('div');
+        head.className = 'pa-pal-grouplbl';
+        head.textContent = `${source} (${entries.length})`;
+        this.palFurn.appendChild(head);
+        for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
+      }
+    } else {
+      for (const cat of getActiveCategories()) {
+        const entries = getCatalogByCategory(cat.id);
+        if (!entries.length) continue;
+        const head = document.createElement('div');
+        head.className = 'pa-pal-grouplbl';
+        head.textContent = cat.label;
+        this.palFurn.appendChild(head);
+        for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
       }
     }
+
     const patterns = Math.max(getFloorPatternCount(), 1);
     for (let p = 1; p <= patterns; p++) {
       const item = document.createElement('div');
       item.className = 'pa-pal-item';
       item.dataset.pattern = String(p);
-      const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(getColorizedFloorSprite(p, NEUTRAL)) });
-      item.appendChild(img);
+      const cv = spriteThumbCanvas(getColorizedFloorSprite(p, NEUTRAL), this.palZoom);
+      item.appendChild(cv);
       item.onclick = () => {
         this.floorPattern = p;
         this.highlightFloorSwatch();
+        this.refreshPalActionBar();
       };
       this.palFloor.appendChild(item);
-      this.floorItems.push({ img, pattern: p });
+      this.floorItems.push({ canvas: cv, pattern: p });
     }
     // Wall sets (the "wall symbol" — paint with the chosen wall style).
     const wallCount = Math.max(getWallSetCount(), 1);
@@ -1926,17 +2354,94 @@ export class LayoutEditor {
       item.className = 'pa-pal-item';
       item.dataset.wall = String(s);
       if (s === this.wallSet) item.classList.add('sel');
-      const img = Object.assign(document.createElement('img'), { src: spriteToDataURL(sprite) });
-      item.appendChild(img);
+      const cv = spriteThumbCanvas(sprite, this.palZoom);
+      item.appendChild(cv);
       item.onclick = () => {
         this.wallSet = s;
         this.palWall.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.wall) === s));
       };
       this.palWall.appendChild(item);
-      this.wallItems.push({ img, set: s });
+      this.wallItems.push({ canvas: cv, set: s });
     }
-    if (count > 0) this.palBuilt = true;
+
+    // Uploaded background images (Assets → Images) — same pick-then-place
+    // pattern as Furniture/Floor/Wall above, no per-placement dialog.
+    this.palImage.replaceChildren();
+    const images = getImageAssetList();
+    if (!images.some((a) => a.id === this.selectedImageId)) this.selectedImageId = images[0]?.id ?? null;
+    if (images.length === 0) {
+      const p = document.createElement('div');
+      p.className = 'pa-pal-grouplbl';
+      p.textContent = 'No images uploaded yet — Assets → Images.';
+      this.palImage.appendChild(p);
+    }
+    for (const asset of images) {
+      const item = document.createElement('div');
+      item.className = 'pa-pal-item' + (asset.id === this.selectedImageId ? ' sel' : '');
+      item.title = asset.label || asset.id;
+      const img = document.createElement('img');
+      img.src = asset.data;
+      img.style.cssText = 'max-width:100%;max-height:100%;image-rendering:pixelated;';
+      item.appendChild(img);
+      item.onclick = () => {
+        this.selectedImageId = asset.id;
+        this.palImage.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', el === item));
+      };
+      this.palImage.appendChild(item);
+    }
+
     this.refreshPalettePreviews();
+    this.refreshPalActionBar();
+  }
+
+  /** Sticky bar below the palette for whichever item is currently selected
+   *  (for placement) — Edit (+Reset for furniture) via the exact same editor
+   *  entry points the Select tool's "Edit asset" button and the Assets panel
+   *  use (EditorDeps.openAssetEditor/resetFurnitureAsset/openFloorEditor),
+   *  instead of a parallel implementation. Wall has no editor (nothing to
+   *  edit — wall sets are bundled-only), so it never shows a bar. */
+  private refreshPalActionBar(): void {
+    this.palActionBar.replaceChildren();
+    this.palActionBar.style.display = 'none';
+    if (this.tool === 'furniture' && this.selectedType) {
+      const entry = getCatalogEntry(this.selectedType);
+      if (!entry) return;
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = entry.label;
+      this.palActionBar.appendChild(nm);
+      if (this.deps.openAssetEditor) {
+        const edit = document.createElement('button');
+        edit.className = 'pa-b';
+        edit.textContent = 'Edit';
+        edit.onclick = () => this.deps.openAssetEditor!(entry.type);
+        this.palActionBar.appendChild(edit);
+      }
+      if (this.deps.resetFurnitureAsset) {
+        const reset = document.createElement('button');
+        reset.className = 'pa-b danger';
+        reset.textContent = 'Reset';
+        reset.title = 'Revert to the bundled default (or delete a custom item)';
+        reset.onclick = async () => {
+          if (!(await confirmDialog(`Reset ${entry.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+          this.deps.resetFurnitureAsset!(entry.type);
+          this.selectedType = null;
+          window.setTimeout(() => this.populatePalettes(), 250);
+        };
+        this.palActionBar.appendChild(reset);
+      }
+      this.palActionBar.style.display = 'flex';
+    } else if (this.tool === 'floor' && this.deps.openFloorEditor) {
+      const nm = document.createElement('span');
+      nm.className = 'nm';
+      nm.textContent = `Floor ${this.floorPattern}`;
+      const edit = document.createElement('button');
+      edit.className = 'pa-b';
+      edit.textContent = 'Edit';
+      edit.onclick = () => this.deps.openFloorEditor!(this.floorPattern);
+      this.palActionBar.append(nm, edit);
+      this.palActionBar.style.display = 'flex';
+    }
   }
 
   /**
@@ -1945,17 +2450,18 @@ export class LayoutEditor {
    * palette is refreshed (floor or wall tool).
    */
   private refreshPalettePreviews(): void {
+    // drawSpriteOnCanvas only touches the bitmap (canvas.width/height) and
+    // repaints it — it never resizes cv.style, so the current palZoom's CSS
+    // display size (set by spriteThumbCanvas/applyPalZoom) survives untouched.
     const c = this.color;
     if (this.tool === 'floor') {
-      for (const { img, pattern } of this.floorItems) {
-        img.src = spriteToDataURL(getColorizedFloorSprite(pattern, c));
-      }
+      for (const { canvas, pattern } of this.floorItems) drawSpriteOnCanvas(canvas, getColorizedFloorSprite(pattern, c));
     } else if (this.tool === 'wall') {
-      for (const { img, set } of this.wallItems) {
+      for (const { canvas, set } of this.wallItems) {
         const base = getWallSetPreviewSprite(set);
         if (!base) continue;
         const key = `wallprev-${set}-${c.h}-${c.s}-${c.b}-${c.c}`;
-        img.src = spriteToDataURL(getColorizedSprite(key, base, { ...c, colorize: true }));
+        drawSpriteOnCanvas(canvas, getColorizedSprite(key, base, { ...c, colorize: true }));
       }
     }
   }

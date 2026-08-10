@@ -182,19 +182,25 @@ class AppStore {
   // ── Per-user viewer preferences (sound / labels / alert volume) ──
   // These are personal, not global: keyed by userId so one viewer can never
   // change another viewer's (or a server-wide) setting.
-  getViewerSettings(userId: string): { soundEnabled: boolean; alwaysShowLabels: boolean; alertVolume: number } {
-    const all = this.getSetting<Record<string, { soundEnabled?: boolean; alwaysShowLabels?: boolean; alertVolume?: number }>>(
-      'viewerSettings',
-      {},
-    );
+  getViewerSettings(
+    userId: string,
+  ): { soundEnabled: boolean; alwaysShowLabels: boolean; alertVolume: number; cameraFollow: boolean } {
+    const all = this.getSetting<
+      Record<string, { soundEnabled?: boolean; alwaysShowLabels?: boolean; alertVolume?: number; cameraFollow?: boolean }>
+    >('viewerSettings', {});
     const s = all[userId] ?? {};
     return {
       soundEnabled: s.soundEnabled ?? true,
       alwaysShowLabels: s.alwaysShowLabels ?? false,
       alertVolume: typeof s.alertVolume === 'number' ? s.alertVolume : 1,
+      cameraFollow: s.cameraFollow ?? true,
     };
   }
-  setViewerSetting(userId: string, key: 'soundEnabled' | 'alwaysShowLabels' | 'alertVolume', value: boolean | number): void {
+  setViewerSetting(
+    userId: string,
+    key: 'soundEnabled' | 'alwaysShowLabels' | 'alertVolume' | 'cameraFollow',
+    value: boolean | number,
+  ): void {
     if (!userId) return;
     const all = this.getSetting<Record<string, Record<string, unknown>>>('viewerSettings', {});
     all[userId] = { ...(all[userId] ?? {}), [key]: value };

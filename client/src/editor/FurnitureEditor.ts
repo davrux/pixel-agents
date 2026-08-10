@@ -1,14 +1,18 @@
 import {
+  DEFAULT_ANIMATION_FRAME_MS,
   FURNITURE_CATEGORIES,
   getActiveCategories,
-  getAnimationFrames,
+  getAnimationFrameData,
   getCatalogByCategory,
   getCatalogEntry,
   getOnStateType,
+  getOnTrigger,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import type { Action, SpriteData } from '@pixel/shared/office/types.js';
 import { confirmDialog } from '../ui/dialog.js';
-import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
+import { openPaDialog } from '../ui/paDialog.js';
+import { PixelPaintCanvas } from './pixelPaintCanvas.js';
+import { spriteThumbCanvas } from './assetGrid.js';
 import { actionChoiceLabel, TILE_ACTION_CHOICES } from './actionChoices.js';
 
 /** A raw catalog item (the buildDynamicCatalog INPUT shape, keyed by `id`). It
@@ -35,7 +39,6 @@ export interface FurnitureEditorOpts {
 }
 
 const TILE = 16;
-const MAX_CANVAS_PX = 256;
 
 function sanitizeId(raw: string): string {
   return raw.replace(/[^A-Za-z0-9_:-]/g, '').slice(0, 40);
@@ -60,8 +63,14 @@ interface FurnFrame {
   id: string;
   sprite: SpriteData;
   base?: RawCatalogItem;
-  /** Set for on/off state variants (PC, laptop) instead of animation frames. */
+  /** Set for an on/off state variant (PC, laptop) — the "off" pose is always a
+   *  single static frame; "on" may itself be a multi-frame animation, tagged
+   *  on every frame that belongs to it. */
   state?: 'on' | 'off';
+  /** Tiled-style per-frame duration (ms) — only meaningful for a frame that's
+   *  actually part of an animation group (ambient, or the "on" side of a
+   *  state pair). */
+  durationMs?: number;
 }
 
 interface FurnWork {
@@ -86,6 +95,11 @@ interface FurnWork {
   frameIdx: number;
   /** Animation group id when frames.length > 1, else null. */
   animGroup: string | null;
+  /** What turns an on/off pair on (see FurnitureCatalogEntry.onTrigger) — only
+   *  meaningful when frames carry a state. null = not yet chosen; Save is
+   *  blocked until it is (no implicit default — auto-facing doesn't suit
+   *  every kind of object, see addOnOffState). */
+  onTrigger: 'autoFacing' | 'click' | null;
   /** The selected frame's sprite — always === frames[frameIdx].sprite (same
    *  array ref), so paint/render keep using `work.sprite` unchanged. */
   sprite: SpriteData;
@@ -104,16 +118,11 @@ export class FurnitureEditor {
   private galleryPane!: HTMLDivElement;
   private editPane!: HTMLDivElement;
   private cardsHost!: HTMLDivElement;
-  private canvas!: HTMLCanvasElement;
+  private paint!: PixelPaintCanvas;
   private open = false;
   private view: 'gallery' | 'edit' = 'gallery';
   private dirty = false;
   private isNew = false;
-  private color = '#9b7653';
-  private tool: 'paint' | 'erase' | 'pick' | 'select' = 'paint';
-  /** Active marquee selection (sprite-pixel coords), or null. */
-  private selection: PixelRect | null = null;
-  private cell = 12;
   private playTimer: number | null = null;
   /** Catalog ids of frames removed since load — deleted (override-reset) on save. */
   private removedIds = new Set<string>();
@@ -163,6 +172,23 @@ export class FurnitureEditor {
     this.backOverride = undefined;
     this.panel.style.display = 'block';
     this.loadNew();
+    this.showEdit();
+  }
+  /** Open straight into a new item pre-filled with a composed sprite (see
+   *  the Assets panel's "Compose from pieces…" tool) instead of a blank
+   *  canvas — same save/metadata path as any other new item from here on. */
+  newItemWithSprite(sprite: SpriteData, footprintW: number, footprintH: number): void {
+    this.open = true;
+    this.backOverride = undefined;
+    this.panel.style.display = 'block';
+    this.loadNew();
+    this.work.footprintW = footprintW;
+    this.work.footprintH = footprintH;
+    this.work.frames = [{ id: '', sprite }];
+    this.work.sprite = sprite;
+    this.dirty = true;
+    this.syncFields(true);
+    this.render();
     this.showEdit();
   }
   async close(): Promise<void> {
@@ -219,6 +245,7 @@ export class FurnitureEditor {
       frames: [{ id: '', sprite }],
       frameIdx: 0,
       animGroup: null,
+      onTrigger: null,
       sprite,
     };
   }
@@ -238,13 +265,28 @@ export class FurnitureEditor {
       #pa-furn input[type=text],#pa-furn input[type=number]{cursor:text;flex:1;min-width:0;}
       #pa-furn input[type=number]{flex:0 0 4rem;}
       #pa-furn button.on{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+      #pa-furn button.danger{background:#7c2634;color:#fff;box-shadow:inset 0 2px 0 #a8434f,inset 0 -3px 0 #3c0f16;}
       #pa-furn button:disabled{opacity:0.4;cursor:not-allowed;}
-      #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;}
-      #pa-furn #pa-f-frames canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#141312;
+      /* Which pose (Off/On) is being edited — a proper segmented tab (reuses
+         paSkin's .pa-seg/.seg, the same "clearly one of these is active"
+         pattern as the Category/Source and zoom controls elsewhere), not a
+         pair of small buttons easy to miss. */
+      #pa-furn #pa-f-stateseg{flex:0 0 auto;margin-bottom:0.4rem;}
+      #pa-furn #pa-f-stateseg .seg{font-size:0.95rem;padding:0.5rem 1rem;}
+      #pa-furn #pa-f-frames{display:flex;gap:0.35rem;flex-wrap:wrap;flex:1;align-items:flex-end;}
+      #pa-furn #pa-f-frames .framecell{display:flex;flex-direction:column;align-items:center;gap:0.15rem;}
+      /* Fixed box + object-fit:contain — not width/height alone, which would
+         stretch a non-square sprite (e.g. PC's 16×32 on/off frames) to fill a
+         square and distort it. This keeps every thumbnail the same visual
+         size (a tidy grid) while letterboxing tall/wide sprites correctly. */
+      #pa-furn #pa-f-frames canvas{width:2.4rem;height:2.4rem;object-fit:contain;
+        image-rendering:pixelated;background:#141312;
         border:2px solid #0a0908;border-radius:0.25rem;cursor:pointer;}
       #pa-furn #pa-f-frames canvas.on{border-color:#e2585a;}
+      #pa-furn #pa-f-frames .framecell input[type=number]{flex:0 0 auto;width:3.4rem;padding:0.1rem 0.25rem;
+        font-size:0.7rem;text-align:center;}
       #pa-furn #pa-f-paintarea{display:flex;justify-content:center;margin:0.5rem 0;}
-      #pa-furn #pa-f-canvas{image-rendering:pixelated;background:
+      #pa-furn #pa-f-paintarea canvas{image-rendering:pixelated;background:
         repeating-conic-gradient(#262422 0% 25%, #201e1c 0% 50%) 0/1rem 1rem;border:2px solid #0a0908;cursor:crosshair;touch-action:none;}
       #pa-furn input[type=color]{width:2.6rem;height:2rem;padding:0;border:2px solid #0a0908;background:none;cursor:pointer;}
       #pa-furn .foot{display:flex;gap:0.5rem;margin-top:0.6rem;}
@@ -257,7 +299,7 @@ export class FurnitureEditor {
       #pa-furn #pa-f-cards{max-height:68vh;overflow-y:auto;}
       #pa-furn #pa-f-cards .card{display:flex;align-items:center;gap:0.6rem;background:#242220;border:2px solid #0a0908;
         border-radius:0.45rem;padding:0.35rem 0.5rem;margin:0.3rem 0;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;image-rendering:pixelated;background:#141312;border:2px solid #0a0908;flex:0 0 auto;}
+      #pa-furn #pa-f-cards .card canvas{width:2rem;height:2rem;object-fit:contain;image-rendering:pixelated;background:#141312;border:2px solid #0a0908;flex:0 0 auto;}
       #pa-furn #pa-f-cards .card .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #pa-furn #pa-f-cards .card button{padding:0.3rem 0.55rem;font-size:0.9rem;flex:0 0 auto;}
       #pa-furn #pa-f-cards .card button.del{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
@@ -295,7 +337,7 @@ export class FurnitureEditor {
       <div class="row"><label class="f">Footprint</label>
         <input id="pa-f-fw" type="number" min="1" max="16" title="width (tiles)"> ×
         <input id="pa-f-fh" type="number" min="1" max="16" title="height (tiles)"> tiles</div>
-      <div class="row"><label class="f" for="pa-f-bg">Bg rows</label><input id="pa-f-bg" type="number" min="0" max="16" title="non-blocking top rows"></div>
+      <div class="row"><label class="f" for="pa-f-bg" title="How many footprint tile-rows counted from the TOP are walk-through — e.g. a tall shelf's overhang, or a plant's leafy top, that a character can walk behind/under. The remaining bottom rows still block movement normally. 0 = the whole footprint blocks, like a plain desk.">Walk-under rows ⓘ</label><input id="pa-f-bg" type="number" min="0" max="16" title="Top footprint tile-rows that do NOT block movement (0 = whole footprint blocks)"></div>
       <div class="row">
         <label class="chk"><input id="pa-f-desk" type="checkbox"> Seat</label>
         <label class="chk"><input id="pa-f-surf" type="checkbox"> On surfaces</label>
@@ -305,14 +347,17 @@ export class FurnitureEditor {
       </div>
       <div class="row"><label class="f" for="pa-f-appliance">Action</label>
         <select id="pa-f-appliance" style="flex:1;">${actionOpts}</select></div>
-      <div class="row">
-        <input id="pa-f-color" type="color" value="${this.color}">
-        <button id="pa-f-paint" class="on">✏ Paint</button>
-        <button id="pa-f-erase">⌫ Erase</button>
-        <button id="pa-f-pick">⦿ Pick</button>
-        <button id="pa-f-select" title="Select a region to copy">⬚ Select</button>
-        <button id="pa-f-paste" title="Paste the copied region here">⎘ Paste</button>
+      <div class="row" id="pa-f-onoffrow">
+        <label class="f" for="pa-f-trigger" id="pa-f-triggerlabel" style="display:none;">Trigger</label>
+        <select id="pa-f-trigger" style="flex:1;display:none;">
+          <option value="">— choose —</option>
+          <option value="autoFacing">Auto (seated + facing)</option>
+          <option value="click">Click to toggle</option>
+        </select>
+        <button id="pa-f-addonoff" title="Give this item a separate On/Off pose">＋ On/Off state…</button>
+        <button id="pa-f-removeonoff" class="danger" title="Merge back into one static item, keeping the Off pose" style="display:none;">－ Remove On/Off state</button>
       </div>
+      <div id="pa-f-stateseg" class="pa-seg" style="display:none;"></div>
       <div class="row" id="pa-f-framesrow">
         <span class="f" id="pa-f-frameslabel" style="flex:0 0 auto;">Frames</span>
         <div id="pa-f-frames"></div>
@@ -320,7 +365,8 @@ export class FurnitureEditor {
         <button id="pa-f-delframe" title="Remove the selected frame">－</button>
         <button id="pa-f-play" title="Play the animation">▶</button>
       </div>
-      <div id="pa-f-paintarea"><canvas id="pa-f-canvas"></canvas></div>
+      <div class="pa-f-toolbar-slot"></div>
+      <div id="pa-f-paintarea"></div>
       <div class="row" style="justify-content:flex-end;min-height:1rem;margin:0;"><span id="pa-f-status">​</span></div>
       <div class="foot">
         <button id="pa-f-save" class="on">Save</button>
@@ -336,10 +382,34 @@ export class FurnitureEditor {
     this.btn = btn;
     host.appendChild(panel);
     this.panel = panel;
-    this.canvas = panel.querySelector<HTMLCanvasElement>('#pa-f-canvas')!;
     this.galleryPane = panel.querySelector<HTMLDivElement>('#pa-f-gallery')!;
     this.editPane = panel.querySelector<HTMLDivElement>('#pa-f-edit')!;
     this.cardsHost = panel.querySelector<HTMLDivElement>('#pa-f-cards')!;
+
+    // The toolbar (color + Paint/Erase/Pick/Select/Paste) sits directly above
+    // the canvas — no frames/on-off row between them (see pixelPaintCanvas.ts).
+    this.paint = new PixelPaintCanvas({
+      enableSelect: true,
+      initialColor: '#9b7653',
+      onBeforePaint: () => this.stopPlay(), // don't fight the user while a frame is being painted
+      onChange: () => {
+        this.dirty = true;
+        this.renderFrames(); // keep the frame-strip thumbnail live while painting
+      },
+      onStatus: (text) => this.showStatus(text),
+    });
+    panel.querySelector('.pa-f-toolbar-slot')!.replaceWith(this.paint.toolbar);
+    panel.querySelector<HTMLDivElement>('#pa-f-paintarea')!.appendChild(this.paint.canvas);
+    // Compose a bigger item (e.g. a table) from pieces already in the catalog,
+    // or start a new frame from an existing sprite instead of a blank one —
+    // right here instead of a separate one-off "compose" wizard (see
+    // pickStampSource). Appended after Paste, same toolbar row.
+    const stampBtn = document.createElement('button');
+    stampBtn.type = 'button';
+    stampBtn.textContent = '📋 Stamp…';
+    stampBtn.title = "Copy an existing furniture piece's sprite onto this canvas";
+    stampBtn.onclick = () => this.pickStampSource();
+    this.paint.toolbar.appendChild(stampBtn);
 
     this.field('#pa-f-newbtn').onclick = () => {
       this.loadNew();
@@ -410,39 +480,30 @@ export class FurnitureEditor {
       this.work.action = action;
       this.dirty = true;
     };
-    const colorEl = this.field('#pa-f-color');
-    colorEl.oninput = () => {
-      this.color = colorEl.value;
-      this.setTool('paint');
-    };
-    this.field('#pa-f-paint').onclick = () => this.setTool('paint');
-    this.field('#pa-f-erase').onclick = () => this.setTool('erase');
-    this.field('#pa-f-pick').onclick = () => this.setTool('pick');
-    this.field('#pa-f-select').onclick = () => this.setTool('select');
-    this.field('#pa-f-paste').onclick = () => this.doPaste();
     this.field('#pa-f-save').onclick = () => this.doSave();
     this.field('#pa-f-reset').onclick = () => this.doReset();
     this.field('#pa-f-play').onclick = () => this.togglePlay();
     this.field('#pa-f-addframe').onclick = () => this.addFrame();
     this.field('#pa-f-delframe').onclick = () => this.removeFrame();
-
-    this.bindPaint();
+    this.field('#pa-f-addonoff').onclick = () => {
+      this.addOnOffState();
+      this.syncOnOffRow();
+    };
+    this.field('#pa-f-removeonoff').onclick = async () => {
+      if (!(await confirmDialog('Remove the On/Off split? The On pose is discarded, Off becomes the plain item again.', { danger: true, confirmLabel: 'Remove' }))) return;
+      this.removeOnOffState();
+      this.syncOnOffRow();
+    };
+    this.field<HTMLSelectElement>('#pa-f-trigger').onchange = (e) => {
+      const v = (e.target as HTMLSelectElement).value;
+      this.work.onTrigger = v === 'autoFacing' || v === 'click' ? v : null;
+      this.dirty = true;
+      this.syncOnOffRow();
+    };
   }
 
   private field<T extends HTMLElement = HTMLInputElement>(sel: string): T {
     return this.panel.querySelector<T>(sel)!;
-  }
-
-  private setTool(t: 'paint' | 'erase' | 'pick' | 'select'): void {
-    this.tool = t;
-    for (const [id, name] of [
-      ['#pa-f-paint', 'paint'],
-      ['#pa-f-erase', 'erase'],
-      ['#pa-f-pick', 'pick'],
-      ['#pa-f-select', 'select'],
-    ] as const) {
-      this.field(id).classList.toggle('on', t === name);
-    }
   }
 
   // ── Data ─────────────────────────────────────────────────────────
@@ -486,6 +547,61 @@ export class FurnitureEditor {
     }
   }
 
+  /** Picker for the "📋 Stamp…" tool: every existing furniture piece (any
+   *  footprint, filterable by size since the catalog can be large), sprite
+   *  copied onto the canvas at wherever's clicked next (see
+   *  PixelPaintCanvas.setStampSource) — the general "build from pieces I
+   *  already have" tool, usable on any frame you're currently editing (so it
+   *  doubles as "start a new frame from an existing sprite" too). Replaces
+   *  the old standalone Furniture Composer dialog: same idea, but inside the
+   *  editor you're already in instead of a separate one-off wizard. */
+  private pickStampSource(): void {
+    const entries = getActiveCategories().flatMap((c) => getCatalogByCategory(c.id));
+    const sizes = Array.from(new Set(entries.map((e) => `${e.footprintW}×${e.footprintH}`))).sort();
+
+    const body = document.createElement('div');
+    const filterRow = document.createElement('div');
+    filterRow.className = 'row';
+    const filterLabel = document.createElement('span');
+    filterLabel.className = 'f';
+    filterLabel.textContent = 'Footprint';
+    const filterSel = document.createElement('select');
+    filterSel.innerHTML =
+      '<option value="">All sizes</option>' + sizes.map((s) => `<option value="${s}">${s}</option>`).join('');
+    filterRow.append(filterLabel, filterSel);
+
+    const grid = document.createElement('div');
+    grid.className = 'pa-assetgrid';
+    grid.style.cssText = 'max-height:20rem;overflow-y:auto;';
+    body.append(filterRow, grid);
+
+    const close = openPaDialog({ title: 'Stamp from an existing piece', body, buttons: [] });
+
+    const renderGrid = (): void => {
+      grid.replaceChildren();
+      const filter = filterSel.value;
+      for (const e of entries) {
+        const size = `${e.footprintW}×${e.footprintH}`;
+        if (filter && size !== filter) continue;
+        const item = document.createElement('div');
+        item.className = 'pa-assetgrid-item';
+        item.title = `${e.label} (${size})`;
+        item.appendChild(spriteThumbCanvas(e.sprite, 2));
+        const nm = document.createElement('span');
+        nm.className = 'nm';
+        nm.textContent = `${e.label} · ${size}`;
+        item.appendChild(nm);
+        item.onclick = () => {
+          this.paint.setStampSource(e.sprite.map((row) => row.slice()));
+          close();
+        };
+        grid.appendChild(item);
+      }
+    };
+    filterSel.onchange = renderGrid;
+    renderGrid();
+  }
+
   /** Draw a furniture sprite 1:1 into a tiny canvas (CSS scales it, pixelated). */
   private drawThumb(cv: HTMLCanvasElement, sprite: SpriteData): void {
     const h = sprite.length;
@@ -509,7 +625,6 @@ export class FurnitureEditor {
     this.isNew = true;
     this.dirty = false;
     this.removedIds.clear();
-    this.selection = null;
     this.syncFields(true);
     this.render();
   }
@@ -525,22 +640,44 @@ export class FurnitureEditor {
       const e = getCatalogEntry(id);
       return e?.sprite ? e.sprite.map((r) => r.slice()) : emptySprite(fw * TILE, fh * TILE);
     };
-    // Members to edit: animation frames, else on/off state variants, else just
-    // this single sprite.
-    const animMembers = getAnimationFrames(type);
+    // Members to edit: an ambient animation, else on/off state variants (whose
+    // "on" side may itself be animated — PC, laptop), else just this one sprite.
+    const animMembers = getAnimationFrameData(type);
     const onType = getOnStateType(type);
     let frames: FurnFrame[];
     let animGroup: string | null;
     if (animMembers) {
-      frames = animMembers.map((id) => ({ id, sprite: cloneOf(id), base: rawOf(id) }));
+      frames = animMembers.map((f) => ({
+        id: f.id,
+        sprite: cloneOf(f.id),
+        base: rawOf(f.id),
+        durationMs: f.durationMs,
+      }));
       animGroup = (raw?.animationGroup as string | undefined) ?? type;
     } else if (onType !== type) {
-      // Stateful item (PC/laptop): edit both the off (visible) and on variants.
-      frames = [
-        { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
-        { id: onType, sprite: cloneOf(onType), base: rawOf(onType), state: 'on' },
-      ];
-      animGroup = null;
+      // Stateful item (PC/laptop): "off" is always a single static pose; "on"
+      // is either a single pose too, or (like Tiled: a plain tile vs. one
+      // carrying an <animation>) its own multi-frame animation.
+      const onFrames = getAnimationFrameData(onType);
+      if (onFrames) {
+        frames = [
+          { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
+          ...onFrames.map((f) => ({
+            id: f.id,
+            sprite: cloneOf(f.id),
+            base: rawOf(f.id),
+            state: 'on' as const,
+            durationMs: f.durationMs,
+          })),
+        ];
+        animGroup = (rawOf(onType)?.animationGroup as string | undefined) ?? onType;
+      } else {
+        frames = [
+          { id: type, sprite: cloneOf(type), base: raw, state: 'off' },
+          { id: onType, sprite: cloneOf(onType), base: rawOf(onType), state: 'on' },
+        ];
+        animGroup = null;
+      }
     } else {
       frames = [{ id: type, sprite: cloneOf(type), base: raw }];
       animGroup = null;
@@ -561,13 +698,13 @@ export class FurnitureEditor {
       frames,
       frameIdx: 0,
       animGroup,
+      onTrigger: frames.some((f) => f.state) ? getOnTrigger(type) : null,
       sprite: frames[0].sprite,
       base: raw,
     };
     this.isNew = false;
     this.dirty = false;
     this.removedIds.clear();
-    this.selection = null;
     this.syncFields(false);
     this.render();
   }
@@ -580,40 +717,94 @@ export class FurnitureEditor {
     this.render();
   }
 
-  /** Append a blank animation frame (turning a static item into an animation on
-   *  the first add). Frame 0 keeps the item's id so existing placements survive;
-   *  added frames get `${animGroup}_N` ids. */
+  /** Append a blank animation frame to whichever track is currently selected
+   *  (turning a static item into an animation on the first add, for a plain
+   *  item; or growing the "on" side's animation, for a state pair — the "off"
+   *  pose never animates, like a plain Tiled tile vs. one with an
+   *  <animation>). Frame 0 keeps the item's id so existing placements
+   *  survive; added frames get `${animGroup}_N` ids. */
   private addFrame(): void {
     this.stopPlay();
     const w = this.work;
-    if (w.frames.some((f) => f.state)) return; // state pairs aren't frame animations
-    if (!w.frames[0].id) w.frames[0].id = w.id; // a fresh blank item
-    if (!w.animGroup) w.animGroup = w.frames[0].id || w.id || 'ANIM';
+    const curState = w.frames[w.frameIdx]?.state;
+    if (curState === 'off') return; // the static pose never animates
+    // Seed the animation group's name from the CURRENT track's own first
+    // member — for a state pair that's the "on" frame, never the "off" one
+    // (frames[0] is only the right seed for a plain, state-less item).
+    const track = w.frames.filter((f) => f.state === curState);
+    const trackFirst = track[0] ?? w.frames[0];
+    if (!trackFirst.id) trackFirst.id = w.id; // a fresh blank item has no id yet
+    if (!w.animGroup) w.animGroup = trackFirst.id || w.id || 'ANIM';
     const used = new Set(w.frames.map((f) => f.id));
-    let n = w.frames.length;
+    let n = track.length;
     let id = `${w.animGroup}_${n}`;
     while (used.has(id) || getCatalogEntry(id)) id = `${w.animGroup}_${++n}`;
     const cur = w.frames[w.frameIdx].sprite;
     const h = cur.length;
     const width = h > 0 ? cur[0].length : TILE;
-    w.frames.push({ id, sprite: emptySprite(width, h) });
+    w.frames.push({ id, sprite: emptySprite(width, h), state: curState, durationMs: DEFAULT_ANIMATION_FRAME_MS });
     this.dirty = true;
     this.selectFrame(w.frames.length - 1);
   }
 
-  /** Remove the selected frame (≥2 required). A previously-saved member is
-   *  queued for override-deletion on save; dropping to one frame reverts to a
-   *  static item. (Removing a bundled frame can't fully delete it — the bundle
-   *  re-asserts it; works for user-added/overridden frames.) */
+  /** Turn a plain static item into an on/off pair — Off keeps the current
+   *  sprite/id, On starts as a copy to edit from. No default trigger is
+   *  picked (see FurnWork.onTrigger): Save is blocked until one is, since
+   *  auto-facing doesn't suit every kind of object (see #pa-f-trigger). */
+  private addOnOffState(): void {
+    const w = this.work;
+    if (w.frames.some((f) => f.state) || w.animGroup) return;
+    if (!w.frames[0].id) w.frames[0].id = w.id;
+    w.frames[0].state = 'off';
+    const offId = w.frames[0].id;
+    let onId = `${offId}_ON`;
+    let n = 2;
+    while (getCatalogEntry(onId)) onId = `${offId}_ON${n++}`;
+    w.frames.push({ id: onId, sprite: w.frames[0].sprite.map((r) => r.slice()), state: 'on' });
+    w.onTrigger = null;
+    this.dirty = true;
+    this.selectFrame(0);
+  }
+
+  /** Undo addOnOffState(): the reverse merge — drop every "on" frame (queued
+   *  for override-deletion on save, same as removeFrame does for a dropped
+   *  frame) and keep the Off pose's sprite/id as a single plain static frame
+   *  again. There was previously no way back from "+ On/Off state…" at all. */
+  private removeOnOffState(): void {
+    const w = this.work;
+    const off = w.frames.find((f) => f.state === 'off');
+    if (!off) return;
+    for (const f of w.frames) {
+      if (f.state === 'on' && (f.base || getCatalogEntry(f.id))) this.removedIds.add(f.id);
+    }
+    off.state = undefined;
+    off.durationMs = undefined;
+    w.frames = [off];
+    w.animGroup = null;
+    w.onTrigger = null;
+    this.dirty = true;
+    this.selectFrame(0);
+  }
+
+  /** Remove the selected frame (≥2 required in its track). A previously-saved
+   *  member is queued for override-deletion on save; dropping an ambient
+   *  animation to one frame reverts it to a static item. The "off" pose can
+   *  never be removed — it's always exactly one static frame. (Removing a
+   *  bundled frame can't fully delete it — the bundle re-asserts it; works
+   *  for user-added/overridden frames.) */
   private removeFrame(): void {
     this.stopPlay();
     const w = this.work;
-    if (w.frames.length <= 1) return;
+    const cur = w.frames[w.frameIdx];
+    if (!cur || cur.state === 'off') return;
+    const trackLen = w.frames.filter((f) => f.state === cur.state).length;
+    if (trackLen <= 1) return;
     const [removed] = w.frames.splice(w.frameIdx, 1);
     if (removed.base || getCatalogEntry(removed.id)) this.removedIds.add(removed.id);
-    if (w.frames.length === 1) w.animGroup = null; // back to a static item
+    if (!cur.state && w.frames.length === 1) w.animGroup = null; // ambient anim back to a static item
     this.dirty = true;
-    this.selectFrame(Math.min(w.frameIdx, w.frames.length - 1));
+    const sameTrack = w.frames.findIndex((f) => f.state === cur.state);
+    this.selectFrame(sameTrack >= 0 ? sameTrack : Math.min(w.frameIdx, w.frames.length - 1));
   }
 
   private syncFields(isNew: boolean): void {
@@ -652,7 +843,6 @@ export class FurnitureEditor {
     // Footprint applies to the whole item → resize every frame, then re-point.
     for (const f of this.work.frames) f.sprite = resizeSprite(f.sprite, fw * TILE, fh * TILE);
     this.work.sprite = this.work.frames[this.work.frameIdx].sprite;
-    this.selection = null; // coords no longer valid after a resize
     this.dirty = true;
     this.render();
   }
@@ -670,9 +860,23 @@ export class FurnitureEditor {
       return;
     }
     const w = this.work;
-    const animated = w.frames.length > 1;
+    const hasState = w.frames.some((f) => f.state);
+    if (hasState && !w.onTrigger) {
+      this.showStatus('Choose a Trigger (Auto/Click) first');
+      return;
+    }
+    // A click-toggle pair's action IS the 'toggle' Action — not something to
+    // pick separately (see syncOnOffRow, which disables that dropdown for it).
+    const effectiveAction: Action | undefined =
+      hasState && w.onTrigger === 'click' ? { kind: 'toggle' } : w.action;
+    // Only the "on" track (or the whole thing, for a plain ambient animation
+    // with no state split) is ever a Tiled-style multi-frame animation — the
+    // "off" pose is always a single static frame and never gets
+    // animationGroup/frame/durationMs, exactly like PC_FRONT_OFF's manifest.
+    const animFrames = w.frames.filter((f) => f.state !== 'off');
+    const animated = animFrames.length > 1;
     // Save every animation frame as its own catalog member; static items save one.
-    w.frames.forEach((f, i) => {
+    w.frames.forEach((f) => {
       const id = f.id || w.id; // a fresh blank item has no per-frame id yet
       const h = f.sprite.length;
       const width = h > 0 ? f.sprite[0].length : 0;
@@ -690,17 +894,31 @@ export class FurnitureEditor {
         canPlaceOnWalls: w.canPlaceOnWalls,
         canPlaceOnFloor: w.canPlaceOnFloor,
         backgroundTiles: w.backgroundTiles,
-        action: w.action, // undefined clears it — same for the legacy flags below,
+        action: effectiveAction, // undefined clears it — same for the legacy flags below,
         // in case `base` (spread above) still carries them from before this
         // type was migrated to the single `action` field.
         appliance: undefined,
         conference: undefined,
         arcade: undefined,
         meetingRoom: undefined,
+        onTrigger: hasState ? w.onTrigger : undefined,
       };
-      if (animated && w.animGroup) {
+      // state/groupId link an off/on pair together (buildDynamicCatalog's
+      // Phase 3) — for an existing item `f.base` already carries them
+      // (spread above), but a pair just created via addOnOffState has no
+      // base to inherit from, so they must be set explicitly here too.
+      if (f.state) {
+        catalog.state = f.state;
+        catalog.groupId = (f.base?.groupId as string | undefined) ?? w.id;
+      }
+      if (animated && w.animGroup && f.state !== 'off') {
         catalog.animationGroup = w.animGroup;
-        catalog.frame = i;
+        catalog.frame = animFrames.indexOf(f);
+        catalog.durationMs = f.durationMs ?? DEFAULT_ANIMATION_FRAME_MS;
+      } else {
+        catalog.animationGroup = undefined;
+        catalog.frame = undefined;
+        catalog.durationMs = undefined;
       }
       this.opts.save(id, { sprite: f.sprite, catalog });
     });
@@ -726,175 +944,133 @@ export class FurnitureEditor {
 
   // ── Rendering ────────────────────────────────────────────────────
   private render(): void {
-    const w = this.work.sprite[0]?.length ?? TILE;
-    const h = this.work.sprite.length;
-    this.cell = Math.max(3, Math.min(16, Math.floor(MAX_CANVAS_PX / Math.max(w, h))));
-    this.canvas.width = w * this.cell;
-    this.canvas.height = h * this.cell;
-    const ctx = this.canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const c = this.work.sprite[y][x];
-        if (!c) continue;
-        ctx.fillStyle = c;
-        ctx.fillRect(x * this.cell, y * this.cell, this.cell, this.cell);
-      }
-    }
-    // Tile grid (heavier line every 16px = one tile).
-    for (let x = 0; x <= w; x++) {
-      ctx.strokeStyle = x % TILE === 0 ? 'rgba(120,160,255,0.4)' : 'rgba(255,255,255,0.06)';
-      ctx.beginPath();
-      ctx.moveTo(x * this.cell, 0);
-      ctx.lineTo(x * this.cell, h * this.cell);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= h; y++) {
-      ctx.strokeStyle = y % TILE === 0 ? 'rgba(120,160,255,0.4)' : 'rgba(255,255,255,0.06)';
-      ctx.beginPath();
-      ctx.moveTo(0, y * this.cell);
-      ctx.lineTo(w * this.cell, y * this.cell);
-      ctx.stroke();
-    }
-    // Marquee selection overlay.
-    if (this.selection) {
-      const s = this.selection;
-      ctx.strokeStyle = '#ffd34d';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([4, 3]);
-      ctx.strokeRect(s.x * this.cell, s.y * this.cell, s.w * this.cell, s.h * this.cell);
-      ctx.setLineDash([]);
-      ctx.lineWidth = 1;
-    }
+    this.paint.setSprite(this.work.sprite);
     this.renderFrames();
+    this.syncOnOffRow();
   }
 
-  /** Paste the shared clipboard at the current selection's top-left (or 0,0). */
-  private doPaste(): void {
-    if (!hasClipboard()) {
-      this.showStatus('Nothing copied yet');
-      return;
-    }
-    const at = this.selection ?? { x: 0, y: 0, w: 0, h: 0 };
-    pasteRegion(this.work.sprite, at.x, at.y);
-    this.dirty = true;
-    this.render();
-    this.showStatus('Pasted ✓');
+  /** Show/hide "＋ On/Off state…" (only for a plain, unanimated item) vs. the
+   *  Trigger picker (only once an on/off pair exists) — and disable the
+   *  generic Action dropdown for a click-toggle pair, since its action is
+   *  implicitly the 'toggle' Action, not something to pick separately. */
+  private syncOnOffRow(): void {
+    const w = this.work;
+    const hasState = w.frames.some((f) => f.state);
+    const addBtn = this.field<HTMLButtonElement>('#pa-f-addonoff');
+    const removeBtn = this.field<HTMLButtonElement>('#pa-f-removeonoff');
+    const triggerSel = this.field<HTMLSelectElement>('#pa-f-trigger');
+    const triggerLabel = this.field<HTMLLabelElement>('#pa-f-triggerlabel');
+    addBtn.style.display = hasState ? 'none' : '';
+    addBtn.disabled = !!w.animGroup; // an ambient animation can't also become a state pair here
+    removeBtn.style.display = hasState ? '' : 'none';
+    triggerSel.style.display = hasState ? '' : 'none';
+    triggerLabel.style.display = hasState ? '' : 'none';
+    triggerSel.value = w.onTrigger ?? '';
+    this.field<HTMLSelectElement>('#pa-f-appliance').disabled = hasState && w.onTrigger === 'click';
   }
 
-  /** Render the animation frame strip (one thumbnail per frame, selected one
-   *  highlighted; click to edit). Hidden for single-frame static items. */
+  /** Render the current track's frame strip (Tiled-style: one thumbnail per
+   *  frame, a duration-ms input under each if it's actually an animation,
+   *  selected frame highlighted; click a thumbnail to edit it). For a state
+   *  pair (PC, laptop) — like Tiled modelling "off" as a plain tile and "on"
+   *  as a tile carrying an <animation> — an Off/On toggle picks which track
+   *  is shown; "off" is always a single, non-animated frame. */
   private renderFrames(): void {
     const host = this.field<HTMLDivElement>('#pa-f-frames');
+    const stateHost = this.field<HTMLDivElement>('#pa-f-stateseg');
     const w = this.work;
-    const isState = w.frames.some((f) => f.state);
-    const isAnim = !!w.animGroup;
+    const hasState = w.frames.some((f) => f.state);
+    const curState = w.frames[w.frameIdx]?.state ?? null;
+    const track = hasState ? w.frames.filter((f) => f.state === curState) : w.frames;
+    const isAnim = track.length > 1;
+
+    stateHost.style.display = hasState ? '' : 'none'; // '' → CSS's .pa-seg default (flex)
+    stateHost.innerHTML = '';
+    if (hasState) {
+      for (const s of ['off', 'on'] as const) {
+        if (!w.frames.some((f) => f.state === s)) continue;
+        const b = document.createElement('div');
+        b.className = 'seg' + (s === curState ? ' on' : '');
+        b.textContent = s === 'off' ? '◐ Editing: Off' : '◑ Editing: On';
+        b.onclick = () => {
+          const idx = w.frames.findIndex((f) => f.state === s);
+          if (idx >= 0) {
+            this.stopPlay();
+            this.selectFrame(idx);
+          }
+        };
+        stateHost.appendChild(b);
+      }
+    }
+
     host.innerHTML = '';
-    w.frames.forEach((f, i) => {
+    for (const f of track) {
+      const i = w.frames.indexOf(f);
+      const cell = document.createElement('div');
+      cell.className = 'framecell';
       const cv = document.createElement('canvas');
       this.drawThumb(cv, f.sprite);
       cv.classList.toggle('on', i === w.frameIdx);
-      cv.title = f.state ? f.state.toUpperCase() : `Frame ${i + 1}`;
+      cv.title = f.state ? f.state.toUpperCase() : `Frame ${track.indexOf(f) + 1}`;
       cv.onclick = () => {
         this.stopPlay();
         this.selectFrame(i);
       };
-      host.appendChild(cv);
-    });
-    this.field<HTMLSpanElement>('#pa-f-frameslabel').textContent = isState ? 'States' : 'Frames';
-    (this.field('#pa-f-addframe')).disabled = isState; // can't add frames to a state pair
-    (this.field('#pa-f-delframe')).disabled = isState || w.frames.length <= 1;
+      cell.appendChild(cv);
+      if (isAnim) {
+        const dur = document.createElement('input');
+        dur.type = 'number';
+        dur.min = '16';
+        dur.max = '10000';
+        dur.step = '10';
+        dur.title = "Frame duration (ms) — like Tiled's tile animation editor";
+        dur.value = String(f.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
+        dur.onchange = () => {
+          f.durationMs = Math.max(16, Math.min(10000, Math.floor(Number(dur.value)) || DEFAULT_ANIMATION_FRAME_MS));
+          dur.value = String(f.durationMs);
+          this.dirty = true;
+        };
+        cell.appendChild(dur);
+      }
+      host.appendChild(cell);
+    }
+    this.field<HTMLSpanElement>('#pa-f-frameslabel').textContent = hasState
+      ? curState === 'off'
+        ? 'Off'
+        : 'On frames'
+      : 'Frames';
+    const lockedTrack = curState === 'off'; // the static pose never animates
+    (this.field('#pa-f-addframe')).disabled = lockedTrack;
+    (this.field('#pa-f-delframe')).disabled = lockedTrack || track.length <= 1;
     (this.field('#pa-f-play')).disabled = !isAnim; // only time-animations play
   }
 
+  /** Play the current track's frames back-to-back using each frame's own
+   *  duration — the same way Tiled's own animation editor previews it. */
   private togglePlay(): void {
     if (this.playTimer !== null) {
       this.stopPlay();
       return;
     }
-    if (this.work.frames.length < 2) return;
+    const w = this.work;
+    const curState = w.frames[w.frameIdx]?.state ?? null;
+    const track = curState !== null ? w.frames.filter((f) => f.state === curState) : w.frames;
+    if (track.length < 2) return;
     this.field('#pa-f-play').textContent = '⏸';
-    this.playTimer = window.setInterval(() => {
-      this.selectFrame((this.work.frameIdx + 1) % this.work.frames.length);
-    }, 250);
+    const step = (): void => {
+      const i = track.indexOf(this.work.frames[this.work.frameIdx]);
+      const next = track[(i + 1) % track.length];
+      this.selectFrame(this.work.frames.indexOf(next));
+      this.playTimer = window.setTimeout(step, next.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
+    };
+    const first = track[(track.indexOf(w.frames[w.frameIdx]) + 1) % track.length];
+    this.playTimer = window.setTimeout(step, first?.durationMs ?? DEFAULT_ANIMATION_FRAME_MS);
   }
 
   private stopPlay(): void {
     if (this.playTimer === null) return;
-    window.clearInterval(this.playTimer);
+    window.clearTimeout(this.playTimer);
     this.playTimer = null;
     this.field('#pa-f-play').textContent = '▶';
-  }
-
-  private bindPaint(): void {
-    let painting = false;
-    let selStart: { x: number; y: number } | null = null;
-    const dims = (): { w: number; h: number } => ({
-      w: this.work.sprite[0]?.length ?? TILE,
-      h: this.work.sprite.length,
-    });
-    const at = (e: PointerEvent): { x: number; y: number } | null => {
-      const r = this.canvas.getBoundingClientRect();
-      const { w, h } = dims();
-      const x = Math.floor(((e.clientX - r.left) / r.width) * w);
-      const y = Math.floor(((e.clientY - r.top) / r.height) * h);
-      if (x < 0 || y < 0 || x >= w || y >= h) return null;
-      return { x, y };
-    };
-    // Clamped cell (never null) — for marquee dragging past the canvas edge.
-    const cell = (e: PointerEvent): { x: number; y: number } => {
-      const r = this.canvas.getBoundingClientRect();
-      const { w, h } = dims();
-      const x = Math.max(0, Math.min(w - 1, Math.floor(((e.clientX - r.left) / r.width) * w)));
-      const y = Math.max(0, Math.min(h - 1, Math.floor(((e.clientY - r.top) / r.height) * h)));
-      return { x, y };
-    };
-    const apply = (e: PointerEvent): void => {
-      const p = at(e);
-      if (!p) return;
-      if (this.tool === 'pick') {
-        const c = this.work.sprite[p.y][p.x];
-        if (c) {
-          this.color = c.slice(0, 7);
-          this.field('#pa-f-color').value = this.color;
-          this.setTool('paint');
-        }
-        return;
-      }
-      this.work.sprite[p.y][p.x] = this.tool === 'erase' ? '' : this.color;
-      this.dirty = true;
-      this.render();
-    };
-    this.canvas.addEventListener('pointerdown', (e) => {
-      this.stopPlay(); // don't fight the user while a frame is being painted
-      this.canvas.setPointerCapture(e.pointerId);
-      if (this.tool === 'select') {
-        selStart = cell(e);
-        this.selection = rectFromCorners(selStart.x, selStart.y, selStart.x, selStart.y);
-        this.render();
-        return;
-      }
-      painting = true;
-      apply(e);
-    });
-    this.canvas.addEventListener('pointermove', (e) => {
-      if (selStart) {
-        const p = cell(e);
-        this.selection = rectFromCorners(selStart.x, selStart.y, p.x, p.y);
-        this.render();
-        return;
-      }
-      if (painting && this.tool !== 'pick') apply(e);
-    });
-    this.canvas.addEventListener('pointerup', () => {
-      if (selStart) {
-        selStart = null;
-        if (this.selection) {
-          copyRegion(this.work.sprite, this.selection);
-          this.showStatus(`Copied ${this.selection.w}×${this.selection.h}`);
-        }
-      }
-      painting = false;
-    });
   }
 }

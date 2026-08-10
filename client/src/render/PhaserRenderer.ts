@@ -46,10 +46,16 @@ import {
   getCharacterSprites,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
-import { spriteTexture } from './sprites.js';
+import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
+import { spriteTexture, ensureImageTexture } from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
 
 const FLOOR_DEPTH = -100000;
+/** Placed background images (OfficeLayout.images) — a fixed layer just above
+ *  the floor and comfortably below any real (row-based) furniture zY, so an
+ *  image always reads as "on the floor", never "on the table" — see
+ *  PlacedImage's doc comment in shared/office/types.ts. */
+const IMAGE_DEPTH = FLOOR_DEPTH + 1;
 const BUBBLE_DEPTH = 1_000_000;
 
 // Head markers (☕ / 💤 afk / crossed mic — see markerIcons.ts). Sizes are WORLD
@@ -117,6 +123,10 @@ export class PhaserRenderer {
    *  floor/walls in buildStatic() rather than pooled like furniture, since
    *  they're plain decorative strings with no animation/instance churn. */
   private readonly texts: Phaser.GameObjects.Text[] = [];
+  /** Placed background images (OfficeLayout.images) — rebuilt wholesale
+   *  alongside floor/walls/texts in buildStatic(), same reasoning as texts:
+   *  plain decoration, no per-frame animation/instance churn. */
+  private readonly images: Phaser.GameObjects.Image[] = [];
   private readonly furniturePool: Phaser.GameObjects.Image[] = [];
   /** The furniture array reference last rendered — the engine swaps it on each
    *  rebuild (ambient animation every ~0.2s and PC auto-on/off), so an identity
@@ -159,6 +169,8 @@ export class PhaserRenderer {
     this.statics.length = 0;
     for (const t of this.texts) t.destroy();
     this.texts.length = 0;
+    for (const img of this.images) img.destroy();
+    this.images.length = 0;
     this.lastFurnitureRef = null; // force a furniture re-sync for the new layout
 
     const layout = this.state.getLayout();
@@ -184,6 +196,34 @@ export class PhaserRenderer {
           this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
         }
       }
+    }
+
+    // Placed background images (OfficeLayout.images) — fixed depth, top-left
+    // anchored footprint box like a floor tile (not bottom-center like
+    // furniture/text — an image has no "standing point"). 'stretch' (default)
+    // fills that box exactly; 'center' draws at native size, centered in it —
+    // see PlacedImage's doc comment in shared/office/types.ts.
+    for (const pi of layout.images ?? []) {
+      const asset = getImageAsset(pi.imageId);
+      if (!asset) continue; // deleted since this layout was saved — skip silently
+      const x = pi.col * TILE_SIZE;
+      const y = pi.row * TILE_SIZE;
+      const w = pi.footprintW * TILE_SIZE;
+      const h = pi.footprintH * TILE_SIZE;
+      const img = this.scene.add.image(0, 0, '__DEFAULT').setDepth(IMAGE_DEPTH);
+      const applyFit = (): void => {
+        if (pi.fit === 'center') {
+          img.setOrigin(0.5, 0.5).setPosition(x + w / 2, y + h / 2).setDisplaySize(asset.width, asset.height);
+        } else {
+          img.setOrigin(0, 0).setPosition(x, y).setDisplaySize(w, h);
+        }
+      };
+      applyFit();
+      ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
+        img.setTexture(key);
+        applyFit();
+      });
+      this.images.push(img);
     }
 
     // Wall sprite instances (auto-tiled) — participate in depth sort.

@@ -32,7 +32,18 @@ import {
   type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getActiveCategories, getCatalogByCategory, getCatalogEntry, effectiveAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import {
+  getActiveCategories,
+  getCatalogByCategory,
+  getCatalogEntry,
+  effectiveAction,
+  findBySourceKey,
+  getAnimationFrameData,
+  getImportSources,
+  type CatalogEntryWithCategory,
+} from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { getFloorPatternCount, getFloorSprite } from '@pixel/shared/office/floorTiles.js';
+import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -49,6 +60,9 @@ import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
+import { FloorEditor } from '../editor/FloorEditor.js';
+import { spriteThumbCanvas, buildZoomSeg, buildViewToggle, type Zoom } from '../editor/assetGrid.js';
+import { parseTilesetFiles, parseSpritesheetFile, uniqueId, type ImportedTile } from '../editor/tilesetImport.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -63,7 +77,7 @@ import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
-import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, MAX_IMAGE_ASSET_BYTES, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
@@ -256,8 +270,13 @@ export class OfficeScene extends Phaser.Scene {
    *  (the Assets panel, or Settings for the viewer's own avatar). */
   private charEditorReturn: MenuId = 'assets';
   private furnEditor!: FurnitureEditor;
+  private floorEditor!: FloorEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
+  /** Bundled (file) furniture ids — anything else is user-added/imported and
+   *  genuinely removable (see renderFurnActionBar's "→ Floor" gating: deleting
+   *  a bundled id only resets it back to itself, it can never disappear). */
+  private bundledFurnitureIds = new Set<string>();
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
   private menubar?: HTMLElement;
@@ -289,8 +308,23 @@ export class OfficeScene extends Phaser.Scene {
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
   private spaceTab: 'layouts' | 'zones' = 'layouts';
-  private assetsTab: 'chars' | 'furniture' = 'chars';
+  private assetsTab: 'chars' | 'furniture' | 'floor' | 'images' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
+  /** How the Furniture assets list is grouped — by curated category (today's
+   *  default), or by import source (see getImportSources) so imports don't
+   *  just pile into "Misc" with no way to find what came from where. */
+  private furnAssetsView: 'category' | 'source' = 'category';
+  /** Which Furniture-assets tile is selected — drives the bottom action bar
+   *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
+  private selectedFurnAsset: string | null = null;
+  /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
+   *  often too small to make out at a glance, hence the zoom control. */
+  private furnZoom: 1 | 2 | 4 = 2;
+  /** Which Floor pattern is selected in the Floor-assets grid (1-based, same
+   *  convention as getFloorSprite/the Layout editor's Floor tool). */
+  private selectedFloorPattern: number | null = null;
+  /** Which uploaded background image is selected in the Images-assets grid. */
+  private selectedImageAssetId: string | null = null;
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -325,6 +359,9 @@ export class OfficeScene extends Phaser.Scene {
    *  is the player's own editable copy — not a gallery template. */
   private myAvatarId: string | null = null;
   private alwaysShowLabels = false;
+  /** Settings: recenter the camera on the player as they move (see update()).
+   *  Off = the old, pre-follow behavior — the camera stays wherever you leave it. */
+  private cameraFollowEnabled = true;
   private soundOn = true;
   private volume = 1;
   private settingsPanel!: HTMLDivElement;
@@ -387,6 +424,12 @@ export class OfficeScene extends Phaser.Scene {
       openAssetEditor: (type) => {
         void this.furnEditor.confirmLeave().then((ok) => {
           if (ok) this.furnEditor.edit(type, () => this.furnEditor.forceClose());
+        });
+      },
+      resetFurnitureAsset: (type) => this.room?.send('deleteAsset', { assetType: 'furniture', name: type }),
+      openFloorEditor: (pattern) => {
+        void this.floorEditor.confirmLeave().then((ok) => {
+          if (ok) this.floorEditor.edit(pattern, () => this.floorEditor.forceClose());
         });
       },
     });
@@ -494,6 +537,11 @@ export class OfficeScene extends Phaser.Scene {
       entryButton: false,
       onBack: () => void this.setMenu('assets'),
     });
+    this.floorEditor = new FloorEditor({
+      load: (pattern) => getFloorSprite(pattern),
+      save: (pattern, data) => this.room?.send('saveAsset', { assetType: 'floor', name: `floor_${pattern - 1}`, data }),
+      onBack: () => void this.setMenu('assets'),
+    });
 
     // Zone voice: its controls render into the Audio panel body; the scene owns
     // the Audio top-bar button. Positions for proximity come from synced avatars.
@@ -561,7 +609,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private async open(): Promise<void> {
-    const assetBridge = createAssetBridge(this.os, (layout) => this.onLayout(layout));
+    const assetBridge = createAssetBridge(this.os, (layout, activeLayout) => this.onLayout(layout, activeLayout));
     try {
       const zone = currentZone();
       try {
@@ -698,6 +746,7 @@ export class OfficeScene extends Phaser.Scene {
           // Keep raw asset metadata the editors need (group fields, default count).
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
+            if (Array.isArray(m.bundledIds)) this.bundledFurnitureIds = new Set(m.bundledIds as string[]);
           }
           if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
@@ -1269,7 +1318,12 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  private onLayout(layout: OfficeLayout): void {
+  private onLayout(layout: OfficeLayout, activeLayout: string): void {
+    // The full layout list (for the Space panel) only arrives once the user
+    // opens it (requestLayouts), but the active name is already known right
+    // here — seed it now so toggleEditMode never mistakes a real active
+    // layout for the never-fetched default and needlessly prompts to fork one.
+    this.layoutListData.active = activeLayout;
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
   }
@@ -1310,13 +1364,35 @@ export class OfficeScene extends Phaser.Scene {
   private setupInput(): void {
     const cam = this.cameras.main;
     this.input.mouse?.disableContextMenu();
-    this.input.on('wheel', (_p: unknown, _o: unknown, _dx: number, dy: number) => {
+    // While editing, a plain two-finger trackpad scroll (no modifier) pans —
+    // the same convention as Tiled/Figma/Photoshop — since building a map
+    // means panning around it constantly; Ctrl/Cmd+scroll (also how a
+    // trackpad pinch-zoom is reported) still zooms. Outside the editor,
+    // gameplay keeps its original plain-scroll-zooms feel unchanged.
+    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, dx: number, dy: number) => {
+      const ev = p.event as WheelEvent | undefined;
+      if (this.editor.isEditing() && !(ev?.ctrlKey || ev?.metaKey)) {
+        cam.scrollX += dx / cam.zoom;
+        cam.scrollY += dy / cam.zoom;
+        return;
+      }
       cam.setZoom(Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 1, 14));
     });
     let dragging = false;
     let moved = false;
     let lx = 0;
     let ly = 0;
+    // Click-vs-pan distinguisher: total displacement from the press point, not
+    // the incremental per-event delta (lx/ly, reset every pointermove for the
+    // scroll math below) — a per-event check misfires whenever the browser
+    // coalesces motion into one bigger jump between two move events (common
+    // with a real mouse/trackpad), turning an ordinary click into a "pan" that
+    // silently swallows the placement (see handleLeftClick's `if (moved)
+    // return` below). CLICK_DRIFT_PX is generous enough to absorb normal hand
+    // tremor while still recognizing an intentional drag.
+    const CLICK_DRIFT_PX = 10;
+    let downX = 0;
+    let downY = 0;
     // While a paint tool (floor/wall) is active, left-drag paints and right-drag
     // erases (v1 behaviour) — the camera pans with the middle mouse instead.
     let paintMode: 'paint' | 'erase' | null = null;
@@ -1326,6 +1402,8 @@ export class OfficeScene extends Phaser.Scene {
       moved = false;
       lx = p.x;
       ly = p.y;
+      downX = p.x;
+      downY = p.y;
       paintMode = null;
       if (this.editor.isEditing()) {
         const paintTool = this.editor.isPaintTool();
@@ -1431,7 +1509,7 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       if (dragging) {
-        if (!moved && Math.abs(p.x - lx) + Math.abs(p.y - ly) > 2) {
+        if (!moved && Math.abs(p.x - downX) + Math.abs(p.y - downY) > CLICK_DRIFT_PX) {
           moved = true;
           // A real pan (not just a click) detaches the follow-camera — see
           // update()'s re-engage check.
@@ -1620,8 +1698,9 @@ export class OfficeScene extends Phaser.Scene {
     // catches up immediately once the player's own position is first known),
     // unless a manual drag has detached it — in which case check whether the
     // player has since moved (any cause: walk, sit, portal) and re-engage the
-    // moment they have. Never while editing (its own free-camera feel stays).
-    if (!this.editor.isEditing()) {
+    // moment they have. Never while editing (its own free-camera feel stays),
+    // nor when the user turned it off in Settings (the old, pre-follow feel).
+    if (!this.editor.isEditing() && this.cameraFollowEnabled) {
       const pos = this.playerPosition(this.myPlayerId);
       if (pos) {
         if (this.cameraFollowDetached) {
@@ -1827,8 +1906,10 @@ export class OfficeScene extends Phaser.Scene {
     // edits confirms/discards first, then closes it.
     if (this.charEditor?.isOpen() && !(await this.charEditor.confirmLeave())) return;
     if (this.furnEditor?.isOpen() && !(await this.furnEditor.confirmLeave())) return;
+    if (this.floorEditor?.isOpen() && !(await this.floorEditor.confirmLeave())) return;
     this.charEditor?.close();
     this.furnEditor?.forceClose();
+    this.floorEditor?.forceClose();
 
     this.currentMenu = menu;
     const show = (el: HTMLElement | undefined, id: MenuId): void => {
@@ -2400,10 +2481,20 @@ export class OfficeScene extends Phaser.Scene {
         this.assetsTab = 'furniture';
         this.renderAssetsPanel();
       }),
+      mkSeg('Floor', this.assetsTab === 'floor', () => {
+        this.assetsTab = 'floor';
+        this.renderAssetsPanel();
+      }),
+      mkSeg('Images', this.assetsTab === 'images', () => {
+        this.assetsTab = 'images';
+        this.renderAssetsPanel();
+      }),
     );
     body.appendChild(seg);
     if (this.assetsTab === 'chars') this.renderCharAssets(body);
-    else this.renderFurnAssets(body);
+    else if (this.assetsTab === 'furniture') this.renderFurnAssets(body);
+    else if (this.assetsTab === 'floor') this.renderFloorAssets(body);
+    else this.renderImageAssets(body);
   }
 
   /** Next free char_<n> id (ids are stable, never reused) — mirrors the editor. */
@@ -2523,65 +2614,631 @@ export class OfficeScene extends Phaser.Scene {
     };
     body.appendChild(add);
 
-    for (const cat of getActiveCategories()) {
-      const entries = getCatalogByCategory(cat.id);
-      if (!entries.length) continue;
-      const head = document.createElement('div');
-      head.className = 'grouplbl';
-      head.textContent = cat.label;
-      body.appendChild(head);
-      for (const e of entries) {
-        const row = document.createElement('div');
-        row.className = 'pa-list-row';
-        row.appendChild(this.mkThumb(e.sprite));
-        const nm = document.createElement('span');
-        nm.className = 'nm';
-        nm.textContent = e.label;
-        row.appendChild(nm);
-        const edit = document.createElement('button');
-        edit.className = 'pa-b';
-        edit.textContent = 'Edit';
-        edit.onclick = () => {
-          void this.setMenu(null);
-          this.furnEditor.edit(e.type);
+    const importBtn = document.createElement('button');
+    importBtn.className = 'pa-b wide';
+    importBtn.textContent = '📥 Import Tileset Folder…';
+    importBtn.title =
+      'Pick the folder containing a Tiled tileset (.tsx) and its image file(s) — subfolders are included, so the .tsx and its images can live at different levels, as long as both are somewhere under the folder you pick';
+    const importInput = document.createElement('input');
+    importInput.type = 'file';
+    // Folder pick, not multi-file: matching by filename alone (see
+    // tilesetImport.ts's imageFor) already tolerates the .tsx and its images
+    // living at different levels, and a folder can't accidentally miss one of
+    // the referenced files the way a manual multi-select could.
+    importInput.webkitdirectory = true;
+    importInput.style.display = 'none';
+    const importStatus = document.createElement('div');
+    importStatus.id = 'pa-import-status';
+    importStatus.className = 'muted';
+    importStatus.style.margin = '0.3rem 0';
+    importInput.onchange = () => {
+      if (importInput.files?.length) void this.importTilesetFiles(importInput.files, importStatus);
+      importInput.value = '';
+    };
+    importBtn.onclick = () => importInput.click();
+
+    const spriteBtn = document.createElement('button');
+    spriteBtn.className = 'pa-b wide';
+    spriteBtn.textContent = '🖼️ Import Spritesheet…';
+    spriteBtn.title =
+      'Import a plain PNG sprite sheet by tile size — no Tiled needed, but no per-tile names or animation either';
+    spriteBtn.onclick = () =>
+      this.openSpritesheetImportDialog('Import Spritesheet', (files, tileW, tileH) =>
+        void this.importSpritesheetFiles(files, tileW, tileH, importStatus),
+      );
+
+    body.append(importBtn, spriteBtn, importInput, importStatus);
+
+    // Category (curated, default) vs. Source (grouped by which Tiled tileset
+    // an import came from) — only worth showing the toggle once something's
+    // actually been imported; otherwise every item is already well-organized
+    // by category and a second, empty view would just be noise.
+    const sources = getImportSources();
+    if (sources.length > 0) {
+      body.appendChild(
+        buildViewToggle(
+          [
+            { value: 'category' as const, label: 'Category' },
+            { value: 'source' as const, label: 'Import source' },
+          ],
+          this.furnAssetsView,
+          (v) => {
+            this.furnAssetsView = v;
+            this.renderAssetsPanel();
+          },
+        ),
+      );
+    }
+
+    // Zoom: every tile renders at its own native size (honest relative sizing,
+    // no squeeze-to-fit), which is often too small to make out at a glance —
+    // this scales the whole grid uniformly instead of per-item.
+    body.appendChild(
+      buildZoomSeg(this.furnZoom, (z) => {
+        this.furnZoom = z;
+        this.renderAssetsPanel();
+      }),
+    );
+
+    if (this.furnAssetsView === 'source' && sources.length > 0) {
+      for (const { source, entries } of sources) {
+        const head = document.createElement('div');
+        head.className = 'grouplbl';
+        head.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:0.5rem;';
+        const label = document.createElement('span');
+        label.textContent = `${source} (${entries.length})`;
+        const delBtn = document.createElement('button');
+        delBtn.className = 'pa-b';
+        delBtn.textContent = '🗑 Delete import';
+        delBtn.title = `Delete all ${entries.length} item(s) imported from "${source}"`;
+        delBtn.onclick = async () => {
+          if (
+            !(await confirmDialog(`Delete all ${entries.length} item(s) imported from "${source}"?`, {
+              danger: true,
+              confirmLabel: 'Delete',
+            }))
+          )
+            return;
+          this.deleteImportSource(entries);
+          this.waitForSourceGone(source, () => this.renderAssetsPanel());
         };
-        const reset = document.createElement('button');
-        reset.className = 'pa-b';
-        reset.textContent = 'Reset';
-        reset.title = 'Revert to the bundled default (or delete a custom item)';
-        reset.onclick = async () => {
-          if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-          this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
-          window.setTimeout(() => this.renderAssetsPanel(), 250);
-        };
-        row.append(edit, reset);
-        body.appendChild(row);
+        head.append(label, delBtn);
+        body.appendChild(head);
+        const grid = document.createElement('div');
+        grid.className = 'pa-assetgrid';
+        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
+        body.appendChild(grid);
+      }
+    } else {
+      for (const cat of getActiveCategories()) {
+        const entries = getCatalogByCategory(cat.id);
+        if (!entries.length) continue;
+        const head = document.createElement('div');
+        head.className = 'grouplbl';
+        head.textContent = cat.label;
+        body.appendChild(head);
+        const grid = document.createElement('div');
+        grid.className = 'pa-assetgrid';
+        for (const e of entries) grid.appendChild(this.mkFurnTile(e));
+        body.appendChild(grid);
+      }
+    }
+
+    this.renderFurnActionBar(body);
+  }
+
+  /** Floor patterns, shown the same compact-grid way as Furniture (see
+   *  renderFurnAssets) — one tile per pattern index (1-based, matching
+   *  getFloorSprite/the Layout editor's Floor tool), raw/uncolorized so the
+   *  grid shows the actual stored pixels rather than a paint-tinted preview.
+   *  New patterns arrive via the Furniture "→ Floor" conversion (see
+   *  renderFurnActionBar), not from here — this tab is for browsing + editing
+   *  what already exists. */
+  private renderFloorAssets(body: HTMLElement): void {
+    body.appendChild(
+      buildZoomSeg(this.furnZoom, (z) => {
+        this.furnZoom = z;
+        this.renderAssetsPanel();
+      }),
+    );
+
+    const grid = document.createElement('div');
+    grid.className = 'pa-assetgrid';
+    const count = getFloorPatternCount();
+    for (let p = 1; p <= count; p++) grid.appendChild(this.mkFloorTile(p));
+    body.appendChild(grid);
+
+    this.renderFloorActionBar(body);
+  }
+
+  private mkFloorTile(pattern: number): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'pa-assetgrid-item' + (pattern === this.selectedFloorPattern ? ' sel' : '');
+    item.title = `Floor ${pattern}`;
+    item.appendChild(this.mkThumb(getFloorSprite(pattern) ?? undefined, this.furnZoom));
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = String(pattern);
+    item.appendChild(nm);
+    item.onclick = () => {
+      this.selectedFloorPattern = pattern;
+      this.renderAssetsPanel();
+    };
+    return item;
+  }
+
+  /** Sticky bottom bar for the selected Floor pattern — Edit only: unlike
+   *  Furniture/Character, a floor override can't be safely reset/deleted here
+   *  (place() in assetOverrides.ts only ever appends at the end, so removing
+   *  a middle user-added pattern would silently drop every higher index). */
+  private renderFloorActionBar(body: HTMLElement): void {
+    if (this.selectedFloorPattern == null) return;
+    const pattern = this.selectedFloorPattern;
+    const bar = document.createElement('div');
+    bar.className = 'pa-asset-actionbar';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = `Floor ${pattern}`;
+    const edit = document.createElement('button');
+    edit.className = 'pa-b';
+    edit.textContent = 'Edit';
+    edit.onclick = () => {
+      void this.setMenu(null);
+      this.floorEditor.edit(pattern);
+    };
+    bar.append(nm, edit);
+    // The mirror of Furniture's "→ Floor" — but floor patterns are positional
+    // (floor_<i>, see assetOverrides.ts), not id-keyed like furniture, so
+    // there's no safe "remove from Floor" half of a move (nothing here can be
+    // deleted without shifting every later pattern's index). This is a copy,
+    // not a move: it just opens the Furniture editor pre-filled with the same
+    // sprite as a new 1×1 item, same FurnitureEditor.newItemWithSprite hand-off
+    // the "📋 Stamp…" tool uses inside the editor itself — the floor pattern
+    // itself is untouched either way.
+    const toFurn = document.createElement('button');
+    toFurn.className = 'pa-b';
+    toFurn.textContent = '→ Furniture';
+    toFurn.title = 'Copy this pattern into Furniture as a new 1×1 item (the floor pattern itself stays)';
+    toFurn.onclick = () => {
+      const sprite = getFloorSprite(pattern);
+      if (!sprite) return;
+      void this.setMenu(null);
+      this.furnEditor.newItemWithSprite(sprite.map((row) => row.slice()), 1, 1);
+    };
+    bar.appendChild(toFurn);
+    body.appendChild(bar);
+  }
+
+  /** Uploaded background images (see shared/office/imageAssets.ts) — PNG only,
+   *  placed via the Layout editor's Image tool as pure decoration (fixed
+   *  depth above the floor, below furniture — see PhaserRenderer's
+   *  IMAGE_DEPTH). This tab is upload + manage; placement happens in the
+   *  layout editor, same division as Furniture (catalog management here,
+   *  arranging what's already in the catalog there). */
+  private renderImageAssets(body: HTMLElement): void {
+    const uploadBtn = document.createElement('button');
+    uploadBtn.className = 'pa-b primary wide';
+    uploadBtn.textContent = '📥 Upload PNG…';
+    uploadBtn.title = `PNG only, up to ${Math.round(MAX_IMAGE_ASSET_BYTES / 1000)} KB`;
+    const uploadInput = document.createElement('input');
+    uploadInput.type = 'file';
+    uploadInput.accept = 'image/png';
+    uploadInput.multiple = true;
+    uploadInput.style.display = 'none';
+    const uploadStatus = document.createElement('div');
+    uploadStatus.className = 'muted';
+    uploadStatus.style.margin = '0.3rem 0';
+    uploadInput.onchange = () => {
+      if (uploadInput.files?.length) void this.uploadImageAssets(Array.from(uploadInput.files), uploadStatus);
+      uploadInput.value = '';
+    };
+    uploadBtn.onclick = () => uploadInput.click();
+    body.append(uploadBtn, uploadInput, uploadStatus);
+
+    const assets = getImageAssetList();
+    if (assets.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'grouplbl';
+      empty.textContent = 'None yet.';
+      body.appendChild(empty);
+    }
+    const grid = document.createElement('div');
+    grid.className = 'pa-assetgrid';
+    for (const asset of assets) grid.appendChild(this.mkImageAssetTile(asset));
+    body.appendChild(grid);
+
+    this.renderImageActionBar(body);
+  }
+
+  private mkImageAssetTile(asset: ImageAsset): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'pa-assetgrid-item' + (asset.id === this.selectedImageAssetId ? ' sel' : '');
+    item.title = `${asset.label} (${asset.width}×${asset.height})`;
+    const img = document.createElement('img');
+    img.src = asset.data;
+    img.style.cssText = 'max-width:5rem;max-height:5rem;display:block;image-rendering:pixelated;';
+    item.appendChild(img);
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = asset.label;
+    item.appendChild(nm);
+    item.onclick = () => {
+      this.selectedImageAssetId = asset.id;
+      this.renderAssetsPanel();
+    };
+    return item;
+  }
+
+  /** Sticky bottom bar for the selected image — Preview (the grid thumbnail is
+   *  capped at 5rem, too small to judge a real upload) and Delete (nothing to
+   *  Edit: a raster upload isn't paintable like a SpriteData sprite). */
+  private renderImageActionBar(body: HTMLElement): void {
+    if (!this.selectedImageAssetId) return;
+    const asset = getImageAssetList().find((a) => a.id === this.selectedImageAssetId);
+    if (!asset) {
+      this.selectedImageAssetId = null;
+      return;
+    }
+    const bar = document.createElement('div');
+    bar.className = 'pa-asset-actionbar';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = asset.label;
+    const preview = document.createElement('button');
+    preview.className = 'pa-b';
+    preview.textContent = '🔍 Preview';
+    preview.title = 'View at full size';
+    preview.onclick = () => {
+      const body2 = document.createElement('div');
+      body2.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:0.5rem;';
+      const img = document.createElement('img');
+      img.src = asset.data;
+      img.style.cssText = 'max-width:min(80vw,60rem);max-height:70vh;image-rendering:pixelated;border:2px solid #0a0908;';
+      const dims = document.createElement('span');
+      dims.className = 'muted';
+      dims.textContent = `${asset.width}×${asset.height}`;
+      body2.append(img, dims);
+      openPaDialog({ title: asset.label, body: body2, buttons: [] });
+    };
+    const del = document.createElement('button');
+    del.className = 'pa-b danger';
+    del.textContent = 'Delete';
+    del.title = 'Remove this image (any placements referencing it just stop rendering)';
+    del.onclick = async () => {
+      if (!(await confirmDialog(`Delete "${asset.label}"?`, { danger: true, confirmLabel: 'Delete' }))) return;
+      this.room?.send('deleteAsset', { assetType: 'image', name: asset.id });
+      this.selectedImageAssetId = null;
+      window.setTimeout(() => this.renderAssetsPanel(), 250);
+    };
+    bar.append(nm, preview, del);
+    body.appendChild(bar);
+  }
+
+  /** Read each PNG file, decode its natural pixel size, and save it as a new
+   *  image asset. Client-side size/type checks mirror the server's own
+   *  (validImageData in SimRoom.ts) — this just fails fast with a clear
+   *  message instead of a silent server-side drop. */
+  private async uploadImageAssets(files: File[], status: HTMLElement): Promise<void> {
+    status.textContent = files.length > 1 ? `Uploading ${files.length} images…` : 'Uploading…';
+    let added = 0;
+    for (const file of files) {
+      if (file.type !== 'image/png') {
+        status.textContent = `Skipped "${file.name}": not a PNG.`;
+        continue;
+      }
+      if (file.size > MAX_IMAGE_ASSET_BYTES) {
+        status.textContent = `Skipped "${file.name}": over ${Math.round(MAX_IMAGE_ASSET_BYTES / 1000)} KB.`;
+        continue;
+      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+        img.onerror = () => reject(new Error('not a decodable image'));
+        img.src = dataUrl;
+      });
+      const label = file.name.replace(/\.[^.]+$/, '').slice(0, 64);
+      const id = this.uniqueImageId(label || 'image');
+      this.room?.send('saveAsset', { assetType: 'image', name: id, data: { data: dataUrl, width, height, label } });
+      added++;
+    }
+    status.textContent = `Uploaded ${added} of ${files.length}.`;
+    window.setTimeout(() => this.renderAssetsPanel(), 800);
+  }
+
+  /** A fresh image asset id, distinct from anything already uploaded (same
+   *  "fresh import must not collide" reasoning as tilesetImport.ts's
+   *  uniqueId, just against the image catalog instead of furniture's). */
+  private uniqueImageId(base: string): string {
+    const sanitized = base.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'image';
+    const taken = new Set(getImageAssetList().map((a) => a.id));
+    if (!taken.has(sanitized)) return sanitized;
+    // A random tag, not a sequential _2/_3 counter: two people uploading the
+    // same filename at nearly the same moment would otherwise race to the
+    // SAME next free slot (each computed from their own stale local list) and
+    // silently overwrite one another — a random tag makes that collision
+    // astronomically unlikely instead of a near-certainty under real
+    // concurrency (see tilesetImport.ts's uniqueId, same reasoning).
+    let id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
+    while (taken.has(id)) id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
+    return id;
+  }
+
+  /** One Furniture-assets grid tile: native-size (× furnZoom) thumbnail +
+   *  label, click to select — acted on via the bottom action bar rather than
+   *  per-tile buttons, so a big import stays a compact grid instead of a long
+   *  list (see renderFurnAssets / renderFurnActionBar). */
+  private mkFurnTile(e: CatalogEntryWithCategory): HTMLElement {
+    const item = document.createElement('div');
+    item.className = 'pa-assetgrid-item' + (e.type === this.selectedFurnAsset ? ' sel' : '');
+    item.title = e.label;
+    item.appendChild(this.mkThumb(e.sprite, this.furnZoom));
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = e.label;
+    item.appendChild(nm);
+    item.onclick = () => {
+      this.selectedFurnAsset = e.type;
+      this.renderAssetsPanel();
+    };
+    return item;
+  }
+
+  /** Sticky bottom bar for whichever tile is selected in the Furniture-assets
+   *  grid — Edit / Reset, the same actions the old per-row buttons offered. */
+  private renderFurnActionBar(body: HTMLElement): void {
+    if (!this.selectedFurnAsset) return;
+    const entry = getCatalogEntry(this.selectedFurnAsset);
+    if (!entry) {
+      this.selectedFurnAsset = null;
+      return;
+    }
+    const bar = document.createElement('div');
+    bar.className = 'pa-asset-actionbar';
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = entry.label;
+    const edit = document.createElement('button');
+    edit.className = 'pa-b';
+    edit.textContent = 'Edit';
+    edit.onclick = () => {
+      void this.setMenu(null);
+      this.furnEditor.edit(entry.type);
+    };
+    const reset = document.createElement('button');
+    reset.className = 'pa-b danger';
+    reset.textContent = 'Reset';
+    reset.title = 'Revert to the bundled default (or delete a custom item)';
+    reset.onclick = async () => {
+      if (!(await confirmDialog(`Reset ${entry.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+      this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.type });
+      this.selectedFurnAsset = null;
+      window.setTimeout(() => this.renderAssetsPanel(), 250);
+    };
+    bar.append(nm, edit, reset);
+    // Only a plain 1×1, non-bundled tile can become a floor pattern:
+    // footprint>1 furniture has no equivalent in the floor system (one
+    // SpriteData per pattern, no multi-tile footprint at all, see
+    // shared/src/office/floorTiles.ts), and a bundled default can never
+    // truly disappear from Furniture (deleteAsset on it just resets it back
+    // to itself — see bundledFurnitureIds) so converting one would leave a
+    // confusing duplicate instead of actually moving it.
+    if (entry.footprintW === 1 && entry.footprintH === 1 && !this.bundledFurnitureIds.has(entry.type)) {
+      const toFloor = document.createElement('button');
+      toFloor.className = 'pa-b';
+      toFloor.textContent = '→ Floor';
+      toFloor.title = 'Convert this tile into a new floor pattern (removes it from Furniture)';
+      toFloor.onclick = async () => {
+        if (!(await confirmDialog(`Convert “${entry.label}” into a floor pattern?`, { confirmLabel: 'Convert' }))) return;
+        const idx = getFloorPatternCount(); // 0-based next slot -> 1-based pattern idx+1
+        this.room?.send('saveAsset', { assetType: 'floor', name: `floor_${idx}`, data: entry.sprite });
+        this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.type });
+        this.selectedFurnAsset = null;
+        window.setTimeout(() => this.renderAssetsPanel(), 250);
+      };
+      bar.appendChild(toFloor);
+    }
+    body.appendChild(bar);
+  }
+
+  /** Delete every item imported from one source in one go, instead of
+   *  clicking Reset per item (an import can be dozens of tiles). Each visible
+   *  entry is only the frame-0/representative id — an animated one has
+   *  further frame ids (see commitImportedTiles's `${baseId}__fN`) that never
+   *  show up on their own in either assets view, so they'd otherwise leak. */
+  private deleteImportSource(entries: CatalogEntryWithCategory[]): void {
+    for (const e of entries) {
+      const frames = getAnimationFrameData(e.type);
+      if (frames) {
+        for (const f of frames) this.room?.send('deleteAsset', { assetType: 'furniture', name: f.id });
+      } else {
+        this.room?.send('deleteAsset', { assetType: 'furniture', name: e.type });
       }
     }
   }
 
-  /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */
-  private mkThumb(sprite?: SpriteData): HTMLElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'pa-thumb';
-    const cv = document.createElement('canvas');
-    const h = sprite?.length ?? 0;
-    const w = h > 0 ? (sprite![0]?.length ?? 0) : 0;
-    cv.width = Math.max(1, w);
-    cv.height = Math.max(1, h);
-    const ctx = cv.getContext('2d');
-    if (ctx && sprite) {
-      for (let y = 0; y < h; y++) {
-        const rowPx = sprite[y];
-        for (let x = 0; x < rowPx.length; x++) {
-          const c = rowPx[x];
-          if (!c) continue;
-          ctx.fillStyle = c;
-          ctx.fillRect(x, y, 1, 1);
-        }
+  /** Poll until `source` has no catalog entries left (or ~3s elapse) before
+   *  calling `done` — a bulk import-source delete can be dozens of separate
+   *  deleteAsset round-trips (each its own persist → rebroadcast → local
+   *  catalog rebuild), so a single short fixed delay (fine for a one-item
+   *  Reset elsewhere) isn't reliably enough time for ALL of them to land;
+   *  re-rendering too early left the "deleted" source still showing until a
+   *  full page reload. Checks real state instead of guessing a duration. */
+  private waitForSourceGone(source: string, done: () => void, attempt = 0): void {
+    const stillThere = getImportSources().some((s) => s.source === source);
+    if (!stillThere || attempt >= 20) {
+      done();
+      return;
+    }
+    window.setTimeout(() => this.waitForSourceGone(source, done, attempt + 1), 150);
+  }
+
+  /** "Import Tileset Folder…" — reads an external Tiled tileset (.tsx + its
+   *  image file(s), found anywhere under the picked folder) and commits each
+   *  tile as a furniture catalog entry (see commitImportedTiles). A tile
+   *  carrying a Tiled `<animation>` becomes a proper multi-frame catalog
+   *  entry (animationGroup + per-frame durationMs), the same shape the
+   *  Goldfish/PC's own bundled animations use — see tilesetImport.ts. This
+   *  lives in Assets, not the Layout editor: importing adds to the catalog,
+   *  which is catalog management (same category as New/Edit/Reset above) —
+   *  the Layout editor only ever arranges what's already in the catalog. */
+  private async importTilesetFiles(files: FileList, status: HTMLElement): Promise<void> {
+    status.textContent = 'Importing tileset…';
+    let tiles: ImportedTile[];
+    try {
+      tiles = await parseTilesetFiles(files);
+    } catch (err) {
+      status.textContent = `Import failed: ${err instanceof Error ? err.message : String(err)}`;
+      return;
+    }
+    await this.commitImportedTiles(tiles, status);
+  }
+
+  /** One or more plain PNGs + a shared tile size, no Tiled involved at all
+   *  (see tilesetImport.ts's parseSpritesheetFile) — asks for the tile size,
+   *  then opens a multi-file picker for the PNGs and hands them all to
+   *  `onFile` (each file keeps its own filename as its import "source", see
+   *  parseSpritesheetFile, so multiple sheets stay distinguishable). */
+  private openSpritesheetImportDialog(title: string, onFile: (files: File[], tileW: number, tileH: number) => void): void {
+    const body = document.createElement('div');
+    body.innerHTML = `
+      <div class="fld"><label>Tile size (px)</label>
+        <div style="display:flex;gap:.5rem;align-items:center;">
+          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile width">
+          <span class="muted">×</span>
+          <input class="pa-input" type="number" min="1" max="256" value="16" title="Tile height">
+        </div>
+      </div>`;
+    const [wIn, hIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
+    openPaDialog({
+      title,
+      body,
+      buttons: [
+        {
+          label: 'Choose PNG…',
+          kind: 'primary',
+          onClick: () => {
+            const tileW = Math.max(1, Math.floor(Number(wIn.value) || 16));
+            const tileH = Math.max(1, Math.floor(Number(hIn.value) || 16));
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png';
+            input.multiple = true;
+            input.style.display = 'none';
+            input.onchange = () => {
+              const files = input.files ? Array.from(input.files) : [];
+              if (files.length) onFile(files, tileW, tileH);
+              input.remove();
+            };
+            document.body.appendChild(input);
+            input.click();
+          },
+        },
+      ],
+    });
+  }
+
+  private async importSpritesheetFiles(files: File[], tileW: number, tileH: number, status: HTMLElement): Promise<void> {
+    status.textContent = files.length > 1 ? `Importing ${files.length} spritesheets…` : 'Importing spritesheet…';
+    const tiles: ImportedTile[] = [];
+    for (const file of files) {
+      try {
+        tiles.push(...(await parseSpritesheetFile(file, tileW, tileH)));
+      } catch (err) {
+        status.textContent = `Import failed (${file.name}): ${err instanceof Error ? err.message : String(err)}`;
+        return;
       }
     }
-    wrap.appendChild(cv);
+    await this.commitImportedTiles(tiles, status);
+  }
+
+  /** Save parsed tiles (from either import path above) as furniture catalog
+   *  entries, via the same save path the Furniture asset editor itself uses.
+   *
+   *  Re-importing the same source UPDATES matching tiles in place (found via
+   *  findBySourceKey — same source + same tile identity within it) instead
+   *  of piling up duplicates. A tile no longer present in the source is
+   *  deliberately left alone — re-import only adds/updates, never removes,
+   *  so it can never break something you've already placed just because you
+   *  cleaned up the source file. */
+  private async commitImportedTiles(tiles: ImportedTile[], status: HTMLElement): Promise<void> {
+    let added = 0;
+    let replaced = 0;
+    for (const t of tiles) {
+      const existing = findBySourceKey(t.source, t.id);
+      const baseId = existing ? existing.type : uniqueId(t.id);
+      if (existing) replaced++;
+      else added++;
+      // Shrinking an animation on replace: drop the now-unused trailing
+      // frame ids of THIS item — not a blanket "remove missing tiles" (see
+      // above), just cleaning up after the one entry being actively updated.
+      if (existing) {
+        const oldFrameCount = getAnimationFrameData(existing.type)?.length ?? 1;
+        for (let i = t.frames.length; i < oldFrameCount; i++) {
+          this.room?.send('deleteAsset', { assetType: 'furniture', name: i === 0 ? baseId : `${baseId}__f${i}` });
+        }
+      }
+      if (t.frames.length === 1) {
+        this.room?.send('saveAsset', {
+          assetType: 'furniture',
+          name: baseId,
+          data: {
+            sprite: t.frames[0].sprite,
+            catalog: {
+              category: 'misc',
+              footprintW: t.footprintW,
+              footprintH: t.footprintH,
+              label: t.label,
+              source: t.source,
+              sourceKey: t.id,
+            },
+          },
+        });
+        continue;
+      }
+      const animationGroup = baseId;
+      t.frames.forEach((f, i) => {
+        const name = i === 0 ? baseId : `${baseId}__f${i}`;
+        this.room?.send('saveAsset', {
+          assetType: 'furniture',
+          name,
+          data: {
+            sprite: f.sprite,
+            catalog: {
+              category: 'misc',
+              footprintW: t.footprintW,
+              footprintH: t.footprintH,
+              label: t.label,
+              source: t.source,
+              sourceKey: t.id,
+              animationGroup,
+              frame: i,
+              durationMs: f.durationMs,
+            },
+          },
+        });
+      });
+    }
+    status.textContent = `Imported: ${added} new, ${replaced} updated.`;
+    // The save round-trips through the server (persist → rebroadcast → local
+    // catalog rebuild) before getCatalogByCategory sees the new entries — a
+    // short delay is simpler than wiring a completion callback through.
+    window.setTimeout(() => this.renderAssetsPanel(), 800);
+  }
+
+  /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */
+  /** @param zoom CSS pixel-doubling on top of the canvas's native 1:1 size
+   *  (default: true native size, no scaling — unaffected callers keep their
+   *  existing tiny-but-honest look; the asset grid passes its zoom control). */
+  private mkThumb(sprite?: SpriteData, zoom: Zoom = 1): HTMLElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'pa-thumb';
+    wrap.appendChild(spriteThumbCanvas(sprite, zoom));
     return wrap;
   }
 
@@ -3444,6 +4101,7 @@ export class OfficeScene extends Phaser.Scene {
     this.soundOn = m.soundEnabled !== false;
     this.volume = typeof m.alertVolume === 'number' ? (m.alertVolume as number) : 1;
     this.alwaysShowLabels = !!m.alwaysShowLabels;
+    this.cameraFollowEnabled = m.cameraFollow !== false;
     setSoundEnabled(this.soundOn);
     setAlertVolume(this.volume);
     this.syncSettingsInputs();
@@ -3523,6 +4181,7 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <button id="pa-change-server">Change server</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
@@ -3547,7 +4206,7 @@ export class OfficeScene extends Phaser.Scene {
         this.settingsPanel,
         this.helpPanel,
       ];
-      const byId = ['pa-chars', 'pa-furn', 'pa-c-import', 'pa-modal', 'pa-znpc', 'pa-cc'];
+      const byId = ['pa-chars', 'pa-furn', 'pa-floor-ed', 'pa-c-import', 'pa-modal', 'pa-dialog-back', 'pa-znpc', 'pa-cc'];
       if (
         this.menubar?.contains(t) ||
         panels.some((p) => p?.contains(t)) ||
@@ -3603,6 +4262,7 @@ export class OfficeScene extends Phaser.Scene {
     const snd = panel.querySelector<HTMLInputElement>('#pa-snd')!;
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
+    const camFollow = panel.querySelector<HTMLInputElement>('#pa-camfollow')!;
     name.onchange = () => {
       const v = name.value.trim().slice(0, 32);
       this.viewerUsername = v;
@@ -3639,6 +4299,14 @@ export class OfficeScene extends Phaser.Scene {
       this.alwaysShowLabels = lbl.checked;
       if (!this.alwaysShowLabels) this.clearNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
+    };
+    camFollow.onchange = () => {
+      this.cameraFollowEnabled = camFollow.checked;
+      // Re-engaging: drop any stale manual-pan detach so it recenters right away
+      // instead of waiting for the next walk step.
+      this.cameraFollowDetached = false;
+      this.cameraDetachAt = null;
+      this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
     };
     // "Change server" is a desktop-only concern (the browser build's server is
     // its own origin, not user-configurable), so it is hidden in the browser.
@@ -3928,6 +4596,7 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-snd')!.checked = this.soundOn;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
+    this.settingsPanel.querySelector<HTMLInputElement>('#pa-camfollow')!.checked = this.cameraFollowEnabled;
     // Account section: only for logged-in users; reflect the current agent token.
     const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
     if (account) account.style.display = this.myUserId ? '' : 'none';

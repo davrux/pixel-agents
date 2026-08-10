@@ -8,11 +8,12 @@
  *   character → char_<i>   pet → dog_<i> / cat_<i>
  *   floor     → floor_<i>  wall → wall_<i>
  *   furniture → <assetId>  (data: { sprite?, catalog? })
+ *   image     → <assetId>  (data: { data, width, height, label }, no bundled defaults)
  */
 import { appStore } from './appStore.js';
 import type { AssetBundle } from './assets.js';
 
-export const ASSET_TYPES = ['character', 'pet', 'floor', 'wall', 'furniture'] as const;
+export const ASSET_TYPES = ['character', 'pet', 'floor', 'wall', 'furniture', 'image'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 /** Parse `${prefix}_<n>` → n, or null. */
@@ -95,6 +96,11 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
   const furnitureSprites = { ...(raw.furnitureSprites as Record<string, unknown>) };
   const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ id?: string }>)];
+  // Snapshot BEFORE overrides are applied — bundledFurnitureIds are the
+  // non-deletable defaults (deleteAsset on one of these only resets it back
+  // to itself, since there's no override to remove); anything else is
+  // user-added/imported and genuinely disappears on delete.
+  const bundledFurnitureIds = furnitureCatalog.map((c) => c.id).filter((id): id is string => !!id);
   for (const { name, data } of orderedAssets('furniture')) {
     const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
     if (d && d.sprite !== undefined) furnitureSprites[name] = d.sprite;
@@ -104,6 +110,17 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
       if (k >= 0) furnitureCatalog[k] = entry;
       else furnitureCatalog.push(entry);
     }
+  }
+
+  // Images (no bundled defaults — raw.images always starts empty), id-keyed
+  // like furniture (not positional like floor/wall — there's no "slot 0" to
+  // preserve for an upload).
+  const images = [...(raw.images as Array<{ id?: string }>)];
+  for (const { name, data } of orderedAssets('image')) {
+    const entry = { ...(data as Record<string, unknown>), id: name };
+    const k = images.findIndex((c) => c.id === name);
+    if (k >= 0) images[k] = entry;
+    else images.push(entry);
   }
 
   // Floors + walls live only in their broadcast messages (not in raw).
@@ -132,7 +149,9 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
       case 'wallTilesLoaded':
         return { type: 'wallTilesLoaded', sets: walls };
       case 'furnitureAssetsLoaded':
-        return { type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites };
+        return { type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites, bundledIds: bundledFurnitureIds };
+      case 'imagesLoaded':
+        return { type: 'imagesLoaded', images };
       default:
         return m;
     }
@@ -141,7 +160,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites },
+    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites, images },
   };
 }
 
@@ -153,6 +172,7 @@ export function messageTypeForAsset(type: AssetType): string {
     floor: 'floorTilesLoaded',
     wall: 'wallTilesLoaded',
     furniture: 'furnitureAssetsLoaded',
+    image: 'imagesLoaded',
   }[type];
 }
 

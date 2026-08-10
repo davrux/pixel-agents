@@ -18,6 +18,9 @@ export interface ManifestAsset {
   orientation?: string;
   state?: string;
   frame?: number;
+  /** How long (ms) this frame shows before advancing — Tiled's own
+   *  `<frame duration=".."/>` unit — only meaningful alongside `frame`. */
+  duration?: number;
   mirrorSide?: boolean;
 }
 
@@ -27,6 +30,8 @@ export interface ManifestGroup {
   rotationScheme?: string;
   orientation?: string;
   state?: string;
+  /** On a 'state' group: what turns this pair on — see FurnitureCatalogEntry.onTrigger. */
+  onTrigger?: 'autoFacing' | 'click';
   members: ManifestNode[];
 }
 
@@ -62,6 +67,7 @@ export interface InheritedProps {
   backgroundTiles: number;
   orientation?: string;
   state?: string;
+  onTrigger?: 'autoFacing' | 'click';
   rotationScheme?: string;
   animationGroup?: string;
 }
@@ -83,10 +89,12 @@ export interface FurnitureAsset {
   backgroundTiles?: number;
   orientation?: string;
   state?: string;
+  onTrigger?: 'autoFacing' | 'click';
   mirrorSide?: boolean;
   rotationScheme?: string;
   animationGroup?: string;
   frame?: number;
+  durationMs?: number;
 }
 
 /**
@@ -117,10 +125,12 @@ export function flattenManifest(node: ManifestNode, inherited: InheritedProps): 
         groupId: inherited.groupId,
         ...(orientation ? { orientation } : {}),
         ...(state ? { state } : {}),
+        ...(inherited.onTrigger ? { onTrigger: inherited.onTrigger } : {}),
         ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         ...(inherited.rotationScheme ? { rotationScheme: inherited.rotationScheme } : {}),
         ...(inherited.animationGroup ? { animationGroup: inherited.animationGroup } : {}),
         ...(asset.frame !== undefined ? { frame: asset.frame } : {}),
+        ...(asset.duration !== undefined ? { durationMs: asset.duration } : {}),
       },
     ];
   }
@@ -148,6 +158,9 @@ export function flattenManifest(node: ManifestNode, inherited: InheritedProps): 
       // Propagate state from group level if set (for animation groups nested in state)
       if (group.state) {
         childProps.state = group.state;
+      }
+      if (group.onTrigger) {
+        childProps.onTrigger = group.onTrigger;
       }
     }
 

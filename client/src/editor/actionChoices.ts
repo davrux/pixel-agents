@@ -11,6 +11,11 @@ export const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   iframe: 0xd89b3a,
   appliance: 0x6bd89b,
   arcade: 0xd83a6b,
+  // Not in TILE_ACTION_CHOICES (see below) — a light-switch isn't something
+  // you pick from the generic list, it's implied by an on/off pair's own
+  // Trigger setting (FurnitureEditor). Colour defined anyway so this map
+  // stays exhaustive over Action['kind'].
+  toggle: 0xd8d83a,
 };
 export const MEETING_ROOM_NO_VIDEO_COLOR = 0x3a7fd8;
 /** Colour for one specific action, distinguishing meetingRoom's video/no-video
@@ -64,5 +69,7 @@ export function actionChoiceLabel(a: Action): string {
       return 'Arcade cabinet';
     case 'appliance':
       return 'Appliance (coffee)';
+    case 'toggle':
+      return 'Toggle on/off';
   }
 }

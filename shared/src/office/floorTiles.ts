@@ -29,9 +29,11 @@ export function setFloorSprites(sprites: SpriteData[]): void {
   clearColorizeCache();
 }
 
-/** Get the raw (grayscale) floor sprite for a pattern index (1-7 -> array index 0-6).
+/** Get the raw (grayscale) floor sprite for a pattern index (1-based — 1 is
+ *  the first pattern, matching getColorizedFloorSprite/the Layout editor's
+ *  own convention; the underlying floor_<i> asset name is 0-based, i = index-1).
  *  Falls back to the default solid gray tile when floors.png is not loaded. */
-function getFloorSprite(patternIndex: number): SpriteData | null {
+export function getFloorSprite(patternIndex: number): SpriteData | null {
   const idx = patternIndex - 1;
   if (idx < 0) return null;
   if (idx < floorSprites.length) return floorSprites[idx];
