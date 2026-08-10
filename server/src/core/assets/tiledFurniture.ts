@@ -90,6 +90,15 @@ export function parseFurnitureTileset(
     const anim = tile.animation;
     if (!anim && frameComponentIds.has(tile.id)) continue;
     const props = propsOf(tile);
+    // Server-generated furniture (portals, conference monitor, arcade
+    // cabinet, meeting-room kiosk, wall logos — see
+    // server/scripts/bake-generated-furniture.mts) is baked into these same
+    // tilesets purely so the Tiled MAP bridge can give it a real sprite
+    // instead of a blank placeholder; it must NOT also become a runtime
+    // catalog entry here, or it would duplicate (and shadow the real
+    // action/portal/appliance flags of) the entry assets.ts's own
+    // `generated` array already injects.
+    if (props.generated === true) continue;
     const type = typeof props.type === 'string' ? props.type : undefined;
     if (!type) {
       console.warn(`[tiledFurniture] Skipping tile ${tile.id} in "${json.name}" — missing "type" property`);

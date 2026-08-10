@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "furniture-decor",
-  "tilecount": 17,
+  "tilecount": 22,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -413,6 +413,321 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 2
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "image": "png/furniture/decor/DOOR.png",
+      "imagewidth": 16,
+      "imageheight": 24,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "DOOR"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "image": "png/furniture/decor/BEAM_PAD.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "BEAM_PAD"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Beam Pad"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "image": "png/furniture/decor/MONITOR.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "MONITOR"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Conference Monitor"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "image": "png/furniture/decor/ARCADE.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "ARCADE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Arcade Cabinet"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "image": "png/furniture/decor/MEETING_KIOSK.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "type",
+          "type": "string",
+          "value": "MEETING_KIOSK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Meeting Room Kiosk"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "mirrorSide",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
         }
       ]
     }

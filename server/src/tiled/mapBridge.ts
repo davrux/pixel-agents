@@ -53,12 +53,18 @@ function prop(name: string, value: string | number | boolean): TiledProp {
   return { name, type, value };
 }
 
-function actionProps(action: Action, prefix = 'action'): TiledProp[] {
-  const out = [prop(`${prefix}Kind`, action.kind)];
-  if (action.kind === 'meetingRoom') out.push(prop(`${prefix}Video`, action.video));
-  if (action.kind === 'iframe') out.push(prop(`${prefix}Url`, action.url));
-  if (action.kind === 'appliance') out.push(prop(`${prefix}Pose`, action.pose));
-  return out;
+/** Always emits all four action-related properties (kind/video/url/pose),
+ *  even when empty/inapplicable for this action's kind — so opening the
+ *  .tmj in Tiled shows every settable field up front instead of only
+ *  whichever ones happened to be set on the item being exported (there's no
+ *  other way to discover "oh, I can set actionUrl here" from the file). */
+function actionProps(action: Action | null, prefix = 'action'): TiledProp[] {
+  return [
+    prop(`${prefix}Kind`, action?.kind ?? ''),
+    prop(`${prefix}Video`, action?.kind === 'meetingRoom' ? action.video : false),
+    prop(`${prefix}Url`, action?.kind === 'iframe' ? action.url : ''),
+    prop(`${prefix}Pose`, action?.kind === 'appliance' ? action.pose : ''),
+  ];
 }
 
 function actionFromProps(props: PropBag, prefix = 'action'): Action | null {
@@ -95,6 +101,39 @@ function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
   if (row < rows - 1 && at(col, row + 1) === TileType.WALL) mask |= 4;
   if (col > 0 && at(col - 1, row) === TileType.WALL) mask |= 8;
   return mask;
+}
+
+/** Tiled's own GID horizontal-flip bit (top bit of the 32-bit GID field) —
+ *  plain addition/subtraction, not a bitwise op: these GIDs are always far
+ *  below 2^31, and JS's bitwise operators coerce to signed Int32 first,
+ *  which would turn 0x80000000 negative. */
+const TILED_FLIP_H = 0x80000000;
+
+/** A mirrorSide item's virtual ":left" clone (see furnitureCatalog.ts's
+ *  buildDynamicCatalog) is never its own tile in any .tsj — only the base
+ *  (non-mirrored) type is baked. Falls back to the base type's GID with
+ *  Tiled's native horizontal-flip bit set, exactly the mapping the design
+ *  doc calls for, so Tiled shows a real (mirrored) sprite instead of a
+ *  blank placeholder rectangle. The `type` property still carries the exact
+ *  original id either way, so import never needs to decode the flip bit
+ *  itself — it's purely a Tiled-canvas visual aid. */
+function findFurnitureGid(registry: TiledRegistry, type: string): number | null {
+  const direct = findFurnitureGidExact(registry, type);
+  if (direct !== null) return direct;
+  if (type.endsWith(':left')) {
+    const base = findFurnitureGidExact(registry, type.slice(0, -':left'.length));
+    if (base !== null) return base + TILED_FLIP_H;
+  }
+  return null;
+}
+
+function findFurnitureGidExact(registry: TiledRegistry, type: string): number | null {
+  for (const ts of registry.tilesets) {
+    if (!ts.file.startsWith('furniture-')) continue;
+    const localId = ts.tiles.findIndex((t) => t.props.type === type);
+    if (localId >= 0) return ts.firstgid + localId;
+  }
+  return null;
 }
 
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
@@ -158,11 +197,17 @@ export function exportLayoutToTmj(
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
     const foundGid = findFurnitureGid(registry, item.type);
-    const properties: TiledProp[] = [prop('type', item.type), prop('uid', item.uid)];
-    if (item.name) properties.push(prop('name', item.name));
-    if (item.approachSides && item.approachSides.length) properties.push(prop('approachSides', item.approachSides.join(',')));
-    if (item.zOffset) properties.push(prop('zOffset', item.zOffset));
-    if (item.action) properties.push(...actionProps(item.action));
+    // Every field always present (even empty/0/false) — see actionProps's
+    // own note; the same "discoverable, not just whatever was set" reasoning
+    // applies to approachSides/zOffset/name here.
+    const properties: TiledProp[] = [
+      prop('type', item.type),
+      prop('uid', item.uid),
+      prop('name', item.name ?? ''),
+      prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : ''),
+      prop('zOffset', item.zOffset ?? 0),
+      ...actionProps(item.action ?? null),
+    ];
 
     const base = {
       id: idx + 1,
@@ -280,15 +325,6 @@ export function exportLayoutToTmj(
   return { tmj, imageFiles };
 }
 
-function findFurnitureGid(registry: TiledRegistry, type: string): number | null {
-  for (const ts of registry.tilesets) {
-    if (!ts.file.startsWith('furniture-')) continue;
-    const localId = ts.tiles.findIndex((t) => t.props.type === type);
-    if (localId >= 0) return ts.firstgid + localId;
-  }
-  return null;
-}
-
 function colorFromProps(props: PropBag): { h: number; s: number; b: number; c: number; colorize: true } | null {
   if (typeof props.hue !== 'number' || typeof props.sat !== 'number') return null;
   return { h: props.hue, s: props.sat, b: 0, c: 0, colorize: true };
@@ -351,11 +387,11 @@ export function importTmjToLayout(
       col,
       row,
     };
-    if (typeof props.name === 'string') item.name = props.name;
+    if (typeof props.name === 'string' && props.name) item.name = props.name;
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
     }
-    if (typeof props.zOffset === 'number') item.zOffset = props.zOffset;
+    if (typeof props.zOffset === 'number' && props.zOffset) item.zOffset = props.zOffset;
     const action = actionFromProps(props);
     if (action) item.action = action;
     return item;

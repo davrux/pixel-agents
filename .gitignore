@@ -51,3 +51,7 @@ client/public/mediapipe/
 assets/tiled/zones/*.tmj
 assets/tiled/zones/images/
 
+# Tiled's own per-user editor state (open files, scroll position, zoom) —
+# like a .vscode/settings.json, not project content.
+assets/tiled/*.tiled-session
+
