@@ -10,14 +10,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { CAT_COUNT, DOG_COUNT, DUCK_COUNT, WALL_BITMASK_COUNT } from './core/assets/constants.js';
+import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
-import { FURNITURE_CATEGORY_FILES, parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
+import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
 import {
   decodeCharacterPng,
-  decodeFloorPng,
   decodePetPng,
-  parseWallPng,
   pngToSpriteData,
 } from './core/assets/pngDecoder.js';
 import type {
@@ -40,8 +38,9 @@ export interface LoadedAssets {
 }
 
 /**
- * Load the furniture catalog from assets/tiled/furniture-<category>.tsj —
- * one Tiled tileset file per curated category (see FURNITURE_CATEGORY_FILES).
+ * Load the furniture catalog from every assets/tiled/furniture-*.tsj file —
+ * category is a per-tile property now (see tiledFurniture.ts), not tied to
+ * which file a tile lives in, so any number of files in any grouping works.
  * Each tile's PNG path is resolved relative to the tileset file's own
  * directory (Tiled's own convention for a "Collection of Images" tileset).
  */
@@ -58,9 +57,9 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
     const catalog: FurnitureAsset[] = [];
     const sprites = new Map<string, string[][]>();
 
-    for (const [category, slug] of Object.entries(FURNITURE_CATEGORY_FILES)) {
-      const tilesetPath = path.join(tiledDir, `furniture-${slug}.tsj`);
-      if (!fs.existsSync(tilesetPath)) continue;
+    const furnitureFiles = fs.readdirSync(tiledDir).filter((f) => /^furniture-.*\.tsj$/.test(f)).sort();
+    for (const file of furnitureFiles) {
+      const tilesetPath = path.join(tiledDir, file);
 
       let tiled: TiledTilesetJson;
       try {
@@ -71,7 +70,7 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
       }
 
       const tilesetDir = path.dirname(tilesetPath);
-      const entries = parseFurnitureTileset(tiled, category);
+      const entries = parseFurnitureTileset(tiled);
       for (const { asset, imagePath } of entries) {
         try {
           const assetPath = path.join(tilesetDir, imagePath);
@@ -161,119 +160,6 @@ export function loadDefaultLayout(assetsRoot: string): Record<string, unknown> |
   } catch (err) {
     console.error(
       `[AssetLoader] Error loading default layout: ${err instanceof Error ? err.message : err}`,
-    );
-    return null;
-  }
-}
-
-// ── Wall tile loading ────────────────────────────────────────
-
-interface LoadedWallTiles {
-  /** Array of wall sets, each containing 16 sprites indexed by bitmask (N=1,E=2,S=4,W=8) */
-  sets: string[][][][];
-}
-
-/**
- * Load wall tile sets from assets/walls/ folder.
- * Each file is named wall_N.png (e.g. wall_0.png, wall_1.png, ...).
- * Files are loaded in numeric order; each PNG is a 64×128 grid of 16 bitmask pieces.
- */
-export async function loadWallTiles(assetsRoot: string): Promise<LoadedWallTiles | null> {
-  try {
-    const wallsDir = path.join(assetsRoot, 'assets', 'walls');
-    if (!fs.existsSync(wallsDir)) {
-      console.log('[AssetLoader] No walls/ directory found at:', wallsDir);
-      return null;
-    }
-
-    console.log('[AssetLoader] Loading wall tiles from:', wallsDir);
-
-    // Find all wall_N.png files and sort by index
-    const entries = fs.readdirSync(wallsDir);
-    const wallFiles: { index: number; filename: string }[] = [];
-    for (const entry of entries) {
-      const match = /^wall_(\d+)\.png$/i.exec(entry);
-      if (match) {
-        wallFiles.push({ index: parseInt(match[1], 10), filename: entry });
-      }
-    }
-
-    if (wallFiles.length === 0) {
-      console.log('[AssetLoader] No wall_N.png files found in walls/');
-      return null;
-    }
-
-    wallFiles.sort((a, b) => a.index - b.index);
-
-    const sets: string[][][][] = [];
-    for (const { filename } of wallFiles) {
-      const filePath = path.join(wallsDir, filename);
-      const pngBuffer = fs.readFileSync(filePath);
-      const sprites = parseWallPng(pngBuffer);
-      sets.push(sprites);
-    }
-
-    console.log(
-      `[AssetLoader] ✅ Loaded ${sets.length} wall tile set(s) (${sets.length * WALL_BITMASK_COUNT} pieces total)`,
-    );
-    return { sets };
-  } catch (err) {
-    console.error(
-      `[AssetLoader] ❌ Error loading wall tiles: ${err instanceof Error ? err.message : err}`,
-    );
-    return null;
-  }
-}
-
-interface LoadedFloorTiles {
-  sprites: string[][][]; // N sprites (one per floor_N.png), each 16x16 SpriteData
-}
-
-/**
- * Load floor tile patterns from assets/floors/ folder.
- * Each file is named floor_N.png (e.g. floor_0.png, floor_1.png, ...).
- * Files are loaded in numeric order; each PNG is a 16×16 grayscale tile.
- */
-export async function loadFloorTiles(assetsRoot: string): Promise<LoadedFloorTiles | null> {
-  try {
-    const floorsDir = path.join(assetsRoot, 'assets', 'floors');
-    if (!fs.existsSync(floorsDir)) {
-      console.log('[AssetLoader] No floors/ directory found at:', floorsDir);
-      return null;
-    }
-
-    console.log('[AssetLoader] Loading floor tiles from:', floorsDir);
-
-    // Find all floor_N.png files and sort by index
-    const entries = fs.readdirSync(floorsDir);
-    const floorFiles: { index: number; filename: string }[] = [];
-    for (const entry of entries) {
-      const match = /^floor_(\d+)\.png$/i.exec(entry);
-      if (match) {
-        floorFiles.push({ index: parseInt(match[1], 10), filename: entry });
-      }
-    }
-
-    if (floorFiles.length === 0) {
-      console.log('[AssetLoader] No floor_N.png files found in floors/');
-      return null;
-    }
-
-    floorFiles.sort((a, b) => a.index - b.index);
-
-    const sprites: string[][][] = [];
-    for (const { filename } of floorFiles) {
-      const filePath = path.join(floorsDir, filename);
-      const pngBuffer = fs.readFileSync(filePath);
-      const sprite = decodeFloorPng(pngBuffer);
-      sprites.push(sprite);
-    }
-
-    console.log(`[AssetLoader] ✅ Loaded ${sprites.length} floor tile patterns from floors/`);
-    return { sprites };
-  } catch (err) {
-    console.error(
-      `[AssetLoader] ❌ Error loading floor tiles: ${err instanceof Error ? err.message : err}`,
     );
     return null;
   }

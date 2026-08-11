@@ -707,7 +707,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  footprint covers), so an exact match is enough. */
   private actionAt(col: number, row: number): Action | null {
     const item = this.os.getLayout().furniture.find((f) => f.col === col && f.row === row);
-    return item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
+    return item ? effectiveAction(item, getCatalogEntry(item.id)) : null;
   }
 
   /** A meeting-room membership key, namespaced by source so a furniture
@@ -1565,10 +1565,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
-      // A floor pattern is just one sprite grid — same light shape check
-      // furniture's own sprite field gets (see validFurnitureData), plus a
-      // sane size bound.
-      if (type === 'floor' && !this.validFloorData(msg.data)) return;
       if (type === 'image' && !this.validImageData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
@@ -1778,13 +1774,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return true;
   }
 
-  /** Sanity-check a floor pattern override: just a sprite grid (see
-   *  FurnitureAsset's own `sprite` check — same shallow shape check, no
-   *  catalog metadata applies here), with a sane size bound. */
-  private validFloorData(data: unknown): boolean {
-    return Array.isArray(data) && data.length > 0 && data.length <= 64 && data.every((row) => Array.isArray(row) && row.length <= 64);
-  }
-
   /** Sanity-check an uploaded background image: a PNG data URL under the byte
    *  cap, with sane label/dimensions. Only the data URL's *prefix* and
    *  *length* are checked here (cheap, no decoding) — a client-supplied
@@ -1879,7 +1868,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.os.rebuildFromLayout(this.migratedActiveLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
-      // floor/wall are client-render only — just rebroadcast below.
+      // 'image' is client-render only — just rebroadcast below.
     }
     const msgType = messageTypeForAsset(type);
     const message = this.bundle.messages.find((m) => m.type === msgType);
@@ -2037,11 +2026,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.state.furniture.splice(0, this.state.furniture.length);
     for (const p of placements) {
       const fs = new FurnitureSync();
-      fs.type = p.type;
+      fs.id = p.id;
       fs.col = p.col;
       fs.row = p.row;
       fs.name = p.name ?? '';
-      const action = effectiveAction(p, getCatalogEntry(p.type));
+      const action = effectiveAction(p, getCatalogEntry(p.id));
       fs.action = action ? JSON.stringify(action) : '';
       this.state.furniture.push(fs);
     }

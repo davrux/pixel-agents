@@ -8,12 +8,13 @@
   "tiles": [
     {
       "id": 0,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_BACK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_BACK"
         },
@@ -30,18 +31,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "back"
+          "value": "back",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 1,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_FRONT_OFF.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_FRONT_OFF"
         },
@@ -58,7 +67,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -68,23 +78,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "off"
+          "value": "off",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 2,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_FRONT_ON_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_FRONT_ON_1"
         },
@@ -101,7 +120,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -111,12 +131,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ],
       "animation": [
@@ -136,12 +164,13 @@
     },
     {
       "id": 3,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_FRONT_ON_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_FRONT_ON_2"
         },
@@ -158,7 +187,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -168,23 +198,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 4,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_FRONT_ON_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_FRONT_ON_3"
         },
@@ -201,7 +240,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -211,23 +251,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 5,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/LAPTOP_SIDE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LAPTOP_SIDE"
         },
@@ -242,25 +291,28 @@
           "value": true
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 6,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_BACK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_BACK"
         },
@@ -282,18 +334,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "back"
+          "value": "back",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 7,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_FRONT_OFF.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_FRONT_OFF"
         },
@@ -315,7 +375,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -325,23 +386,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "off"
+          "value": "off",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 8,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_FRONT_ON_1.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_FRONT_ON_1"
         },
@@ -363,7 +433,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -373,12 +444,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ],
       "animation": [
@@ -398,12 +477,13 @@
     },
     {
       "id": 9,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_FRONT_ON_2.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_FRONT_ON_2"
         },
@@ -425,7 +505,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -435,23 +516,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 10,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_FRONT_ON_3.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_FRONT_ON_3"
         },
@@ -473,7 +563,8 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -483,23 +574,32 @@
         {
           "name": "state",
           "type": "string",
-          "value": "on"
+          "value": "on",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": "autoFacing"
+          "value": "autoFacing",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 11,
+      "type": "FurnitureTile",
       "image": "png/furniture/electronics/PC_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PC_SIDE"
         },
@@ -519,14 +619,16 @@
           "value": true
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
         }
       ]
     }

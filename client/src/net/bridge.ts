@@ -8,9 +8,7 @@ import {
   removeCharacterTemplate,
   type LoadedCharacterData,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import { setFloorSprites } from '@pixel/shared/office/floorTiles.js';
 import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
-import { setWallSprites } from '@pixel/shared/office/wallTiles.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
 
@@ -18,9 +16,11 @@ type Msg = Record<string, any>;
 
 /**
  * Handles the server's asset/layout "m" messages so the client can render:
- * sprite templates, floor/wall tiles, furniture catalog and the office layout.
- * Agent/pet/furniture *state* no longer arrives here — it is synced
- * authoritatively via the Colyseus schema (see OfficeScene).
+ * sprite templates, furniture catalog and the office layout. Floor/wall
+ * tiles are NOT among these — they're pre-baked, closed-palette sheets
+ * fetched once via plain HTTP (see net/tiledSheets.ts), not a Colyseus
+ * message. Agent/pet/furniture *state* no longer arrives here either — it is
+ * synced authoritatively via the Colyseus schema (see OfficeScene).
  */
 export function createAssetBridge(
   os: OfficeState,
@@ -51,14 +51,8 @@ export function createAssetBridge(
       case 'petSpritesLoaded':
         setPetTemplates(msg.dogs ?? [], msg.cats ?? [], msg.ducks ?? []);
         break;
-      case 'floorTilesLoaded':
-        setFloorSprites(msg.sprites);
-        break;
       case 'imagesLoaded':
         setImageAssets(msg.images ?? []);
-        break;
-      case 'wallTilesLoaded':
-        setWallSprites(msg.sets);
         break;
       case 'furnitureAssetsLoaded':
         buildDynamicCatalog({ catalog: msg.catalog, sprites: msg.sprites });

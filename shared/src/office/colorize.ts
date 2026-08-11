@@ -30,11 +30,6 @@ export function getColorizedSprite(
   return result;
 }
 
-/** Clear all cached colorized sprites (e.g., on asset reload) */
-export function clearColorizeCache(): void {
-  colorizeCache.clear();
-}
-
 /** A sprite's own average perceived luminance across every opaque pixel
  *  (0-1) — the recentering point colorizeSprite shades around, so a target
  *  brightness (color.b) lands on an absolute lightness regardless of how
@@ -135,7 +130,7 @@ function appendAlpha(hex: string, alpha: number): string {
 }
 
 /** Convert HSL (h: 0-360, s: 0-1, l: 0-1) to #RRGGBB hex string */
-function hslToHex(h: number, s: number, l: number): string {
+export function hslToHex(h: number, s: number, l: number): string {
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const hp = h / 60;
   const x = c * (1 - Math.abs((hp % 2) - 1));

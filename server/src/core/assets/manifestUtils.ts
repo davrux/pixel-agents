@@ -1,74 +1,11 @@
 /**
- * Manifest flattening utilities — shared between the extension host, Vite build
- * scripts, and future standalone backend.
- *
- * Recursively flattens furniture manifest trees into flat asset arrays.
+ * The furniture catalog's wire shape, produced by tiledFurniture.ts's
+ * parseFurnitureTileset (reading assets/tiled/furniture-*.tsj) and consumed
+ * by assetLoader.ts. Named manifestUtils for historical reasons — it used to
+ * also hold the pre-Tiled assets/furniture/<TYPE>/manifest.json flattening
+ * logic (ManifestAsset/ManifestGroup/flattenManifest etc.), retired once
+ * that tree was fully migrated (see docs/design/tiled-editor-integration.md).
  */
-
-// ── Manifest types ──────────────────────────────────────────
-
-export interface ManifestAsset {
-  type: 'asset';
-  id: string;
-  file: string;
-  width: number;
-  height: number;
-  footprintW: number;
-  footprintH: number;
-  orientation?: string;
-  state?: string;
-  frame?: number;
-  /** How long (ms) this frame shows before advancing — Tiled's own
-   *  `<frame duration=".."/>` unit — only meaningful alongside `frame`. */
-  duration?: number;
-  mirrorSide?: boolean;
-}
-
-export interface ManifestGroup {
-  type: 'group';
-  groupType: 'rotation' | 'state' | 'animation';
-  rotationScheme?: string;
-  orientation?: string;
-  state?: string;
-  /** On a 'state' group: what turns this pair on — see FurnitureCatalogEntry.onTrigger. */
-  onTrigger?: 'autoFacing' | 'click';
-  members: ManifestNode[];
-}
-
-export type ManifestNode = ManifestAsset | ManifestGroup;
-
-export interface FurnitureManifest {
-  id: string;
-  name: string;
-  category: string;
-  canPlaceOnSurfaces: boolean;
-  backgroundTiles: number;
-  appliance?: string; // interaction station kind ('coffee', …)
-  // If type is 'asset', these fields are present:
-  type: 'asset' | 'group';
-  file?: string;
-  width?: number;
-  height?: number;
-  footprintW?: number;
-  footprintH?: number;
-  // If type is 'group':
-  groupType?: string;
-  rotationScheme?: string;
-  members?: ManifestNode[];
-}
-
-export interface InheritedProps {
-  groupId: string;
-  name: string;
-  category: string;
-  canPlaceOnSurfaces: boolean;
-  backgroundTiles: number;
-  orientation?: string;
-  state?: string;
-  onTrigger?: 'autoFacing' | 'click';
-  rotationScheme?: string;
-  animationGroup?: string;
-}
 
 export interface FurnitureAsset {
   id: string;
@@ -87,97 +24,7 @@ export interface FurnitureAsset {
   orientation?: string;
   state?: string;
   onTrigger?: 'autoFacing' | 'click';
-  mirrorSide?: boolean;
-  rotationScheme?: string;
   animationGroup?: string;
   frame?: number;
   durationMs?: number;
-}
-
-/**
- * Recursively flatten a manifest node into FurnitureAsset[].
- * Inherited properties flow from root to all leaf assets.
- */
-export function flattenManifest(node: ManifestNode, inherited: InheritedProps): FurnitureAsset[] {
-  if (node.type === 'asset') {
-    const asset = node as ManifestAsset;
-    // Merge orientation: node-level takes priority, then inherited
-    const orientation = asset.orientation ?? inherited.orientation;
-    const state = asset.state ?? inherited.state;
-    return [
-      {
-        id: asset.id,
-        name: inherited.name,
-        label: inherited.name,
-        category: inherited.category,
-        file: asset.file,
-        width: asset.width,
-        height: asset.height,
-        footprintW: asset.footprintW,
-        footprintH: asset.footprintH,
-        isDesk: inherited.category === 'desks',
-        canPlaceOnSurfaces: inherited.canPlaceOnSurfaces,
-        backgroundTiles: inherited.backgroundTiles,
-        groupId: inherited.groupId,
-        ...(orientation ? { orientation } : {}),
-        ...(state ? { state } : {}),
-        ...(inherited.onTrigger ? { onTrigger: inherited.onTrigger } : {}),
-        ...(asset.mirrorSide ? { mirrorSide: true } : {}),
-        ...(inherited.rotationScheme ? { rotationScheme: inherited.rotationScheme } : {}),
-        ...(inherited.animationGroup ? { animationGroup: inherited.animationGroup } : {}),
-        ...(asset.frame !== undefined ? { frame: asset.frame } : {}),
-        ...(asset.duration !== undefined ? { durationMs: asset.duration } : {}),
-      },
-    ];
-  }
-
-  // Group node
-  const group = node as ManifestGroup;
-  const results: FurnitureAsset[] = [];
-
-  for (const member of group.members) {
-    // Build inherited props for children
-    const childProps: InheritedProps = { ...inherited };
-
-    if (group.groupType === 'rotation') {
-      // Rotation groups set groupId and pass rotationScheme
-      if (group.rotationScheme) {
-        childProps.rotationScheme = group.rotationScheme;
-      }
-    }
-
-    if (group.groupType === 'state') {
-      // State groups propagate orientation from the group level
-      if (group.orientation) {
-        childProps.orientation = group.orientation;
-      }
-      // Propagate state from group level if set (for animation groups nested in state)
-      if (group.state) {
-        childProps.state = group.state;
-      }
-      if (group.onTrigger) {
-        childProps.onTrigger = group.onTrigger;
-      }
-    }
-
-    if (group.groupType === 'animation') {
-      // Animation groups: create animation group ID and propagate state
-      // Use the parent's orientation to build a unique animation group name
-      const orient = group.orientation ?? inherited.orientation ?? '';
-      const st = group.state ?? inherited.state ?? '';
-      childProps.animationGroup = `${inherited.groupId}_${orient}_${st}`.toUpperCase();
-      if (group.state) {
-        childProps.state = group.state;
-      }
-    }
-
-    // Propagate orientation from group to children (for state groups that have orientation)
-    if (group.orientation && !childProps.orientation) {
-      childProps.orientation = group.orientation;
-    }
-
-    results.push(...flattenManifest(member, childProps));
-  }
-
-  return results;
 }

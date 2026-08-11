@@ -11,7 +11,7 @@ export interface LoadedAssetData {
     footprintH: number;
     isDesk: boolean;
     groupId?: string;
-    orientation?: string; // 'front' | 'back' | 'left' | 'right' | 'side'
+    orientation?: string; // 'front' | 'back' | 'side'
     state?: string; // 'on' | 'off'
     /** On a state-pair item: what turns it on — see FurnitureCatalogEntry.onTrigger. */
     onTrigger?: 'autoFacing' | 'click';
@@ -19,7 +19,6 @@ export interface LoadedAssetData {
      *  for the renamed internal field this maps to in buildDynamicCatalog). */
     canPlaceOnSurfaces?: boolean;
     backgroundTiles?: number;
-    mirrorSide?: boolean;
     portal?: boolean; // zone portal (door / beam pad)
     /** This type's default Action (see FurnitureCatalogEntry.action). */
     action?: Action;
@@ -46,15 +45,14 @@ export interface LoadedAssetData {
  *  the same speed it always has. */
 export const DEFAULT_ANIMATION_FRAME_MS = 200;
 
-export type FurnitureCategory =
-  | 'desks'
-  | 'chairs'
-  | 'storage'
-  | 'decor'
-  | 'electronics'
-  | 'wall'
-  | 'kitchens'
-  | 'misc';
+/** The full category list is Boden, Wände, plus these — Boden/Wände aren't
+ *  values here since they're not furniture: they're their own Tiled tile
+ *  classes (FloorTile/WallTile), inherently one-to-one with their own
+ *  tileset, needing no category property of their own. Wall-MOUNTED
+ *  furniture (paintings, clocks, shelves) used to be its own `wall` category
+ *  here, which read confusingly next to the structural "Wände" — folded into
+ *  `decor` (see docs/design/tiled-editor-integration.md). */
+export type FurnitureCategory = 'desks' | 'chairs' | 'storage' | 'decor' | 'electronics' | 'kitchens' | 'misc';
 
 /** @internal */
 export interface CatalogEntryWithCategory extends FurnitureCatalogEntry {
@@ -64,9 +62,8 @@ export interface CatalogEntryWithCategory extends FurnitureCatalogEntry {
 // ── State groups ────────────────────────────────────────────────
 // Maps asset ID → its on/off counterpart (symmetric for toggle)
 const stateGroups = new Map<string, string>();
-// Directional maps for getOnStateType / getOffStateType
-const offToOn = new Map<string, string>(); // off asset → on asset
-const onToOff = new Map<string, string>(); // on asset → off asset
+// off asset → on asset (see getOnStateType)
+const offToOn = new Map<string, string>();
 // Maps EITHER side of a state pair → what turns it on (see getOnTrigger)
 const onTriggerByType = new Map<string, 'autoFacing' | 'click'>();
 
@@ -117,7 +114,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         return null;
       }
       return {
-        type: asset.id,
+        id: asset.id,
         label: asset.label,
         footprintW: asset.footprintW,
         footprintH: asset.footprintH,
@@ -127,7 +124,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         ...(asset.orientation ? { orientation: asset.orientation } : {}),
         ...(asset.canPlaceOnSurfaces ? { occupiesSurface: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
-        ...(asset.mirrorSide ? { mirrorSide: true } : {}),
         ...(asset.portal ? { portal: true } : {}),
         ...(asset.onTrigger ? { onTrigger: asset.onTrigger } : {}),
         // A direct `action` wins; else fall back to the legacy per-kind flags
@@ -143,26 +139,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     })
     .filter((e): e is CatalogEntryWithCategory => e !== null);
 
-  // Create virtual ":left" entries for mirrorSide assets — a simple, standalone
-  // horizontal-flip clone (e.g. a side-view monitor also facing the other
-  // way), NOT tied to any grouping/rotation mechanism. Shows up as its own,
-  // independently-placeable catalog entry, same as any other orientation
-  // variant (see the "no rotation groups" note below) — the mapper picks
-  // whichever facing they want directly, no in-place flip tool.
-  for (const asset of assets.catalog) {
-    if (asset.mirrorSide && asset.orientation === 'side') {
-      const sideEntry = allEntries.find((e) => e.type === asset.id);
-      if (sideEntry) {
-        allEntries.push({
-          ...sideEntry,
-          type: `${asset.id}:left`,
-          orientation: 'left',
-          mirrorSide: true,
-        });
-      }
-    }
-  }
-
   if (allEntries.length === 0) return false;
 
   // No rotation-group system: every orientation variant (front/back/side/…)
@@ -173,7 +149,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   // for perspective pixel art — see docs/design/tiled-editor-integration.md.)
   stateGroups.clear();
   offToOn.clear();
-  onToOff.clear();
   onTriggerByType.clear();
   animationGroups.clear();
 
@@ -202,7 +177,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
       stateGroups.set(onId, offId);
       stateGroups.set(offId, onId);
       offToOn.set(offId, onId);
-      onToOff.set(onId, offId);
       const trigger = triggerMap.get(key);
       if (trigger) {
         onTriggerByType.set(onId, trigger);
@@ -247,12 +221,12 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   // Visible catalog: exclude "on" state variants and non-first anim frames —
   // every orientation variant stays visible now (no rotation groups to hide
   // a non-front subset behind).
-  const visibleEntries = allEntries.filter((e) => !onStateIds.has(e.type) && !nonFirstFrameIds.has(e.type));
+  const visibleEntries = allEntries.filter((e) => !onStateIds.has(e.id) && !nonFirstFrameIds.has(e.id));
 
   // Strip a state suffix from labels for on/off pairs (e.g. imported data
   // still tagging "... - Off").
   for (const entry of visibleEntries) {
-    if (stateGroups.has(entry.type)) {
+    if (stateGroups.has(entry.id)) {
       entry.label = entry.label
         .replace(/ - Front - Off$/, '')
         .replace(/ - Front$/, '')
@@ -272,12 +246,12 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   return true;
 }
 
-export function getCatalogEntry(type: string): CatalogEntryWithCategory | undefined {
+export function getCatalogEntry(id: string): CatalogEntryWithCategory | undefined {
   // Check internal catalog (includes all variants, e.g., non-front rotations)
   if (internalCatalog) {
-    return internalCatalog.find((e) => e.type === type);
+    return internalCatalog.find((e) => e.id === id);
   }
-  return dynamicCatalog?.find((e) => e.type === type);
+  return dynamicCatalog?.find((e) => e.id === id);
 }
 
 export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryWithCategory[] {
@@ -294,11 +268,6 @@ export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEn
   return item.action ?? entry?.action ?? null;
 }
 
-/* Currently unused since the editor palette is organized by category. */
-// function getActiveCatalog(): CatalogEntryWithCategory[] {
-//   return dynamicCatalog ?? [];
-// }
-
 export function getActiveCategories(): Array<{ id: FurnitureCategory; label: string }> {
   const categories = dynamicCategories ?? [];
   return FURNITURE_CATEGORIES.filter((c) => categories.includes(c.id));
@@ -311,7 +280,6 @@ export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string 
   { id: 'storage', label: 'Storage' },
   { id: 'electronics', label: 'Tech' },
   { id: 'decor', label: 'Decor' },
-  { id: 'wall', label: 'Wall' },
   { id: 'kitchens', label: 'Kitchen' },
   { id: 'misc', label: 'Misc' },
 ];
@@ -334,11 +302,6 @@ export function getOnTrigger(type: string): 'autoFacing' | 'click' | null {
   if (!stateGroups.has(type)) return null;
   return onTriggerByType.get(type) ?? 'autoFacing';
 }
-
-/** Returns the "off" variant if this type has one, otherwise returns the type unchanged - unused */
-// function getOffStateType(currentType: string): string {
-//   return onToOff.get(currentType) ?? currentType;
-// }
 
 /** Get the ordered {id, durationMs} animation frames for a given type, or
  *  null if it isn't part of any animation group. */
@@ -371,9 +334,3 @@ export function animationFrameAt(type: string, elapsedMs: number): string | null
   return frames[frames.length - 1].id;
 }
 
-/** Is this the mirrored (":left") clone of a mirrorSide asset? Renderer/hit-
- *  test use this to flip the sprite — see buildDynamicCatalog's virtual
- *  ":left" entry, which is the only thing that ever sets orientation:'left'. */
-export function isMirroredLeft(type: string): boolean {
-  return getCatalogEntry(type)?.orientation === 'left';
-}

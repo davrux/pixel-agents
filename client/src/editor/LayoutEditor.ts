@@ -5,7 +5,6 @@ import {
   getActiveCategories,
   getCatalogByCategory,
   getCatalogEntry,
-  isMirroredLeft,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import {
@@ -14,7 +13,12 @@ import {
   layoutToTileMap,
 } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getColorizedFloorSprite, getFloorPatternCount } from '@pixel/shared/office/floorTiles.js';
-import { getWallSetCount, getWallSetPreviewSprite, wallColorToHex } from '@pixel/shared/office/wallTiles.js';
+import {
+  getWallSetCount,
+  getWallSetPreviewSprite,
+  getWallSetSwatchPreview,
+  wallColorToHex,
+} from '@pixel/shared/office/wallTiles.js';
 import {
   Direction,
   TILE_SIZE,
@@ -27,7 +31,6 @@ import {
   type PlacedText,
   type TileType as TileTypeVal,
 } from '@pixel/shared/office/types.js';
-import { getColorizedSprite } from '@pixel/shared/office/colorize.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
@@ -66,10 +69,6 @@ export interface EditorDeps {
   /** Revert/remove a furniture override (same effect as the Assets panel's
    *  Reset). Optional: the palette's Reset button is hidden when omitted. */
   resetFurnitureAsset?: (type: string) => void;
-  /** Jump to the Floor pattern editor, scoped to one pattern — same
-   *  WITHOUT-leaving-layout-edit-mode deal as openAssetEditor. Optional: the
-   *  Floor palette's Edit button is hidden when omitted. */
-  openFloorEditor?: (pattern: number) => void;
 }
 
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'image' | 'eyedropper';
@@ -179,8 +178,8 @@ export class LayoutEditor {
   private palZoom: Zoom = 2;
   /** Sticky bar below the palette: Edit (+Reset for furniture) for whichever
    *  item is currently selected — reuses the exact same editor entry points
-   *  as the Assets panel (EditorDeps.openAssetEditor/resetFurnitureAsset/
-   *  openFloorEditor) instead of a parallel implementation. */
+   *  as the Assets panel (EditorDeps.openAssetEditor/resetFurnitureAsset)
+   *  instead of a parallel implementation. */
   private palActionBar!: HTMLDivElement;
   /** Floor/wall palette previews, kept so they can re-render in the picked color. */
   private floorItems: Array<{ canvas: HTMLCanvasElement; pattern: number }> = [];
@@ -398,7 +397,7 @@ export class LayoutEditor {
     if (!this.layout) return [];
     const hits: Array<{ uid: string; z: number }> = [];
     for (const f of this.layout.furniture) {
-      const e = getCatalogEntry(f.type);
+      const e = getCatalogEntry(f.id);
       if (!e) continue;
       const w = e.sprite[0]?.length ?? e.footprintW * TILE_SIZE;
       const h = e.sprite.length || e.footprintH * TILE_SIZE;
@@ -407,7 +406,7 @@ export class LayoutEditor {
       if (wx < x || wy < y || wx >= x + w || wy >= y + h) continue;
       let px = Math.floor(wx - x);
       const py = Math.floor(wy - y);
-      if (e.mirrorSide && isMirroredLeft(f.type)) px = w - 1 - px;
+      if (f.flippedHorizontally) px = w - 1 - px;
       if (!e.sprite[py]?.[px]) continue; // transparent pixel → not a hit
       hits.push({ uid: f.uid, z: y + h });
     }
@@ -536,7 +535,7 @@ export class LayoutEditor {
     const e = getCatalogEntry(this.selectedType);
     if (!e || !this.canPlace(col, row, e)) return;
     this.beginGesture();
-    this.layout.furniture.push({ uid: this.nextUid(), type: this.selectedType, col, row });
+    this.layout.furniture.push({ uid: this.nextUid(), id: this.selectedType, col, row });
     this.rebuildFurniture();
     this.deps.onEdit(this.layout, true);
   }
@@ -579,7 +578,7 @@ export class LayoutEditor {
       // the PC that was on it. Also exclude the piece being moved (self-collision).
       const others = this.layout.furniture.filter((f) => {
         if (f.uid === excludeUid) return false;
-        return !getCatalogEntry(f.type)?.occupiesSurface;
+        return !getCatalogEntry(f.id)?.occupiesSurface;
       });
       const blocked = getPlacementBlockedTiles(others);
       for (let dr = bg; dr < h; dr++) {
@@ -846,7 +845,7 @@ export class LayoutEditor {
     const f = uid ? this.layout.furniture.find((x) => x.uid === uid) : undefined;
     if (f) {
       this.selectTool('furniture');
-      this.setSelected(f.type);
+      this.setSelected(f.id);
       return;
     }
     const col = Math.floor(wx / TILE_SIZE);
@@ -991,7 +990,7 @@ export class LayoutEditor {
     }
     if (!this.ghost) return;
     const f = this.layout.furniture.find((x) => x.uid === this.dragUid);
-    const e = f && getCatalogEntry(f.type);
+    const e = f && getCatalogEntry(f.id);
     if (!f || !e) return;
     const dcol = col - this.dragGrab.dc;
     const drow = row - this.dragGrab.dr;
@@ -1061,7 +1060,7 @@ export class LayoutEditor {
       return;
     }
     const f = this.layout.furniture.find((x) => x.uid === uid);
-    const e = f && getCatalogEntry(f.type);
+    const e = f && getCatalogEntry(f.id);
     if (!f || !e) return;
     const col = Math.floor(wx / TILE_SIZE) - this.dragGrab.dc;
     const row = Math.floor(wy / TILE_SIZE) - this.dragGrab.dr;
@@ -1354,7 +1353,7 @@ export class LayoutEditor {
   private async nameSelected(): Promise<void> {
     if (!this.layout || !this.selectedUid) return;
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
-    if (!f || effectiveAction(f, getCatalogEntry(f.type))?.kind !== 'meetingRoom') return;
+    if (!f || effectiveAction(f, getCatalogEntry(f.id))?.kind !== 'meetingRoom') return;
     const input = await promptDialog('Monitor name (its conference room id):', f.name ?? '', { maxLength: MAX_NAME_LEN });
     if (input === null) return; // cancelled
     const name = cleanName(input);
@@ -1373,7 +1372,7 @@ export class LayoutEditor {
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
     if (!f) return;
     const rect = this.actionBtnInBar.getBoundingClientRect();
-    const current = effectiveAction(f, getCatalogEntry(f.type));
+    const current = effectiveAction(f, getCatalogEntry(f.id));
     const result = await this.chooseActionMenu(rect.left, rect.bottom + 4, current);
     if (result === undefined || !this.layout) return; // dismissed, or the editor closed meanwhile
     this.beginGesture();
@@ -1524,11 +1523,11 @@ export class LayoutEditor {
    *  the same tile(s)" set that bring-to-front/send-to-back reorder against. */
   private overlappingFurniture(f: PlacedFurniture): PlacedFurniture[] {
     if (!this.layout) return [];
-    const e = getCatalogEntry(f.type);
+    const e = getCatalogEntry(f.id);
     if (!e) return [];
     return this.layout.furniture.filter((other) => {
       if (other.uid === f.uid) return false;
-      const oe = getCatalogEntry(other.type);
+      const oe = getCatalogEntry(other.id);
       if (!oe) return false;
       return (
         f.col < other.col + oe.footprintW &&
@@ -1696,7 +1695,7 @@ export class LayoutEditor {
       return;
     }
     const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
-    const e = f && getCatalogEntry(f.type);
+    const e = f && getCatalogEntry(f.id);
     if (!f || !e) {
       this.actionBar.style.display = 'none';
       this.selRect?.setVisible(false);
@@ -2051,7 +2050,7 @@ export class LayoutEditor {
     this.sendBackBtnInBar = mkAct('🔽', 'Send to back (of what it overlaps)', () => this.restackSelected(false));
     this.editAssetBtnInBar = mkAct('🎨', 'Edit this asset (stays in layout-edit mode)', () => {
       const f = this.layout?.furniture.find((x) => x.uid === this.selectedUid);
-      if (f) this.deps.openAssetEditor?.(f.type);
+      if (f) this.deps.openAssetEditor?.(f.id);
     });
     this.actionBtnInBar = mkAct(
       '⚡',
@@ -2121,11 +2120,11 @@ export class LayoutEditor {
     // per-tile control (see refreshPalActionBar).
     const mkFurnItem = (entry: CatalogEntryWithCategory): HTMLElement => {
       const item = document.createElement('div');
-      item.className = 'pa-pal-item' + (entry.type === this.selectedType ? ' sel' : '');
-      item.dataset.type = entry.type;
+      item.className = 'pa-pal-item' + (entry.id === this.selectedType ? ' sel' : '');
+      item.dataset.type = entry.id;
       item.title = entry.label;
       item.appendChild(spriteThumbCanvas(entry.sprite, this.palZoom));
-      item.onclick = () => this.setSelected(entry.type);
+      item.onclick = () => this.setSelected(entry.id);
       return item;
     };
     for (const cat of getActiveCategories()) {
@@ -2205,9 +2204,10 @@ export class LayoutEditor {
   /** Sticky bar below the palette for whichever item is currently selected
    *  (for placement) — Edit (+Reset for furniture) via the exact same editor
    *  entry points the Select tool's "Edit asset" button and the Assets panel
-   *  use (EditorDeps.openAssetEditor/resetFurnitureAsset/openFloorEditor),
-   *  instead of a parallel implementation. Wall has no editor (nothing to
-   *  edit — wall sets are bundled-only), so it never shows a bar. */
+   *  use (EditorDeps.openAssetEditor/resetFurnitureAsset), instead of a
+   *  parallel implementation. Floor/wall have no editor (nothing to edit —
+   *  both are bundled-only, baked from Tiled's asset pipeline; see
+   *  docs/design/tiled-editor-integration.md), so neither shows a bar. */
   private refreshPalActionBar(): void {
     this.palActionBar.replaceChildren();
     this.palActionBar.style.display = 'none';
@@ -2222,7 +2222,7 @@ export class LayoutEditor {
         const edit = document.createElement('button');
         edit.className = 'pa-b';
         edit.textContent = 'Edit';
-        edit.onclick = () => this.deps.openAssetEditor!(entry.type);
+        edit.onclick = () => this.deps.openAssetEditor!(entry.id);
         this.palActionBar.appendChild(edit);
       }
       if (this.deps.resetFurnitureAsset) {
@@ -2231,23 +2231,13 @@ export class LayoutEditor {
         reset.textContent = 'Reset';
         reset.title = 'Revert to the bundled default (or delete a custom item)';
         reset.onclick = async () => {
-          if (!(await confirmDialog(`Reset ${entry.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-          this.deps.resetFurnitureAsset!(entry.type);
+          if (!(await confirmDialog(`Reset ${entry.id}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+          this.deps.resetFurnitureAsset!(entry.id);
           this.selectedType = null;
           window.setTimeout(() => this.populatePalettes(), 250);
         };
         this.palActionBar.appendChild(reset);
       }
-      this.palActionBar.style.display = 'flex';
-    } else if (this.tool === 'floor' && this.deps.openFloorEditor) {
-      const nm = document.createElement('span');
-      nm.className = 'nm';
-      nm.textContent = `Floor ${this.floorPattern}`;
-      const edit = document.createElement('button');
-      edit.className = 'pa-b';
-      edit.textContent = 'Edit';
-      edit.onclick = () => this.deps.openFloorEditor!(this.floorPattern);
-      this.palActionBar.append(nm, edit);
       this.palActionBar.style.display = 'flex';
     }
   }
@@ -2266,10 +2256,8 @@ export class LayoutEditor {
       for (const { canvas, pattern } of this.floorItems) drawSpriteOnCanvas(canvas, getColorizedFloorSprite(pattern, c));
     } else if (this.tool === 'wall') {
       for (const { canvas, set } of this.wallItems) {
-        const base = getWallSetPreviewSprite(set);
-        if (!base) continue;
-        const key = `wallprev-${set}-${c.h}-${c.s}-${c.b}-${c.c}`;
-        drawSpriteOnCanvas(canvas, getColorizedSprite(key, base, { ...c, colorize: true }));
+        const sprite = getWallSetSwatchPreview(set, c);
+        if (sprite) drawSpriteOnCanvas(canvas, sprite);
       }
     }
   }

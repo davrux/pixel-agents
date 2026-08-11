@@ -80,20 +80,24 @@ function appendToTileset(slug: string, items: GeneratedItem[]): void {
     fs.writeFileSync(path.join(pngDir, `${item.id}.png`), spriteToPngBuffer(item.sprite, item.width, item.height));
     json.tiles.push({
       id: localId,
+      // Assigns this tile to Pixels.tiled-project's FurnitureTile class —
+      // without it, the properties below are just loose values with no
+      // class membership (see docs/design/tiled-editor-integration.md).
+      type: 'FurnitureTile',
       image: `png/furniture/${slug}/${item.id}.png`,
       imagewidth: item.width,
       imageheight: item.height,
       properties: [
-        { name: 'type', type: 'string', value: item.id },
+        { name: 'id', type: 'string', value: item.id },
         { name: 'label', type: 'string', value: item.label },
+        { name: 'category', type: 'string', value: item.category, propertytype: 'Category' },
         { name: 'backgroundTiles', type: 'int', value: 0 },
         { name: 'occupiesSurface', type: 'bool', value: false },
-        { name: 'mirrorSide', type: 'bool', value: false },
-        { name: 'orientation', type: 'string', value: '' },
+        { name: 'orientation', type: 'string', value: '', propertytype: 'Orientation' },
         { name: 'stateGroup', type: 'string', value: '' },
-        { name: 'state', type: 'string', value: '' },
-        { name: 'onTrigger', type: 'string', value: '' },
-        { name: 'appliance', type: 'string', value: '' },
+        { name: 'state', type: 'string', value: '', propertytype: 'FurnitureState' },
+        { name: 'onTrigger', type: 'string', value: '', propertytype: 'OnTrigger' },
+        { name: 'appliance', type: 'string', value: '', propertytype: 'ApplianceKind' },
         // Not authored by hand like the migrated 44 — flags this tile as
         // server-generated code (see assets.ts's `generated` array), so a
         // future re-bake knows it can safely overwrite/regenerate these
@@ -114,7 +118,7 @@ for (const item of all) {
   byCategory.get(item.category)!.push(item);
 }
 
-const CATEGORY_SLUG: Record<string, string> = { decor: 'decor', wall: 'wallmount' };
+const CATEGORY_SLUG: Record<string, string> = { decor: 'decor' };
 for (const [category, items] of byCategory) {
   const slug = CATEGORY_SLUG[category];
   if (!slug) {

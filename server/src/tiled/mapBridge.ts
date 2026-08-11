@@ -29,8 +29,9 @@ import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
 import { findGid, type TiledRegistry } from './tiledRegistry.js';
+import { FLOOR_CATEGORY, WALL_CATEGORY } from './categories.js';
 
-type TiledProp = { name: string; type: string; value: string | number | boolean };
+type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
 type PropBag = Record<string, string | number | boolean>;
 
 export interface TmjImageAsset {
@@ -48,22 +49,25 @@ export interface TmjExportResult {
   imageFiles: Array<{ relPath: string; buffer: Buffer }>;
 }
 
-function prop(name: string, value: string | number | boolean): TiledProp {
+function prop(name: string, value: string | number | boolean, propertyType?: string): TiledProp {
   const type = typeof value === 'boolean' ? 'bool' : typeof value === 'number' ? 'int' : 'string';
-  return { name, type, value };
+  return propertyType ? { name, type, value, propertytype: propertyType } : { name, type, value };
 }
 
 /** Always emits all four action-related properties (kind/video/url/pose),
  *  even when empty/inapplicable for this action's kind — so opening the
  *  .tmj in Tiled shows every settable field up front instead of only
  *  whichever ones happened to be set on the item being exported (there's no
- *  other way to discover "oh, I can set actionUrl here" from the file). */
+ *  other way to discover "oh, I can set actionUrl here" from the file).
+ *  `actionKind`/`actionPose` carry `propertytype` so Tiled shows them as
+ *  dropdowns (see Pixels.tiled-project's ActionKind/ApplianceKind enums) —
+ *  Tiled reads this per-property, independent of the object's own class. */
 function actionProps(action: Action | null, prefix = 'action'): TiledProp[] {
   return [
-    prop(`${prefix}Kind`, action?.kind ?? ''),
+    prop(`${prefix}Kind`, action?.kind ?? '', 'ActionKind'),
     prop(`${prefix}Video`, action?.kind === 'meetingRoom' ? action.video : false),
     prop(`${prefix}Url`, action?.kind === 'iframe' ? action.url : ''),
-    prop(`${prefix}Pose`, action?.kind === 'appliance' ? action.pose : ''),
+    prop(`${prefix}Pose`, action?.kind === 'appliance' ? action.pose : '', 'ApplianceKind'),
   ];
 }
 
@@ -109,28 +113,21 @@ function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
  *  which would turn 0x80000000 negative. */
 const TILED_FLIP_H = 0x80000000;
 
-/** A mirrorSide item's virtual ":left" clone (see furnitureCatalog.ts's
- *  buildDynamicCatalog) is never its own tile in any .tsj — only the base
- *  (non-mirrored) type is baked. Falls back to the base type's GID with
- *  Tiled's native horizontal-flip bit set, exactly the mapping the design
- *  doc calls for, so Tiled shows a real (mirrored) sprite instead of a
- *  blank placeholder rectangle. The `type` property still carries the exact
- *  original id either way, so import never needs to decode the flip bit
- *  itself — it's purely a Tiled-canvas visual aid. */
-function findFurnitureGid(registry: TiledRegistry, type: string): number | null {
-  const direct = findFurnitureGidExact(registry, type);
-  if (direct !== null) return direct;
-  if (type.endsWith(':left')) {
-    const base = findFurnitureGidExact(registry, type.slice(0, -':left'.length));
-    if (base !== null) return base + TILED_FLIP_H;
-  }
-  return null;
+/** `flippedHorizontally` (see PlacedFurniture) maps directly onto Tiled's own
+ *  GID flip bit — purely cosmetic, so Tiled's canvas shows a real mirrored
+ *  sprite instead of drawing the unflipped one. `id` (see the export/import
+ *  properties block) already carries the true identity independent of this;
+ *  the GID here is only ever consulted for *display*. */
+function findFurnitureGid(registry: TiledRegistry, id: string, flippedHorizontally: boolean): number | null {
+  const direct = findFurnitureGidExact(registry, id);
+  if (direct === null) return null;
+  return flippedHorizontally ? direct + TILED_FLIP_H : direct;
 }
 
-function findFurnitureGidExact(registry: TiledRegistry, type: string): number | null {
+function findFurnitureGidExact(registry: TiledRegistry, id: string): number | null {
   for (const ts of registry.tilesets) {
     if (!ts.file.startsWith('furniture-')) continue;
-    const localId = ts.tiles.findIndex((t) => t.props.type === type);
+    const localId = ts.tiles.findIndex((t) => t.props.id === id);
     if (localId >= 0) return ts.firstgid + localId;
   }
   return null;
@@ -193,26 +190,34 @@ export function exportLayoutToTmj(
     .map(({ f }) => f);
 
   const furnitureObjects = orderedFurniture.map((item, idx) => {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
-    const foundGid = findFurnitureGid(registry, item.type);
+    const gid = findFurnitureGid(registry, item.id, !!item.flippedHorizontally);
     // Every field always present (even empty/0/false) — see actionProps's
     // own note; the same "discoverable, not just whatever was set" reasoning
-    // applies to approachSides/zOffset/name here.
+    // applies to approachSides/name here. No `uid` (regenerated fresh on
+    // every import, see importTmjToLayout) and no `zOffset` (stacking comes
+    // purely from this object's position in the list — see orderedFurniture
+    // above and its import-side counterpart) — both dropped per
+    // docs/design/tiled-editor-integration.md. `id` IS always written, even
+    // when a GID is also set (yes, Tiled then shows the same value twice —
+    // once inherited from the tile, once as this explicit property) — the
+    // GID's only job is picking the right sprite + flip state to *display*;
+    // making identity depend on resolving it back through the registry was
+    // needless indirection when the object can just say what it is directly.
+    // Import reads `id` as a flat property lookup, full stop.
     const properties: TiledProp[] = [
-      prop('type', item.type),
-      prop('uid', item.uid),
+      prop('id', item.id),
       prop('name', item.name ?? ''),
-      prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : ''),
-      prop('zOffset', item.zOffset ?? 0),
+      prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : '', 'ApproachSide'),
       ...actionProps(item.action ?? null),
     ];
 
     const base = {
       id: idx + 1,
       name: item.name ?? '',
-      type: '',
+      type: 'FurnitureObject',
       visible: true,
       x: item.col * TILE_SIZE,
       width: fw * TILE_SIZE,
@@ -220,12 +225,12 @@ export function exportLayoutToTmj(
       rotation: 0,
       properties,
     };
-    if (foundGid) {
-      return { ...base, gid: foundGid, y: tileObjectY(item.row, fh) };
+    if (gid !== null) {
+      return { ...base, gid, y: tileObjectY(item.row, fh) };
     }
-    // No Tiled tileset backs this type (server-generated furniture) — a
+    // No Tiled tileset backs this id (server-generated furniture) — a
     // plain rectangle placeholder, top-left anchored like every other
-    // non-tile object; round-trips via the `type` property either way.
+    // non-tile object; round-trips via the `id` property either way.
     return { ...base, y: item.row * TILE_SIZE };
   });
 
@@ -238,14 +243,18 @@ export function exportLayoutToTmj(
     actionObjects.push({
       id: 0, // renumbered below
       name: '',
-      type: '',
+      type: 'ActionPoint',
       point: true,
+      // Position IS the data — col/row are derived from x/y on import
+      // (Math.floor), never stored as their own properties: Tiled doesn't
+      // update custom properties when an object is dragged, so a stored
+      // col/row would silently go stale the moment you move the point.
       x: col * TILE_SIZE + TILE_SIZE / 2,
       y: row * TILE_SIZE + TILE_SIZE / 2,
       width: 0,
       height: 0,
       rotation: 0,
-      properties: [prop('col', col), prop('row', row), ...actionProps(action)],
+      properties: actionProps(action),
     });
   });
   actionObjects.forEach((o, i) => (o.id = i + 1));
@@ -267,7 +276,7 @@ export function exportLayoutToTmj(
       ...(t.fontSize ? { pixelsize: t.fontSize } : {}),
       wrap: true,
     },
-    properties: [prop('uid', t.uid)],
+    properties: [],
   }));
 
   // ── Images: native Tiled image objects, PNG extracted alongside the .tmj ──
@@ -290,7 +299,7 @@ export function exportLayoutToTmj(
         rotation: 0,
         visible: true,
         image: relPath,
-        properties: [prop('imageId', im.imageId), prop('uid', im.uid)],
+        properties: [prop('imageId', im.imageId)],
       },
     ];
   });
@@ -325,6 +334,14 @@ export function exportLayoutToTmj(
   return { tmj, imageFiles };
 }
 
+/** Every imported item gets a fresh identity — `uid` is purely internal
+ *  engine plumbing (station claims, on/off toggle state, editor selection;
+ *  see officeState.ts/LayoutEditor.ts), never something a Tiled edit needs
+ *  to preserve across a round-trip. Not exported as a property at all. */
+function generateUid(): string {
+  return `imported_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function colorFromProps(props: PropBag): { h: number; s: number; b: number; c: number; colorize: true } | null {
   if (typeof props.hue !== 'number' || typeof props.sat !== 'number') return null;
   return { h: props.hue, s: props.sat, b: 0, c: 0, colorize: true };
@@ -356,13 +373,13 @@ export function importTmjToLayout(
   for (let i = 0; i < cols * rows; i++) {
     const gid = ground[i] ?? 0;
     const resolved = registry.resolve(gid);
-    if (!resolved) {
-      tiles.push(TileType.VOID);
-      tileColors.push(null);
-    } else if ('bitmask' in resolved.props) {
+    // Classify by `category`, not by which file a tile lives in or which
+    // other properties happen to be present — a mapper reorganizing tileset
+    // files must not silently break this (see docs/design/tiled-editor-integration.md).
+    if (resolved?.props.category === WALL_CATEGORY) {
       tiles.push(TileType.WALL);
       tileColors.push(colorFromProps(resolved.props));
-    } else if (typeof resolved.props.pattern === 'number') {
+    } else if (resolved?.props.category === FLOOR_CATEGORY && typeof resolved.props.pattern === 'number') {
       tiles.push(resolved.props.pattern);
       tileColors.push(colorFromProps(resolved.props));
     } else {
@@ -373,25 +390,36 @@ export function importTmjToLayout(
   }
 
   const furnitureLayer = byName('Furniture');
-  const furniture: PlacedFurniture[] = ((furnitureLayer?.objects as Array<Record<string, unknown>>) ?? []).map((obj) => {
+  const furniture: PlacedFurniture[] = (
+    (furnitureLayer?.objects as Array<Record<string, unknown>>) ?? []
+  ).map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
-    const type = typeof props.type === 'string' ? props.type : '';
-    const entry = getCatalogEntry(type);
+    // Identity is a flat property read — always present (see the matching
+    // export-side comment), independent of the GID entirely. The GID's own
+    // flip bit is read back separately, purely for `flippedHorizontally`
+    // (see PlacedFurniture) — the two are unrelated concerns.
+    const id = typeof props.id === 'string' ? props.id : '';
+    const rawGid = Number(obj.gid) || 0;
+    const entry = getCatalogEntry(id);
     const fh = entry?.footprintH ?? 1;
-    const hasGid = typeof obj.gid === 'number' && (obj.gid as number) > 0;
+    const hasGid = rawGid > 0;
     const col = Math.round(Number(obj.x) / TILE_SIZE);
     const row = hasGid ? rowFromTileObjectY(Number(obj.y), fh) : Math.round(Number(obj.y) / TILE_SIZE);
+    // zOffset comes purely from this object's position in Tiled's own
+    // Furniture object list (drag to reorder there) — no stored property,
+    // per docs/design/tiled-editor-integration.md.
     const item: PlacedFurniture = {
-      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
-      type,
+      uid: generateUid(),
+      id,
       col,
       row,
+      zOffset: idx,
     };
+    if (rawGid >= TILED_FLIP_H) item.flippedHorizontally = true;
     if (typeof props.name === 'string' && props.name) item.name = props.name;
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
     }
-    if (typeof props.zOffset === 'number' && props.zOffset) item.zOffset = props.zOffset;
     const action = actionFromProps(props);
     if (action) item.action = action;
     return item;
@@ -401,18 +429,20 @@ export function importTmjToLayout(
   const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
   for (const obj of (actionsLayer?.objects as Array<Record<string, unknown>>) ?? []) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
-    const col = typeof props.col === 'number' ? props.col : Math.floor(Number(obj.x) / TILE_SIZE);
-    const row = typeof props.row === 'number' ? props.row : Math.floor(Number(obj.y) / TILE_SIZE);
+    // Position IS the data — see the matching export-side comment; never
+    // read a stored col/row property (Tiled wouldn't have kept it in sync
+    // with a dragged object anyway).
+    const col = Math.floor(Number(obj.x) / TILE_SIZE);
+    const row = Math.floor(Number(obj.y) / TILE_SIZE);
     const action = actionFromProps(props);
     if (action && col >= 0 && col < cols && row >= 0 && row < rows) tileActions[row * cols + col] = action;
   }
 
   const textLayer = byName('Text');
   const texts: PlacedText[] = ((textLayer?.objects as Array<Record<string, unknown>>) ?? []).map((obj) => {
-    const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
     const textData = (obj.text as Record<string, unknown>) ?? {};
     const t: PlacedText = {
-      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
+      uid: generateUid(),
       col: Math.round(Number(obj.x) / TILE_SIZE),
       row: Math.round(Number(obj.y) / TILE_SIZE),
       text: typeof textData.text === 'string' ? textData.text : '',
@@ -434,7 +464,7 @@ export function importTmjToLayout(
     const buffer = readImageFile(relPath);
     if (buffer) importedImages.push({ imageId, label: imageId, buffer });
     images.push({
-      uid: typeof props.uid === 'string' ? props.uid : `imported_${Math.random().toString(36).slice(2, 10)}`,
+      uid: generateUid(),
       col: Math.round(Number(obj.x) / TILE_SIZE),
       row: Math.round(Number(obj.y) / TILE_SIZE),
       footprintW: Math.max(1, Math.round(Number(obj.width) / TILE_SIZE)),

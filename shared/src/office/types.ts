@@ -237,7 +237,9 @@ export type Action =
   | { kind: 'toggle' };
 
 export interface FurnitureCatalogEntry {
-  type: string; // asset ID from furniture manifest
+  /** Stable, unique catalog identifier — was called `type` (renamed: this is
+   *  an identity, not a taxonomy; `category` is the taxonomy). */
+  id: string;
   label: string;
   footprintW: number;
   footprintH: number;
@@ -252,7 +254,7 @@ export interface FurnitureCatalogEntry {
    *  via FurnitureEditor's Action picker (the same TILE_ACTION_CHOICES list
    *  LayoutEditor uses for per-instance overrides). */
   action?: Action;
-  /** Orientation from rotation group: 'front' | 'back' | 'left' | 'right' */
+  /** Which facing this art shows: 'front' | 'back' | 'side' */
   orientation?: string;
   /** Whether this item sits ON TOP of a desk/table surface (e.g. a monitor, a
    *  coffee mug) — drives z-sort (renders in front of the surface it's on)
@@ -264,8 +266,6 @@ export interface FurnitureCatalogEntry {
   occupiesSurface?: boolean;
   /** Number of tile rows from the top of the footprint that are "background" (allow placement, still block walking). Default 0. */
   backgroundTiles?: number;
-  /** Whether this is a side-oriented asset that produces a mirrored "left" variant */
-  mirrorSide?: boolean;
   /** For an item with an on/off state pair: what turns it on. 'autoFacing' —
    *  an active agent seated facing it (today's PC/laptop behaviour, unchanged).
    *  'click' — a literal light-switch via the 'toggle' Action; walking up and
@@ -279,7 +279,8 @@ export interface FurnitureCatalogEntry {
 
 export interface PlacedFurniture {
   uid: string;
-  type: string; // asset ID from furniture manifest
+  /** Which catalog entry this is — see FurnitureCatalogEntry.id (was `type`). */
+  id: string;
   col: number;
   row: number;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
@@ -312,6 +313,16 @@ export interface PlacedFurniture {
    *  action, e.g. turning a specific arcade cabinet into a link-manager
    *  kiosk instead, without a new catalog type. */
   action?: Action;
+  /** Horizontal mirror, adopted directly from Tiled's own object-flip
+   *  concept (named after Tiled's own `FLIPPED_HORIZONTALLY_FLAG` — see
+   *  docs/design/tiled-editor-integration.md) rather than an invented term.
+   *  No catalog-level gate on which types may use this (there's no
+   *  equivalent gate in Tiled either — any object can be flipped there).
+   *  Vertical/diagonal flip and continuous rotation, which Tiled's object
+   *  model also supports, are deliberately NOT adopted: our furniture art is
+   *  hand-drawn 2.5D perspective from one fixed camera angle, so those would
+   *  render broken (same reasoning that killed rotation groups). */
+  flippedHorizontally?: boolean;
 }
 
 /** A free-text label placed on one tile — purely decorative (no footprint,

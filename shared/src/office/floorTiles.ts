@@ -1,79 +1,52 @@
 /**
- * Floor tile pattern storage and caching.
+ * Floor tile pattern storage.
  *
- * Stores grayscale floor patterns loaded from individual PNGs in assets/floors/.
- * Uses shared colorize module for HSL tinting (Photoshop-style Colorize).
- * Caches colorized SpriteData by (pattern, h, s, b, c) key.
+ * Sprites are pre-baked, closed-palette PNGs (see
+ * server/scripts/bake-floor-wall-tiled.mts and client/src/net/tiledSheets.ts)
+ * — a direct (pattern, swatch) lookup, no runtime HSL colorize.
  */
 
 import type { ColorValue } from './colorTypes.js';
-import { CANVAS_ERROR_TILE_COLOR, FALLBACK_FLOOR_COLOR, TILE_SIZE } from './constants.js';
-import { clearColorizeCache, getColorizedSprite } from './colorize.js';
+import { CANVAS_ERROR_TILE_COLOR, TILE_SIZE } from './constants.js';
+import { FLOOR_PALETTE, paletteSwatchIndex } from './palettes.js';
 import type { SpriteData } from './types.js';
 
-/** Default solid gray 16×16 tile used when floor tile PNGs are not loaded */
-const DEFAULT_FLOOR_SPRITE: SpriteData = Array.from(
-  { length: TILE_SIZE },
-  () => Array(TILE_SIZE).fill(FALLBACK_FLOOR_COLOR) as string[],
+/** floorSheets[pattern][0] = Natural (raw, uncolorized); [1+i] =
+ *  FLOOR_PALETTE[i] colorized. Populated once by the client's tiledSheets
+ *  loader from the baked assets/tiled/png/floor.png sheet. */
+let floorSheets: SpriteData[][] = [];
+
+/** Set floor tile sprites (called once the baked floor.png sheet is fetched
+ *  + sliced — see client/src/net/tiledSheets.ts). */
+export function setFloorSheets(sheets: SpriteData[][]): void {
+  floorSheets = sheets;
+}
+
+/** Check whether the baked floor sheet has loaded yet. */
+export function hasFloorSprites(): boolean {
+  return floorSheets.length > 0;
+}
+
+/** Get count of available floor patterns (0 until the baked sheet loads). */
+export function getFloorPatternCount(): number {
+  return floorSheets.length;
+}
+
+const ERROR_TILE: SpriteData = Array.from({ length: TILE_SIZE }, () =>
+  Array(TILE_SIZE).fill(CANVAS_ERROR_TILE_COLOR) as string[],
 );
 
-/** Module-level storage for floor tile sprites (set once on load) */
-let floorSprites: SpriteData[] = [];
-
-// Re-export WALL_COLOR from constants for backward compatibility
-export { WALL_COLOR } from './constants.js';
-
-/** Set floor tile sprites (called once when extension sends floorTilesLoaded) */
-export function setFloorSprites(sprites: SpriteData[]): void {
-  floorSprites = sprites;
-  clearColorizeCache();
-}
-
-/** Get the raw (grayscale) floor sprite for a pattern index (1-based — 1 is
- *  the first pattern, matching getColorizedFloorSprite/the Layout editor's
- *  own convention; the underlying floor_<i> asset name is 0-based, i = index-1).
- *  Falls back to the default solid gray tile when floors.png is not loaded. */
-export function getFloorSprite(patternIndex: number): SpriteData | null {
-  const idx = patternIndex - 1;
-  if (idx < 0) return null;
-  if (idx < floorSprites.length) return floorSprites[idx];
-  // No PNG sprites loaded — return default solid tile for any valid pattern index
-  if (floorSprites.length === 0 && patternIndex >= 1) return DEFAULT_FLOOR_SPRITE;
-  return null;
-}
-
-/** Check if floor sprites are available (always true — falls back to default solid tile) */
-export function hasFloorSprites(): boolean {
-  return true;
-}
-
-/** Get count of available floor patterns (at least 1 for the default solid tile) */
-export function getFloorPatternCount(): number {
-  return floorSprites.length > 0 ? floorSprites.length : 1;
-}
-
-/** Get all floor sprites (for preview rendering, falls back to default solid tile) - unused */
-// function getAllFloorSprites(): SpriteData[] {
-//   return floorSprites.length > 0 ? floorSprites : [DEFAULT_FLOOR_SPRITE];
-// }
-
 /**
- * Get a colorized version of a floor sprite.
- * Uses Photoshop-style Colorize: grayscale -> HSL with given hue/saturation,
- * then brightness/contrast adjustment.
+ * Get the pre-baked sprite for a floor pattern (1-based) + color — a direct
+ * lookup into the closed 64-color palette (see paletteSwatchIndex), falling
+ * back to the "Natural" (raw) tile when color is absent or unmatched.
  */
-export function getColorizedFloorSprite(patternIndex: number, color: ColorValue): SpriteData {
-  const key = `floor-${patternIndex}-${color.h}-${color.s}-${color.b}-${color.c}`;
-
-  const base = getFloorSprite(patternIndex);
-  if (!base) {
-    // Return a 16x16 magenta error tile
-    const err: SpriteData = Array.from({ length: 16 }, () =>
-      Array(16).fill(CANVAS_ERROR_TILE_COLOR),
-    );
-    return err;
-  }
-
-  // Floor tiles are always colorized (grayscale patterns need Photoshop-style Colorize)
-  return getColorizedSprite(key, base, { ...color, colorize: true });
+export function getColorizedFloorSprite(
+  patternIndex: number,
+  color: ColorValue | null | undefined,
+): SpriteData {
+  const sheet = floorSheets[patternIndex - 1];
+  if (!sheet) return ERROR_TILE;
+  const swatchIdx = paletteSwatchIndex(FLOOR_PALETTE, color);
+  return sheet[swatchIdx === null ? 0 : swatchIdx + 1] ?? ERROR_TILE;
 }

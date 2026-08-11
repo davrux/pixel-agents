@@ -1,8 +1,9 @@
 /**
  * Wall tile auto-tiling: sprite storage and bitmask-based piece selection.
  *
- * Stores wall tile sets loaded from individual PNGs in assets/walls/.
- * Each set contains 16 wall sprites (one per 4-bit bitmask).
+ * Sprites are pre-baked, closed-palette PNGs (see
+ * server/scripts/bake-floor-wall-tiled.mts and client/src/net/tiledSheets.ts)
+ * — a direct (bitmask, swatch) lookup, no runtime HSL colorize.
  * At render time, each wall tile's 4 cardinal neighbors are checked to build
  * a bitmask, and the corresponding sprite is drawn directly.
  * No changes to the layout model — auto-tiling is purely visual.
@@ -11,45 +12,50 @@
  */
 
 import type { ColorValue } from './colorTypes.js';
-import { averageLightness, getColorizedSprite } from './colorize.js';
+import { hslToHex } from './colorize.js';
+import { WALL_PALETTE, paletteSwatchIndex } from './palettes.js';
 import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
 import { TILE_SIZE, TileType } from './types.js';
 
-/** Wall tile sets: each set has 16 sprites indexed by bitmask (0-15) */
-let wallSets: SpriteData[][] = [];
-/** One shared brightness baseline per set, across all 16 pieces combined —
- *  NOT per piece. A straight wall run's piece is drawn almost entirely as
- *  the "cap" (top surface, seen from above); a piece with an open side
- *  shows a lot more of the lighter front "face" — so their own average
- *  lightness differs a lot (measured ~0.68 to ~0.92 across one set's 16
- *  pieces). Recentering each piece around its own average (see colorize.ts)
- *  hits the same absolute target color per piece, but breaks the "one
- *  continuous wall" illusion at piece boundaries, since two adjacent pieces'
- *  cap regions would then land at different tones. One shared baseline
- *  keeps every piece's relative shading intact instead. */
-let wallSetReferenceLightness: number[] = [];
+/** wallSheets[setIndex][bitmask][0] = Natural (raw, uncolorized); [1+i] =
+ *  WALL_PALETTE[i] colorized. Populated once by the client's tiledSheets
+ *  loader from the baked assets/tiled/png/wall-N.png sheets. */
+let wallSheets: SpriteData[][][] = [];
 
-/** Set wall tile sets (called once when extension sends wallTilesLoaded) */
-export function setWallSprites(sets: SpriteData[][]): void {
-  wallSets = sets;
-  wallSetReferenceLightness = sets.map((pieces) => averageLightness(pieces.flat()));
+/** Set wall tile sets (called once the baked wall-N.png sheets are fetched +
+ *  sliced — see client/src/net/tiledSheets.ts). */
+export function setWallSheets(sheets: SpriteData[][][]): void {
+  wallSheets = sheets;
 }
 
 /** Check if wall sprites have been loaded */
 export function hasWallSprites(): boolean {
-  return wallSets.length > 0;
+  return wallSheets.length > 0;
 }
 
 /** Get number of available wall sets */
 export function getWallSetCount(): number {
-  return wallSets.length;
+  return wallSheets.length;
 }
 
-/** Get the first sprite (bitmask 0, top-left piece) of a wall set for preview rendering */
+/** Get the "Natural" (raw, no tint) bitmask-0 piece of a wall set, for
+ *  preview rendering. */
 export function getWallSetPreviewSprite(setIndex: number): SpriteData | null {
-  const set = wallSets[setIndex];
-  if (!set) return null;
-  return set[0] ?? null;
+  return wallSheets[setIndex]?.[0]?.[0] ?? null;
+}
+
+/** Get the bitmask-0 piece of a wall set in a given color — a direct lookup
+ *  (see paletteSwatchIndex) used for the Layout editor's palette-preview
+ *  thumbnails (LayoutEditor.ts's refreshPalettePreviews), so those previews
+ *  don't need their own live colorize call. */
+export function getWallSetSwatchPreview(
+  setIndex: number,
+  color: ColorValue | null | undefined,
+): SpriteData | null {
+  const pieces = wallSheets[setIndex]?.[0];
+  if (!pieces) return null;
+  const swatchIdx = paletteSwatchIndex(WALL_PALETTE, color);
+  return pieces[swatchIdx === null ? 0 : swatchIdx + 1] ?? null;
 }
 
 /**
@@ -68,52 +74,31 @@ function buildWallMask(col: number, row: number, tileMap: TileTypeVal[][]): numb
 }
 
 /**
- * Get the wall sprite for a tile based on its cardinal neighbors.
- * Returns the sprite + Y offset, or null to fall back to solid WALL_COLOR.
+ * Get the pre-baked wall sprite + Y offset for a tile's cardinal neighbors —
+ * a direct lookup into the closed palette (see paletteSwatchIndex), falling
+ * back to the "Natural" (raw) piece when color is absent or unmatched, or
+ * null (→ solid WALL_COLOR fill) if no wall sprites are loaded.
  */
 function getWallSprite(
   col: number,
   row: number,
   tileMap: TileTypeVal[][],
+  color: ColorValue | null | undefined,
   setIndex = 0,
 ): { sprite: SpriteData; offsetY: number } | null {
-  if (wallSets.length === 0) return null;
-  const sprites = wallSets[setIndex] ?? wallSets[0];
+  const set = wallSheets[setIndex] ?? wallSheets[0];
+  if (!set) return null;
 
   const mask = buildWallMask(col, row, tileMap);
-  const sprite = sprites[mask];
+  const pieces = set[mask];
+  if (!pieces) return null;
+
+  const swatchIdx = paletteSwatchIndex(WALL_PALETTE, color);
+  const sprite = pieces[swatchIdx === null ? 0 : swatchIdx + 1];
   if (!sprite) return null;
 
   // Anchor sprite at bottom of tile — tall sprites extend upward
   return { sprite, offsetY: TILE_SIZE - sprite.length };
-}
-
-/**
- * Get a colorized wall sprite for a tile based on its cardinal neighbors.
- * Uses Colorize mode (grayscale → HSL) like floor tiles.
- * Returns the colorized sprite + Y offset, or null if no wall sprites loaded.
- */
-function getColorizedWallSprite(
-  col: number,
-  row: number,
-  tileMap: TileTypeVal[][],
-  color: ColorValue,
-  setIndex = 0,
-): { sprite: SpriteData; offsetY: number } | null {
-  if (wallSets.length === 0) return null;
-  const sprites = wallSets[setIndex] ?? wallSets[0];
-
-  const mask = buildWallMask(col, row, tileMap);
-  const sprite = sprites[mask];
-  if (!sprite) return null;
-
-  // Walls always colorize: the wall sprite is a light grey, so only colorize
-  // (grayscale → hue) tints it — "adjust" mode would leave it grey.
-  const cacheKey = `wall-${setIndex}-${mask}-${color.h}-${color.s}-${color.b}-${color.c}`;
-  const referenceLightness = wallSetReferenceLightness[setIndex] ?? wallSetReferenceLightness[0];
-  const colorized = getColorizedSprite(cacheKey, sprite, { ...color, colorize: true }, referenceLightness);
-
-  return { sprite: colorized, offsetY: TILE_SIZE - sprite.length };
 }
 
 /**
@@ -125,7 +110,7 @@ export function getWallInstances(
   tileColors?: Array<ColorValue | null>,
   cols?: number,
 ): FurnitureInstance[] {
-  if (wallSets.length === 0) return [];
+  if (wallSheets.length === 0) return [];
   const tmRows = tileMap.length;
   const tmCols = tmRows > 0 ? tileMap[0].length : 0;
   const layoutCols = cols ?? tmCols;
@@ -135,9 +120,7 @@ export function getWallInstances(
       if (tileMap[r][c] !== TileType.WALL) continue;
       const colorIdx = r * layoutCols + c;
       const wallColor = tileColors?.[colorIdx];
-      const wallInfo = wallColor
-        ? getColorizedWallSprite(c, r, tileMap, wallColor)
-        : getWallSprite(c, r, tileMap);
+      const wallInfo = getWallSprite(c, r, tileMap, wallColor);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,
@@ -172,43 +155,5 @@ export function wallColorToHex(color: ColorValue): string {
 
   lightness = Math.max(0, Math.min(1, lightness));
 
-  // HSL to hex (same as colorize.ts hslToHex)
-  const satFrac = s / 100;
-  const ch = (1 - Math.abs(2 * lightness - 1)) * satFrac;
-  const hp = h / 60;
-  const x = ch * (1 - Math.abs((hp % 2) - 1));
-  let r1 = 0,
-    g1 = 0,
-    b1 = 0;
-
-  if (hp < 1) {
-    r1 = ch;
-    g1 = x;
-    b1 = 0;
-  } else if (hp < 2) {
-    r1 = x;
-    g1 = ch;
-    b1 = 0;
-  } else if (hp < 3) {
-    r1 = 0;
-    g1 = ch;
-    b1 = x;
-  } else if (hp < 4) {
-    r1 = 0;
-    g1 = x;
-    b1 = ch;
-  } else if (hp < 5) {
-    r1 = x;
-    g1 = 0;
-    b1 = ch;
-  } else {
-    r1 = ch;
-    g1 = 0;
-    b1 = x;
-  }
-
-  const m = lightness - ch / 2;
-  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round((v + m) * 255)));
-
-  return `#${clamp(r1).toString(16).padStart(2, '0')}${clamp(g1).toString(16).padStart(2, '0')}${clamp(b1).toString(16).padStart(2, '0')}`;
+  return hslToHex(h, s / 100, lightness);
 }

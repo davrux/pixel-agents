@@ -509,11 +509,11 @@ export class FurnitureEditor {
         this.drawThumb(cv, e.sprite);
         const nm = document.createElement('div');
         nm.className = 'nm';
-        nm.textContent = `${e.label} (${e.type})`;
+        nm.textContent = `${e.label} (${e.id})`;
         const edit = document.createElement('button');
         edit.textContent = 'Edit';
         edit.onclick = () => {
-          this.loadItem(e.type);
+          this.loadItem(e.id);
           this.showEdit();
         };
         const reset = document.createElement('button');
@@ -521,8 +521,8 @@ export class FurnitureEditor {
         reset.className = 'del';
         reset.title = 'Revert to the bundled default (or delete a custom item)';
         reset.onclick = async () => {
-          if (!(await confirmDialog(`Reset ${e.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-          this.opts.reset(e.type);
+          if (!(await confirmDialog(`Reset ${e.id}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+          this.opts.reset(e.id);
           window.setTimeout(() => this.renderGallery(), 250);
         };
         card.append(cv, nm, edit, reset);

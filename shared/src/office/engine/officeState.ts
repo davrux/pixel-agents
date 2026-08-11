@@ -200,6 +200,18 @@ export class OfficeState {
     this.petStationClaims.clear();
     this.petTalkClaims.clear();
 
+    // Drop manual on/off toggle state for any uid that no longer exists in
+    // the new layout — a straight .clear() would also lose legitimate state
+    // for furniture that survives an unrelated edit untouched (same uid),
+    // but a stale uid (item deleted, or a Tiled re-import that regenerates
+    // every uid) would otherwise linger in this set forever.
+    if (this.manuallyToggledOn.size > 0) {
+      const stillPlaced = new Set(layout.furniture.map((f) => f.uid));
+      for (const uid of this.manuallyToggledOn) {
+        if (!stillPlaced.has(uid)) this.manuallyToggledOn.delete(uid);
+      }
+    }
+
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
@@ -445,7 +457,7 @@ export class OfficeState {
   private buildStations(): void {
     this.stations = new Map();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (!entry) continue;
       // effectiveAction, not the raw catalog flag — an item's own Action
       // override (the editor's Action… button) must be able to turn ANY
@@ -463,7 +475,7 @@ export class OfficeState {
           facingDir: spot.facing,
           posture: 'stand',
           station: 'appliance',
-          furnitureType: item.type,
+          furnitureType: item.id,
           occupantId: null,
         });
       });
@@ -532,7 +544,7 @@ export class OfficeState {
     // Build set of tiles occupied by electronics (PCs, monitors, etc.)
     const electronicsTiles = new Set<string>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (!entry || entry.category !== 'electronics') continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -797,7 +809,7 @@ export class OfficeState {
     for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
     for (const p of this.pets.values()) occupied.add(`${p.tileCol},${p.tileRow}`);
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       const fw = entry?.footprintW ?? 1;
       const fh = entry?.footprintH ?? 1;
       for (let dr = 0; dr < fh; dr++) {
@@ -989,7 +1001,7 @@ export class OfficeState {
   private computePortalTiles(): void {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (!entry?.portal) continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -1048,7 +1060,7 @@ export class OfficeState {
     // ranked against each other.
     const candidates = this.layout.furniture.filter((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
-      const a = effectiveAction(f, getCatalogEntry(f.type));
+      const a = effectiveAction(f, getCatalogEntry(f.id));
       return !!a && a.kind !== 'appliance';
     });
     candidates.sort((a, b) => {
@@ -1058,9 +1070,9 @@ export class OfficeState {
       return this.layout.furniture.indexOf(b) - this.layout.furniture.indexOf(a);
     });
     const item = candidates[0];
-    const action = item ? effectiveAction(item, getCatalogEntry(item.type)) : null;
+    const action = item ? effectiveAction(item, getCatalogEntry(item.id)) : null;
     if (!action) return false;
-    const entry = getCatalogEntry(item!.type);
+    const entry = getCatalogEntry(item!.id);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
     ch.heldDir = null;
@@ -1112,7 +1124,7 @@ export class OfficeState {
     // specifically (effectiveAction, so an override counts too — see
     // buildStations), not just whatever's first at that tile.
     const item = this.layout.furniture.find(
-      (f) => f.col === anchorCol && f.row === anchorRow && effectiveAction(f, getCatalogEntry(f.type))?.kind === 'appliance',
+      (f) => f.col === anchorCol && f.row === anchorRow && effectiveAction(f, getCatalogEntry(f.id))?.kind === 'appliance',
     );
     if (!item) return false;
     const prefix = `station:${item.uid}:`;
@@ -1459,8 +1471,8 @@ export class OfficeState {
     const seen = new Set<string>();
     let sig = '';
     for (const item of this.layout.furniture) {
-      const onType = getOnStateType(item.type);
-      const animType = onType !== item.type ? onType : item.type;
+      const onType = getOnStateType(item.id);
+      const animType = onType !== item.id ? onType : item.id;
       if (seen.has(animType)) continue;
       seen.add(animType);
       const frame = animationFrameAt(animType, elapsedMs);
@@ -1506,22 +1518,22 @@ export class OfficeState {
     // Build modified furniture list with auto-state and animation applied
     const elapsedMs = this.furnitureAnimElapsedMs;
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item) => {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (!entry) return item;
 
       // Ambient (always-on) animation: a stateless animation member, e.g. the
       // goldfish bowl. Excludes state-paired members (PC), whose placed type is
       // the "off" variant and therefore has no animation frames of its own.
-      if (getOnStateType(item.type) === item.type) {
-        const frame = animationFrameAt(item.type, elapsedMs);
+      if (getOnStateType(item.id) === item.id) {
+        const frame = animationFrameAt(item.id, elapsedMs);
         if (frame) return { ...item, type: frame };
       }
 
       // Manually toggled (click-to-toggle) on/off — independent of seating;
       // only ever set for onTrigger:'click' items (see toggleFurniture).
       if (this.manuallyToggledOn.has(item.uid)) {
-        let onType = getOnStateType(item.type);
-        if (onType !== item.type) {
+        let onType = getOnStateType(item.id);
+        if (onType !== item.id) {
           onType = animationFrameAt(onType, elapsedMs) ?? onType;
           return { ...item, type: onType };
         }
@@ -1530,12 +1542,12 @@ export class OfficeState {
       // Auto-on: an active agent seated facing this furniture turns it "on" —
       // only for the default/auto-facing trigger; a click-toggle item only
       // responds to toggleFurniture(), never to who's sitting nearby.
-      if (autoOnTiles.size > 0 && getOnTrigger(item.type) !== 'click') {
+      if (autoOnTiles.size > 0 && getOnTrigger(item.id) !== 'click') {
         for (let dr = 0; dr < entry.footprintH; dr++) {
           for (let dc = 0; dc < entry.footprintW; dc++) {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
-              let onType = getOnStateType(item.type);
-              if (onType !== item.type) {
+              let onType = getOnStateType(item.id);
+              if (onType !== item.id) {
                 onType = animationFrameAt(onType, elapsedMs) ?? onType;
                 return { ...item, type: onType };
               }
@@ -1560,9 +1572,9 @@ export class OfficeState {
   toggleFurniture(anchorCol: number, anchorRow: number): void {
     const item = this.layout.furniture.find((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
-      return effectiveAction(f, getCatalogEntry(f.type))?.kind === 'toggle';
+      return effectiveAction(f, getCatalogEntry(f.id))?.kind === 'toggle';
     });
-    if (!item || getOnTrigger(item.type) !== 'click') return;
+    if (!item || getOnTrigger(item.id) !== 'click') return;
     if (this.manuallyToggledOn.has(item.uid)) this.manuallyToggledOn.delete(item.uid);
     else this.manuallyToggledOn.add(item.uid);
     this.rebuildFurnitureInstances();
@@ -1780,7 +1792,7 @@ export class OfficeState {
     }
     const occupied = this.occupiedDeskSurfaceTiles();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (entry?.category !== 'desks') continue;
       if (!this.isFurnitureFreeForPet(item.uid)) continue;
       if (this.freeDeskRestColumn(item, entry, occupied) !== null) return true;
@@ -1793,7 +1805,7 @@ export class OfficeState {
   private occupiedDeskSurfaceTiles(): Set<string> {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.type);
+      const entry = getCatalogEntry(item.id);
       if (!entry) continue;
       if (entry.category !== 'electronics' && !entry.occupiesSurface) continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -2031,7 +2043,7 @@ export class OfficeState {
   private seatFacesFurniture(seat: Seat, uid: string): boolean {
     const item = this.layout.furniture.find((f) => f.uid === uid);
     if (!item) return false;
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry) return false;
     const footprint = new Set<string>();
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -2146,7 +2158,7 @@ export class OfficeState {
     if (action === 'sit') {
       const occupied = this.occupiedDeskSurfaceTiles();
       for (const item of this.layout.furniture) {
-        const entry = getCatalogEntry(item.type);
+        const entry = getCatalogEntry(item.id);
         if (!entry || entry.category !== 'desks') continue;
         if (!this.isFurnitureFreeForPet(item.uid)) continue;
         const spot = this.freeDeskRestColumn(item, entry, occupied);

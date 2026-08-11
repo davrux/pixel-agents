@@ -15,69 +15,58 @@ export interface PaletteSwatch {
   s: number;
 }
 
-function swatch(hex: string, h: number, s: number): PaletteSwatch {
-  return { hex, h, s };
+/** h/s are derived from the hex itself (via rgbToHsl) rather than hand-
+ *  entered — avoids transcription drift across a 64-entry palette; `l`
+ *  (lightness) isn't stored here since swatchColor() re-derives it from hex
+ *  directly at call time anyway. */
+function swatch(hex: string): PaletteSwatch {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const [h, s] = rgbToHsl(r, g, b);
+  return { hex, h, s: Math.round(s * 100) };
 }
 
-/** DawnBringer's DB32 — floor gets the full palette (no autotile multiplier,
- *  see docs/design/tiled-editor-integration.md). */
-export const FLOOR_PALETTE: PaletteSwatch[] = [
-  swatch('#000000', 0, 0),
-  swatch('#222034', 246, 24),
-  swatch('#45283c', 319, 27),
-  swatch('#663931', 9, 35),
-  swatch('#8f563b', 19, 42),
-  swatch('#df7126', 24, 74),
-  swatch('#d9a066', 30, 60),
-  swatch('#eec39a', 29, 71),
-  swatch('#fbf236', 57, 96),
-  swatch('#99e550', 91, 74),
-  swatch('#6abe30', 95, 60),
-  swatch('#37946e', 155, 46),
-  swatch('#4b692f', 91, 38),
-  swatch('#524b24', 51, 39),
-  swatch('#323c39', 162, 9),
-  swatch('#3f3f74', 240, 30),
-  swatch('#306082', 205, 46),
-  swatch('#5b6ee1', 231, 69),
-  swatch('#639bff', 218, 100),
-  swatch('#5fcde4', 190, 71),
-  swatch('#cbdbfc', 220, 89),
-  swatch('#ffffff', 0, 0),
-  swatch('#9badb7', 201, 16),
-  swatch('#847e87', 280, 4),
-  swatch('#696a6a', 180, 0),
-  swatch('#595652', 34, 4),
-  swatch('#76428a', 283, 35),
-  swatch('#ac3232', 0, 55),
-  swatch('#d95763', 354, 63),
-  swatch('#d77bba', 319, 53),
-  swatch('#8f974a', 66, 34),
-  swatch('#8a6f30', 42, 48),
-];
+/** Kerrie Lake's "Resurrect 64" (lospec.com/palette-list/resurrect-64) — one
+ *  shared 64-color palette for both floor and wall (previously DB32 for
+ *  floor, a separate DawnBringer16 for wall; the split existed only to keep
+ *  wall's ×16 autotile-bitmask multiplier from also multiplying against a
+ *  large color count, but 64 colors × 16 masks × 2 sets = 2080 wall tiles is
+ *  still a perfectly reasonable sheet size, so there's no reason left to
+ *  keep two different palettes). See docs/design/tiled-editor-integration.md. */
+export const PALETTE_64: PaletteSwatch[] = [
+  '#2e222f', '#3e3546', '#625565', '#966c6c', '#ab947a', '#694f62', '#7f708a', '#9babb2',
+  '#c7dcd0', '#ffffff', '#6e2727', '#b33831', '#ea4f36', '#f57d4a', '#ae2334', '#e83b3b',
+  '#fb6b1d', '#f79617', '#f9c22b', '#7a3045', '#9e4539', '#cd683d', '#e6904e', '#fbb954',
+  '#4c3e24', '#676633', '#a2a947', '#d5e04b', '#fbff86', '#165a4c', '#239063', '#1ebc73',
+  '#91db69', '#cddf6c', '#313638', '#374e4a', '#547e64', '#92a984', '#b2ba90', '#0b5e65',
+  '#0b8a8f', '#0eaf9b', '#30e1b9', '#8ff8e2', '#323353', '#484a77', '#4d65b4', '#4d9be6',
+  '#8fd3ff', '#45293f', '#6b3e75', '#905ea9', '#a884f3', '#eaaded', '#753c54', '#a24b6f',
+  '#cf657f', '#ed8099', '#831c5d', '#c32454', '#f04f78', '#f68181', '#fca790', '#fdcbb0',
+].map(swatch);
 
-/** DawnBringer's DB16 — a smaller, separately-designed palette (not just
- *  half of DB32), used for wall so the 4-neighbor autotile bitmask's ×16
- *  multiplier (16 pieces per set) doesn't multiply against the full 32
- *  colors too — see docs/design/tiled-editor-integration.md. */
-export const WALL_PALETTE: PaletteSwatch[] = [
-  swatch('#140c1c', 270, 40),
-  swatch('#442434', 330, 31),
-  swatch('#30346d', 236, 39),
-  swatch('#4e4a4e', 300, 3),
-  swatch('#854c30', 20, 47),
-  swatch('#346524', 105, 47),
-  swatch('#d04648', 359, 59),
-  swatch('#757161', 48, 9),
-  swatch('#597dce', 222, 54),
-  swatch('#d27d2c', 29, 65),
-  swatch('#8595a1', 206, 13),
-  swatch('#6daa2c', 89, 59),
-  swatch('#d2aa99', 18, 39),
-  swatch('#6dc2ca', 185, 47),
-  swatch('#dad45e', 57, 63),
-  swatch('#deeed6', 100, 41),
-];
+/** Floor gets the full 64-color palette (no autotile multiplier). */
+export const FLOOR_PALETTE: PaletteSwatch[] = PALETTE_64;
+
+/** Wall reuses the same 64-color palette — see PALETTE_64's own note on why
+ *  the two no longer need to be separate. */
+export const WALL_PALETTE: PaletteSwatch[] = PALETTE_64;
+
+/** Reverse of swatchColor(): which palette swatch (if any) a stored
+ *  ColorValue matches, by (h, s) — the same equality check the Layout
+ *  editor's own swatch picker already uses to highlight the active one.
+ *  Returns null for "Natural" (no tint): color is absent, or colorize is
+ *  explicitly false (the "Natural" swatch button's own ColorValue) — one
+ *  rule for both floor and wall, matching the baked Tiled sheets' own
+ *  Natural/swatch split (see bake-floor-wall-tiled.mts). */
+export function paletteSwatchIndex(
+  palette: PaletteSwatch[],
+  color: ColorValue | null | undefined,
+): number | null {
+  if (!color || color.colorize === false) return null;
+  const idx = palette.findIndex((sw) => sw.h === color.h && sw.s === color.s);
+  return idx >= 0 ? idx : null;
+}
 
 /** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite —
  *  `b` carries the swatch's own real lightness (derived from its hex) as a

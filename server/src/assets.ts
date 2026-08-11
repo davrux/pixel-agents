@@ -5,10 +5,8 @@ import { fileURLToPath } from 'node:url';
 import {
   loadCharacterSprites,
   loadDefaultLayout,
-  loadFloorTiles,
   loadFurnitureTilesets,
   loadPetSprites,
-  loadWallTiles,
 } from './assetLoader.js';
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from './constants.js';
 import { portalAssets } from './portalAssets.js';
@@ -72,11 +70,9 @@ export async function buildFurnitureCatalogAndSprites(): Promise<{
 }
 
 export async function loadAssetBundle(): Promise<AssetBundle> {
-  const [characters, pets, floorTiles, wallTiles, furniture] = await Promise.all([
+  const [characters, pets, furniture] = await Promise.all([
     loadCharacterSprites(ASSETS_ROOT),
     loadPetSprites(ASSETS_ROOT),
-    loadFloorTiles(ASSETS_ROOT),
-    loadWallTiles(ASSETS_ROOT),
     buildFurnitureCatalogAndSprites(),
   ]);
   const layout = loadDefaultLayout(ASSETS_ROOT);
@@ -84,8 +80,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
   const messages: Record<string, unknown>[] = [];
   if (characters) messages.push({ type: 'characterSpritesLoaded', characters: characters.characters });
   if (pets) messages.push({ type: 'petSpritesLoaded', dogs: pets.dogs, cats: pets.cats, ducks: pets.ducks });
-  if (floorTiles) messages.push({ type: 'floorTilesLoaded', sprites: floorTiles.sprites });
-  if (wallTiles) messages.push({ type: 'wallTilesLoaded', sets: wallTiles.sets });
   if (furniture.loaded) {
     messages.push({
       type: 'furnitureAssetsLoaded',

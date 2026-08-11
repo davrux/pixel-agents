@@ -19,7 +19,8 @@ import { meetingRoomStore } from './meetingRoomStore.js';
 import { controlBus, KICK_EVENT } from './controlBus.js';
 import { can, type Principal } from './permissions.js';
 import { effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import type { PlacedFurniture } from '@pixel/shared/office/types.js';
+import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
+import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.js';
 import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
 
@@ -377,9 +378,10 @@ export function registerAdminApi(app: Express): void {
     if (!admin(req, res)) return;
     const id = req.params.id;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
-    const layout = layouts.getActiveLayout(id) as { furniture?: PlacedFurniture[] } | null;
+    const raw = layouts.getActiveLayout(id) as OfficeLayout | null;
+    const layout = raw && raw.version === 1 ? migrateLayoutColors(raw) : raw;
     const cabinets = (layout?.furniture ?? [])
-      .filter((f) => effectiveAction(f, getCatalogEntry(f.type))?.kind === 'arcade')
+      .filter((f) => effectiveAction(f, getCatalogEntry(f.id))?.kind === 'arcade')
       .map((f) => {
         const key = `${f.col},${f.row}`;
         const override = zones.cabinetGamesOverride(id, key);

@@ -5,13 +5,20 @@
  * scripts/migrate-furniture-to-tiled.mjs and docs/design/tiled-editor-integration.md).
  * No export/import round-trip: the .tsj on disk IS the catalog data.
  *
- * Custom per-tile properties (all optional besides `type`):
- *   type            (string) catalog id — required
+ * Custom per-tile properties (all optional besides `id`):
+ *   id              (string) stable catalog identifier — required
  *   label           (string) display name
+ *   category        (string) browsing label — see FURNITURE_CATEGORIES; a
+ *                             pure per-tile property, NOT tied to which
+ *                             tileset file the tile lives in (a file may mix
+ *                             categories — see docs/design/tiled-editor-integration.md's
+ *                             revised category section)
  *   backgroundTiles (int)    see FurnitureCatalogEntry.backgroundTiles
  *   occupiesSurface (bool)   see FurnitureCatalogEntry.occupiesSurface
- *   mirrorSide      (bool)   produces a virtual ":left" flipped clone
- *   orientation     (string) only 'side' has any effect (triggers the clone above)
+ *   orientation     (string) 'front' | 'back' | 'side' — which facing this art
+ *                            shows; also namespaces an on/off state pair's key
+ *                            alongside stateGroup, so e.g. a front and a side
+ *                            view of the "same" stateful item don't collide
  *   stateGroup      (string) shared id linking an on/off pair
  *   state           (string) 'on' | 'off' — needs a matching stateGroup pair
  *   onTrigger       (string) 'autoFacing' | 'click' — what flips the pair
@@ -23,6 +30,7 @@
  * exactly the shape shared/src/office/layout/furnitureCatalog.ts already reads.
  */
 import type { FurnitureAsset } from './manifestUtils.js';
+import { FURNITURE_CATEGORIES as CATEGORY_LABELS } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
 interface TiledProperty {
   name: string;
@@ -66,13 +74,10 @@ function propsOf(tile: TiledTile): Record<string, string | number | boolean> {
 }
 
 /** One tileset file's tiles → FurnitureAsset[] + which PNG (relative to the
- *  tileset's own directory) each id needs. `category` comes from the
- *  filename (see FURNITURE_CATEGORY_FILES), not a per-tile property — one
- *  Tiled tileset FILE per category, mirroring the curated category tabs. */
-export function parseFurnitureTileset(
-  json: TiledTilesetJson,
-  category: string,
-): Array<{ asset: FurnitureAsset; imagePath: string }> {
+ *  tileset's own directory) each id needs. `category` is read per-tile (see
+ *  FURNITURE_CATEGORIES) — a tileset file can freely mix categories, it's
+ *  purely a browsing label now, not a placement constraint or a file split. */
+export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: FurnitureAsset; imagePath: string }> {
   const byId = new Map(json.tiles.map((t) => [t.id, t]));
   // A tile referenced ONLY as a later frame of another tile's <animation> is
   // a component, not a placeable item of its own — the anchor tile's own
@@ -99,48 +104,63 @@ export function parseFurnitureTileset(
     // action/portal/appliance flags of) the entry assets.ts's own
     // `generated` array already injects.
     if (props.generated === true) continue;
-    const type = typeof props.type === 'string' ? props.type : undefined;
-    if (!type) {
-      console.warn(`[tiledFurniture] Skipping tile ${tile.id} in "${json.name}" — missing "type" property`);
+    const id = typeof props.id === 'string' ? props.id : undefined;
+    if (!id) {
+      console.warn(`[tiledFurniture] Skipping tile ${tile.id} in "${json.name}" — missing "id" property`);
       continue;
     }
+    const category = categoryOf(props, json.name, id);
     const stateGroup = typeof props.stateGroup === 'string' ? props.stateGroup : undefined;
     // Only the frame-0 tile of an animation carries the <animation> block —
-    // build one FurnitureAsset per frame (the sibling tiles, resolved by id),
-    // each with its own frame/durationMs but ALL sharing one animationGroup
-    // id (the anchor's own type — a frame's OWN type would give every frame
-    // a distinct group of one, since ids differ per frame).
+    // build one FurnitureAsset per frame (the sibling tiles, resolved by
+    // Tiled's own tile id), each with its own frame/durationMs but ALL
+    // sharing one animationGroup id (the anchor's own id — a frame's OWN id
+    // would give every frame a distinct group of one, since ids differ per
+    // frame).
     if (anim && anim.length > 0) {
       for (let frame = 0; frame < anim.length; frame++) {
         const fr = anim[frame];
         const frameTile = byId.get(fr.tileid);
         if (!frameTile) continue;
         const frameProps = propsOf(frameTile);
-        const frameType = typeof frameProps.type === 'string' ? frameProps.type : undefined;
-        if (!frameType) continue;
+        const frameId = typeof frameProps.id === 'string' ? frameProps.id : undefined;
+        if (!frameId) continue;
+        // A frame tile doesn't necessarily carry its own `category` — fall
+        // back to the anchor tile's, which every frame logically shares.
+        const frameCategory = typeof frameProps.category === 'string' ? frameProps.category : category;
         out.push({
-          asset: buildAsset(frameTile, frameProps, frameType, category, stateGroup, { groupId: type, frame, durationMs: fr.duration }),
+          asset: buildAsset(frameTile, frameProps, frameId, frameCategory, stateGroup, { groupId: id, frame, durationMs: fr.duration }),
           imagePath: frameTile.image,
         });
       }
       continue;
     }
-    out.push({ asset: buildAsset(tile, props, type, category, stateGroup, undefined), imagePath: tile.image });
+    out.push({ asset: buildAsset(tile, props, id, category, stateGroup, undefined), imagePath: tile.image });
   }
   return out;
+}
+
+const VALID_CATEGORIES = new Set(CATEGORY_LABELS.map((c) => c.id));
+
+function categoryOf(props: Record<string, string | number | boolean>, tilesetName: string | undefined, id: string): string {
+  if (typeof props.category === 'string' && VALID_CATEGORIES.has(props.category as never)) {
+    return props.category;
+  }
+  console.warn(`[tiledFurniture] "${id}" in "${tilesetName}" has no valid "category" property — defaulting to "misc"`);
+  return 'misc';
 }
 
 function buildAsset(
   tile: TiledTile,
   props: Record<string, string | number | boolean>,
-  type: string,
+  id: string,
   category: string,
   stateGroup: string | undefined,
   anim: { groupId: string; frame: number; durationMs: number } | undefined,
 ): FurnitureAsset {
-  const label = typeof props.label === 'string' ? props.label : type;
+  const label = typeof props.label === 'string' ? props.label : id;
   return {
-    id: type,
+    id,
     name: label,
     label,
     category,
@@ -150,28 +170,13 @@ function buildAsset(
     footprintW: footprintOf(tile.imagewidth),
     footprintH: footprintOf(tile.imageheight),
     isDesk: category === 'desks',
-    groupId: stateGroup || type,
+    groupId: stateGroup || id,
     canPlaceOnSurfaces: props.occupiesSurface === true,
     backgroundTiles: typeof props.backgroundTiles === 'number' ? props.backgroundTiles : 0,
     ...(typeof props.orientation === 'string' ? { orientation: props.orientation } : {}),
     ...(typeof props.state === 'string' ? { state: props.state } : {}),
     ...(typeof props.onTrigger === 'string' ? { onTrigger: props.onTrigger as 'autoFacing' | 'click' } : {}),
-    ...(props.mirrorSide === true ? { mirrorSide: true } : {}),
     ...(anim ? { animationGroup: `${anim.groupId}__anim`, frame: anim.frame, durationMs: anim.durationMs } : {}),
   };
 }
 
-/** Category value (FurnitureCatalogEntry.category) ↔ tileset filename slug —
- *  "wall" is filed as furniture-wallmount.tsj so it doesn't collide with the
- *  wall-0.tsj/wall-1.tsj AUTOTILE tilesets (wall TILES, not wall-mounted
- *  FURNITURE) task #156 adds alongside these. */
-export const FURNITURE_CATEGORY_FILES: Record<string, string> = {
-  desks: 'desks',
-  chairs: 'chairs',
-  storage: 'storage',
-  electronics: 'electronics',
-  decor: 'decor',
-  wall: 'wallmount',
-  kitchens: 'kitchens',
-  misc: 'misc',
-};

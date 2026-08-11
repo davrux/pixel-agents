@@ -213,6 +213,15 @@ async function main(): Promise<void> {
   } else {
     console.log('[server] arcade: no ARCADE_CONTENT_DIR set — no games available');
   }
+  // Pre-baked, closed-palette floor/wall tile sheets (see
+  // server/scripts/bake-floor-wall-tiled.mts and docs/design/tiled-editor-integration.md) —
+  // the SAME files Tiled's own tileset images point at. Served as plain
+  // static files (cacheable by the browser) so the client loads them once
+  // and slices out tiles itself; no live per-pixel colorize step anymore.
+  const tiledPngDir = resolve(__dirname, '../../assets/tiled/png');
+  if (existsSync(tiledPngDir)) {
+    app.use('/assets/tiled/png', express.static(tiledPngDir));
+  }
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));
     console.log(`[server] serving client build from ${clientDist}`);

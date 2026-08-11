@@ -1,10 +1,9 @@
 /**
  * Shared pixel-paint canvas: the Paint/Erase/Pick(/Select/Paste) tool row +
- * the checkerboard canvas + a tile-boundary grid overlay. Used by both
- * FurnitureEditor and FloorEditor so this behavior lives in exactly one
- * place instead of two near-identical copies — they differ only in what
- * surrounds this (footprint/category/frames vs. nothing), not in how
- * painting itself works.
+ * the checkerboard canvas + a tile-boundary grid overlay. Used by
+ * FurnitureEditor (the in-game floor pattern editor this was also shared
+ * with has since been retired in favor of the Tiled asset pipeline — see
+ * docs/design/tiled-editor-integration.md).
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
@@ -14,8 +13,7 @@ export type PaintTool = 'paint' | 'erase' | 'pick' | 'select' | 'stamp';
 
 export interface PixelPaintCanvasOpts {
   /** Marquee-select + copy/paste — FurnitureEditor wants this (copying a
-   *  detail between frames/on-off poses), FloorEditor doesn't (one fixed
-   *  16×16 tile has nothing worth marquee-selecting — see its opts). */
+   *  detail between frames/on-off poses). */
   enableSelect?: boolean;
   /** Called after any paint/erase/paste mutation (the caller owns the
    *  sprite array — mutated in place — and reacts, e.g. marking itself dirty). */
@@ -32,8 +30,8 @@ const MAX_CANVAS_PX = 256;
 
 export class PixelPaintCanvas {
   /** Color input + tool buttons, in one row — append wherever the caller
-   *  wants it positioned (directly by the canvas, see FurnitureEditor/
-   *  FloorEditor's layout). */
+   *  wants it positioned (directly by the canvas, see FurnitureEditor's
+   *  layout). */
   readonly toolbar: HTMLDivElement;
   readonly canvas: HTMLCanvasElement;
   readonly colorInput: HTMLInputElement;

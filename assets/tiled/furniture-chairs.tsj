@@ -8,12 +8,13 @@
   "tiles": [
     {
       "id": 0,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/CUSHIONED_BENCH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "CUSHIONED_BENCH"
         },
@@ -21,17 +22,24 @@
           "name": "label",
           "type": "string",
           "value": "Cushioned Bench"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 1,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/CUSHIONED_CHAIR_BACK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "CUSHIONED_CHAIR_BACK"
         },
@@ -43,18 +51,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "back"
+          "value": "back",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 2,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/CUSHIONED_CHAIR_FRONT.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "CUSHIONED_CHAIR_FRONT"
         },
@@ -66,18 +82,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 3,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/CUSHIONED_CHAIR_SIDE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "CUSHIONED_CHAIR_SIDE"
         },
@@ -87,25 +111,28 @@
           "value": "Cushioned Chair"
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 4,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/SOFA_BACK.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "SOFA_BACK"
         },
@@ -117,18 +144,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "back"
+          "value": "back",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 5,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/SOFA_FRONT.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "SOFA_FRONT"
         },
@@ -140,18 +175,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 6,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/SOFA_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "SOFA_SIDE"
         },
@@ -161,25 +204,28 @@
           "value": "Sofa"
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 7,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/WOODEN_BENCH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "WOODEN_BENCH"
         },
@@ -187,17 +233,24 @@
           "name": "label",
           "type": "string",
           "value": "Wooden Bench"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 8,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/WOODEN_CHAIR_BACK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "WOODEN_CHAIR_BACK"
         },
@@ -214,18 +267,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "back"
+          "value": "back",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 9,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/WOODEN_CHAIR_FRONT.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "WOODEN_CHAIR_FRONT"
         },
@@ -242,18 +303,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 10,
+      "type": "FurnitureTile",
       "image": "png/furniture/chairs/WOODEN_CHAIR_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "WOODEN_CHAIR_SIDE"
         },
@@ -268,14 +337,16 @@
           "value": 1
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "chairs",
+          "propertytype": "Category"
         }
       ]
     }

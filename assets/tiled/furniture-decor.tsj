@@ -1,19 +1,20 @@
 {
   "columns": 0,
   "name": "furniture-decor",
-  "tilecount": 22,
+  "tilecount": 32,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
   "tiles": [
     {
       "id": 0,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/BUSH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "BUSH"
         },
@@ -21,17 +22,24 @@
           "name": "label",
           "type": "string",
           "value": "Bush"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 1,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/CACTUS.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "CACTUS"
         },
@@ -44,17 +52,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 2,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_PATCH.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_PATCH"
         },
@@ -67,17 +82,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 3,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_PINK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_PINK"
         },
@@ -90,17 +112,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 4,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_PURPLE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_PURPLE"
         },
@@ -113,17 +142,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 5,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_RED.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_RED"
         },
@@ -136,17 +172,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 6,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_WHITE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_WHITE"
         },
@@ -159,17 +202,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 7,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/FLOWER_YELLOW.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "FLOWER_YELLOW"
         },
@@ -182,17 +232,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 8,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/GOLDFISH_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_1"
         },
@@ -210,6 +267,12 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ],
       "animation": [
@@ -229,12 +292,13 @@
     },
     {
       "id": 9,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/GOLDFISH_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_2"
         },
@@ -252,17 +316,24 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 10,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/GOLDFISH_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_3"
         },
@@ -280,17 +351,24 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 11,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/LARGE_PLANT.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "LARGE_PLANT"
         },
@@ -303,17 +381,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 2
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 12,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/PINE_TREE.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PINE_TREE"
         },
@@ -326,17 +411,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 2
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 13,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/PLANT.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PLANT"
         },
@@ -349,17 +441,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 14,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/PLANT_2.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "PLANT_2"
         },
@@ -372,17 +471,24 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 15,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/POT.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "POT"
         },
@@ -390,17 +496,24 @@
           "name": "label",
           "type": "string",
           "value": "Pot"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 16,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/TREE.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "TREE"
         },
@@ -413,17 +526,229 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 2
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/BOOKSHELF.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "BOOKSHELF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bookshelf"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/CLOCK.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "CLOCK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Clock"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/DOUBLE_BOOKSHELF.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "DOUBLE_BOOKSHELF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Double Bookshelf"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/HANGING_PLANT.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "HANGING_PLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hanging Plant"
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/LARGE_PAINTING.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "LARGE_PAINTING"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Large Painting"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/SMALL_PAINTING.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SMALL_PAINTING"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Painting"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/SMALL_PAINTING_2.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SMALL_PAINTING_2"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Small Painting"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/WHITEBOARD.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "WHITEBOARD"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Whiteboard"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/DOOR.png",
       "imagewidth": 16,
       "imageheight": 24,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "DOOR"
         },
@@ -433,6 +758,12 @@
           "value": "Door"
         },
         {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -443,14 +774,10 @@
           "value": false
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": false
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -460,17 +787,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "OnTrigger"
         },
         {
           "name": "appliance",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -480,13 +810,14 @@
       ]
     },
     {
-      "id": 18,
+      "id": 26,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/BEAM_PAD.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "BEAM_PAD"
         },
@@ -496,6 +827,12 @@
           "value": "Beam Pad"
         },
         {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -506,14 +843,10 @@
           "value": false
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": false
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -523,17 +856,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "OnTrigger"
         },
         {
           "name": "appliance",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -543,13 +879,14 @@
       ]
     },
     {
-      "id": 19,
+      "id": 27,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/MONITOR.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "MONITOR"
         },
@@ -559,6 +896,12 @@
           "value": "Conference Monitor"
         },
         {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -569,14 +912,10 @@
           "value": false
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": false
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -586,17 +925,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "OnTrigger"
         },
         {
           "name": "appliance",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -606,13 +948,14 @@
       ]
     },
     {
-      "id": 20,
+      "id": 28,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/ARCADE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "ARCADE"
         },
@@ -622,6 +965,12 @@
           "value": "Arcade Cabinet"
         },
         {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -632,14 +981,10 @@
           "value": false
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": false
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -649,17 +994,20 @@
         {
           "name": "state",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "OnTrigger"
         },
         {
           "name": "appliance",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -669,13 +1017,14 @@
       ]
     },
     {
-      "id": 21,
+      "id": 29,
+      "type": "FurnitureTile",
       "image": "png/furniture/decor/MEETING_KIOSK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "MEETING_KIOSK"
         },
@@ -683,6 +1032,12 @@
           "name": "label",
           "type": "string",
           "value": "Meeting Room Kiosk"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
         },
         {
           "name": "backgroundTiles",
@@ -695,14 +1050,10 @@
           "value": false
         },
         {
-          "name": "mirrorSide",
-          "type": "bool",
-          "value": false
-        },
-        {
           "name": "orientation",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "Orientation"
         },
         {
           "name": "stateGroup",
@@ -712,17 +1063,158 @@
         {
           "name": "state",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "FurnitureState"
         },
         {
           "name": "onTrigger",
           "type": "string",
-          "value": ""
+          "value": "",
+          "propertytype": "OnTrigger"
         },
         {
           "name": "appliance",
           "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/UPONU_LOGO.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "UPONU_LOGO"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Uponu Logo"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
           "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "",
+          "propertytype": "FurnitureState"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "generated",
+          "type": "bool",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "FurnitureTile",
+      "image": "png/furniture/decor/UPONU_LOGO_DARK.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "UPONU_LOGO_DARK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Uponu Logo (Dark)"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "occupiesSurface",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "orientation",
+          "type": "string",
+          "value": "",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "stateGroup",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "state",
+          "type": "string",
+          "value": "",
+          "propertytype": "FurnitureState"
+        },
+        {
+          "name": "onTrigger",
+          "type": "string",
+          "value": "",
+          "propertytype": "OnTrigger"
+        },
+        {
+          "name": "appliance",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",

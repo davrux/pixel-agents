@@ -8,7 +8,7 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry, isMirroredLeft } from './furnitureCatalog.js';
+import { getCatalogEntry } from './furnitureCatalog.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -28,7 +28,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
   // Pre-compute desk zY per tile so surface items can sort in front of desks
   const deskZByTile = new Map<string, number>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry || !entry.isDesk) continue;
     const deskZY = item.row * TILE_SIZE + entry.sprite.length;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -42,7 +42,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
   const instances: FurnitureInstance[] = [];
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
     const y = item.row * TILE_SIZE;
@@ -83,10 +83,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
     const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
 
-    // Determine if this instance should be mirrored (the virtual ":left" clone of a mirrorSide asset)
-    const mirrored = !!entry.mirrorSide && isMirroredLeft(item.type);
-
-    instances.push({ sprite, x, y, zY, ...(mirrored ? { mirrored: true } : {}) });
+    instances.push({ sprite, x, y, zY, ...(item.flippedHorizontally ? { mirrored: true } : {}) });
   }
   return instances;
 }
@@ -99,7 +96,7 @@ export function getBlockedTiles(
 ): Set<string> {
   const tiles = new Set<string>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -136,7 +133,7 @@ export function getPlacementBlockedTiles(
   const tiles = new Set<string>();
   for (const item of furniture) {
     if (item.uid === excludeUid) continue;
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry) continue;
     const bgRows = entry.backgroundTiles || 0;
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -174,7 +171,7 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
   // Build set of all desk tiles
   const deskTiles = new Set<string>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry || !entry.isDesk) continue;
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -193,7 +190,7 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
   // For each chair, every footprint tile becomes a seat.
   // Multi-tile chairs (e.g. 2-tile couches) produce multiple seats.
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.type);
+    const entry = getCatalogEntry(item.id);
     if (!entry || entry.category !== 'chairs') continue;
 
     let seatCount = 0;
@@ -302,7 +299,7 @@ export function createBlankZoneLayout(
  *  picker). Deliberately visually distinct from the office. */
 export function createPlazaLayout(): OfficeLayout {
   // Walkable beam pad via backgroundTiles.
-  return createBlankZoneLayout(20, 14, [{ uid: 'plaza-beam', type: 'BEAM_PAD', col: 3, row: 3 }]);
+  return createBlankZoneLayout(20, 14, [{ uid: 'plaza-beam', id: 'BEAM_PAD', col: 3, row: 3 }]);
 }
 
 /** Serialize layout to JSON string
@@ -312,6 +309,36 @@ export function serializeLayout(layout: OfficeLayout): string {
 }
 
 // ── Furniture type migration ────────────────────────────────────
+
+/** PlacedFurniture.type was renamed to .id (an identity, not a taxonomy —
+ *  see docs/design/tiled-editor-integration.md). Every layout saved before
+ *  that rename has `type` as its literal JSON key, which JSON.parse still
+ *  produces as-is — promote it to `id` on load so old DB rows keep working
+ *  without a one-time DB migration. Safe to run unconditionally: post-rename
+ *  data has no `type` key on furniture items at all, so this is a no-op. */
+function promoteLegacyTypeKey(furniture: PlacedFurniture[]): PlacedFurniture[] {
+  return furniture.map((item) => {
+    const legacy = item as unknown as { type?: string; id?: string };
+    if (legacy.type !== undefined && legacy.id === undefined) {
+      const { type, ...rest } = legacy;
+      return { ...(rest as PlacedFurniture), id: type as string };
+    }
+    return item;
+  });
+}
+
+/** Mirroring used to be baked into a separate ":left" catalog id (e.g.
+ *  "SOFA_SIDE:left"), produced by a virtual-clone mechanism that's since been
+ *  dropped in favor of `flippedHorizontally` — a plain per-instance flag
+ *  mirroring Tiled's own native object-flip, with no catalog-level gate (see
+ *  docs/design/tiled-editor-integration.md). Old saved layouts still using
+ *  the suffix split it into the equivalent `id` + `flippedHorizontally` on
+ *  load; post-migration data never has the suffix, so this is a no-op then. */
+function promoteLegacyLeftSuffix(furniture: PlacedFurniture[]): PlacedFurniture[] {
+  return furniture.map((item) =>
+    item.id.endsWith(':left') ? { ...item, id: item.id.slice(0, -':left'.length), flippedHorizontally: true } : item,
+  );
+}
 
 /** Map old hardcoded FurnitureType values to new manifest-based IDs */
 const LEGACY_TYPE_MAP: Record<string, string | null> = {
@@ -329,13 +356,13 @@ const LEGACY_TYPE_MAP: Record<string, string | null> = {
 function migrateFurnitureTypes(furniture: PlacedFurniture[]): PlacedFurniture[] {
   const migrated: PlacedFurniture[] = [];
   for (const item of furniture) {
-    const newType = LEGACY_TYPE_MAP[item.type];
+    const newType = LEGACY_TYPE_MAP[item.id];
     if (newType === undefined) {
       // Not a legacy type — keep as-is
       migrated.push(item);
     } else if (newType !== null) {
       // Migrate to new type
-      migrated.push({ ...item, type: newType });
+      migrated.push({ ...item, id: newType });
     }
     // newType === null → remove the item (no equivalent)
   }
@@ -370,6 +397,8 @@ export function migrateLayoutColors(layout: OfficeLayout): OfficeLayout {
  */
 function migrateLayout(layout: OfficeLayout): OfficeLayout {
   // Migrate furniture types
+  layout = { ...layout, furniture: promoteLegacyTypeKey(layout.furniture) };
+  layout = { ...layout, furniture: promoteLegacyLeftSuffix(layout.furniture) };
   layout = { ...layout, furniture: migrateFurnitureTypes(layout.furniture) };
 
   // Upgrade the old boolean-only walk-in-meeting-area flag to a 'meetingRoom'

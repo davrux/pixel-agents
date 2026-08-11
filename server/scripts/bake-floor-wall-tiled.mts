@@ -22,16 +22,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { decodeFloorPng, parseWallPng } from '../src/core/assets/pngDecoder.js';
+import { FLOOR_CATEGORY, WALL_CATEGORY } from '../src/tiled/categories.js';
 import { averageLightness, getColorizedSprite } from '../../shared/src/office/colorize.js';
 import { FLOOR_PALETTE, WALL_PALETTE, swatchColor } from '../../shared/src/office/palettes.js';
+import { FLOOR_TILE_W, FLOOR_TILE_H, WALL_TILE_H, WALL_BITMASK_COUNT } from '../../shared/src/office/tiledSheetLayout.js';
 import type { SpriteData } from '../../shared/src/office/types.js';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const OUT_DIR = path.join(ROOT, 'assets', 'tiled');
 const OUT_PNG_DIR = path.join(OUT_DIR, 'png');
-const TILE_W = 16;
-const FLOOR_H = 16;
-const WALL_H = 32;
+const TILE_W = FLOOR_TILE_W;
+const FLOOR_H = FLOOR_TILE_H;
+const WALL_H = WALL_TILE_H;
 
 function spriteToPng(sprite: SpriteData, w: number, h: number): PNG {
   const png = new PNG({ width: w, height: h });
@@ -73,8 +75,9 @@ interface TiledProp {
   name: string;
   type: string;
   value: string | number | boolean;
+  propertytype?: string;
 }
-function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileProps: TiledProp[][], name: string) {
+function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileProps: TiledProp[][], name: string, tileClass: string) {
   return {
     columns,
     image: imageFile,
@@ -87,7 +90,11 @@ function grid(tileW: number, tileH: number, columns: number, tileCount: number, 
     tiledversion: '1.11.0',
     tileheight: tileH,
     tilewidth: tileW,
-    tiles: tileProps.map((properties, id) => ({ id, properties })),
+    // `type` assigns each tile to its project-level class (Pixels.tiled-
+    // project's FloorTile/WallTile) so Tiled recognizes it as one — without
+    // this, the tile's properties are just loose values with no class
+    // membership, and the class's own defaults/color-coding never apply.
+    tiles: tileProps.map((properties, id) => ({ id, type: tileClass, properties })),
     type: 'tileset',
     version: '1.10',
   };
@@ -101,7 +108,10 @@ function bakeFloor(): void {
     const raw = decodeFloorPng(fs.readFileSync(path.join(ROOT, 'assets', 'floors', `floor_${p}.png`)));
     // Column 0: Natural (raw, uncolorized) — matches a null tileColors entry.
     tiles.push(raw);
-    props.push([{ name: 'pattern', type: 'int', value: p + 1 }]);
+    props.push([
+      { name: 'pattern', type: 'int', value: p + 1 },
+      { name: 'category', type: 'string', value: FLOOR_CATEGORY, propertytype: 'Category' },
+    ]);
     for (let s = 0; s < FLOOR_PALETTE.length; s++) {
       const swatch = FLOOR_PALETTE[s];
       const colorized = getColorizedSprite(`bake-floor-${p}-${swatch.h}-${swatch.s}`, raw, swatchColor(swatch));
@@ -110,13 +120,14 @@ function bakeFloor(): void {
         { name: 'pattern', type: 'int', value: p + 1 },
         { name: 'hue', type: 'int', value: swatch.h },
         { name: 'sat', type: 'int', value: swatch.s },
+        { name: 'category', type: 'string', value: FLOOR_CATEGORY, propertytype: 'Category' },
       ]);
     }
   }
   const columns = FLOOR_PALETTE.length + 1; // Natural + 32 swatches
   const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns);
   fs.writeFileSync(path.join(OUT_PNG_DIR, 'floor.png'), buf);
-  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, 'png/floor.png', columns * TILE_W, patternCount * FLOOR_H, props, 'floor');
+  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, 'png/floor.png', columns * TILE_W, patternCount * FLOOR_H, props, 'floor', 'FloorTile');
   fs.writeFileSync(path.join(OUT_DIR, 'floor.tsj'), JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ floor.tsj + png/floor.png (${tiles.length} tiles, ${patternCount} patterns × ${columns} colors)`);
 }
@@ -127,9 +138,18 @@ function bakeFloor(): void {
  *  present in that direction, 2 = no wall — matches buildWallMask's N=1,E=2,
  *  S=4,W=8 bitmask exactly (see shared/src/office/wallTiles.ts), so painting
  *  with this Wang set in Tiled autotiles the same way our own renderer picks
- *  pieces. NOT verified against a live Tiled instance — spot-check before
- *  relying on the autotile brush; the per-tile `bitmask` property is the
- *  actually load-bearing data for task #157's map import either way. */
+ *  pieces. Verified against a live Tiled 1.12 instance — the mapping itself
+ *  is correct, but the Terrain Brush only recomputes a tile from *real*
+ *  neighboring tiles that already carry wangid data; it won't build up an
+ *  isolated tile edge-by-edge (each click on empty surroundings recomputes
+ *  from scratch instead of accumulating). Workflow that actually works in
+ *  Tiled: stamp placeholder wall tiles everywhere the walls should go first
+ *  (any piece, e.g. via the regular Stamp tool), then use the Terrain Brush
+ *  (no Ctrl) to click individual edges of those already-placed tiles to
+ *  clear them to "empty" where needed — Ctrl+click forces the whole tile to
+ *  one color (always yields the all-wall piece, bitmask 15) and is not
+ *  useful for shaping a room outline. The per-tile `bitmask` property
+ *  remains the load-bearing data for task #157's map import either way. */
 function wangIdForMask(mask: number): number[] {
   const wallOrEmpty = (bit: number) => (mask & bit ? 1 : 2);
   return [wallOrEmpty(1), 0, wallOrEmpty(2), 0, wallOrEmpty(4), 0, wallOrEmpty(8), 0]; // N,_,E,_,S,_,W,_
@@ -147,10 +167,13 @@ function bakeWallSet(setIndex: number): void {
   const referenceLightness = averageLightness(raw.flat());
   const tiles: SpriteData[] = [];
   const props: TiledProp[][] = [];
-  for (let mask = 0; mask < 16; mask++) {
+  for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
     const piece = raw[mask];
     tiles.push(piece);
-    props.push([{ name: 'bitmask', type: 'int', value: mask }]);
+    props.push([
+      { name: 'bitmask', type: 'int', value: mask },
+      { name: 'category', type: 'string', value: WALL_CATEGORY, propertytype: 'Category' },
+    ]);
     for (let s = 0; s < WALL_PALETTE.length; s++) {
       const swatch = WALL_PALETTE[s];
       const colorized = getColorizedSprite(`bake-wall-${setIndex}-${mask}-${swatch.h}-${swatch.s}`, piece, swatchColor(swatch), referenceLightness);
@@ -159,13 +182,14 @@ function bakeWallSet(setIndex: number): void {
         { name: 'bitmask', type: 'int', value: mask },
         { name: 'hue', type: 'int', value: swatch.h },
         { name: 'sat', type: 'int', value: swatch.s },
+        { name: 'category', type: 'string', value: WALL_CATEGORY, propertytype: 'Category' },
       ]);
     }
   }
   const columns = WALL_PALETTE.length + 1; // Natural + 16 swatches
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `wall-${setIndex}.png`), buf);
-  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/wall-${setIndex}.png`, columns * TILE_W, 16 * WALL_H, props, `wall-${setIndex}`) as Record<string, unknown>;
+  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/wall-${setIndex}.png`, columns * TILE_W, 16 * WALL_H, props, `wall-${setIndex}`, 'WallTile') as Record<string, unknown>;
   // One Wang/Terrain set PER COLOR, not one set covering all colors — a Wang
   // set's brush only knows "does this tile satisfy the required edge
   // pattern", with no notion of color at all, so a single set spanning every

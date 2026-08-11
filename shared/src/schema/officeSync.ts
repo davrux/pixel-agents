@@ -66,7 +66,7 @@ export class PetSync extends EntitySync {
 
 /** A placed furniture tile after auto-on/animation has been applied. */
 export class FurnitureSync extends Schema {
-  @type('string') type = '';
+  @type('string') id = '';
   @type('uint8') col = 0;
   @type('uint8') row = 0;
   /** Optional instance name (e.g. a conference monitor's stable room name). */

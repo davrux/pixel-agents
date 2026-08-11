@@ -8,12 +8,13 @@
   "tiles": [
     {
       "id": 0,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/COFFEE_TABLE.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "COFFEE_TABLE"
         },
@@ -21,17 +22,24 @@
           "name": "label",
           "type": "string",
           "value": "Coffee Table"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 1,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/DESK_FRONT.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "DESK_FRONT"
         },
@@ -48,18 +56,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 2,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/DESK_SIDE.png",
       "imagewidth": 16,
       "imageheight": 64,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "DESK_SIDE"
         },
@@ -76,18 +92,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 3,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/SMALL_TABLE_FRONT.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "SMALL_TABLE_FRONT"
         },
@@ -104,18 +128,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "front"
+          "value": "front",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 4,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/SMALL_TABLE_SIDE.png",
       "imagewidth": 16,
       "imageheight": 48,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "SMALL_TABLE_SIDE"
         },
@@ -132,18 +164,26 @@
         {
           "name": "orientation",
           "type": "string",
-          "value": "side"
+          "value": "side",
+          "propertytype": "Orientation"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 5,
+      "type": "FurnitureTile",
       "image": "png/furniture/desks/TABLE_FRONT.png",
       "imagewidth": 48,
       "imageheight": 64,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "TABLE_FRONT"
         },
@@ -156,6 +196,12 @@
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "desks",
+          "propertytype": "Category"
         }
       ]
     }

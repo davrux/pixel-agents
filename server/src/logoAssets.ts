@@ -134,7 +134,7 @@ export interface LogoAsset {
 /** Catalog entries + sprites for the uponu wall logos, to merge into the bundle. */
 export function logoAssets(): LogoAsset[] {
   const base = {
-    category: 'wall',
+    category: 'decor',
     height: 32,
     footprintH: 2,
     isDesk: false,

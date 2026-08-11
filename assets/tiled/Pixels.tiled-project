@@ -20,7 +20,8 @@
             "members": [
                 { "name": "pattern", "type": "int", "value": 1 },
                 { "name": "hue", "type": "int", "value": 0 },
-                { "name": "sat", "type": "int", "value": 0 }
+                { "name": "sat", "type": "int", "value": 0 },
+                { "name": "category", "type": "string", "value": "floor", "propertyType": "Category" }
             ]
         },
         {
@@ -35,7 +36,8 @@
             "members": [
                 { "name": "bitmask", "type": "int", "value": 0 },
                 { "name": "hue", "type": "int", "value": 0 },
-                { "name": "sat", "type": "int", "value": 0 }
+                { "name": "sat", "type": "int", "value": 0 },
+                { "name": "category", "type": "string", "value": "walls", "propertyType": "Category" }
             ]
         },
         {
@@ -48,16 +50,16 @@
             "color": "#ffa0ffa0",
             "drawFill": true,
             "members": [
-                { "name": "type", "type": "string", "value": "" },
+                { "name": "id", "type": "string", "value": "" },
                 { "name": "label", "type": "string", "value": "" },
+                { "name": "category", "type": "string", "value": "misc", "propertyType": "Category" },
                 { "name": "backgroundTiles", "type": "int", "value": 0 },
                 { "name": "occupiesSurface", "type": "bool", "value": false },
-                { "name": "mirrorSide", "type": "bool", "value": false },
-                { "name": "orientation", "type": "string", "value": "" },
+                { "name": "orientation", "type": "string", "value": "", "propertyType": "Orientation" },
                 { "name": "stateGroup", "type": "string", "value": "" },
-                { "name": "state", "type": "string", "value": "" },
-                { "name": "onTrigger", "type": "string", "value": "" },
-                { "name": "appliance", "type": "string", "value": "" }
+                { "name": "state", "type": "string", "value": "", "propertyType": "FurnitureState" },
+                { "name": "onTrigger", "type": "string", "value": "", "propertyType": "OnTrigger" },
+                { "name": "appliance", "type": "string", "value": "", "propertyType": "ApplianceKind" }
             ]
         },
         {
@@ -70,15 +72,12 @@
             "color": "#ffa0ffa0",
             "drawFill": false,
             "members": [
-                { "name": "type", "type": "string", "value": "" },
-                { "name": "uid", "type": "string", "value": "" },
                 { "name": "name", "type": "string", "value": "" },
-                { "name": "approachSides", "type": "string", "value": "" },
-                { "name": "zOffset", "type": "int", "value": 0 },
-                { "name": "actionKind", "type": "string", "value": "" },
+                { "name": "approachSides", "type": "string", "value": "", "propertyType": "ApproachSide" },
+                { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "" }
+                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" }
             ]
         },
         {
@@ -91,12 +90,105 @@
             "color": "#ffffd28a",
             "drawFill": false,
             "members": [
-                { "name": "col", "type": "int", "value": 0 },
-                { "name": "row", "type": "int", "value": 0 },
-                { "name": "actionKind", "type": "string", "value": "" },
+                { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "" }
+                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" }
+            ]
+        },
+        {
+            "id": 6,
+            "name": "ActionKind",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "",
+                "meetingRoom",
+                "linkManager",
+                "iframe",
+                "appliance",
+                "arcade",
+                "toggle"
+            ]
+        },
+        {
+            "id": 7,
+            "name": "ApplianceKind",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "",
+                "coffee"
+            ]
+        },
+        {
+            "id": 8,
+            "name": "Orientation",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "",
+                "front",
+                "back",
+                "side"
+            ]
+        },
+        {
+            "id": 9,
+            "name": "FurnitureState",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "",
+                "on",
+                "off"
+            ]
+        },
+        {
+            "id": 10,
+            "name": "OnTrigger",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "",
+                "autoFacing",
+                "click"
+            ]
+        },
+        {
+            "id": 11,
+            "name": "ApproachSide",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": true,
+            "values": [
+                "N",
+                "S",
+                "E",
+                "W"
+            ]
+        },
+        {
+            "id": 12,
+            "name": "Category",
+            "type": "enum",
+            "storageType": "string",
+            "valuesAsFlags": false,
+            "values": [
+                "floor",
+                "walls",
+                "desks",
+                "chairs",
+                "storage",
+                "electronics",
+                "decor",
+                "kitchens",
+                "misc"
             ]
         }
     ]

@@ -6,14 +6,18 @@
  *
  * Naming convention (one row per asset, "same name as the source file"):
  *   character → char_<i>   pet → dog_<i> / cat_<i>
- *   floor     → floor_<i>  wall → wall_<i>
  *   furniture → <assetId>  (data: { sprite?, catalog? })
  *   image     → <assetId>  (data: { data, width, height, label }, no bundled defaults)
+ *
+ * Floor/wall are NOT overridable assets — they're pre-baked, closed-palette
+ * static files from the Tiled pipeline (server/scripts/bake-floor-wall-tiled.mts,
+ * served at /assets/tiled/png — see docs/design/tiled-editor-integration.md),
+ * not something the live game decodes/colorizes/sends per-connection anymore.
  */
 import { appStore } from './appStore.js';
 import type { AssetBundle } from './assets.js';
 
-export const ASSET_TYPES = ['character', 'pet', 'floor', 'wall', 'furniture', 'image'] as const;
+export const ASSET_TYPES = ['character', 'pet', 'furniture', 'image'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 /** Parse `${prefix}_<n>` → n, or null. */
@@ -123,18 +127,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     else images.push(entry);
   }
 
-  // Floors + walls live only in their broadcast messages (not in raw).
-  const floors = [...(((findMessage(defaults, 'floorTilesLoaded')?.sprites as unknown[]) ?? []))];
-  for (const { name, data } of orderedAssets('floor')) {
-    const i = indexOf(name, 'floor');
-    if (i !== null) place(floors, i, data);
-  }
-  const walls = [...(((findMessage(defaults, 'wallTilesLoaded')?.sets as unknown[]) ?? []))];
-  for (const { name, data } of orderedAssets('wall')) {
-    const i = indexOf(name, 'wall');
-    if (i !== null) place(walls, i, data);
-  }
-
   // Rebuild the asset messages from merged data; keep everything else (layout).
   const messages = defaults.messages.map((m) => {
     switch (m.type) {
@@ -144,10 +136,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
         return { type: 'characterSpritesLoaded', characters, bundledIds };
       case 'petSpritesLoaded':
         return { type: 'petSpritesLoaded', dogs, cats, ducks };
-      case 'floorTilesLoaded':
-        return { type: 'floorTilesLoaded', sprites: floors };
-      case 'wallTilesLoaded':
-        return { type: 'wallTilesLoaded', sets: walls };
       case 'furnitureAssetsLoaded':
         return { type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites, bundledIds: bundledFurnitureIds };
       case 'imagesLoaded':
@@ -169,8 +157,6 @@ export function messageTypeForAsset(type: AssetType): string {
   return {
     character: 'characterSpritesLoaded',
     pet: 'petSpritesLoaded',
-    floor: 'floorTilesLoaded',
-    wall: 'wallTilesLoaded',
     furniture: 'furnitureAssetsLoaded',
     image: 'imagesLoaded',
   }[type];

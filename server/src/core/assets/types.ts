@@ -1,6 +1,6 @@
 /**
- * Asset pipeline types — shared between the extension host, Vite build
- * scripts, browser mock, and future standalone backends.
+ * Character/pet sprite shapes, shared between the asset loader and the
+ * office engine's character-spec resolver.
  */
 
 import type { CharacterSpec } from '@pixel/shared/office/sprites/characterSpec.js';
@@ -19,38 +19,4 @@ export interface PetDirectionSprites {
   down: string[][][];
   up: string[][][];
   right: string[][][];
-}
-
-export interface AssetIndex {
-  floors: string[];
-  walls: string[];
-  characters: string[];
-  pets: { dogs: string[]; cats: string[]; ducks: string[] };
-  defaultLayout: string | null;
-}
-
-export interface CatalogEntry {
-  id: string;
-  name: string;
-  label: string;
-  category: string;
-  file: string;
-  furniturePath: string;
-  width: number;
-  height: number;
-  footprintW: number;
-  footprintH: number;
-  isDesk: boolean;
-  appliance?: string; // interaction station kind ('coffee', …)
-  canPlaceOnSurfaces?: boolean;
-  backgroundTiles?: number;
-  groupId?: string;
-  orientation?: string;
-  state?: string;
-  onTrigger?: 'autoFacing' | 'click';
-  mirrorSide?: boolean;
-  rotationScheme?: string;
-  animationGroup?: string;
-  frame?: number;
-  durationMs?: number;
 }

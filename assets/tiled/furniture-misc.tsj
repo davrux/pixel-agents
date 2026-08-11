@@ -8,12 +8,13 @@
   "tiles": [
     {
       "id": 0,
+      "type": "FurnitureTile",
       "image": "png/furniture/misc/BIN.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "BIN"
         },
@@ -21,17 +22,24 @@
           "name": "label",
           "type": "string",
           "value": "Bin"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 1,
+      "type": "FurnitureTile",
       "image": "png/furniture/misc/COFFEE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "COFFEE"
         },
@@ -44,17 +52,24 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 2,
+      "type": "FurnitureTile",
       "image": "png/furniture/misc/GOLDFISH_BOWL_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_BOWL_1"
         },
@@ -67,6 +82,12 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
         }
       ],
       "animation": [
@@ -86,12 +107,13 @@
     },
     {
       "id": 3,
+      "type": "FurnitureTile",
       "image": "png/furniture/misc/GOLDFISH_BOWL_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_BOWL_2"
         },
@@ -104,17 +126,24 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
         }
       ]
     },
     {
       "id": 4,
+      "type": "FurnitureTile",
       "image": "png/furniture/misc/GOLDFISH_BOWL_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
         {
-          "name": "type",
+          "name": "id",
           "type": "string",
           "value": "GOLDFISH_BOWL_3"
         },
@@ -127,6 +156,12 @@
           "name": "occupiesSurface",
           "type": "bool",
           "value": true
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
         }
       ]
     }

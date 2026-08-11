@@ -39,7 +39,6 @@ import {
   effectiveAction,
   type CatalogEntryWithCategory,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { getFloorPatternCount, getFloorSprite } from '@pixel/shared/office/floorTiles.js';
 import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
@@ -57,7 +56,6 @@ import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
-import { FloorEditor } from '../editor/FloorEditor.js';
 import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
@@ -70,6 +68,7 @@ import {
   type AutocompleteUser,
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
+import { loadTiledSheets } from '../net/tiledSheets.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
@@ -168,7 +167,7 @@ export class OfficeScene extends Phaser.Scene {
   private readonly pets = new Map<number, RenderPet>();
   private furnitureArr: FurnitureInstance[] = [];
   /** Placed furniture (type + tile + optional name) from the room state, for click hit-testing. */
-  private furniturePlacements: Array<{ uid: string; type: string; col: number; row: number; name?: string; action?: Action }> = [];
+  private furniturePlacements: Array<{ uid: string; id: string; col: number; row: number; name?: string; action?: Action }> = [];
   private furnitureDirty = false;
   private hoveredId: number | null = null;
   private selectedId: number | null = null;
@@ -251,12 +250,11 @@ export class OfficeScene extends Phaser.Scene {
    *  (the Assets panel, or Settings for the viewer's own avatar). */
   private charEditorReturn: MenuId = 'assets';
   private furnEditor!: FurnitureEditor;
-  private floorEditor!: FloorEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   /** Bundled (file) furniture ids — anything else is user-added/imported and
-   *  genuinely removable (see renderFurnActionBar's "→ Floor" gating: deleting
-   *  a bundled id only resets it back to itself, it can never disappear). */
+   *  genuinely removable (deleting a bundled id only resets it back to
+   *  itself, it can never disappear). */
   private bundledFurnitureIds = new Set<string>();
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
@@ -289,7 +287,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
   private spaceTab: 'layouts' | 'zones' = 'layouts';
-  private assetsTab: 'chars' | 'furniture' | 'floor' | 'images' = 'chars';
+  private assetsTab: 'chars' | 'furniture' | 'images' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
@@ -297,9 +295,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
    *  often too small to make out at a glance, hence the zoom control. */
   private furnZoom: 1 | 2 | 4 = 2;
-  /** Which Floor pattern is selected in the Floor-assets grid (1-based, same
-   *  convention as getFloorSprite/the Layout editor's Floor tool). */
-  private selectedFloorPattern: number | null = null;
   /** Which uploaded background image is selected in the Images-assets grid. */
   private selectedImageAssetId: string | null = null;
   /** Set before our own navigation (zone switch / portal) so the resulting room
@@ -383,6 +378,10 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#171514');
     this.os = new OfficeState();
     this.view = new PhaserRenderer(this, this.renderSource());
+    // Independent of the Colyseus connection — races against layoutLoaded;
+    // whichever finishes last triggers the buildStatic() that actually
+    // shows real floor/wall art (see net/tiledSheets.ts).
+    void loadTiledSheets().then(() => this.view.buildStatic());
     this.setupIdleWaking();
     this.editor = new LayoutEditor(this, {
       getLayout: () => this.os.getLayout(),
@@ -404,11 +403,6 @@ export class OfficeScene extends Phaser.Scene {
         });
       },
       resetFurnitureAsset: (type) => this.room?.send('deleteAsset', { assetType: 'furniture', name: type }),
-      openFloorEditor: (pattern) => {
-        void this.floorEditor.confirmLeave().then((ok) => {
-          if (ok) this.floorEditor.edit(pattern, () => this.floorEditor.forceClose());
-        });
-      },
     });
     // A name/character chosen in Settings (remembered per browser).
     try {
@@ -512,11 +506,6 @@ export class OfficeScene extends Phaser.Scene {
       save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
       reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
       entryButton: false,
-      onBack: () => void this.setMenu('assets'),
-    });
-    this.floorEditor = new FloorEditor({
-      load: (pattern) => getFloorSprite(pattern),
-      save: (pattern, data) => this.room?.send('saveAsset', { assetType: 'floor', name: `floor_${pattern - 1}`, data }),
       onBack: () => void this.setMenu('assets'),
     });
 
@@ -886,7 +875,7 @@ export class OfficeScene extends Phaser.Scene {
 
   private rebuildFurniture(): void {
     const arr = (this.room!.state as {
-      furniture: Array<{ type: string; col: number; row: number; name?: string; action?: string }>;
+      furniture: Array<{ id: string; col: number; row: number; name?: string; action?: string }>;
     }).furniture;
     this.furniturePlacements = arr.map((f, i) => {
       let action: Action | undefined;
@@ -897,7 +886,7 @@ export class OfficeScene extends Phaser.Scene {
           /* malformed — treat as no override */
         }
       }
-      return { uid: `f${i}`, type: f.type, col: f.col, row: f.row, name: f.name, action };
+      return { uid: `f${i}`, id: f.id, col: f.col, row: f.row, name: f.name, action };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }
@@ -906,7 +895,7 @@ export class OfficeScene extends Phaser.Scene {
    *  below any walk-through backrest rows) — click it to sit. */
   private isSeatTile(col: number, row: number): boolean {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.type);
+      const entry = getCatalogEntry(f.id);
       if (!entry || entry.category !== 'chairs') continue;
       const bg = entry.backgroundTiles ?? 0;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row + bg && row < f.row + entry.footprintH) {
@@ -924,7 +913,7 @@ export class OfficeScene extends Phaser.Scene {
    *  applianceApproach, not the unified actionApproach. */
   private actionAt(col: number, row: number): { col: number; row: number; action: Action; name?: string } | null {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.type);
+      const entry = getCatalogEntry(f.id);
       if (!entry) continue;
       if (col < f.col || col >= f.col + entry.footprintW || row < f.row || row >= f.row + entry.footprintH) continue;
       const action = effectiveAction(f, entry);
@@ -938,7 +927,7 @@ export class OfficeScene extends Phaser.Scene {
    *  else null. */
   private applianceAt(col: number, row: number): { col: number; row: number } | null {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.type);
+      const entry = getCatalogEntry(f.id);
       if (!entry) continue;
       if (effectiveAction(f, entry)?.kind !== 'appliance') continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {
@@ -1816,10 +1805,8 @@ export class OfficeScene extends Phaser.Scene {
     // edits confirms/discards first, then closes it.
     if (this.charEditor?.isOpen() && !(await this.charEditor.confirmLeave())) return;
     if (this.furnEditor?.isOpen() && !(await this.furnEditor.confirmLeave())) return;
-    if (this.floorEditor?.isOpen() && !(await this.floorEditor.confirmLeave())) return;
     this.charEditor?.close();
     this.furnEditor?.forceClose();
-    this.floorEditor?.forceClose();
 
     this.currentMenu = menu;
     const show = (el: HTMLElement | undefined, id: MenuId): void => {
@@ -2359,10 +2346,6 @@ export class OfficeScene extends Phaser.Scene {
         this.assetsTab = 'furniture';
         this.renderAssetsPanel();
       }),
-      mkSeg('Floor', this.assetsTab === 'floor', () => {
-        this.assetsTab = 'floor';
-        this.renderAssetsPanel();
-      }),
       mkSeg('Images', this.assetsTab === 'images', () => {
         this.assetsTab = 'images';
         this.renderAssetsPanel();
@@ -2371,7 +2354,6 @@ export class OfficeScene extends Phaser.Scene {
     body.appendChild(seg);
     if (this.assetsTab === 'chars') this.renderCharAssets(body);
     else if (this.assetsTab === 'furniture') this.renderFurnAssets(body);
-    else if (this.assetsTab === 'floor') this.renderFloorAssets(body);
     else this.renderImageAssets(body);
   }
 
@@ -2516,88 +2498,6 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     this.renderFurnActionBar(body);
-  }
-
-  /** Floor patterns, shown the same compact-grid way as Furniture (see
-   *  renderFurnAssets) — one tile per pattern index (1-based, matching
-   *  getFloorSprite/the Layout editor's Floor tool), raw/uncolorized so the
-   *  grid shows the actual stored pixels rather than a paint-tinted preview.
-   *  New patterns arrive via the Furniture "→ Floor" conversion (see
-   *  renderFurnActionBar), not from here — this tab is for browsing + editing
-   *  what already exists. */
-  private renderFloorAssets(body: HTMLElement): void {
-    body.appendChild(
-      buildZoomSeg(this.furnZoom, (z) => {
-        this.furnZoom = z;
-        this.renderAssetsPanel();
-      }),
-    );
-
-    const grid = document.createElement('div');
-    grid.className = 'pa-assetgrid';
-    const count = getFloorPatternCount();
-    for (let p = 1; p <= count; p++) grid.appendChild(this.mkFloorTile(p));
-    body.appendChild(grid);
-
-    this.renderFloorActionBar(body);
-  }
-
-  private mkFloorTile(pattern: number): HTMLElement {
-    const item = document.createElement('div');
-    item.className = 'pa-assetgrid-item' + (pattern === this.selectedFloorPattern ? ' sel' : '');
-    item.title = `Floor ${pattern}`;
-    item.appendChild(this.mkThumb(getFloorSprite(pattern) ?? undefined, this.furnZoom));
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = String(pattern);
-    item.appendChild(nm);
-    item.onclick = () => {
-      this.selectedFloorPattern = pattern;
-      this.renderAssetsPanel();
-    };
-    return item;
-  }
-
-  /** Sticky bottom bar for the selected Floor pattern — Edit only: unlike
-   *  Furniture/Character, a floor override can't be safely reset/deleted here
-   *  (place() in assetOverrides.ts only ever appends at the end, so removing
-   *  a middle user-added pattern would silently drop every higher index). */
-  private renderFloorActionBar(body: HTMLElement): void {
-    if (this.selectedFloorPattern == null) return;
-    const pattern = this.selectedFloorPattern;
-    const bar = document.createElement('div');
-    bar.className = 'pa-asset-actionbar';
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = `Floor ${pattern}`;
-    const edit = document.createElement('button');
-    edit.className = 'pa-b';
-    edit.textContent = 'Edit';
-    edit.onclick = () => {
-      void this.setMenu(null);
-      this.floorEditor.edit(pattern);
-    };
-    bar.append(nm, edit);
-    // The mirror of Furniture's "→ Floor" — but floor patterns are positional
-    // (floor_<i>, see assetOverrides.ts), not id-keyed like furniture, so
-    // there's no safe "remove from Floor" half of a move (nothing here can be
-    // deleted without shifting every later pattern's index). This is a copy,
-    // not a move: it just opens the Furniture editor pre-filled with the same
-    // sprite as a new 1×1 item, same FurnitureEditor.newItemWithSprite hand-off
-    // the "📋 Stamp…" tool uses inside the editor itself — the floor pattern
-    // itself is untouched either way.
-    const toFurn = document.createElement('button');
-    toFurn.className = 'pa-b';
-    toFurn.textContent = '→ Furniture';
-    toFurn.title = 'Copy this pattern into Furniture as a new 1×1 item (the floor pattern itself stays)';
-    toFurn.onclick = () => {
-      const sprite = getFloorSprite(pattern);
-      if (!sprite) return;
-      void this.setMenu(null);
-      this.furnEditor.newItemWithSprite(sprite.map((row) => row.slice()), 1, 1);
-    };
-    bar.appendChild(toFurn);
-    body.appendChild(bar);
   }
 
   /** Uploaded background images (see shared/office/imageAssets.ts) — PNG only,
@@ -2764,7 +2664,7 @@ export class OfficeScene extends Phaser.Scene {
    *  list (see renderFurnAssets / renderFurnActionBar). */
   private mkFurnTile(e: CatalogEntryWithCategory): HTMLElement {
     const item = document.createElement('div');
-    item.className = 'pa-assetgrid-item' + (e.type === this.selectedFurnAsset ? ' sel' : '');
+    item.className = 'pa-assetgrid-item' + (e.id === this.selectedFurnAsset ? ' sel' : '');
     item.title = e.label;
     item.appendChild(this.mkThumb(e.sprite, this.furnZoom));
     const nm = document.createElement('span');
@@ -2772,7 +2672,7 @@ export class OfficeScene extends Phaser.Scene {
     nm.textContent = e.label;
     item.appendChild(nm);
     item.onclick = () => {
-      this.selectedFurnAsset = e.type;
+      this.selectedFurnAsset = e.id;
       this.renderAssetsPanel();
     };
     return item;
@@ -2797,41 +2697,19 @@ export class OfficeScene extends Phaser.Scene {
     edit.textContent = 'Edit';
     edit.onclick = () => {
       void this.setMenu(null);
-      this.furnEditor.edit(entry.type);
+      this.furnEditor.edit(entry.id);
     };
     const reset = document.createElement('button');
     reset.className = 'pa-b danger';
     reset.textContent = 'Reset';
     reset.title = 'Revert to the bundled default (or delete a custom item)';
     reset.onclick = async () => {
-      if (!(await confirmDialog(`Reset ${entry.type}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-      this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.type });
+      if (!(await confirmDialog(`Reset ${entry.id}?`, { danger: true, confirmLabel: 'Reset' }))) return;
+      this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.id });
       this.selectedFurnAsset = null;
       window.setTimeout(() => this.renderAssetsPanel(), 250);
     };
     bar.append(nm, edit, reset);
-    // Only a plain 1×1, non-bundled tile can become a floor pattern:
-    // footprint>1 furniture has no equivalent in the floor system (one
-    // SpriteData per pattern, no multi-tile footprint at all, see
-    // shared/src/office/floorTiles.ts), and a bundled default can never
-    // truly disappear from Furniture (deleteAsset on it just resets it back
-    // to itself — see bundledFurnitureIds) so converting one would leave a
-    // confusing duplicate instead of actually moving it.
-    if (entry.footprintW === 1 && entry.footprintH === 1 && !this.bundledFurnitureIds.has(entry.type)) {
-      const toFloor = document.createElement('button');
-      toFloor.className = 'pa-b';
-      toFloor.textContent = '→ Floor';
-      toFloor.title = 'Convert this tile into a new floor pattern (removes it from Furniture)';
-      toFloor.onclick = async () => {
-        if (!(await confirmDialog(`Convert “${entry.label}” into a floor pattern?`, { confirmLabel: 'Convert' }))) return;
-        const idx = getFloorPatternCount(); // 0-based next slot -> 1-based pattern idx+1
-        this.room?.send('saveAsset', { assetType: 'floor', name: `floor_${idx}`, data: entry.sprite });
-        this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.type });
-        this.selectedFurnAsset = null;
-        window.setTimeout(() => this.renderAssetsPanel(), 250);
-      };
-      bar.appendChild(toFloor);
-    }
     body.appendChild(bar);
   }
 
