@@ -52,7 +52,6 @@ import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { openActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
-import { MumbleSettingsUI } from '../voice/MumbleSettingsUI.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
@@ -583,7 +582,6 @@ export class OfficeScene extends Phaser.Scene {
       this.mumble = new MumbleUI(mumbleBody, {
         onJoin: () => this.zoneVoice?.voice.suspend('mumble'),
         onLeave: () => this.zoneVoice?.voice.resume('mumble'),
-        onOpenSettings: () => void this.setMenu('settings'),
       });
       this.mumble.start();
       // Reopen the window if it was left open — an application window is
@@ -4381,15 +4379,6 @@ export class OfficeScene extends Phaser.Scene {
     const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
     changeServerBtn.style.display = isDesktop() ? '' : 'none';
     changeServerBtn.onclick = () => void this.desktopChangeServer();
-
-    // Mumble connection settings sit with the account controls. Desktop-only:
-    // MumbleSettingsUI renders nothing in the browser.
-    const account = panel.querySelector<HTMLElement>('#pa-account');
-    if (account) {
-      const mount = document.createElement('div');
-      account.insertAdjacentElement('afterend', mount);
-      new MumbleSettingsUI(mount, () => this.mumble?.settingsChanged());
-    }
 
     this.syncSettingsInputs();
   }

@@ -5,6 +5,11 @@
  * application window (see ui/dockWindow.ts), which is why nothing here sizes
  * or positions itself.
  *
+ * The connection settings are a second view of this same window (⚙ in the
+ * header strip, MumbleSettingsUI), not a section of the office's Settings
+ * panel — the same arrangement Matrix chat uses for its own account pages. Only
+ * one view is displayed at a time.
+ *
  * Rows are deliberately one line per user (volume is a dropdown, not a slider):
  * a busy channel has to stay readable without scrolling.
  *
@@ -19,13 +24,12 @@ import {
 } from './MumbleVoice.js';
 import type { MumbleChannelInfo, MumbleUserInfo } from '../desktop/bridge.js';
 import { MAX_MIC_GAIN } from './micGraph.js';
+import { MumbleSettingsUI } from './MumbleSettingsUI.js';
 
 export interface MumbleUIHooks {
   /** Called when the user joins/leaves, so the scene can park zone voice. */
   onJoin?: () => void;
   onLeave?: () => void;
-  /** Open the Settings panel, where the connection details live. */
-  onOpenSettings?: () => void;
 }
 
 /** Per-user volume choices. A dropdown keeps each user on one line, where a
@@ -65,6 +69,10 @@ export class MumbleUI {
   private spkSel?: HTMLSelectElement;
   private treeEl?: HTMLElement;
   private alertsEl?: HTMLInputElement;
+  private mainEl?: HTMLElement;
+  private cfgBtn?: HTMLButtonElement;
+  private settings?: MumbleSettingsUI;
+  private settingsOpen = false;
   /** Rows already in the tree, by channel id and by user session, so a re-render
    *  can update them instead of replacing them — see renderTree. */
   private readonly channelRows = new Map<number, ChannelRow>();
@@ -93,9 +101,16 @@ export class MumbleUI {
     this.voice?.autoStart();
   }
 
-  /** Re-read settings and reconnect (called after the Settings panel saves). */
-  settingsChanged(): void {
-    void this.voice?.reconnect();
+  /** Swap between the channel tree and the connection settings. Only ever one of
+   *  them is in the document's flow, so the window keeps its single scroller. */
+  private showSettings(open: boolean): void {
+    const settings = this.settings;
+    if (!settings || !this.mainEl) return;
+    this.settingsOpen = open;
+    this.mainEl.style.display = open ? 'none' : '';
+    settings.el.style.display = open ? '' : 'none';
+    this.cfgBtn?.classList.toggle('on', open);
+    if (open) void settings.refresh();
   }
 
   private injectStyles(): void {
@@ -104,20 +119,26 @@ export class MumbleUI {
     style.id = 'pa-mb-style';
     style.textContent = `
       /* Fills its window's body, which does NOT scroll (DockWindow's fill
-         option — see ui/dockWindow.ts). The controls above and the two lines
-         below are fixed; the channel tree is the only thing that moves, so
-         reading the roster never pushes the mic/volume/device settings you are
-         adjusting off the top of the panel.
+         option — see ui/dockWindow.ts). Each view is a <section> that takes the
+         whole body and manages its own scrolling; only one is displayed. */
+      #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;}
+      #pa-mb > section{display:flex;flex-direction:column;flex:1;min-height:0;}
+      /* Main view: the controls above and the two lines below are fixed; the
+         channel tree is the only thing that moves, so reading the roster never
+         pushes the mic/volume/device settings you are adjusting off the top of
+         the panel.
          The overflow-y here is the short-window fallback, not the normal case:
          the tree absorbs all the slack, so it only ever engages once the tree
          has been squeezed down to its min-height and the last two lines would
          otherwise be unreachable. */
-      #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;
-        overflow-y:auto;overscroll-behavior:contain;}
+      #pa-mb-main{overflow-y:auto;overscroll-behavior:contain;}
       #pa-mb-master,#pa-mb-sub,#pa-mb .chk,#pa-mb-note,#pa-mb-cfg{flex:0 0 auto;}
-      #pa-mb-master{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.7rem 0.8rem;
+      #pa-mb-master{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 0.8rem;
         background:#141312;border:2px solid #0a0908;border-radius:0.5rem;}
-      #pa-mb-master .ti{min-width:0;}
+      /* The header strip is where ⚙ lives, so the title block gives up the slack
+         rather than the two controls beside it. */
+      #pa-mb-master .ti{flex:1;min-width:0;}
+      #pa-mb-master .cfg{flex:none;}
       #pa-mb-master .title{display:flex;align-items:center;gap:0.45rem;font-size:1rem;color:#f1efec;}
       #pa-mb-master .dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#525556;}
       #pa-mb-master .dot.live{background:#5aa348;box-shadow:0 0 6px #5aa348;}
@@ -236,14 +257,24 @@ export class MumbleUI {
   private build(mount: HTMLElement): void {
     const root = document.createElement('div');
     root.id = 'pa-mb';
-    root.innerHTML = `
-      <div id="pa-mb-master">
-        <div class="ti">
-          <div class="title"><span class="dot"></span>Mumble</div>
-          <div class="hint"></div>
-        </div>
-        <div id="pa-mb-track"><div class="knob"></div></div>
+    // The header strip belongs to the window, not to either view: it is where
+    // the connection lives, and reading its state while you edit the server you
+    // are connecting to is the whole point of putting the settings in here.
+    const master = document.createElement('div');
+    master.id = 'pa-mb-master';
+    master.innerHTML = `
+      <div class="ti">
+        <div class="title"><span class="dot"></span>Mumble</div>
+        <div class="hint"></div>
       </div>
+      <button class="cfg" id="pa-mb-cfgbtn" title="Server, identity and connection settings" aria-label="Mumble settings">⚙</button>
+      <div id="pa-mb-track"><div class="knob"></div></div>`;
+    root.appendChild(master);
+
+    const main = document.createElement('section');
+    main.id = 'pa-mb-main';
+    main.dataset.view = 'main';
+    main.innerHTML = `
       <div id="pa-mb-sub">
         <div id="pa-mb-btns">
           <button id="pa-mb-mic" title="Mute your microphone">🎤 Mic</button>
@@ -260,25 +291,37 @@ export class MumbleUI {
       <div id="pa-mb-tree"></div>
       <label class="chk" title="System notification when someone joins or leaves your channel"><input id="pa-mb-alerts" type="checkbox"> Join/leave alerts</label>
       <div id="pa-mb-note" hidden></div>
-      <div id="pa-mb-cfg">Server and identity live in <a>Settings</a>.</div>`;
+      <div id="pa-mb-cfg">Server and identity live in <a>⚙ settings</a>.</div>`;
+    root.appendChild(main);
+    this.mainEl = main;
 
-    this.dot = root.querySelector('.dot')!;
-    this.hint = root.querySelector('.hint')!;
-    this.track = root.querySelector('#pa-mb-track')!;
-    this.sub = root.querySelector('#pa-mb-sub')!;
-    this.micBtn = root.querySelector('#pa-mb-mic')!;
-    this.deafBtn = root.querySelector('#pa-mb-deaf')!;
-    this.regBtn = root.querySelector('#pa-mb-reg')!;
-    this.micSel = root.querySelector('#pa-mb-micsel')!;
-    this.spkSel = root.querySelector('#pa-mb-spksel')!;
-    this.micGainEl = root.querySelector('#pa-mb-micgain')!;
-    this.gainValEl = root.querySelector('#pa-mb-gainval')!;
-    this.masterEl = root.querySelector('#pa-mb-vol')!;
-    this.threshEl = root.querySelector('#pa-mb-thresh')!;
-    this.meterLvl = root.querySelector('#pa-mb-meter .lvl')!;
-    this.meterThr = root.querySelector('#pa-mb-meter .thr')!;
-    this.treeEl = root.querySelector('#pa-mb-tree')!;
-    this.alertsEl = root.querySelector('#pa-mb-alerts')!;
+    this.dot = master.querySelector('.dot')!;
+    this.hint = master.querySelector('.hint')!;
+    this.track = master.querySelector('#pa-mb-track')!;
+    this.cfgBtn = master.querySelector('#pa-mb-cfgbtn')!;
+    this.sub = main.querySelector('#pa-mb-sub')!;
+    this.micBtn = main.querySelector('#pa-mb-mic')!;
+    this.deafBtn = main.querySelector('#pa-mb-deaf')!;
+    this.regBtn = main.querySelector('#pa-mb-reg')!;
+    this.micSel = main.querySelector('#pa-mb-micsel')!;
+    this.spkSel = main.querySelector('#pa-mb-spksel')!;
+    this.micGainEl = main.querySelector('#pa-mb-micgain')!;
+    this.gainValEl = main.querySelector('#pa-mb-gainval')!;
+    this.masterEl = main.querySelector('#pa-mb-vol')!;
+    this.threshEl = main.querySelector('#pa-mb-thresh')!;
+    this.meterLvl = main.querySelector('#pa-mb-meter .lvl')!;
+    this.meterThr = main.querySelector('#pa-mb-meter .thr')!;
+    this.treeEl = main.querySelector('#pa-mb-tree')!;
+    this.alertsEl = main.querySelector('#pa-mb-alerts')!;
+
+    // The settings view. Saving reconnects with the new details — the panel used
+    // to be told to do that from the office's Settings panel; now it is next door.
+    this.settings = new MumbleSettingsUI({
+      onBack: () => this.showSettings(false),
+      onSaved: () => void this.voice?.reconnect(),
+    });
+    this.settings.el.style.display = 'none';
+    root.appendChild(this.settings.el);
 
     const voice = this.voice!;
     this.track.addEventListener('click', () => {
@@ -299,7 +342,10 @@ export class MumbleUI {
     this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
-    root.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.hooks.onOpenSettings?.());
+    main.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.showSettings(true));
+    // Toggle, not push: the ⚙ is on screen in both views, so pressing it again
+    // has to be the way back rather than a no-op (same as Matrix's 🔐 / 🔔).
+    this.cfgBtn.onclick = () => this.showSettings(!this.settingsOpen);
 
     mount.appendChild(root);
     this.renderDevices({ mics: [], speakers: [] });
@@ -321,7 +367,7 @@ export class MumbleUI {
           ? 'Connecting…'
           : s.host
             ? 'Off'
-            : 'Not configured — open Settings';
+            : 'Not configured — open ⚙';
     hint.title = hint.textContent;
 
     this.sub!.classList.toggle('off', !s.connected);

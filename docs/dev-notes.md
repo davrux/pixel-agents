@@ -198,10 +198,15 @@ Add a matching command for any new destination (see AGENTS.md convention).
     in `userData/mumble.json`, secrets via `safeStorage`, TOFU cert check),
     `service.ts` (owns one session, validates every IPC payload).
   - `client/src/voice/Mumble*.ts` is renderer: WebCodecs Opus encode/decode, an
-    80 ms jitter buffer, per-user mixing, the panel and the settings block. The
+    80 ms jitter buffer, per-user mixing, the panel and the settings view. The
     panel is its own top-bar entry (not inside Audio) and, in the office, the
     right-hand **docked application window** (see "Docked windows" below) — not
     a popover, so it neither closes nor is closed by the menus.
+  - The connection settings (`MumbleSettingsUI`) are a **second view of that same
+    window**, reached by ⚙ in its header strip, the way Matrix keeps its account
+    pages inside the chat window: `#pa-mb` holds a persistent `#pa-mb-master`
+    strip plus one `<section>` per view, and only one section is displayed. They
+    used to be a block inside the office's Settings panel.
   - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
     both were once broken, which made voices drift low and slow:
     1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on
@@ -300,9 +305,10 @@ Add a matching command for any new destination (see AGENTS.md convention).
     a restore calls `requestWidth()`.
   - `fill: true` makes the body a non-scrolling flex column, for a panel that
     pins chrome around its own scroller. Both application windows use it: Matrix
-    pins a status strip and composer around its timeline, Mumble pins its settings
-    above the channel tree (`#pa-mb-tree` is that panel's one scroller, with a
-    `min-height` floor and `#pa-mb` scrolling only as a short-window fallback).
+    pins a status strip and composer around its timeline, Mumble pins its header
+    strip and its device controls above the channel tree (`#pa-mb-tree` is that
+    view's one scroller, with a `min-height` floor and `#pa-mb-main` scrolling
+    only as a short-window fallback).
 
 ## Ops gotchas
 - **Push:** `GIT_SSH_COMMAND="ssh -4" git push …` (Codeberg hangs over IPv6).
