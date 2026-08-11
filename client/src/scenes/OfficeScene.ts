@@ -78,6 +78,8 @@ import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, MAX_IMAGE_ASSET_BYTES, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
+import { WORK_STATUS_ICON, WORK_STATUS_LABEL, type WorkStatus } from '@pixel/shared/timetracking';
+import { TimeTrackingUI } from '../timetracking/TimeTrackingUI.js';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
 import { DockWindow } from '../ui/dockWindow.js';
@@ -95,6 +97,9 @@ type RenderChar = Partial<Character> & {
   /** Client-side animation clock (frame phase is cosmetic, not synced). */
   animTimer?: number;
   animPose?: string;
+  /** Synced TimeTracking status ('' = none) — a mirror of an external system,
+   *  so it lives on the synced schema and here, not on the engine's Character. */
+  workStatus?: WorkStatus;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
@@ -102,7 +107,7 @@ type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
  *  deliberately absent: they are docked application windows beside the game
  *  (see DockWindow), not popovers over it, so they neither close the menus nor
  *  are closed by them. */
-type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'more' | 'settings' | 'help' | null;
+type MenuId = 'audio' | 'zone' | 'space' | 'assets' | 'time' | 'more' | 'settings' | 'help' | null;
 
 /** Per-pose animation frame duration (ms), mirroring the engine's constants.
  *  Poses not listed (idle) are static. Drives the client-side animation clock. */
@@ -294,6 +299,11 @@ export class OfficeScene extends Phaser.Scene {
   private zoneLabelEl?: HTMLElement;
   private spaceBtn?: HTMLButtonElement;
   private assetsBtn?: HTMLButtonElement;
+  /** TimeTracking: the panel the time-clock furniture opens, and the controller
+   *  that owns both it and the connection block in Settings. There is no top-bar
+   *  entry — you punch in at the machine, like the arcade cabinet. */
+  private timePanel?: HTMLDivElement;
+  private timeTracking?: TimeTrackingUI;
   private moreBtn?: HTMLButtonElement;
   /** Grouped popover panels — all share the .pa-panel style; mutually exclusive. */
   private audioPanel?: HTMLDivElement;
@@ -746,6 +756,7 @@ export class OfficeScene extends Phaser.Scene {
           const col = m.col as number;
           const row = m.row as number;
           if (m.kind === 'arcade') this.openArcade({ col, row });
+          else if (m.kind === 'timeClock') this.openTimeClock();
           else if (m.kind === 'linkManager') this.openMeetingRoomManageDialog({ col, row });
           else if (m.kind === 'iframe') openActionIframe(m.url as string);
         }
@@ -884,6 +895,7 @@ export class OfficeScene extends Phaser.Scene {
     rc.isSubagent = cs.isSubagent as boolean;
     rc.isPlayer = cs.isPlayer as boolean;
     rc.afk = cs.afk as boolean;
+    rc.workStatus = ((cs.workStatus as string) ?? '') as WorkStatus;
     rc.folderName = cs.folderName as string;
     rc.teamName = cs.teamName as string;
     rc.agentName = cs.agentName as string;
@@ -940,8 +952,8 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** If the tile is covered by a furniture item that has an action (see
-   *  Action) — conference monitor, link-manager kiosk, arcade cabinet, or
-   *  any iframe/meetingRoom override — its anchor tile + the action itself,
+   *  Action) — conference monitor, link-manager kiosk, arcade cabinet, time
+   *  clock, or any iframe/meetingRoom override — its anchor tile + the action itself,
    *  else null. Mirrors the server's actionAt/effectiveAction. Appliances
    *  are NOT included (see applianceAt) — they go through their own
    *  applianceApproach, not the unified actionApproach. */
@@ -1122,6 +1134,16 @@ export class OfficeScene extends Phaser.Scene {
         if (this.input.keyboard) this.input.keyboard.enabled = true;
       },
     });
+  }
+
+  /** Time clock, arrived at: show this player's own working time and punch
+   *  buttons. The machine is only the terminal — which account it books is the
+   *  player's own (Settings → TimeTracking), so any clock in any zone works and
+   *  two people at one machine each punch their own card. Unlike the arcade
+   *  this borrows no input: it is a panel beside the world, not an overlay over
+   *  it, so you can still walk away mid-punch. */
+  private openTimeClock(): void {
+    void this.setMenu('time');
   }
 
   /** Meeting-room kiosk, clicked/arrived-at: fetch the caller's OWN rooms first
@@ -1984,6 +2006,7 @@ export class OfficeScene extends Phaser.Scene {
     show(this.zonePanel, 'zone');
     show(this.spacePanel, 'space');
     show(this.assetsPanel, 'assets');
+    show(this.timePanel, 'time');
     show(this.morePanel, 'more');
     show(this.settingsPanel, 'settings');
     show(this.helpPanel, 'help');
@@ -1992,6 +2015,8 @@ export class OfficeScene extends Phaser.Scene {
     this.zoneBtn?.classList.toggle('active', menu === 'zone');
     this.spaceBtn?.classList.toggle('active', menu === 'space');
     this.assetsBtn?.classList.toggle('active', menu === 'assets');
+    // Only poll TimeTracking while the clock's panel is actually being looked at.
+    this.timeTracking?.setPanelOpen(menu === 'time');
     // The ☰ group owns Menu + its sub-panels (Settings / Help).
     this.moreBtn?.classList.toggle('active', menu === 'more' || menu === 'settings' || menu === 'help');
 
@@ -2154,6 +2179,7 @@ export class OfficeScene extends Phaser.Scene {
     assets.onclick = () => void this.setMenu(this.currentMenu === 'assets' ? null : 'assets');
     this.assetsBtn = assets;
 
+
     const spacer = document.createElement('span');
     spacer.className = 'pa-spacer';
 
@@ -2243,6 +2269,16 @@ export class OfficeScene extends Phaser.Scene {
     });
     const mxClose = mx.panel.querySelector<HTMLElement>('.pa-x');
     if (mxClose) mxClose.onclick = () => this.setMatrixOpen(false);
+
+    // The time clock's panel (today's total + punch buttons). Opened by walking
+    // up to the TIME_CLOCK furniture, never from the bar — see openTimeClock.
+    // The same controller builds the connection block appended to Settings
+    // below, so both views share one snapshot and one clock.
+    const tt = this.mkPanel('Time Clock', 'right');
+    this.timePanel = tt.panel;
+    this.timeTracking = new TimeTrackingUI();
+    tt.body.appendChild(this.timeTracking.panelView);
+    void this.timeTracking.start();
 
     // Zone travel panel.
     this.zonePanel = this.mkPanel('Travel', 'left').panel;
@@ -4249,6 +4285,10 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <button id="pa-change-server">Change server</button>`;
+    // TimeTracking connection details. Built by the HUD (createHud runs first),
+    // which also owns the ⏱ popover those details feed — so connecting here
+    // makes the chip appear without any further plumbing.
+    if (this.timeTracking) body.insertBefore(this.timeTracking.settingsView, body.querySelector('#pa-change-server'));
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
 
@@ -4268,6 +4308,7 @@ export class OfficeScene extends Phaser.Scene {
         this.zonePanel,
         this.spacePanel,
         this.assetsPanel,
+        this.timePanel,
         this.morePanel,
         this.settingsPanel,
         this.helpPanel,
@@ -4879,6 +4920,7 @@ export class OfficeScene extends Phaser.Scene {
         .pa-tip .dot{width:0.65rem;height:0.65rem;border-radius:50%;flex:0 0 auto;}
         .pa-tip .act{color:#f1efec;font-size:1.2rem;line-height:1.15;}
         .pa-tip .name{color:#adb0b2;font-size:0.9rem;line-height:1.15;}
+        .pa-tip .work{font-size:1rem;line-height:1;flex:0 0 auto;padding-left:0.15rem;}
         .pa-tip .fuel{width:3.25rem;height:0.32rem;background:#141312;margin-top:0.2rem;}
         .pa-tip .fuel > div{height:100%;}
       `;
@@ -4923,10 +4965,16 @@ export class OfficeScene extends Phaser.Scene {
     const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#4caf3f' : '';
     const total = (ch.inputTokens ?? 0) + (ch.outputTokens ?? 0);
     const ratio = total / MAX_CONTEXT_TOKENS;
+    // TimeTracking status, for players who connected an account. Server-synced,
+    // so this is the same glyph every viewer sees over that character.
+    const work = ch.workStatus ?? '';
+    const workIcon = WORK_STATUS_ICON[work] ?? '';
 
     this.tip.innerHTML =
       `<div class="row">${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}` +
-      `<div>${act ? `<div class="act">${esc(act)}</div>` : ''}<div class="name">${esc(name)}</div></div></div>` +
+      `<div>${act ? `<div class="act">${esc(act)}</div>` : ''}<div class="name">${esc(name)}</div></div>` +
+      (workIcon ? `<span class="work" title="${esc(WORK_STATUS_LABEL[work])}">${workIcon}</span>` : '') +
+      `</div>` +
       (total > 0
         ? `<div class="fuel"><div style="width:${Math.min(ratio * 100, 100)}%;background:${fuelColor(ratio)}"></div></div>`
         : '');

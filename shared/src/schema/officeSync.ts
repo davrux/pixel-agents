@@ -51,6 +51,10 @@ export class CharacterSync extends EntitySync {
   /** Player set themselves away (/afk) — shows an "afk" marker; clears on move.
    *  Appended last (schema-evolution safe: never shift existing field indices). */
   @type('boolean') afk = false;
+  /** WorkStatus from the player's TimeTracking account ('' = none configured),
+   *  mirrored here by the room so every viewer's hover overlay can show it.
+   *  Appended last — see the afk comment above. */
+  @type('string') workStatus = '';
 }
 
 export class PetSync extends EntitySync {

@@ -42,6 +42,7 @@ import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
+import { registerTimeTrackingApi } from './timetrackingApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
 import { resolveAllowedGames } from './arcadeDefaults.js';
@@ -197,6 +198,10 @@ async function main(): Promise<void> {
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
+    // Per-user TimeTracking: each route acts on the caller's own account only.
+    // Behind the same gate — an integration holding someone's work credentials
+    // has no business being reachable without a session.
+    registerTimeTrackingApi(app);
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in

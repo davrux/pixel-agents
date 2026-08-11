@@ -54,6 +54,7 @@ import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBea
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
+import { timeTracking } from '../timetracking/service.js';
 import { zoneInvites } from '../zoneInvites.js';
 import {
   controlBus,
@@ -200,6 +201,8 @@ function sanitizeAction(raw: unknown): Action | null {
       return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
     case 'arcade':
       return { kind: 'arcade' };
+    case 'timeClock':
+      return { kind: 'timeClock' };
     case 'toggle':
       return { kind: 'toggle' };
     default:
@@ -256,6 +259,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
+  /** Owning account per player avatar id — the reverse of `players`, kept so the
+   *  sync pass can look up per-user external state (TimeTracking status) without
+   *  walking every client each tick. */
+  private readonly playerUserIds = new Map<number, string>();
   /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
   private arcadeLobby?: { onLeave: (sessionId: string) => void };
   /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
@@ -636,6 +643,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
+    if (userId) {
+      this.playerUserIds.set(playerId, userId);
+      // Warm this user's TimeTracking status now rather than waiting up to a
+      // poll interval, so their symbol is over their head from the moment they
+      // appear — including for someone who never opens the HUD. A no-op for the
+      // majority who have no TimeTracking account.
+      void timeTracking.refreshIfConfigured(userId);
+    }
     // Announce a real user's arrival to everyone in the zone. Agents/NPCs are
     // engine entities, never Colyseus clients, so they never reach here. Deduped
     // so a second tab of the same user in this zone doesn't re-announce.
@@ -683,6 +698,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.leaveAllMeetingRooms(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
+      this.playerUserIds.delete(playerId);
     }
     // Release this user's owned avatar from the zone once their last session
     // here is gone, so other clients can drop the no-longer-needed sprite data.
@@ -1994,6 +2010,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.isSubagent = ch.isSubagent;
       cs.isPlayer = ch.isPlayer;
       cs.afk = ch.afk ?? false;
+      // Working status comes from the player's own TimeTracking account (agents
+      // and NPCs never have one, hence the isPlayer guard). Mirrored into the
+      // synced schema rather than fetched by each client so the hover overlay
+      // shows the same thing to everyone — and so nobody's client has to know
+      // anything about anyone else's TimeTracking.
+      cs.workStatus = ch.isPlayer ? timeTracking.statusOf(this.playerUserIds.get(ch.id) ?? '') : '';
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';

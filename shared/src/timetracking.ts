@@ -1,0 +1,141 @@
+/**
+ * Vocabulary for the TimeTracking integration (Herrmann & Lenz TimeTracking
+ * REST API), shared by the server — which is the only side that ever talks to
+ * that API — and the client, which renders what the server reports.
+ *
+ * The API models a working time as a *pair* of bookings: an entry is opened by
+ * a beginning booking (COMING, HOMEOFFICE, …) and closed by an ending one
+ * (LEAVING, BREAK, …). So a "pause" is not a state the server holds — it is the
+ * ending booking that closes the current entry; resuming opens a fresh one. The
+ * set of bookings legal right now is configured per deployment as a DFA and is
+ * reported by the API itself (`allowedBookings`), which is why nothing here
+ * hard-codes what may follow what — see WorkAction and the server's client.ts.
+ */
+
+/** Booking types the API accepts (`bookingType` / `firstBookingType` / `lastBookingType`). */
+export type BookingType =
+  | 'COMING'
+  | 'LEAVING'
+  | 'BREAK'
+  | 'HOMEOFFICE'
+  | 'BUSINESS_TRIP'
+  | 'BUSINESS_DRIVE'
+  | 'ON_COMPANY_GROUND'
+  | 'CUSTOM_TYPE_1'
+  | 'CUSTOM_TYPE_2'
+  | 'CUSTOM_TYPE_3';
+
+/** Whether a booking opens an entry or closes one. */
+export type BookingDirection = 'BEGINNING' | 'ENDING';
+
+/** One booking the API says this user may make right now. */
+export interface AllowedBooking {
+  bookingType: BookingType;
+  bookingDirection: BookingDirection;
+}
+
+/**
+ * Coarse status shown in the world — deliberately much smaller than the booking
+ * vocabulary, because this is a glyph over someone's head, not a time sheet.
+ * `''` means "no TimeTracking configured", which is the case for most players
+ * and renders nothing at all.
+ */
+export type WorkStatus = '' | 'working' | 'break' | 'homeoffice' | 'trip' | 'away';
+
+/** The three buttons the HUD offers. Which are enabled is decided by the
+ *  API's `allowedBookings`, not by this list. */
+export type WorkAction = 'start' | 'pause' | 'end';
+
+/** Glyph shown in the hover overlay over a character. */
+export const WORK_STATUS_ICON: Record<WorkStatus, string> = {
+  '': '',
+  working: '🟢',
+  break: '⏸',
+  homeoffice: '🏠',
+  trip: '✈',
+  away: '🔴',
+};
+
+/** Human-readable status, used in the HUD and as the overlay glyph's title. */
+export const WORK_STATUS_LABEL: Record<WorkStatus, string> = {
+  '': '',
+  working: 'Working',
+  break: 'On a break',
+  homeoffice: 'Home office',
+  trip: 'Business trip',
+  away: 'Off the clock',
+};
+
+/** Only these open an entry that counts as "at work" in the world. */
+const BEGINNING_STATUS: Partial<Record<BookingType, WorkStatus>> = {
+  COMING: 'working',
+  ON_COMPANY_GROUND: 'working',
+  HOMEOFFICE: 'homeoffice',
+  BUSINESS_TRIP: 'trip',
+  BUSINESS_DRIVE: 'trip',
+};
+
+/**
+ * Derive the world status from the current entry.
+ *
+ * An entry with no ending booking yet is *running*, and its opening booking
+ * says what kind of work it is. Once it has been closed, the closing booking
+ * says why: BREAK reads as a pause, anything else as off the clock. A custom
+ * booking type nobody mapped falls back to 'working' while running — better to
+ * show someone as at work than to blank their status because their employer
+ * renamed a button.
+ */
+export function statusFromEntry(
+  firstBookingType: BookingType | null,
+  lastBookingType: BookingType | null,
+  running: boolean,
+): WorkStatus {
+  if (running) return (firstBookingType && BEGINNING_STATUS[firstBookingType]) || 'working';
+  return lastBookingType === 'BREAK' ? 'break' : 'away';
+}
+
+/** Whether a status counts as on-the-clock (the day total keeps ticking). */
+export function isOnTheClock(status: WorkStatus): boolean {
+  return status === 'working' || status === 'homeoffice' || status === 'trip';
+}
+
+/**
+ * Translate a HUD button into a booking the API says is legal *right now*, or
+ * null when it isn't — which is what greys the button out.
+ *
+ * Lives here rather than on either side because both need it and they must not
+ * disagree: the client uses it to decide what to offer, and the server uses it
+ * to decide what to actually book. One rule, one place.
+ *
+ * Starting and resuming after a break are the same move — both open an entry —
+ * so 'start' takes COMING when offered and otherwise whatever beginning booking
+ * the deployment does offer (an install that only allows HOMEOFFICE still
+ * works). 'end' avoids BREAK for the same reason 'pause' insists on it: a break
+ * closes the entry without ending the day.
+ */
+export function bookingForAction(action: WorkAction, allowed: readonly AllowedBooking[]): AllowedBooking | null {
+  const inDirection = (d: BookingDirection): AllowedBooking[] =>
+    allowed.filter((a) => a.bookingDirection === d);
+  const preferring = (list: AllowedBooking[], type: BookingType): AllowedBooking | undefined =>
+    list.find((a) => a.bookingType === type);
+
+  switch (action) {
+    case 'start': {
+      const beginnings = inDirection('BEGINNING');
+      return preferring(beginnings, 'COMING') ?? beginnings[0] ?? null;
+    }
+    case 'pause':
+      return preferring(inDirection('ENDING'), 'BREAK') ?? null;
+    case 'end': {
+      const endings = inDirection('ENDING');
+      return preferring(endings, 'LEAVING') ?? endings.find((a) => a.bookingType !== 'BREAK') ?? null;
+    }
+  }
+}
+
+/** `3:07` / `0:42` — how a day total is written in the HUD. Rounds down to the
+ *  minute so a ticking clock never shows a total the backend hasn't reached. */
+export function formatWorkedTime(ms: number): string {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  return `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;
+}

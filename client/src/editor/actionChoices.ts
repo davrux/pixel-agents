@@ -11,6 +11,7 @@ export const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   iframe: 0xd89b3a,
   appliance: 0x6bd89b,
   arcade: 0xd83a6b,
+  timeClock: 0xd9a838, // the brass of the machine's own bezel
   // Not in TILE_ACTION_CHOICES (see below) — a light-switch isn't something
   // you pick from the generic list, it's implied by an on/off pair's own
   // Trigger setting (FurnitureEditor). Colour defined anyway so this map
@@ -46,6 +47,7 @@ export const TILE_ACTION_CHOICES: Array<{ label: string; swatch: number; make: (
     },
   },
   { label: 'Arcade cabinet', swatch: actionTileColor({ kind: 'arcade' }), make: () => ({ kind: 'arcade' }) },
+  { label: 'Time clock', swatch: actionTileColor({ kind: 'timeClock' }), make: () => ({ kind: 'timeClock' }) },
   { label: 'Appliance (coffee)', swatch: actionTileColor({ kind: 'appliance', pose: 'coffee' }), make: () => ({ kind: 'appliance', pose: 'coffee' }) },
 ];
 
@@ -67,6 +69,8 @@ export function actionChoiceLabel(a: Action): string {
       return 'Open link (iframe)';
     case 'arcade':
       return 'Arcade cabinet';
+    case 'timeClock':
+      return 'Time clock';
     case 'appliance':
       return 'Appliance (coffee)';
     case 'toggle':

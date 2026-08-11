@@ -230,6 +230,11 @@ export type Action =
   /** js-dos emulator overlay with per-player saves + an optional
    *  multiplayer lobby — today's arcade cabinet. */
   | { kind: 'arcade' }
+  /** Opens the TimeTracking panel — today's working time and the punch
+   *  buttons — for the player who walked up. Today's time clock. Which
+   *  account it books against is the player's own (configured in Settings),
+   *  not the machine's: the furniture is the terminal, not the identity. */
+  | { kind: 'timeClock' }
   /** Flip an on/off state pair (see FurnitureCatalogEntry.onTrigger:'click')
    *  between its two poses — a literal light-switch. No client notification;
    *  the resulting type swap reaches everyone through the normal furniture

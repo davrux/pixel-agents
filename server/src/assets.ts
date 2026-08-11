@@ -14,6 +14,7 @@ import { portalAssets } from './portalAssets.js';
 import { conferenceAssets } from './conferenceAssets.js';
 import { arcadeAssets } from './arcadeAssets.js';
 import { meetingRoomAssets } from './meetingRoomAssets.js';
+import { timeClockAssets } from './timeClockAssets.js';
 import { logoAssets } from './logoAssets.js';
 
 /** The exact on-join message sequence the original webview expects, built once
@@ -52,13 +53,14 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
   const layout = loadDefaultLayout(ASSETS_ROOT);
 
   // Inject generated furniture (portals + conference monitor + arcade cabinet +
-  // meeting-room kiosk + uponu wall logo) into the catalog so they're real,
-  // editable furniture.
+  // meeting-room kiosk + time clock + uponu wall logo) into the catalog so
+  // they're real, editable furniture.
   const generated = [
     ...portalAssets(),
     ...conferenceAssets(),
     ...arcadeAssets(),
     ...meetingRoomAssets(),
+    ...timeClockAssets(),
     ...logoAssets(),
   ];
   const furnitureCatalog = [...(furniture?.catalog ?? []), ...generated.map((p) => p.entry)];
