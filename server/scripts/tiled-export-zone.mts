@@ -54,7 +54,7 @@ async function main(): Promise<void> {
   const imageAssets = new Map<string, TmjImageAsset>(imageRows.map((r) => [r.name, { ...r.data, id: r.name }]));
 
   const registry = loadTiledRegistry(ROOT);
-  const { tmj, imageFiles } = exportLayoutToTmj(layout, registry, imageAssets);
+  const { tmj, imageFiles } = exportLayoutToTmj(layout, registry, imageAssets, zoneId);
 
   fs.mkdirSync(ZONES_DIR, { recursive: true });
   const outPath = path.join(ZONES_DIR, `${zoneId}.tmj`);

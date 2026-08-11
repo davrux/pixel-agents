@@ -797,12 +797,6 @@
           "propertytype": "OnTrigger"
         },
         {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
-        },
-        {
           "name": "generated",
           "type": "bool",
           "value": true
@@ -864,12 +858,6 @@
           "type": "string",
           "value": "",
           "propertytype": "OnTrigger"
-        },
-        {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -935,12 +923,6 @@
           "propertytype": "OnTrigger"
         },
         {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
-        },
-        {
           "name": "generated",
           "type": "bool",
           "value": true
@@ -1002,12 +984,6 @@
           "type": "string",
           "value": "",
           "propertytype": "OnTrigger"
-        },
-        {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",
@@ -1073,12 +1049,6 @@
           "propertytype": "OnTrigger"
         },
         {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
-        },
-        {
           "name": "generated",
           "type": "bool",
           "value": true
@@ -1142,12 +1112,6 @@
           "propertytype": "OnTrigger"
         },
         {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
-        },
-        {
           "name": "generated",
           "type": "bool",
           "value": true
@@ -1209,12 +1173,6 @@
           "type": "string",
           "value": "",
           "propertytype": "OnTrigger"
-        },
-        {
-          "name": "appliance",
-          "type": "string",
-          "value": "",
-          "propertytype": "ApplianceKind"
         },
         {
           "name": "generated",

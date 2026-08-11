@@ -1,19 +1,21 @@
 /**
  * Loads the pre-baked, closed-palette floor/wall sprite sheets Tiled itself
- * paints from (assets/tiled/png/floor.png, wall-0.png, wall-1.png — see
- * server/scripts/bake-floor-wall-tiled.mts), once via plain HTTP, and slices
- * them into per-(pattern|bitmask, swatch) SpriteData for floorTiles.ts /
- * wallTiles.ts. Replaces the old floorTilesLoaded/wallTilesLoaded Colyseus
- * messages — no more live per-pixel colorize (see
+ * paints from (assets/tiled/png/<FLOOR_SET_FILES>.png, <WALL_SET_FILES>.png
+ * — see server/scripts/bake-floor-wall-tiled.mts), once via plain HTTP, and
+ * slices them into per-(set, pattern|bitmask, swatch) SpriteData for
+ * floorTiles.ts / wallTiles.ts. Replaces the old floorTilesLoaded/
+ * wallTilesLoaded Colyseus messages — no more live per-pixel colorize (see
  * docs/design/tiled-editor-integration.md).
  */
 import { setFloorSheets } from '@pixel/shared/office/floorTiles.js';
 import { setWallSheets } from '@pixel/shared/office/wallTiles.js';
 import {
+  FLOOR_SET_FILES,
   FLOOR_TILE_H,
   FLOOR_TILE_W,
   TILED_SHEET_COLUMNS,
   WALL_BITMASK_COUNT,
+  WALL_SET_FILES,
   WALL_TILE_H,
   WALL_TILE_W,
 } from '@pixel/shared/office/tiledSheetLayout.js';
@@ -77,17 +79,16 @@ function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: num
 export async function loadTiledSheets(): Promise<void> {
   try {
     const base = `${serverHttpOrigin()}/assets/tiled/png`;
-    const [floorBitmap, wall0Bitmap, wall1Bitmap] = await Promise.all([
-      fetchBitmap(`${base}/floor.png`),
-      fetchBitmap(`${base}/wall-0.png`),
-      fetchBitmap(`${base}/wall-1.png`),
+    const [floorBitmaps, wallBitmaps] = await Promise.all([
+      Promise.all(FLOOR_SET_FILES.map((f) => fetchBitmap(`${base}/${f}.png`))),
+      Promise.all(WALL_SET_FILES.map((f) => fetchBitmap(`${base}/${f}.png`))),
     ]);
-    const floorRows = Math.round(floorBitmap.height / FLOOR_TILE_H);
-    setFloorSheets(sliceSheet(floorBitmap, FLOOR_TILE_W, FLOOR_TILE_H, floorRows));
-    setWallSheets([
-      sliceSheet(wall0Bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT),
-      sliceSheet(wall1Bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT),
-    ]);
+    // Each floor set can have a different pattern (row) count — e.g.
+    // floor-warm has one warm-only pattern the base "floor" set doesn't.
+    setFloorSheets(
+      floorBitmaps.map((bitmap) => sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H))),
+    );
+    setWallSheets(wallBitmaps.map((bitmap) => sliceSheet(bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT)));
   } catch (err) {
     console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);
   }

@@ -17,12 +17,7 @@
             ],
             "color": "#ffa0a0a4",
             "drawFill": true,
-            "members": [
-                { "name": "pattern", "type": "int", "value": 1 },
-                { "name": "hue", "type": "int", "value": 0 },
-                { "name": "sat", "type": "int", "value": 0 },
-                { "name": "category", "type": "string", "value": "floor", "propertyType": "Category" }
-            ]
+            "members": []
         },
         {
             "id": 2,
@@ -33,12 +28,7 @@
             ],
             "color": "#ffa0c4ff",
             "drawFill": true,
-            "members": [
-                { "name": "bitmask", "type": "int", "value": 0 },
-                { "name": "hue", "type": "int", "value": 0 },
-                { "name": "sat", "type": "int", "value": 0 },
-                { "name": "category", "type": "string", "value": "walls", "propertyType": "Category" }
-            ]
+            "members": []
         },
         {
             "id": 3,
@@ -58,8 +48,7 @@
                 { "name": "orientation", "type": "string", "value": "", "propertyType": "Orientation" },
                 { "name": "stateGroup", "type": "string", "value": "" },
                 { "name": "state", "type": "string", "value": "", "propertyType": "FurnitureState" },
-                { "name": "onTrigger", "type": "string", "value": "", "propertyType": "OnTrigger" },
-                { "name": "appliance", "type": "string", "value": "", "propertyType": "ApplianceKind" }
+                { "name": "onTrigger", "type": "string", "value": "", "propertyType": "OnTrigger" }
             ]
         },
         {
@@ -72,6 +61,7 @@
             "color": "#ffa0ffa0",
             "drawFill": false,
             "members": [
+                { "name": "id", "type": "string", "value": "" },
                 { "name": "name", "type": "string", "value": "" },
                 { "name": "approachSides", "type": "string", "value": "", "propertyType": "ApproachSide" },
                 { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
@@ -189,6 +179,54 @@
                 "decor",
                 "kitchens",
                 "misc"
+            ]
+        },
+        {
+            "id": 13,
+            "name": "Image",
+            "type": "class",
+            "useAs": [
+                "object"
+            ],
+            "color": "#ffa0e0ff",
+            "drawFill": false,
+            "members": [
+                { "name": "imageId", "type": "string", "value": "" }
+            ]
+        },
+        {
+            "id": 14,
+            "name": "GroundLayer",
+            "type": "class",
+            "useAs": [
+                "layer"
+            ],
+            "color": "#ffa0a0a4",
+            "drawFill": false,
+            "members": []
+        },
+        {
+            "id": 15,
+            "name": "CollisionLayer",
+            "type": "class",
+            "useAs": [
+                "layer"
+            ],
+            "color": "#ffe0342a",
+            "drawFill": false,
+            "members": []
+        },
+        {
+            "id": 16,
+            "name": "Map",
+            "type": "class",
+            "useAs": [
+                "map"
+            ],
+            "color": "#ffa0a0a4",
+            "drawFill": false,
+            "members": [
+                { "name": "mapName", "type": "string", "value": "" }
             ]
         }
     ]

@@ -11,15 +11,15 @@
  * Bitmask convention: N=1, E=2, S=4, W=8. Out-of-bounds = NOT wall.
  */
 
-import type { ColorValue } from './colorTypes.js';
-import { hslToHex } from './colorize.js';
-import { WALL_PALETTE, paletteSwatchIndex } from './palettes.js';
+import { WALL_COLOR } from './constants.js';
+import { paletteForWallSet } from './palettes.js';
 import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
 import { TILE_SIZE, TileType } from './types.js';
 
 /** wallSheets[setIndex][bitmask][0] = Natural (raw, uncolorized); [1+i] =
- *  WALL_PALETTE[i] colorized. Populated once by the client's tiledSheets
- *  loader from the baked assets/tiled/png/wall-N.png sheets. */
+ *  WALL_SET_PALETTES[setIndex][i] colorized. Populated once by the client's
+ *  tiledSheets loader from the baked assets/tiled/png/<WALL_SET_FILES[setIndex]>.png
+ *  sheets — see tiledSheetLayout.ts's WALL_SET_FILES. */
 let wallSheets: SpriteData[][][] = [];
 
 /** Set wall tile sets (called once the baked wall-N.png sheets are fetched +
@@ -44,18 +44,17 @@ export function getWallSetPreviewSprite(setIndex: number): SpriteData | null {
   return wallSheets[setIndex]?.[0]?.[0] ?? null;
 }
 
-/** Get the bitmask-0 piece of a wall set in a given color — a direct lookup
- *  (see paletteSwatchIndex) used for the Layout editor's palette-preview
- *  thumbnails (LayoutEditor.ts's refreshPalettePreviews), so those previews
- *  don't need their own live colorize call. */
+/** Get the bitmask-0 piece of a wall set at a given swatch index (an index
+ *  into whichever palette `setIndex` bakes from, or null/undefined for
+ *  "Natural") — a direct array lookup, used for the Layout editor's
+ *  palette-preview thumbnails (LayoutEditor.ts's refreshPalettePreviews). */
 export function getWallSetSwatchPreview(
   setIndex: number,
-  color: ColorValue | null | undefined,
+  swatchIndex: number | null | undefined,
 ): SpriteData | null {
   const pieces = wallSheets[setIndex]?.[0];
   if (!pieces) return null;
-  const swatchIdx = paletteSwatchIndex(WALL_PALETTE, color);
-  return pieces[swatchIdx === null ? 0 : swatchIdx + 1] ?? null;
+  return pieces[swatchIndex == null ? 0 : swatchIndex + 1] ?? null;
 }
 
 /**
@@ -75,15 +74,15 @@ function buildWallMask(col: number, row: number, tileMap: TileTypeVal[][]): numb
 
 /**
  * Get the pre-baked wall sprite + Y offset for a tile's cardinal neighbors —
- * a direct lookup into the closed palette (see paletteSwatchIndex), falling
- * back to the "Natural" (raw) piece when color is absent or unmatched, or
- * null (→ solid WALL_COLOR fill) if no wall sprites are loaded.
+ * a direct lookup into the closed palette, falling back to the "Natural"
+ * (raw) piece when swatchIndex is null/undefined, or null (→ solid
+ * WALL_COLOR fill) if no wall sprites are loaded.
  */
 function getWallSprite(
   col: number,
   row: number,
   tileMap: TileTypeVal[][],
-  color: ColorValue | null | undefined,
+  swatchIndex: number | null | undefined,
   setIndex = 0,
 ): { sprite: SpriteData; offsetY: number } | null {
   const set = wallSheets[setIndex] ?? wallSheets[0];
@@ -93,8 +92,7 @@ function getWallSprite(
   const pieces = set[mask];
   if (!pieces) return null;
 
-  const swatchIdx = paletteSwatchIndex(WALL_PALETTE, color);
-  const sprite = pieces[swatchIdx === null ? 0 : swatchIdx + 1];
+  const sprite = pieces[swatchIndex == null ? 0 : swatchIndex + 1];
   if (!sprite) return null;
 
   // Anchor sprite at bottom of tile — tall sprites extend upward
@@ -107,8 +105,9 @@ function getWallSprite(
  */
 export function getWallInstances(
   tileMap: TileTypeVal[][],
-  tileColors?: Array<ColorValue | null>,
+  tileColors?: Array<number | null>,
   cols?: number,
+  tileWallSet?: number[],
 ): FurnitureInstance[] {
   if (wallSheets.length === 0) return [];
   const tmRows = tileMap.length;
@@ -118,9 +117,9 @@ export function getWallInstances(
   for (let r = 0; r < tmRows; r++) {
     for (let c = 0; c < tmCols; c++) {
       if (tileMap[r][c] !== TileType.WALL) continue;
-      const colorIdx = r * layoutCols + c;
-      const wallColor = tileColors?.[colorIdx];
-      const wallInfo = getWallSprite(c, r, tileMap, wallColor);
+      const idx = r * layoutCols + c;
+      const wallColor = tileColors?.[idx];
+      const wallInfo = getWallSprite(c, r, tileMap, wallColor, tileWallSet?.[idx] ?? 0);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,
@@ -133,27 +132,12 @@ export function getWallInstances(
   return instances;
 }
 
-/**
- * Compute the flat fill hex color for a wall tile with a given ColorValue.
- * Uses same Colorize algorithm as floor tiles: 50% gray → HSL.
- */
-export function wallColorToHex(color: ColorValue): string {
-  const { h, s, b, c } = color;
-  // Start with 50% gray (wall base)
-  let lightness = 0.5;
-
-  // Apply contrast
-  if (c !== 0) {
-    const factor = (100 + c) / 100;
-    lightness = 0.5 + (lightness - 0.5) * factor;
-  }
-
-  // Apply brightness
-  if (b !== 0) {
-    lightness = lightness + b / 200;
-  }
-
-  lightness = Math.max(0, Math.min(1, lightness));
-
-  return hslToHex(h, s / 100, lightness);
+/** Flat fill hex color for a wall tile at a given swatch index (an index
+ *  into whichever closed palette `setIndex` bakes from — see
+ *  paletteForWallSet — or null/undefined for "Natural") — used as a
+ *  fallback fill while the real wall sprites haven't loaded yet. Direct
+ *  lookup, no HSL math: the swatch's own hex IS the color. */
+export function wallSwatchToHex(swatchIndex: number | null | undefined, setIndex = 0): string {
+  if (swatchIndex == null) return WALL_COLOR;
+  return paletteForWallSet(setIndex)[swatchIndex]?.hex ?? WALL_COLOR;
 }

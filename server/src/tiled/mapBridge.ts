@@ -28,8 +28,8 @@ import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { findGid, type TiledRegistry } from './tiledRegistry.js';
-import { FLOOR_CATEGORY, WALL_CATEGORY } from './categories.js';
+import { findGid, gidAt, type TiledRegistry } from './tiledRegistry.js';
+import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
 
 type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
 type PropBag = Record<string, string | number | boolean>;
@@ -146,34 +146,30 @@ export function exportLayoutToTmj(
   layout: OfficeLayout,
   registry: TiledRegistry,
   imageAssets: Map<string, TmjImageAsset>,
+  zoneId: string,
 ): TmjExportResult {
   const { cols, rows, tiles } = layout;
 
   // ── Ground layer: floor/wall GIDs, GID 0 = VOID ──────────────────
+  // GID is computed directly from position — no property search needed.
+  // Column 0 = Natural, column 1+i = PALETTE_64[i] (see tiledSheetLayout.ts);
+  // row = pattern-1 (floor) or bitmask (wall) — exactly how
+  // bake-floor-wall-tiled.mts lays the sheet out.
   const ground: number[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const t = tiles[r * cols + c];
-      const color = layout.tileColors?.[r * cols + c] ?? null;
+      const swatchIdx = layout.tileColors?.[r * cols + c] ?? null;
+      const col = swatchIdx === null ? 0 : swatchIdx + 1;
       if (t === TileType.VOID) {
         ground.push(0);
       } else if (t === TileType.WALL) {
         const mask = wallBitmask(layout, c, r);
-        const gid =
-          findGid(
-            registry,
-            'wall-0.tsj',
-            (p) => p.bitmask === mask && (color ? p.hue === color.h && p.sat === color.s : !('hue' in p)),
-          ) ?? findGid(registry, 'wall-0.tsj', (p) => p.bitmask === mask && !('hue' in p));
-        ground.push(gid ?? 0);
+        const wallSet = WALL_SET_FILES[layout.tileWallSet?.[r * cols + c] ?? 0] ?? WALL_SET_FILES[0];
+        ground.push(gidAt(registry, `${wallSet}.tsj`, mask * TILED_SHEET_COLUMNS + col) ?? 0);
       } else {
-        const gid =
-          findGid(
-            registry,
-            'floor.tsj',
-            (p) => p.pattern === t && (color ? p.hue === color.h && p.sat === color.s : !('hue' in p)),
-          ) ?? findGid(registry, 'floor.tsj', (p) => p.pattern === t && !('hue' in p));
-        ground.push(gid ?? 0);
+        const floorSet = FLOOR_SET_FILES[layout.tileFloorSet?.[r * cols + c] ?? 0] ?? FLOOR_SET_FILES[0];
+        ground.push(gidAt(registry, `${floorSet}.tsj`, (t - 1) * TILED_SHEET_COLUMNS + col) ?? 0);
       }
     }
   }
@@ -291,7 +287,7 @@ export function exportLayoutToTmj(
       {
         id: idx + 1,
         name: '',
-        type: '',
+        type: 'Image',
         x: im.col * TILE_SIZE,
         y: im.row * TILE_SIZE,
         width: im.footprintW * TILE_SIZE,
@@ -317,13 +313,19 @@ export function exportLayoutToTmj(
     renderorder: 'right-down',
     tiledversion: '1.11.0',
     type: 'map',
+    class: 'Map',
     version: '1.10',
     nextlayerid: 6,
     nextobjectid: furnitureObjects.length + actionObjects.length + textObjects.length + imageObjects.length + 1,
+    // The Pixel Agents zone this map belongs to — read back on import
+    // instead of trusting the .tmj's own filename (same class-not-container
+    // principle as everywhere else in this bridge; see
+    // docs/design/tiled-custom-properties-reference.md's Map class).
+    properties: [prop('mapName', zoneId)],
     tilesets: tilesetRefs,
     layers: [
-      { id: 1, name: 'Ground', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
-      { id: 2, name: 'Collision', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
+      { id: 1, name: 'Ground', class: 'GroundLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
+      { id: 2, name: 'Collision', class: 'CollisionLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
       { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
       { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
       { id: 5, name: 'Text', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: textObjects },
@@ -342,9 +344,26 @@ function generateUid(): string {
   return `imported_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function colorFromProps(props: PropBag): { h: number; s: number; b: number; c: number; colorize: true } | null {
-  if (typeof props.hue !== 'number' || typeof props.sat !== 'number') return null;
-  return { h: props.hue, s: props.sat, b: 0, c: 0, colorize: true };
+/** Derive (row, swatch index) from a resolved tile's position within its
+ *  tileset — the import-side counterpart to the export's gidAt() arithmetic.
+ *  Column 0 = Natural (null), column 1+i = PALETTE_64[i]; row = pattern-1
+ *  (floor) or bitmask (wall). Positional, not property-based: floor.tsj/
+ *  wall-*.tsj are entirely machine-generated (bake-floor-wall-tiled.mts), so
+ *  their tile order is exactly as reliable as a stored property would be,
+ *  with nothing to keep in sync. */
+function rowAndSwatchFromLocalId(localId: number): { row: number; swatchIndex: number | null } {
+  const row = Math.floor(localId / TILED_SHEET_COLUMNS);
+  const col = localId % TILED_SHEET_COLUMNS;
+  return { row, swatchIndex: col === 0 ? null : col - 1 };
+}
+
+/** Which set (0, 1, 2, …) a FloorTile/WallTile GID resolved to, from its
+ *  tileset's own filename (e.g. "wall-1-warm.tsj" + WALL_SET_FILES → 3).
+ *  Unrecognized files (shouldn't happen — every FloorTile/WallTile lives in
+ *  one of these by construction) fall back to 0. */
+function setIndexFromFile(files: string[], file: string): number {
+  const idx = files.indexOf(file.replace(/\.tsj$/, ''));
+  return idx >= 0 ? idx : 0;
 }
 
 export interface TmjImportResult {
@@ -352,6 +371,11 @@ export interface TmjImportResult {
   /** imageId → PNG buffer for images the caller should persist as new/updated
    *  image assets before saving the layout (matches saveAsset's 'image' type). */
   images: Array<{ imageId: string; label: string; buffer: Buffer }>;
+  /** The map's own `mapName` property (see Pixels.tiled-project's Map
+   *  class), or null if absent — e.g. a .tmj predating this property, or a
+   *  hand-created map that never set it. Callers decide the fallback
+   *  (tiled-import-all-zones.mts falls back to the filename). */
+  mapName: string | null;
 }
 
 export function importTmjToLayout(
@@ -362,37 +386,71 @@ export function importTmjToLayout(
   const cols = Number(tmj.width);
   const rows = Number(tmj.height);
   const layers = (tmj.layers as Array<Record<string, unknown>>) ?? [];
-  const byName = (name: string) => layers.find((l) => l.name === name);
+  const mapProps: PropBag = Object.fromEntries(((tmj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+  const mapName = typeof mapProps.mapName === 'string' && mapProps.mapName ? mapProps.mapName : null;
 
-  const ground = (byName('Ground')?.data as number[]) ?? [];
-  const collision = (byName('Collision')?.data as number[]) ?? [];
+  // Classified by the layer's own `class` (GroundLayer/CollisionLayer — see
+  // Pixels.tiled-project), not by name — same reasoning as the object
+  // classification below: a mapper renaming these tile layers must not
+  // silently empty out the whole map. Tiled writes a layer's custom class
+  // under `class` specifically (not `type`, which every layer already uses
+  // structurally for tilelayer/objectgroup/imagelayer/group).
+  const ground = (layers.find((l) => l.class === 'GroundLayer')?.data as number[]) ?? [];
+  const collision = (layers.find((l) => l.class === 'CollisionLayer')?.data as number[]) ?? [];
+
+  // Objects are classified by their own nature — a native Tiled field
+  // (`text`/`image`, always present on Tiled's own Text/Image object types
+  // regardless of any custom class) or a custom `type` class
+  // (FurnitureObject/ActionPoint, see Pixels.tiled-project) — never by which
+  // named layer they happen to live in. Same robustness-to-reorganization
+  // principle as the Ground layer's per-tile class below: export still
+  // groups these into named layers (Furniture/Actions/Text/Images) purely
+  // for a tidy Layers panel, but a mapper renaming/merging/splitting those
+  // layers can't silently break the import.
+  const allObjects = layers
+    .filter((l) => l.type === 'objectgroup')
+    .flatMap((l) => (l.objects as Array<Record<string, unknown>>) ?? []);
+  const furnitureObjects = allObjects.filter((o) => o.type === 'FurnitureObject');
+  const actionObjects = allObjects.filter((o) => o.type === 'ActionPoint');
+  const textObjects = allObjects.filter((o) => o.text !== undefined);
+  const imageObjects = allObjects.filter((o) => typeof o.image === 'string');
 
   const tiles: number[] = [];
   const tileColors: OfficeLayout['tileColors'] = [];
+  const tileFloorSet: number[] = [];
+  const tileWallSet: number[] = [];
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const gid = ground[i] ?? 0;
     const resolved = registry.resolve(gid);
-    // Classify by `category`, not by which file a tile lives in or which
-    // other properties happen to be present — a mapper reorganizing tileset
-    // files must not silently break this (see docs/design/tiled-editor-integration.md).
-    if (resolved?.props.category === WALL_CATEGORY) {
+    // Classify by Tiled's own `class` (FloorTile/WallTile — see
+    // Pixels.tiled-project), not by which file a tile lives in — a mapper
+    // reorganizing tileset files must not silently break this (see
+    // docs/design/tiled-editor-integration.md).
+    if (resolved?.class === 'WallTile') {
       tiles.push(TileType.WALL);
-      tileColors.push(colorFromProps(resolved.props));
-    } else if (resolved?.props.category === FLOOR_CATEGORY && typeof resolved.props.pattern === 'number') {
-      tiles.push(resolved.props.pattern);
-      tileColors.push(colorFromProps(resolved.props));
+      tileColors.push(rowAndSwatchFromLocalId(resolved.localId).swatchIndex);
+      tileFloorSet.push(0);
+      // Which set this came from — unlike the floor/wall/void classification
+      // above, this one legitimately IS about the file, since "which set"
+      // has no other identity (see setIndexFromFile).
+      tileWallSet.push(setIndexFromFile(WALL_SET_FILES, resolved.tileset.file));
+    } else if (resolved?.class === 'FloorTile') {
+      const { row, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      tiles.push(row + 1);
+      tileColors.push(swatchIndex);
+      tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, resolved.tileset.file));
+      tileWallSet.push(0);
     } else {
       tiles.push(TileType.VOID);
       tileColors.push(null);
+      tileFloorSet.push(0);
+      tileWallSet.push(0);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
 
-  const furnitureLayer = byName('Furniture');
-  const furniture: PlacedFurniture[] = (
-    (furnitureLayer?.objects as Array<Record<string, unknown>>) ?? []
-  ).map((obj, idx) => {
+  const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
     // Identity is a flat property read — always present (see the matching
     // export-side comment), independent of the GID entirely. The GID's own
@@ -425,9 +483,8 @@ export function importTmjToLayout(
     return item;
   });
 
-  const actionsLayer = byName('Actions');
   const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
-  for (const obj of (actionsLayer?.objects as Array<Record<string, unknown>>) ?? []) {
+  for (const obj of actionObjects) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
     // Position IS the data — see the matching export-side comment; never
     // read a stored col/row property (Tiled wouldn't have kept it in sync
@@ -438,8 +495,7 @@ export function importTmjToLayout(
     if (action && col >= 0 && col < cols && row >= 0 && row < rows) tileActions[row * cols + col] = action;
   }
 
-  const textLayer = byName('Text');
-  const texts: PlacedText[] = ((textLayer?.objects as Array<Record<string, unknown>>) ?? []).map((obj) => {
+  const texts: PlacedText[] = textObjects.map((obj) => {
     const textData = (obj.text as Record<string, unknown>) ?? {};
     const t: PlacedText = {
       uid: generateUid(),
@@ -453,10 +509,9 @@ export function importTmjToLayout(
     return t;
   });
 
-  const imagesLayer = byName('Images');
   const images: PlacedImage[] = [];
   const importedImages: TmjImportResult['images'] = [];
-  for (const obj of (imagesLayer?.objects as Array<Record<string, unknown>>) ?? []) {
+  for (const obj of imageObjects) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
     const imageId = typeof props.imageId === 'string' ? props.imageId : null;
     const relPath = typeof obj.image === 'string' ? obj.image : null;
@@ -480,10 +535,12 @@ export function importTmjToLayout(
     tiles: tiles as OfficeLayout['tiles'],
     furniture,
     tileColors,
+    tileFloorSet,
+    tileWallSet,
     tileBlocked,
     tileActions,
     texts,
     images,
   };
-  return { layout, images: importedImages };
+  return { layout, images: importedImages, mapName };
 }

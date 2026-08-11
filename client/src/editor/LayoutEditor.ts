@@ -17,7 +17,7 @@ import {
   getWallSetCount,
   getWallSetPreviewSprite,
   getWallSetSwatchPreview,
-  wallColorToHex,
+  wallSwatchToHex,
 } from '@pixel/shared/office/wallTiles.js';
 import {
   Direction,
@@ -33,8 +33,8 @@ import {
 } from '@pixel/shared/office/types.js';
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
-import type { ColorValue } from '@pixel/shared/office/colorTypes.js';
-import { FLOOR_PALETTE, WALL_PALETTE, swatchColor, type PaletteSwatch } from '@pixel/shared/office/palettes.js';
+import { paletteForFloorSet, paletteForWallSet, type PaletteSwatch } from '@pixel/shared/office/palettes.js';
+import { FLOOR_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
 
 import { spriteTexture, ensureImageTexture } from '../render/sprites.js';
 import { spriteThumbCanvas, drawSpriteOnCanvas, buildZoomSeg, markSegOn, type Zoom } from './assetGrid.js';
@@ -74,7 +74,6 @@ export interface EditorDeps {
 type Tool = 'select' | 'furniture' | 'floor' | 'wall' | 'block' | 'action' | 'text' | 'image' | 'eyedropper';
 const GHOST_DEPTH = 2_000_000;
 const GRID_DEPTH = GHOST_DEPTH - 1;
-const NEUTRAL: ColorValue = { h: 0, s: 0, b: 0, c: 0 };
 
 // Edit-mode grid overlay colours (ported 1:1 from the pre-Phaser renderer —
 // see shared GRID_LINE_COLOR / VOID_TILE_OUTLINE_COLOR / GHOST_BORDER_* ).
@@ -88,6 +87,8 @@ const ACTION_TILE_FILL = 0.42;
 const DASH = 2;
 const DASH_GAP = 2;
 const MAX_HISTORY = 50;
+/** Display labels for FLOOR_SET_FILES's entries, same order. */
+const FLOOR_SET_LABELS = ['Regular', 'Warm'];
 type ExpandDirection = 'left' | 'right' | 'up' | 'down';
 
 /** '#rrggbb' → 0xRRGGBB for Phaser tints. */
@@ -120,11 +121,20 @@ export class LayoutEditor {
   private selectedImageUid: string | null = null;
   private lastSelClick = { x: -999, y: -999 };
   private floorPattern = 1;
+  /** Which floor-<name>.tsj set to paint from (see FLOOR_SET_FILES) —
+   *  independent of floorPattern (which texture); this picks which file/
+   *  palette that texture comes from. */
+  private floorSet = 0;
   private wallSet = 0;
   /** The action the Action tool paints next (picked once via palAction, then
    *  drag-paints many tiles with it — same pattern as floorPattern/wallSet). */
   private currentTileAction: Action = { kind: 'meetingRoom', video: true };
-  private color: ColorValue = { ...NEUTRAL };
+  /** The floor/wall paint brush's active swatch — an index into whichever
+   *  closed palette the current floorPattern/wallSet bakes from (see
+   *  palettes.ts's paletteForFloorPattern/paletteForWallSet — most are
+   *  PALETTE_64, some opt into a different one), or null for "Natural" (no
+   *  tint). */
+  private color: number | null = null;
   private ghost?: Phaser.GameObjects.Image;
   private selRect?: Phaser.GameObjects.Rectangle;
   /** Edit-mode tile grid + void/expansion outlines (redrawn on edit/hover/zoom). */
@@ -205,6 +215,12 @@ export class LayoutEditor {
     this.layout = structuredClone(this.deps.getLayout());
     if (!this.layout.tileColors) {
       this.layout.tileColors = new Array(this.layout.cols * this.layout.rows).fill(null);
+    }
+    if (!this.layout.tileFloorSet) {
+      this.layout.tileFloorSet = new Array(this.layout.cols * this.layout.rows).fill(0);
+    }
+    if (!this.layout.tileWallSet) {
+      this.layout.tileWallSet = new Array(this.layout.cols * this.layout.rows).fill(0);
     }
     if (!this.layout.tileBlocked) {
       this.layout.tileBlocked = new Array(this.layout.cols * this.layout.rows).fill(false);
@@ -488,14 +504,14 @@ export class LayoutEditor {
     }
     if (this.tool === 'floor') {
       // Preview the floor tile in the chosen colour (live as sliders move).
-      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, this.activeColor() ?? NEUTRAL));
+      const tex = spriteTexture(this.scene, getColorizedFloorSprite(this.floorPattern, this.color, this.floorSet));
       this.ghost.setTexture(tex).setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(0xffffff).setVisible(true);
       return;
     }
     if (this.tool === 'wall') {
       // Preview the wall tile tinted with the chosen wall colour.
-      const tint = hexToTint(wallColorToHex(this.color));
+      const tint = hexToTint(wallSwatchToHex(this.color, this.wallSet));
       this.ghost.setTexture('__WHITE').setDisplaySize(TILE_SIZE, TILE_SIZE)
         .setPosition(col * TILE_SIZE, row * TILE_SIZE).setTint(tint).setVisible(true);
       return;
@@ -522,13 +538,6 @@ export class LayoutEditor {
   }
 
   // ── Edits ────────────────────────────────────────────────────────
-
-  /** The current colour to apply, or null when fully neutral (= original look). */
-  private activeColor(): ColorValue | null {
-    const c = this.color;
-    const neutral = c.h === 0 && c.s === 0 && c.b === 0 && c.c === 0 && !c.colorize;
-    return neutral ? null : { ...c };
-  }
 
   private placeFurniture(col: number, row: number): void {
     if (!this.selectedType || !this.layout) return;
@@ -637,7 +646,9 @@ export class LayoutEditor {
     if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
     const idx = row * this.layout.cols + col;
     this.layout.tiles[idx] = tile as TileTypeVal;
-    this.layout.tileColors![idx] = tile === TileType.VOID ? null : { ...this.color };
+    this.layout.tileColors![idx] = tile === TileType.VOID ? null : this.color;
+    if (tile === TileType.WALL) this.layout.tileWallSet![idx] = this.wallSet;
+    else if (tile !== TileType.VOID) this.layout.tileFloorSet![idx] = this.floorSet;
     this.tileMap = layoutToTileMap(this.layout);
     this.deps.rebuildStatic();
     this.drawGrid();
@@ -852,14 +863,20 @@ export class LayoutEditor {
     const row = Math.floor(wy / TILE_SIZE);
     const idx = row * this.layout.cols + col;
     const t = this.layout.tiles[idx];
-    if (t === TileType.WALL) this.selectTool('wall');
-    else if (t !== TileType.VOID) {
+    if (t === TileType.WALL) {
+      this.wallSet = this.layout.tileWallSet?.[idx] ?? 0;
+      this.selectTool('wall');
+      this.highlightWallSet();
+    } else if (t !== TileType.VOID) {
       this.floorPattern = t;
+      this.floorSet = this.layout.tileFloorSet?.[idx] ?? 0;
       this.selectTool('floor');
-      this.highlightFloorSwatch();
+      // Pattern count/labels can differ per set (e.g. floor-warm has one
+      // pattern the base set doesn't) — full rebuild, not just a highlight.
+      this.populatePalettes();
     }
     const c = this.layout.tileColors?.[idx];
-    if (c) this.applyColor(c);
+    if (c !== undefined && c !== null) this.applyColor(c);
   }
 
   private rebuildFurniture(): void {
@@ -1272,6 +1289,8 @@ export class LayoutEditor {
     if (!this.layout) return null;
     const { cols, rows, tiles } = this.layout;
     const tileColors = this.layout.tileColors ?? new Array(tiles.length).fill(null);
+    const tileFloorSet = this.layout.tileFloorSet ?? new Array(tiles.length).fill(0);
+    const tileWallSet = this.layout.tileWallSet ?? new Array(tiles.length).fill(0);
     const tileBlocked = this.layout.tileBlocked ?? new Array(tiles.length).fill(false);
     const tileActions = this.layout.tileActions ?? new Array(tiles.length).fill(null);
     let newCols = cols;
@@ -1290,7 +1309,9 @@ export class LayoutEditor {
     if (newCols > MAX_COLS || newRows > MAX_ROWS) return null;
 
     const newTiles: TileTypeVal[] = new Array(newCols * newRows).fill(TileType.VOID as TileTypeVal);
-    const newColors: Array<ColorValue | null> = new Array(newCols * newRows).fill(null);
+    const newColors: Array<number | null> = new Array(newCols * newRows).fill(null);
+    const newFloorSet: number[] = new Array(newCols * newRows).fill(0);
+    const newWallSet: number[] = new Array(newCols * newRows).fill(0);
     const newBlocked: boolean[] = new Array(newCols * newRows).fill(false);
     const newActions: Array<Action | null> = new Array(newCols * newRows).fill(null);
     for (let r = 0; r < rows; r++) {
@@ -1299,6 +1320,8 @@ export class LayoutEditor {
         const newIdx = (r + shiftRow) * newCols + (c + shiftCol);
         newTiles[newIdx] = tiles[oldIdx];
         newColors[newIdx] = tileColors[oldIdx];
+        newFloorSet[newIdx] = tileFloorSet[oldIdx];
+        newWallSet[newIdx] = tileWallSet[oldIdx];
         newBlocked[newIdx] = tileBlocked[oldIdx];
         newActions[newIdx] = tileActions[oldIdx];
       }
@@ -1307,6 +1330,8 @@ export class LayoutEditor {
     this.layout.rows = newRows;
     this.layout.tiles = newTiles;
     this.layout.tileColors = newColors;
+    this.layout.tileFloorSet = newFloorSet;
+    this.layout.tileWallSet = newWallSet;
     this.layout.tileBlocked = newBlocked;
     this.layout.tileActions = newActions;
     for (const f of this.layout.furniture) {
@@ -1734,18 +1759,18 @@ export class LayoutEditor {
 
   // ── Color ────────────────────────────────────────────────────────
 
-  /** Which closed palette the active paint tool offers — floor gets the
-   *  full DB32, wall a smaller Dawnbringer16 (its ×16 autotile-bitmask
-   *  multiplier would otherwise balloon the baked tileset — see
-   *  docs/design/tiled-editor-integration.md). */
+  /** Which closed palette the active paint tool offers — depends on the
+   *  currently selected floor/wall set, not just the tool: most sets share
+   *  PALETTE_64, but a given one can opt into a different closed palette
+   *  instead (see palettes.ts). */
   private activePalette(): PaletteSwatch[] {
-    return this.tool === 'wall' ? WALL_PALETTE : FLOOR_PALETTE;
+    return this.tool === 'wall' ? paletteForWallSet(this.wallSet) : paletteForFloorSet(this.floorSet);
   }
 
   /** Pick a swatch (or the "Natural" one, no tint) — arms the floor/wall
    *  paint brush with it, same as picking a pattern; not itself an edit,
    *  the edit happens when the tool paints a tile. */
-  private selectColor(c: ColorValue): void {
+  private selectColor(c: number | null): void {
     this.color = c;
     this.renderColorSwatches();
     if (this.tool === 'floor' || this.tool === 'wall') {
@@ -1756,16 +1781,16 @@ export class LayoutEditor {
 
   /** Eyedropper support: reflect a picked tile's color in the swatch grid
    *  (highlighting the matching swatch if it is one). */
-  private applyColor(c: ColorValue): void {
-    this.color = { ...c };
+  private applyColor(c: number | null): void {
+    this.color = c;
     this.renderColorSwatches();
     this.refreshPalettePreviews();
   }
 
   private renderColorSwatches(): void {
     this.swatchGrid.replaceChildren();
-    const active = this.activeColor();
-    const mkBtn = (background: string, title: string, c: ColorValue, selected: boolean) => {
+    const active = this.color;
+    const mkBtn = (background: string, title: string, c: number | null, selected: boolean) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.className = 'pa-color-swatch' + (selected ? ' sel' : '');
@@ -1777,12 +1802,14 @@ export class LayoutEditor {
     mkBtn(
       'repeating-conic-gradient(#4a4744 0% 25%, #322f2c 0% 50%) 0/0.5rem 0.5rem',
       'Natural (no tint)',
-      { h: 0, s: 0, b: 0, c: 0, colorize: false },
+      null,
       active === null,
     );
-    for (const sw of this.activePalette()) {
-      mkBtn(sw.hex, sw.hex, swatchColor(sw), !!active && active.h === sw.h && active.s === sw.s);
-    }
+    // Both palettes are PALETTE_64 itself, so a swatch's index here IS its
+    // global palette index — no separate lookup needed (see palettes.ts).
+    this.activePalette().forEach((sw, i) => {
+      mkBtn(sw.hex, sw.hex, i, active === i);
+    });
   }
 
   // ── Tool / selection UI ──────────────────────────────────────────
@@ -1869,6 +1896,10 @@ export class LayoutEditor {
 
   private highlightFloorSwatch(): void {
     this.palFloor.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.pattern) === this.floorPattern));
+  }
+
+  private highlightWallSet(): void {
+    this.palWall.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.wall) === this.wallSet));
   }
 
   private highlightActionChoice(): void {
@@ -2137,17 +2168,49 @@ export class LayoutEditor {
       for (const entry of entries) this.palFurn.appendChild(mkFurnItem(entry));
     }
 
-    const patterns = Math.max(getFloorPatternCount(), 1);
+    // Floor sets (which closed palette this texture bakes from — see
+    // FLOOR_SET_FILES/FLOOR_SET_LABELS) — picked before the pattern itself,
+    // same relationship wall sets have to color swatches below.
+    if (FLOOR_SET_FILES.length > 1) {
+      const setHead = document.createElement('div');
+      setHead.className = 'pa-pal-grouplbl';
+      setHead.textContent = 'Style';
+      this.palFloor.appendChild(setHead);
+      FLOOR_SET_FILES.forEach((_, s) => {
+        const item = document.createElement('div');
+        item.className = 'pa-pal-item' + (s === this.floorSet ? ' sel' : '');
+        item.dataset.floorset = String(s);
+        item.title = FLOOR_SET_LABELS[s] ?? FLOOR_SET_FILES[s];
+        item.appendChild(spriteThumbCanvas(getColorizedFloorSprite(1, null, s), this.palZoom));
+        item.onclick = () => {
+          this.floorSet = s;
+          // Pattern count/labels can differ per set (e.g. floor-warm has
+          // one pattern the base set doesn't) — full rebuild.
+          this.populatePalettes();
+          if (this.tool === 'floor') this.renderColorSwatches();
+        };
+        this.palFloor.appendChild(item);
+      });
+      const patternHead = document.createElement('div');
+      patternHead.className = 'pa-pal-grouplbl';
+      patternHead.textContent = 'Pattern';
+      this.palFloor.appendChild(patternHead);
+    }
+
+    const patterns = Math.max(getFloorPatternCount(this.floorSet), 1);
     for (let p = 1; p <= patterns; p++) {
       const item = document.createElement('div');
       item.className = 'pa-pal-item';
       item.dataset.pattern = String(p);
-      const cv = spriteThumbCanvas(getColorizedFloorSprite(p, NEUTRAL), this.palZoom);
+      const cv = spriteThumbCanvas(getColorizedFloorSprite(p, null, this.floorSet), this.palZoom);
       item.appendChild(cv);
       item.onclick = () => {
         this.floorPattern = p;
         this.highlightFloorSwatch();
         this.refreshPalActionBar();
+        // The applicable palette can differ per set (see palettes.ts) —
+        // re-render the swatch grid to match.
+        if (this.tool === 'floor') this.renderColorSwatches();
       };
       this.palFloor.appendChild(item);
       this.floorItems.push({ canvas: cv, pattern: p });
@@ -2165,7 +2228,10 @@ export class LayoutEditor {
       item.appendChild(cv);
       item.onclick = () => {
         this.wallSet = s;
-        this.palWall.querySelectorAll<HTMLElement>('.pa-pal-item').forEach((el) => el.classList.toggle('sel', Number(el.dataset.wall) === s));
+        this.highlightWallSet();
+        // The applicable palette can differ per set (see palettes.ts) —
+        // re-render the swatch grid to match.
+        if (this.tool === 'wall') this.renderColorSwatches();
       };
       this.palWall.appendChild(item);
       this.wallItems.push({ canvas: cv, set: s });
@@ -2253,7 +2319,7 @@ export class LayoutEditor {
     // display size (set by spriteThumbCanvas/applyPalZoom) survives untouched.
     const c = this.color;
     if (this.tool === 'floor') {
-      for (const { canvas, pattern } of this.floorItems) drawSpriteOnCanvas(canvas, getColorizedFloorSprite(pattern, c));
+      for (const { canvas, pattern } of this.floorItems) drawSpriteOnCanvas(canvas, getColorizedFloorSprite(pattern, c, this.floorSet));
     } else if (this.tool === 'wall') {
       for (const { canvas, set } of this.wallItems) {
         const sprite = getWallSetSwatchPreview(set, c);

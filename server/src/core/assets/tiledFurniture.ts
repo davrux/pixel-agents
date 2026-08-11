@@ -22,7 +22,6 @@
  *   stateGroup      (string) shared id linking an on/off pair
  *   state           (string) 'on' | 'off' — needs a matching stateGroup pair
  *   onTrigger       (string) 'autoFacing' | 'click' — what flips the pair
- *   appliance       (string) interaction station kind, e.g. 'coffee'
  *
  * Animation is NOT a custom property — a tile's native Tiled `<animation>`
  * (its own frame plus any following ones, each naming a sibling tile's id in

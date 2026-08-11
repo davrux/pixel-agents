@@ -45,12 +45,42 @@ export const PALETTE_64: PaletteSwatch[] = [
   '#cf657f', '#ed8099', '#831c5d', '#c32454', '#f04f78', '#f68181', '#fca790', '#fdcbb0',
 ].map(swatch);
 
-/** Floor gets the full 64-color palette (no autotile multiplier). */
-export const FLOOR_PALETTE: PaletteSwatch[] = PALETTE_64;
+/** A second closed 64-color palette, all warm hues (red→amber→gold→yellow,
+ *  plus warm neutrals/browns/dusty-rose — no greens/blues/purples at all),
+ *  for floor patterns/wall sets that want a warm-toned option instead of
+ *  the general-purpose PALETTE_64. Generated for this project (8 warm hue
+ *  ramps × 8 lightness steps) rather than sourced from an existing lospec
+ *  palette — the ones checked either weren't actually warm-skewed despite
+ *  the name (e.g. lospec's "Whole Punch 64", "Pastel-64") or weren't 64
+ *  colors (lospec's "Warm C64" is 16). See docs/design/tiled-editor-integration.md. */
+export const WARM_PALETTE_64: PaletteSwatch[] = [
+  '#221f1c', '#403830', '#655749', '#897867', '#a5998d', '#bfb8b0', '#d9d6d3', '#f5f5f4',
+  '#3f1216', '#62181f', '#8b1d27', '#b4222e', '#d92635', '#de545f', '#df9097', '#e6cbce',
+  '#57270f', '#863913', '#b84b14', '#df5916', '#e97135', '#e7936a', '#e9bca5', '#f0e2db',
+  '#5d4214', '#8c6117', '#c18215', '#ec9c13', '#ecab3c', '#eabe71', '#ebd4ad', '#f3ede2',
+  '#433a19', '#6f5f20', '#a88e24', '#dbb724', '#e0c452', '#e2d18d', '#e9e1c4', '#f4f2ec',
+  '#452017', '#692b1c', '#973820', '#c54526', '#d76447', '#d99381', '#e1bfb7', '#f0e8e6',
+  '#302317', '#503721', '#794f2a', '#a86c38', '#c28b5b', '#ccab8e', '#dacbbe', '#eeeae8',
+  '#492c27', '#713b33', '#9b483b', '#bf5a4a', '#c97f73', '#d1a59e', '#dfcbc8', '#f2eeee',
+].map(swatch);
 
-/** Wall reuses the same 64-color palette — see PALETTE_64's own note on why
- *  the two no longer need to be separate. */
-export const WALL_PALETTE: PaletteSwatch[] = PALETTE_64;
+/** Which closed palette each floor "set" (OfficeLayout.tileFloorSet, see
+ *  tiledSheetLayout.ts's FLOOR_SET_FILES) is baked from — parallel-indexed
+ *  with FLOOR_SET_FILES. */
+export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, WARM_PALETTE_64];
+
+/** Which closed palette each wall "set" (OfficeLayout.tileWallSet, see
+ *  tiledSheetLayout.ts's WALL_SET_FILES) is baked from — parallel-indexed
+ *  with WALL_SET_FILES. */
+export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, PALETTE_64, WARM_PALETTE_64, WARM_PALETTE_64];
+
+export function paletteForFloorSet(setIndex: number): PaletteSwatch[] {
+  return FLOOR_SET_PALETTES[setIndex] ?? PALETTE_64;
+}
+
+export function paletteForWallSet(setIndex: number): PaletteSwatch[] {
+  return WALL_SET_PALETTES[setIndex] ?? PALETTE_64;
+}
 
 /** Reverse of swatchColor(): which palette swatch (if any) a stored
  *  ColorValue matches, by (h, s) — the same equality check the Layout

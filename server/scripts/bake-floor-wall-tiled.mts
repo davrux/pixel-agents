@@ -6,14 +6,23 @@
  * a runtime recolor". The runtime keeps rendering via colorize.ts's
  * getColorizedSprite exactly as before (see shared/src/office/floorTiles.ts,
  * wallTiles.ts) — this script exists purely so a human editing in Tiled sees
- * the same closed palette (DB32 floor / Dawnbringer16 wall, see palettes.ts)
- * as real, paintable tiles, and so task #157's map bridge has a well-defined
- * GID → (pattern|bitmask, swatch) mapping via custom properties.
+ * the same closed palette (see palettes.ts) as real, paintable tiles.
  *
- * Each pattern/bitmask gets one extra "Natural" tile (index 0, no swatch
- * property) — the raw, uncolorized sprite, matching what a null tileColors
- * entry renders as today (see PhaserRenderer.ts / wallTiles.ts's
- * getWallSprite vs getColorizedWallSprite).
+ * Each tile carries NO custom properties at all — only its Tiled class
+ * (`type: 'FloorTile'`/`'WallTile'`, see Pixels.tiled-project). Which
+ * pattern/bitmask a tile is, and which palette swatch (or "Natural", column
+ * 0), is derived purely from its position in this grid — row = pattern-1 or
+ * bitmask, column = swatch+1 (see mapBridge.ts's rowAndSwatchFromLocalId/
+ * gidAt and shared/src/office/tiledSheetLayout.ts). Safe to derive
+ * positionally because these files are entirely machine-generated — nothing
+ * ever hand-edits their tile lists, unlike furniture-*.tsj.
+ *
+ * "Sets" (see FLOOR_SET_FILES/WALL_SET_FILES in tiledSheetLayout.ts): floor
+ * and wall each come in a regular (PALETTE_64) and a warm (WARM_PALETTE_64)
+ * variant, one .tsj/.png pair per variant — never mixed into one file, so
+ * opening e.g. floor.tsj in Tiled always shows the same 11 patterns
+ * regardless of how many warm variants exist. floor-warm additionally has
+ * one warm-only pattern (wood planks) with no regular counterpart.
  *
  * Run (from server/): node --import tsx scripts/bake-floor-wall-tiled.mts
  */
@@ -22,10 +31,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { decodeFloorPng, parseWallPng } from '../src/core/assets/pngDecoder.js';
-import { FLOOR_CATEGORY, WALL_CATEGORY } from '../src/tiled/categories.js';
 import { averageLightness, getColorizedSprite } from '../../shared/src/office/colorize.js';
-import { FLOOR_PALETTE, WALL_PALETTE, swatchColor } from '../../shared/src/office/palettes.js';
-import { FLOOR_TILE_W, FLOOR_TILE_H, WALL_TILE_H, WALL_BITMASK_COUNT } from '../../shared/src/office/tiledSheetLayout.js';
+import { PALETTE_64, WARM_PALETTE_64, swatchColor } from '../../shared/src/office/palettes.js';
+import {
+  FLOOR_TILE_W,
+  FLOOR_TILE_H,
+  TILED_SHEET_COLUMNS,
+  WALL_TILE_H,
+  WALL_BITMASK_COUNT,
+} from '../../shared/src/office/tiledSheetLayout.js';
+import type { PaletteSwatch } from '../../shared/src/office/palettes.js';
 import type { SpriteData } from '../../shared/src/office/types.js';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
@@ -71,13 +86,7 @@ function composeSheet(tiles: SpriteData[], tileW: number, tileH: number, columns
   return PNG.sync.write(sheet);
 }
 
-interface TiledProp {
-  name: string;
-  type: string;
-  value: string | number | boolean;
-  propertytype?: string;
-}
-function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileProps: TiledProp[][], name: string, tileClass: string) {
+function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileClass: string, name: string) {
   return {
     columns,
     image: imageFile,
@@ -91,45 +100,46 @@ function grid(tileW: number, tileH: number, columns: number, tileCount: number, 
     tileheight: tileH,
     tilewidth: tileW,
     // `type` assigns each tile to its project-level class (Pixels.tiled-
-    // project's FloorTile/WallTile) so Tiled recognizes it as one — without
-    // this, the tile's properties are just loose values with no class
-    // membership, and the class's own defaults/color-coding never apply.
-    tiles: tileProps.map((properties, id) => ({ id, type: tileClass, properties })),
+    // project's FloorTile/WallTile) so Tiled recognizes it as one. No
+    // per-tile properties — see this file's header comment.
+    tiles: Array.from({ length: tileCount }, (_, id) => ({ id, type: tileClass })),
     type: 'tileset',
     version: '1.10',
   };
 }
 
-function bakeFloor(): void {
-  const patternCount = 11;
+/** Every row's palette must be exactly TILED_SHEET_COLUMNS-1 colors — the
+ *  sheet is one fixed-width grid, so a differently-sized palette would
+ *  silently misalign every row after it. */
+function checkPaletteSize(palette: PaletteSwatch[], label: string): PaletteSwatch[] {
+  if (palette.length !== TILED_SHEET_COLUMNS - 1) {
+    throw new Error(`${label}: palette has ${palette.length} colors, expected ${TILED_SHEET_COLUMNS - 1}`);
+  }
+  return palette;
+}
+
+/** The 11 shared base floor patterns every floor set includes (in order —
+ *  row i = floor_<i>.png). floor-warm additionally appends its own
+ *  warm-only pattern (wood planks) after these. */
+const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p}.png`);
+
+function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: PaletteSwatch[]): void {
+  const pal = checkPaletteSize(palette, `floor set "${outputName}"`);
   const tiles: SpriteData[] = [];
-  const props: TiledProp[][] = [];
-  for (let p = 0; p < patternCount; p++) {
-    const raw = decodeFloorPng(fs.readFileSync(path.join(ROOT, 'assets', 'floors', `floor_${p}.png`)));
+  for (const sourceFile of sourceFiles) {
+    const raw = decodeFloorPng(fs.readFileSync(path.join(ROOT, 'assets', 'floors', sourceFile)));
     // Column 0: Natural (raw, uncolorized) — matches a null tileColors entry.
     tiles.push(raw);
-    props.push([
-      { name: 'pattern', type: 'int', value: p + 1 },
-      { name: 'category', type: 'string', value: FLOOR_CATEGORY, propertytype: 'Category' },
-    ]);
-    for (let s = 0; s < FLOOR_PALETTE.length; s++) {
-      const swatch = FLOOR_PALETTE[s];
-      const colorized = getColorizedSprite(`bake-floor-${p}-${swatch.h}-${swatch.s}`, raw, swatchColor(swatch));
-      tiles.push(colorized);
-      props.push([
-        { name: 'pattern', type: 'int', value: p + 1 },
-        { name: 'hue', type: 'int', value: swatch.h },
-        { name: 'sat', type: 'int', value: swatch.s },
-        { name: 'category', type: 'string', value: FLOOR_CATEGORY, propertytype: 'Category' },
-      ]);
+    for (const sw of pal) {
+      tiles.push(getColorizedSprite(`bake-${outputName}-${sourceFile}-${sw.h}-${sw.s}`, raw, swatchColor(sw)));
     }
   }
-  const columns = FLOOR_PALETTE.length + 1; // Natural + 32 swatches
+  const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
   const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns);
-  fs.writeFileSync(path.join(OUT_PNG_DIR, 'floor.png'), buf);
-  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, 'png/floor.png', columns * TILE_W, patternCount * FLOOR_H, props, 'floor', 'FloorTile');
-  fs.writeFileSync(path.join(OUT_DIR, 'floor.tsj'), JSON.stringify(tsj, null, 2) + '\n');
-  console.log(`✓ floor.tsj + png/floor.png (${tiles.length} tiles, ${patternCount} patterns × ${columns} colors)`);
+  fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
+  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/${outputName}.png`, columns * TILE_W, sourceFiles.length * FLOOR_H, 'FloorTile', outputName);
+  fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
+  console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
 }
 
 /** Tiled wangid order (JSON format): [top, topright, right, bottomright,
@@ -155,8 +165,11 @@ function wangIdForMask(mask: number): number[] {
   return [wallOrEmpty(1), 0, wallOrEmpty(2), 0, wallOrEmpty(4), 0, wallOrEmpty(8), 0]; // N,_,E,_,S,_,W,_
 }
 
-function bakeWallSet(setIndex: number): void {
-  const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'walls', `wall_${setIndex}.png`)));
+/** `sourceFile` is the raw wall_N.png geometry to bake — two sets can (and
+ *  do) share the same source, baked with a different palette, e.g.
+ *  "wall-0" and "wall-0-warm" both read wall_0.png. */
+function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteSwatch[]): void {
+  const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'walls', sourceFile)));
   // One shared brightness baseline across all 16 pieces (not per piece) —
   // see wallTiles.ts's wallSetReferenceLightness for why: pieces vary a lot
   // in how much of their area is "cap" vs "face", so recentering each
@@ -165,31 +178,19 @@ function bakeWallSet(setIndex: number): void {
   // painted from this baked tileset would render a visibly different tone
   // than the same bitmask+color painted live.
   const referenceLightness = averageLightness(raw.flat());
+  const pal = checkPaletteSize(palette, `wall set "${outputName}"`);
   const tiles: SpriteData[] = [];
-  const props: TiledProp[][] = [];
   for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
     const piece = raw[mask];
     tiles.push(piece);
-    props.push([
-      { name: 'bitmask', type: 'int', value: mask },
-      { name: 'category', type: 'string', value: WALL_CATEGORY, propertytype: 'Category' },
-    ]);
-    for (let s = 0; s < WALL_PALETTE.length; s++) {
-      const swatch = WALL_PALETTE[s];
-      const colorized = getColorizedSprite(`bake-wall-${setIndex}-${mask}-${swatch.h}-${swatch.s}`, piece, swatchColor(swatch), referenceLightness);
-      tiles.push(colorized);
-      props.push([
-        { name: 'bitmask', type: 'int', value: mask },
-        { name: 'hue', type: 'int', value: swatch.h },
-        { name: 'sat', type: 'int', value: swatch.s },
-        { name: 'category', type: 'string', value: WALL_CATEGORY, propertytype: 'Category' },
-      ]);
+    for (const sw of pal) {
+      tiles.push(getColorizedSprite(`bake-${outputName}-${mask}-${sw.h}-${sw.s}`, piece, swatchColor(sw), referenceLightness));
     }
   }
-  const columns = WALL_PALETTE.length + 1; // Natural + 16 swatches
+  const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns);
-  fs.writeFileSync(path.join(OUT_PNG_DIR, `wall-${setIndex}.png`), buf);
-  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/wall-${setIndex}.png`, columns * TILE_W, 16 * WALL_H, props, `wall-${setIndex}`, 'WallTile') as Record<string, unknown>;
+  fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
+  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/${outputName}.png`, columns * TILE_W, 16 * WALL_H, 'WallTile', outputName) as Record<string, unknown>;
   // One Wang/Terrain set PER COLOR, not one set covering all colors — a Wang
   // set's brush only knows "does this tile satisfy the required edge
   // pattern", with no notion of color at all, so a single set spanning every
@@ -198,7 +199,7 @@ function bakeWallSet(setIndex: number): void {
   // time it paints. Splitting into 17 sets (Natural + one per swatch), each
   // covering only its own 16 bitmask tiles, means picking e.g. "Wall — #597dce"
   // as the active terrain keeps every painted piece that same color.
-  const colorLabels = ['Natural', ...WALL_PALETTE.map((sw) => sw.hex)];
+  const colorLabels = ['Natural', ...pal.map((sw) => sw.hex)];
   tsj.wangsets = colorLabels.map((label, col) => ({
     colors: [
       { color: '#861616', name: 'wall', probability: 1, tile: -1 },
@@ -212,11 +213,14 @@ function bakeWallSet(setIndex: number): void {
       wangid: wangIdForMask(mask),
     })),
   }));
-  fs.writeFileSync(path.join(OUT_DIR, `wall-${setIndex}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
-  console.log(`✓ wall-${setIndex}.tsj + png/wall-${setIndex}.png (${tiles.length} tiles, 16 bitmasks × ${columns} colors)`);
+  fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
+  console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, 16 bitmasks × ${columns} colors)`);
 }
 
 fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
-bakeFloor();
-bakeWallSet(0);
-bakeWallSet(1);
+bakeFloorSheet('floor', BASE_FLOOR_PATTERN_FILES, PALETTE_64);
+bakeFloorSheet('floor-warm', [...BASE_FLOOR_PATTERN_FILES, 'floor_11.png'], WARM_PALETTE_64);
+bakeWallSheet('wall-0', 'wall_0.png', PALETTE_64);
+bakeWallSheet('wall-1', 'wall_1.png', PALETTE_64);
+bakeWallSheet('wall-0-warm', 'wall_0.png', WARM_PALETTE_64);
+bakeWallSheet('wall-1-warm', 'wall_1.png', WARM_PALETTE_64);

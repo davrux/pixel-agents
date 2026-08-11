@@ -97,7 +97,6 @@ function appendToTileset(slug: string, items: GeneratedItem[]): void {
         { name: 'stateGroup', type: 'string', value: '' },
         { name: 'state', type: 'string', value: '', propertytype: 'FurnitureState' },
         { name: 'onTrigger', type: 'string', value: '', propertytype: 'OnTrigger' },
-        { name: 'appliance', type: 'string', value: '', propertytype: 'ApplianceKind' },
         // Not authored by hand like the migrated 44 — flags this tile as
         // server-generated code (see assets.ts's `generated` array), so a
         // future re-bake knows it can safely overwrite/regenerate these

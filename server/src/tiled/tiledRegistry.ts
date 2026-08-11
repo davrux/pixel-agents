@@ -5,16 +5,20 @@
  * map (each tileset occupies a contiguous [firstgid, firstgid+tilecount)
  * range, walked in the order the tilesets were added).
  *
- * Fixed, deterministic order: floor, wall-0, wall-1, collision, then every
- * furniture-*.tsj alphabetically — stable across repeated exports as long as
- * no tileset is added/removed/reordered on disk.
+ * Fixed, deterministic order: every FLOOR_SET_FILES entry, then every
+ * WALL_SET_FILES entry, then collision, then every furniture-*.tsj
+ * alphabetically — stable across repeated exports as long as no tileset is
+ * added/removed/reordered on disk.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { FLOOR_SET_FILES, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
+
 type TiledProp = { name: string; type?: string; value: string | number | boolean };
 interface TiledTileJson {
   id: number;
+  type?: string;
   properties?: TiledProp[];
 }
 interface TiledTilesetJson {
@@ -24,6 +28,10 @@ interface TiledTilesetJson {
 }
 
 export interface RegistryTile {
+  /** Tiled's class assignment for this tile (e.g. "FloorTile", "WallTile") —
+   *  see Pixels.tiled-project's propertyTypes. Undefined for an unclassed
+   *  tile (e.g. collision.tsj's parameterless marker). */
+  class?: string;
   props: Record<string, string | number | boolean>;
 }
 
@@ -37,8 +45,8 @@ export interface RegistryTileset {
 
 export interface TiledRegistry {
   tilesets: RegistryTileset[];
-  /** Resolve a global GID (0 = empty) to its tileset + local tile properties. */
-  resolve(gid: number): { tileset: RegistryTileset; localId: number; props: Record<string, string | number | boolean> } | null;
+  /** Resolve a global GID (0 = empty) to its tileset + local tile class/properties. */
+  resolve(gid: number): { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean> } | null;
   /** Find the tileset matching `file` (e.g. "floor.tsj"), if loaded. */
   bySource(file: string): RegistryTileset | undefined;
 }
@@ -51,7 +59,11 @@ function propsOf(tile: TiledTileJson): Record<string, string | number | boolean>
 
 export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
   const tiledDir = path.join(assetsRoot, 'assets', 'tiled');
-  const fixedOrder = ['floor.tsj', 'wall-0.tsj', 'wall-1.tsj', 'collision.tsj'];
+  const fixedOrder = [
+    ...FLOOR_SET_FILES.map((f) => `${f}.tsj`),
+    ...WALL_SET_FILES.map((f) => `${f}.tsj`),
+    'collision.tsj',
+  ];
   const furnitureFiles = fs
     .readdirSync(tiledDir)
     .filter((f) => /^furniture-.*\.tsj$/.test(f))
@@ -66,7 +78,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     const tiles: RegistryTile[] = [];
     for (let id = 0; id < json.tilecount; id++) {
       const t = byId.get(id);
-      tiles.push({ props: t ? propsOf(t) : {} });
+      tiles.push({ class: t?.type, props: t ? propsOf(t) : {} });
     }
     tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: json.tilecount, tiles });
     nextGid += json.tilecount;
@@ -77,7 +89,8 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     for (const ts of tilesets) {
       if (gid >= ts.firstgid && gid < ts.firstgid + ts.tileCount) {
         const localId = gid - ts.firstgid;
-        return { tileset: ts, localId, props: ts.tiles[localId].props };
+        const tile = ts.tiles[localId];
+        return { tileset: ts, localId, class: tile.class, props: tile.props };
       }
     }
     return null;
@@ -97,4 +110,14 @@ export function findGid(
   if (!ts) return null;
   const localId = ts.tiles.findIndex((t) => predicate(t.props));
   return localId < 0 ? null : ts.firstgid + localId;
+}
+
+/** Global GID for a known local tile id within tileset `file` — the
+ *  positional counterpart to findGid, for tilesets (floor/wall) whose tile
+ *  order is a fixed, code-generated grid rather than something to search by
+ *  property. Null if the tileset isn't loaded or localId is out of range. */
+export function gidAt(registry: TiledRegistry, file: string, localId: number): number | null {
+  const ts = registry.bySource(file);
+  if (!ts || localId < 0 || localId >= ts.tileCount) return null;
+  return ts.firstgid + localId;
 }

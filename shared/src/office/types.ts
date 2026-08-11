@@ -20,13 +20,13 @@ export const TileType = {
   FLOOR_9: 9,
   FLOOR_10: 10, // grass (garden/outside zones) — floors/floor_9.png
   FLOOR_11: 11, // water (ponds) — floors/floor_10.png
+  FLOOR_12: 12, // wood planks, warm palette — floors/floor_11.png
   VOID: 255,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
 
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from './colorTypes.js';
-import type { ColorValue } from './colorTypes.js';
 
 export const CharacterState = {
   IDLE: 'idle',
@@ -264,7 +264,10 @@ export interface FurnitureCatalogEntry {
    *  meaning and was dropped (see docs/design/tiled-editor-integration.md);
    *  this is the one real, remaining reason the flag exists. */
   occupiesSurface?: boolean;
-  /** Number of tile rows from the top of the footprint that are "background" (allow placement, still block walking). Default 0. */
+  /** Number of tile rows from the top of the footprint that are "background"
+   *  — stay walkable, and can have another item's footprint placed over
+   *  them too (see layoutSerializer.ts's getBlockedTiles/
+   *  getPlacementBlockedTiles, which both skip these rows). Default 0. */
   backgroundTiles?: number;
   /** For an item with an on/off state pair: what turns it on. 'autoFacing' —
    *  an active agent seated facing it (today's PC/laptop behaviour, unchanged).
@@ -371,8 +374,26 @@ export interface OfficeLayout {
   rows: number;
   tiles: TileType[];
   furniture: PlacedFurniture[];
-  /** Per-tile color settings, parallel to tiles array. null = wall/no color */
-  tileColors?: Array<ColorValue | null>;
+  /** Per-tile color, parallel to tiles array — an index into whichever
+   *  closed palette this tile's set uses (see palettes.ts's
+   *  FLOOR_SET_PALETTES/WALL_SET_PALETTES), or null for "Natural" (no
+   *  tint). The closed floor/wall palette made a continuous
+   *  ColorValue{h,s,b,c} pointless: there are only 64 real choices, so the
+   *  index into that fixed list IS the color — no HSL math needed anywhere
+   *  at render time (see docs/design/tiled-editor-integration.md). */
+  tileColors?: Array<number | null>;
+  /** Per-tile floor style (which floor-<name>.tsj set, see
+   *  tiledSheetLayout.ts's FLOOR_SET_FILES), parallel to tiles array — only
+   *  meaningful where tiles[i] is a floor pattern (not WALL/VOID).
+   *  Missing/0 = the base "floor" set. */
+  tileFloorSet?: number[];
+  /** Per-tile wall style (which wall-<name>.tsj set, see
+   *  tiledSheetLayout.ts's WALL_SET_FILES), parallel to tiles array — only
+   *  meaningful where tiles[i] === TileType.WALL. Missing/0 = set 0. Absent
+   *  entirely on old saved layouts (every wall tile always rendered as set
+   *  0 before this field existed, since getWallInstances had no per-tile
+   *  way to pick a different one — see docs/design/tiled-editor-integration.md). */
+  tileWallSet?: number[];
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;

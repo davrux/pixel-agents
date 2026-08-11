@@ -9,6 +9,7 @@ import type {
 } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
 import { getCatalogEntry } from './furnitureCatalog.js';
+import { PALETTE_64, paletteSwatchIndex } from '../palettes.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -146,16 +147,14 @@ export function getPlacementBlockedTiles(
   return tiles;
 }
 
-/** Map chair orientation to character facing direction */
+/** Map chair orientation to character facing direction — 'front'/'back'/'side'
+ *  are the only values the Orientation enum (Pixels.tiled-project) offers. */
 function orientationToFacing(orientation: string): Direction {
   switch (orientation) {
     case 'front':
       return Direction.DOWN;
     case 'back':
       return Direction.UP;
-    case 'left':
-      return Direction.LEFT;
-    case 'right':
     case 'side':
       return Direction.RIGHT;
     default:
@@ -243,10 +242,6 @@ export function getSeatTiles(seats: Map<string, Seat>): Set<string> {
   return tiles;
 }
 
-/** Default floor colors for the two rooms */
-const DEFAULT_LEFT_ROOM_COLOR: ColorValue = { h: 35, s: 30, b: 15, c: 0 }; // warm beige
-const DEFAULT_RIGHT_ROOM_COLOR: ColorValue = { h: 25, s: 45, b: 5, c: 10 }; // warm brown
-
 /** Create a minimal fallback layout (used only when no default-layout.json exists) */
 export function createDefaultLayout(): OfficeLayout {
   const W = TileType.WALL;
@@ -254,20 +249,18 @@ export function createDefaultLayout(): OfficeLayout {
   const F2 = TileType.FLOOR_2;
 
   const tiles: TileTypeVal[] = [];
-  const tileColors: Array<ColorValue | null> = [];
+  const tileColors: Array<number | null> = [];
 
   for (let r = 0; r < DEFAULT_ROWS; r++) {
     for (let c = 0; c < DEFAULT_COLS; c++) {
       if (r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1) {
         tiles.push(W);
-        tileColors.push(null);
       } else if (c < 10) {
         tiles.push(F1);
-        tileColors.push(DEFAULT_LEFT_ROOM_COLOR);
       } else {
         tiles.push(F2);
-        tileColors.push(DEFAULT_RIGHT_ROOM_COLOR);
       }
+      tileColors.push(null); // Natural — this fallback is cosmetically irrelevant; default-layout.json provides the real default
     }
   }
 
@@ -284,7 +277,7 @@ export function createBlankZoneLayout(
   furniture: OfficeLayout['furniture'] = [],
 ): OfficeLayout {
   const tiles: TileTypeVal[] = [];
-  const tileColors: Array<ColorValue | null> = [];
+  const tileColors: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
@@ -420,35 +413,43 @@ function migrateLayout(layout: OfficeLayout): OfficeLayout {
     };
   }
 
-  if (layout.tileColors && layout.tileColors.length === layout.tiles.length) {
-    return layout; // Already migrated tile colors
-  }
+  const tileColors =
+    layout.tileColors && layout.tileColors.length === layout.tiles.length
+      ? // Already the right length — may still be pre-closed-palette data (a
+        // ColorValue object per tile, from before floor/wall became a fixed
+        // 64-swatch palette). Convert those to a swatch index; numbers/nulls
+        // (post-migration data) pass through untouched.
+        layout.tileColors.map(migrateTileColor)
+      : // No tileColors at all — genuinely ancient data (predates even the
+        // continuous-HSBC color system). Precise historical color isn't
+        // worth preserving here (same norm as every other cut in this area
+        // — see docs/design/tiled-editor-integration.md); every tile just
+        // starts Natural.
+        layout.tiles.map(() => null);
 
-  // Check if any tiles use old values (1-4) — these map directly to FLOOR_1-4
-  // but need color assignments
-  const tileColors: Array<ColorValue | null> = [];
-  for (const tile of layout.tiles) {
-    switch (tile) {
-      case 0: // WALL
-        tileColors.push(null);
-        break;
-      case 1: // was TILE_FLOOR → FLOOR_1 beige
-        tileColors.push(DEFAULT_LEFT_ROOM_COLOR);
-        break;
-      case 2: // was WOOD_FLOOR → FLOOR_2 brown
-        tileColors.push(DEFAULT_RIGHT_ROOM_COLOR);
-        break;
-      case 3: // was CARPET → FLOOR_3 purple
-        tileColors.push({ h: 280, s: 40, b: -5, c: 0 });
-        break;
-      case 4: // was DOORWAY → FLOOR_4 tan
-        tileColors.push({ h: 35, s: 25, b: 10, c: 0 });
-        break;
-      default:
-        // Floor tile types without colors — use neutral gray
-        tileColors.push(tile > 0 && tile !== TileType.VOID ? { h: 0, s: 0, b: 0, c: 0 } : null);
-    }
-  }
+  // tileFloorSet/tileWallSet didn't exist before per-tile floor/wall styles
+  // were wired up — every tile always rendered from set 0 back then
+  // (getColorizedFloorSprite/getWallInstances had no per-tile way to pick
+  // another one), so that's the correct default, not a guess.
+  const tileFloorSet =
+    layout.tileFloorSet && layout.tileFloorSet.length === layout.tiles.length
+      ? layout.tileFloorSet
+      : layout.tiles.map(() => 0);
+  const tileWallSet =
+    layout.tileWallSet && layout.tileWallSet.length === layout.tiles.length
+      ? layout.tileWallSet
+      : layout.tiles.map(() => 0);
 
-  return { ...layout, tileColors };
+  return { ...layout, tileColors, tileFloorSet, tileWallSet };
+}
+
+/** A pre-closed-palette tile color was a raw ColorValue object; convert it to
+ *  the nearest PALETTE_64 index (see paletteSwatchIndex) — null when it
+ *  doesn't match any real swatch (e.g. one of the old free-HSBC colors),
+ *  which just renders as Natural going forward. Already-migrated data
+ *  (number | null) passes through unchanged. */
+function migrateTileColor(c: unknown): number | null {
+  if (c === null || typeof c === 'number') return c;
+  if (typeof c === 'object') return paletteSwatchIndex(PALETTE_64, c as ColorValue);
+  return null;
 }

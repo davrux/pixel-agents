@@ -1,12 +1,12 @@
 {
   "columns": 65,
-  "image": "png/floor.png",
+  "image": "png/floor-warm.png",
   "imagewidth": 1040,
-  "imageheight": 176,
+  "imageheight": 192,
   "margin": 0,
-  "name": "floor",
+  "name": "floor-warm",
   "spacing": 0,
-  "tilecount": 715,
+  "tilecount": 780,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -2869,6 +2869,266 @@
     },
     {
       "id": 714,
+      "type": "FloorTile"
+    },
+    {
+      "id": 715,
+      "type": "FloorTile"
+    },
+    {
+      "id": 716,
+      "type": "FloorTile"
+    },
+    {
+      "id": 717,
+      "type": "FloorTile"
+    },
+    {
+      "id": 718,
+      "type": "FloorTile"
+    },
+    {
+      "id": 719,
+      "type": "FloorTile"
+    },
+    {
+      "id": 720,
+      "type": "FloorTile"
+    },
+    {
+      "id": 721,
+      "type": "FloorTile"
+    },
+    {
+      "id": 722,
+      "type": "FloorTile"
+    },
+    {
+      "id": 723,
+      "type": "FloorTile"
+    },
+    {
+      "id": 724,
+      "type": "FloorTile"
+    },
+    {
+      "id": 725,
+      "type": "FloorTile"
+    },
+    {
+      "id": 726,
+      "type": "FloorTile"
+    },
+    {
+      "id": 727,
+      "type": "FloorTile"
+    },
+    {
+      "id": 728,
+      "type": "FloorTile"
+    },
+    {
+      "id": 729,
+      "type": "FloorTile"
+    },
+    {
+      "id": 730,
+      "type": "FloorTile"
+    },
+    {
+      "id": 731,
+      "type": "FloorTile"
+    },
+    {
+      "id": 732,
+      "type": "FloorTile"
+    },
+    {
+      "id": 733,
+      "type": "FloorTile"
+    },
+    {
+      "id": 734,
+      "type": "FloorTile"
+    },
+    {
+      "id": 735,
+      "type": "FloorTile"
+    },
+    {
+      "id": 736,
+      "type": "FloorTile"
+    },
+    {
+      "id": 737,
+      "type": "FloorTile"
+    },
+    {
+      "id": 738,
+      "type": "FloorTile"
+    },
+    {
+      "id": 739,
+      "type": "FloorTile"
+    },
+    {
+      "id": 740,
+      "type": "FloorTile"
+    },
+    {
+      "id": 741,
+      "type": "FloorTile"
+    },
+    {
+      "id": 742,
+      "type": "FloorTile"
+    },
+    {
+      "id": 743,
+      "type": "FloorTile"
+    },
+    {
+      "id": 744,
+      "type": "FloorTile"
+    },
+    {
+      "id": 745,
+      "type": "FloorTile"
+    },
+    {
+      "id": 746,
+      "type": "FloorTile"
+    },
+    {
+      "id": 747,
+      "type": "FloorTile"
+    },
+    {
+      "id": 748,
+      "type": "FloorTile"
+    },
+    {
+      "id": 749,
+      "type": "FloorTile"
+    },
+    {
+      "id": 750,
+      "type": "FloorTile"
+    },
+    {
+      "id": 751,
+      "type": "FloorTile"
+    },
+    {
+      "id": 752,
+      "type": "FloorTile"
+    },
+    {
+      "id": 753,
+      "type": "FloorTile"
+    },
+    {
+      "id": 754,
+      "type": "FloorTile"
+    },
+    {
+      "id": 755,
+      "type": "FloorTile"
+    },
+    {
+      "id": 756,
+      "type": "FloorTile"
+    },
+    {
+      "id": 757,
+      "type": "FloorTile"
+    },
+    {
+      "id": 758,
+      "type": "FloorTile"
+    },
+    {
+      "id": 759,
+      "type": "FloorTile"
+    },
+    {
+      "id": 760,
+      "type": "FloorTile"
+    },
+    {
+      "id": 761,
+      "type": "FloorTile"
+    },
+    {
+      "id": 762,
+      "type": "FloorTile"
+    },
+    {
+      "id": 763,
+      "type": "FloorTile"
+    },
+    {
+      "id": 764,
+      "type": "FloorTile"
+    },
+    {
+      "id": 765,
+      "type": "FloorTile"
+    },
+    {
+      "id": 766,
+      "type": "FloorTile"
+    },
+    {
+      "id": 767,
+      "type": "FloorTile"
+    },
+    {
+      "id": 768,
+      "type": "FloorTile"
+    },
+    {
+      "id": 769,
+      "type": "FloorTile"
+    },
+    {
+      "id": 770,
+      "type": "FloorTile"
+    },
+    {
+      "id": 771,
+      "type": "FloorTile"
+    },
+    {
+      "id": 772,
+      "type": "FloorTile"
+    },
+    {
+      "id": 773,
+      "type": "FloorTile"
+    },
+    {
+      "id": 774,
+      "type": "FloorTile"
+    },
+    {
+      "id": 775,
+      "type": "FloorTile"
+    },
+    {
+      "id": 776,
+      "type": "FloorTile"
+    },
+    {
+      "id": 777,
+      "type": "FloorTile"
+    },
+    {
+      "id": 778,
+      "type": "FloorTile"
+    },
+    {
+      "id": 779,
       "type": "FloorTile"
     }
   ],

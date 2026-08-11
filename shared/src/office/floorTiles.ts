@@ -3,33 +3,33 @@
  *
  * Sprites are pre-baked, closed-palette PNGs (see
  * server/scripts/bake-floor-wall-tiled.mts and client/src/net/tiledSheets.ts)
- * — a direct (pattern, swatch) lookup, no runtime HSL colorize.
+ * — a direct (set, pattern, swatch) lookup, no runtime HSL colorize.
  */
 
-import type { ColorValue } from './colorTypes.js';
 import { CANVAS_ERROR_TILE_COLOR, TILE_SIZE } from './constants.js';
-import { FLOOR_PALETTE, paletteSwatchIndex } from './palettes.js';
 import type { SpriteData } from './types.js';
 
-/** floorSheets[pattern][0] = Natural (raw, uncolorized); [1+i] =
- *  FLOOR_PALETTE[i] colorized. Populated once by the client's tiledSheets
- *  loader from the baked assets/tiled/png/floor.png sheet. */
-let floorSheets: SpriteData[][] = [];
+/** floorSheets[set][pattern][0] = Natural (raw, uncolorized); [1+i] =
+ *  FLOOR_SET_PALETTES[set][i] colorized. Populated once by the client's
+ *  tiledSheets loader from the baked assets/tiled/png/<FLOOR_SET_FILES[set]>.png
+ *  sheets — see tiledSheetLayout.ts's FLOOR_SET_FILES. */
+let floorSheets: SpriteData[][][] = [];
 
-/** Set floor tile sprites (called once the baked floor.png sheet is fetched
- *  + sliced — see client/src/net/tiledSheets.ts). */
-export function setFloorSheets(sheets: SpriteData[][]): void {
+/** Set floor tile sprites (called once the baked floor sheets are fetched +
+ *  sliced — see client/src/net/tiledSheets.ts). */
+export function setFloorSheets(sheets: SpriteData[][][]): void {
   floorSheets = sheets;
 }
 
-/** Check whether the baked floor sheet has loaded yet. */
+/** Check whether the baked floor sheets have loaded yet. */
 export function hasFloorSprites(): boolean {
   return floorSheets.length > 0;
 }
 
-/** Get count of available floor patterns (0 until the baked sheet loads). */
-export function getFloorPatternCount(): number {
-  return floorSheets.length;
+/** Get count of available floor patterns in a set (0 until the baked sheet
+ *  for that set loads). */
+export function getFloorPatternCount(setIndex = 0): number {
+  return floorSheets[setIndex]?.length ?? 0;
 }
 
 const ERROR_TILE: SpriteData = Array.from({ length: TILE_SIZE }, () =>
@@ -37,16 +37,16 @@ const ERROR_TILE: SpriteData = Array.from({ length: TILE_SIZE }, () =>
 );
 
 /**
- * Get the pre-baked sprite for a floor pattern (1-based) + color — a direct
- * lookup into the closed 64-color palette (see paletteSwatchIndex), falling
- * back to the "Natural" (raw) tile when color is absent or unmatched.
+ * Get the pre-baked sprite for a floor pattern (1-based) + swatch index (an
+ * index into whichever palette `setIndex` bakes from, or null/undefined for
+ * "Natural") in a given floor set — a direct array lookup, no HSL math.
  */
 export function getColorizedFloorSprite(
   patternIndex: number,
-  color: ColorValue | null | undefined,
+  swatchIndex: number | null | undefined,
+  setIndex = 0,
 ): SpriteData {
-  const sheet = floorSheets[patternIndex - 1];
+  const sheet = floorSheets[setIndex]?.[patternIndex - 1];
   if (!sheet) return ERROR_TILE;
-  const swatchIdx = paletteSwatchIndex(FLOOR_PALETTE, color);
-  return sheet[swatchIdx === null ? 0 : swatchIdx + 1] ?? ERROR_TILE;
+  return sheet[swatchIndex == null ? 0 : swatchIndex + 1] ?? ERROR_TILE;
 }

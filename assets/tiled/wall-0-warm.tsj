@@ -1,10 +1,10 @@
 {
   "columns": 65,
-  "image": "png/wall-1.png",
+  "image": "png/wall-0-warm.png",
   "imagewidth": 1040,
   "imageheight": 512,
   "margin": 0,
-  "name": "wall-1",
+  "name": "wall-0-warm",
   "spacing": 0,
   "tilecount": 1040,
   "tiledversion": "1.11.0",
@@ -4419,7 +4419,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #2e222f",
+      "name": "Wall — #221f1c",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -4648,7 +4648,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #3e3546",
+      "name": "Wall — #403830",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -4877,7 +4877,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #625565",
+      "name": "Wall — #655749",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -5106,7 +5106,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #966c6c",
+      "name": "Wall — #897867",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -5335,7 +5335,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ab947a",
+      "name": "Wall — #a5998d",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -5564,7 +5564,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #694f62",
+      "name": "Wall — #bfb8b0",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -5793,7 +5793,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #7f708a",
+      "name": "Wall — #d9d6d3",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -6022,7 +6022,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #9babb2",
+      "name": "Wall — #f5f5f4",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -6251,7 +6251,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #c7dcd0",
+      "name": "Wall — #3f1216",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -6480,7 +6480,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ffffff",
+      "name": "Wall — #62181f",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -6709,7 +6709,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #6e2727",
+      "name": "Wall — #8b1d27",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -6938,7 +6938,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #b33831",
+      "name": "Wall — #b4222e",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -7167,7 +7167,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ea4f36",
+      "name": "Wall — #d92635",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -7396,7 +7396,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f57d4a",
+      "name": "Wall — #de545f",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -7625,7 +7625,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ae2334",
+      "name": "Wall — #df9097",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -7854,7 +7854,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #e83b3b",
+      "name": "Wall — #e6cbce",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -8083,7 +8083,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fb6b1d",
+      "name": "Wall — #57270f",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -8312,7 +8312,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f79617",
+      "name": "Wall — #863913",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -8541,7 +8541,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f9c22b",
+      "name": "Wall — #b84b14",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -8770,7 +8770,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #7a3045",
+      "name": "Wall — #df5916",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -8999,7 +8999,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #9e4539",
+      "name": "Wall — #e97135",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -9228,7 +9228,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cd683d",
+      "name": "Wall — #e7936a",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -9457,7 +9457,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #e6904e",
+      "name": "Wall — #e9bca5",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -9686,7 +9686,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fbb954",
+      "name": "Wall — #f0e2db",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -9915,7 +9915,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4c3e24",
+      "name": "Wall — #5d4214",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -10144,7 +10144,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #676633",
+      "name": "Wall — #8c6117",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -10373,7 +10373,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a2a947",
+      "name": "Wall — #c18215",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -10602,7 +10602,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #d5e04b",
+      "name": "Wall — #ec9c13",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -10831,7 +10831,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fbff86",
+      "name": "Wall — #ecab3c",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -11060,7 +11060,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #165a4c",
+      "name": "Wall — #eabe71",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -11289,7 +11289,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #239063",
+      "name": "Wall — #ebd4ad",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -11518,7 +11518,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #1ebc73",
+      "name": "Wall — #f3ede2",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -11747,7 +11747,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #91db69",
+      "name": "Wall — #433a19",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -11976,7 +11976,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cddf6c",
+      "name": "Wall — #6f5f20",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -12205,7 +12205,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #313638",
+      "name": "Wall — #a88e24",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -12434,7 +12434,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #374e4a",
+      "name": "Wall — #dbb724",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -12663,7 +12663,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #547e64",
+      "name": "Wall — #e0c452",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -12892,7 +12892,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #92a984",
+      "name": "Wall — #e2d18d",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -13121,7 +13121,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #b2ba90",
+      "name": "Wall — #e9e1c4",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -13350,7 +13350,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0b5e65",
+      "name": "Wall — #f4f2ec",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -13579,7 +13579,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0b8a8f",
+      "name": "Wall — #452017",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -13808,7 +13808,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0eaf9b",
+      "name": "Wall — #692b1c",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -14037,7 +14037,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #30e1b9",
+      "name": "Wall — #973820",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -14266,7 +14266,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #8ff8e2",
+      "name": "Wall — #c54526",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -14495,7 +14495,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #323353",
+      "name": "Wall — #d76447",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -14724,7 +14724,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #484a77",
+      "name": "Wall — #d99381",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -14953,7 +14953,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4d65b4",
+      "name": "Wall — #e1bfb7",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -15182,7 +15182,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4d9be6",
+      "name": "Wall — #f0e8e6",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -15411,7 +15411,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #8fd3ff",
+      "name": "Wall — #302317",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -15640,7 +15640,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #45293f",
+      "name": "Wall — #503721",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -15869,7 +15869,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #6b3e75",
+      "name": "Wall — #794f2a",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -16098,7 +16098,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #905ea9",
+      "name": "Wall — #a86c38",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -16327,7 +16327,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a884f3",
+      "name": "Wall — #c28b5b",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -16556,7 +16556,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #eaaded",
+      "name": "Wall — #ccab8e",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -16785,7 +16785,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #753c54",
+      "name": "Wall — #dacbbe",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -17014,7 +17014,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a24b6f",
+      "name": "Wall — #eeeae8",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -17243,7 +17243,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cf657f",
+      "name": "Wall — #492c27",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -17472,7 +17472,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ed8099",
+      "name": "Wall — #713b33",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -17701,7 +17701,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #831c5d",
+      "name": "Wall — #9b483b",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -17930,7 +17930,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #c32454",
+      "name": "Wall — #bf5a4a",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -18159,7 +18159,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f04f78",
+      "name": "Wall — #c97f73",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -18388,7 +18388,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f68181",
+      "name": "Wall — #d1a59e",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -18617,7 +18617,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fca790",
+      "name": "Wall — #dfcbc8",
       "tile": -1,
       "type": "edge",
       "wangtiles": [
@@ -18846,7 +18846,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fdcbb0",
+      "name": "Wall — #f2eeee",
       "tile": -1,
       "type": "edge",
       "wangtiles": [

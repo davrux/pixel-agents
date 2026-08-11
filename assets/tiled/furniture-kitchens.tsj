@@ -29,12 +29,6 @@
           "value": true
         },
         {
-          "name": "appliance",
-          "type": "string",
-          "value": "coffee",
-          "propertytype": "ApplianceKind"
-        },
-        {
           "name": "category",
           "type": "string",
           "value": "kitchens",
