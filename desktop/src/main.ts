@@ -17,6 +17,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
+import { registerTimeTrackingIpc, shutdownTimeTracking } from './timetracking/service.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -335,6 +336,7 @@ function showNotification(window: BrowserWindow | null, options: DesktopNotifica
 function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   registerMumbleIpc(getWindow);
+  registerTimeTrackingIpc();
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
   ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
   ipcMain.handle(channels.clearServerUrl, (): Promise<void> => clearStoredServerUrl());
@@ -468,7 +470,10 @@ if (!gotLock) {
 
   // Close the Mumble socket before quitting so the voice server sees a clean
   // leave rather than a half-open connection lingering until its ping timeout.
-  app.on('before-quit', () => shutdownMumble());
+  app.on('before-quit', () => {
+    shutdownMumble();
+    shutdownTimeTracking(); // stop the status poller
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

@@ -99,6 +99,56 @@ export interface MumbleApi {
   onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
 }
 
+// ── TimeTracking ─────────────────────────────────────────────────────────────
+// Desktop-only, exactly like Mumble: the credential and the connection to the
+// user's TimeTracking install live in the Electron main process, and this
+// renderer only ever sees derived status. WorkStatus/WorkAction are the same
+// types `@pixel/shared/timetracking` declares (structurally reconciled, as with
+// everything else in this file).
+
+export type WorkStatus = '' | 'working' | 'break' | 'homeoffice' | 'trip' | 'away';
+export type WorkAction = 'start' | 'pause' | 'end';
+
+export interface TimeTrackingSettings {
+  baseUrl: string;
+  username: string;
+}
+
+export interface TimeTrackingSettingsView extends TimeTrackingSettings {
+  hasPassword: boolean;
+  keychainAvailable: boolean;
+  /** True once a server address, a username AND a password are all stored. */
+  configured: boolean;
+}
+
+export type TimeTrackingSettingsPatch = Partial<TimeTrackingSettings> & {
+  /** '' clears the stored value; undefined leaves it untouched. */
+  password?: string;
+};
+
+export interface WorkSnapshot {
+  configured: boolean;
+  status: WorkStatus;
+  /** Epoch ms the running entry began, or null — the face ticks off this. */
+  runningSince: number | null;
+  completedMs: number;
+  /** Already resolved from the install's own rules by main. */
+  can: Record<WorkAction, boolean>;
+  asOf: number;
+  error: string | null;
+}
+
+export interface TimeTrackingApi {
+  getSettings(): Promise<TimeTrackingSettingsView>;
+  setSettings(
+    patch: TimeTrackingSettingsPatch,
+  ): Promise<{ ok: true; view: TimeTrackingSettingsView; displayName: string } | { ok: false; error: string }>;
+  disconnect(): Promise<TimeTrackingSettingsView>;
+  getStatus(): Promise<WorkSnapshot>;
+  book(action: WorkAction): Promise<{ ok: true; snapshot: WorkSnapshot } | { ok: false; error: string }>;
+  onStatus(cb: (snapshot: WorkSnapshot) => void): () => void;
+}
+
 /** An OS-level notification, shown by the Electron main process. */
 export interface DesktopNotification {
   title: string;
@@ -133,6 +183,8 @@ export interface PixelDesktopApi {
   notify(notification: DesktopNotification): Promise<void>;
   /** Mumble voice client (desktop only). */
   mumble: MumbleApi;
+  /** TimeTracking client (desktop only). */
+  timeTracking: TimeTrackingApi;
 }
 
 declare global {
@@ -160,6 +212,14 @@ export function desktop(): PixelDesktopApi {
  *  has to branch on `isDesktop()` itself. */
 export function mumbleApi(): MumbleApi | null {
   return isDesktop() ? (window.pixelDesktop?.mumble ?? null) : null;
+}
+
+/** The TimeTracking client, or null in the browser — where there is no main
+ *  process to hold the credential, so the feature genuinely does not exist
+ *  rather than merely being unconfigured. The time clock tells those two apart
+ *  by this being null (see TimeTrackingUI). */
+export function timeTrackingApi(): TimeTrackingApi | null {
+  return isDesktop() ? (window.pixelDesktop?.timeTracking ?? null) : null;
 }
 
 /**

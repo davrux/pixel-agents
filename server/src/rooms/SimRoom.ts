@@ -19,7 +19,8 @@ import {
   sanitizeTextLabelFontFamily,
   type CommandSpec,
 } from '@pixel/shared';
-import type { AgentEvent, ZoneConfig } from '@pixel/shared';
+import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
+import { isWorkStatus } from '@pixel/shared';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
@@ -54,7 +55,6 @@ import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBea
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
 import { can, type Capability } from '../permissions.js';
 import { presence } from '../presence.js';
-import { timeTracking } from '../timetracking/service.js';
 import { zoneInvites } from '../zoneInvites.js';
 import {
   controlBus,
@@ -182,6 +182,12 @@ function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, u
 
 const MAX_IFRAME_URL_LEN = 500;
 
+/** How long a self-reported working status is trusted without a fresh report.
+ *  The desktop app re-reports every 60 s, so this is several missed beats — long
+ *  enough to ride out a slow poll, short enough that a closed laptop stops
+ *  showing its owner as hard at work. */
+const WORK_STATUS_TTL_MS = 5 * 60_000;
+
 /** Parse+validate one Action (from an untrusted save payload) — https://
  *  only for iframe, closed sets of literal kinds elsewhere. Returns null for
  *  anything malformed (dropped, not defaulted). */
@@ -259,10 +265,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
-  /** Owning account per player avatar id — the reverse of `players`, kept so the
-   *  sync pass can look up per-user external state (TimeTracking status) without
-   *  walking every client each tick. */
-  private readonly playerUserIds = new Map<number, string>();
+  /**
+   * Self-reported TimeTracking status per player avatar id, with the epoch ms it
+   * arrived. Only the desktop app can produce one — it holds the credential and
+   * does the talking — so the server neither knows nor can verify what it means;
+   * it stores a glyph value and syncs it. See the 'workStatus' handler.
+   *
+   * The timestamp is what makes it self-healing: the desktop app re-reports on
+   * every poll, so a status that stops arriving (app quit, laptop asleep, the
+   * TimeTracking server gone) ages out instead of leaving a stale 🟢 over an
+   * empty chair.
+   */
+  private readonly workStatuses = new Map<number, { status: WorkStatus; at: number }>();
   /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
   private arcadeLobby?: { onLeave: (sessionId: string) => void };
   /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
@@ -643,14 +657,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
     this.players.set(client.sessionId, playerId);
-    if (userId) {
-      this.playerUserIds.set(playerId, userId);
-      // Warm this user's TimeTracking status now rather than waiting up to a
-      // poll interval, so their symbol is over their head from the moment they
-      // appear — including for someone who never opens the HUD. A no-op for the
-      // majority who have no TimeTracking account.
-      void timeTracking.refreshIfConfigured(userId);
-    }
     // Announce a real user's arrival to everyone in the zone. Agents/NPCs are
     // engine entities, never Colyseus clients, so they never reach here. Deduped
     // so a second tab of the same user in this zone doesn't re-announce.
@@ -698,7 +704,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.leaveAllMeetingRooms(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
-      this.playerUserIds.delete(playerId);
+      this.workStatuses.delete(playerId);
     }
     // Release this user's owned avatar from the zone once their last session
     // here is gone, so other clients can drop the no-longer-needed sprite data.
@@ -1395,6 +1401,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Personal viewer prefs — keyed per user (never global). Anonymous viewers
     // (open dev) keep them client-side only. The client applies them locally on
     // toggle regardless; the server write is just cross-device persistence.
+    // A player's desktop app reporting its TimeTracking status. Purely
+    // cosmetic — it grants nothing and unlocks nothing — which is what makes it
+    // safe to accept unverified: the server has no access to anyone's
+    // TimeTracking and could not check it even in principle. Validated to the
+    // closed WorkStatus set so the only thing a patched client can do is show a
+    // glyph that isn't true of it, and keyed by the sender's OWN avatar so it
+    // can never set anyone else's.
+    this.onMessage('workStatus', (client, msg: { status?: unknown }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      if (!isWorkStatus(msg?.status)) return;
+      this.workStatuses.set(id, { status: msg.status, at: Date.now() });
+    });
+
     this.onMessage('setSoundEnabled', (client, msg: { enabled?: boolean }) => {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'soundEnabled', !!msg?.enabled);
@@ -1971,6 +1991,19 @@ export class SimRoom extends Room<{ state: RoomState }> {
     }
   }
 
+  /** A player's reported working status, or '' once it has gone stale. The
+   *  desktop app re-reports every poll interval, so silence for several of them
+   *  means it is no longer speaking for this player and the glyph should go. */
+  private freshWorkStatus(id: number): WorkStatus {
+    const entry = this.workStatuses.get(id);
+    if (!entry) return '';
+    if (Date.now() - entry.at > WORK_STATUS_TTL_MS) {
+      this.workStatuses.delete(id);
+      return '';
+    }
+    return entry.status;
+  }
+
   /** The connected client controlling player avatar `id`, or undefined. */
   private clientForPlayer(id: number): Client | undefined {
     let sessionId: string | undefined;
@@ -2010,12 +2043,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.isSubagent = ch.isSubagent;
       cs.isPlayer = ch.isPlayer;
       cs.afk = ch.afk ?? false;
-      // Working status comes from the player's own TimeTracking account (agents
-      // and NPCs never have one, hence the isPlayer guard). Mirrored into the
-      // synced schema rather than fetched by each client so the hover overlay
-      // shows the same thing to everyone — and so nobody's client has to know
-      // anything about anyone else's TimeTracking.
-      cs.workStatus = ch.isPlayer ? timeTracking.statusOf(this.playerUserIds.get(ch.id) ?? '') : '';
+      // Working status, as last reported by this player's own desktop app
+      // (agents and NPCs have none, hence the isPlayer guard). Synced from here
+      // rather than fetched per client so the hover overlay shows everyone the
+      // same thing, and so nobody's client learns anything about anyone else's
+      // TimeTracking beyond the glyph.
+      cs.workStatus = ch.isPlayer ? this.freshWorkStatus(ch.id) : '';
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';

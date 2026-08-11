@@ -1,9 +1,11 @@
 /**
  * HTTP client for the TimeTracking REST API (Herrmann & Lenz, v2.29.8).
  *
- * Server-only by construction — it holds the user's credentials, so it must
- * never reach the client bundle. Everything the browser sees comes back through
- * timetrackingApi.ts as already-derived status.
+ * Runs in the Electron main process and nowhere else. It is the only code in
+ * the project that talks to the user's TimeTracking install, and the only code
+ * that ever sees their password — which never leaves this machine (see
+ * settings.ts). The renderer gets derived status over IPC; the pixel-agents
+ * server gets only the coarse `WorkStatus` glyph value.
  *
  * Only the "my" endpoints are used: they need nothing more than the
  * "Book my working time via app/desktop" + "Read my working time only"
@@ -15,7 +17,7 @@
  *   query params → the Java zoned form  `2017-01-08T17:00:00+01:00[Europe/Berlin]`
  *   request bodies → a plain offset timestamp `2017-01-08T17:00:00+01:00`
  */
-import type { AllowedBooking, BookingType } from '@pixel/shared';
+import type { AllowedBooking, BookingType } from './protocol.js';
 
 /** Per-request ceiling. A corporate TimeTracking box on a VPN can be slow, but
  *  the poller runs on a 60 s tick, so nothing may hang anywhere near that. */

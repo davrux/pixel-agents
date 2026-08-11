@@ -299,11 +299,13 @@ export class OfficeScene extends Phaser.Scene {
   private zoneLabelEl?: HTMLElement;
   private spaceBtn?: HTMLButtonElement;
   private assetsBtn?: HTMLButtonElement;
-  /** TimeTracking: the panel the time-clock furniture opens, and the controller
-   *  that owns both it and the connection block in Settings. There is no top-bar
-   *  entry — you punch in at the machine, like the arcade cabinet. */
+  /** TimeTracking: the panel the time-clock furniture opens (face + account
+   *  settings). There is no top-bar entry — you punch in at the machine, like
+   *  the arcade cabinet. `workStatus` is the last value reported to the server,
+   *  kept so a reconnect (or a zone change) can re-send it. */
   private timePanel?: HTMLDivElement;
   private timeTracking?: TimeTrackingUI;
+  private workStatus: WorkStatus = '';
   private moreBtn?: HTMLButtonElement;
   /** Grouped popover panels — all share the .pa-panel style; mutually exclusive. */
   private audioPanel?: HTMLDivElement;
@@ -647,6 +649,9 @@ export class OfficeScene extends Phaser.Scene {
       }
       this.room = await connect(zone, arriving);
       this.wireArcade(this.room); // server-backed arcade savegames over this room
+      // Each zone is its own room instance with its own state, so a status
+      // reported to the last one means nothing here — re-send what we have.
+      if (this.workStatus) this.reportWorkStatus(this.workStatus);
       // Auto-reconnect: if the connection drops (e.g. a server restart), wait for
       // the server to come back and reload — so the player is back in the game
       // without a manual refresh. A consented leave / our own navigation is skipped.
@@ -1137,13 +1142,30 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** Time clock, arrived at: show this player's own working time and punch
-   *  buttons. The machine is only the terminal — which account it books is the
-   *  player's own (Settings → TimeTracking), so any clock in any zone works and
-   *  two people at one machine each punch their own card. Unlike the arcade
-   *  this borrows no input: it is a panel beside the world, not an overlay over
-   *  it, so you can still walk away mid-punch. */
+   *  buttons. The machine is only the terminal — the account is the player's
+   *  own, held by their desktop app, so any clock in any zone works and two
+   *  people at one machine each punch their own card. Unlike the arcade this
+   *  borrows no input: it is a panel beside the world, not an overlay over it,
+   *  so you can still walk away mid-punch. */
   private openTimeClock(): void {
     void this.setMenu('time');
+  }
+
+  /**
+   * Tell the server this player's working status, so every viewer's hover
+   * overlay can show it. Deduped because the desktop app re-reports on every
+   * poll (a heartbeat the server uses to expire a status whose app went away),
+   * and re-sent on connect so a zone change doesn't blank the glyph.
+   *
+   * This is self-reported and therefore not authoritative — the server cannot
+   * check it, since it has no access to anyone's TimeTracking. That is the
+   * accepted cost of keeping the credential on the user's own machine: a
+   * patched client could claim to be working. It is a status glyph, not a
+   * permission.
+   */
+  private reportWorkStatus(status: WorkStatus): void {
+    this.workStatus = status;
+    this.room?.send('workStatus', { status });
   }
 
   /** Meeting-room kiosk, clicked/arrived-at: fetch the caller's OWN rooms first
@@ -2015,8 +2037,7 @@ export class OfficeScene extends Phaser.Scene {
     this.zoneBtn?.classList.toggle('active', menu === 'zone');
     this.spaceBtn?.classList.toggle('active', menu === 'space');
     this.assetsBtn?.classList.toggle('active', menu === 'assets');
-    // Only poll TimeTracking while the clock's panel is actually being looked at.
-    this.timeTracking?.setPanelOpen(menu === 'time');
+    this.timeTracking?.setOpen(menu === 'time');
     // The ☰ group owns Menu + its sub-panels (Settings / Help).
     this.moreBtn?.classList.toggle('active', menu === 'more' || menu === 'settings' || menu === 'help');
 
@@ -2270,15 +2291,18 @@ export class OfficeScene extends Phaser.Scene {
     const mxClose = mx.panel.querySelector<HTMLElement>('.pa-x');
     if (mxClose) mxClose.onclick = () => this.setMatrixOpen(false);
 
-    // The time clock's panel (today's total + punch buttons). Opened by walking
-    // up to the TIME_CLOCK furniture, never from the bar — see openTimeClock.
-    // The same controller builds the connection block appended to Settings
-    // below, so both views share one snapshot and one clock.
+    // The time clock's panel: the face plus its own account settings, opened by
+    // walking up to the TIME_CLOCK furniture and never from the bar (see
+    // openTimeClock). Desktop-only inside — see TimeTrackingUI.
     const tt = this.mkPanel('Time Clock', 'right');
     this.timePanel = tt.panel;
-    this.timeTracking = new TimeTrackingUI();
-    tt.body.appendChild(this.timeTracking.panelView);
-    void this.timeTracking.start();
+    this.timeTracking = new TimeTrackingUI({
+      // Whatever the desktop app learns about this player's working time, the
+      // server is told the one-word version of, so every viewer's hover overlay
+      // can show it. This is the ONLY thing that leaves the machine.
+      onStatus: (snapshot) => this.reportWorkStatus(snapshot.configured ? snapshot.status : ''),
+    });
+    tt.body.appendChild(this.timeTracking.el);
 
     // Zone travel panel.
     this.zonePanel = this.mkPanel('Travel', 'left').panel;
@@ -4285,10 +4309,6 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <button id="pa-change-server">Change server</button>`;
-    // TimeTracking connection details. Built by the HUD (createHud runs first),
-    // which also owns the ⏱ popover those details feed — so connecting here
-    // makes the chip appear without any further plumbing.
-    if (this.timeTracking) body.insertBefore(this.timeTracking.settingsView, body.querySelector('#pa-change-server'));
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
 

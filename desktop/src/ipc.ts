@@ -42,6 +42,15 @@ export const PIXEL_DESKTOP_CHANNELS = {
   mumbleSendAudio: 'pixelDesktop:mumbleSendAudio', // renderer -> main, send
   mumbleEvent: 'pixelDesktop:mumbleEvent', // main -> renderer
   mumbleAudio: 'pixelDesktop:mumbleAudio', // main -> renderer
+  // TimeTracking. Same shape as Mumble's control channels, and for the same
+  // reason: the credential and the third-party connection live in main, and the
+  // renderer only ever sees derived state.
+  ttGetSettings: 'pixelDesktop:ttGetSettings',
+  ttSetSettings: 'pixelDesktop:ttSetSettings',
+  ttDisconnect: 'pixelDesktop:ttDisconnect',
+  ttGetStatus: 'pixelDesktop:ttGetStatus',
+  ttBook: 'pixelDesktop:ttBook',
+  ttStatusEvent: 'pixelDesktop:ttStatusEvent', // main -> renderer
 } as const;
 
 export type PixelDesktopChannel =
@@ -148,6 +157,75 @@ export interface MumbleApi {
   onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
 }
 
+// ── TimeTracking ─────────────────────────────────────────────────────────────
+
+/** The coarse status the world shows. Mirrors `WorkStatus` in
+ *  `@pixel/shared/timetracking` — this workspace cannot import it (see the
+ *  header note), and the renderer reconciles the two structurally. */
+export type WorkStatus = '' | 'working' | 'break' | 'homeoffice' | 'trip' | 'away';
+
+/** The three buttons on the time clock's face. */
+export type WorkAction = 'start' | 'pause' | 'end';
+
+/** Connection details. The password is never part of this — see
+ *  TimeTrackingSettingsPatch for the write-only path. */
+export interface TimeTrackingSettings {
+  /** Origin of the TimeTracking install; '' when unconfigured. */
+  baseUrl: string;
+  username: string;
+}
+
+export interface TimeTrackingSettingsView extends TimeTrackingSettings {
+  hasPassword: boolean;
+  keychainAvailable: boolean;
+  /** True once a server address, a username AND a password are all stored. */
+  configured: boolean;
+}
+
+export type TimeTrackingSettingsPatch = Partial<TimeTrackingSettings> & {
+  /** '' clears the stored value; undefined leaves it untouched. */
+  password?: string;
+};
+
+/**
+ * Everything the clock's face needs, derived in main so the renderer needs to
+ * know nothing about booking types or the vendor's DFA of legal transitions.
+ */
+export interface WorkSnapshot {
+  configured: boolean;
+  status: WorkStatus;
+  /** Epoch ms the running entry began, or null. The face adds `now - this` so
+   *  its clock ticks without polling. */
+  runningSince: number | null;
+  /** Today's already-closed working time, in ms. */
+  completedMs: number;
+  /** Which buttons the install permits right now — already resolved from its
+   *  `allowedBookings`, so the renderer just enables or disables. */
+  can: Record<WorkAction, boolean>;
+  /** Epoch ms this snapshot was taken; 0 when never fetched. */
+  asOf: number;
+  /** Human-readable reason the last refresh failed, or null. */
+  error: string | null;
+}
+
+export interface TimeTrackingApi {
+  getSettings(): Promise<TimeTrackingSettingsView>;
+  /** Validates by really logging in; rejects (with a message) rather than
+   *  storing credentials that don't work. */
+  setSettings(
+    patch: TimeTrackingSettingsPatch,
+  ): Promise<{ ok: true; view: TimeTrackingSettingsView; displayName: string } | { ok: false; error: string }>;
+  /** Forget the stored account entirely. */
+  disconnect(): Promise<TimeTrackingSettingsView>;
+  /** Cached snapshot, refreshed first if stale. */
+  getStatus(): Promise<WorkSnapshot>;
+  book(action: WorkAction): Promise<{ ok: true; snapshot: WorkSnapshot } | { ok: false; error: string }>;
+  /** Pushed whenever main refreshes the status (its own poll, or a booking), so
+   *  the renderer can forward it to the pixel-agents server without polling
+   *  main in turn. Returns an unsubscribe function. */
+  onStatus(cb: (snapshot: WorkSnapshot) => void): () => void;
+}
+
 /**
  * The typed API injected as `window.pixelDesktop` in the desktop renderer.
  * Absent in the browser build, where `isDesktop()` is therefore false.
@@ -180,4 +258,6 @@ export interface PixelDesktopApi {
   notify(notification: DesktopNotification): Promise<void>;
   /** Mumble voice client (protocol + TLS live in main; audio lives here). */
   mumble: MumbleApi;
+  /** TimeTracking (credential + third-party HTTP live in main). */
+  timeTracking: TimeTrackingApi;
 }
