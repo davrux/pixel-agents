@@ -45,8 +45,6 @@ export interface RegistryTileset {
 
 export interface TiledRegistry {
   tilesets: RegistryTileset[];
-  /** Resolve a global GID (0 = empty) to its tileset + local tile class/properties. */
-  resolve(gid: number): { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean> } | null;
   /** Find the tileset matching `file` (e.g. "floor.tsj"), if loaded. */
   bySource(file: string): RegistryTileset | undefined;
 }
@@ -84,19 +82,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     nextGid += json.tilecount;
   }
 
-  function resolve(gid: number) {
-    if (gid <= 0) return null;
-    for (const ts of tilesets) {
-      if (gid >= ts.firstgid && gid < ts.firstgid + ts.tileCount) {
-        const localId = gid - ts.firstgid;
-        const tile = ts.tiles[localId];
-        return { tileset: ts, localId, class: tile.class, props: tile.props };
-      }
-    }
-    return null;
-  }
-
-  return { tilesets, resolve, bySource: (file) => tilesets.find((t) => t.file === file) };
+  return { tilesets, bySource: (file) => tilesets.find((t) => t.file === file) };
 }
 
 /** Global GID for a tile matching `predicate` within tileset `file`, or null
@@ -120,4 +106,39 @@ export function gidAt(registry: TiledRegistry, file: string, localId: number): n
   const ts = registry.bySource(file);
   if (!ts || localId < 0 || localId >= ts.tileCount) return null;
   return ts.firstgid + localId;
+}
+
+/** Build a GID resolver for one specific .tmj being imported, using THAT
+ *  file's own `tilesets` array (each entry's real `firstgid`/`source`,
+ *  exactly as Tiled last wrote them) instead of `TiledRegistry.resolve`'s
+ *  own recomputed-from-disk-order firstgid ranges. Those only agree with the
+ *  imported file's actual ranges as long as no one has ever added, removed,
+ *  or reordered a tileset reference via Tiled's own Tileset panel — which a
+ *  human editing a .tmj directly in Tiled (the whole point of this bridge)
+ *  is free to do at any time, with Tiled updating `firstgid`s to match but
+ *  our own registry having no way to know. Per-file tile class/props are
+ *  still read from `registry` (order-independent — keyed by filename), only
+ *  the GID→file/localId mapping itself comes from the .tmj. */
+export function resolveFromTmjTilesets(
+  registry: TiledRegistry,
+  tmjTilesets: Array<{ firstgid: number; source: string }>,
+): (gid: number) => { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean> } | null {
+  const entries = tmjTilesets
+    .map((t) => {
+      const ts = registry.bySource(path.basename(String(t.source)));
+      return ts ? { firstgid: Number(t.firstgid), tileset: ts } : null;
+    })
+    .filter((e): e is { firstgid: number; tileset: RegistryTileset } => e !== null);
+
+  return (gid: number) => {
+    if (gid <= 0) return null;
+    for (const { firstgid, tileset } of entries) {
+      if (gid >= firstgid && gid < firstgid + tileset.tileCount) {
+        const localId = gid - firstgid;
+        const tile = tileset.tiles[localId];
+        return { tileset, localId, class: tile?.class, props: tile?.props ?? {} };
+      }
+    }
+    return null;
+  };
 }

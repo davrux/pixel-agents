@@ -11,6 +11,7 @@ import { PNG } from 'pngjs';
 
 import { appStore } from '../appStore.js';
 import { LayoutStore } from '../layoutStore.js';
+import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions } from '../layoutSanitize.js';
 import { importTmjToLayout } from './mapBridge.js';
 import { type TiledRegistry } from './tiledRegistry.js';
 import { serializeLayout, deserializeLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -65,7 +66,12 @@ export async function importZoneTmjFile(
   if (!normalized) {
     throw new Error(`Imported layout from ${tmjPath} failed to (de)serialize`);
   }
-  layoutStore.saveAs(zoneId, layoutName, normalized as unknown as Record<string, unknown>, Date.now());
+  // Same content checks as the live save/save-as path (SimRoom.ts) — a
+  // hand-edited .tmj is no more trusted than a patched client, so texts/
+  // images/actions get the same caps and https://-only enforcement before
+  // ever reaching the DB.
+  const sanitized = sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(normalized as unknown as Record<string, unknown>)));
+  layoutStore.saveAs(zoneId, layoutName, sanitized, Date.now());
   return {
     cols: normalized.cols,
     rows: normalized.rows,

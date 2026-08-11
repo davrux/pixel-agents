@@ -28,7 +28,7 @@ import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { findGid, gidAt, type TiledRegistry } from './tiledRegistry.js';
+import { findGid, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
 import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
 
 type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
@@ -389,6 +389,10 @@ export function importTmjToLayout(
   const mapProps: PropBag = Object.fromEntries(((tmj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
   const mapName = typeof mapProps.mapName === 'string' && mapProps.mapName ? mapProps.mapName : null;
 
+  // Resolve GIDs against THIS map's own tileset firstgid/source list, not
+  // registry.resolve's disk-order assumption — see resolveFromTmjTilesets.
+  const resolveGid = resolveFromTmjTilesets(registry, (tmj.tilesets as Array<{ firstgid: number; source: string }>) ?? []);
+
   // Classified by the layer's own `class` (GroundLayer/CollisionLayer — see
   // Pixels.tiled-project), not by name — same reasoning as the object
   // classification below: a mapper renaming these tile layers must not
@@ -422,7 +426,7 @@ export function importTmjToLayout(
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const gid = ground[i] ?? 0;
-    const resolved = registry.resolve(gid);
+    const resolved = resolveGid(gid);
     // Classify by Tiled's own `class` (FloorTile/WallTile — see
     // Pixels.tiled-project), not by which file a tile lives in — a mapper
     // reorganizing tileset files must not silently break this (see
