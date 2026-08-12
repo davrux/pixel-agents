@@ -68,15 +68,26 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
 }
 
 /**
- * Parse a single wall PNG (64×128, 4×4 grid of 16×32 pieces) into 16 bitmask sprites.
- * Piece at bitmask M: col = M % 4, row = floor(M / 4).
+ * Parse a wall PNG (a 4-wide grid of 16×32 pieces) into its wall sprites.
+ * Piece at index I: col = I % 4, row = floor(I / 4).
+ *
+ * The piece COUNT comes from the image's own height rather than being fixed at
+ * WALL_BITMASK_COUNT, because a set may carry extra hand-painted-only pieces
+ * after the 16 adjacency ones — the metro set's north-wall faces, see
+ * server/scripts/gen-metro-source-art.mts. Indices 0-15 are always the
+ * bitmask pieces; anything past that is reachable only via an explicitly
+ * authored OfficeLayout.tileWallMask.
  */
 export function parseWallPng(pngBuffer: Buffer): string[][][] {
   const png = PNG.sync.read(pngBuffer);
   const sprites: string[][][] = [];
-  for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
-    const ox = (mask % WALL_GRID_COLS) * WALL_PIECE_WIDTH;
-    const oy = Math.floor(mask / WALL_GRID_COLS) * WALL_PIECE_HEIGHT;
+  const pieceCount = Math.floor(png.height / WALL_PIECE_HEIGHT) * WALL_GRID_COLS;
+  if (pieceCount < WALL_BITMASK_COUNT) {
+    throw new Error(`wall PNG is ${png.width}×${png.height} — too small for ${WALL_BITMASK_COUNT} bitmask pieces`);
+  }
+  for (let piece = 0; piece < pieceCount; piece++) {
+    const ox = (piece % WALL_GRID_COLS) * WALL_PIECE_WIDTH;
+    const oy = Math.floor(piece / WALL_GRID_COLS) * WALL_PIECE_HEIGHT;
     const sprite: string[][] = [];
     for (let r = 0; r < WALL_PIECE_HEIGHT; r++) {
       const row: string[] = [];

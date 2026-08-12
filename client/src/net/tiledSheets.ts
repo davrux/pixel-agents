@@ -99,7 +99,21 @@ export async function loadTiledSheets(): Promise<void> {
     setFloorSheets(
       floorBitmaps.map((bitmap) => sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H))),
     );
-    setWallSheets(wallBitmaps.map((bitmap) => sliceSheet(bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT, WALL_TILE_SPACING)));
+    // Row count per wall set comes from the sheet itself, same as floors above:
+    // a set may carry extra hand-painted-only pieces after the 16 adjacency
+    // ones (the metro set's north-wall faces — see
+    // server/src/core/assets/pngDecoder.ts's parseWallPng).
+    setWallSheets(
+      wallBitmaps.map((bitmap) =>
+        sliceSheet(
+          bitmap,
+          WALL_TILE_W,
+          WALL_TILE_H,
+          Math.round((bitmap.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
+          WALL_TILE_SPACING,
+        ),
+      ),
+    );
   } catch (err) {
     console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);
   }

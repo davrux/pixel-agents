@@ -32,7 +32,7 @@ import * as path from 'node:path';
 
 import { decodeFloorPng, parseWallPng } from '../src/core/assets/pngDecoder.js';
 import { averageLightness, getColorizedSprite } from '../../shared/src/office/colorize.js';
-import { PALETTE_64, WARM_PALETTE_64, swatchColor } from '../../shared/src/office/palettes.js';
+import { ENDESGA_PALETTE_64, PALETTE_64, WARM_PALETTE_64, swatchColor } from '../../shared/src/office/palettes.js';
 import {
   FLOOR_TILE_W,
   FLOOR_TILE_H,
@@ -193,18 +193,20 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   const referenceLightness = averageLightness(raw.flat());
   const pal = checkPaletteSize(palette, `wall set "${outputName}"`);
   const tiles: SpriteData[] = [];
-  for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
-    const piece = raw[mask];
+  // One row per piece the source actually has — the 16 adjacency pieces plus
+  // whatever hand-painted-only ones follow them (the metro set's north-wall
+  // faces, see parseWallPng and gen-metro-source-art.mts).
+  raw.forEach((piece, index) => {
     tiles.push(piece);
     for (const sw of pal) {
-      tiles.push(getColorizedSprite(`bake-${outputName}-${mask}-${sw.h}-${sw.s}`, piece, swatchColor(sw), referenceLightness));
+      tiles.push(getColorizedSprite(`bake-${outputName}-${index}-${sw.h}-${sw.s}`, piece, swatchColor(sw), referenceLightness));
     }
-  }
+  });
   const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns, WALL_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
-  const imageH = 16 * WALL_H + (16 - 1) * WALL_TILE_SPACING;
+  const imageH = raw.length * WALL_H + (raw.length - 1) * WALL_TILE_SPACING;
   const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/${outputName}.png`, imageW, imageH, 'WallTile', outputName, WALL_TILE_SPACING) as Record<
     string,
     unknown
@@ -243,13 +245,19 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
     // actual color.
     tile: 15 * columns + col,
     type: 'edge',
-    wangtiles: Array.from({ length: 16 }, (_, mask) => ({
+    // Only the 16 adjacency pieces belong to the terrain brush — a set's extra
+    // hand-painted pieces (north-wall faces) have no edge pattern to match and
+    // must never be substituted in by autotiling.
+    wangtiles: Array.from({ length: WALL_BITMASK_COUNT }, (_, mask) => ({
       tileid: mask * columns + col,
       wangid: wangIdForMask(mask),
     })),
   }));
   fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
-  console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, 16 bitmasks × ${columns} colors)`);
+  const extra = raw.length - WALL_BITMASK_COUNT;
+  console.log(
+    `✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${WALL_BITMASK_COUNT} bitmasks${extra > 0 ? ` + ${extra} face` : ''} × ${columns} colors)`,
+  );
 }
 
 fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
@@ -261,3 +269,6 @@ bakeWallSheet('wall-0-warm', 'wall_0.png', WARM_PALETTE_64);
 bakeWallSheet('wall-1-warm', 'wall_1.png', WARM_PALETTE_64);
 bakeFloorSheet('floor-metro-resurrect64', METRO_FLOOR_PATTERN_FILES, PALETTE_64);
 bakeWallSheet('wall-metro-resurrect64', 'wall_metro.png', PALETTE_64);
+bakeFloorSheet('floor-endesga', BASE_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
+bakeFloorSheet('floor-metro-endesga', METRO_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
+bakeWallSheet('wall-metro-endesga', 'wall_metro.png', ENDESGA_PALETTE_64);

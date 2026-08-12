@@ -1,10 +1,10 @@
 {
   "columns": 65,
-  "image": "png/wall-metro-resurrect64.png",
+  "image": "png/wall-metro-endesga.png",
   "imagewidth": 1424,
   "imageheight": 754,
   "margin": 0,
-  "name": "wall-metro-resurrect64",
+  "name": "wall-metro-endesga",
   "spacing": 6,
   "tilecount": 1300,
   "tiledversion": "1.11.0",
@@ -5447,7 +5447,7 @@
     {
       "colors": [
         {
-          "color": "#2e222f",
+          "color": "#ff0040",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -5459,7 +5459,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #2e222f",
+      "name": "Wall — #ff0040",
       "tile": 976,
       "type": "edge",
       "wangtiles": [
@@ -5676,7 +5676,7 @@
     {
       "colors": [
         {
-          "color": "#3e3546",
+          "color": "#131313",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -5688,7 +5688,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #3e3546",
+      "name": "Wall — #131313",
       "tile": 977,
       "type": "edge",
       "wangtiles": [
@@ -5905,7 +5905,7 @@
     {
       "colors": [
         {
-          "color": "#625565",
+          "color": "#1b1b1b",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -5917,7 +5917,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #625565",
+      "name": "Wall — #1b1b1b",
       "tile": 978,
       "type": "edge",
       "wangtiles": [
@@ -6134,7 +6134,7 @@
     {
       "colors": [
         {
-          "color": "#966c6c",
+          "color": "#272727",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -6146,7 +6146,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #966c6c",
+      "name": "Wall — #272727",
       "tile": 979,
       "type": "edge",
       "wangtiles": [
@@ -6363,7 +6363,7 @@
     {
       "colors": [
         {
-          "color": "#ab947a",
+          "color": "#3d3d3d",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -6375,7 +6375,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ab947a",
+      "name": "Wall — #3d3d3d",
       "tile": 980,
       "type": "edge",
       "wangtiles": [
@@ -6592,7 +6592,7 @@
     {
       "colors": [
         {
-          "color": "#694f62",
+          "color": "#5d5d5d",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -6604,7 +6604,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #694f62",
+      "name": "Wall — #5d5d5d",
       "tile": 981,
       "type": "edge",
       "wangtiles": [
@@ -6821,7 +6821,7 @@
     {
       "colors": [
         {
-          "color": "#7f708a",
+          "color": "#858585",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -6833,7 +6833,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #7f708a",
+      "name": "Wall — #858585",
       "tile": 982,
       "type": "edge",
       "wangtiles": [
@@ -7050,7 +7050,7 @@
     {
       "colors": [
         {
-          "color": "#9babb2",
+          "color": "#b4b4b4",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -7062,7 +7062,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #9babb2",
+      "name": "Wall — #b4b4b4",
       "tile": 983,
       "type": "edge",
       "wangtiles": [
@@ -7279,7 +7279,7 @@
     {
       "colors": [
         {
-          "color": "#c7dcd0",
+          "color": "#ffffff",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -7291,7 +7291,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #c7dcd0",
+      "name": "Wall — #ffffff",
       "tile": 984,
       "type": "edge",
       "wangtiles": [
@@ -7508,7 +7508,7 @@
     {
       "colors": [
         {
-          "color": "#ffffff",
+          "color": "#c7cfdd",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -7520,7 +7520,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ffffff",
+      "name": "Wall — #c7cfdd",
       "tile": 985,
       "type": "edge",
       "wangtiles": [
@@ -7737,7 +7737,7 @@
     {
       "colors": [
         {
-          "color": "#6e2727",
+          "color": "#92a1b9",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -7749,7 +7749,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #6e2727",
+      "name": "Wall — #92a1b9",
       "tile": 986,
       "type": "edge",
       "wangtiles": [
@@ -7966,7 +7966,7 @@
     {
       "colors": [
         {
-          "color": "#b33831",
+          "color": "#657392",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -7978,7 +7978,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #b33831",
+      "name": "Wall — #657392",
       "tile": 987,
       "type": "edge",
       "wangtiles": [
@@ -8195,7 +8195,7 @@
     {
       "colors": [
         {
-          "color": "#ea4f36",
+          "color": "#424c6e",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -8207,7 +8207,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ea4f36",
+      "name": "Wall — #424c6e",
       "tile": 988,
       "type": "edge",
       "wangtiles": [
@@ -8424,7 +8424,7 @@
     {
       "colors": [
         {
-          "color": "#f57d4a",
+          "color": "#2a2f4e",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -8436,7 +8436,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f57d4a",
+      "name": "Wall — #2a2f4e",
       "tile": 989,
       "type": "edge",
       "wangtiles": [
@@ -8653,7 +8653,7 @@
     {
       "colors": [
         {
-          "color": "#ae2334",
+          "color": "#1a1932",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -8665,7 +8665,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ae2334",
+      "name": "Wall — #1a1932",
       "tile": 990,
       "type": "edge",
       "wangtiles": [
@@ -8882,7 +8882,7 @@
     {
       "colors": [
         {
-          "color": "#e83b3b",
+          "color": "#0e071b",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -8894,7 +8894,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #e83b3b",
+      "name": "Wall — #0e071b",
       "tile": 991,
       "type": "edge",
       "wangtiles": [
@@ -9111,7 +9111,7 @@
     {
       "colors": [
         {
-          "color": "#fb6b1d",
+          "color": "#1c121c",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -9123,7 +9123,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fb6b1d",
+      "name": "Wall — #1c121c",
       "tile": 992,
       "type": "edge",
       "wangtiles": [
@@ -9340,7 +9340,7 @@
     {
       "colors": [
         {
-          "color": "#f79617",
+          "color": "#391f21",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -9352,7 +9352,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f79617",
+      "name": "Wall — #391f21",
       "tile": 993,
       "type": "edge",
       "wangtiles": [
@@ -9569,7 +9569,7 @@
     {
       "colors": [
         {
-          "color": "#f9c22b",
+          "color": "#5d2c28",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -9581,7 +9581,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f9c22b",
+      "name": "Wall — #5d2c28",
       "tile": 994,
       "type": "edge",
       "wangtiles": [
@@ -9798,7 +9798,7 @@
     {
       "colors": [
         {
-          "color": "#7a3045",
+          "color": "#8a4836",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -9810,7 +9810,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #7a3045",
+      "name": "Wall — #8a4836",
       "tile": 995,
       "type": "edge",
       "wangtiles": [
@@ -10027,7 +10027,7 @@
     {
       "colors": [
         {
-          "color": "#9e4539",
+          "color": "#bf6f4a",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -10039,7 +10039,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #9e4539",
+      "name": "Wall — #bf6f4a",
       "tile": 996,
       "type": "edge",
       "wangtiles": [
@@ -10256,7 +10256,7 @@
     {
       "colors": [
         {
-          "color": "#cd683d",
+          "color": "#e69c69",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -10268,7 +10268,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cd683d",
+      "name": "Wall — #e69c69",
       "tile": 997,
       "type": "edge",
       "wangtiles": [
@@ -10485,7 +10485,7 @@
     {
       "colors": [
         {
-          "color": "#e6904e",
+          "color": "#f6ca9f",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -10497,7 +10497,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #e6904e",
+      "name": "Wall — #f6ca9f",
       "tile": 998,
       "type": "edge",
       "wangtiles": [
@@ -10714,7 +10714,7 @@
     {
       "colors": [
         {
-          "color": "#fbb954",
+          "color": "#f9e6cf",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -10726,7 +10726,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fbb954",
+      "name": "Wall — #f9e6cf",
       "tile": 999,
       "type": "edge",
       "wangtiles": [
@@ -10943,7 +10943,7 @@
     {
       "colors": [
         {
-          "color": "#4c3e24",
+          "color": "#edab50",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -10955,7 +10955,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4c3e24",
+      "name": "Wall — #edab50",
       "tile": 1000,
       "type": "edge",
       "wangtiles": [
@@ -11172,7 +11172,7 @@
     {
       "colors": [
         {
-          "color": "#676633",
+          "color": "#e07438",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -11184,7 +11184,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #676633",
+      "name": "Wall — #e07438",
       "tile": 1001,
       "type": "edge",
       "wangtiles": [
@@ -11401,7 +11401,7 @@
     {
       "colors": [
         {
-          "color": "#a2a947",
+          "color": "#c64524",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -11413,7 +11413,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a2a947",
+      "name": "Wall — #c64524",
       "tile": 1002,
       "type": "edge",
       "wangtiles": [
@@ -11630,7 +11630,7 @@
     {
       "colors": [
         {
-          "color": "#d5e04b",
+          "color": "#8e251d",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -11642,7 +11642,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #d5e04b",
+      "name": "Wall — #8e251d",
       "tile": 1003,
       "type": "edge",
       "wangtiles": [
@@ -11859,7 +11859,7 @@
     {
       "colors": [
         {
-          "color": "#fbff86",
+          "color": "#ff5000",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -11871,7 +11871,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fbff86",
+      "name": "Wall — #ff5000",
       "tile": 1004,
       "type": "edge",
       "wangtiles": [
@@ -12088,7 +12088,7 @@
     {
       "colors": [
         {
-          "color": "#165a4c",
+          "color": "#ed7614",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -12100,7 +12100,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #165a4c",
+      "name": "Wall — #ed7614",
       "tile": 1005,
       "type": "edge",
       "wangtiles": [
@@ -12317,7 +12317,7 @@
     {
       "colors": [
         {
-          "color": "#239063",
+          "color": "#ffa214",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -12329,7 +12329,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #239063",
+      "name": "Wall — #ffa214",
       "tile": 1006,
       "type": "edge",
       "wangtiles": [
@@ -12546,7 +12546,7 @@
     {
       "colors": [
         {
-          "color": "#1ebc73",
+          "color": "#ffc825",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -12558,7 +12558,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #1ebc73",
+      "name": "Wall — #ffc825",
       "tile": 1007,
       "type": "edge",
       "wangtiles": [
@@ -12775,7 +12775,7 @@
     {
       "colors": [
         {
-          "color": "#91db69",
+          "color": "#ffeb57",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -12787,7 +12787,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #91db69",
+      "name": "Wall — #ffeb57",
       "tile": 1008,
       "type": "edge",
       "wangtiles": [
@@ -13004,7 +13004,7 @@
     {
       "colors": [
         {
-          "color": "#cddf6c",
+          "color": "#d3fc7e",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -13016,7 +13016,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cddf6c",
+      "name": "Wall — #d3fc7e",
       "tile": 1009,
       "type": "edge",
       "wangtiles": [
@@ -13233,7 +13233,7 @@
     {
       "colors": [
         {
-          "color": "#313638",
+          "color": "#99e65f",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -13245,7 +13245,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #313638",
+      "name": "Wall — #99e65f",
       "tile": 1010,
       "type": "edge",
       "wangtiles": [
@@ -13462,7 +13462,7 @@
     {
       "colors": [
         {
-          "color": "#374e4a",
+          "color": "#5ac54f",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -13474,7 +13474,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #374e4a",
+      "name": "Wall — #5ac54f",
       "tile": 1011,
       "type": "edge",
       "wangtiles": [
@@ -13691,7 +13691,7 @@
     {
       "colors": [
         {
-          "color": "#547e64",
+          "color": "#33984b",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -13703,7 +13703,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #547e64",
+      "name": "Wall — #33984b",
       "tile": 1012,
       "type": "edge",
       "wangtiles": [
@@ -13920,7 +13920,7 @@
     {
       "colors": [
         {
-          "color": "#92a984",
+          "color": "#1e6f50",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -13932,7 +13932,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #92a984",
+      "name": "Wall — #1e6f50",
       "tile": 1013,
       "type": "edge",
       "wangtiles": [
@@ -14149,7 +14149,7 @@
     {
       "colors": [
         {
-          "color": "#b2ba90",
+          "color": "#134c4c",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -14161,7 +14161,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #b2ba90",
+      "name": "Wall — #134c4c",
       "tile": 1014,
       "type": "edge",
       "wangtiles": [
@@ -14378,7 +14378,7 @@
     {
       "colors": [
         {
-          "color": "#0b5e65",
+          "color": "#0c2e44",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -14390,7 +14390,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0b5e65",
+      "name": "Wall — #0c2e44",
       "tile": 1015,
       "type": "edge",
       "wangtiles": [
@@ -14607,7 +14607,7 @@
     {
       "colors": [
         {
-          "color": "#0b8a8f",
+          "color": "#00396d",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -14619,7 +14619,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0b8a8f",
+      "name": "Wall — #00396d",
       "tile": 1016,
       "type": "edge",
       "wangtiles": [
@@ -14836,7 +14836,7 @@
     {
       "colors": [
         {
-          "color": "#0eaf9b",
+          "color": "#0069aa",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -14848,7 +14848,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #0eaf9b",
+      "name": "Wall — #0069aa",
       "tile": 1017,
       "type": "edge",
       "wangtiles": [
@@ -15065,7 +15065,7 @@
     {
       "colors": [
         {
-          "color": "#30e1b9",
+          "color": "#0098dc",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -15077,7 +15077,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #30e1b9",
+      "name": "Wall — #0098dc",
       "tile": 1018,
       "type": "edge",
       "wangtiles": [
@@ -15294,7 +15294,7 @@
     {
       "colors": [
         {
-          "color": "#8ff8e2",
+          "color": "#00cdf9",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -15306,7 +15306,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #8ff8e2",
+      "name": "Wall — #00cdf9",
       "tile": 1019,
       "type": "edge",
       "wangtiles": [
@@ -15523,7 +15523,7 @@
     {
       "colors": [
         {
-          "color": "#323353",
+          "color": "#0cf1ff",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -15535,7 +15535,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #323353",
+      "name": "Wall — #0cf1ff",
       "tile": 1020,
       "type": "edge",
       "wangtiles": [
@@ -15752,7 +15752,7 @@
     {
       "colors": [
         {
-          "color": "#484a77",
+          "color": "#94fdff",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -15764,7 +15764,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #484a77",
+      "name": "Wall — #94fdff",
       "tile": 1021,
       "type": "edge",
       "wangtiles": [
@@ -15981,7 +15981,7 @@
     {
       "colors": [
         {
-          "color": "#4d65b4",
+          "color": "#fdd2ed",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -15993,7 +15993,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4d65b4",
+      "name": "Wall — #fdd2ed",
       "tile": 1022,
       "type": "edge",
       "wangtiles": [
@@ -16210,7 +16210,7 @@
     {
       "colors": [
         {
-          "color": "#4d9be6",
+          "color": "#f389f5",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -16222,7 +16222,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #4d9be6",
+      "name": "Wall — #f389f5",
       "tile": 1023,
       "type": "edge",
       "wangtiles": [
@@ -16439,7 +16439,7 @@
     {
       "colors": [
         {
-          "color": "#8fd3ff",
+          "color": "#db3ffd",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -16451,7 +16451,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #8fd3ff",
+      "name": "Wall — #db3ffd",
       "tile": 1024,
       "type": "edge",
       "wangtiles": [
@@ -16668,7 +16668,7 @@
     {
       "colors": [
         {
-          "color": "#45293f",
+          "color": "#7a09fa",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -16680,7 +16680,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #45293f",
+      "name": "Wall — #7a09fa",
       "tile": 1025,
       "type": "edge",
       "wangtiles": [
@@ -16897,7 +16897,7 @@
     {
       "colors": [
         {
-          "color": "#6b3e75",
+          "color": "#3003d9",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -16909,7 +16909,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #6b3e75",
+      "name": "Wall — #3003d9",
       "tile": 1026,
       "type": "edge",
       "wangtiles": [
@@ -17126,7 +17126,7 @@
     {
       "colors": [
         {
-          "color": "#905ea9",
+          "color": "#0c0293",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -17138,7 +17138,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #905ea9",
+      "name": "Wall — #0c0293",
       "tile": 1027,
       "type": "edge",
       "wangtiles": [
@@ -17355,7 +17355,7 @@
     {
       "colors": [
         {
-          "color": "#a884f3",
+          "color": "#03193f",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -17367,7 +17367,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a884f3",
+      "name": "Wall — #03193f",
       "tile": 1028,
       "type": "edge",
       "wangtiles": [
@@ -17584,7 +17584,7 @@
     {
       "colors": [
         {
-          "color": "#eaaded",
+          "color": "#3b1443",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -17596,7 +17596,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #eaaded",
+      "name": "Wall — #3b1443",
       "tile": 1029,
       "type": "edge",
       "wangtiles": [
@@ -17813,7 +17813,7 @@
     {
       "colors": [
         {
-          "color": "#753c54",
+          "color": "#622461",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -17825,7 +17825,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #753c54",
+      "name": "Wall — #622461",
       "tile": 1030,
       "type": "edge",
       "wangtiles": [
@@ -18042,7 +18042,7 @@
     {
       "colors": [
         {
-          "color": "#a24b6f",
+          "color": "#93388f",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -18054,7 +18054,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #a24b6f",
+      "name": "Wall — #93388f",
       "tile": 1031,
       "type": "edge",
       "wangtiles": [
@@ -18271,7 +18271,7 @@
     {
       "colors": [
         {
-          "color": "#cf657f",
+          "color": "#ca52c9",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -18283,7 +18283,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #cf657f",
+      "name": "Wall — #ca52c9",
       "tile": 1032,
       "type": "edge",
       "wangtiles": [
@@ -18500,7 +18500,7 @@
     {
       "colors": [
         {
-          "color": "#ed8099",
+          "color": "#c85086",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -18512,7 +18512,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #ed8099",
+      "name": "Wall — #c85086",
       "tile": 1033,
       "type": "edge",
       "wangtiles": [
@@ -18729,7 +18729,7 @@
     {
       "colors": [
         {
-          "color": "#831c5d",
+          "color": "#f68187",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -18741,7 +18741,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #831c5d",
+      "name": "Wall — #f68187",
       "tile": 1034,
       "type": "edge",
       "wangtiles": [
@@ -18958,7 +18958,7 @@
     {
       "colors": [
         {
-          "color": "#c32454",
+          "color": "#f5555d",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -18970,7 +18970,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #c32454",
+      "name": "Wall — #f5555d",
       "tile": 1035,
       "type": "edge",
       "wangtiles": [
@@ -19187,7 +19187,7 @@
     {
       "colors": [
         {
-          "color": "#f04f78",
+          "color": "#ea323c",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -19199,7 +19199,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f04f78",
+      "name": "Wall — #ea323c",
       "tile": 1036,
       "type": "edge",
       "wangtiles": [
@@ -19416,7 +19416,7 @@
     {
       "colors": [
         {
-          "color": "#f68181",
+          "color": "#c42430",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -19428,7 +19428,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #f68181",
+      "name": "Wall — #c42430",
       "tile": 1037,
       "type": "edge",
       "wangtiles": [
@@ -19645,7 +19645,7 @@
     {
       "colors": [
         {
-          "color": "#fca790",
+          "color": "#891e2b",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -19657,7 +19657,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fca790",
+      "name": "Wall — #891e2b",
       "tile": 1038,
       "type": "edge",
       "wangtiles": [
@@ -19874,7 +19874,7 @@
     {
       "colors": [
         {
-          "color": "#fdcbb0",
+          "color": "#571c27",
           "name": "wall",
           "probability": 1,
           "tile": -1
@@ -19886,7 +19886,7 @@
           "tile": -1
         }
       ],
-      "name": "Wall — #fdcbb0",
+      "name": "Wall — #571c27",
       "tile": 1039,
       "type": "edge",
       "wangtiles": [

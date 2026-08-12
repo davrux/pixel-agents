@@ -20,6 +20,13 @@
  * pieces from them. That yields joins the source art doesn't even contain,
  * and every piece is consistent by construction.
  *
+ * After the 16 bitmask pieces the sheet carries 4 more: the pack's north-wall
+ * FACE pieces (cornice / fill / baseboard / a 1-tall variant with both), the
+ * flat wall surface a room is looked *at* rather than the thin top-down line.
+ * Nothing derives those from adjacency — a computed mask is only ever 0-15 —
+ * so they exist purely to be painted by hand in Tiled, which is what
+ * OfficeLayout.tileWallMask already carries through import and render.
+ *
  * Two deliberate departures from the source pack:
  *   - Arms are CENTERED in the cell (strip at x5-10, band at y4-12) rather
  *     than edge-hugging. A wall in our engine occupies a whole grid cell
@@ -65,6 +72,21 @@ const FLOOR_DIR = path.join(ROOT, 'assets', 'floors');
 const STRIP_TILE = { tx: 11, ty: 13, y: 3 };
 const BAND_TILE = { tx: 12, ty: 11 };
 
+/** The north-wall FACE block in HOUSE (tile col 4 of the white room block at
+ *  cols 3-5, rows 4-7) — the pack's way of drawing the wall a room is looked
+ *  *at*, as a flat surface a few tiles tall, rather than the thin top-down line
+ *  the other pieces are. Row 4 carries the cornice in its top 7px, rows 5/6 are
+ *  pure fill, row 7 carries the baseboard in its bottom 4px. Cols 3/5 differ
+ *  from col 4 only in cornice/baseboard wood grain, not in shape, so one column
+ *  is the whole vocabulary. */
+const FACE_CORNICE_TILE = { tx: 4, ty: 4 };
+const FACE_FILL_TILE = { tx: 4, ty: 5 };
+const FACE_BASEBOARD_TILE = { tx: 4, ty: 7 };
+/** How tall the cornice and baseboard are inside their own tile (px), measured
+ *  from the source: cornice occupies rows 0-6, baseboard rows 12-15. */
+const CORNICE_H = 7;
+const BASEBOARD_H = 4;
+
 type Rgba = [number, number, number, number];
 
 function pixelReader(file: string): { at: (x: number, y: number) => Rgba } {
@@ -89,6 +111,34 @@ function readSource(): { strip: Rgba[]; band: Rgba[][] } {
     Array.from({ length: 16 }, (_, x) => at(BAND_TILE.tx * 16 + x, BAND_TILE.ty * 16 + 7 + j)),
   );
   return { strip, band };
+}
+
+/** The four north-wall face pieces, appended after the 16 bitmask ones (see
+ *  FACE_PIECE_COUNT / the header comment). Each is exactly one cell tall so a
+ *  mapper stacks them to whatever height the wall should be — 1 tall is SOLID
+ *  alone, 2 tall is TOP over BOTTOM, n tall is TOP + MID×(n-2) + BOTTOM. That
+ *  keeps every cell blocking exactly its own 16px, which a single taller
+ *  sprite spilling into the cell above would not.
+ *
+ *  These pieces are unreachable from neighbour adjacency by construction (a
+ *  derived mask is only ever 0-15), so they exist purely to be painted
+ *  deliberately in Tiled — which is exactly what OfficeLayout.tileWallMask
+ *  already carries through import and render. */
+function buildFacePieces(): Rgba[][][] {
+  const { at } = pixelReader(HOUSE);
+  const tileRows = (t: { tx: number; ty: number }): Rgba[][] =>
+    Array.from({ length: 16 }, (_, y) => Array.from({ length: 16 }, (_, x) => at(t.tx * 16 + x, t.ty * 16 + y)));
+  const cornice = tileRows(FACE_CORNICE_TILE);
+  const fill = tileRows(FACE_FILL_TILE);
+  const baseboard = tileRows(FACE_BASEBOARD_TILE);
+  // SOLID is the only synthesized one: the cornice's top rows and the
+  // baseboard's bottom rows over one cell of fill, for a wall exactly 1 tall.
+  const solid = fill.map((row, y) => {
+    if (y < CORNICE_H) return cornice[y];
+    if (y >= 16 - BASEBOARD_H) return baseboard[y];
+    return row;
+  });
+  return [cornice, fill, baseboard, solid];
 }
 
 /** Geometry, in cell coordinates (0-15). The vertical strip is 6px wide
@@ -219,14 +269,26 @@ function writeFloors(): void {
   }
 }
 
-const sheet = new PNG({ width: WALL_GRID_COLS * WALL_PIECE_WIDTH, height: (WALL_BITMASK_COUNT / WALL_GRID_COLS) * WALL_PIECE_HEIGHT });
-sheet.data.fill(0);
 const { strip, band } = readSource();
-for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
-  const cell = buildPiece(mask, strip, band);
-  const ox = (mask % WALL_GRID_COLS) * WALL_PIECE_WIDTH;
+const pieces = [
+  ...Array.from({ length: WALL_BITMASK_COUNT }, (_, mask) => buildPiece(mask, strip, band)),
+  ...buildFacePieces(),
+];
+// The grid must come out exactly full — parseWallPng derives a set's piece
+// count from the sheet's height, so a half-empty last row would read back as
+// extra blank pieces and show up as empty tiles in Tiled's palette.
+if (pieces.length % WALL_GRID_COLS !== 0) {
+  throw new Error(`${pieces.length} pieces don't fill a ${WALL_GRID_COLS}-wide grid`);
+}
+const sheet = new PNG({
+  width: WALL_GRID_COLS * WALL_PIECE_WIDTH,
+  height: (pieces.length / WALL_GRID_COLS) * WALL_PIECE_HEIGHT,
+});
+sheet.data.fill(0);
+pieces.forEach((cell, index) => {
+  const ox = (index % WALL_GRID_COLS) * WALL_PIECE_WIDTH;
   // Art sits in the bottom 16 rows of the 32-tall slot — see header comment.
-  const oy = Math.floor(mask / WALL_GRID_COLS) * WALL_PIECE_HEIGHT + (WALL_PIECE_HEIGHT - 16);
+  const oy = Math.floor(index / WALL_GRID_COLS) * WALL_PIECE_HEIGHT + (WALL_PIECE_HEIGHT - 16);
   for (let y = 0; y < 16; y++) {
     for (let x = 0; x < 16; x++) {
       const i = ((oy + y) * sheet.width + (ox + x)) * 4;
@@ -237,7 +299,9 @@ for (let mask = 0; mask < WALL_BITMASK_COUNT; mask++) {
       sheet.data[i + 3] = a;
     }
   }
-}
+});
 fs.writeFileSync(WALL_OUT, PNG.sync.write(sheet));
-console.log(`✓ ${path.relative(ROOT, WALL_OUT)} (${WALL_BITMASK_COUNT} pieces, ${sheet.width}x${sheet.height})`);
+console.log(
+  `✓ ${path.relative(ROOT, WALL_OUT)} (${WALL_BITMASK_COUNT} bitmask + ${pieces.length - WALL_BITMASK_COUNT} face pieces, ${sheet.width}x${sheet.height})`,
+);
 writeFloors();

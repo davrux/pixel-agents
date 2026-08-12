@@ -64,15 +64,49 @@ export const WARM_PALETTE_64: PaletteSwatch[] = [
   '#492c27', '#713b33', '#9b483b', '#bf5a4a', '#c97f73', '#d1a59e', '#dfcbc8', '#f2eeee',
 ].map(swatch);
 
+/** Endesga's "Endesga 64" (lospec.com/palette-list/endesga-64), verified
+ *  hex-for-hex against the published palette in its published order — a third
+ *  closed 64-color option alongside PALETTE_64 and WARM_PALETTE_64. Unlike
+ *  those two it leads with a pure 8-step neutral ramp (#131313 → #ffffff) plus
+ *  a cool blue-gray ramp, which is what makes it the useful one for the metro
+ *  thin-wall/tile-floor art: those textures are near-greyscale to begin with,
+ *  so a neutral-heavy palette recolors them without pushing everything toward
+ *  a hue. Index 0 is the palette's own signature magenta-red (#ff0040), kept in
+ *  place rather than sorted away — reordering would silently restyle every
+ *  tile that stores a swatch index. */
+export const ENDESGA_PALETTE_64: PaletteSwatch[] = [
+  '#ff0040', '#131313', '#1b1b1b', '#272727', '#3d3d3d', '#5d5d5d', '#858585', '#b4b4b4',
+  '#ffffff', '#c7cfdd', '#92a1b9', '#657392', '#424c6e', '#2a2f4e', '#1a1932', '#0e071b',
+  '#1c121c', '#391f21', '#5d2c28', '#8a4836', '#bf6f4a', '#e69c69', '#f6ca9f', '#f9e6cf',
+  '#edab50', '#e07438', '#c64524', '#8e251d', '#ff5000', '#ed7614', '#ffa214', '#ffc825',
+  '#ffeb57', '#d3fc7e', '#99e65f', '#5ac54f', '#33984b', '#1e6f50', '#134c4c', '#0c2e44',
+  '#00396d', '#0069aa', '#0098dc', '#00cdf9', '#0cf1ff', '#94fdff', '#fdd2ed', '#f389f5',
+  '#db3ffd', '#7a09fa', '#3003d9', '#0c0293', '#03193f', '#3b1443', '#622461', '#93388f',
+  '#ca52c9', '#c85086', '#f68187', '#f5555d', '#ea323c', '#c42430', '#891e2b', '#571c27',
+].map(swatch);
+
 /** Which closed palette each floor "set" (OfficeLayout.tileFloorSet, see
  *  tiledSheetLayout.ts's FLOOR_SET_FILES) is baked from — parallel-indexed
  *  with FLOOR_SET_FILES. */
-export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, WARM_PALETTE_64, PALETTE_64];
+export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [
+  PALETTE_64,
+  WARM_PALETTE_64,
+  PALETTE_64,
+  ENDESGA_PALETTE_64,
+  ENDESGA_PALETTE_64,
+];
 
 /** Which closed palette each wall "set" (OfficeLayout.tileWallSet, see
  *  tiledSheetLayout.ts's WALL_SET_FILES) is baked from — parallel-indexed
  *  with WALL_SET_FILES. */
-export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, PALETTE_64, WARM_PALETTE_64, WARM_PALETTE_64, PALETTE_64];
+export const WALL_SET_PALETTES: PaletteSwatch[][] = [
+  PALETTE_64,
+  PALETTE_64,
+  WARM_PALETTE_64,
+  WARM_PALETTE_64,
+  PALETTE_64,
+  ENDESGA_PALETTE_64,
+];
 
 export function paletteForFloorSet(setIndex: number): PaletteSwatch[] {
   return FLOOR_SET_PALETTES[setIndex] ?? PALETTE_64;
