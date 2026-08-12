@@ -13,6 +13,7 @@ import {
   MAX_PLACED_IMAGES,
   MAX_IMAGE_FOOTPRINT_TILES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
+  TILE_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
   cleanName,
@@ -65,12 +66,13 @@ export function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<str
 export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<string, unknown> {
   const images = layout.images;
   if (!Array.isArray(images)) return layout;
+  const MAX_DIMENSION_PX = MAX_IMAGE_FOOTPRINT_TILES * TILE_SIZE;
   const clean: Array<{
     uid: string;
-    col: number;
-    row: number;
-    footprintW: number;
-    footprintH: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
     imageId: string;
     flippedHorizontally?: boolean;
     flippedVertically?: boolean;
@@ -79,12 +81,13 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     if (clean.length >= MAX_PLACED_IMAGES) break;
     if (!img || typeof img !== 'object') continue;
     const rec = img as Record<string, unknown>;
-    if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
+    if (typeof rec.uid !== 'string' || typeof rec.x !== 'number' || typeof rec.y !== 'number') continue;
+    if (!Number.isFinite(rec.x) || !Number.isFinite(rec.y)) continue;
     if (typeof rec.imageId !== 'string' || !rec.imageId) continue;
-    const fw = Number(rec.footprintW);
-    const fh = Number(rec.footprintH);
-    if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > MAX_IMAGE_FOOTPRINT_TILES || fh > MAX_IMAGE_FOOTPRINT_TILES) continue;
-    const entry: (typeof clean)[number] = { uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId };
+    const w = Number(rec.width);
+    const h = Number(rec.height);
+    if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0 || w > MAX_DIMENSION_PX || h > MAX_DIMENSION_PX) continue;
+    const entry: (typeof clean)[number] = { uid: rec.uid, x: rec.x, y: rec.y, width: w, height: h, imageId: rec.imageId };
     if (rec.flippedHorizontally === true) entry.flippedHorizontally = true;
     if (rec.flippedVertically === true) entry.flippedVertically = true;
     clean.push(entry);

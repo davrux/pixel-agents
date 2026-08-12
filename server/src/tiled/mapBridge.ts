@@ -294,11 +294,14 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
   // file" field (only gid or text), so this is the only shape Tiled itself
   // can actually create (via Insert Tile against that tileset); a bare
   // object with a custom `image` property was never a real Tiled mechanism.
-  // Same bottom-edge Y anchor as any other GID-backed tile object (see
-  // tileObjectY) — Tiled anchors tile objects at their bottom-left corner,
-  // not top-left like every other shape. An image whose id isn't in
-  // images.tsj (not yet baked since it was uploaded) is skipped, matching
-  // the live renderer's own skip for a deleted image.
+  // Free pixel x/y/width/height (see PlacedImage) — Tiled anchors a
+  // GID-backed tile object at its BOTTOM-left corner, not top-left, so the
+  // stored top-left y needs the same +height conversion tileObjectY does for
+  // furniture, just inlined here since it's not tile-quantized. No rounding
+  // anywhere: whatever pixel box the mapper drew in Tiled comes back exactly
+  // on import. An image whose id isn't in images.tsj (not yet baked since it
+  // was uploaded) is skipped, matching the live renderer's own skip for a
+  // deleted image.
   const imageObjects = (layout.images ?? []).flatMap((im, idx) => {
     const baseGid = findGid(registry, 'images.tsj', (props) => props.imageId === im.imageId);
     if (baseGid === null) return [];
@@ -309,10 +312,10 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
         name: '',
         type: 'Image',
         gid,
-        x: im.col * TILE_SIZE,
-        y: tileObjectY(im.row, im.footprintH),
-        width: im.footprintW * TILE_SIZE,
-        height: im.footprintH * TILE_SIZE,
+        x: im.x,
+        y: im.y + im.height,
+        width: im.width,
+        height: im.height,
         rotation: 0,
         visible: true,
         properties: [prop('imageId', im.imageId)],
@@ -637,7 +640,7 @@ export function importTmjToLayout(
     // properties of its own at all, only the tile's.
     const imageId = typeof props.imageId === 'string' && props.imageId ? props.imageId : typeof resolvedTile?.props.imageId === 'string' ? resolvedTile.props.imageId : null;
     if (!imageId) continue;
-    const footprintH = Math.max(1, Math.round(Number(obj.height) / TILE_SIZE));
+    const height = Number(obj.height) || TILE_SIZE;
     // Prefer the tile's own declared `image` path — a mapper can add a tile
     // straight in Tiled's Tileset editor (Edit Tileset → Add Tiles) pointing
     // at whatever file they picked, entirely bypassing bake-images-tiled.mts
@@ -649,12 +652,13 @@ export function importTmjToLayout(
     if (buffer) importedImages.push({ imageId, label: imageId, buffer });
     const image: PlacedImage = {
       uid: generateUid(),
-      col: Math.round(Number(obj.x) / TILE_SIZE),
+      x: Number(obj.x) || 0,
       // Same bottom-edge Y anchor as any other GID-backed tile object — see
-      // the matching export-side tileObjectY call.
-      row: rowFromTileObjectY(Number(obj.y), footprintH),
-      footprintW: Math.max(1, Math.round(Number(obj.width) / TILE_SIZE)),
-      footprintH,
+      // the matching export-side conversion. No rounding: the exact pixel
+      // box Tiled shows is exactly what's stored.
+      y: (Number(obj.y) || 0) - height,
+      width: Number(obj.width) || TILE_SIZE,
+      height,
       imageId,
     };
     // Decode both flip bits independently — strip H first so a lingering H

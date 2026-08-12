@@ -381,15 +381,20 @@ export interface PlacedText {
  *  depth just above the floor and below every (position-sorted) furniture
  *  piece/character, so it always reads as "on the floor", never "on the
  *  table". References a shared ImageAsset (see shared/office/imageAssets.ts)
- *  by id. footprintW×footprintH (tiles) is always the click/select hitbox;
- *  `fit` decides how the image fills it — placed/moved/deleted via the
- *  editor's Image tool, draggable in the Select tool like furniture/text. */
+ *  by id. Free pixel position/size (not tile-snapped) — matches Tiled's own
+ *  Insert-Tile placement exactly, same free-position reasoning as
+ *  PlacedText: a mapper can drag/resize to any size or position in Tiled,
+ *  and it must land pixel-for-pixel the same in the game, not rounded to the
+ *  nearest tile. */
 export interface PlacedImage {
   uid: string;
-  col: number;
-  row: number;
-  footprintW: number;
-  footprintH: number;
+  /** Top-left corner, in pixels. */
+  x: number;
+  y: number;
+  /** Rendered size, in pixels — the image is stretched/shrunk to fill this
+   *  exactly, same as Tiled's own resize handles do to the object box. */
+  width: number;
+  height: number;
   imageId: string;
   /** Mirror the image horizontally/vertically — maps directly onto Tiled's
    *  own GID flip bits (see mapBridge.ts), same convention as

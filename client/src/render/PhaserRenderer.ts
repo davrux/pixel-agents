@@ -201,28 +201,23 @@ export class PhaserRenderer {
       }
     }
 
-    // Placed background images (OfficeLayout.images) — fixed depth, top-left
-    // anchored footprint box like a floor tile (not bottom-center like
-    // furniture/text — an image has no "standing point"), always stretched to
-    // fill the footprint (matches Tiled's own Image Object, which has no
-    // separate "native size" concept — see docs/design/tiled-editor-integration.md).
+    // Placed background images (OfficeLayout.images) — fixed depth, free
+    // top-left pixel position/size (not tile-snapped, not bottom-center like
+    // furniture/text — an image has no "standing point"), stretched to fill
+    // exactly the box the mapper drew in Tiled.
     for (const pi of layout.images ?? []) {
       const asset = getImageAsset(pi.imageId);
       if (!asset) continue; // deleted since this layout was saved — skip silently
-      const x = pi.col * TILE_SIZE;
-      const y = pi.row * TILE_SIZE;
-      const w = pi.footprintW * TILE_SIZE;
-      const h = pi.footprintH * TILE_SIZE;
       const img = this.scene.add
         .image(0, 0, '__DEFAULT')
         .setOrigin(0, 0)
-        .setPosition(x, y)
-        .setDisplaySize(w, h)
+        .setPosition(pi.x, pi.y)
+        .setDisplaySize(pi.width, pi.height)
         .setDepth(IMAGE_DEPTH)
         .setFlipX(!!pi.flippedHorizontally)
         .setFlipY(!!pi.flippedVertically);
       ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
-        img.setTexture(key).setDisplaySize(w, h);
+        img.setTexture(key).setDisplaySize(pi.width, pi.height);
       });
       this.images.push(img);
     }
