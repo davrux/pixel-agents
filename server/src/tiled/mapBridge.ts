@@ -29,14 +29,24 @@ export interface TmjExportResult {
   tmj: Record<string, unknown>;
 }
 
-/** N=1,E=2,S=4,W=8 — same convention as shared/src/office/wallTiles.ts's
- *  buildWallMask, reimplemented against OfficeLayout's flat tiles[] instead
- *  of a 2D tileMap (only used to pick a human-friendly Wang-matching GID on
- *  export; imports never read this value back — the live renderer always
- *  recomputes the correct piece from neighbors regardless of which exact
- *  bitmask GID a wall cell references). */
+/** Which wall piece to export for a cell: the exact one the layout already
+ *  carries (OfficeLayout.tileWallMask, set on import from the GID the mapper
+ *  actually placed and rendered verbatim ever since — see wallTiles.ts's
+ *  getWallSprite), else derived from neighbours for a layout that has no
+ *  stored piece.
+ *
+ *  Preferring the stored piece is what keeps export→edit→import lossless: a
+ *  mapper who deliberately picks a piece our adjacency rule wouldn't (an open
+ *  wall end mid-run, say) used to get it silently normalized away on the next
+ *  export, even though the renderer had been honouring it all along.
+ *
+ *  The derived fallback is N=1,E=2,S=4,W=8 — same convention as
+ *  shared/src/office/wallTiles.ts's buildWallMask, reimplemented against
+ *  OfficeLayout's flat tiles[] instead of a 2D tileMap. */
 function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
   const { cols, rows, tiles } = layout;
+  const stored = layout.tileWallMask?.[row * cols + col];
+  if (stored != null) return stored;
   const at = (c: number, r: number) => tiles[r * cols + c];
   let mask = 0;
   if (row > 0 && at(col, row - 1) === TileType.WALL) mask |= 1;
@@ -89,26 +99,43 @@ function rowFromTileObjectY(y: number, footprintH: number): number {
 export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry, zoneId: string): TmjExportResult {
   const { cols, rows, tiles } = layout;
 
-  // ── Ground layer: floor/wall GIDs, GID 0 = VOID ──────────────────
+  // ── Ground + Wall layers: floor/wall GIDs, GID 0 = empty ─────────
   // GID is computed directly from position — no property search needed.
   // Column 0 = Natural, column 1+i = PALETTE_64[i] (see tiledSheetLayout.ts);
   // row = pattern-1 (floor) or bitmask (wall) — exactly how
   // bake-floor-wall-tiled.mts lays the sheet out.
+  //
+  // Walls go in their OWN layer above the floor, not mixed into Ground, so a
+  // wall cell can also carry the floor drawn beneath it (see
+  // OfficeLayout.tileWallFloorPattern) — one cell, two tiles, which a single
+  // tile layer cannot express. A wall cell whose layout has no floor beneath
+  // leaves Ground empty there, exactly as it looked when walls lived in
+  // Ground.
+  const floorGid = (pattern: number, set: number | undefined, swatchIdx: number | null): number => {
+    const col = swatchIdx === null ? 0 : swatchIdx + 1;
+    const floorSet = FLOOR_SET_FILES[set ?? 0] ?? FLOOR_SET_FILES[0];
+    return gidAt(registry, `${floorSet}.tsj`, (pattern - 1) * TILED_SHEET_COLUMNS + col) ?? 0;
+  };
   const ground: number[] = [];
+  const wall: number[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const t = tiles[r * cols + c];
-      const swatchIdx = layout.tileColors?.[r * cols + c] ?? null;
-      const col = swatchIdx === null ? 0 : swatchIdx + 1;
+      const i = r * cols + c;
+      const t = tiles[i];
       if (t === TileType.VOID) {
         ground.push(0);
+        wall.push(0);
       } else if (t === TileType.WALL) {
+        const swatchIdx = layout.tileColors?.[i] ?? null;
+        const col = swatchIdx === null ? 0 : swatchIdx + 1;
         const mask = wallBitmask(layout, c, r);
-        const wallSet = WALL_SET_FILES[layout.tileWallSet?.[r * cols + c] ?? 0] ?? WALL_SET_FILES[0];
-        ground.push(gidAt(registry, `${wallSet}.tsj`, mask * TILED_SHEET_COLUMNS + col) ?? 0);
+        const wallSet = WALL_SET_FILES[layout.tileWallSet?.[i] ?? 0] ?? WALL_SET_FILES[0];
+        wall.push(gidAt(registry, `${wallSet}.tsj`, mask * TILED_SHEET_COLUMNS + col) ?? 0);
+        const under = layout.tileWallFloorPattern?.[i] ?? null;
+        ground.push(under == null ? 0 : floorGid(under, layout.tileWallFloorSet?.[i], layout.tileWallFloorColor?.[i] ?? null));
       } else {
-        const floorSet = FLOOR_SET_FILES[layout.tileFloorSet?.[r * cols + c] ?? 0] ?? FLOOR_SET_FILES[0];
-        ground.push(gidAt(registry, `${floorSet}.tsj`, (t - 1) * TILED_SHEET_COLUMNS + col) ?? 0);
+        ground.push(floorGid(t, layout.tileFloorSet?.[i], layout.tileColors?.[i] ?? null));
+        wall.push(0);
       }
     }
   }
@@ -338,7 +365,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     type: 'map',
     class: 'Map',
     version: '1.10',
-    nextlayerid: 6,
+    nextlayerid: 7,
     nextobjectid: furnitureObjects.length + actionObjects.length + textObjects.length + imageObjects.length + 1,
     // The Pixel Agents zone this map belongs to — read back on import
     // instead of trusting the .tmj's own filename (same class-not-container
@@ -348,6 +375,9 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     tilesets: tilesetRefs,
     layers: [
       { id: 1, name: 'Ground', class: 'GroundLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
+      // Above Ground, below everything else: a wall hides the floor drawn
+      // beneath it, and furniture/characters still draw over both.
+      { id: 7, name: 'Wall', class: 'WallLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: wall },
       { id: 2, name: 'Collision', class: 'CollisionLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
       { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
       { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
@@ -428,14 +458,20 @@ export function importTmjToLayout(
   // registry.resolve's disk-order assumption — see resolveFromTmjTilesets.
   const resolveGid = resolveFromTmjTilesets(registry, (tmj.tilesets as Array<{ firstgid: number; source: string }>) ?? []);
 
-  // Classified by the layer's own `class` (GroundLayer/CollisionLayer — see
-  // Pixels.tiled-project), not by name — same reasoning as the object
-  // classification below: a mapper renaming these tile layers must not
-  // silently empty out the whole map. Tiled writes a layer's custom class
-  // under `class` specifically (not `type`, which every layer already uses
-  // structurally for tilelayer/objectgroup/imagelayer/group).
+  // Classified by the layer's own `class` (GroundLayer/WallLayer/
+  // CollisionLayer — see Pixels.tiled-project), not by name — same reasoning
+  // as the object classification below: a mapper renaming these tile layers
+  // must not silently empty out the whole map. Tiled writes a layer's custom
+  // class under `class` specifically (not `type`, which every layer already
+  // uses structurally for tilelayer/objectgroup/imagelayer/group).
   const ground = (layers.find((l) => l.class === 'GroundLayer')?.data as number[]) ?? [];
   const collision = (layers.find((l) => l.class === 'CollisionLayer')?.data as number[]) ?? [];
+  // Walls have their own layer so a cell can hold both a wall and the floor
+  // beneath it. Absent on maps exported before that layer existed (and on
+  // hand-made maps that never added one), where walls were painted straight
+  // into Ground — those still import, they just have no floor under a wall.
+  // A WallTile found in Ground is therefore still honoured below.
+  const wallLayer = (layers.find((l) => l.class === 'WallLayer')?.data as number[]) ?? [];
 
   // Objects are classified by their own nature — a native Tiled field
   // (`text`/`image`, always present on Tiled's own Text/Image object types
@@ -497,39 +533,65 @@ export function importTmjToLayout(
   const tileFloorSet: number[] = [];
   const tileWallSet: number[] = [];
   const tileWallMask: OfficeLayout['tileWallMask'] = [];
+  const tileWallFloorPattern: OfficeLayout['tileWallFloorPattern'] = [];
+  const tileWallFloorSet: number[] = [];
+  const tileWallFloorColor: OfficeLayout['tileWallFloorColor'] = [];
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
-    const gid = ground[i] ?? 0;
-    const resolved = resolveGid(gid);
+    const groundResolved = resolveGid(ground[i] ?? 0);
+    // A wall comes from the Wall layer, but a WallTile painted into Ground is
+    // still accepted (see wallLayer above) — so whichever of the two carries
+    // one wins, Wall layer first.
+    const wallResolved = resolveGid(wallLayer[i] ?? 0);
+    const wall = wallResolved?.class === 'WallTile' ? wallResolved : groundResolved?.class === 'WallTile' ? groundResolved : null;
     // Classify by Tiled's own `class` (FloorTile/WallTile — see
     // Pixels.tiled-project), not by which file a tile lives in — a mapper
     // reorganizing tileset files must not silently break this (see
     // docs/design/tiled-editor-integration.md).
-    if (resolved?.class === 'WallTile') {
+    if (wall) {
       tiles.push(TileType.WALL);
-      const { row, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      const { row, swatchIndex } = rowAndSwatchFromLocalId(wall.localId);
       tileColors.push(swatchIndex);
       tileFloorSet.push(0);
       // Which set this came from — unlike the floor/wall/void classification
       // above, this one legitimately IS about the file, since "which set"
       // has no other identity (see setIndexFromFile).
-      tileWallSet.push(setIndexFromFile(WALL_SET_FILES, resolved.tileset.file));
+      tileWallSet.push(setIndexFromFile(WALL_SET_FILES, wall.tileset.file));
       // The exact autotile piece the mapper placed (see OfficeLayout.
       // tileWallMask) — rendered verbatim, not re-derived from adjacency.
       tileWallMask.push(row);
-    } else if (resolved?.class === 'FloorTile') {
-      const { row, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      // Whatever the mapper painted in Ground under this wall, if anything —
+      // the floor that shows around a thin wall strip (see
+      // OfficeLayout.tileWallFloorPattern).
+      if (groundResolved?.class === 'FloorTile') {
+        const under = rowAndSwatchFromLocalId(groundResolved.localId);
+        tileWallFloorPattern.push(under.row + 1);
+        tileWallFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, groundResolved.tileset.file));
+        tileWallFloorColor.push(under.swatchIndex);
+      } else {
+        tileWallFloorPattern.push(null);
+        tileWallFloorSet.push(0);
+        tileWallFloorColor.push(null);
+      }
+    } else if (groundResolved?.class === 'FloorTile') {
+      const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId);
       tiles.push(row + 1);
       tileColors.push(swatchIndex);
-      tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, resolved.tileset.file));
+      tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, groundResolved.tileset.file));
       tileWallSet.push(0);
       tileWallMask.push(null);
+      tileWallFloorPattern.push(null);
+      tileWallFloorSet.push(0);
+      tileWallFloorColor.push(null);
     } else {
       tiles.push(TileType.VOID);
       tileColors.push(null);
       tileFloorSet.push(0);
       tileWallSet.push(0);
       tileWallMask.push(null);
+      tileWallFloorPattern.push(null);
+      tileWallFloorSet.push(0);
+      tileWallFloorColor.push(null);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
@@ -683,6 +745,9 @@ export function importTmjToLayout(
     tileFloorSet,
     tileWallSet,
     tileWallMask,
+    tileWallFloorPattern,
+    tileWallFloorSet,
+    tileWallFloorColor,
     tileBlocked,
     tileActions,
     texts,

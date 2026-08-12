@@ -18,7 +18,7 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 - **Custom Types Editor** (View menu): where the *definitions* below actually live —
   this is a separate view from the Properties panel. If a tile/object looks like it
   has no properties, check it's got the right `Class` assigned first.
-- A class with **no members** (FloorTile, WallTile, GroundLayer, CollisionLayer) is a
+- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLayer, CollisionLayer) is a
   pure marker — assigning it doesn't add any fields, it just tags the tile/layer so
   our import code recognizes it. Don't add properties to these by hand; see
   "Position-derived data" below for why.
@@ -27,7 +27,8 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 
 ### FloorTile *(useAs: tile)*
 
-No members. Every tile in `floor-resurrect64.tsj` / `floor-warm.tsj` gets this class.
+No members. Every tile in `floor-resurrect64.tsj` / `floor-warm.tsj` /
+`floor-metro-resurrect64.tsj` gets this class.
 
 **Position-derived data**: which floor *pattern* a tile is, and which palette
 *swatch* (or "Natural") colors it, come purely from the tile's row/column position
@@ -39,8 +40,12 @@ hand-edits their tile list. **Don't add `pattern`/`hue`/`sat`-style properties h
 ### WallTile *(useAs: tile)*
 
 No members. Every tile in `wall-0-resurrect64.tsj` / `wall-1-resurrect64.tsj` / `wall-0-warm.tsj` /
-`wall-1-warm.tsj` gets this class. Same position-derived logic as FloorTile — bitmask
-(row) and swatch (column) come from position, not properties.
+`wall-1-warm.tsj` / `wall-metro-resurrect64.tsj` gets this class. Same position-derived
+logic as FloorTile — bitmask (row) and swatch (column) come from position, not properties.
+
+`wall-metro-resurrect64` is the **thin** wall set: a 6px strip centered in the cell
+rather than art covering the whole tile. Paint floor under it in the Ground layer or
+the 10px around the strip comes out as flat color instead of room floor.
 
 ### FurnitureTile *(useAs: tile)*
 
@@ -193,9 +198,26 @@ since Tiled's own UI still shows them.
 
 ### GroundLayer *(useAs: layer)*
 
-No members. Assign to whichever tile layer holds floor/wall GIDs — normally named
+No members. Assign to whichever tile layer holds floor GIDs — normally named
 "Ground", but the **name doesn't matter**, only this class does. There must be
 exactly one per map.
+
+Paint floor here **under walls too**: a wall cell whose Ground holds a FloorTile
+gets that floor drawn beneath the wall, which is what a thin wall set needs to
+show room floor around its strip instead of flat color. Leaving Ground empty
+under a wall is fine and gives the older flat-fill look.
+
+### WallLayer *(useAs: layer)*
+
+No members. Assign to whichever tile layer holds wall GIDs — normally named
+"Wall", above Ground. Exactly one per map; the class is what matters, not the
+name or the position in the Layers panel.
+
+Walls have their own layer purely so one cell can hold both a wall and the
+floor under it. WallTiles painted into **Ground** are still imported as walls
+(that's where they lived before this layer existed, and it's what a hand-made
+map without a Wall layer does) — they just get no floor beneath. If both layers
+carry a wall for the same cell, the Wall layer wins.
 
 ### CollisionLayer *(useAs: layer)*
 

@@ -178,23 +178,35 @@ export class PhaserRenderer {
     const tileFloorSet = layout.tileFloorSet;
     const tileWallSet = layout.tileWallSet;
     const tileWallMask = layout.tileWallMask;
+    const tileWallFloorPattern = layout.tileWallFloorPattern;
+    const tileWallFloorSet = layout.tileWallFloorSet;
+    const tileWallFloorColor = layout.tileWallFloorColor;
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
-    // Floor + wall base color.
+    // Floor + wall base color. A wall tile has no floor pattern of its own
+    // (tiles[i] holds either a pattern or WALL), so it normally paints a flat
+    // fill in the wall's own color — but where the layout carries a floor
+    // beneath the wall (see OfficeLayout.tileWallFloorPattern) that floor is
+    // drawn instead, which is what lets a thin wall set show room floor around
+    // its strip rather than flat color. The wall sprite itself is drawn later,
+    // as a z-sorted instance (see wallTiles.ts's getWallInstances).
     for (let r = 0; r < tileMap.length; r++) {
       for (let c = 0; c < tileMap[r].length; c++) {
         const tile = tileMap[r][c];
         if (tile === TileType.VOID) continue;
         const px = c * TILE_SIZE;
         const py = r * TILE_SIZE;
-        if (tile === TileType.WALL || !useFloors) {
-          const idx = r * cols + c;
-          const wallColor = tile === TileType.WALL ? tileColors?.[idx] : null;
-          const hex = tile === TileType.WALL ? wallSwatchToHex(wallColor, tileWallSet?.[idx] ?? 0) : '#808080';
+        const idx = r * cols + c;
+        const isWall = tile === TileType.WALL;
+        const underWall = isWall ? (tileWallFloorPattern?.[idx] ?? null) : null;
+        if (useFloors && underWall != null) {
+          const tex = spriteTexture(this.scene, getColorizedFloorSprite(underWall, tileWallFloorColor?.[idx], tileWallFloorSet?.[idx] ?? 0));
+          this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
+        } else if (isWall || !useFloors) {
+          const hex = isWall ? wallSwatchToHex(tileColors?.[idx], tileWallSet?.[idx] ?? 0) : '#808080';
           this.statics.push(this.solid(px, py, hex, FLOOR_DEPTH));
         } else {
-          const idx = r * cols + c;
           const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], tileFloorSet?.[idx] ?? 0));
           this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
         }

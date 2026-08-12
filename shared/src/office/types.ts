@@ -452,6 +452,25 @@ export interface OfficeLayout {
    *  existed) fall back to that same neighbor-derived computation, so old
    *  data keeps rendering exactly as it always has — no migration needed. */
   tileWallMask?: Array<number | null>;
+  /** The floor drawn *beneath* a wall tile — pattern, set and swatch, the
+   *  same triple as (tiles, tileFloorSet, tileColors) describes for an
+   *  ordinary floor tile, all parallel to tiles and only meaningful where
+   *  tiles[i] === TileType.WALL.
+   *
+   *  Needed because tiles[i] holds either a floor pattern or WALL, never
+   *  both, so a wall cell has no floor of its own and used to paint a flat
+   *  WALL_COLOR fill across all 16px. That is invisible for wall art that
+   *  covers its whole tile, but it defeats a thin wall set (see
+   *  tiledSheetLayout.ts's WALL_SET_FILES set 4): a 6px strip centered in the
+   *  cell wants the remaining 10px to read as the room's floor, not as flat
+   *  color.
+   *
+   *  tileWallFloorPattern null/missing keeps exactly the old flat-fill
+   *  behaviour, so layouts saved before this existed — and wall sets whose
+   *  art fills the tile anyway — render unchanged. */
+  tileWallFloorPattern?: Array<number | null>;
+  tileWallFloorSet?: number[];
+  tileWallFloorColor?: Array<number | null>;
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;
