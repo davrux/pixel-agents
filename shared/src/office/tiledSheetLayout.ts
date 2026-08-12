@@ -25,7 +25,7 @@ export const WALL_BITMASK_COUNT = 16;
  *  where that tile sits in pixels, which both the bake script and the
  *  client's sheet slicer must agree on. Floor tiles don't have this
  *  ambiguity (no directional edges to confuse), so they stay at 0 gap. */
-export const WALL_TILE_SPACING = 2;
+export const WALL_TILE_SPACING = 6;
 
 /** One entry per floor "set" — index = OfficeLayout.tileFloorSet, matching
  *  a <name>.tsj / png/<name>.png pair (server/scripts/bake-floor-wall-tiled.mts

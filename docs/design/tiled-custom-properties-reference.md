@@ -144,6 +144,12 @@ Tile (T)** from `images.tsj` (see below), not a custom shape.
 |---|---|---|---|
 | `imageId` | string | required unless the object has a `gid` (see below) | The stable id this image is stored/looked-up under in the live game. Always present on the tile itself (baked by bake-images-tiled.mts), so a plain Insert Tile placement with no properties of its own still resolves correctly — see FurnitureObject's identical `id` fallback above. |
 
+Tiled's native horizontal/vertical flip (right-click the object, or the
+Tileset panel's flip buttons before placing) is supported and round-trips —
+unlike furniture's hand-drawn 2.5D art, an arbitrary uploaded image has no
+fixed camera angle, so both directions are safe (see
+`PlacedImage.flippedHorizontally`/`flippedVertically`).
+
 **`images.tsj`** *(ImageTile, useAs: tile)* is a generated "collection of
 images" tileset — one tile per image uploaded via the in-game Assets editor,
 each its own independently-sized PNG (no shared grid). Regenerate it with
@@ -154,6 +160,25 @@ then Insert Tile (T), pick it from the Tilesets panel, and place/scale it
 like any other tile object. If `imageId` can't be resolved (neither the
 object's own property nor the tile's), the object is silently skipped on
 import — no error, it just won't show up.
+
+You don't have to go through the bake script at all, though: **Tiled's own
+Tileset editor** (open `images.tsj`, "Edit Tileset", then "Add Tiles") lets
+you add a tile pointing at *any* PNG on disk directly — import reads that
+tile's own `image` path first, falling back to the
+`png/images/<imageId>.png` convention only for a bare (non-tile) Image
+object. Give the new tile an `imageId` property (on the tile, or on the
+object placed from it) so it has a stable id in the live game; the tile's
+`image` path is otherwise read exactly as Tiled wrote it, no re-baking
+needed.
+
+A copy-pasted object keeps carrying whatever `type`/properties it was copied
+from even after you change its content — e.g. duplicating an `Image` object
+and turning it into a text label leaves a stale `type: 'Image'` +`imageId`
+behind, which used to double-import as both a (broken) image and a text
+label. Import now treats a native Tiled Text object (anything with its own
+`text` field) as authoritative over any such leftover `type`, so this no
+longer happens — but it's worth clearing the stale properties by hand too,
+since Tiled's own UI still shows them.
 
 ### GroundLayer *(useAs: layer)*
 

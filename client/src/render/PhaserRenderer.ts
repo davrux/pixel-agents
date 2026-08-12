@@ -213,7 +213,14 @@ export class PhaserRenderer {
       const y = pi.row * TILE_SIZE;
       const w = pi.footprintW * TILE_SIZE;
       const h = pi.footprintH * TILE_SIZE;
-      const img = this.scene.add.image(0, 0, '__DEFAULT').setOrigin(0, 0).setPosition(x, y).setDisplaySize(w, h).setDepth(IMAGE_DEPTH);
+      const img = this.scene.add
+        .image(0, 0, '__DEFAULT')
+        .setOrigin(0, 0)
+        .setPosition(x, y)
+        .setDisplaySize(w, h)
+        .setDepth(IMAGE_DEPTH)
+        .setFlipX(!!pi.flippedHorizontally)
+        .setFlipY(!!pi.flippedVertically);
       ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
         img.setTexture(key).setDisplaySize(w, h);
       });

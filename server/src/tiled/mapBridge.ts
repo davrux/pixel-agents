@@ -46,11 +46,15 @@ function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
   return mask;
 }
 
-/** Tiled's own GID horizontal-flip bit (top bit of the 32-bit GID field) —
- *  plain addition/subtraction, not a bitwise op: these GIDs are always far
- *  below 2^31, and JS's bitwise operators coerce to signed Int32 first,
- *  which would turn 0x80000000 negative. */
+/** Tiled's own GID flip bits (top two bits of the 32-bit GID field) — plain
+ *  addition/subtraction, not a bitwise op: these GIDs are always far below
+ *  2^31, and JS's bitwise operators coerce to signed Int32 first, which
+ *  would turn 0x80000000/0x40000000 negative. Only H/V are used (see
+ *  PlacedFurniture/PlacedImage's flippedHorizontally/flippedVertically) —
+ *  Tiled's third bit (diagonal flip, 0x20000000) has no corresponding
+ *  concept here and is never set or read. */
 const TILED_FLIP_H = 0x80000000;
+const TILED_FLIP_V = 0x40000000;
 
 /** `flippedHorizontally` (see PlacedFurniture) maps directly onto Tiled's own
  *  GID flip bit — purely cosmetic, so Tiled's canvas shows a real mirrored
@@ -294,8 +298,9 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
   // images.tsj (not yet baked since it was uploaded) is skipped, matching
   // the live renderer's own skip for a deleted image.
   const imageObjects = (layout.images ?? []).flatMap((im, idx) => {
-    const gid = findGid(registry, 'images.tsj', (props) => props.imageId === im.imageId);
-    if (gid === null) return [];
+    const baseGid = findGid(registry, 'images.tsj', (props) => props.imageId === im.imageId);
+    if (baseGid === null) return [];
+    const gid = baseGid + (im.flippedHorizontally ? TILED_FLIP_H : 0) + (im.flippedVertically ? TILED_FLIP_V : 0);
     return [
       {
         id: idx + 1,
@@ -439,8 +444,10 @@ export function importTmjToLayout(
   // silently dropped — verified against a real hand-authored map where over
   // half the placed furniture had exactly this shape.
   const baseGid = (gid: unknown): number => {
-    const raw = Number(gid) || 0;
-    return raw >= TILED_FLIP_H ? raw - TILED_FLIP_H : raw;
+    let raw = Number(gid) || 0;
+    if (raw >= TILED_FLIP_H) raw -= TILED_FLIP_H;
+    if (raw >= TILED_FLIP_V) raw -= TILED_FLIP_V;
+    return raw;
   };
   const isFurnitureTileObject = (o: Record<string, unknown>): boolean => {
     const gid = baseGid(o.gid);
@@ -454,10 +461,19 @@ export function importTmjToLayout(
     const gid = baseGid(o.gid);
     return gid > 0 && resolveGid(gid)?.class === 'ImageTile';
   };
-  const furnitureObjects = allObjects.filter((o) => o.type === 'FurnitureObject' || isFurnitureTileObject(o));
-  const actionObjects = allObjects.filter((o) => o.type === 'ActionArea');
-  const textObjects = allObjects.filter((o) => o.text !== undefined);
-  const imageObjects = allObjects.filter((o) => o.type === 'Image' || isImageTileObject(o));
+  // Tiled's own `text` field is set structurally only by a genuine native
+  // Text object (Insert Text) — never by a custom `type`/property, unlike
+  // every other classification below. It wins outright over a stale/leftover
+  // `type: 'Image'` (etc.) that a copy-pasted-then-retyped object can end up
+  // dragging along from whatever it was copied from — confirmed against a
+  // live map where two objects copy-pasted from an Image and then edited
+  // into plain text labels still carried the old `type: 'Image'` + `imageId`
+  // property, silently double-importing as a broken image AND a text label.
+  const isTextObject = (o: Record<string, unknown>): boolean => o.text !== undefined;
+  const furnitureObjects = allObjects.filter((o) => !isTextObject(o) && (o.type === 'FurnitureObject' || isFurnitureTileObject(o)));
+  const actionObjects = allObjects.filter((o) => !isTextObject(o) && o.type === 'ActionArea');
+  const textObjects = allObjects.filter(isTextObject);
+  const imageObjects = allObjects.filter((o) => !isTextObject(o) && (o.type === 'Image' || isImageTileObject(o)));
 
   const tiles: number[] = [];
   const tileColors: OfficeLayout['tileColors'] = [];
@@ -597,12 +613,16 @@ export function importTmjToLayout(
     const imageId = typeof props.imageId === 'string' && props.imageId ? props.imageId : typeof resolvedTile?.props.imageId === 'string' ? resolvedTile.props.imageId : null;
     if (!imageId) continue;
     const footprintH = Math.max(1, Math.round(Number(obj.height) / TILE_SIZE));
-    // Baked images live at one global location (assets/tiled/png/images/),
-    // never zone-relative — readImageFile resolves against assets/tiled
-    // itself (see zoneImport.ts).
-    const buffer = readImageFile(`png/images/${imageId}.png`);
+    // Prefer the tile's own declared `image` path — a mapper can add a tile
+    // straight in Tiled's Tileset editor (Edit Tileset → Add Tiles) pointing
+    // at whatever file they picked, entirely bypassing bake-images-tiled.mts
+    // and its png/images/<imageId>.png convention; that convention is only a
+    // fallback for the cases with no such tile at all (a bare `type: 'Image'`
+    // object with no gid). readImageFile resolves both against assets/tiled
+    // itself, never zone-relative (see zoneImport.ts).
+    const buffer = readImageFile(resolvedTile?.image ?? `png/images/${imageId}.png`);
     if (buffer) importedImages.push({ imageId, label: imageId, buffer });
-    images.push({
+    const image: PlacedImage = {
       uid: generateUid(),
       col: Math.round(Number(obj.x) / TILE_SIZE),
       // Same bottom-edge Y anchor as any other GID-backed tile object — see
@@ -611,7 +631,17 @@ export function importTmjToLayout(
       footprintW: Math.max(1, Math.round(Number(obj.width) / TILE_SIZE)),
       footprintH,
       imageId,
-    });
+    };
+    // Decode both flip bits independently — strip H first so a lingering H
+    // bit can't be mistaken for V (H > V, so any H-flipped gid is already
+    // >= TILED_FLIP_V on its own).
+    let flipBits = rawGid;
+    if (flipBits >= TILED_FLIP_H) {
+      image.flippedHorizontally = true;
+      flipBits -= TILED_FLIP_H;
+    }
+    if (flipBits >= TILED_FLIP_V) image.flippedVertically = true;
+    images.push(image);
   }
 
   const layout: OfficeLayout = {

@@ -381,6 +381,14 @@ export interface PlacedImage {
   footprintW: number;
   footprintH: number;
   imageId: string;
+  /** Mirror the image horizontally/vertically — maps directly onto Tiled's
+   *  own GID flip bits (see mapBridge.ts), same convention as
+   *  PlacedFurniture.flippedHorizontally. Unlike furniture (hand-drawn 2.5D
+   *  art, vertical flip would render broken), an arbitrary uploaded image
+   *  has no fixed camera angle, so both directions are supported. Unset =
+   *  false. */
+  flippedHorizontally?: boolean;
+  flippedVertically?: boolean;
 }
 
 export interface OfficeLayout {

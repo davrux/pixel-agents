@@ -63,10 +63,10 @@ export function resolveZoneId(tmjPath: string, filename: string): string {
 /** Import one zones/<file>.tmj into a saved layout for `zoneId`, making it
  *  that zone's active layout (matches LayoutStore.saveAs, the same call the
  *  in-game "Save As" uses). Placed images resolve against assets/tiled
- *  itself (png/images/<id>.png, baked by bake-images-tiled.mts) — one global
- *  location, not zone-relative, since the underlying Tiled object is now a
- *  real GID-backed tile from the shared images.tsj tileset (see
- *  mapBridge.ts). */
+ *  itself, never zone-relative — either the referenced tile's own `image`
+ *  path (any file a mapper added directly via Tiled's Tileset editor), or
+ *  the png/images/<id>.png convention bake-images-tiled.mts writes, as a
+ *  fallback for a bare (non-tile) Image object (see mapBridge.ts). */
 export async function importZoneTmjFile(
   tmjPath: string,
   registry: TiledRegistry,

@@ -20,6 +20,7 @@ type TiledProp = { name: string; type?: string; value: string | number | boolean
 interface TiledTileJson {
   id: number;
   type?: string;
+  image?: string;
   properties?: TiledProp[];
 }
 interface TiledTilesetJson {
@@ -34,6 +35,13 @@ export interface RegistryTile {
    *  tile (e.g. collision.tsj's parameterless marker). */
   class?: string;
   props: Record<string, string | number | boolean>;
+  /** This tile's own `image` path (relative to assets/tiled/), for a
+   *  "Collection of Images" tile (see images.tsj/ImageTile) — e.g. a tile a
+   *  mapper added directly in Tiled's Tileset editor, pointing at whatever
+   *  file they picked, not necessarily one baked by bake-images-tiled.mts.
+   *  Undefined for tiles from a single-image (grid) tileset, where the path
+   *  lives on the tileset itself instead. */
+  image?: string;
 }
 
 export interface RegistryTileset {
@@ -78,7 +86,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     const tiles: RegistryTile[] = [];
     for (let id = 0; id < json.tilecount; id++) {
       const t = byId.get(id);
-      tiles.push({ class: t?.type, props: t ? propsOf(t) : {} });
+      tiles.push({ class: t?.type, props: t ? propsOf(t) : {}, image: t?.image });
     }
     tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: json.tilecount, tiles });
     nextGid += json.tilecount;
@@ -124,7 +132,7 @@ export function gidAt(registry: TiledRegistry, file: string, localId: number): n
 export function resolveFromTmjTilesets(
   registry: TiledRegistry,
   tmjTilesets: Array<{ firstgid: number; source: string }>,
-): (gid: number) => { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean> } | null {
+): (gid: number) => { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean>; image?: string } | null {
   const entries = tmjTilesets
     .map((t) => {
       const ts = registry.bySource(path.basename(String(t.source)));
@@ -138,7 +146,7 @@ export function resolveFromTmjTilesets(
       if (gid >= firstgid && gid < firstgid + tileset.tileCount) {
         const localId = gid - firstgid;
         const tile = tileset.tiles[localId];
-        return { tileset, localId, class: tile?.class, props: tile?.props ?? {} };
+        return { tileset, localId, class: tile?.class, props: tile?.props ?? {}, image: tile?.image };
       }
     }
     return null;
