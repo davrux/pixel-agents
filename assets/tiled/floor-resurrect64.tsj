@@ -1,10 +1,10 @@
 {
   "columns": 65,
-  "image": "png/floor.png",
+  "image": "png/floor-resurrect64.png",
   "imagewidth": 1040,
   "imageheight": 176,
   "margin": 0,
-  "name": "floor",
+  "name": "floor-resurrect64",
   "spacing": 0,
   "tilecount": 715,
   "tiledversion": "1.11.0",

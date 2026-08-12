@@ -26,7 +26,7 @@ import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore } from '../src/layoutStore.js';
 import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, resolveZoneId, ensureZoneExists, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, resolveZoneId, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -61,8 +61,7 @@ async function main(): Promise<void> {
     const tmjPath = path.join(ZONES_DIR, file);
     const zoneId = resolveZoneId(tmjPath, file);
     try {
-      const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore);
-      ensureZoneExists(zones, zoneId, result.cols, result.rows);
+      const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore, zones);
       console.log(
         `✓ ${file} → zone "${zoneId}" layout "${layoutName}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`,
       );

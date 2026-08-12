@@ -173,7 +173,7 @@ function wangIdForMask(mask: number): number[] {
 
 /** `sourceFile` is the raw wall_N.png geometry to bake — two sets can (and
  *  do) share the same source, baked with a different palette, e.g.
- *  "wall-0" and "wall-0-warm" both read wall_0.png. */
+ *  "wall-0-resurrect64" and "wall-0-warm" both read wall_0.png. */
 function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteSwatch[]): void {
   const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'walls', sourceFile)));
   // One shared brightness baseline across all 16 pieces (not per piece) —
@@ -246,9 +246,9 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
 }
 
 fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
-bakeFloorSheet('floor', BASE_FLOOR_PATTERN_FILES, PALETTE_64);
+bakeFloorSheet('floor-resurrect64', BASE_FLOOR_PATTERN_FILES, PALETTE_64);
 bakeFloorSheet('floor-warm', [...BASE_FLOOR_PATTERN_FILES, 'floor_11.png'], WARM_PALETTE_64);
-bakeWallSheet('wall-0', 'wall_0.png', PALETTE_64);
-bakeWallSheet('wall-1', 'wall_1.png', PALETTE_64);
+bakeWallSheet('wall-0-resurrect64', 'wall_0.png', PALETTE_64);
+bakeWallSheet('wall-1-resurrect64', 'wall_1.png', PALETTE_64);
 bakeWallSheet('wall-0-warm', 'wall_0.png', WARM_PALETTE_64);
 bakeWallSheet('wall-1-warm', 'wall_1.png', WARM_PALETTE_64);

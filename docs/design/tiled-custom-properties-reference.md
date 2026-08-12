@@ -27,7 +27,7 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 
 ### FloorTile *(useAs: tile)*
 
-No members. Every tile in `floor.tsj` / `floor-warm.tsj` gets this class.
+No members. Every tile in `floor-resurrect64.tsj` / `floor-warm.tsj` gets this class.
 
 **Position-derived data**: which floor *pattern* a tile is, and which palette
 *swatch* (or "Natural") colors it, come purely from the tile's row/column position
@@ -38,7 +38,7 @@ hand-edits their tile list. **Don't add `pattern`/`hue`/`sat`-style properties h
 
 ### WallTile *(useAs: tile)*
 
-No members. Every tile in `wall-0.tsj` / `wall-1.tsj` / `wall-0-warm.tsj` /
+No members. Every tile in `wall-0-resurrect64.tsj` / `wall-1-resurrect64.tsj` / `wall-0-warm.tsj` /
 `wall-1-warm.tsj` gets this class. Same position-derived logic as FloorTile — bitmask
 (row) and swatch (column) come from position, not properties.
 

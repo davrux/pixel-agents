@@ -1,6 +1,7 @@
 /**
  * Grid layout of the pre-baked Tiled floor/wall sprite sheets
- * (assets/tiled/png/floor.png, wall-0.png, wall-1.png — see
+ * (assets/tiled/png/floor-resurrect64.png, wall-0-resurrect64.png,
+ * wall-1-resurrect64.png, plus their -warm counterparts — see
  * server/scripts/bake-floor-wall-tiled.mts). One shared source so the bake
  * script and the client's sheet loader (client/src/net/tiledSheets.ts) can
  * never disagree on how a flat tile index maps to (pattern|bitmask, swatch).
@@ -30,13 +31,19 @@ export const WALL_TILE_SPACING = 6;
 /** One entry per floor "set" — index = OfficeLayout.tileFloorSet, matching
  *  a <name>.tsj / png/<name>.png pair (server/scripts/bake-floor-wall-tiled.mts
  *  writes these; client/src/net/tiledSheets.ts fetches them in this exact
- *  order). 'floor-warm' shares the same 11 base patterns as 'floor' (plus
- *  one warm-only pattern, wood planks) — see palettes.ts's FLOOR_SET_PALETTES. */
-export const FLOOR_SET_FILES = ['floor', 'floor-warm'];
+ *  order). The regular set is named after its actual source palette (see
+ *  palettes.ts's PALETTE_64 — Kerrie Lake's "Resurrect 64",
+ *  lospec.com/palette-list/resurrect-64, verified hex-for-hex against the
+ *  published palette); the warm set keeps its plain "-warm" name since
+ *  WARM_PALETTE_64 isn't a published/named palette, just generated for this
+ *  project. 'floor-warm' shares the same 11 base patterns as the regular set
+ *  (plus one warm-only pattern, wood planks) — see FLOOR_SET_PALETTES. */
+export const FLOOR_SET_FILES = ['floor-resurrect64', 'floor-warm'];
 
 /** One entry per wall "set" — index = OfficeLayout.tileWallSet, matching a
  *  wall-<name>.tsj / png/wall-<name>.png pair. Sets 2/3 share the same
  *  source art as sets 0/1 respectively, just baked with a different
  *  palette (see palettes.ts's WALL_SET_PALETTES) — a deliberate style+color
- *  pairing, not a naming coincidence. */
-export const WALL_SET_FILES = ['wall-0', 'wall-1', 'wall-0-warm', 'wall-1-warm'];
+ *  pairing, not a naming coincidence. Same resurrect64/warm naming as
+ *  FLOOR_SET_FILES above. */
+export const WALL_SET_FILES = ['wall-0-resurrect64', 'wall-1-resurrect64', 'wall-0-warm', 'wall-1-warm'];

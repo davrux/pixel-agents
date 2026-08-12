@@ -1,10 +1,10 @@
 {
   "columns": 65,
-  "image": "png/wall-1.png",
+  "image": "png/wall-0-resurrect64.png",
   "imagewidth": 1424,
   "imageheight": 602,
   "margin": 0,
-  "name": "wall-1",
+  "name": "wall-0-resurrect64",
   "spacing": 6,
   "tilecount": 1040,
   "tiledversion": "1.11.0",
