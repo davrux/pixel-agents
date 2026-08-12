@@ -39,6 +39,7 @@ import {
   TILED_SHEET_COLUMNS,
   WALL_TILE_H,
   WALL_BITMASK_COUNT,
+  WALL_TILE_SPACING,
 } from '../../shared/src/office/tiledSheetLayout.js';
 import type { PaletteSwatch } from '../../shared/src/office/palettes.js';
 import type { SpriteData } from '../../shared/src/office/types.js';
@@ -72,21 +73,26 @@ function spriteToPng(sprite: SpriteData, w: number, h: number): PNG {
   return png;
 }
 
-/** Lay out `tiles` (each `tileW`×`tileH`) into one sheet PNG, `columns` wide. */
-function composeSheet(tiles: SpriteData[], tileW: number, tileH: number, columns: number): Buffer {
+/** Lay out `tiles` (each `tileW`×`tileH`) into one sheet PNG, `columns` wide,
+ *  with `spacing` transparent px between every tile (see WALL_TILE_SPACING;
+ *  0 for floor sheets — no directional-edge ambiguity to separate there). */
+function composeSheet(tiles: SpriteData[], tileW: number, tileH: number, columns: number, spacing = 0): Buffer {
   const rows = Math.ceil(tiles.length / columns);
-  const sheet = new PNG({ width: columns * tileW, height: rows * tileH });
+  const sheet = new PNG({
+    width: columns * tileW + (columns - 1) * spacing,
+    height: rows * tileH + (rows - 1) * spacing,
+  });
   sheet.data.fill(0);
   tiles.forEach((sprite, i) => {
     const col = i % columns;
     const row = Math.floor(i / columns);
     const tilePng = spriteToPng(sprite, tileW, tileH);
-    PNG.bitblt(tilePng, sheet, 0, 0, tileW, tileH, col * tileW, row * tileH);
+    PNG.bitblt(tilePng, sheet, 0, 0, tileW, tileH, col * (tileW + spacing), row * (tileH + spacing));
   });
   return PNG.sync.write(sheet);
 }
 
-function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileClass: string, name: string) {
+function grid(tileW: number, tileH: number, columns: number, tileCount: number, imageFile: string, imageW: number, imageH: number, tileClass: string, name: string, spacing = 0) {
   return {
     columns,
     image: imageFile,
@@ -94,7 +100,7 @@ function grid(tileW: number, tileH: number, columns: number, tileCount: number, 
     imageheight: imageH,
     margin: 0,
     name,
-    spacing: 0,
+    spacing,
     tilecount: tileCount,
     tiledversion: '1.11.0',
     tileheight: tileH,
@@ -188,9 +194,14 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
     }
   }
   const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
-  const buf = composeSheet(tiles, TILE_W, WALL_H, columns);
+  const buf = composeSheet(tiles, TILE_W, WALL_H, columns, WALL_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
-  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/${outputName}.png`, columns * TILE_W, 16 * WALL_H, 'WallTile', outputName) as Record<string, unknown>;
+  const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
+  const imageH = 16 * WALL_H + (16 - 1) * WALL_TILE_SPACING;
+  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/${outputName}.png`, imageW, imageH, 'WallTile', outputName, WALL_TILE_SPACING) as Record<
+    string,
+    unknown
+  >;
   // One Wang/Terrain set PER COLOR, not one set covering all colors — a Wang
   // set's brush only knows "does this tile satisfy the required edge
   // pattern", with no notion of color at all, so a single set spanning every

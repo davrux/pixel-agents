@@ -17,6 +17,7 @@ import {
   WALL_BITMASK_COUNT,
   WALL_SET_FILES,
   WALL_TILE_H,
+  WALL_TILE_SPACING,
   WALL_TILE_W,
 } from '@pixel/shared/office/tiledSheetLayout.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
@@ -38,8 +39,10 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 
 /** Slice one baked sheet into `rows` groups of TILED_SHEET_COLUMNS tiles
  *  each, tileW×tileH — mirrors bake-floor-wall-tiled.mts's composeSheet
- *  layout exactly (flat index i → col = i % columns, row = floor(i / columns)). */
-function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: number): SpriteData[][] {
+ *  layout exactly (flat index i → col = i % columns, row = floor(i / columns)),
+ *  including its `spacing` transparent px between tiles (0 for floor sheets,
+ *  WALL_TILE_SPACING for wall sheets — see tiledSheetLayout.ts). */
+function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: number, spacing = 0): SpriteData[][] {
   const canvas = document.createElement('canvas');
   canvas.width = bitmap.width;
   canvas.height = bitmap.height;
@@ -51,7 +54,7 @@ function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: num
   for (let row = 0; row < rows; row++) {
     const group: SpriteData[] = [];
     for (let col = 0; col < TILED_SHEET_COLUMNS; col++) {
-      const { data } = ctx.getImageData(col * tileW, row * tileH, tileW, tileH);
+      const { data } = ctx.getImageData(col * (tileW + spacing), row * (tileH + spacing), tileW, tileH);
       const sprite: SpriteData = [];
       for (let y = 0; y < tileH; y++) {
         const line: string[] = [];
@@ -88,7 +91,7 @@ export async function loadTiledSheets(): Promise<void> {
     setFloorSheets(
       floorBitmaps.map((bitmap) => sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H))),
     );
-    setWallSheets(wallBitmaps.map((bitmap) => sliceSheet(bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT)));
+    setWallSheets(wallBitmaps.map((bitmap) => sliceSheet(bitmap, WALL_TILE_W, WALL_TILE_H, WALL_BITMASK_COUNT, WALL_TILE_SPACING)));
   } catch (err) {
     console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);
   }

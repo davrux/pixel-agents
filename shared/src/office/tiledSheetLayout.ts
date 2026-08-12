@@ -17,6 +17,15 @@ export const FLOOR_TILE_H = TILE_SIZE;
 export const WALL_TILE_W = TILE_SIZE;
 export const WALL_TILE_H = 32;
 export const WALL_BITMASK_COUNT = 16;
+/** Transparent gap (px) baked between adjacent wall tiles in the sheet image
+ *  — wall art often runs edge-to-edge to its own tile boundary, so with zero
+ *  gap neighboring bitmask variants visually blend together in Tiled's
+ *  Tilesets panel. Purely a sheet-layout spacer: doesn't change which GID
+ *  maps to which (bitmask, swatch) — see rowAndSwatchFromLocalId — only
+ *  where that tile sits in pixels, which both the bake script and the
+ *  client's sheet slicer must agree on. Floor tiles don't have this
+ *  ambiguity (no directional edges to confuse), so they stay at 0 gap. */
+export const WALL_TILE_SPACING = 2;
 
 /** One entry per floor "set" — index = OfficeLayout.tileFloorSet, matching
  *  a <name>.tsj / png/<name>.png pair (server/scripts/bake-floor-wall-tiled.mts
