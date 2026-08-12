@@ -1,7 +1,9 @@
 /**
  * Generated placeholder arcade cabinet injected into the furniture catalog at load
- * time, so a playable cabinet is real, editable furniture (refine the art in the
- * in-game editor). Carries `action: { kind: 'arcade' }`; clicking it opens the
+ * time, so a playable cabinet is real, editable furniture. Has no Tiled tileset
+ * representation (no `action` default on the catalog entry) — every placed
+ * instance must carry its own explicit `action: { kind: 'arcade' }` (see
+ * FurnitureObject's actionKind in Pixels.tiled-project); clicking one opens the
  * shared ArcadeUI and boots a DOS game (js-dos). Placeable in any zone. Mirrors
  * conferenceAssets.
  */
@@ -67,7 +69,6 @@ export function arcadeAssets(): ArcadeAsset[] {
         footprintW: 1,
         footprintH: 2,
         isDesk: false,
-        action: { kind: 'arcade' },
       },
       sprite: arcadeCabinetSprite(),
     },

@@ -270,7 +270,7 @@ export class PhaserRenderer {
         this.furniturePool[i] = img;
       }
       img.setTexture(spriteTexture(this.scene, f.sprite));
-      img.setPosition(f.x, f.y).setDepth(f.zY).setFlipX(!!f.mirrored).setVisible(true);
+      img.setPosition(f.x, f.y).setDepth(f.zY).setFlipX(!!f.mirrored).setFlipY(!!f.flippedVertically).setVisible(true);
     }
     for (let i = items.length; i < this.furniturePool.length; i++) {
       this.furniturePool[i].setVisible(false);

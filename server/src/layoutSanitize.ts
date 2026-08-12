@@ -11,6 +11,7 @@ import {
   MAX_TEXT_LABEL_LEN,
   MAX_TEXT_LABELS,
   MAX_PLACED_IMAGES,
+  MAX_IMAGE_FOOTPRINT_TILES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
@@ -81,7 +82,7 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     if (typeof rec.imageId !== 'string' || !rec.imageId) continue;
     const fw = Number(rec.footprintW);
     const fh = Number(rec.footprintH);
-    if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) continue;
+    if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > MAX_IMAGE_FOOTPRINT_TILES || fh > MAX_IMAGE_FOOTPRINT_TILES) continue;
     const entry: (typeof clean)[number] = { uid: rec.uid, col: rec.col, row: rec.row, footprintW: fw, footprintH: fh, imageId: rec.imageId };
     if (rec.flippedHorizontally === true) entry.flippedHorizontally = true;
     if (rec.flippedVertically === true) entry.flippedVertically = true;

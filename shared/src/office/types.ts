@@ -173,6 +173,8 @@ export interface FurnitureInstance {
   zY: number;
   /** Render-time horizontal flip flag (for mirrored side variants) */
   mirrored?: boolean;
+  /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
+  flippedVertically?: boolean;
 }
 
 export interface ToolActivity {
@@ -318,16 +320,19 @@ export interface PlacedFurniture {
    *  action, e.g. turning a specific arcade cabinet into a link-manager
    *  kiosk instead, without a new catalog type. */
   action?: Action;
-  /** Horizontal mirror, adopted directly from Tiled's own object-flip
-   *  concept (named after Tiled's own `FLIPPED_HORIZONTALLY_FLAG` — see
-   *  docs/design/tiled-editor-integration.md) rather than an invented term.
-   *  No catalog-level gate on which types may use this (there's no
-   *  equivalent gate in Tiled either — any object can be flipped there).
-   *  Vertical/diagonal flip and continuous rotation, which Tiled's object
-   *  model also supports, are deliberately NOT adopted: our furniture art is
-   *  hand-drawn 2.5D perspective from one fixed camera angle, so those would
-   *  render broken (same reasoning that killed rotation groups). */
+  /** Horizontal/vertical mirror, adopted directly from Tiled's own object-flip
+   *  concept (named after Tiled's own `FLIPPED_HORIZONTALLY_FLAG`/
+   *  `FLIPPED_VERTICALLY_FLAG` — see docs/design/tiled-editor-integration.md)
+   *  rather than an invented term. No catalog-level gate on which types may
+   *  use either — there's no equivalent gate in Tiled either, and whether a
+   *  vertical flip looks right for a given hand-drawn 2.5D piece is the
+   *  mapper's own call to make in Tiled, not this engine's to police.
+   *  Continuous rotation, which Tiled's object model also supports, is still
+   *  not adopted (same reasoning that killed rotation groups: there's no
+   *  sensible rotated frame for art drawn from one fixed camera angle) — but
+   *  a flip is just mirroring the SAME frame, always well-defined. */
   flippedHorizontally?: boolean;
+  flippedVertically?: boolean;
   /** Lets players search THROUGH this item for a place to stand when
    *  approaching some other action/appliance behind it (e.g. a kitchen
    *  counter in front of a coffee machine) — see computeApproachTiles. This

@@ -84,7 +84,14 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
     const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
 
-    instances.push({ sprite, x, y, zY, ...(item.flippedHorizontally ? { mirrored: true } : {}) });
+    instances.push({
+      sprite,
+      x,
+      y,
+      zY,
+      ...(item.flippedHorizontally ? { mirrored: true } : {}),
+      ...(item.flippedVertically ? { flippedVertically: true } : {}),
+    });
   }
   return instances;
 }

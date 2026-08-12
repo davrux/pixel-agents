@@ -89,7 +89,18 @@ override.
 A furniture item with no Tiled tileset representation (portals, conference monitor,
 arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code) still
 exports as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
-canvas instead of a real sprite. Round-trips fine either way.
+canvas instead of a real sprite. Round-trips fine either way. **These types have no
+default action on their catalog entry** — unlike a real `FurnitureTile` (which can
+set one, see above), there's no tile to bake it onto, so every placed `DOOR`/
+`BEAM_PAD`/`ARCADE`/`MONITOR`/`MEETING_KIOSK` instance must set its own `actionKind`
+explicitly or it simply does nothing when clicked/walked onto.
+
+`flippedHorizontally`/`flippedVertically` aren't custom properties — they're Tiled's
+own native object flip (right-click the object, or flip before placing from the
+Tilesets panel), and only take effect on a `gid`-backed object (a plain rectangle
+with no sprite has nothing to mirror). No catalog-level gate on either direction —
+whether a vertical flip looks right for a given hand-drawn piece is the mapper's own
+call in Tiled, not something this engine restricts.
 
 **Placing furniture by dragging a sprite straight from the Tilesets panel** (rather
 than copy-pasting an existing `FurnitureObject`) creates a `gid`-backed object with

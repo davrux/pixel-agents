@@ -1,8 +1,11 @@
 /**
  * Generated placeholder conference monitor injected into the furniture catalog at
- * load time, so a conference screen is real, editable furniture (refine the art in
- * the in-game furniture editor). Carries `action: { kind: 'meetingRoom', video: true }`;
- * clicking it joins a per-monitor video call (C-RTC). Placeable in any zone.
+ * load time, so a conference screen is real, editable furniture. Has no Tiled
+ * tileset representation (no `action` default on the catalog entry) — every
+ * placed instance must carry its own explicit
+ * `action: { kind: 'meetingRoom', video: true }` (see FurnitureObject's
+ * actionKind in Pixels.tiled-project); clicking one joins a per-monitor video
+ * call (C-RTC). Placeable in any zone.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -62,7 +65,6 @@ export function conferenceAssets(): ConferenceAsset[] {
         footprintW: 2,
         footprintH: 2,
         isDesk: false,
-        action: { kind: 'meetingRoom', video: true },
         canPlaceOnSurfaces: true,
       },
       sprite: monitorSprite(),

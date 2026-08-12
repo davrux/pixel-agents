@@ -56,15 +56,16 @@ function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
 const TILED_FLIP_H = 0x80000000;
 const TILED_FLIP_V = 0x40000000;
 
-/** `flippedHorizontally` (see PlacedFurniture) maps directly onto Tiled's own
- *  GID flip bit — purely cosmetic, so Tiled's canvas shows a real mirrored
- *  sprite instead of drawing the unflipped one. `id` (see the export/import
- *  properties block) already carries the true identity independent of this;
- *  the GID here is only ever consulted for *display*. */
-function findFurnitureGid(registry: TiledRegistry, id: string, flippedHorizontally: boolean): number | null {
+/** `flippedHorizontally`/`flippedVertically` (see PlacedFurniture) map
+ *  directly onto Tiled's own GID flip bits — purely cosmetic, so Tiled's
+ *  canvas shows the real (mirrored) sprite instead of drawing the unflipped
+ *  one. `id` (see the export/import properties block) already carries the
+ *  true identity independent of this; the GID here is only ever consulted
+ *  for *display*. */
+function findFurnitureGid(registry: TiledRegistry, id: string, flippedHorizontally: boolean, flippedVertically: boolean): number | null {
   const direct = findFurnitureGidExact(registry, id);
   if (direct === null) return null;
-  return flippedHorizontally ? direct + TILED_FLIP_H : direct;
+  return direct + (flippedHorizontally ? TILED_FLIP_H : 0) + (flippedVertically ? TILED_FLIP_V : 0);
 }
 
 function findFurnitureGidExact(registry: TiledRegistry, id: string): number | null {
@@ -127,7 +128,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     const entry = getCatalogEntry(item.id);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
-    const gid = findFurnitureGid(registry, item.id, !!item.flippedHorizontally);
+    const gid = findFurnitureGid(registry, item.id, !!item.flippedHorizontally, !!item.flippedVertically);
     // Every field always present (even empty/0/false) — see actionProps's
     // own note; the same "discoverable, not just whatever was set" reasoning
     // applies to approachSides/name here. No `uid` (regenerated fresh on
@@ -525,8 +526,8 @@ export function importTmjToLayout(
     // isFurnitureTileObject above) carries no properties at all, so fall
     // back to the `id` already baked onto the FurnitureTile itself — the
     // GID still says exactly what this is, just indirectly instead of
-    // redundantly. The GID's flip bit is read back separately, purely for
-    // `flippedHorizontally` — an unrelated concern either way.
+    // redundantly. The GID's flip bits are read back separately, purely for
+    // `flippedHorizontally`/`flippedVertically` — an unrelated concern either way.
     const rawGid = Number(obj.gid) || 0;
     const resolvedTile = rawGid > 0 ? resolveGid(baseGid(rawGid)) : null;
     const id = typeof props.id === 'string' && props.id ? props.id : typeof resolvedTile?.props.id === 'string' ? resolvedTile.props.id : '';
@@ -545,7 +546,14 @@ export function importTmjToLayout(
       row,
       zOffset: idx,
     };
-    if (rawGid >= TILED_FLIP_H) item.flippedHorizontally = true;
+    {
+      let flipBits = rawGid;
+      if (flipBits >= TILED_FLIP_H) {
+        item.flippedHorizontally = true;
+        flipBits -= TILED_FLIP_H;
+      }
+      if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
+    }
     if (typeof props.name === 'string' && props.name) item.name = props.name;
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));

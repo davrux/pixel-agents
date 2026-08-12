@@ -169,6 +169,13 @@ export const MAX_TEXT_LABELS = 200;
  *  may have — same purpose as MAX_TEXT_LABELS. */
 export const MAX_PLACED_IMAGES = 100;
 
+/** Max footprint (tiles, either axis) one placed image may have — a generous
+ *  but bounded cap against a malformed save, not a design constraint: a
+ *  banner/logo spanning most of a large room's width is a completely normal
+ *  Tiled placement (confirmed against a live map whose logo was 27 tiles
+ *  wide), well past what the old in-game Image tool's own UI ever produced. */
+export const MAX_IMAGE_FOOTPRINT_TILES = 128;
+
 /** Max size (bytes, decoded) of one uploaded background image — a PNG this
  *  big is already a lot of decoration; bigger risks bloating every layout
  *  save/broadcast that includes it. */

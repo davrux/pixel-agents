@@ -1,8 +1,10 @@
 /**
  * Generated placeholder portal furniture (door + beam pad) injected into the
- * furniture catalog at load time, so zone portals are real, editable furniture
- * (the user can refine the art in the in-game furniture editor). Carries
- * `action: { kind: 'portal' }`; walking up to one offers a destination picker.
+ * furniture catalog at load time, so zone portals are real, editable furniture.
+ * Has no Tiled tileset representation (no `action` default on the catalog
+ * entry) — every placed instance must carry its own explicit
+ * `action: { kind: 'portal' }` (see FurnitureObject's actionKind in
+ * Pixels.tiled-project); walking up to one offers a destination picker.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -77,7 +79,6 @@ export function portalAssets(): PortalAsset[] {
         footprintH: 1,
         isDesk: false,
         backgroundTiles: 1, // non-blocking → you step onto the door tile to use it
-        action: { kind: 'portal' },
       },
       sprite: doorSprite(),
     },
@@ -92,7 +93,6 @@ export function portalAssets(): PortalAsset[] {
         footprintH: 1,
         isDesk: false,
         backgroundTiles: 1, // non-blocking → you can stand on the pad
-        action: { kind: 'portal' },
       },
       sprite: beamPadSprite(),
     },
