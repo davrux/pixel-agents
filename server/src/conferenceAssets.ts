@@ -1,8 +1,8 @@
 /**
  * Generated placeholder conference monitor injected into the furniture catalog at
  * load time, so a conference screen is real, editable furniture (refine the art in
- * the in-game furniture editor). Tagged `conference: true`; clicking it joins a
- * per-monitor video call (C-RTC). Placeable in any zone.
+ * the in-game furniture editor). Carries `action: { kind: 'meetingRoom', video: true }`;
+ * clicking it joins a per-monitor video call (C-RTC). Placeable in any zone.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -62,7 +62,7 @@ export function conferenceAssets(): ConferenceAsset[] {
         footprintW: 2,
         footprintH: 2,
         isDesk: false,
-        conference: true,
+        action: { kind: 'meetingRoom', video: true },
         canPlaceOnSurfaces: true,
       },
       sprite: monitorSprite(),

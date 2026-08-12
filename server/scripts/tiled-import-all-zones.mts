@@ -1,16 +1,19 @@
 #!/usr/bin/env -S node --import tsx
 /**
- * Import every assets/tiled/zones/*.tmj file at once — for when new zones
- * were added straight in Tiled rather than exported via
- * tiled-export-zone.mts. This is NOT automatic on server start; run it by
- * hand after adding/editing zone files.
+ * Import every assets/tiled/zones/*.tmj file at once — the batch counterpart
+ * to the live server's own watchZoneFiles (see tiled/zoneImport.ts), for
+ * running the same import by hand: offline, against a stopped server, or
+ * just to force a fresh import without waiting on a file-save event.
  *
  * Each file's target zone is its own `mapName` Map property (Tiled: View →
  * Custom Types Editor → Map, or the Properties panel with nothing selected)
  * — not its filename — so renaming a .tmj or copy-pasting one as a starting
  * point for a new zone doesn't silently import it under the wrong zone.
  * Falls back to the filename (without extension) if `mapName` is unset,
- * e.g. for files predating that property.
+ * e.g. for files predating that property. Either way, lowercased — every
+ * zone id in this system already is, and matching case-sensitively against
+ * an existing zone would silently create a near-duplicate instead (see
+ * resolveZoneId).
  *
  * Usage (from server/): node --import tsx scripts/tiled-import-all-zones.mts [layoutName]
  *   layoutName — defaults to "TiledImport", same as tiled-import-zone.mts
@@ -21,15 +24,16 @@ import * as path from 'node:path';
 import { loadDefaultLayout } from '../src/assetLoader.js';
 import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore } from '../src/layoutStore.js';
+import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, readMapName } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, resolveZoneId, ensureZoneExists, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const ZONES_DIR = path.join(ROOT, 'assets', 'tiled', 'zones');
 
 async function main(): Promise<void> {
-  const layoutName = process.argv[2] ?? 'TiledImport';
+  const layoutName = process.argv[2] ?? DEFAULT_TILED_IMPORT_LAYOUT_NAME;
   if (!LayoutStore.isValidUserName(layoutName)) {
     console.error(`Invalid layout name "${layoutName}".`);
     process.exit(1);
@@ -49,14 +53,16 @@ async function main(): Promise<void> {
 
   const registry = loadTiledRegistry(ROOT);
   const layoutStore = new LayoutStore(loadDefaultLayout(ROOT));
+  const zones = new ZoneStore();
 
   let ok = 0;
   let failed = 0;
   for (const file of files) {
     const tmjPath = path.join(ZONES_DIR, file);
-    const zoneId = readMapName(tmjPath) ?? path.basename(file, '.tmj');
+    const zoneId = resolveZoneId(tmjPath, file);
     try {
-      const result = await importZoneTmjFile(tmjPath, ZONES_DIR, registry, zoneId, layoutName, layoutStore);
+      const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore);
+      ensureZoneExists(zones, zoneId, result.cols, result.rows);
       console.log(
         `✓ ${file} → zone "${zoneId}" layout "${layoutName}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`,
       );

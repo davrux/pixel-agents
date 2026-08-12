@@ -57,6 +57,7 @@ import {
   ZONE_INVITE_RESULT_EVENT,
   ZONE_DELETED_EVENT,
   ASSET_CHANGED_EVENT,
+  ZONE_LAYOUT_CHANGED_EVENT,
 } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
@@ -280,6 +281,17 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.broadcast('m', { type: 'zoneTransition', zone: DEFAULT_ZONE });
   };
 
+  /** This zone's saved layout changed on disk via Tiled (see
+   *  tiled/zoneImport.ts's watchZoneFiles) — nothing else told this
+   *  already-running room to pick it up, unlike a loadLayout/saveLayout(As)
+   *  message which reloads the room that issued it as a side effect. Same
+   *  reload as those: rebuild the engine from the (now different) active
+   *  layout and rebroadcast to everyone standing here. */
+  private readonly onZoneLayoutChanged = (zoneId: string): void => {
+    if (this.zone.id !== zoneId) return;
+    this.applyActiveLayout();
+  };
+
   /** Replay the full current state of one registry agent into this room (used
    *  both when seeding a freshly-created room and when an owner switches in).
    *  Status 'waiting' is left implicit so seeding never fires a "done" chime. */
@@ -434,6 +446,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.on(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.on(ASSET_CHANGED_EVENT, this.onAssetChanged);
+    controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
 
     this.registerLayoutHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -447,6 +460,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.off(ASSET_CHANGED_EVENT, this.onAssetChanged);
+    controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     this.store?.close();
     this.zones?.close();
   }
@@ -1359,6 +1373,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (Number.isInteger(col) && Number.isInteger(row)) this.os.walkPlayer(id, col, row);
     });
 
+    // Right-click "warp": instantly teleport the viewer's own avatar to a
+    // walkable tile (server validates walkability — see
+    // OfficeState.warpPlayer; a non-walkable target is a silent no-op, same
+    // as any other rejected movement).
+    this.onMessage('playerWarp', (client, msg: { col?: number; row?: number }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      const col = Math.floor(Number(msg?.col));
+      const row = Math.floor(Number(msg?.row));
+      if (Number.isInteger(col) && Number.isInteger(row)) this.os.warpPlayer(id, col, row);
+    });
+
     // Keyboard (WASD) walk: a held cardinal direction, or null to stop. The
     // server steps the avatar tile-by-tile while held (validated per step).
     this.onMessage('playerDir', (client, msg: { dir?: number | null }) => {
@@ -1672,9 +1698,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // shows the 8 known ones — an unlisted category is invisible,
       // unplaceable furniture, not a validation gap to let through silently.
       if (typeof c.category !== 'string' || !FURNITURE_CATEGORIES.some((fc) => fc.id === c.category)) return false;
-      if (c.appliance !== undefined && (typeof c.appliance !== 'string' || c.appliance.length > 32)) {
-        return false;
-      }
       // This type's default Action (see FurnitureCatalogEntry.action) — same
       // shape/validation as a per-instance override, just one level up.
       if (c.action !== undefined && !sanitizeAction(c.action)) return false;
@@ -1752,32 +1775,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // its first tick.
     if (this.clients.length === 0) return;
     this.os.update(Math.min(dt, 0.1));
-    this.handlePortals();
     this.handleActionArrivals();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
   }
 
-  /** Players that stepped on a portal this tick → offer them the other zones as
-   *  destinations (the client shows a picker; choosing sends `portalGo`). */
-  private handlePortals(): void {
-    for (const id of this.os.takePendingPortals()) {
-      const client = this.clientForPlayer(id);
-      if (!client) continue;
-      const zones = this.zones
-        .list()
-        .filter((z) => z.id !== this.zone.id)
-        .map((z) => ({ id: z.id, label: z.label }));
-      if (zones.length) client.send('m', { type: 'portalOptions', zones });
-    }
-  }
-
   /** Players who reached a furniture action's stand tile this tick — add
    *  'meetingRoom' arrivals to that room's membership; tell just that
    *  client to open its own local UI for everything else (game picker /
-   *  room-manage dialog / iframe — this room has no state of its own to
-   *  update for those, unlike a meeting-room join). */
+   *  room-manage dialog / iframe / the other zones as destinations for a
+   *  portal — this room has no state of its own to update for those, unlike
+   *  a meeting-room join). */
   private handleActionArrivals(): void {
     for (const { id, action, col, row } of this.os.takePendingActionArrivals()) {
       if (action.kind === 'meetingRoom') {
@@ -1797,6 +1806,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
       const client = this.clientForPlayer(id);
       if (!client) continue;
+      if (action.kind === 'portal') {
+        const zones = this.zones
+          .list()
+          .filter((z) => z.id !== this.zone.id)
+          .map((z) => ({ id: z.id, label: z.label }));
+        if (zones.length) client.send('m', { type: 'portalOptions', zones });
+        continue;
+      }
       client.send('m', {
         type: 'actionReady',
         kind: action.kind,

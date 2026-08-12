@@ -1545,6 +1545,15 @@ export class OfficeScene extends Phaser.Scene {
               this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
               this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
             }
+          } else if (this.myPlayerId !== null && p.rightButtonReleased()) {
+            // Right-click "warp": instant teleport, no walking — server
+            // validates the target is actually walkable (see
+            // OfficeState.warpPlayer) and no-ops otherwise, same as any
+            // other rejected movement.
+            this.pendingConference = null;
+            const col = Math.floor(p.worldX / TILE_SIZE);
+            const row = Math.floor(p.worldY / TILE_SIZE);
+            this.room?.send('playerWarp', { col, row });
           }
         }
       }

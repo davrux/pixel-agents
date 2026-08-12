@@ -1,10 +1,10 @@
 /**
  * Generated placeholder meeting-room kiosk injected into the furniture catalog at
  * load time, so it's real, editable furniture (refine the art in the in-game
- * editor). Tagged `meetingRoom: true`; clicking it opens a dialog to mint an
- * ad-hoc video/audio room (random link, optional password, an expiry) — see
- * meetingRoomStore.ts + the `meetingRoomCreate` handler in SimRoom.ts. Placeable
- * in any zone. Mirrors conferenceAssets.ts / arcadeAssets.ts.
+ * editor). Carries `action: { kind: 'linkManager' }`; clicking it opens a dialog
+ * to mint an ad-hoc video/audio room (random link, optional password, an expiry)
+ * — see meetingRoomStore.ts + the `meetingRoomCreate` handler in SimRoom.ts.
+ * Placeable in any zone. Mirrors conferenceAssets.ts / arcadeAssets.ts.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -69,7 +69,7 @@ export function meetingRoomAssets(): MeetingRoomAsset[] {
         footprintW: 1,
         footprintH: 2,
         isDesk: false,
-        meetingRoom: true,
+        action: { kind: 'linkManager' },
       },
       sprite: meetingKioskSprite(),
     },

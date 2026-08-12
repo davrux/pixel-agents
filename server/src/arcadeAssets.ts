@@ -1,8 +1,9 @@
 /**
  * Generated placeholder arcade cabinet injected into the furniture catalog at load
  * time, so a playable cabinet is real, editable furniture (refine the art in the
- * in-game editor). Tagged `arcade: true`; clicking it opens the shared ArcadeUI and
- * boots a DOS game (js-dos). Placeable in any zone. Mirrors conferenceAssets.
+ * in-game editor). Carries `action: { kind: 'arcade' }`; clicking it opens the
+ * shared ArcadeUI and boots a DOS game (js-dos). Placeable in any zone. Mirrors
+ * conferenceAssets.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -66,7 +67,7 @@ export function arcadeAssets(): ArcadeAsset[] {
         footprintW: 1,
         footprintH: 2,
         isDesk: false,
-        arcade: true,
+        action: { kind: 'arcade' },
       },
       sprite: arcadeCabinetSprite(),
     },

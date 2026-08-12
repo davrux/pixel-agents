@@ -1,8 +1,8 @@
 /**
  * Generated placeholder portal furniture (door + beam pad) injected into the
  * furniture catalog at load time, so zone portals are real, editable furniture
- * (the user can refine the art in the in-game furniture editor). Tagged
- * `portal: true`; walking up to one offers a destination picker (P5 v2).
+ * (the user can refine the art in the in-game furniture editor). Carries
+ * `action: { kind: 'portal' }`; walking up to one offers a destination picker.
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
@@ -77,7 +77,7 @@ export function portalAssets(): PortalAsset[] {
         footprintH: 1,
         isDesk: false,
         backgroundTiles: 1, // non-blocking → you step onto the door tile to use it
-        portal: true,
+        action: { kind: 'portal' },
       },
       sprite: doorSprite(),
     },
@@ -92,7 +92,7 @@ export function portalAssets(): PortalAsset[] {
         footprintH: 1,
         isDesk: false,
         backgroundTiles: 1, // non-blocking → you can stand on the pad
-        portal: true,
+        action: { kind: 'portal' },
       },
       sprite: beamPadSprite(),
     },

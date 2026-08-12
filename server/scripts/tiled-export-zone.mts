@@ -11,11 +11,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { appStore } from '../src/appStore.js';
 import { loadDefaultLayout } from '../src/assetLoader.js';
 import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore, DEFAULT_LAYOUT_NAME } from '../src/layoutStore.js';
-import { exportLayoutToTmj, type TmjImageAsset } from '../src/tiled/mapBridge.js';
+import { exportLayoutToTmj } from '../src/tiled/mapBridge.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 import { deserializeLayout } from '../../shared/src/office/layout/layoutSerializer.js';
@@ -50,22 +49,14 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const imageRows = appStore.listAssets('image') as Array<{ name: string; data: TmjImageAsset }>;
-  const imageAssets = new Map<string, TmjImageAsset>(imageRows.map((r) => [r.name, { ...r.data, id: r.name }]));
-
   const registry = loadTiledRegistry(ROOT);
-  const { tmj, imageFiles } = exportLayoutToTmj(layout, registry, imageAssets, zoneId);
+  const { tmj } = exportLayoutToTmj(layout, registry, zoneId);
 
   fs.mkdirSync(ZONES_DIR, { recursive: true });
   const outPath = path.join(ZONES_DIR, `${zoneId}.tmj`);
   fs.writeFileSync(outPath, JSON.stringify(tmj, null, 2) + '\n');
-  for (const { relPath, buffer } of imageFiles) {
-    const dest = path.join(ZONES_DIR, relPath);
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.writeFileSync(dest, buffer);
-  }
   console.log(
-    `✓ ${outPath} (${layout.cols}×${layout.rows}, ${layout.furniture.length} furniture, ${imageFiles.length} image(s)) — layout "${name}"${name === DEFAULT_LAYOUT_NAME ? ' (read-only default)' : ''}`,
+    `✓ ${outPath} (${layout.cols}×${layout.rows}, ${layout.furniture.length} furniture, ${(layout.images ?? []).length} image(s)) — layout "${name}"${name === DEFAULT_LAYOUT_NAME ? ' (read-only default)' : ''}`,
   );
 }
 

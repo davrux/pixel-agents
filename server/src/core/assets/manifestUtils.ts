@@ -6,6 +6,7 @@
  * logic (ManifestAsset/ManifestGroup/flattenManifest etc.), retired once
  * that tree was fully migrated (see docs/design/tiled-editor-integration.md).
  */
+import type { Action } from '@pixel/shared/office/types.js';
 
 export interface FurnitureAsset {
   id: string;
@@ -27,4 +28,8 @@ export interface FurnitureAsset {
   animationGroup?: string;
   frame?: number;
   durationMs?: number;
+  /** This type's default Action (see FurnitureCatalogEntry.action) — set via
+   *  the tile's own actionKind/actionVideo/actionUrl/actionPose properties
+   *  (see Pixels.tiled-project's FurnitureTile class). */
+  action?: Action;
 }

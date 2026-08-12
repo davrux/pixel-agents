@@ -112,6 +112,27 @@ export function getBlockedTiles(
   return tiles;
 }
 
+/** "col,row" of every tile occupied by a furniture item marked
+ *  `approachThrough` (e.g. a kitchen counter with a coffee machine behind
+ *  it) — consulted by computeApproachTiles to keep searching past a blocked
+ *  neighbor instead of giving up, for exactly the items that opted in. Does
+ *  NOT affect movement/placement blocking itself (see getBlockedTiles) —
+ *  the item still occupies its tile normally. */
+export function getReachThroughTiles(furniture: PlacedFurniture[]): Set<string> {
+  const tiles = new Set<string>();
+  for (const item of furniture) {
+    if (!item.approachThrough) continue;
+    const entry = getCatalogEntry(item.id);
+    if (!entry) continue;
+    for (let dr = 0; dr < entry.footprintH; dr++) {
+      for (let dc = 0; dc < entry.footprintW; dc++) {
+        tiles.add(`${item.col + dc},${item.row + dr}`);
+      }
+    }
+  }
+  return tiles;
+}
+
 /** Tiles explicitly marked non-walkable in the layout itself (layout.tileBlocked),
  *  independent of floor pattern — e.g. a puddle painted with an ordinary floor
  *  pattern. Empty when the layout has no such tiles. */

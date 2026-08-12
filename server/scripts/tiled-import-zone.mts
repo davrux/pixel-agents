@@ -18,8 +18,9 @@ import * as path from 'node:path';
 import { loadDefaultLayout } from '../src/assetLoader.js';
 import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore } from '../src/layoutStore.js';
+import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, ensureZoneExists, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -27,7 +28,7 @@ const ZONES_DIR = path.join(ROOT, 'assets', 'tiled', 'zones');
 
 async function main(): Promise<void> {
   const zoneId = process.argv[2];
-  const layoutName = process.argv[3] ?? 'TiledImport';
+  const layoutName = process.argv[3] ?? DEFAULT_TILED_IMPORT_LAYOUT_NAME;
   if (!zoneId) {
     console.error('Usage: tiled-import-zone.mts <zoneId> [layoutName]');
     process.exit(1);
@@ -51,8 +52,10 @@ async function main(): Promise<void> {
 
   const registry = loadTiledRegistry(ROOT);
   const layoutStore = new LayoutStore(loadDefaultLayout(ROOT));
+  const zones = new ZoneStore();
 
-  const result = await importZoneTmjFile(tmjPath, ZONES_DIR, registry, zoneId, layoutName, layoutStore);
+  const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore);
+  ensureZoneExists(zones, zoneId, result.cols, result.rows);
   console.log(
     `✓ Saved zone "${zoneId}" layout "${layoutName}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s)) and made it active.`,
   );

@@ -10,11 +10,26 @@ import * as path from 'node:path';
 import { PNG } from 'pngjs';
 
 import { appStore } from '../appStore.js';
+import { loadDefaultLayout } from '../assetLoader.js';
 import { LayoutStore } from '../layoutStore.js';
+import { ZoneStore } from '../zoneStore.js';
+import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions } from '../layoutSanitize.js';
 import { importTmjToLayout } from './mapBridge.js';
-import { type TiledRegistry } from './tiledRegistry.js';
+import { loadTiledRegistry, type TiledRegistry } from './tiledRegistry.js';
 import { serializeLayout, deserializeLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
+
+/** Directory this .tmj lives in ends up being `assets/tiled/zones` in every
+ *  real deployment (this file lives at server/src/tiled/, three levels below
+ *  the repo root) — overridable the same way assets.ts's ASSETS_ROOT is, for
+ *  a custom deployment layout. */
+const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || path.resolve(import.meta.dirname, '..', '..', '..');
+
+/** The layout name every Tiled-import path (both CLI scripts and
+ *  watchZoneFiles below) saves under by default — one name so a mapper's
+ *  repeated saves keep landing on the same layout instead of piling up a
+ *  new one per import. */
+export const DEFAULT_TILED_IMPORT_LAYOUT_NAME = 'TiledImport';
 
 export interface ZoneImportResult {
   cols: number;
@@ -32,21 +47,37 @@ export function readMapName(tmjPath: string): string | null {
   return typeof found?.value === 'string' && found.value ? found.value : null;
 }
 
+/** The zone id a .tmj resolves to: its own `mapName` (falling back to the
+ *  filename), lowercased. Every zone id in this system is already lowercase
+ *  ("office", "plaza", ...) and ZoneStore.create's slugify always lowercases
+ *  whatever label it's given — but a zone LOOKUP (`ZoneStore.has`) is a
+ *  plain, case-SENSITIVE string match. Skipping this normalization means a
+ *  mapName of "Office" or "UPONU" would fail to match the real "office"/
+ *  "uponu" zone and silently create a near-duplicate ("uponu-2", ...)
+ *  instead of updating the one that already exists — exactly the mismatch
+ *  this closes. */
+export function resolveZoneId(tmjPath: string, filename: string): string {
+  return (readMapName(tmjPath) ?? path.basename(filename, '.tmj')).toLowerCase();
+}
+
 /** Import one zones/<file>.tmj into a saved layout for `zoneId`, making it
  *  that zone's active layout (matches LayoutStore.saveAs, the same call the
- *  in-game "Save As" uses). `zonesDir` resolves the map's own relative image
- *  paths (`images/<id>.png`, siblings of the .tmj). */
+ *  in-game "Save As" uses). Placed images resolve against assets/tiled
+ *  itself (png/images/<id>.png, baked by bake-images-tiled.mts) — one global
+ *  location, not zone-relative, since the underlying Tiled object is now a
+ *  real GID-backed tile from the shared images.tsj tileset (see
+ *  mapBridge.ts). */
 export async function importZoneTmjFile(
   tmjPath: string,
-  zonesDir: string,
   registry: TiledRegistry,
   zoneId: string,
   layoutName: string,
   layoutStore: LayoutStore,
 ): Promise<ZoneImportResult> {
   const tmj = JSON.parse(fs.readFileSync(tmjPath, 'utf-8'));
+  const tiledDir = path.join(ASSETS_ROOT, 'assets', 'tiled');
   const { layout, images } = importTmjToLayout(tmj, registry, (relPath) => {
-    const p = path.join(zonesDir, relPath);
+    const p = path.join(tiledDir, relPath);
     return fs.existsSync(p) ? fs.readFileSync(p) : null;
   });
 
@@ -78,4 +109,76 @@ export async function importZoneTmjFile(
     furnitureCount: normalized.furniture.length,
     imageCount: images.length,
   };
+}
+
+/** Create a zone matching `zoneId` if none exists yet, sized from the map
+ *  that was just imported for it — so importing a .tmj for a not-yet-known
+ *  zone (whether by hand via the CLI scripts or picked up by
+ *  watchZoneFiles) is enough on its own; no separate "create zone" step
+ *  needed first. A no-op if the zone already exists (the overwhelmingly
+ *  common case once a zone's been imported once). Logs instead of throwing
+ *  if `zoneId` has characters ZoneStore.create's slugify would change
+ *  (spaces, punctuation, non-ASCII, ...) — the layout is saved and harmless
+ *  either way, just not reachable under this exact id until a zone matching
+ *  it is created some other way. */
+export function ensureZoneExists(zones: ZoneStore, zoneId: string, cols: number, rows: number): void {
+  if (zones.has(zoneId)) return;
+  const createdId = zones.create(zoneId, cols, rows, Date.now());
+  if (createdId !== zoneId) {
+    console.warn(`[tiled-import] "${zoneId}" isn't usable as a zone id as-is (got "${createdId}" back) — layout imported, but no zone was created for it.`);
+  }
+}
+
+const ZONE_TMJ_RE = /\.tmj$/;
+
+/** "Save in Tiled → live", no server restart or manual CLI run: watches
+ *  assets/tiled/zones for .tmj changes and imports each one straight into
+ *  its own zone's saved layout, the same way tiled-import-all-zones.mts
+ *  does by hand — see importZoneTmjFile. The target zone is created (sized
+ *  from the imported map itself) the first time its mapName/filename shows
+ *  up; every already-open room for that zone reloads live via
+ *  ZONE_LAYOUT_CHANGED_EVENT, the same way a loadLayout message would.
+ *  Mirrors assets.ts's watchFurnitureTilesets — call once at boot; harmless
+ *  to leave running in any deployment, since a stable server never touches
+ *  assets/tiled. See docs/design/tiled-editor-integration.md. */
+export function watchZoneFiles(): void {
+  const zonesDir = path.join(ASSETS_ROOT, 'assets', 'tiled', 'zones');
+  if (!fs.existsSync(zonesDir)) return;
+
+  const layoutStore = new LayoutStore(loadDefaultLayout(ASSETS_ROOT));
+  const zones = new ZoneStore();
+  const pending = new Map<string, NodeJS.Timeout>();
+
+  const importOne = async (file: string): Promise<void> => {
+    pending.delete(file);
+    const tmjPath = path.join(zonesDir, file);
+    if (!fs.existsSync(tmjPath)) return; // deleted before its debounce fired
+    const zoneId = resolveZoneId(tmjPath, file);
+    try {
+      // Reloaded fresh per import (not cached at boot) so a furniture
+      // tileset added/changed since server start still resolves correctly —
+      // matches watchFurnitureTilesets rebuilding the furniture catalog on
+      // every save rather than once.
+      const registry = loadTiledRegistry(ASSETS_ROOT);
+      const result = await importZoneTmjFile(tmjPath, registry, zoneId, DEFAULT_TILED_IMPORT_LAYOUT_NAME, layoutStore);
+      ensureZoneExists(zones, zoneId, result.cols, result.rows);
+      controlBus.emit(ZONE_LAYOUT_CHANGED_EVENT, zoneId);
+      console.log(`[tiled-watch] ${file} → zone "${zoneId}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`);
+    } catch (err) {
+      console.warn(`[tiled-watch] ${file} import failed:`, err instanceof Error ? err.message : err);
+    }
+  };
+
+  // Debounced PER FILE: editors commonly emit several fs events per save,
+  // and saving one zone must not delay or get coalesced with another's.
+  fs.watch(zonesDir, (_event, filename) => {
+    if (!filename || !ZONE_TMJ_RE.test(filename)) return;
+    const existing = pending.get(filename);
+    if (existing) clearTimeout(existing);
+    pending.set(
+      filename,
+      setTimeout(() => void importOne(filename), 300),
+    );
+  });
+  console.log(`[tiled-watch] watching ${zonesDir} for zone .tmj changes`);
 }

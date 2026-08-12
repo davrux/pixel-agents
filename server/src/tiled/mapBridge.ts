@@ -16,97 +16,17 @@
  *   rectangle Object carrying just a `type` property — round-trips exactly,
  *   just isn't visually a real sprite inside Tiled's own canvas.
  */
-import type {
-  Action,
-  ApplianceKind,
-  OfficeLayout,
-  PlacedFurniture,
-  PlacedImage,
-  PlacedText,
-} from '@pixel/shared/office/types.js';
+import type { Action, OfficeLayout, PlacedFurniture, PlacedImage, PlacedText } from '@pixel/shared/office/types.js';
 import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
 import { findGid, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
 import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
-
-type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
-type PropBag = Record<string, string | number | boolean>;
-
-export interface TmjImageAsset {
-  id: string;
-  data: string; // data:image/png;base64,...
-  width: number;
-  height: number;
-}
 
 export interface TmjExportResult {
   tmj: Record<string, unknown>;
-  /** Image files the caller should write alongside the .tmj (path is
-   *  relative to the .tmj's own directory, matching each Image Object's
-   *  `image` field). */
-  imageFiles: Array<{ relPath: string; buffer: Buffer }>;
-}
-
-function prop(name: string, value: string | number | boolean, propertyType?: string): TiledProp {
-  const type = typeof value === 'boolean' ? 'bool' : typeof value === 'number' ? 'int' : 'string';
-  return propertyType ? { name, type, value, propertytype: propertyType } : { name, type, value };
-}
-
-/** Always emits all four action-related properties (kind/video/url/pose),
- *  even when empty/inapplicable for this action's kind — so opening the
- *  .tmj in Tiled shows every settable field up front instead of only
- *  whichever ones happened to be set on the item being exported (there's no
- *  other way to discover "oh, I can set actionUrl here" from the file).
- *  `actionKind`/`actionPose` carry `propertytype` so Tiled shows them as
- *  dropdowns (see Pixels.tiled-project's ActionKind/ApplianceKind enums) —
- *  Tiled reads this per-property, independent of the object's own class. */
-function actionProps(action: Action | null, prefix = 'action'): TiledProp[] {
-  return [
-    prop(`${prefix}Kind`, action?.kind ?? '', 'ActionKind'),
-    prop(`${prefix}Video`, action?.kind === 'meetingRoom' ? action.video : false),
-    prop(`${prefix}Url`, action?.kind === 'iframe' ? action.url : ''),
-    prop(`${prefix}Pose`, action?.kind === 'appliance' ? action.pose : '', 'ApplianceKind'),
-  ];
-}
-
-function actionFromProps(props: PropBag, prefix = 'action'): Action | null {
-  const kind = props[`${prefix}Kind`];
-  if (typeof kind !== 'string') return null;
-  switch (kind) {
-    case 'meetingRoom':
-      return { kind, video: props[`${prefix}Video`] === true };
-    case 'linkManager':
-    case 'arcade':
-    case 'toggle':
-      return { kind };
-    case 'iframe':
-      return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
-    case 'appliance':
-      return { kind, pose: (typeof props[`${prefix}Pose`] === 'string' ? props[`${prefix}Pose`] : 'coffee') as ApplianceKind };
-    default:
-      return null;
-  }
-}
-
-/** Deep-equal for Action — used to group tileActions into same-value blocks
- *  for export (see the Actions export block below). `kind` alone isn't
- *  enough: two 'meetingRoom' tiles with different `video` are NOT the same
- *  action and must not merge into one exported shape. */
-function actionsEqual(a: Action | null, b: Action | null): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.kind !== b.kind) return false;
-  switch (a.kind) {
-    case 'meetingRoom':
-      return b.kind === 'meetingRoom' && a.video === b.video;
-    case 'iframe':
-      return b.kind === 'iframe' && a.url === b.url;
-    case 'appliance':
-      return b.kind === 'appliance' && a.pose === b.pose;
-    default:
-      return true; // linkManager/arcade/toggle carry no other fields
-  }
 }
 
 /** N=1,E=2,S=4,W=8 — same convention as shared/src/office/wallTiles.ts's
@@ -161,12 +81,7 @@ function rowFromTileObjectY(y: number, footprintH: number): number {
   return Math.round(y / TILE_SIZE) - footprintH;
 }
 
-export function exportLayoutToTmj(
-  layout: OfficeLayout,
-  registry: TiledRegistry,
-  imageAssets: Map<string, TmjImageAsset>,
-  zoneId: string,
-): TmjExportResult {
+export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry, zoneId: string): TmjExportResult {
   const { cols, rows, tiles } = layout;
 
   // ── Ground layer: floor/wall GIDs, GID 0 = VOID ──────────────────
@@ -226,6 +141,7 @@ export function exportLayoutToTmj(
       prop('id', item.id),
       prop('name', item.name ?? ''),
       prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : '', 'ApproachSide'),
+      prop('approachThrough', !!item.approachThrough),
       ...actionProps(item.action ?? null),
     ];
 
@@ -341,14 +257,21 @@ export function exportLayoutToTmj(
   actionObjects.forEach((o, i) => (o.id = i + 1));
 
   // ── Text: native Tiled text objects ───────────────────────────────
+  // Our own anchor is free (bottom-center of the label, see PlacedText) while
+  // Tiled anchors a text object at its box's top-left — convert by centering
+  // a fixed-size box under the anchor point (approximate, same as before this
+  // became free-positioned: Tiled's own left/top text alignment inside that
+  // box was never pixel-exact with the renderer's centered layout either).
+  const TEXT_BOX_W = 8 * TILE_SIZE;
+  const TEXT_BOX_H = 2 * TILE_SIZE;
   const textObjects = (layout.texts ?? []).map((t, idx) => ({
     id: idx + 1,
     name: '',
     type: '',
-    x: t.col * TILE_SIZE,
-    y: t.row * TILE_SIZE,
-    width: 8 * TILE_SIZE,
-    height: 2 * TILE_SIZE,
+    x: t.x - TEXT_BOX_W / 2,
+    y: t.y - TEXT_BOX_H,
+    width: TEXT_BOX_W,
+    height: TEXT_BOX_H,
     rotation: t.angle ?? 0,
     visible: true,
     text: {
@@ -360,26 +283,31 @@ export function exportLayoutToTmj(
     properties: [],
   }));
 
-  // ── Images: native Tiled image objects, PNG extracted alongside the .tmj ──
-  const imageFiles: TmjExportResult['imageFiles'] = [];
+  // ── Images: real GID-backed tile objects from images.tsj (see
+  // bake-images-tiled.mts) — Tiled's object format has no "standalone image
+  // file" field (only gid or text), so this is the only shape Tiled itself
+  // can actually create (via Insert Tile against that tileset); a bare
+  // object with a custom `image` property was never a real Tiled mechanism.
+  // Same bottom-edge Y anchor as any other GID-backed tile object (see
+  // tileObjectY) — Tiled anchors tile objects at their bottom-left corner,
+  // not top-left like every other shape. An image whose id isn't in
+  // images.tsj (not yet baked since it was uploaded) is skipped, matching
+  // the live renderer's own skip for a deleted image.
   const imageObjects = (layout.images ?? []).flatMap((im, idx) => {
-    const asset = imageAssets.get(im.imageId);
-    if (!asset) return []; // deleted since this layout was saved — matches the live renderer's own skip
-    const relPath = `images/${im.imageId}.png`;
-    const base64 = asset.data.replace(/^data:image\/\w+;base64,/, '');
-    imageFiles.push({ relPath, buffer: Buffer.from(base64, 'base64') });
+    const gid = findGid(registry, 'images.tsj', (props) => props.imageId === im.imageId);
+    if (gid === null) return [];
     return [
       {
         id: idx + 1,
         name: '',
         type: 'Image',
+        gid,
         x: im.col * TILE_SIZE,
-        y: im.row * TILE_SIZE,
+        y: tileObjectY(im.row, im.footprintH),
         width: im.footprintW * TILE_SIZE,
         height: im.footprintH * TILE_SIZE,
         rotation: 0,
         visible: true,
-        image: relPath,
         properties: [prop('imageId', im.imageId)],
       },
     ];
@@ -418,7 +346,7 @@ export function exportLayoutToTmj(
     ],
   };
 
-  return { tmj, imageFiles };
+  return { tmj };
 }
 
 /** Every imported item gets a fresh identity — `uid` is purely internal
@@ -499,10 +427,37 @@ export function importTmjToLayout(
   const allObjects = layers
     .filter((l) => l.type === 'objectgroup')
     .flatMap((l) => (l.objects as Array<Record<string, unknown>>) ?? []);
-  const furnitureObjects = allObjects.filter((o) => o.type === 'FurnitureObject');
+  // A tile object's GID always resolves back to a real FurnitureTile
+  // (baked with its own `id`) via the registry, independent of whatever
+  // class Tiled happens to have on the OBJECT itself — which matters
+  // because dragging a furniture sprite straight from the Tilesets panel
+  // onto the map (the natural, expected way to place furniture by hand in
+  // Tiled) creates an object with a `gid` but NO class and NO properties at
+  // all; only our own exporter's objects reliably carry `type:
+  // 'FurnitureObject'`. Falling back to the tile's own class here means a
+  // hand-placed sprite is still recognized as furniture instead of being
+  // silently dropped — verified against a real hand-authored map where over
+  // half the placed furniture had exactly this shape.
+  const baseGid = (gid: unknown): number => {
+    const raw = Number(gid) || 0;
+    return raw >= TILED_FLIP_H ? raw - TILED_FLIP_H : raw;
+  };
+  const isFurnitureTileObject = (o: Record<string, unknown>): boolean => {
+    const gid = baseGid(o.gid);
+    return gid > 0 && resolveGid(gid)?.class === 'FurnitureTile';
+  };
+  // Same reasoning as isFurnitureTileObject: an image, being a real GID-
+  // backed tile object from images.tsj now (see bake-images-tiled.mts), is
+  // recognized by its tile's ImageTile class — not by a custom `type` on the
+  // object, which a plain "Insert Tile" placement never sets either.
+  const isImageTileObject = (o: Record<string, unknown>): boolean => {
+    const gid = baseGid(o.gid);
+    return gid > 0 && resolveGid(gid)?.class === 'ImageTile';
+  };
+  const furnitureObjects = allObjects.filter((o) => o.type === 'FurnitureObject' || isFurnitureTileObject(o));
   const actionObjects = allObjects.filter((o) => o.type === 'ActionArea');
   const textObjects = allObjects.filter((o) => o.text !== undefined);
-  const imageObjects = allObjects.filter((o) => typeof o.image === 'string');
+  const imageObjects = allObjects.filter((o) => o.type === 'Image' || isImageTileObject(o));
 
   const tiles: number[] = [];
   const tileColors: OfficeLayout['tileColors'] = [];
@@ -541,12 +496,17 @@ export function importTmjToLayout(
 
   const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
-    // Identity is a flat property read — always present (see the matching
-    // export-side comment), independent of the GID entirely. The GID's own
-    // flip bit is read back separately, purely for `flippedHorizontally`
-    // (see PlacedFurniture) — the two are unrelated concerns.
-    const id = typeof props.id === 'string' ? props.id : '';
+    // Identity is normally a flat property read (always present — see the
+    // matching export-side comment), independent of the GID entirely. But a
+    // sprite dragged straight from the Tilesets panel (see
+    // isFurnitureTileObject above) carries no properties at all, so fall
+    // back to the `id` already baked onto the FurnitureTile itself — the
+    // GID still says exactly what this is, just indirectly instead of
+    // redundantly. The GID's flip bit is read back separately, purely for
+    // `flippedHorizontally` — an unrelated concern either way.
     const rawGid = Number(obj.gid) || 0;
+    const resolvedTile = rawGid > 0 ? resolveGid(baseGid(rawGid)) : null;
+    const id = typeof props.id === 'string' && props.id ? props.id : typeof resolvedTile?.props.id === 'string' ? resolvedTile.props.id : '';
     const entry = getCatalogEntry(id);
     const fh = entry?.footprintH ?? 1;
     const hasGid = rawGid > 0;
@@ -567,6 +527,7 @@ export function importTmjToLayout(
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
     }
+    if (props.approachThrough === true) item.approachThrough = true;
     const action = actionFromProps(props);
     if (action) item.action = action;
     return item;
@@ -600,10 +561,15 @@ export function importTmjToLayout(
 
   const texts: PlacedText[] = textObjects.map((obj) => {
     const textData = (obj.text as Record<string, unknown>) ?? {};
+    // Reverse of the export box-centering above — use the object's own
+    // width/height (a user may have resized the text box in Tiled) rather
+    // than assuming the fixed default size.
+    const boxW = Number(obj.width) || 8 * TILE_SIZE;
+    const boxH = Number(obj.height) || 2 * TILE_SIZE;
     const t: PlacedText = {
       uid: generateUid(),
-      col: Math.round(Number(obj.x) / TILE_SIZE),
-      row: Math.round(Number(obj.y) / TILE_SIZE),
+      x: Number(obj.x) + boxW / 2,
+      y: Number(obj.y) + boxH,
       text: typeof textData.text === 'string' ? textData.text : '',
     };
     if (typeof textData.fontfamily === 'string') t.fontFamily = textData.fontfamily;
@@ -616,17 +582,27 @@ export function importTmjToLayout(
   const importedImages: TmjImportResult['images'] = [];
   for (const obj of imageObjects) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
-    const imageId = typeof props.imageId === 'string' ? props.imageId : null;
-    const relPath = typeof obj.image === 'string' ? obj.image : null;
-    if (!imageId || !relPath) continue;
-    const buffer = readImageFile(relPath);
+    const rawGid = Number(obj.gid) || 0;
+    const resolvedTile = rawGid > 0 ? resolveGid(baseGid(rawGid)) : null;
+    // Same "own property wins, tile's baked one is the fallback" precedent
+    // as furniture's `id` — a plain Insert Tile placement carries no
+    // properties of its own at all, only the tile's.
+    const imageId = typeof props.imageId === 'string' && props.imageId ? props.imageId : typeof resolvedTile?.props.imageId === 'string' ? resolvedTile.props.imageId : null;
+    if (!imageId) continue;
+    const footprintH = Math.max(1, Math.round(Number(obj.height) / TILE_SIZE));
+    // Baked images live at one global location (assets/tiled/png/images/),
+    // never zone-relative — readImageFile resolves against assets/tiled
+    // itself (see zoneImport.ts).
+    const buffer = readImageFile(`png/images/${imageId}.png`);
     if (buffer) importedImages.push({ imageId, label: imageId, buffer });
     images.push({
       uid: generateUid(),
       col: Math.round(Number(obj.x) / TILE_SIZE),
-      row: Math.round(Number(obj.y) / TILE_SIZE),
+      // Same bottom-edge Y anchor as any other GID-backed tile object — see
+      // the matching export-side tileObjectY call.
+      row: rowFromTileObjectY(Number(obj.y), footprintH),
       footprintW: Math.max(1, Math.round(Number(obj.width) / TILE_SIZE)),
-      footprintH: Math.max(1, Math.round(Number(obj.height) / TILE_SIZE)),
+      footprintH,
       imageId,
     });
   }

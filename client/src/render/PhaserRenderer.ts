@@ -229,13 +229,11 @@ export class PhaserRenderer {
       }
     }
 
-    // Free-text labels (OfficeLayout.texts) — a floating sign anchored to the
-    // bottom-centre of their tile, sorted like a same-row character/furniture.
+    // Free-text labels (OfficeLayout.texts) — a floating sign anchored at its
+    // own free (x,y) point (bottom-centre), sorted like a same-row character/furniture.
     for (const pt of layout.texts ?? []) {
-      const x = (pt.col + 0.5) * TILE_SIZE;
-      const y = (pt.row + 1) * TILE_SIZE;
       const txt = this.scene.add
-        .text(x, y, pt.text, {
+        .text(pt.x, pt.y, pt.text, {
           fontFamily: pt.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY,
           fontSize: `${pt.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE}px`,
           color: '#ffffff',
@@ -244,7 +242,7 @@ export class PhaserRenderer {
         })
         .setOrigin(0.5, 1)
         .setAngle(pt.angle ?? 0)
-        .setDepth(y);
+        .setDepth(pt.y);
       this.texts.push(txt);
     }
   }

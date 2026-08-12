@@ -148,12 +148,15 @@ export class LayoutEditor {
   /** Undo/redo are full-layout snapshots (v1 model); capped at MAX_HISTORY. */
   private undoStack: OfficeLayout[] = [];
   private redoStack: OfficeLayout[] = [];
-  /** Drag-to-move state: uid being dragged (furniture or a text label) +
-   *  cursor→tile grab offset (text labels have no footprint, so their grab
-   *  offset is always 0,0 — the drop tile IS the new position). */
+  /** Drag-to-move state: uid being dragged (furniture, a text label, or an
+   *  image) + a cursor→anchor grab offset — dragGrab (tiles) for furniture/
+   *  images, dragGrabPx (free pixels) for a text label. */
   private dragUid: string | null = null;
   private dragKind: 'furniture' | 'text' | 'image' | null = null;
   private dragGrab = { dc: 0, dr: 0 };
+  /** Pixel-space grab offset for a dragged text label (free position, not
+   *  tile-snapped) — the cursor's offset from the label's own anchor. */
+  private dragGrabPx = { dx: 0, dy: 0 };
   private dragMoved = false;
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
   private actionBar!: HTMLDivElement;
@@ -161,6 +164,7 @@ export class LayoutEditor {
   private imageActionBar!: HTMLDivElement;
   private nameBtnInBar!: HTMLButtonElement;
   private sidesBtnInBar!: HTMLButtonElement;
+  private reachThroughBtnInBar!: HTMLButtonElement;
   private bringFrontBtnInBar!: HTMLButtonElement;
   private sendBackBtnInBar!: HTMLButtonElement;
   private editAssetBtnInBar!: HTMLButtonElement;
@@ -348,7 +352,7 @@ export class LayoutEditor {
         this.paintTileAction(col, row, this.currentTileAction);
         break;
       case 'text':
-        void this.placeOrEditText(col, row);
+        void this.placeOrEditText(wx, wy);
         break;
       case 'image':
         this.placeImageAt(col, row);
@@ -369,7 +373,7 @@ export class LayoutEditor {
     } else if (this.tool === 'action') {
       this.paintTileAction(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE), null);
     } else if (this.tool === 'text') {
-      this.deleteTextAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
+      this.deleteTextAt(wx, wy);
     } else if (this.tool === 'image') {
       this.deleteImageAt(Math.floor(wx / TILE_SIZE), Math.floor(wy / TILE_SIZE));
     }
@@ -450,25 +454,29 @@ export class LayoutEditor {
     return ctx.measureText(text).width * 1.15;
   }
 
+  /** The on-screen (width, height) of a label's rendered box, anchor at its
+   *  bottom-center — shared by hit-testing and the selection/drag outline. */
+  private static textBoxSize(t: PlacedText): { width: number; height: number } {
+    const fontSize = t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE;
+    const width = LayoutEditor.measureTextWidth(t.text, fontSize, t.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY);
+    return { width, height: fontSize * 1.2 };
+  }
+
   /** The text label under (wx,wy), matched against its actual rendered extent
-   *  (see PhaserRenderer's text positioning: origin 0.5,1 at ((col+0.5)*TILE,
-   *  (row+1)*TILE)) — not just its one anchor tile, which is far smaller than
-   *  most labels. A rotated label (see PlacedText.angle) is hit-tested at its
-   *  real on-screen footprint too: the click point is rotated back by -angle
-   *  around the same pivot PhaserRenderer's setAngle rotates around (the
-   *  anchor, bottom-center), then tested against the plain upright box. */
+   *  (see PhaserRenderer's text positioning: origin 0.5,1 at (t.x, t.y)) — not
+   *  just its anchor point, which is far smaller than most labels. A rotated
+   *  label (see PlacedText.angle) is hit-tested at its real on-screen
+   *  footprint too: the click point is rotated back by -angle around the same
+   *  pivot PhaserRenderer's setAngle rotates around (the anchor,
+   *  bottom-center), then tested against the plain upright box. */
   private textHitAt(wx: number, wy: number): PlacedText | null {
     if (!this.layout?.texts) return null;
     for (let i = this.layout.texts.length - 1; i >= 0; i--) {
       const t = this.layout.texts[i];
-      const fontSize = t.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE;
-      const width = LayoutEditor.measureTextWidth(t.text, fontSize, t.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY);
-      const height = fontSize * 1.2;
-      const cx = (t.col + 0.5) * TILE_SIZE;
-      const bottom = (t.row + 1) * TILE_SIZE;
+      const { width, height } = LayoutEditor.textBoxSize(t);
       const angleRad = ((t.angle ?? 0) * Math.PI) / 180;
-      const dx = wx - cx;
-      const dy = wy - bottom;
+      const dx = wx - t.x;
+      const dy = wy - t.y;
       const cos = Math.cos(angleRad);
       const sin = Math.sin(angleRad);
       const localX = dx * cos + dy * sin;
@@ -682,12 +690,17 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, false);
   }
 
-  /** Place, edit, or (empty input) delete a free-text label on one tile — the
-   *  Text tool's only interaction, one dialog per click, no drag-paint. */
-  private async placeOrEditText(col: number, row: number): Promise<void> {
+  /** Place, edit, or (empty input) delete a free-text label at a free pixel
+   *  position (not tile-snapped, like Tiled's own Insert Text) — the Text
+   *  tool's only interaction, one dialog per click, no drag-paint. Clicking
+   *  an existing label's rendered extent (see textHitAt) edits it in place;
+   *  anywhere else creates a new one anchored exactly at the click point. */
+  private async placeOrEditText(wx: number, wy: number): Promise<void> {
     if (!this.layout) return;
-    if (col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
-    const existing = this.layout.texts?.find((t) => t.col === col && t.row === row);
+    const maxX = this.layout.cols * TILE_SIZE;
+    const maxY = this.layout.rows * TILE_SIZE;
+    if (wx < 0 || wy < 0 || wx > maxX || wy > maxY) return;
+    const existing = this.textHitAt(wx, wy);
     const result = await textLabelDialog(
       'Text label:',
       {
@@ -699,7 +712,7 @@ export class LayoutEditor {
     );
     if (result === null || !this.layout) return; // cancelled, or the editor closed meanwhile
     const text = cleanName(result.text, MAX_TEXT_LABEL_LEN);
-    if (!text && !existing) return; // empty/whitespace-only submitted on a tile with nothing to clear — no-op, not an undo step
+    if (!text && !existing) return; // empty/whitespace-only submitted with nothing to clear — no-op, not an undo step
     this.beginGesture();
     if (!this.layout.texts) this.layout.texts = [];
     if (!text) {
@@ -711,7 +724,7 @@ export class LayoutEditor {
       if (result.fontFamily === TEXT_LABEL_DEFAULT_FONT_FAMILY) delete existing.fontFamily;
       else existing.fontFamily = result.fontFamily;
     } else {
-      const pt: PlacedText = { uid: this.nextUid(), col, row, text };
+      const pt: PlacedText = { uid: this.nextUid(), x: wx, y: wy, text };
       if (result.fontSize !== TEXT_LABEL_DEFAULT_FONT_SIZE) pt.fontSize = result.fontSize;
       if (result.fontFamily !== TEXT_LABEL_DEFAULT_FONT_FAMILY) pt.fontFamily = result.fontFamily;
       this.layout.texts.push(pt);
@@ -720,13 +733,13 @@ export class LayoutEditor {
     this.deps.onEdit(this.layout, true);
   }
 
-  /** Right-click with the Text tool: delete the label at this tile directly. */
-  private deleteTextAt(col: number, row: number): void {
+  /** Right-click with the Text tool: delete the label under the cursor directly. */
+  private deleteTextAt(wx: number, wy: number): void {
     if (!this.layout?.texts) return;
-    const i = this.layout.texts.findIndex((t) => t.col === col && t.row === row);
-    if (i < 0) return;
+    const t = this.textHitAt(wx, wy);
+    if (!t) return;
     this.beginGesture();
-    this.layout.texts.splice(i, 1);
+    this.layout.texts = this.layout.texts.filter((x) => x !== t);
     this.deps.rebuildStatic();
     this.deps.onEdit(this.layout, true);
   }
@@ -961,7 +974,7 @@ export class LayoutEditor {
     if (t) {
       this.dragKind = 'text';
       this.dragUid = t.uid;
-      this.dragGrab = { dc: 0, dr: 0 }; // a label has no footprint — the drop tile IS its new spot
+      this.dragGrabPx = { dx: wx - t.x, dy: wy - t.y };
       this.dragMoved = false;
       return true;
     }
@@ -992,7 +1005,12 @@ export class LayoutEditor {
     const row = Math.floor(wy / TILE_SIZE);
     if (this.dragKind === 'text') {
       this.ghost?.setVisible(false);
-      this.selRect?.setPosition(col * TILE_SIZE, row * TILE_SIZE).setVisible(true);
+      const t = this.layout.texts?.find((x) => x.uid === this.dragUid);
+      if (!t) return;
+      const nx = wx - this.dragGrabPx.dx;
+      const ny = wy - this.dragGrabPx.dy;
+      const { width, height } = LayoutEditor.textBoxSize(t);
+      this.selRect?.setPosition(nx - width / 2, ny - height).setSize(width, height).setVisible(true);
       return;
     }
     if (this.dragKind === 'image') {
@@ -1035,16 +1053,18 @@ export class LayoutEditor {
         return;
       }
       const t = this.layout.texts?.find((x) => x.uid === uid);
-      const col = Math.floor(wx / TILE_SIZE);
-      const row = Math.floor(wy / TILE_SIZE);
-      if (!t || col < 0 || row < 0 || col >= this.layout.cols || row >= this.layout.rows) return;
+      const nx = wx - this.dragGrabPx.dx;
+      const ny = wy - this.dragGrabPx.dy;
+      const maxX = this.layout.cols * TILE_SIZE;
+      const maxY = this.layout.rows * TILE_SIZE;
+      if (!t || nx < 0 || ny < 0 || nx > maxX || ny > maxY) return;
       this.selectedUid = null;
       this.selectedTextUid = uid;
       this.selectedImageUid = null;
-      if (col === t.col && row === t.row) return; // dropped back on itself — stays selected
+      if (nx === t.x && ny === t.y) return; // dropped back on itself — stays selected
       this.beginGesture();
-      t.col = col;
-      t.row = row;
+      t.x = nx;
+      t.y = ny;
       this.deps.rebuildStatic();
       this.deps.onEdit(this.layout, true);
       return;
@@ -1338,11 +1358,11 @@ export class LayoutEditor {
       f.col += shiftCol;
       f.row += shiftRow;
     }
-    // Text labels are absolute tile coordinates too — shift them along with
+    // Text labels are absolute pixel positions too — shift them along with
     // furniture so a left/up expand doesn't leave them behind.
     for (const t of this.layout.texts ?? []) {
-      t.col += shiftCol;
-      t.row += shiftRow;
+      t.x += shiftCol * TILE_SIZE;
+      t.y += shiftRow * TILE_SIZE;
     }
     return { col: shiftCol, row: shiftRow };
   }
@@ -1544,6 +1564,21 @@ export class LayoutEditor {
     setTimeout(() => document.addEventListener('mousedown', onOutside, true), 0);
   }
 
+  /** Toggle whether the selected item may be searched THROUGH when some
+   *  other item's approach-tile search hits it (see
+   *  PlacedFurniture.approachThrough) — a plain on/off flag, no submenu
+   *  needed. Marked on the blocker itself (e.g. a kitchen counter), not on
+   *  whatever action/appliance sits behind it. */
+  private toggleApproachThrough(): void {
+    if (!this.layout || !this.selectedUid) return;
+    const f = this.layout.furniture.find((x) => x.uid === this.selectedUid);
+    if (!f) return;
+    this.beginGesture();
+    if (f.approachThrough) delete f.approachThrough;
+    else f.approachThrough = true;
+    this.deps.onEdit(this.layout, true);
+  }
+
   /** Other placed furniture whose footprint overlaps `f`'s — the "stacked on
    *  the same tile(s)" set that bring-to-front/send-to-back reorder against. */
   private overlappingFurniture(f: PlacedFurniture): PlacedFurniture[] {
@@ -1678,12 +1713,13 @@ export class LayoutEditor {
         this.selRect?.setVisible(false);
         return;
       }
-      const wpx = t.col * TILE_SIZE;
-      const wpy = t.row * TILE_SIZE;
-      this.selRect?.setPosition(wpx, wpy).setSize(TILE_SIZE, TILE_SIZE).setVisible(true);
+      const { width, height } = LayoutEditor.textBoxSize(t);
+      const wpx = t.x - width / 2;
+      const wpy = t.y - height;
+      this.selRect?.setPosition(wpx, wpy).setSize(width, height).setVisible(true);
       const cam = this.scene.cameras.main;
       const wv = cam.worldView;
-      const sx = (wpx + TILE_SIZE / 2 - wv.x) * cam.zoom;
+      const sx = (t.x - wv.x) * cam.zoom;
       const sy = (wpy - wv.y) * cam.zoom;
       this.textActionBar.style.left = `${Math.round(sx)}px`;
       this.textActionBar.style.top = `${Math.round(sy)}px`;
@@ -1750,6 +1786,13 @@ export class LayoutEditor {
       this.sidesBtnInBar.title = n > 0 ? `Approach sides… (restricted to ${f.approachSides!.join('/')})` : 'Approach sides… (currently automatic)';
       this.sidesBtnInBar.classList.toggle('pa-restricted', n > 0);
     }
+    // Reach-through marks the BLOCKER (e.g. a kitchen counter), not the item
+    // with the action behind it — so unlike approach-sides this is offered on
+    // every item, action or not.
+    this.reachThroughBtnInBar.title = f.approachThrough
+      ? 'Reach-through: ON — players may search past this for a spot to stand when approaching something behind it'
+      : 'Reach-through (players may search past this item for a spot to stand when approaching something behind it)';
+    this.reachThroughBtnInBar.classList.toggle('pa-restricted', !!f.approachThrough);
     const overlapping = this.overlappingFurniture(f);
     this.bringFrontBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
     this.sendBackBtnInBar.style.display = overlapping.length > 0 ? 'inline-block' : 'none';
@@ -2079,6 +2122,11 @@ export class LayoutEditor {
     };
     this.nameBtnInBar = mkAct('🏷', 'Name this monitor (conference room)', () => void this.nameSelected());
     this.sidesBtnInBar = mkAct('🧭', 'Approach sides… (which side(s) a player may use this from)', () => this.chooseApproachSides());
+    this.reachThroughBtnInBar = mkAct(
+      '🧱',
+      'Reach-through (players may search past this item for a spot to stand when approaching something behind it — e.g. an appliance mounted behind a kitchen counter)',
+      () => this.toggleApproachThrough(),
+    );
     this.bringFrontBtnInBar = mkAct('🔼', 'Bring to front (of what it overlaps)', () => this.restackSelected(true));
     this.sendBackBtnInBar = mkAct('🔽', 'Send to back (of what it overlaps)', () => this.restackSelected(false));
     this.editAssetBtnInBar = mkAct('🎨', 'Edit this asset (stays in layout-edit mode)', () => {
@@ -2097,6 +2145,7 @@ export class LayoutEditor {
     this.actionBar.append(
       this.nameBtnInBar,
       this.sidesBtnInBar,
+      this.reachThroughBtnInBar,
       this.bringFrontBtnInBar,
       this.sendBackBtnInBar,
       this.editAssetBtnInBar,

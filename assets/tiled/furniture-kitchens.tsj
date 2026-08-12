@@ -33,6 +33,18 @@
           "type": "string",
           "value": "kitchens",
           "propertytype": "Category"
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "appliance",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "coffee",
+          "propertytype": "ApplianceKind"
         }
       ]
     },

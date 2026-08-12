@@ -230,6 +230,11 @@ export type Action =
   /** js-dos emulator overlay with per-player saves + an optional
    *  multiplayer lobby — today's arcade cabinet. */
   | { kind: 'arcade' }
+  /** Zone travel — walking onto this furniture's own footprint (or a tile
+   *  carrying this action directly) offers a destination picker, same as
+   *  today's door/beam-pad. Triggers on arrival/rest, like every other
+   *  auto-firing action — not a click. */
+  | { kind: 'portal' }
   /** Flip an on/off state pair (see FurnitureCatalogEntry.onTrigger:'click')
    *  between its two poses — a literal light-switch. No client notification;
    *  the resulting type swap reaches everyone through the normal furniture
@@ -246,9 +251,6 @@ export interface FurnitureCatalogEntry {
   sprite: SpriteData;
   isDesk: boolean;
   category?: string;
-  /** Whether this furniture is a zone portal (door / beam pad): walking to it
-   *  offers a destination picker. */
-  portal?: boolean;
   /** This type's default Action (see effectiveAction) — every placed instance
    *  gets this unless it carries its own PlacedFurniture.action override. Set
    *  via FurnitureEditor's Action picker (the same TILE_ACTION_CHOICES list
@@ -326,6 +328,15 @@ export interface PlacedFurniture {
    *  hand-drawn 2.5D perspective from one fixed camera angle, so those would
    *  render broken (same reasoning that killed rotation groups). */
   flippedHorizontally?: boolean;
+  /** Lets players search THROUGH this item for a place to stand when
+   *  approaching some other action/appliance behind it (e.g. a kitchen
+   *  counter in front of a coffee machine) — see computeApproachTiles. This
+   *  item still blocks ordinary movement/placement exactly as before; the
+   *  only change is that the approach-tile search doesn't treat it as a dead
+   *  end and keeps looking one tile further out in the same direction.
+   *  Editable via LayoutEditor's Select tool ("Reach-through" toggle). Unset
+   *  = false (today's behaviour: a blocked neighbor tile is never usable). */
+  approachThrough?: boolean;
 }
 
 /** A free-text label placed on one tile — purely decorative (no footprint,
@@ -335,8 +346,12 @@ export interface PlacedFurniture {
  *  furniture. */
 export interface PlacedText {
   uid: string;
-  col: number;
-  row: number;
+  /** Free pixel position (not tile-snapped) of the label's anchor — its
+   *  bottom-center, matching Phaser's origin (0.5, 1) for the rendered Text
+   *  object. Unlike furniture/images, a label can sit anywhere, same as an
+   *  Insert-Text object in Tiled. */
+  x: number;
+  y: number;
   text: string;
   /** Font size in px. Unset = the default (see TEXT_LABEL_DEFAULT_FONT_SIZE). */
   fontSize?: number;
@@ -345,7 +360,7 @@ export interface PlacedText {
    *  server-side same as everything else user-authored in a layout. */
   fontFamily?: string;
   /** Free rotation in degrees (0-359, normalized), pivoted at the label's own
-   *  anchor (bottom-center of its tile). Unset = 0 (upright, unrotated). */
+   *  anchor (bottom-center). Unset = 0 (upright, unrotated). */
   angle?: number;
 }
 
@@ -498,6 +513,10 @@ export interface Character {
   /** When walking to an appliance (e.g. coffee machine), the station to start
    *  standing at + the facing on arrival; null = none. Server-only intent. */
   pendingAppliance?: { stationUid: string; facing: Direction } | null;
+  /** Right-click "warp" target — set by warpPlayer, consumed once the
+   *  despawn half of the effect finishes (see OfficeState.update); null =
+   *  no warp in progress. Server-only intent. */
+  pendingWarp?: { col: number; row: number } | null;
   /** Parent agent ID if this is a sub-agent, null otherwise */
   parentAgentId: number | null;
   /** Active matrix spawn/despawn effect, or null */

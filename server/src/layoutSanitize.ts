@@ -24,18 +24,19 @@ import type { Action } from '@pixel/shared/office/types.js';
 export function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
   const texts = layout.texts;
   if (!Array.isArray(texts)) return layout;
-  const clean: Array<{ uid: string; col: number; row: number; text: string; fontSize?: number; fontFamily?: string; angle?: number }> = [];
+  const clean: Array<{ uid: string; x: number; y: number; text: string; fontSize?: number; fontFamily?: string; angle?: number }> = [];
   for (const t of texts) {
     if (clean.length >= MAX_TEXT_LABELS) break;
     if (!t || typeof t !== 'object') continue;
     const rec = t as Record<string, unknown>;
-    if (typeof rec.uid !== 'string' || typeof rec.col !== 'number' || typeof rec.row !== 'number') continue;
+    if (typeof rec.uid !== 'string' || typeof rec.x !== 'number' || typeof rec.y !== 'number') continue;
+    if (!Number.isFinite(rec.x) || !Number.isFinite(rec.y)) continue;
     const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
     if (!text) continue;
-    const entry: { uid: string; col: number; row: number; text: string; fontSize?: number; fontFamily?: string; angle?: number } = {
+    const entry: { uid: string; x: number; y: number; text: string; fontSize?: number; fontFamily?: string; angle?: number } = {
       uid: rec.uid,
-      col: rec.col,
-      row: rec.row,
+      x: rec.x,
+      y: rec.y,
       text,
     };
     if (rec.fontSize !== undefined) {
@@ -99,6 +100,8 @@ export function sanitizeAction(raw: unknown): Action | null {
       return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
     case 'arcade':
       return { kind: 'arcade' };
+    case 'portal':
+      return { kind: 'portal' };
     case 'toggle':
       return { kind: 'toggle' };
     default:
@@ -139,6 +142,10 @@ export function sanitizeLayoutActions(layout: Record<string, unknown>): Record<s
           : [];
         if (sides.length > 0) rec.approachSides = sides;
         else delete rec.approachSides;
+      }
+      if (rec.approachThrough !== undefined) {
+        if (rec.approachThrough === true) rec.approachThrough = true;
+        else delete rec.approachThrough;
       }
     }
   }

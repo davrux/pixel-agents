@@ -22,6 +22,12 @@
  *   stateGroup      (string) shared id linking an on/off pair
  *   state           (string) 'on' | 'off' — needs a matching stateGroup pair
  *   onTrigger       (string) 'autoFacing' | 'click' — what flips the pair
+ *   actionKind      (string) this type's default Action (see FurnitureCatalogEntry.action)
+ *                            — 'meetingRoom' | 'linkManager' | 'iframe' | 'appliance' |
+ *                            'arcade' | 'portal' | 'toggle'; empty = no default action
+ *   actionVideo     (bool)   only with actionKind 'meetingRoom'
+ *   actionUrl       (string) only with actionKind 'iframe' — https:// only
+ *   actionPose      (string) only with actionKind 'appliance', e.g. 'coffee'
  *
  * Animation is NOT a custom property — a tile's native Tiled `<animation>`
  * (its own frame plus any following ones, each naming a sibling tile's id in
@@ -30,6 +36,7 @@
  */
 import type { FurnitureAsset } from './manifestUtils.js';
 import { FURNITURE_CATEGORIES as CATEGORY_LABELS } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { actionFromProps } from '../../tiled/actionProps.js';
 
 interface TiledProperty {
   name: string;
@@ -176,6 +183,10 @@ function buildAsset(
     ...(typeof props.state === 'string' ? { state: props.state } : {}),
     ...(typeof props.onTrigger === 'string' ? { onTrigger: props.onTrigger as 'autoFacing' | 'click' } : {}),
     ...(anim ? { animationGroup: `${anim.groupId}__anim`, frame: anim.frame, durationMs: anim.durationMs } : {}),
+    ...(() => {
+      const action = actionFromProps(props);
+      return action ? { action } : {};
+    })(),
   };
 }
 

@@ -6,9 +6,10 @@
  * range, walked in the order the tilesets were added).
  *
  * Fixed, deterministic order: every FLOOR_SET_FILES entry, then every
- * WALL_SET_FILES entry, then collision, then every furniture-*.tsj
- * alphabetically — stable across repeated exports as long as no tileset is
- * added/removed/reordered on disk.
+ * WALL_SET_FILES entry, then collision, then images (see
+ * bake-images-tiled.mts), then every furniture-*.tsj alphabetically —
+ * stable across repeated exports as long as no tileset is added/removed/
+ * reordered on disk.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -61,6 +62,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     ...FLOOR_SET_FILES.map((f) => `${f}.tsj`),
     ...WALL_SET_FILES.map((f) => `${f}.tsj`),
     'collision.tsj',
+    'images.tsj',
   ];
   const furnitureFiles = fs
     .readdirSync(tiledDir)

@@ -201,12 +201,29 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   // as the active terrain keeps every painted piece that same color.
   const colorLabels = ['Natural', ...pal.map((sw) => sw.hex)];
   tsj.wangsets = colorLabels.map((label, col) => ({
+    // The "wall" terrain's own `color` is what Tiled actually paints into the
+    // Terrain Sets panel's swatch (the hex in `name` below is just text, not
+    // a real preview) — set it to this set's real swatch color so browsing
+    // the list doubles as a color picker instead of requiring you to read
+    // and cross-reference the hex string by eye. "Natural" has no single
+    // representative swatch (it's the un-recolored source art), so it keeps
+    // a neutral placeholder — same '#808080' PhaserRenderer.ts uses for "no
+    // tint". "empty" always stays neutral regardless of column: it's the Wang
+    // *absence-of-wall* state, not a paint color, so it never varies by set.
     colors: [
-      { color: '#861616', name: 'wall', probability: 1, tile: -1 },
+      { color: col === 0 ? '#808080' : label, name: 'wall', probability: 1, tile: -1 },
       { color: '#3a3a3a', name: 'empty', probability: 1, tile: -1 },
     ],
     name: `Wall — ${label}`,
-    tile: -1,
+    // The set's own representative tile — what Tiled actually shows as the
+    // small thumbnail icon next to each entry in the outer Terrain Sets
+    // list (the per-terrain `color` above only shows once you open one set
+    // and look at its "wall"/"empty" colors; scrolling the top-level list of
+    // all 65 sets showed plain, colorless names without this). Bitmask 15
+    // (the "all-wall" piece — see wangIdForMask's doc comment) is the
+    // fully-painted tile, the clearest single-tile preview of this column's
+    // actual color.
+    tile: 15 * columns + col,
     type: 'edge',
     wangtiles: Array.from({ length: 16 }, (_, mask) => ({
       tileid: mask * columns + col,

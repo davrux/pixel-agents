@@ -58,6 +58,10 @@ furniture *type* (not per placed instance; see FurnitureObject for that).
 | `stateGroup` | string | only for on/off pairs | See "Special case: state pairs" below. |
 | `state` | string, enum `FurnitureState` | only for on/off pairs | `on` or `off` — needs a matching `stateGroup`. |
 | `onTrigger` | string, enum `OnTrigger` | optional, only meaningful with a state pair | `autoFacing` (default) or `click` — see state pairs below. |
+| `actionKind` | string, enum `ActionKind` | optional | This *type's* default Action — every placed instance gets this unless it carries its own override (see FurnitureObject below). Same enum, same "Special case: Actions" semantics as FurnitureObject's. There are no other per-kind flags anymore (no `conference`/`arcade`/`meetingRoom`/`appliance`/`portal` booleans, no hardcoded id special-cases) — this is the *only* way a catalog type gets a default action. |
+| `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
+| `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
+| `actionPose` | string, enum `ApplianceKind` | only with `actionKind: appliance` | E.g. `coffee` — this is how the bundled coffee machine (`COFFEE_MACHINE` in `furniture-kitchens.tsj`) is wired up. |
 
 Animation (a lamp flicker, a spinning fan) is **not** a custom property — use Tiled's
 native tile `<animation>` (right-click a tile → "Tile Animation Editor"), pointing at
@@ -73,9 +77,10 @@ override.
 
 | Property | Type | Required? | Notes |
 |---|---|---|---|
-| `id` | string | **required** | Which FurnitureTile catalog entry this is — always written explicitly, even though a GID-backed object already implies it (deliberate redundancy, see the design doc). |
+| `id` | string | required unless the object has a `gid` (see below) | Which FurnitureTile catalog entry this is — always written explicitly by our own exporter, even though a GID-backed object already implies it (deliberate redundancy, see the design doc). |
 | `name` | string | optional | E.g. a conference monitor's stable room name. |
 | `approachSides` | string, enum `ApproachSide` (flags) | optional | See "Special case: approachSides" below. Empty = unrestricted. |
+| `approachThrough` | bool | optional | Marks THIS item as a blocker players may search past when some other item's approach-tile search reaches it — e.g. a kitchen counter with an appliance mounted behind it. Still blocks ordinary movement/placement; only changes what counts as a dead end for *other* items' approach search. Default `false`. |
 | `actionKind` | string, enum `ActionKind` | optional | See "Special case: Actions" below. |
 | `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
 | `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
@@ -85,6 +90,16 @@ A furniture item with no Tiled tileset representation (portals, conference monit
 arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code) still
 exports as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
 canvas instead of a real sprite. Round-trips fine either way.
+
+**Placing furniture by dragging a sprite straight from the Tilesets panel** (rather
+than copy-pasting an existing `FurnitureObject`) creates a `gid`-backed object with
+*no* class and *no* properties at all — Tiled doesn't inherit a tile's own class onto
+an object placed from it. Import still recognizes these: any object whose `gid`
+resolves to a `FurnitureTile` counts as furniture even without `type:
+'FurnitureObject'`, and its `id` falls back to whatever's baked onto that tile. Set
+the object's own `id`/`name`/`approachSides`/action fields by hand afterward if you
+need an instance-level override — otherwise it just uses the type's defaults, same
+as any other placed instance.
 
 ### ActionArea *(useAs: object, Point or Rectangle)*
 
@@ -118,18 +133,27 @@ area would be.
 
 ### Image *(useAs: object)*
 
-A placed background image (Tiled's native Image object — created via "Insert
-Image", not a custom shape).
+A placed background image. **There is no such thing as a standalone image
+object in Tiled** — its own JSON format only gives an object a `gid` (tile
+reference) or `text`, nothing else image-related (checked against Tiled's
+own format reference). So this is, structurally, exactly a `FurnitureObject`
+under a different name: a real GID-backed tile object, placed via **Insert
+Tile (T)** from `images.tsj` (see below), not a custom shape.
 
 | Property | Type | Required? | Notes |
 |---|---|---|---|
-| `imageId` | string | **required** | The stable id this image is stored/looked-up under in the live game. Nothing auto-fills this — pick a name yourself. |
+| `imageId` | string | required unless the object has a `gid` (see below) | The stable id this image is stored/looked-up under in the live game. Always present on the tile itself (baked by bake-images-tiled.mts), so a plain Insert Tile placement with no properties of its own still resolves correctly — see FurnitureObject's identical `id` fallback above. |
 
-**How to add a new one**: drop the PNG at `assets/tiled/zones/images/<imageId>.png`
-(relative to the zone's own `.tmj` — Tiled computes this automatically when you use
-"Insert Image" and pick a file from that folder), then set the `imageId` property to
-match the filename (no extension). If `imageId` is missing or the file isn't found,
-the object is silently skipped on import — no error, it just won't show up.
+**`images.tsj`** *(ImageTile, useAs: tile)* is a generated "collection of
+images" tileset — one tile per image uploaded via the in-game Assets editor,
+each its own independently-sized PNG (no shared grid). Regenerate it with
+`node --import tsx scripts/bake-images-tiled.mts` (from `server/`) whenever
+the image library changes — not automatic, run it by hand. **To place a new
+image**: run that script (if the image you want isn't in the tileset yet),
+then Insert Tile (T), pick it from the Tilesets panel, and place/scale it
+like any other tile object. If `imageId` can't be resolved (neither the
+object's own property nor the tile's), the object is silently skipped on
+import — no error, it just won't show up.
 
 ### GroundLayer *(useAs: layer)*
 
@@ -152,7 +176,7 @@ class is what matters, not the name. Exactly one per map.
 | `FurnitureState` | *(empty)*, `on, off` | no | `FurnitureTile.state` |
 | `OnTrigger` | *(empty)*, `autoFacing, click` | no | `FurnitureTile.onTrigger` |
 | `ApproachSide` | `N, S, E, W` | **yes** | `FurnitureObject.approachSides` |
-| `ActionKind` | *(empty)*, `meetingRoom, linkManager, iframe, appliance, arcade, toggle` | no | `FurnitureObject`/`ActionArea`'s `actionKind` |
+| `ActionKind` | *(empty)*, `meetingRoom, linkManager, iframe, appliance, arcade, portal, toggle` | no | `FurnitureTile`/`FurnitureObject`/`ActionArea`'s `actionKind` |
 | `ApplianceKind` | *(empty)*, `coffee` | no | `actionPose` |
 
 `ApproachSide` is the one **flags** enum — Tiled shows it as checkboxes (pick any
@@ -215,6 +239,7 @@ you can *see* they exist, even when irrelevant for the current kind):
 | `iframe` | `actionUrl` (must be `https://`) | `actionVideo`, `actionPose` |
 | `appliance` | `actionPose` | `actionVideo`, `actionUrl` |
 | `arcade` | — | all three |
+| `portal` | — | all three (walking onto the item's footprint offers a destination picker) |
 | `toggle` | — | all three (flips the *tile's own* on/off pair — see above) |
 
 ### approachSides — empty means unrestricted, not "no sides"

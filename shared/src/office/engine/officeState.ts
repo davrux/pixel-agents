@@ -32,6 +32,7 @@ import {
   createDefaultLayout,
   getBlockedFloorTiles,
   getBlockedTiles,
+  getReachThroughTiles,
   layoutToFurnitureInstances,
   layoutToSeats,
   layoutToTileMap,
@@ -102,6 +103,9 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
+  /** "col,row" of every tile occupied by an `approachThrough` furniture item —
+   *  see getReachThroughTiles/computeApproachTiles. */
+  private reachThroughTiles: Set<string>;
   /** "col,row" of every tile carrying a tile action — see computeActionTileKeys.
    *  Only walkPlayer's plain click-to-move consults this (a soft detour cost
    *  in findPath, not a hard block); NPC wandering, seats, and appliance/
@@ -154,11 +158,10 @@ export class OfficeState {
   /** Player avatar ids live in their own band (agents use Claude ids, subagents
    *  negative, pets 1_000_000+). */
   private nextPlayerId = 2_000_000;
-  /** Tiles that trigger a zone portal (derived from placed `portal` furniture:
-   *  the walkable footprint tiles + their walkable neighbours), and player ids
-   *  that just stepped on one (drained by the room → destination picker). */
+  /** Tiles that trigger a zone portal — derived from placed furniture whose
+   *  effective action is 'portal' (the walkable footprint tiles). Arrival
+   *  fires through pendingActionArrivals below, same as every other action. */
   private portalTiles: Set<string> = new Set();
-  private pendingPortals: number[] = [];
   /** Players who reached a furniture action's stand tile (walk-then-
    *  trigger), drained by the room — see takePendingActionArrivals /
    *  walkPlayerToAction / SimRoom.handleActionArrivals. */
@@ -172,6 +175,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
+    this.reachThroughTiles = getReachThroughTiles(this.layout.furniture);
     this.actionAreas = computeActionAreas(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
     // No characters/manual toggles exist yet at construction, so the
@@ -216,6 +220,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
+    this.reachThroughTiles = getReachThroughTiles(layout.furniture);
     this.actionAreas = computeActionAreas(layout);
     this.actionTileKeys = computeActionTileKeys(layout);
     this.rebuildFurnitureInstances();
@@ -381,7 +386,13 @@ export class OfficeState {
    *  (RPG Maker's per-direction tile passage, Grid Engine's ge_collide_*)
    *  stores it as authored data instead, so `facing` (PlacedFurniture, set at
    *  placement time) is authoritative here; the tile map only decides when
-   *  one side isn't walkable at all. */
+   *  one side isn't walkable at all.
+   *
+   *  A blocked immediate neighbor doesn't always end the search either: if
+   *  it's occupied by an `approachThrough` item (see PlacedFurniture — e.g. a
+   *  kitchen counter with a coffee machine mounted behind it), the search
+   *  keeps stepping outward past it looking for the real stand tile, so the
+   *  player ends up in front of the counter facing the appliance beyond it. */
   private computeApproachTiles(
     col: number,
     row: number,
@@ -421,24 +432,47 @@ export class OfficeState {
       for (let dc = 0; dc < w; dc++) {
         const fc = col + dc;
         const fr = row + dr;
-        const cands: Array<[number, number, Direction, 'N' | 'S' | 'E' | 'W']> = [
-          [fc, fr - 1, Direction.DOWN, 'N'],
-          [fc, fr + 1, Direction.UP, 'S'],
-          [fc - 1, fr, Direction.RIGHT, 'W'],
-          [fc + 1, fr, Direction.LEFT, 'E'],
+        const cands: Array<[number, number, number, number, Direction, 'N' | 'S' | 'E' | 'W']> = [
+          [fc, fr - 1, 0, -1, Direction.DOWN, 'N'],
+          [fc, fr + 1, 0, 1, Direction.UP, 'S'],
+          [fc - 1, fr, -1, 0, Direction.RIGHT, 'W'],
+          [fc + 1, fr, 1, 0, Direction.LEFT, 'E'],
         ];
-        for (const [nc, nr, approachFacing, side] of cands) {
+        for (const [nc0, nr0, ddc, ddr, approachFacing, side] of cands) {
           if (restrict && !restrict.includes(side)) continue;
-          const k = `${nc},${nr}`;
-          const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
           // Ambiguous case: reject the whole wrong side, not just the tile
           // directly above/below the footprint — a *lateral* neighbor of the
           // sprite's own body row (e.g. standing beside a narrow cabinet, at
           // the same height as its screen) is on the art side exactly as much
           // as the tile straight above it, and both must lose equally to
-          // whichever side `facing` actually picked.
-          if (ambiguous && nr < wallRow && wantFacing !== Direction.DOWN) continue;
-          if (ambiguous && nr > wallRow && wantFacing !== Direction.UP) continue;
+          // whichever side `facing` actually picked. Judged on the immediate
+          // neighbor (pre reach-through), not wherever it ends up below —
+          // that's about which side of the WALL this is, unaffected by a
+          // counter sitting further out on the same side.
+          if (ambiguous && nr0 < wallRow && wantFacing !== Direction.DOWN) continue;
+          if (ambiguous && nr0 > wallRow && wantFacing !== Direction.UP) continue;
+          // Reach-through: a blocked immediate neighbor that's occupied by an
+          // `approachThrough` item (e.g. a kitchen counter) doesn't end the
+          // search — keep stepping outward in the same direction until an
+          // actually-walkable tile turns up (or a real dead end does), so
+          // the player ends up standing in front of the counter instead of
+          // never finding a spot at all. Capped to stay well clear of
+          // pathological chains without a real furniture layout ever needing
+          // more than one or two hops.
+          let nc = nc0;
+          let nr = nr0;
+          let hops = 0;
+          while (
+            !isWalkable(nc, nr, this.tileMap, this.blockedTiles) &&
+            this.reachThroughTiles.has(`${nc},${nr}`) &&
+            hops < 8
+          ) {
+            nc += ddc;
+            nr += ddr;
+            hops++;
+          }
+          const k = `${nc},${nr}`;
+          const inFoot = nc >= col && nc < col + w && nr >= row && nr < row + h;
           if (seen.has(k) || inFoot || !isWalkable(nc, nr, this.tileMap, this.blockedTiles)) continue;
           seen.add(k);
           approaches.push({ col: nc, row: nr, facing: approachFacing });
@@ -558,6 +592,10 @@ export class OfficeState {
     const otherSeats: string[] = [];
     for (const [uid, seat] of this.seats) {
       if (seat.assigned) continue;
+      // Same "never auto-land someone in an active meeting" guarantee as
+      // findFreeSpawnTile/spawnableTiles — a desk that happens to sit inside
+      // a walk-in meeting area must not silently pull agents into calls.
+      if (this.areaIdAt(seat.seatCol, seat.seatRow) !== null) continue;
 
       // Check if this seat faces electronics (same logic as auto-state detection)
       let facesPC = false;
@@ -803,7 +841,10 @@ export class OfficeState {
    *  furniture footprint, not occupied by another character or pet, and never
    *  inside a meeting area (see spawnableTiles). Prefers `preferred` (e.g. a
    *  zone's arrival tile) when it's free; else a random free tile; else any
-   *  walkable tile as a last resort. */
+   *  OTHER non-meeting-area walkable tile (even if occupied — a visually
+   *  stacked spawn beats an unwanted auto-join into a call); only once every
+   *  single walkable tile is inside a meeting area does it fall back to the
+   *  fully unrestricted set, so a spawn is never simply impossible. */
   private findFreeSpawnTile(preferred?: { col: number; row: number }): { col: number; row: number } {
     const occupied = new Set<string>();
     for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
@@ -822,8 +863,9 @@ export class OfficeState {
       this.areaIdAt(t.col, t.row) === null;
 
     if (preferred && isFree(preferred)) return preferred;
-    const free = this.spawnableTiles().filter(isFree);
-    const pool = free.length > 0 ? free : this.walkableTiles;
+    const spawnable = this.spawnableTiles(); // walkable, outside any meeting area
+    const free = spawnable.filter(isFree);
+    const pool = free.length > 0 ? free : spawnable.length > 0 ? spawnable : this.walkableTiles;
     return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
   }
 
@@ -881,6 +923,38 @@ export class OfficeState {
     ch.state = CharacterState.WALK;
     ch.frame = 0;
     ch.frameTimer = 0;
+    return true;
+  }
+
+  /** Right-click "warp": instant teleport to a walkable tile, no walking — the
+   *  same despawn→reposition→spawn "Matrix" visual as a disconnect, but the
+   *  character is never deleted (see update()'s pendingWarp branch). Strict
+   *  walkability: only an exact walkable tile is a valid target, no
+   *  nearestWalkableTile snapping like walkPlayer — you can't warp into a
+   *  wall. Available to every player (not admin-gated). */
+  warpPlayer(id: number, col: number, row: number): boolean {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return false;
+    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
+    if (ch.stationId) releaseStation(ch, this.stations);
+    if (ch.seatId) {
+      const seat = this.seats.get(ch.seatId);
+      if (seat) seat.assigned = false;
+      ch.seatId = null;
+    }
+    ch.heldDir = null;
+    ch.pendingSitFacing = null;
+    ch.pendingAction = null;
+    ch.pendingAppliance = null;
+    ch.afk = false;
+    ch.path = [];
+    ch.bubbleType = null;
+    ch.pendingWarp = { col, row };
+    if (ch.matrixEffect !== 'despawn') {
+      ch.matrixEffect = 'despawn';
+      ch.matrixEffectTimer = 0;
+      ch.matrixEffectSeeds = matrixEffectSeeds();
+    }
     return true;
   }
 
@@ -994,15 +1068,16 @@ export class OfficeState {
     ch.moveProgress = 0;
   }
 
-  /** Recompute portal trigger tiles from placed `portal` furniture: only the
-   *  item's own walkable footprint tiles — you activate a door/beam pad by
-   *  standing on it, not by approaching from an adjacent tile. Portal furniture
-   *  is non-blocking (backgroundTiles), so its tile is walkable. */
+  /** Recompute portal trigger tiles from placed furniture whose effective
+   *  action is 'portal': only the item's own walkable footprint tiles — you
+   *  activate a door/beam pad by standing on it, not by approaching from an
+   *  adjacent tile. Portal furniture is non-blocking (backgroundTiles), so
+   *  its tile is walkable. */
   private computePortalTiles(): void {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.id);
-      if (!entry?.portal) continue;
+      if (!entry || effectiveAction(item, entry)?.kind !== 'portal') continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
           const fc = item.col + dc;
@@ -1012,15 +1087,6 @@ export class OfficeState {
       }
     }
     this.portalTiles = tiles;
-  }
-
-  /** Drain players that stepped onto a portal tile this tick (room shows them a
-   *  destination picker). */
-  takePendingPortals(): number[] {
-    if (this.pendingPortals.length === 0) return [];
-    const out = this.pendingPortals;
-    this.pendingPortals = [];
-    return out;
   }
 
   /** Drain players who reached a furniture action's stand tile this tick —
@@ -1213,7 +1279,9 @@ export class OfficeState {
           ch.state = CharacterState.IDLE;
           // Came to rest on a portal tile → queue it (room offers a destination
           // picker). Only on arrival/rest, so walking across doesn't spam it.
-          if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) this.pendingPortals.push(ch.id);
+          if (this.portalTiles.has(`${ch.tileCol},${ch.tileRow}`)) {
+            this.pendingActionArrivals.push({ id: ch.id, action: { kind: 'portal' }, col: ch.tileCol, row: ch.tileRow });
+          }
           // A tile action other than 'meetingRoom' (which is automatic
           // membership-by-position, tracked separately every tick — see
           // SimRoom's meeting-room membership update) fires once on arrival,
@@ -1673,6 +1741,17 @@ export class OfficeState {
             ch.matrixEffect = null;
             ch.matrixEffectTimer = 0;
             ch.matrixEffectSeeds = [];
+          } else if (ch.pendingWarp) {
+            // Despawn half of a warp — reposition, then spawn back in at the
+            // new tile (see warpPlayer). Never deleted, unlike a real leave.
+            ch.tileCol = ch.pendingWarp.col;
+            ch.tileRow = ch.pendingWarp.row;
+            ch.x = ch.pendingWarp.col * TILE_SIZE + TILE_SIZE / 2;
+            ch.y = ch.pendingWarp.row * TILE_SIZE + TILE_SIZE / 2;
+            ch.pendingWarp = null;
+            ch.matrixEffect = 'spawn';
+            ch.matrixEffectTimer = 0;
+            ch.matrixEffectSeeds = matrixEffectSeeds();
           } else {
             // Despawn complete — mark for deletion
             toDelete.push(ch.id);

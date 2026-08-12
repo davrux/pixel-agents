@@ -11,6 +11,7 @@ export const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   iframe: 0xd89b3a,
   appliance: 0x6bd89b,
   arcade: 0xd83a6b,
+  portal: 0x3ad8a0,
   // Not in TILE_ACTION_CHOICES (see below) — a light-switch isn't something
   // you pick from the generic list, it's implied by an on/off pair's own
   // Trigger setting (FurnitureEditor). Colour defined anyway so this map
@@ -47,6 +48,7 @@ export const TILE_ACTION_CHOICES: Array<{ label: string; swatch: number; make: (
   },
   { label: 'Arcade cabinet', swatch: actionTileColor({ kind: 'arcade' }), make: () => ({ kind: 'arcade' }) },
   { label: 'Appliance (coffee)', swatch: actionTileColor({ kind: 'appliance', pose: 'coffee' }), make: () => ({ kind: 'appliance', pose: 'coffee' }) },
+  { label: 'Portal (zone travel)', swatch: actionTileColor({ kind: 'portal' }), make: () => ({ kind: 'portal' }) },
 ];
 
 /** '#rrggbb' for a swatch colour — same numbers drawGrid paints with. */
@@ -69,6 +71,8 @@ export function actionChoiceLabel(a: Action): string {
       return 'Arcade cabinet';
     case 'appliance':
       return 'Appliance (coffee)';
+    case 'portal':
+      return 'Portal (zone travel)';
     case 'toggle':
       return 'Toggle on/off';
   }
