@@ -90,6 +90,25 @@ function actionFromProps(props: PropBag, prefix = 'action'): Action | null {
   }
 }
 
+/** Deep-equal for Action — used to group tileActions into same-value blocks
+ *  for export (see the Actions export block below). `kind` alone isn't
+ *  enough: two 'meetingRoom' tiles with different `video` are NOT the same
+ *  action and must not merge into one exported shape. */
+function actionsEqual(a: Action | null, b: Action | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.kind !== b.kind) return false;
+  switch (a.kind) {
+    case 'meetingRoom':
+      return b.kind === 'meetingRoom' && a.video === b.video;
+    case 'iframe':
+      return b.kind === 'iframe' && a.url === b.url;
+    case 'appliance':
+      return b.kind === 'appliance' && a.pose === b.pose;
+    default:
+      return true; // linkManager/arcade/toggle carry no other fields
+  }
+}
+
 /** N=1,E=2,S=4,W=8 — same convention as shared/src/office/wallTiles.ts's
  *  buildWallMask, reimplemented against OfficeLayout's flat tiles[] instead
  *  of a 2D tileMap (only used to pick a human-friendly Wang-matching GID on
@@ -230,29 +249,95 @@ export function exportLayoutToTmj(
     return { ...base, y: item.row * TILE_SIZE };
   });
 
-  // ── Actions: one Point object per non-null tileActions entry ─────
+  // ── Actions: one Rectangle per maximal solid same-action block, else one
+  // Point per tile — a mapper filling a big area (e.g. a meeting room) gets
+  // one clean shape instead of one dot per tile; an irregular/hand-painted
+  // shape still round-trips exactly via individual points, exactly like
+  // every ActionArea did before rectangle support existed. "Solid" means the
+  // 4-connected same-action component's cell count equals its own bounding
+  // box's area — i.e. there's no gap or different action anywhere inside
+  // that box. Position IS the data either way — col/row (or the covered
+  // range) are derived from x/y/width/height on import, never stored as
+  // their own properties: Tiled doesn't update custom properties when an
+  // object is dragged or resized, so a stored col/row would silently go
+  // stale the moment someone moves or resizes the shape.
   const actionObjects: Array<Record<string, unknown>> = [];
-  (layout.tileActions ?? []).forEach((action, i) => {
-    if (!action) return;
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    actionObjects.push({
-      id: 0, // renumbered below
-      name: '',
-      type: 'ActionPoint',
-      point: true,
-      // Position IS the data — col/row are derived from x/y on import
-      // (Math.floor), never stored as their own properties: Tiled doesn't
-      // update custom properties when an object is dragged, so a stored
-      // col/row would silently go stale the moment you move the point.
-      x: col * TILE_SIZE + TILE_SIZE / 2,
-      y: row * TILE_SIZE + TILE_SIZE / 2,
-      width: 0,
-      height: 0,
-      rotation: 0,
-      properties: actionProps(action),
-    });
-  });
+  {
+    const tileActions = layout.tileActions ?? [];
+    const total = cols * rows;
+    const visited = new Uint8Array(total);
+    const stack: number[] = [];
+    for (let start = 0; start < total; start++) {
+      const startAction = tileActions[start];
+      if (visited[start] || !startAction) continue;
+      const component: number[] = [start];
+      visited[start] = 1;
+      stack.push(start);
+      let minCol = start % cols;
+      let maxCol = minCol;
+      let minRow = Math.floor(start / cols);
+      let maxRow = minRow;
+      while (stack.length > 0) {
+        const idx = stack.pop()!;
+        const c = idx % cols;
+        const r = Math.floor(idx / cols);
+        const neighbors = [
+          r > 0 ? idx - cols : -1,
+          r < rows - 1 ? idx + cols : -1,
+          c > 0 ? idx - 1 : -1,
+          c < cols - 1 ? idx + 1 : -1,
+        ];
+        for (const n of neighbors) {
+          if (n >= 0 && !visited[n] && actionsEqual(tileActions[n] ?? null, startAction)) {
+            visited[n] = 1;
+            component.push(n);
+            stack.push(n);
+            const nc = n % cols;
+            const nr = Math.floor(n / cols);
+            if (nc < minCol) minCol = nc;
+            if (nc > maxCol) maxCol = nc;
+            if (nr < minRow) minRow = nr;
+            if (nr > maxRow) maxRow = nr;
+          }
+        }
+      }
+      const boxCols = maxCol - minCol + 1;
+      const boxRows = maxRow - minRow + 1;
+      // A lone tile (1x1) stays a Point — a tiny rectangle sitting exactly on
+      // the tile's own edges is harder to spot/grab in Tiled than a dot, and
+      // single-tile actions (a portal, an appliance) are the common case.
+      if ((boxCols > 1 || boxRows > 1) && component.length === boxCols * boxRows) {
+        actionObjects.push({
+          id: 0, // renumbered below
+          name: '',
+          type: 'ActionArea',
+          x: minCol * TILE_SIZE,
+          y: minRow * TILE_SIZE,
+          width: boxCols * TILE_SIZE,
+          height: boxRows * TILE_SIZE,
+          rotation: 0,
+          properties: actionProps(startAction),
+        });
+      } else {
+        for (const idx of component) {
+          const c = idx % cols;
+          const r = Math.floor(idx / cols);
+          actionObjects.push({
+            id: 0, // renumbered below
+            name: '',
+            type: 'ActionArea',
+            point: true,
+            x: c * TILE_SIZE + TILE_SIZE / 2,
+            y: r * TILE_SIZE + TILE_SIZE / 2,
+            width: 0,
+            height: 0,
+            rotation: 0,
+            properties: actionProps(startAction),
+          });
+        }
+      }
+    }
+  }
   actionObjects.forEach((o, i) => (o.id = i + 1));
 
   // ── Text: native Tiled text objects ───────────────────────────────
@@ -405,7 +490,7 @@ export function importTmjToLayout(
   // Objects are classified by their own nature — a native Tiled field
   // (`text`/`image`, always present on Tiled's own Text/Image object types
   // regardless of any custom class) or a custom `type` class
-  // (FurnitureObject/ActionPoint, see Pixels.tiled-project) — never by which
+  // (FurnitureObject/ActionArea, see Pixels.tiled-project) — never by which
   // named layer they happen to live in. Same robustness-to-reorganization
   // principle as the Ground layer's per-tile class below: export still
   // groups these into named layers (Furniture/Actions/Text/Images) purely
@@ -415,7 +500,7 @@ export function importTmjToLayout(
     .filter((l) => l.type === 'objectgroup')
     .flatMap((l) => (l.objects as Array<Record<string, unknown>>) ?? []);
   const furnitureObjects = allObjects.filter((o) => o.type === 'FurnitureObject');
-  const actionObjects = allObjects.filter((o) => o.type === 'ActionPoint');
+  const actionObjects = allObjects.filter((o) => o.type === 'ActionArea');
   const textObjects = allObjects.filter((o) => o.text !== undefined);
   const imageObjects = allObjects.filter((o) => typeof o.image === 'string');
 
@@ -490,13 +575,27 @@ export function importTmjToLayout(
   const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
   for (const obj of actionObjects) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
+    const action = actionFromProps(props);
+    if (!action) continue;
     // Position IS the data — see the matching export-side comment; never
     // read a stored col/row property (Tiled wouldn't have kept it in sync
-    // with a dragged object anyway).
-    const col = Math.floor(Number(obj.x) / TILE_SIZE);
-    const row = Math.floor(Number(obj.y) / TILE_SIZE);
-    const action = actionFromProps(props);
-    if (action && col >= 0 && col < cols && row >= 0 && row < rows) tileActions[row * cols + col] = action;
+    // with a dragged or resized object anyway). Works for either shape: a
+    // Point's x/y is its tile's CENTER (see export), so floor() lands on
+    // the same tile either way; a Rectangle's x/y is its top-left corner,
+    // and its width/height (rounded to whole tiles, minimum one) give the
+    // covered range — every tile in that range gets this action. Objects
+    // are applied in Tiled's own list order, so a later, more specific
+    // shape overriding part of an earlier, larger one wins — same
+    // last-write-wins precedent as furniture zOffset-by-list-position.
+    const col0 = Math.floor(Number(obj.x) / TILE_SIZE);
+    const row0 = Math.floor(Number(obj.y) / TILE_SIZE);
+    const wTiles = obj.point === true ? 1 : Math.max(1, Math.round(Number(obj.width) / TILE_SIZE));
+    const hTiles = obj.point === true ? 1 : Math.max(1, Math.round(Number(obj.height) / TILE_SIZE));
+    for (let row = row0; row < row0 + hTiles; row++) {
+      for (let col = col0; col < col0 + wTiles; col++) {
+        if (col >= 0 && col < cols && row >= 0 && row < rows) tileActions[row * cols + col] = action;
+      }
+    }
   }
 
   const texts: PlacedText[] = textObjects.map((obj) => {

@@ -86,13 +86,15 @@ arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code)
 exports as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
 canvas instead of a real sprite. Round-trips fine either way.
 
-### ActionPoint *(useAs: object, Point)*
+### ActionArea *(useAs: object, Point or Rectangle)*
 
 A tile-triggered action with no furniture backing it — e.g. a portal tile, a
-walk-in meeting area anchor. Placed as a Tiled **Point** object (not a rectangle);
-its position, floored to a tile, *is* the data — col/row are never stored as
-separate properties (Tiled doesn't keep custom properties in sync when you drag a
-point, so a stored col/row would silently go stale).
+walk-in meeting area. Placed as either a Tiled **Point** (one tile) or a
+**Rectangle** (every tile it covers, rounded to whole tiles) — pick whichever
+is convenient; a single tile and a 10×10 meeting room use the same class. Its
+position/size *is* the data — col/row (or the covered range) are never stored
+as separate properties (Tiled doesn't keep custom properties in sync when you
+drag or resize a shape, so a stored col/row would silently go stale).
 
 | Property | Type | Notes |
 |---|---|---|
@@ -100,6 +102,19 @@ point, so a stored col/row would silently go stale).
 | `actionVideo` | bool | Only with `meetingRoom`. |
 | `actionUrl` | string | Only with `iframe`. |
 | `actionPose` | string, enum `ApplianceKind` | Only with `appliance`. |
+
+**Overlaps**: if a Rectangle and a Point (or two Rectangles) cover the same
+tile with different settings, whichever is **later in Tiled's own object
+list** wins — same last-write-wins precedent as furniture stacking order
+(see FurnitureObject above). Reorder in Tiled's Objects panel to change which
+one applies.
+
+**Export**: a maximal, fully-solid rectangular block of tiles sharing the
+exact same action (same `actionKind` *and* its kind-specific field, e.g. two
+`meetingRoom` tiles only merge if `video` also matches) exports as one
+Rectangle. An irregular shape (not a solid rectangle) exports as one Point
+per tile instead — always correct, just less tidy to look at than a clean
+area would be.
 
 ### Image *(useAs: object)*
 
@@ -137,7 +152,7 @@ class is what matters, not the name. Exactly one per map.
 | `FurnitureState` | *(empty)*, `on, off` | no | `FurnitureTile.state` |
 | `OnTrigger` | *(empty)*, `autoFacing, click` | no | `FurnitureTile.onTrigger` |
 | `ApproachSide` | `N, S, E, W` | **yes** | `FurnitureObject.approachSides` |
-| `ActionKind` | *(empty)*, `meetingRoom, linkManager, iframe, appliance, arcade, toggle` | no | `FurnitureObject`/`ActionPoint`'s `actionKind` |
+| `ActionKind` | *(empty)*, `meetingRoom, linkManager, iframe, appliance, arcade, toggle` | no | `FurnitureObject`/`ActionArea`'s `actionKind` |
 | `ApplianceKind` | *(empty)*, `coffee` | no | `actionPose` |
 
 `ApproachSide` is the one **flags** enum — Tiled shows it as checkboxes (pick any

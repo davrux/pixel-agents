@@ -199,11 +199,16 @@ version of the same thing). "Enum" means Tiled shows a dropdown (or checkbox lis
 | `actionPose` | enum `ApplianceKind` | `coffee` | only meaningful when `actionKind = appliance` |
 | *(not a property)* `flippedHorizontally` | — | — | in Tiled, use the object's native **Flip Horizontally** action — no custom property involved. Export/import translate this to/from Tiled's own GID flip bit directly (see the `flippedHorizontally` mapping-table row above). |
 
-**`ActionPoint`** (object, "Actions" layer)
+**`ActionArea`** (object, "Actions" layer)
 
-Same four `action*` properties as `FurnitureObject` above. No `col`/`row` — the point's own
-x/y position on the map IS the tile reference, always re-derived on import (never stored,
-since Tiled doesn't keep custom properties in sync when you drag an object).
+Same four `action*` properties as `FurnitureObject` above. Placed as either a Point (one
+tile) or a Rectangle (every tile it covers) — no `col`/`row`/size property either way, the
+shape's own x/y/width/height on the map IS the tile reference, always re-derived on import
+(never stored, since Tiled doesn't keep custom properties in sync when you drag or resize an
+object). Export collapses a solid rectangular block of same-action tiles into one Rectangle;
+an irregular shape still exports as one Point per tile. Overlapping shapes resolve by object-
+list order, later wins — see docs/design/tiled-custom-properties-reference.md's ActionArea
+section for the full explanation.
 
 **Never round-tripped at all**: `uid` (every import generates a fresh one — pure internal
 engine identity, see the mapping table above), `zOffset` (derived from the object's position

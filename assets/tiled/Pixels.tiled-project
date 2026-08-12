@@ -72,7 +72,7 @@
         },
         {
             "id": 5,
-            "name": "ActionPoint",
+            "name": "ActionArea",
             "type": "class",
             "useAs": [
                 "object"
