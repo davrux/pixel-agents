@@ -30,9 +30,17 @@ function hex2(n: number): string {
 
 /** Fetch a PNG (not an <img> src) so decoding never taints the canvas
  *  regardless of cross-origin CORS headers (Vite dev serves the client on a
- *  different port than the game server — see serverHttpOrigin). */
+ *  different port than the game server — see serverHttpOrigin). Default
+ *  cache mode (NOT 'force-cache'): the server sends `Cache-Control:
+ *  max-age=0` plus a strong ETag/Last-Modified specifically so a re-baked
+ *  sheet (see bake-floor-wall-tiled.mts) is always revalidated — a cheap 304
+ *  when unchanged, fresh bytes immediately when it isn't. 'force-cache'
+ *  skips that revalidation entirely and keeps serving whatever's already in
+ *  the browser's cache even after the file on disk changed, silently
+ *  misaligning every tile the next time the sheet's layout changes (as
+ *  happened when WALL_TILE_SPACING was introduced). */
 async function fetchBitmap(url: string): Promise<ImageBitmap> {
-  const res = await fetch(url, { cache: 'force-cache' });
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   return createImageBitmap(await res.blob());
 }
