@@ -176,7 +176,9 @@ export function getPlacementBlockedTiles(
 }
 
 /** Map chair orientation to character facing direction — 'front'/'back'/'side'
- *  are the only values the Orientation enum (Pixels.tiled-project) offers. */
+ *  are the only values the Orientation enum (Pixels.tiled-project) offers.
+ *  Assumes the UNFLIPPED sprite — see mirrorFacing for why a flipped
+ *  instance still needs this corrected. */
 function orientationToFacing(orientation: string): Direction {
   switch (orientation) {
     case 'front':
@@ -188,6 +190,27 @@ function orientationToFacing(orientation: string): Direction {
     default:
       return Direction.DOWN;
   }
+}
+
+/** Mirror a facing direction to match a flipped sprite — orientationToFacing
+ *  assumes the chair's UNFLIPPED art (e.g. "side" always means the base
+ *  sprite's own rightward-facing pose), so a mapper who flips a chair
+ *  horizontally/vertically in Tiled to visually face the other way needs the
+ *  seat's actual sit-facing to follow, or a character sitting there faces
+ *  into the now-mirrored chair's back. Only ever applied to an
+ *  orientation-derived facing — the adjacent-desk-direction fallback below is
+ *  already purely positional (real desk geometry), so flipping the chair's
+ *  own art has no bearing on it. */
+function mirrorFacing(dir: Direction, flippedHorizontally?: boolean, flippedVertically?: boolean): Direction {
+  if (flippedHorizontally) {
+    if (dir === Direction.LEFT) dir = Direction.RIGHT;
+    else if (dir === Direction.RIGHT) dir = Direction.LEFT;
+  }
+  if (flippedVertically) {
+    if (dir === Direction.UP) dir = Direction.DOWN;
+    else if (dir === Direction.DOWN) dir = Direction.UP;
+  }
+  return dir;
 }
 
 /** Generate seats from chair furniture.
@@ -233,7 +256,7 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
         // 3) Default forward (DOWN)
         let facingDir: Direction = Direction.DOWN;
         if (entry.orientation) {
-          facingDir = orientationToFacing(entry.orientation);
+          facingDir = mirrorFacing(orientationToFacing(entry.orientation), item.flippedHorizontally, item.flippedVertically);
         } else {
           for (const d of dirs) {
             if (deskTiles.has(`${tileCol + d.dc},${tileRow + d.dr}`)) {

@@ -877,7 +877,15 @@ export class OfficeScene extends Phaser.Scene {
 
   private rebuildFurniture(): void {
     const arr = (this.room!.state as {
-      furniture: Array<{ id: string; col: number; row: number; name?: string; action?: string }>;
+      furniture: Array<{
+        id: string;
+        col: number;
+        row: number;
+        name?: string;
+        action?: string;
+        flippedHorizontally?: boolean;
+        flippedVertically?: boolean;
+      }>;
     }).furniture;
     this.furniturePlacements = arr.map((f, i) => {
       let action: Action | undefined;
@@ -888,7 +896,16 @@ export class OfficeScene extends Phaser.Scene {
           /* malformed — treat as no override */
         }
       }
-      return { uid: `f${i}`, id: f.id, col: f.col, row: f.row, name: f.name, action };
+      return {
+        uid: `f${i}`,
+        id: f.id,
+        col: f.col,
+        row: f.row,
+        name: f.name,
+        action,
+        ...(f.flippedHorizontally ? { flippedHorizontally: true } : {}),
+        ...(f.flippedVertically ? { flippedVertically: true } : {}),
+      };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }

@@ -75,6 +75,10 @@ export class FurnitureSync extends Schema {
    *  Appended last (schema-evolution safe, see the afk field's comment on
    *  CharacterSync). */
   @type('string') action = '';
+  /** See PlacedFurniture.flippedHorizontally/flippedVertically. Appended
+   *  last, same schema-evolution reasoning as `action` above. */
+  @type('boolean') flippedHorizontally = false;
+  @type('boolean') flippedVertically = false;
 }
 
 export class RoomState extends Schema {

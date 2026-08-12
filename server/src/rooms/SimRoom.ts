@@ -1914,6 +1914,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.name = p.name ?? '';
       const action = effectiveAction(p, getCatalogEntry(p.id));
       fs.action = action ? JSON.stringify(action) : '';
+      fs.flippedHorizontally = !!p.flippedHorizontally;
+      fs.flippedVertically = !!p.flippedVertically;
       this.state.furniture.push(fs);
     }
   }

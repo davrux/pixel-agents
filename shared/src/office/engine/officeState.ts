@@ -936,6 +936,11 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
+    // Same "never auto-land someone in an active meeting" guarantee as
+    // findFreeSpawnTile/findFreeSeat — a warp is still an arrival, just an
+    // instant one; it must not silently pull the player into a call they
+    // never walked toward or chose to join.
+    if (this.areaIdAt(col, row) !== null) return false;
     if (ch.stationId) releaseStation(ch, this.stations);
     if (ch.seatId) {
       const seat = this.seats.get(ch.seatId);

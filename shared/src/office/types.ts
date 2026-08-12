@@ -367,6 +367,11 @@ export interface PlacedText {
   /** Free rotation in degrees (0-359, normalized), pivoted at the label's own
    *  anchor (bottom-center). Unset = 0 (upright, unrotated). */
   angle?: number;
+  /** Text fill color, `#rrggbb` — read from/written to Tiled's own native
+   *  Text object `color` property (which itself is `#rrggbb`/`#aarrggbb`; the
+   *  alpha channel isn't modeled here, a label is always opaque). Unset =
+   *  the renderer's own default (white). */
+  color?: string;
 }
 
 /** A raster image (PNG) placed as pure background decoration — no footprint/

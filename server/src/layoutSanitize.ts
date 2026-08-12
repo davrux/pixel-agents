@@ -25,7 +25,7 @@ import type { Action } from '@pixel/shared/office/types.js';
 export function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<string, unknown> {
   const texts = layout.texts;
   if (!Array.isArray(texts)) return layout;
-  const clean: Array<{ uid: string; x: number; y: number; text: string; fontSize?: number; fontFamily?: string; angle?: number }> = [];
+  const clean: Array<{ uid: string; x: number; y: number; text: string; fontSize?: number; fontFamily?: string; angle?: number; color?: string }> = [];
   for (const t of texts) {
     if (clean.length >= MAX_TEXT_LABELS) break;
     if (!t || typeof t !== 'object') continue;
@@ -34,7 +34,7 @@ export function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<str
     if (!Number.isFinite(rec.x) || !Number.isFinite(rec.y)) continue;
     const text = cleanName(rec.text, MAX_TEXT_LABEL_LEN);
     if (!text) continue;
-    const entry: { uid: string; x: number; y: number; text: string; fontSize?: number; fontFamily?: string; angle?: number } = {
+    const entry: (typeof clean)[number] = {
       uid: rec.uid,
       x: rec.x,
       y: rec.y,
@@ -50,6 +50,7 @@ export function sanitizeLayoutTexts(layout: Record<string, unknown>): Record<str
       const angle = ((rec.angle % 360) + 360) % 360;
       if (angle !== 0) entry.angle = angle;
     }
+    if (typeof rec.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(rec.color)) entry.color = rec.color;
     clean.push(entry);
   }
   layout.texts = clean;

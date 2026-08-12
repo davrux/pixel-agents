@@ -283,6 +283,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
       text: t.text,
       ...(t.fontFamily ? { fontfamily: t.fontFamily } : {}),
       ...(t.fontSize ? { pixelsize: t.fontSize } : {}),
+      ...(t.color ? { color: t.color } : {}),
       wrap: true,
     },
     properties: [],
@@ -361,6 +362,18 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
  *  to preserve across a round-trip. Not exported as a property at all. */
 function generateUid(): string {
   return `imported_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Tiled's text `color` is `#rrggbb` or `#aarrggbb` (alpha FIRST) per the
+ *  JSON map format spec; a PlacedText.color is always opaque `#rrggbb` (see
+ *  its own doc comment — no alpha channel modeled), so this just strips
+ *  Tiled's leading alpha pair when present. Returns null for anything that
+ *  isn't a well-formed hex color at all. */
+function tiledColorToRgbHex(color: string): string | null {
+  const hex = color.startsWith('#') ? color.slice(1) : color;
+  if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex}`;
+  if (/^[0-9a-fA-F]{8}$/.test(hex)) return `#${hex.slice(2)}`;
+  return null;
 }
 
 /** Derive (row, swatch index) from a resolved tile's position within its
@@ -605,6 +618,10 @@ export function importTmjToLayout(
     };
     if (typeof textData.fontfamily === 'string') t.fontFamily = textData.fontfamily;
     if (typeof textData.pixelsize === 'number') t.fontSize = textData.pixelsize;
+    if (typeof textData.color === 'string') {
+      const rgb = tiledColorToRgbHex(textData.color);
+      if (rgb) t.color = rgb;
+    }
     if (typeof obj.rotation === 'number' && obj.rotation) t.angle = ((obj.rotation as number) % 360 + 360) % 360;
     return t;
   });
