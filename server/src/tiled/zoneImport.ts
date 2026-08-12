@@ -66,13 +66,17 @@ export function resolveZoneId(tmjPath: string, filename: string): string {
  *  itself, never zone-relative — either the referenced tile's own `image`
  *  path (any file a mapper added directly via Tiled's Tileset editor), or
  *  the png/images/<id>.png convention bake-images-tiled.mts writes, as a
- *  fallback for a bare (non-tile) Image object (see mapBridge.ts). */
+ *  fallback for a bare (non-tile) Image object (see mapBridge.ts). A
+ *  'spawnPoint' tile action (see Action) sets the zone's own arrival point
+ *  the same way the in-game "Arrival point" click flow does — the FIRST one
+ *  found wins if a mapper accidentally places more than one. */
 export async function importZoneTmjFile(
   tmjPath: string,
   registry: TiledRegistry,
   zoneId: string,
   layoutName: string,
   layoutStore: LayoutStore,
+  zones: ZoneStore,
 ): Promise<ZoneImportResult> {
   const tmj = JSON.parse(fs.readFileSync(tmjPath, 'utf-8'));
   const tiledDir = path.join(ASSETS_ROOT, 'assets', 'tiled');
@@ -97,12 +101,25 @@ export async function importZoneTmjFile(
   if (!normalized) {
     throw new Error(`Imported layout from ${tmjPath} failed to (de)serialize`);
   }
+  // Create the zone (if it doesn't exist yet) BEFORE the spawnPoint handling
+  // below — ZoneStore.edit (used to set arrive) is a no-op against a zone
+  // that doesn't exist yet, which a first-ever import of a new zone would
+  // otherwise silently hit.
+  ensureZoneExists(zones, zoneId, normalized.cols, normalized.rows);
   // Same content checks as the live save/save-as path (SimRoom.ts) — a
   // hand-edited .tmj is no more trusted than a patched client, so texts/
   // images/actions get the same caps and https://-only enforcement before
   // ever reaching the DB.
   const sanitized = sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(normalized as unknown as Record<string, unknown>)));
   layoutStore.saveAs(zoneId, layoutName, sanitized, Date.now());
+
+  const tileActions = sanitized.tileActions as Array<{ kind: string } | null> | undefined;
+  const cols = sanitized.cols as number;
+  const spawnIdx = tileActions?.findIndex((a) => a?.kind === 'spawnPoint') ?? -1;
+  if (spawnIdx >= 0) {
+    zones.edit(zoneId, { arrive: { col: spawnIdx % cols, row: Math.floor(spawnIdx / cols) } });
+  }
+
   return {
     cols: normalized.cols,
     rows: normalized.rows,
@@ -160,8 +177,7 @@ export function watchZoneFiles(): void {
       // matches watchFurnitureTilesets rebuilding the furniture catalog on
       // every save rather than once.
       const registry = loadTiledRegistry(ASSETS_ROOT);
-      const result = await importZoneTmjFile(tmjPath, registry, zoneId, DEFAULT_TILED_IMPORT_LAYOUT_NAME, layoutStore);
-      ensureZoneExists(zones, zoneId, result.cols, result.rows);
+      const result = await importZoneTmjFile(tmjPath, registry, zoneId, DEFAULT_TILED_IMPORT_LAYOUT_NAME, layoutStore, zones);
       controlBus.emit(ZONE_LAYOUT_CHANGED_EVENT, zoneId);
       console.log(`[tiled-watch] ${file} → zone "${zoneId}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`);
     } catch (err) {

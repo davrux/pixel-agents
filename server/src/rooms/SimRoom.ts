@@ -897,7 +897,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
         }
         const col = Math.floor(Number(msg?.col));
         const row = Math.floor(Number(msg?.row));
-        if (this.actionAt(col, row)?.kind !== 'linkManager') return;
+        if (this.actionAt(col, row)?.kind !== 'meetingManager') return;
         // Bounds how many rooms one account can have outstanding at once — without
         // this a compromised/scripted account could flood meeting_rooms forever.
         if (meetingRoomStore.countActiveByOwner(userId) >= MAX_ACTIVE_ROOMS_PER_OWNER) {
@@ -958,7 +958,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Mint a LiveKit access token for a meeting room's call — only for a
     // player who is actually a member (server-authoritative gate; no
     // password gate of its own — a furniture item wanting one uses the
-    // 'linkManager' kiosk action instead, which mints its own password-
+    // 'meetingManager' kiosk action instead, which mints its own password-
     // protected /meet/<slug> room via meetingRoomStore.ts). The room name is
     // the source's own stable anchor: a furniture item's name-or-position
     // (conferenceKey) or a tile-area's flood-fill anchor

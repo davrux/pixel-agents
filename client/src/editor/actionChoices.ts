@@ -7,7 +7,7 @@ import { promptDialog } from '../ui/dialog.js';
  *  distinct at a glance, not just "the same teal, trust me". */
 export const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   meetingRoom: 0x2ac9c9,
-  linkManager: 0x9b6bd8,
+  meetingManager: 0x9b6bd8,
   iframe: 0xd89b3a,
   appliance: 0x6bd89b,
   arcade: 0xd83a6b,
@@ -17,6 +17,10 @@ export const ACTION_TILE_COLOR: Record<Action['kind'], number> = {
   // Trigger setting (FurnitureEditor). Colour defined anyway so this map
   // stays exhaustive over Action['kind'].
   toggle: 0xd8d83a,
+  // Also not in TILE_ACTION_CHOICES — a zone has exactly one arrival point,
+  // so it's not something you'd pick per-tile from a generic list; only
+  // meaningful set directly in Tiled (see Action['spawnPoint']'s own doc).
+  spawnPoint: 0xd83aa0,
 };
 export const MEETING_ROOM_NO_VIDEO_COLOR = 0x3a7fd8;
 /** Colour for one specific action, distinguishing meetingRoom's video/no-video
@@ -37,7 +41,7 @@ export function actionTileColor(action: Action): number {
 export const TILE_ACTION_CHOICES: Array<{ label: string; swatch: number; make: () => Action | Promise<Action | null> }> = [
   { label: 'Meeting (video)', swatch: actionTileColor({ kind: 'meetingRoom', video: true }), make: () => ({ kind: 'meetingRoom', video: true }) },
   { label: 'Meeting (audio only)', swatch: actionTileColor({ kind: 'meetingRoom', video: false }), make: () => ({ kind: 'meetingRoom', video: false }) },
-  { label: 'AdHoc Meeting Kiosk', swatch: actionTileColor({ kind: 'linkManager' }), make: () => ({ kind: 'linkManager' }) },
+  { label: 'AdHoc Meeting Kiosk', swatch: actionTileColor({ kind: 'meetingManager' }), make: () => ({ kind: 'meetingManager' }) },
   {
     label: 'Open link (iframe)',
     swatch: actionTileColor({ kind: 'iframe', url: '' }),
@@ -63,7 +67,7 @@ export function actionChoiceLabel(a: Action): string {
   switch (a.kind) {
     case 'meetingRoom':
       return a.video ? 'Meeting (video)' : 'Meeting (audio only)';
-    case 'linkManager':
+    case 'meetingManager':
       return 'AdHoc Meeting Kiosk';
     case 'iframe':
       return 'Open link (iframe)';
@@ -75,5 +79,7 @@ export function actionChoiceLabel(a: Action): string {
       return 'Portal (zone travel)';
     case 'toggle':
       return 'Toggle on/off';
+    case 'spawnPoint':
+      return 'Zone arrival point';
   }
 }

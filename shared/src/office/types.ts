@@ -224,7 +224,7 @@ export type Action =
   /** Opens the "manage my shareable /meet/<slug> links" dialog — today's
    *  meeting kiosk. The actual call happens on the separate /meet page, not
    *  in-world. */
-  | { kind: 'linkManager' }
+  | { kind: 'meetingManager' }
   /** Opens a sandboxed iframe overlay with this URL. https:// only. */
   | { kind: 'iframe'; url: string }
   /** Cosmetic pose+timer, no room/video — today's coffee machine. */
@@ -241,7 +241,17 @@ export type Action =
    *  between its two poses — a literal light-switch. No client notification;
    *  the resulting type swap reaches everyone through the normal furniture
    *  sync, same as the auto-facing on/off already does. */
-  | { kind: 'toggle' };
+  | { kind: 'toggle' }
+  /** Marks a tile as this zone's arrival point — consumed once, at Tiled
+   *  import time (see zoneImport.ts), to set the zone's own `arrive` col/row
+   *  (previously only settable in-game via the Zones panel's "Arrival
+   *  point" click flow). Only meaningful as a TILE action; a furniture
+   *  instance carrying it does nothing at runtime — there's no per-arrival
+   *  trigger the way portal/meetingRoom have, it's purely a marker read
+   *  once on import. Left in tileActions afterward like any other action
+   *  (so click-to-move still softly avoids walking across it), not
+   *  stripped out. */
+  | { kind: 'spawnPoint' };
 
 export interface FurnitureCatalogEntry {
   /** Stable, unique catalog identifier — was called `type` (renamed: this is

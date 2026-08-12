@@ -23,7 +23,7 @@
  *   state           (string) 'on' | 'off' — needs a matching stateGroup pair
  *   onTrigger       (string) 'autoFacing' | 'click' — what flips the pair
  *   actionKind      (string) this type's default Action (see FurnitureCatalogEntry.action)
- *                            — 'meetingRoom' | 'linkManager' | 'iframe' | 'appliance' |
+ *                            — 'meetingRoom' | 'meetingManager' | 'iframe' | 'appliance' |
  *                            'arcade' | 'portal' | 'toggle'; empty = no default action
  *   actionVideo     (bool)   only with actionKind 'meetingRoom'
  *   actionUrl       (string) only with actionKind 'iframe' — https:// only

@@ -2,7 +2,7 @@
  * Generated placeholder meeting-room kiosk injected into the furniture catalog at
  * load time, so it's real, editable furniture. Has no Tiled tileset
  * representation (no `action` default on the catalog entry) — every placed
- * instance must carry its own explicit `action: { kind: 'linkManager' }` (see
+ * instance must carry its own explicit `action: { kind: 'meetingManager' }` (see
  * FurnitureObject's actionKind in Pixels.tiled-project); clicking one opens a
  * dialog to mint an ad-hoc video/audio room (random link, optional password,
  * an expiry) — see meetingRoomStore.ts + the `meetingRoomCreate` handler in

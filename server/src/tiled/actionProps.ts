@@ -39,10 +39,11 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
   switch (kind) {
     case 'meetingRoom':
       return { kind, video: props[`${prefix}Video`] === true };
-    case 'linkManager':
+    case 'meetingManager':
     case 'arcade':
     case 'portal':
     case 'toggle':
+    case 'spawnPoint':
       return { kind };
     case 'iframe':
       return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
@@ -68,6 +69,6 @@ export function actionsEqual(a: Action | null, b: Action | null): boolean {
     case 'appliance':
       return b.kind === 'appliance' && a.pose === b.pose;
     default:
-      return true; // linkManager/arcade/portal/toggle carry no other fields
+      return true; // meetingManager/arcade/portal/toggle/spawnPoint carry no other fields
   }
 }

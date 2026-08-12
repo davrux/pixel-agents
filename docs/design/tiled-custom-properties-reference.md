@@ -212,7 +212,7 @@ class is what matters, not the name. Exactly one per map.
 | `FurnitureState` | *(empty)*, `on, off` | no | `FurnitureTile.state` |
 | `OnTrigger` | *(empty)*, `autoFacing, click` | no | `FurnitureTile.onTrigger` |
 | `ApproachSide` | `N, S, E, W` | **yes** | `FurnitureObject.approachSides` |
-| `ActionKind` | *(empty)*, `meetingRoom, linkManager, iframe, appliance, arcade, portal, toggle` | no | `FurnitureTile`/`FurnitureObject`/`ActionArea`'s `actionKind` |
+| `ActionKind` | *(empty)*, `meetingRoom, meetingManager, iframe, appliance, arcade, portal, toggle, spawnPoint` | no | `FurnitureTile`/`FurnitureObject`/`ActionArea`'s `actionKind` |
 | `ApplianceKind` | *(empty)*, `coffee` | no | `actionPose` |
 
 `ApproachSide` is the one **flags** enum — Tiled shows it as checkboxes (pick any
@@ -271,12 +271,13 @@ you can *see* they exist, even when irrelevant for the current kind):
 |---|---|---|
 | *(empty)* | — | everything (no action) |
 | `meetingRoom` | `actionVideo` | `actionUrl`, `actionPose` |
-| `linkManager` | — | all three |
+| `meetingManager` | — | all three |
 | `iframe` | `actionUrl` (must be `https://`) | `actionVideo`, `actionPose` |
 | `appliance` | `actionPose` | `actionVideo`, `actionUrl` |
 | `arcade` | — | all three |
 | `portal` | — | all three (walking onto the item's footprint offers a destination picker) |
 | `toggle` | — | all three (flips the *tile's own* on/off pair — see above) |
+| `spawnPoint` | — | all three; TILE-only, consumed once at import to set the zone's arrival point (see zoneImport.ts) — does nothing at runtime, not a real trigger like the others |
 
 ### approachSides — empty means unrestricted, not "no sides"
 

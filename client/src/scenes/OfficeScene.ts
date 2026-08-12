@@ -700,7 +700,7 @@ export class OfficeScene extends Phaser.Scene {
           const col = m.col as number;
           const row = m.row as number;
           if (m.kind === 'arcade') this.openArcade({ col, row });
-          else if (m.kind === 'linkManager') this.openMeetingRoomManageDialog({ col, row });
+          else if (m.kind === 'meetingManager') this.openMeetingRoomManageDialog({ col, row });
           else if (m.kind === 'iframe') openActionIframe(m.url as string);
         }
         else {

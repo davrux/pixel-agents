@@ -193,7 +193,7 @@ version of the same thing). "Enum" means Tiled shows a dropdown (or checkbox lis
 | `id` | string | stable identifier | **always present**, GID or not (see the mapping table above) |
 | `name` | string | free text | this *instance's* name (e.g. a conference room's stable name) — not the catalog label |
 | `approachSides` | enum `ApproachSide` (flags) | any combination of `N`, `S`, `E`, `W` | which side(s) a player may approach from; empty = automatic |
-| `actionKind` | enum `ActionKind` | `meetingRoom`, `linkManager`, `iframe`, `appliance`, `arcade`, `toggle`, or empty | per-instance Action override |
+| `actionKind` | enum `ActionKind` | `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `toggle`, or empty | per-instance Action override |
 | `actionVideo` | bool | | only meaningful when `actionKind = meetingRoom` |
 | `actionUrl` | string | `https://` URL | only meaningful when `actionKind = iframe` |
 | `actionPose` | enum `ApplianceKind` | `coffee` | only meaningful when `actionKind = appliance` |

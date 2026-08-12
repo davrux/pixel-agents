@@ -31,7 +31,7 @@ Auth/users/sessions/zones/voice/conference/chat are **shared server-side** (sing
   filtered per customer. Shown in-world as "Customer".
 - **Passwords** (scrypt, `server/src/pwhash.ts`): per-zone entry password
   (`zoneStore`); admins/zone-admins/assigned customers bypass. Ad-hoc meeting
-  rooms (linkManager kiosk) have their own independent password, in
+  rooms (meetingManager kiosk) have their own independent password, in
   `meetingRoomStore.ts`.
 - **Admin REST API** `server/src/adminApi.ts` (`/admin/*`, admin-gated) backs
   `admin.html`. Login redirects customers → `/rooms.html`.

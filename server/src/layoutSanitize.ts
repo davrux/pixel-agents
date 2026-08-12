@@ -107,8 +107,8 @@ export function sanitizeAction(raw: unknown): Action | null {
   switch (rec.kind) {
     case 'meetingRoom':
       return { kind: 'meetingRoom', video: rec.video !== false };
-    case 'linkManager':
-      return { kind: 'linkManager' };
+    case 'meetingManager':
+      return { kind: 'meetingManager' };
     case 'iframe': {
       const url = typeof rec.url === 'string' ? rec.url.trim().slice(0, MAX_IFRAME_URL_LEN) : '';
       return url.startsWith('https://') ? { kind: 'iframe', url } : null;
@@ -121,6 +121,8 @@ export function sanitizeAction(raw: unknown): Action | null {
       return { kind: 'portal' };
     case 'toggle':
       return { kind: 'toggle' };
+    case 'spawnPoint':
+      return { kind: 'spawnPoint' };
     default:
       return null;
   }
