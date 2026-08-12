@@ -25,11 +25,7 @@ import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/spr
 import { buildDynamicCatalog, effectiveAction, getCatalogEntry, FURNITURE_CATEGORIES } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
-import {
-  createBlankZoneLayout,
-  createPlazaLayout,
-  migrateLayoutColors,
-} from '@pixel/shared/office/layout/layoutSerializer.js';
+import { createBlankZoneLayout, createPlazaLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
@@ -700,9 +696,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Layout management (server-authoritative) ─────────────────────
 
-  private migratedActiveLayout(): OfficeLayout | undefined {
-    const raw = this.store.getActiveLayout(this.zone.id) as OfficeLayout | null;
-    return raw && raw.version === 1 ? migrateLayoutColors(raw) : (raw ?? undefined);
+  private activeLayout(): OfficeLayout | undefined {
+    return (this.store.getActiveLayout(this.zone.id) as OfficeLayout | null) ?? undefined;
   }
 
   /** This zone's builtin/read-only Default layout, for generated zones. The
@@ -718,7 +713,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Layout this room's zone simulates: its active layout, falling back to the
    *  zone's read-only builtin Default. Each zone is independent. */
   private zoneLayout(): OfficeLayout | undefined {
-    return this.migratedActiveLayout();
+    return this.activeLayout();
   }
 
   /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
@@ -1753,7 +1748,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
           sprites: this.bundle.raw.furnitureSprites as never,
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
-        this.os.rebuildFromLayout(this.migratedActiveLayout() ?? this.os.layout);
+        this.os.rebuildFromLayout(this.activeLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
       // 'image' is client-render only — just rebroadcast below.

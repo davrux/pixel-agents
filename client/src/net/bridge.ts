@@ -10,7 +10,6 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
 import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { migrateLayoutColors } from '@pixel/shared/office/layout/layoutSerializer.js';
 
 type Msg = Record<string, any>;
 
@@ -59,7 +58,7 @@ export function createAssetBridge(
         break;
       case 'layoutLoaded': {
         const raw = msg.layout as OfficeLayout | null;
-        const layout = raw && raw.version === 1 ? migrateLayoutColors(raw) : null;
+        const layout = raw && raw.version === 1 ? raw : null;
         if (layout) {
           os.rebuildFromLayout(layout);
           onLayout(os.getLayout(), typeof msg.activeLayout === 'string' ? msg.activeLayout : 'Default');

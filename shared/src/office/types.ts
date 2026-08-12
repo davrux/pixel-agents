@@ -458,10 +458,6 @@ export interface OfficeLayout {
    *  false/missing = normal. Painted with the editor's Block tool; merged into
    *  officeState's blockedTiles alongside furniture footprints. */
   tileBlocked?: boolean[];
-  /** @deprecated superseded by tileActions (a 'meetingRoom' action on the
-   *  same tiles) — kept only so migrateLayout can upgrade old saved layouts
-   *  on load; nothing else reads this field anymore. */
-  tilePrivateArea?: boolean[];
   /** Per-tile action (see Action), parallel to tiles array — painted with the
    *  editor's Action tool. For 'meetingRoom' tiles, every maximal
    *  4-connected group of same-kind tiles is one area (id assigned by flood

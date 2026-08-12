@@ -1,15 +1,6 @@
-import type { ColorValue } from '../colorTypes.js';
-import type {
-  Action,
-  FurnitureInstance,
-  OfficeLayout,
-  PlacedFurniture,
-  Seat,
-  TileType as TileTypeVal,
-} from '../types.js';
+import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
 import { getCatalogEntry } from './furnitureCatalog.js';
-import { PALETTE_64, paletteSwatchIndex } from '../palettes.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -352,155 +343,19 @@ export function serializeLayout(layout: OfficeLayout): string {
   return JSON.stringify(layout);
 }
 
-// ── Furniture type migration ────────────────────────────────────
-
-/** PlacedFurniture.type was renamed to .id (an identity, not a taxonomy —
- *  see docs/design/tiled-editor-integration.md). Every layout saved before
- *  that rename has `type` as its literal JSON key, which JSON.parse still
- *  produces as-is — promote it to `id` on load so old DB rows keep working
- *  without a one-time DB migration. Safe to run unconditionally: post-rename
- *  data has no `type` key on furniture items at all, so this is a no-op. */
-function promoteLegacyTypeKey(furniture: PlacedFurniture[]): PlacedFurniture[] {
-  return furniture.map((item) => {
-    const legacy = item as unknown as { type?: string; id?: string };
-    if (legacy.type !== undefined && legacy.id === undefined) {
-      const { type, ...rest } = legacy;
-      return { ...(rest as PlacedFurniture), id: type as string };
-    }
-    return item;
-  });
-}
-
-/** Mirroring used to be baked into a separate ":left" catalog id (e.g.
- *  "SOFA_SIDE:left"), produced by a virtual-clone mechanism that's since been
- *  dropped in favor of `flippedHorizontally` — a plain per-instance flag
- *  mirroring Tiled's own native object-flip, with no catalog-level gate (see
- *  docs/design/tiled-editor-integration.md). Old saved layouts still using
- *  the suffix split it into the equivalent `id` + `flippedHorizontally` on
- *  load; post-migration data never has the suffix, so this is a no-op then. */
-function promoteLegacyLeftSuffix(furniture: PlacedFurniture[]): PlacedFurniture[] {
-  return furniture.map((item) =>
-    item.id.endsWith(':left') ? { ...item, id: item.id.slice(0, -':left'.length), flippedHorizontally: true } : item,
-  );
-}
-
-/** Map old hardcoded FurnitureType values to new manifest-based IDs */
-const LEGACY_TYPE_MAP: Record<string, string | null> = {
-  desk: 'DESK_FRONT',
-  chair: 'WOODEN_CHAIR_FRONT',
-  bookshelf: 'BOOKSHELF',
-  plant: 'PLANT',
-  cooler: null, // no equivalent in new assets — remove
-  whiteboard: 'WHITEBOARD',
-  pc: 'PC_FRONT_OFF',
-  lamp: null, // no equivalent in new assets — remove
-};
-
-/** Migrate old furniture type strings to new manifest IDs */
-function migrateFurnitureTypes(furniture: PlacedFurniture[]): PlacedFurniture[] {
-  const migrated: PlacedFurniture[] = [];
-  for (const item of furniture) {
-    const newType = LEGACY_TYPE_MAP[item.id];
-    if (newType === undefined) {
-      // Not a legacy type — keep as-is
-      migrated.push(item);
-    } else if (newType !== null) {
-      // Migrate to new type
-      migrated.push({ ...item, id: newType });
-    }
-    // newType === null → remove the item (no equivalent)
-  }
-  return migrated;
-}
-
-/** Deserialize layout from JSON string, migrating old tile types if needed
+/** Deserialize layout from JSON string — no legacy-data migration (see
+ *  git history if a very old layout ever needs resurrecting): a saved
+ *  layout is only ever produced by this session's own serializeLayout or a
+ *  fresh Tiled import, both of which already write the current shape.
  * @internal */
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
     if (obj && obj.version === 1 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
-      return migrateLayout(obj as OfficeLayout);
+      return obj as OfficeLayout;
     }
   } catch {
     /* ignore parse errors */
   }
-  return null;
-}
-
-/**
- * Ensure layout has tileColors. If missing, generate defaults based on tile types.
- * Exported for use by message handlers that receive layouts over the wire.
- */
-export function migrateLayoutColors(layout: OfficeLayout): OfficeLayout {
-  return migrateLayout(layout);
-}
-
-/**
- * Migrate old layouts that use legacy tile types (TILE_FLOOR=1, WOOD_FLOOR=2, CARPET=3, DOORWAY=4)
- * to the new pattern-based system. Also migrates old furniture type strings and old VOID value.
- */
-function migrateLayout(layout: OfficeLayout): OfficeLayout {
-  // Migrate furniture types
-  layout = { ...layout, furniture: promoteLegacyTypeKey(layout.furniture) };
-  layout = { ...layout, furniture: promoteLegacyLeftSuffix(layout.furniture) };
-  layout = { ...layout, furniture: migrateFurnitureTypes(layout.furniture) };
-
-  // Upgrade the old boolean-only walk-in-meeting-area flag to a 'meetingRoom'
-  // tile action (see Action) — one-time, on load; tilePrivateArea itself is
-  // deprecated and no longer read anywhere once this has run.
-  if (layout.tilePrivateArea && !layout.tileActions) {
-    const tileActions: Array<Action | null> = layout.tilePrivateArea.map((on) =>
-      on ? { kind: 'meetingRoom' as const, video: true } : null,
-    );
-    layout = { ...layout, tileActions };
-  }
-
-  // Migrate old VOID value (was 8, now 255) — only for legacy layouts since FLOOR_8 reuses value 8
-  const OLD_VOID = 8;
-  if (!layout.layoutRevision && layout.tiles.includes(OLD_VOID as TileTypeVal)) {
-    layout = {
-      ...layout,
-      tiles: layout.tiles.map((t) => (t === OLD_VOID ? (TileType.VOID as TileTypeVal) : t)),
-    };
-  }
-
-  const tileColors =
-    layout.tileColors && layout.tileColors.length === layout.tiles.length
-      ? // Already the right length — may still be pre-closed-palette data (a
-        // ColorValue object per tile, from before floor/wall became a fixed
-        // 64-swatch palette). Convert those to a swatch index; numbers/nulls
-        // (post-migration data) pass through untouched.
-        layout.tileColors.map(migrateTileColor)
-      : // No tileColors at all — genuinely ancient data (predates even the
-        // continuous-HSBC color system). Precise historical color isn't
-        // worth preserving here (same norm as every other cut in this area
-        // — see docs/design/tiled-editor-integration.md); every tile just
-        // starts Natural.
-        layout.tiles.map(() => null);
-
-  // tileFloorSet/tileWallSet didn't exist before per-tile floor/wall styles
-  // were wired up — every tile always rendered from set 0 back then
-  // (getColorizedFloorSprite/getWallInstances had no per-tile way to pick
-  // another one), so that's the correct default, not a guess.
-  const tileFloorSet =
-    layout.tileFloorSet && layout.tileFloorSet.length === layout.tiles.length
-      ? layout.tileFloorSet
-      : layout.tiles.map(() => 0);
-  const tileWallSet =
-    layout.tileWallSet && layout.tileWallSet.length === layout.tiles.length
-      ? layout.tileWallSet
-      : layout.tiles.map(() => 0);
-
-  return { ...layout, tileColors, tileFloorSet, tileWallSet };
-}
-
-/** A pre-closed-palette tile color was a raw ColorValue object; convert it to
- *  the nearest PALETTE_64 index (see paletteSwatchIndex) — null when it
- *  doesn't match any real swatch (e.g. one of the old free-HSBC colors),
- *  which just renders as Natural going forward. Already-migrated data
- *  (number | null) passes through unchanged. */
-function migrateTileColor(c: unknown): number | null {
-  if (c === null || typeof c === 'number') return c;
-  if (typeof c === 'object') return paletteSwatchIndex(PALETTE_64, c as ColorValue);
   return null;
 }
