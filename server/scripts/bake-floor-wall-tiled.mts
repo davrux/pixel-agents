@@ -124,10 +124,17 @@ function checkPaletteSize(palette: PaletteSwatch[], label: string): PaletteSwatc
   return palette;
 }
 
-/** The 11 shared base floor patterns every floor set includes (in order —
- *  row i = floor_<i>.png). floor-warm additionally appends its own
+/** The 11 shared base floor patterns the regular + warm floor sets include
+ *  (in order — row i = floor_<i>.png). floor-warm additionally appends its own
  *  warm-only pattern (wood planks) after these. */
 const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p}.png`);
+
+/** The metro floor set's own patterns — a separate list, not an extension of
+ *  the base ones: these are cropped from the MetroCity Interior pack rather
+ *  than hand-drawn for this project (see
+ *  server/scripts/gen-metro-source-art.mts, which writes them and owns their
+ *  order). */
+const METRO_FLOOR_PATTERN_FILES = Array.from({ length: 7 }, (_, p) => `metro_${p}.png`);
 
 function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: PaletteSwatch[]): void {
   const pal = checkPaletteSize(palette, `floor set "${outputName}"`);
@@ -252,3 +259,5 @@ bakeWallSheet('wall-0-resurrect64', 'wall_0.png', PALETTE_64);
 bakeWallSheet('wall-1-resurrect64', 'wall_1.png', PALETTE_64);
 bakeWallSheet('wall-0-warm', 'wall_0.png', WARM_PALETTE_64);
 bakeWallSheet('wall-1-warm', 'wall_1.png', WARM_PALETTE_64);
+bakeFloorSheet('floor-metro-resurrect64', METRO_FLOOR_PATTERN_FILES, PALETTE_64);
+bakeWallSheet('wall-metro-resurrect64', 'wall_metro.png', PALETTE_64);

@@ -67,12 +67,12 @@ export const WARM_PALETTE_64: PaletteSwatch[] = [
 /** Which closed palette each floor "set" (OfficeLayout.tileFloorSet, see
  *  tiledSheetLayout.ts's FLOOR_SET_FILES) is baked from — parallel-indexed
  *  with FLOOR_SET_FILES. */
-export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, WARM_PALETTE_64];
+export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, WARM_PALETTE_64, PALETTE_64];
 
 /** Which closed palette each wall "set" (OfficeLayout.tileWallSet, see
  *  tiledSheetLayout.ts's WALL_SET_FILES) is baked from — parallel-indexed
  *  with WALL_SET_FILES. */
-export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, PALETTE_64, WARM_PALETTE_64, WARM_PALETTE_64];
+export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, PALETTE_64, WARM_PALETTE_64, WARM_PALETTE_64, PALETTE_64];
 
 export function paletteForFloorSet(setIndex: number): PaletteSwatch[] {
   return FLOOR_SET_PALETTES[setIndex] ?? PALETTE_64;

@@ -37,13 +37,28 @@ export const WALL_TILE_SPACING = 6;
  *  published palette); the warm set keeps its plain "-warm" name since
  *  WARM_PALETTE_64 isn't a published/named palette, just generated for this
  *  project. 'floor-warm' shares the same 11 base patterns as the regular set
- *  (plus one warm-only pattern, wood planks) — see FLOOR_SET_PALETTES. */
-export const FLOOR_SET_FILES = ['floor-resurrect64', 'floor-warm'];
+ *  (plus one warm-only pattern, wood planks) — see FLOOR_SET_PALETTES.
+ *  'floor-metro-resurrect64' is an unrelated set of its own 7 patterns (tile
+ *  grid, wood, decking) derived from the MetroCity Interior pack, not a
+ *  recolor of the base patterns — see server/scripts/gen-metro-source-art.mts.
+ *
+ *  APPEND ONLY: a saved layout stores this index in tileFloorSet, so
+ *  reordering silently restyles every existing floor tile. */
+export const FLOOR_SET_FILES = ['floor-resurrect64', 'floor-warm', 'floor-metro-resurrect64'];
 
 /** One entry per wall "set" — index = OfficeLayout.tileWallSet, matching a
  *  wall-<name>.tsj / png/wall-<name>.png pair. Sets 2/3 share the same
  *  source art as sets 0/1 respectively, just baked with a different
  *  palette (see palettes.ts's WALL_SET_PALETTES) — a deliberate style+color
  *  pairing, not a naming coincidence. Same resurrect64/warm naming as
- *  FLOOR_SET_FILES above. */
-export const WALL_SET_FILES = ['wall-0-resurrect64', 'wall-1-resurrect64', 'wall-0-warm', 'wall-1-warm'];
+ *  FLOOR_SET_FILES above.
+ *
+ *  Set 4 ('wall-metro-resurrect64') is the thin-wall style: a 6px strip
+ *  centered in its cell instead of art filling the whole tile, so it only
+ *  reads correctly where floor is drawn beneath the wall. Its art is
+ *  synthesized from the MetroCity Interior pack's own wall cross-sections —
+ *  see server/scripts/gen-metro-source-art.mts.
+ *
+ *  APPEND ONLY: a saved layout stores this index in tileWallSet, so
+ *  reordering silently restyles every existing wall tile. */
+export const WALL_SET_FILES = ['wall-0-resurrect64', 'wall-1-resurrect64', 'wall-0-warm', 'wall-1-warm', 'wall-metro-resurrect64'];
