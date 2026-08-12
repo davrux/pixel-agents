@@ -177,6 +177,7 @@ export class PhaserRenderer {
     const tileColors = layout.tileColors;
     const tileFloorSet = layout.tileFloorSet;
     const tileWallSet = layout.tileWallSet;
+    const tileWallMask = layout.tileWallMask;
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
@@ -221,7 +222,7 @@ export class PhaserRenderer {
 
     // Wall sprite instances (auto-tiled) — participate in depth sort.
     if (hasWallSprites()) {
-      for (const w of getWallInstances(tileMap, tileColors, cols, tileWallSet)) {
+      for (const w of getWallInstances(tileMap, tileColors, cols, tileWallSet, tileWallMask)) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.
@@ -306,24 +307,9 @@ export class PhaserRenderer {
     return VOICE_RING_TEXTURE;
   }
 
-  /** When true, characters/pets are hidden (set during layout editing — they are
-   *  server-positioned on the un-edited layout, so they can't track local edits
-   *  like grid expansion; the server repositions them after the layout is saved). */
-  hideEntities = false;
-
   /** Per-frame sync of furniture (when changed), characters, pets and bubbles. */
   update(): void {
     this.syncFurniture();
-    if (this.hideEntities) {
-      for (const g of this.chars.values()) {
-        g.body.setVisible(false);
-        g.bubble.setVisible(false);
-        g.ring.setVisible(false);
-        for (const m of g.markers) m.setVisible(false);
-      }
-      for (const img of this.pets.values()) img.setVisible(false);
-      return;
-    }
     this.syncCharacters();
     this.syncPets();
   }
@@ -368,7 +354,7 @@ export class PhaserRenderer {
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
     g.body.setAlpha(1);
-    g.body.setVisible(true); // restore after edit-mode hiding (hideEntities)
+    g.body.setVisible(true);
 
     // Voice speaking ring: a pulsing green halo under the feet, sorted just
     // behind this character's body so they stand "inside" it. Hidden otherwise
@@ -510,7 +496,7 @@ export class PhaserRenderer {
       // the (un-lifted) bottom-row anchor so the pet sorts in front of the desk.
       img.setPosition(pet.x, pet.y - (pet.restLift ?? 0));
       img.setDepth(pet.y + TILE_SIZE / 2 + PET_Z_SORT_OFFSET);
-      img.setVisible(true); // restore after edit-mode hiding (hideEntities)
+      img.setVisible(true);
       let alpha = 1;
       if (pet.effect === 'spawn') alpha = Math.min(1, pet.effectTimer / PET_EFFECT_DURATION_SEC);
       else if (pet.effect === 'despawn' || pet.state === PetState.DESPAWN) {

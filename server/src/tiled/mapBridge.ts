@@ -463,6 +463,7 @@ export function importTmjToLayout(
   const tileColors: OfficeLayout['tileColors'] = [];
   const tileFloorSet: number[] = [];
   const tileWallSet: number[] = [];
+  const tileWallMask: OfficeLayout['tileWallMask'] = [];
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const gid = ground[i] ?? 0;
@@ -473,23 +474,29 @@ export function importTmjToLayout(
     // docs/design/tiled-editor-integration.md).
     if (resolved?.class === 'WallTile') {
       tiles.push(TileType.WALL);
-      tileColors.push(rowAndSwatchFromLocalId(resolved.localId).swatchIndex);
+      const { row, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      tileColors.push(swatchIndex);
       tileFloorSet.push(0);
       // Which set this came from — unlike the floor/wall/void classification
       // above, this one legitimately IS about the file, since "which set"
       // has no other identity (see setIndexFromFile).
       tileWallSet.push(setIndexFromFile(WALL_SET_FILES, resolved.tileset.file));
+      // The exact autotile piece the mapper placed (see OfficeLayout.
+      // tileWallMask) — rendered verbatim, not re-derived from adjacency.
+      tileWallMask.push(row);
     } else if (resolved?.class === 'FloorTile') {
       const { row, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
       tiles.push(row + 1);
       tileColors.push(swatchIndex);
       tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, resolved.tileset.file));
       tileWallSet.push(0);
+      tileWallMask.push(null);
     } else {
       tiles.push(TileType.VOID);
       tileColors.push(null);
       tileFloorSet.push(0);
       tileWallSet.push(0);
+      tileWallMask.push(null);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
@@ -616,6 +623,7 @@ export function importTmjToLayout(
     tileColors,
     tileFloorSet,
     tileWallSet,
+    tileWallMask,
     tileBlocked,
     tileActions,
     texts,

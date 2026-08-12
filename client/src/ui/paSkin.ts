@@ -171,7 +171,6 @@ export function injectPaSkin(): void {
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
       #pa-layouts .foot{margin-top:0.8rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-layouts .foot button{padding:0.55rem;}
-      #pa-layouts .foot button.edit{background:#c51a1b;border-color:#0a0908;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;font-size:1rem;}
       #pa-zones .foot{margin-top:0.8rem;border-top:1px solid #2c2a28;padding-top:0.7rem;display:flex;flex-direction:column;gap:0.5rem;}
       #pa-zones .foot input{background:#262422;border:2px solid #0a0908;color:#f1efec;border-radius:0.3rem;
         padding:0.45rem 0.5rem;font:0.95rem 'FS Pixel Sans',monospace;box-shadow:inset 0 2px 0 #4a4744;}

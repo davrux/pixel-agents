@@ -409,6 +409,16 @@ export interface OfficeLayout {
    *  0 before this field existed, since getWallInstances had no per-tile
    *  way to pick a different one — see docs/design/tiled-editor-integration.md). */
   tileWallSet?: number[];
+  /** Per-tile wall autotile piece (0-15 bitmask, N=1/E=2/S=4/W=8 — see
+   *  wallTiles.ts's buildWallMask), parallel to tiles array — only meaningful
+   *  where tiles[i] === TileType.WALL. Set on Tiled import from the actual
+   *  GID's row within its wall tileset (see mapBridge.ts), so a mapper's
+   *  hand-placed autotile variant renders exactly as authored instead of
+   *  always being re-derived from tile-neighbor adjacency. Missing/null
+   *  entries (every non-wall tile, and any layout saved before this field
+   *  existed) fall back to that same neighbor-derived computation, so old
+   *  data keeps rendering exactly as it always has — no migration needed. */
+  tileWallMask?: Array<number | null>;
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;

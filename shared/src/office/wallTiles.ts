@@ -84,11 +84,18 @@ function getWallSprite(
   tileMap: TileTypeVal[][],
   swatchIndex: number | null | undefined,
   setIndex = 0,
+  storedMask?: number | null,
 ): { sprite: SpriteData; offsetY: number } | null {
   const set = wallSheets[setIndex] ?? wallSheets[0];
   if (!set) return null;
 
-  const mask = buildWallMask(col, row, tileMap);
+  // A Tiled-imported tile carries the exact autotile piece the mapper placed
+  // (see OfficeLayout.tileWallMask) — use it verbatim instead of re-deriving
+  // one from neighbor adjacency, so an intentionally "wrong" piece (or one
+  // this engine's own adjacency rule wouldn't have picked) still renders
+  // exactly as authored. Absent (old layouts, no field at all) falls back to
+  // the original live computation unchanged.
+  const mask = storedMask ?? buildWallMask(col, row, tileMap);
   const pieces = set[mask];
   if (!pieces) return null;
 
@@ -108,6 +115,7 @@ export function getWallInstances(
   tileColors?: Array<number | null>,
   cols?: number,
   tileWallSet?: number[],
+  tileWallMask?: Array<number | null>,
 ): FurnitureInstance[] {
   if (wallSheets.length === 0) return [];
   const tmRows = tileMap.length;
@@ -119,7 +127,7 @@ export function getWallInstances(
       if (tileMap[r][c] !== TileType.WALL) continue;
       const idx = r * layoutCols + c;
       const wallColor = tileColors?.[idx];
-      const wallInfo = getWallSprite(c, r, tileMap, wallColor, tileWallSet?.[idx] ?? 0);
+      const wallInfo = getWallSprite(c, r, tileMap, wallColor, tileWallSet?.[idx] ?? 0, tileWallMask?.[idx]);
       if (!wallInfo) continue;
       instances.push({
         sprite: wallInfo.sprite,

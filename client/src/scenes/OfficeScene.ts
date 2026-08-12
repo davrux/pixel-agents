@@ -51,7 +51,6 @@ import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
-import { LayoutEditor } from '../editor/LayoutEditor.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { FurnitureEditor } from '../editor/FurnitureEditor.js';
@@ -261,7 +260,6 @@ export class OfficeScene extends Phaser.Scene {
   private voiceStatus = new Map<number, { muted: boolean; deaf: boolean }>();
   /** Per-speaker grace deadline (ms) so the talking ring stays on through gaps. */
   private readonly voiceSpeakUntil = new Map<number, number>();
-  private editor!: LayoutEditor;
   private charEditor!: CharacterEditor;
   private charCreator!: CharacterCreator;
   /** Where the character editor's "← Back" returns — set by whoever opens it
@@ -362,10 +360,6 @@ export class OfficeScene extends Phaser.Scene {
     layouts: [],
     active: 'Default',
   };
-  // Live-edit autosave: edits broadcast to all viewers via debounced saveLayoutAs.
-  private editTarget = '';
-  private pendingLayout: OfficeLayout | null = null;
-  private autosaveTimer?: ReturnType<typeof setTimeout>;
   /** Re-fit zoom/center only on the first layout — later (live-edit) broadcasts
    *  must not yank the camera of the editor or watchers. */
   private cameraInitialized = false;
@@ -401,27 +395,6 @@ export class OfficeScene extends Phaser.Scene {
     // shows real floor/wall art (see net/tiledSheets.ts).
     void loadTiledSheets().then(() => this.view.buildStatic());
     this.setupIdleWaking();
-    this.editor = new LayoutEditor(this, {
-      getLayout: () => this.os.getLayout(),
-      onChange: () => (this.furnitureDirty = true),
-      rebuildStatic: () => this.view.buildStatic(),
-      onEdit: (layout, immediate) => this.autosaveLayout(layout, immediate),
-      onEditingChange: (editing) => this.setEditMode(editing),
-      // Opens the Asset editor without going through setMenu (which would
-      // force-close layout-edit mode — see setEditMode/setMenu) — the two
-      // editors don't share any state, so they can coexist. Still runs the
-      // same unsaved-edit guard setMenu's flow would have. The onBack
-      // override makes Back/Reset just close the panel instead of the
-      // constructor's default (setMenu('assets')) — this open didn't come
-      // from the Assets panel, so returning to it would pop open a panel the
-      // user never had open, on top of the layout editor.
-      openAssetEditor: (type) => {
-        void this.furnEditor.confirmLeave().then((ok) => {
-          if (ok) this.furnEditor.edit(type, () => this.furnEditor.forceClose());
-        });
-      },
-      resetFurnitureAsset: (type) => this.room?.send('deleteAsset', { assetType: 'furniture', name: type }),
-    });
     // A name/character chosen in Settings (remembered per browser).
     try {
       this.mySkin = migrateSkin(localStorage.getItem('pa-viewer-char'));
@@ -586,12 +559,12 @@ export class OfficeScene extends Phaser.Scene {
   private renderSource(): RenderSource {
     const scene = this;
     return {
-      getLayout: () => (scene.editor?.isEditing() && scene.editor.layout ? scene.editor.layout : scene.os.getLayout()),
+      getLayout: () => scene.os.getLayout(),
       get tileMap() {
-        return scene.editor?.isEditing() ? scene.editor.tileMap : scene.os.tileMap;
+        return scene.os.tileMap;
       },
       get furniture() {
-        return scene.editor?.isEditing() ? scene.editor.furnitureArr : scene.furnitureArr;
+        return scene.furnitureArr;
       },
       getCharacters: () => [...scene.characters.values()] as unknown as Character[],
       getPets: () => [...scene.pets.values()] as unknown as Pet[],
@@ -1381,8 +1354,8 @@ export class OfficeScene extends Phaser.Scene {
   private onLayout(layout: OfficeLayout, activeLayout: string): void {
     // The full layout list (for the Space panel) only arrives once the user
     // opens it (requestLayouts), but the active name is already known right
-    // here — seed it now so toggleEditMode never mistakes a real active
-    // layout for the never-fetched default and needlessly prompts to fork one.
+    // here — seed it now so the Layouts panel doesn't render a stale/never-
+    // fetched default before the list itself has arrived.
     this.layoutListData.active = activeLayout;
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
@@ -1424,18 +1397,7 @@ export class OfficeScene extends Phaser.Scene {
   private setupInput(): void {
     const cam = this.cameras.main;
     this.input.mouse?.disableContextMenu();
-    // While editing, a plain two-finger trackpad scroll (no modifier) pans —
-    // the same convention as Tiled/Figma/Photoshop — since building a map
-    // means panning around it constantly; Ctrl/Cmd+scroll (also how a
-    // trackpad pinch-zoom is reported) still zooms. Outside the editor,
-    // gameplay keeps its original plain-scroll-zooms feel unchanged.
-    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, dx: number, dy: number) => {
-      const ev = p.event as WheelEvent | undefined;
-      if (this.editor.isEditing() && !(ev?.ctrlKey || ev?.metaKey)) {
-        cam.scrollX += dx / cam.zoom;
-        cam.scrollY += dy / cam.zoom;
-        return;
-      }
+    this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
       cam.setZoom(Phaser.Math.Clamp(cam.zoom * (dy > 0 ? 0.9 : 1.1), 1, 14));
     });
     let dragging = false;
@@ -1455,7 +1417,6 @@ export class OfficeScene extends Phaser.Scene {
     let downY = 0;
     // While a paint tool (floor/wall) is active, left-drag paints and right-drag
     // erases (v1 behaviour) — the camera pans with the middle mouse instead.
-    let paintMode: 'paint' | 'erase' | null = null;
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
       unlockAudio(); // browsers require a gesture before audio can play
       dragging = true;
@@ -1464,40 +1425,9 @@ export class OfficeScene extends Phaser.Scene {
       ly = p.y;
       downX = p.x;
       downY = p.y;
-      paintMode = null;
-      if (this.editor.isEditing()) {
-        const paintTool = this.editor.isPaintTool();
-        if (paintTool && p.leftButtonDown()) {
-          paintMode = 'paint';
-          this.editor.beginStroke();
-          this.editor.strokePaint(p.worldX, p.worldY, false);
-        } else if (p.rightButtonDown()) {
-          if (paintTool) {
-            paintMode = 'erase';
-            this.editor.beginStroke();
-            this.editor.strokePaint(p.worldX, p.worldY, true);
-          } else {
-            this.editor.handleRightClick(p.worldX, p.worldY);
-          }
-        } else if (p.leftButtonDown()) {
-          // Select tool: grabbing a furniture piece starts a drag-to-move
-          // (returns false on empty space → falls through to pan/select).
-          this.editor.beginFurnitureDrag(p.worldX, p.worldY);
-        }
-      }
     });
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       dragging = false;
-      const wasPainting = paintMode !== null;
-      paintMode = null;
-      if (this.editor.isEditing() && this.editor.isDraggingFurniture()) {
-        this.editor.endFurnitureDrag(p.worldX, p.worldY); // commits move, or selects if not moved
-        return;
-      }
-      if (wasPainting) {
-        this.editor.endStroke(); // commit the paint stroke (one undo step + flush)
-        return;
-      }
       if (moved) return; // a pan drag isn't a click
       // Arming "set arrival point": the next floor click sets this zone's arrive
       // tile (server-side; new arrivals land here). Takes precedence over walking.
@@ -1509,74 +1439,52 @@ export class OfficeScene extends Phaser.Scene {
         setStatus(`Arrival point set to (${col}, ${row}).`);
         return;
       }
-      if (this.editor.isEditing()) {
-        if (p.leftButtonReleased()) {
-          this.editor.handleLeftClick(p.worldX, p.worldY);
-        }
+      const hit = this.hitTest(p.worldX, p.worldY);
+      if (hit !== null) {
+        this.selectedId = hit === this.selectedId ? null : hit;
       } else {
-        const hit = this.hitTest(p.worldX, p.worldY);
-        if (hit !== null) {
-          this.selectedId = hit === this.selectedId ? null : hit;
-        } else {
-          this.selectedId = null;
-          // Click a chair/bench → sit there; click empty floor → walk there (P2).
-          // Spectators have no avatar (myPlayerId null) → no-op. Server validates.
-          if (this.myPlayerId !== null && p.leftButtonReleased()) {
-            const col = Math.floor(p.worldX / TILE_SIZE);
-            const row = Math.floor(p.worldY / TILE_SIZE);
-            const action = this.actionAt(col, row);
-            const appliance = this.applianceAt(col, row);
-            if (action && action.action.kind === 'meetingRoom') {
-              // Click a monitor (or any other 'meetingRoom'-action sprite) →
-              // toggle join/leave, same as before (see toggleConference).
-              void this.toggleConference({ col: action.col, row: action.row, name: action.name });
-            } else if (action) {
-              // Server-authoritative walk-then-open (link-manager kiosk,
-              // arcade cabinet, iframe sprite): it picks a (random, so
-              // simultaneous visitors spread out) stand tile, walks the
-              // avatar, then tells us to open the local UI once arrived —
-              // see onActionReady / 'actionReady'.
-              this.pendingConference = null;
-              this.room?.send('actionApproach', { col: action.col, row: action.row });
-            } else if (appliance) {
-              // Same server-authoritative walk-then-use (see officeState's useAppliance).
-              this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
-            } else {
-              this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
-              this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
-            }
-          } else if (this.myPlayerId !== null && p.rightButtonReleased()) {
-            // Right-click "warp": instant teleport, no walking — server
-            // validates the target is actually walkable (see
-            // OfficeState.warpPlayer) and no-ops otherwise, same as any
-            // other rejected movement.
+        this.selectedId = null;
+        // Click a chair/bench → sit there; click empty floor → walk there (P2).
+        // Spectators have no avatar (myPlayerId null) → no-op. Server validates.
+        if (this.myPlayerId !== null && p.leftButtonReleased()) {
+          const col = Math.floor(p.worldX / TILE_SIZE);
+          const row = Math.floor(p.worldY / TILE_SIZE);
+          const action = this.actionAt(col, row);
+          const appliance = this.applianceAt(col, row);
+          if (action && action.action.kind === 'meetingRoom') {
+            // Click a monitor (or any other 'meetingRoom'-action sprite) →
+            // toggle join/leave, same as before (see toggleConference).
+            void this.toggleConference({ col: action.col, row: action.row, name: action.name });
+          } else if (action) {
+            // Server-authoritative walk-then-open (link-manager kiosk,
+            // arcade cabinet, iframe sprite): it picks a (random, so
+            // simultaneous visitors spread out) stand tile, walks the
+            // avatar, then tells us to open the local UI once arrived —
+            // see onActionReady / 'actionReady'.
             this.pendingConference = null;
-            const col = Math.floor(p.worldX / TILE_SIZE);
-            const row = Math.floor(p.worldY / TILE_SIZE);
-            this.room?.send('playerWarp', { col, row });
+            this.room?.send('actionApproach', { col: action.col, row: action.row });
+          } else if (appliance) {
+            // Same server-authoritative walk-then-use (see officeState's useAppliance).
+            this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
+          } else {
+            this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
+            this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
           }
+        } else if (this.myPlayerId !== null && p.rightButtonReleased()) {
+          // Right-click "warp": instant teleport, no walking — server
+          // validates the target is actually walkable (see
+          // OfficeState.warpPlayer) and no-ops otherwise, same as any
+          // other rejected movement.
+          this.pendingConference = null;
+          const col = Math.floor(p.worldX / TILE_SIZE);
+          const row = Math.floor(p.worldY / TILE_SIZE);
+          this.room?.send('playerWarp', { col, row });
         }
       }
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-      if (this.editor.isEditing()) {
-        if (this.editor.isDraggingFurniture()) {
-          this.editor.dragFurnitureTo(p.worldX, p.worldY); // suppresses pan
-          this.input.manager.canvas.style.cursor = 'grabbing';
-          return;
-        }
-        this.editor.updateGhost(p.worldX, p.worldY);
-        this.hoveredId = null;
-        this.input.manager.canvas.style.cursor = 'crosshair';
-      } else {
-        this.hoveredId = this.hitTest(p.worldX, p.worldY);
-        this.input.manager.canvas.style.cursor = this.hoveredId !== null ? 'pointer' : 'default';
-      }
-      if (paintMode) {
-        // Continuous drag-paint/erase — never pans the camera.
-        this.editor.strokePaint(p.worldX, p.worldY, paintMode === 'erase');
-        return;
-      }
+      this.hoveredId = this.hitTest(p.worldX, p.worldY);
+      this.input.manager.canvas.style.cursor = this.hoveredId !== null ? 'pointer' : 'default';
       if (dragging) {
         if (!moved && Math.abs(p.x - downX) + Math.abs(p.y - downY) > CLICK_DRIFT_PX) {
           moved = true;
@@ -1618,7 +1526,7 @@ export class OfficeScene extends Phaser.Scene {
     let sent: Direction | null = null;
 
     const blocked = (): boolean => {
-      if (this.myPlayerId === null || this.editor.isEditing() || this.arcadeUI.isOpen) return true;
+      if (this.myPlayerId === null || this.arcadeUI.isOpen) return true;
       const el = document.activeElement;
       const tag = el?.tagName;
       return (
@@ -1675,64 +1583,6 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  /** A name the server's LayoutStore.isValidUserName will accept. */
-  private isValidLayoutName(name: string): boolean {
-    return /^[\x20-\x7e]{1,40}$/.test(name) && name !== 'Default';
-  }
-
-  /**
-   * Toggle edit mode. Entering on the read-only Default auto-forks it into a
-   * named user copy (prompt once) so live autosave has a writable target.
-   */
-  private async toggleEditMode(): Promise<void> {
-    if (this.editor.isEditing()) {
-      this.editor.toggle(); // exit (setEditMode flushes the final autosave)
-      return;
-    }
-    // Every zone is now independently editable (its own layouts + Default).
-    let target = this.layoutListData.active;
-    let fork = false;
-    if (!this.isValidLayoutName(target)) {
-      const name = await promptDialog('Editing makes your own live copy. Name it:', 'My Office', { maxLength: 32 });
-      if (name === null) return; // cancelled → don't enter edit
-      target = name.trim();
-      if (!this.isValidLayoutName(target)) {
-        setStatus('Invalid name — 1–40 characters, and not “Default”.');
-        return;
-      }
-      fork = true;
-    }
-    this.editTarget = target;
-    this.editor.toggle(); // enter (editor.layout is now the working copy)
-    // Fork: persist the current layout under the new name + make it active for all.
-    if (fork && this.editor.layout) {
-      this.room?.send('saveLayoutAs', { name: target, layout: this.editor.layout });
-      setStatus(`Editing “${target}” — changes are live`);
-    } else {
-      setStatus(`Editing “${target}” — changes are live`);
-    }
-  }
-
-  /** Debounced live autosave: broadcasts the edit to all viewers (and persists)
-   *  via the idempotent saveLayoutAs. `immediate` flushes now (gesture done). */
-  private autosaveLayout(layout: OfficeLayout, immediate: boolean): void {
-    this.pendingLayout = layout;
-    if (this.autosaveTimer) clearTimeout(this.autosaveTimer);
-    this.autosaveTimer = undefined;
-    if (immediate) this.flushAutosave();
-    else this.autosaveTimer = setTimeout(() => this.flushAutosave(), 500);
-  }
-
-  private flushAutosave(): void {
-    if (this.autosaveTimer) {
-      clearTimeout(this.autosaveTimer);
-      this.autosaveTimer = undefined;
-    }
-    if (!this.pendingLayout || !this.editTarget) return;
-    this.room?.send('saveLayoutAs', { name: this.editTarget, layout: this.pendingLayout });
-    this.pendingLayout = null;
-  }
-
   /** Hit-test characters (topmost / front-most wins). */
   private hitTest(wx: number, wy: number): number | null {
     let best: number | null = null;
@@ -1767,9 +1617,9 @@ export class OfficeScene extends Phaser.Scene {
     // catches up immediately once the player's own position is first known),
     // unless a manual drag has detached it — in which case check whether the
     // player has since moved (any cause: walk, sit, portal) and re-engage the
-    // moment they have. Never while editing (its own free-camera feel stays),
-    // nor when the user turned it off in Settings (the old, pre-follow feel).
-    if (!this.editor.isEditing() && this.cameraFollowEnabled) {
+    // moment they have. Not when the user turned it off in Settings (the
+    // old, pre-follow feel).
+    if (this.cameraFollowEnabled) {
       const pos = this.playerPosition(this.myPlayerId);
       if (pos) {
         if (this.cameraFollowDetached) {
@@ -1794,9 +1644,7 @@ export class OfficeScene extends Phaser.Scene {
         this.portalPickerTile = null;
       }
     }
-    // While editing, furniture comes from the editor's local working copy; the
-    // server-synced furniture is rebuilt again once editing ends.
-    if (this.furnitureDirty && !this.editor.isEditing()) {
+    if (this.furnitureDirty) {
       this.rebuildFurniture();
       this.furnitureDirty = false;
     }
@@ -1849,11 +1697,7 @@ export class OfficeScene extends Phaser.Scene {
       p.x = (p.x ?? p.tx) + (p.tx - (p.x ?? p.tx)) * k;
       p.y = (p.y ?? p.ty) + (p.ty - (p.y ?? p.ty)) * k;
     }
-    // Hide live agents/pets while editing — they sit on the server's (un-edited)
-    // layout, so they'd appear to jump when the grid expands left/up.
-    this.view.hideEntities = this.editor.isEditing();
     this.view.update();
-    this.editor.tickUI();
     // DOM overlays (labels/bubbles/tooltip) don't need 60 Hz — cap to ~20 Hz, but
     // always run once when movement just stopped so labels settle at their final
     // position (avoids a 50 ms trailing lag freezing in the wrong spot).
@@ -1871,7 +1715,7 @@ export class OfficeScene extends Phaser.Scene {
    *  active bubble/tooltip, or an interactive mode. When false for a while the
    *  loop idles (skips work, then sleeps) until something wakes it. */
   private sceneBusy(now: number): boolean {
-    if (this.editor.isEditing() || this.furnitureDirty) return true;
+    if (this.furnitureDirty) return true;
     if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     if (this.voiceSpeakUntil.size > 0) return true; // pulsing in-world speaking ring
@@ -2033,18 +1877,6 @@ export class OfficeScene extends Phaser.Scene {
     this.matrixWin.setOpen(open);
     this.matrix?.setDocked(open);
     this.matrixBtn?.classList.toggle('active', open);
-  }
-
-  /** Edit mode owns the screen: close the menu + hide the whole top bar (it would
-   *  otherwise cover the layout editor's Done/tool controls at the top). */
-  private setEditMode(editing: boolean): void {
-    void this.setMenu(null);
-    if (this.menubar) this.menubar.style.display = editing ? 'none' : 'flex';
-    // On exit, make sure the last edit reaches the server.
-    if (!editing) {
-      this.flushAutosave();
-      this.editTarget = '';
-    }
   }
 
   /** Collapse the toolbar: Space + Assets tuck into the ☰ menu (design). */
@@ -2982,17 +2814,9 @@ export class OfficeScene extends Phaser.Scene {
     this.layoutsPanel.innerHTML =
       `<h4>${esc(zoneLabel)} Layouts</h4>${rows}` +
       `<div class="foot">
-         <button data-edit class="edit">✏ Edit layout</button>
          <button data-new>New from current…</button>
          <button data-default>Reset to Default</button>
        </div>`;
-
-    // Enter the layout editor. Exclusive with the popovers: setEditMode closes
-    // them; the editor's own ✓ Done button exits (so it needn't live up here).
-    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-edit]')!.onclick = () => {
-      this.setMenu(null);
-      void this.toggleEditMode();
-    };
 
     this.layoutsPanel.querySelectorAll<HTMLButtonElement>('[data-load]').forEach((b) => {
       b.onclick = () => send('loadLayout', { name: b.dataset.load });
@@ -4324,11 +4148,6 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private updateNameLabels(): void {
-    // Agents are hidden while editing, so drop their labels too.
-    if (this.editor.isEditing()) {
-      if (this.nameLabels.size) this.clearNameLabels();
-      return;
-    }
     if (!this.alwaysShowLabels) return;
     const cam = this.cameras.main;
     const wv = cam.worldView;
@@ -4393,7 +4212,7 @@ export class OfficeScene extends Phaser.Scene {
       sendChat: (text) => void this.room?.send("chat", { text }),
       sendCommand: (name, args) => void this.room?.send("command", { name, args }),
       isAdmin: () => this.isAdmin,
-      canFocus: () => !this.editor.isEditing() && !this.arcadeUI.isOpen && this.matrix?.ownsFocus() !== true,
+      canFocus: () => !this.arcadeUI.isOpen && this.matrix?.ownsFocus() !== true,
       clientCommand: (name, args, sys) => {
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
@@ -4454,7 +4273,7 @@ export class OfficeScene extends Phaser.Scene {
     const wv = cam.worldView;
     for (const [id, b] of this.chatBubbles) {
       const ch = this.characters.get(id);
-      if (!ch || now >= b.until || this.editor.isEditing()) {
+      if (!ch || now >= b.until) {
         b.el.remove();
         this.chatBubbles.delete(id);
         continue;
@@ -4510,10 +4329,6 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private updateTooltip(): void {
-    if (this.editor.isEditing()) {
-      this.tip.style.display = 'none';
-      return;
-    }
     const id = this.hoveredId ?? this.selectedId;
     const ch = id !== null ? this.characters.get(id) : undefined;
     if (!ch || id === null) {
