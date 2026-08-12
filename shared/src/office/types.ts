@@ -380,7 +380,7 @@ export interface PlacedText {
   /** Text fill color, `#rrggbb` — read from/written to Tiled's own native
    *  Text object `color` property (which itself is `#rrggbb`/`#aarrggbb`; the
    *  alpha channel isn't modeled here, a label is always opaque). Unset =
-   *  the renderer's own default (white). */
+   *  Tiled's own default for an unstyled text object (black). */
   color?: string;
 }
 

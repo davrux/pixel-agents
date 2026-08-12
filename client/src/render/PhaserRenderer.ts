@@ -239,7 +239,7 @@ export class PhaserRenderer {
         .text(pt.x, pt.y, pt.text, {
           fontFamily: pt.fontFamily ?? TEXT_LABEL_DEFAULT_FONT_FAMILY,
           fontSize: `${pt.fontSize ?? TEXT_LABEL_DEFAULT_FONT_SIZE}px`,
-          color: pt.color ?? '#ffffff',
+          color: pt.color ?? '#000000',
           stroke: '#000000',
           strokeThickness: 1,
         })
