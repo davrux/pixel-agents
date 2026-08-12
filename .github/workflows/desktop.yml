@@ -1,17 +1,30 @@
-name: Desktop AppImage
+name: Desktop packages
 
-# Baut das Electron-Desktop-Paket (Linux AppImage, unsigniert — siehe
-# desktop/electron-builder.yml) und veröffentlicht es als Release-Asset.
+# Baut das Electron-Desktop-Paket für alle drei Desktops (unsigniert — siehe
+# desktop/electron-builder.yml) und veröffentlicht sie als Release-Assets:
 #
-#   push master        -> AppImage bauen + an das rollende Prerelease "latest"
+#   ubuntu-latest   -> Linux AppImage (x86_64)
+#   windows-latest  -> NSIS-Installer (x64)
+#   macos-latest    -> dmg (x64 + arm64)
+#
+# Jedes Ziel muss auf seinem eigenen Betriebssystem gebaut werden; das macOS-dmg
+# braucht hdiutil, cross-compilieren geht nicht. Darum eine Matrix statt eines
+# Jobs mit drei --flags.
+#
+#   push master        -> alle Pakete bauen + an das rollende Prerelease "latest"
 #                         hängen (Release + Tag werden auf den neuen Commit
 #                         umgesetzt, alte Assets fallen dabei weg)
-#   push tag v*        -> AppImage bauen + an das Release "v<x.y.z>" hängen
+#   push tag v*        -> alle Pakete bauen + an das Release "v<x.y.z>" hängen
 #                         (Release wird angelegt, falls es noch nicht existiert)
-#   workflow_dispatch  -> AppImage bauen und nur als Workflow-Artifact ablegen
+#   workflow_dispatch  -> nur bauen und als Workflow-Artifact ablegen
+#
+# Bauen und Veröffentlichen sind bewusst zwei Jobs: der "latest"-Schritt löscht
+# das Release und legt es neu an, und drei Matrix-Jobs, die das gleichzeitig
+# tun, würden sich gegenseitig die Assets wegräumen. Der release-Job läuft
+# genau einmal, nachdem alle drei Builds durch sind.
 #
 # Keine zusätzlichen Secrets nötig: der eingebaute GITHUB_TOKEN darf Releases
-# schreiben (permissions.contents: write).
+# schreiben (permissions.contents: write, nur im release-Job).
 
 on:
   push:
@@ -25,14 +38,28 @@ on:
 # darf ein laufender Build abgebrochen werden — das verhindert gleichzeitig, dass
 # sich zwei Läufe beim Umsetzen des "latest"-Release in die Quere kommen.
 concurrency:
-  group: desktop-appimage-${{ github.ref }}
+  group: desktop-packages-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  appimage:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # Release anlegen / Asset hochladen
+  build:
+    strategy:
+      # Ein kaputter macOS-Build soll nicht das fertige Windows-Paket mitreißen:
+      # lieber zwei brauchbare Assets und ein rotes Kreuz als gar keins.
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            label: linux
+            glob: desktop/release/*.AppImage
+          - os: windows-latest
+            label: windows
+            glob: desktop/release/*.exe
+          - os: macos-latest
+            label: macos
+            glob: desktop/release/*.dmg
+    runs-on: ${{ matrix.os }}
+    name: build (${{ matrix.label }})
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -46,15 +73,18 @@ jobs:
           node-version: 24
           cache: pnpm
 
+      # --frozen-lockfile funktioniert auf allen drei Runnern, weil pnpm-lock.yaml
+      # die plattformspezifischen Binaries (@esbuild/*, @rolldown/binding-*) für
+      # darwin und win32 mitführt.
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      # Die AppImage-Version (und damit der Dateiname, siehe artifactName in
+      # Die Paketversion (und damit der Dateiname, siehe artifactName in
       # desktop/electron-builder.yml) kommt aus desktop/package.json. Bei einem
       # Tag-Build wird sie auf den Tag gesetzt, damit Asset und Release-Tag
       # zusammenpassen; bei einem master-Build wird der Commit als
-      # Prerelease-Suffix angehängt, damit man einem installierten AppImage
-      # ansieht, aus welchem Stand es gebaut wurde.
+      # Prerelease-Suffix angehängt, damit man einem installierten Paket ansieht,
+      # aus welchem Stand es gebaut wurde. Alle drei Jobs berechnen dasselbe.
       - name: Version stempeln
         env:
           REF_TYPE: ${{ github.ref_type }}
@@ -78,25 +108,62 @@ jobs:
         shell: bash
 
       # pnpm dist:desktop = client bauen -> desktop/dist bauen -> electron-builder.
-      # --publish never: electron-builder soll nichts von sich aus hochladen, die
-      # Assets hängen die Schritte unten an.
-      - name: Build AppImage
-        # vendor:mediapipe zuerst: die Konferenz-Hintergrundfilter (Blur / virtueller
-        # Hintergrund) laden ihren Segmenter aus client/dist/mediapipe — im Desktop-App
-        # wird das Bundle lokal über app:// serviert, ein CDN gibt es nicht.
+      # Hier absichtlich einzeln, um --publish never mitgeben zu können:
+      # electron-builder soll nichts von sich aus hochladen, die Assets hängt der
+      # release-Job unten an. Ohne --arch/--win/--mac baut electron-builder für
+      # den Runner, auf dem er läuft — genau das, was die Matrix will.
+      #
+      # vendor:mediapipe zuerst: die Konferenz-Hintergrundfilter (Blur / virtueller
+      # Hintergrund) laden ihren Segmenter aus client/dist/mediapipe — im Desktop-App
+      # wird das Bundle lokal über app:// serviert, ein CDN gibt es nicht.
+      - name: Build
         run: pnpm run vendor:mediapipe && pnpm run build:desktop && pnpm --filter @pixel/desktop exec electron-builder --publish never
+        shell: bash
 
       - name: Upload als Workflow-Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: pixel-agents-appimage
-          path: desktop/release/*.AppImage
+          name: pixel-agents-${{ matrix.label }}
+          path: ${{ matrix.glob }}
           if-no-files-found: error
 
+  release:
+    needs: build
+    # Nur für master und v*-Tags. Ein workflow_dispatch endet bei den
+    # Workflow-Artifacts aus dem build-Job.
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+    # Kein `if: always()`: schlägt ein Plattform-Build fehl, wird nichts
+    # veröffentlicht. Ein "latest"-Release, dem stillschweigend eine Plattform
+    # fehlt, ist schlimmer als eines, das diesmal ausbleibt — die fertigen
+    # Pakete liegen dank fail-fast: false trotzdem als Workflow-Artifacts bereit.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Release anlegen / Asset hochladen
+    # Dieser Job checkt das Repo absichtlich nicht aus — er lädt nur die
+    # Artifacts der Build-Jobs herunter. `gh release` ermittelt das Repository
+    # aber sonst aus dem git-Remote und scheitert dann mit "failed to run git:
+    # fatal: not a git repository". GH_REPO ist die dafür vorgesehene Variable
+    # und billiger als ein Checkout, den wir nur für ein Remote machen würden.
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      # merge-multiple: alle drei Artifacts flach in ein Verzeichnis, sodass die
+      # Schritte unten einfach über die Dateien laufen können.
+      - name: Pakete einsammeln
+        uses: actions/download-artifact@v7
+        with:
+          pattern: pixel-agents-*
+          path: packages
+          merge-multiple: true
+
+      - name: Was wurde gebaut
+        run: ls -la packages
+        shell: bash
+
       # Rollendes "latest"-Release: immer der Build des letzten master-Commits.
-      # Der Dateiname ist bewusst *ohne* Version, damit die Download-URL
+      # Die Dateinamen sind bewusst *ohne* Version, damit die Download-URLs
       # (…/releases/download/latest/pixel-agents-latest-x86_64.AppImage) stabil
-      # bleibt; die tatsächlich gebaute Version steckt im AppImage und in den
+      # bleiben; die tatsächlich gebaute Version steckt im Paket und in den
       # Release-Notes. Release + Tag werden gelöscht und neu angelegt, weil
       # GitHub einen bereits veröffentlichten Tag nicht umhängen lässt.
       # Prerelease, damit GitHub weiterhin das jüngste v*-Release als "Latest
@@ -108,11 +175,19 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -e
-          src="$(ls desktop/release/*.AppImage | head -1)"
-          arch="$(basename "$src" .AppImage)"
-          arch="${arch##*-}"
-          asset="desktop/release/pixel-agents-latest-$arch.AppImage"
-          cp "$src" "$asset"
+          mkdir -p upload
+          built=""
+          for src in packages/*; do
+            base="$(basename "$src")"
+            # Version raus, Architektur und Endung behalten:
+            # pixel-agents-0.1.0-master.abc1234-arm64.dmg -> pixel-agents-latest-arm64.dmg
+            ext="${base##*.}"
+            stem="${base%.*}"
+            arch="${stem##*-}"
+            cp "$src" "upload/pixel-agents-latest-$arch.$ext"
+            built="$built
+          - \`$base\`"
+          done
 
           gh release delete latest --yes --cleanup-tag || true
           # Falls der Tag ohne Release überlebt hat: weg damit, sonst ignoriert
@@ -123,11 +198,17 @@ jobs:
             --target "$SHA" \
             --prerelease \
             --title "Latest master build" \
-            --notes "Automatischer Build von master ($(basename "$src")), Commit \`${SHA:0:7}\`.
+            --notes "Automatischer Build von master, Commit \`${SHA:0:7}\`.
+          $built
 
-          Unsigniertes Linux-AppImage — nach dem Download ausführbar machen (\`chmod +x\`).
+          Alle Pakete sind **unsigniert**, jedes Betriebssystem meldet sich dazu anders:
+
+          - **Linux** (\`.AppImage\`): nach dem Download ausführbar machen (\`chmod +x\`).
+          - **Windows** (\`.exe\`): SmartScreen warnt vor einem unbekannten Herausgeber — \"Weitere Informationen\" → \"Trotzdem ausführen\".
+          - **macOS** (\`.dmg\`): ad-hoc signiert, aber nicht notarisiert — Gatekeeper fragt beim ersten Start nach. Im Finder rechtsklicken → \"Öffnen\" (nicht Doppelklick), oder nach dem Kopieren in \"Programme\" einmal \`xattr -dr com.apple.quarantine \"/Applications/Pixel Agents.app\"\`. \`arm64\` ist für Apple Silicon (M1-M4), \`x64\` für Intel — die falsche Variante startet nicht.
+
           Dieses Release wird bei jedem master-Commit überschrieben; für einen festen Stand ein \`v*\`-Release nehmen."
-          gh release upload latest "$asset" --clobber
+          gh release upload latest upload/* --clobber
         shell: bash
 
       - name: An das Release hängen
@@ -140,5 +221,5 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
-          gh release upload "$TAG" desktop/release/*.AppImage --clobber
+          gh release upload "$TAG" packages/* --clobber
         shell: bash

@@ -359,11 +359,28 @@ function injectStyle(): void {
   const style = document.createElement('style');
   style.id = 'pa-chat-style';
   style.textContent = `
-    #pa-chat{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;width:24rem;max-width:46vw;
+    /* Anchored to the game's left edge, not the screen's: a docked window
+       (--pa-dock-l, see ui/dockWindow.ts) pushes the chat box across.
+       The max-width is the other half of that: being pushed off the left window
+       still leaves it running into the *right* one once both are open, and the
+       chat box sits below the window layer (z 55 vs 56), so an overlap here
+       means being covered rather than covering. It has no floor for that
+       reason — unlike a popover, this is permanent furniture, and a narrow chat
+       box you can read beats a wide one hidden under Mumble. */
+    #pa-chat{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;width:24rem;
+      max-width:min(46vw, calc(var(--pa-hud-gap, 100vw) - 1rem));
       display:flex;flex-direction:column;gap:0.35rem;font-family:'FS Pixel Sans',ui-monospace,monospace;
       transition:opacity 0.8s ease;}
     #pa-chat:hover,#pa-chat:focus-within{opacity:1 !important;}
-    #pa-chatlog{height:13rem;min-height:4rem;overflow-y:auto;background:rgba(15,18,32,.72);border:2px solid #0a0908;
+    /* The window surface, in the same tokens as every menu: panel #1c1a19 with
+       the panel bevel (#292725/#030303 — AGENTS.md). It used to be a navy
+       rgba(15,18,32), which is why the chat box read as a different app sitting
+       next to the warm dark menus.
+       The alpha is kept on purpose and is the one departure: this is permanent
+       furniture over the game world, not a popover you dismiss, so you need to
+       see what is behind it — which is also what the idle fade on #pa-chat is
+       for. Same colour as a menu, just not fully hiding the room. */
+    #pa-chatlog{height:13rem;min-height:4rem;overflow-y:auto;background:rgba(28,26,25,.72);border:2px solid #0a0908;
       border-radius:0.45rem;padding:0.45rem 0.6rem;color:#f1efec;font-size:1rem;line-height:1.35;
       display:flex;flex-direction:column;gap:0.1rem;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303;
       user-select:text;-webkit-user-select:text;cursor:text;}
@@ -372,17 +389,25 @@ function injectStyle(): void {
     #pa-chatresize:hover{opacity:1;border-color:#4998c0;}
     #pa-chatrow{display:flex;gap:0.35rem;align-items:stretch;}
     #pa-chatrow #pa-chatinput{flex:1;min-width:0;}
-    #pa-chathide{flex:0 0 auto;background:rgba(23,27,43,.9);border:2px solid #0a0908;border-radius:0.4rem;
+    /* Both of these are .pa-b in everything but name — same inset-control
+       surface (#262422), same border, same signature bevel, same 0.35rem
+       radius. Opaque, unlike the log above: they are small controls, so nothing
+       is hidden behind them, and a translucent button reads as disabled. */
+    #pa-chathide{flex:0 0 auto;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;
       color:#adb0b2;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chathide:hover{color:#f1efec;}
-    #pa-chatopen{position:fixed;left:0.5rem;bottom:0.5rem;z-index:55;display:none;background:rgba(23,27,43,.9);
-      border:2px solid #0a0908;border-radius:0.4rem;color:#f1efec;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-chatopen{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;display:none;background:#262422;
+      border:2px solid #0a0908;border-radius:0.35rem;color:#f1efec;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#4998c0;}
     #pa-chatlog .ln a{color:#4998c0;text-decoration:underline;overflow-wrap:anywhere;}
     #pa-chatlog .ln .ts{color:#818586;font-size:0.82em;}
     #pa-chatlog .ln.sys{color:#adb0b2;font-style:italic;}
-    #pa-chatinput{background:rgba(23,27,43,.9);border:2px solid #0a0908;border-radius:0.4rem;color:#f1efec;
+    /* .pa-input's surface and radius. The font stays at 1.05rem rather than
+       .pa-input's 0.95rem: this one is typed into while you are looking at the
+       game, not at a form, and shrinking it is a legibility change nobody asked
+       for. */
+    #pa-chatinput{background:#262422;border:2px solid #0a0908;border-radius:0.35rem;color:#f1efec;
       font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.7rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chatinput::placeholder{color:#818586;}`;
   document.head.appendChild(style);

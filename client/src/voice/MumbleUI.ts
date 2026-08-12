@@ -1,7 +1,14 @@
 /**
  * Mumble panel: the server's channel tree with its users, the usual mic /
- * deafen / volume controls, a pin so it can stay open while you play, and a
- * self-register button. Rendered into whatever container the host gives it.
+ * deafen / volume controls, and a self-register button. Rendered into whatever
+ * container the host gives it — in the office that is the right-hand docked
+ * application window (see ui/dockWindow.ts), which is why nothing here sizes
+ * or positions itself.
+ *
+ * The connection settings are a second view of this same window (⚙ in the
+ * header strip, MumbleSettingsUI), not a section of the office's Settings
+ * panel — the same arrangement Matrix chat uses for its own account pages. Only
+ * one view is displayed at a time.
  *
  * Rows are deliberately one line per user (volume is a dropdown, not a slider):
  * a busy channel has to stay readable without scrolling.
@@ -17,16 +24,12 @@ import {
 } from './MumbleVoice.js';
 import type { MumbleChannelInfo, MumbleUserInfo } from '../desktop/bridge.js';
 import { MAX_MIC_GAIN } from './micGraph.js';
+import { MumbleSettingsUI } from './MumbleSettingsUI.js';
 
 export interface MumbleUIHooks {
   /** Called when the user joins/leaves, so the scene can park zone voice. */
   onJoin?: () => void;
   onLeave?: () => void;
-  /** Open the Settings panel, where the connection details live. */
-  onOpenSettings?: () => void;
-  /** The user pinned/unpinned the panel; the host decides what that means for
-   *  its own menu system (the office exempts it from the one-panel rule). */
-  onPinChange?: (pinned: boolean) => void;
 }
 
 /** Per-user volume choices. A dropdown keeps each user on one line, where a
@@ -66,12 +69,14 @@ export class MumbleUI {
   private spkSel?: HTMLSelectElement;
   private treeEl?: HTMLElement;
   private alertsEl?: HTMLInputElement;
-  private pinBtn?: HTMLButtonElement;
+  private mainEl?: HTMLElement;
+  private cfgBtn?: HTMLButtonElement;
+  private settings?: MumbleSettingsUI;
+  private settingsOpen = false;
   /** Rows already in the tree, by channel id and by user session, so a re-render
    *  can update them instead of replacing them — see renderTree. */
   private readonly channelRows = new Map<number, ChannelRow>();
   private readonly userRows = new Map<number, UserRow>();
-  private pinned = localStorage.getItem('pa-mb-pinned') === '1';
   private lastState?: MumbleVoiceState;
 
   constructor(mount: HTMLElement, private readonly hooks: MumbleUIHooks = {}) {
@@ -96,21 +101,16 @@ export class MumbleUI {
     this.voice?.autoStart();
   }
 
-  /** Release the pin — the host calls this when its own close control is used,
-   *  so ✕ on a pinned panel means "stop keeping this open" rather than nothing. */
-  unpin(): void {
-    if (this.pinned) this.setPinned(false);
-  }
-
-  /** Whether the user asked for this panel to stay open. False when Mumble is
-   *  unavailable, so a browser host never keeps an empty panel docked. */
-  get isPinned(): boolean {
-    return this.voice !== null && this.pinned;
-  }
-
-  /** Re-read settings and reconnect (called after the Settings panel saves). */
-  settingsChanged(): void {
-    void this.voice?.reconnect();
+  /** Swap between the channel tree and the connection settings. Only ever one of
+   *  them is in the document's flow, so the window keeps its single scroller. */
+  private showSettings(open: boolean): void {
+    const settings = this.settings;
+    if (!settings || !this.mainEl) return;
+    this.settingsOpen = open;
+    this.mainEl.style.display = open ? 'none' : '';
+    settings.el.style.display = open ? '' : 'none';
+    this.cfgBtn?.classList.toggle('on', open);
+    if (open) void settings.refresh();
   }
 
   private injectStyles(): void {
@@ -118,18 +118,32 @@ export class MumbleUI {
     const style = document.createElement('style');
     style.id = 'pa-mb-style';
     style.textContent = `
-      #pa-mb{margin-top:0.9rem;border-top:1px solid #2c2a28;padding-top:0.8rem;}
-      #pa-mb-master{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;padding:0.7rem 0.8rem;
+      /* Fills its window's body, which does NOT scroll (DockWindow's fill
+         option — see ui/dockWindow.ts). Each view is a <section> that takes the
+         whole body and manages its own scrolling; only one is displayed. */
+      #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;}
+      #pa-mb > section{display:flex;flex-direction:column;flex:1;min-height:0;}
+      /* Main view: the controls above and the two lines below are fixed; the
+         channel tree is the only thing that moves, so reading the roster never
+         pushes the mic/volume/device settings you are adjusting off the top of
+         the panel.
+         The overflow-y here is the short-window fallback, not the normal case:
+         the tree absorbs all the slack, so it only ever engages once the tree
+         has been squeezed down to its min-height and the last two lines would
+         otherwise be unreachable. */
+      #pa-mb-main{overflow-y:auto;overscroll-behavior:contain;}
+      #pa-mb-master,#pa-mb-sub,#pa-mb .chk,#pa-mb-note,#pa-mb-cfg{flex:0 0 auto;}
+      #pa-mb-master{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 0.8rem;
         background:#141312;border:2px solid #0a0908;border-radius:0.5rem;}
-      #pa-mb-master .ti{min-width:0;}
+      /* The header strip is where ⚙ lives, so the title block gives up the slack
+         rather than the two controls beside it. */
+      #pa-mb-master .ti{flex:1;min-width:0;}
+      #pa-mb-master .cfg{flex:none;}
       #pa-mb-master .title{display:flex;align-items:center;gap:0.45rem;font-size:1rem;color:#f1efec;}
       #pa-mb-master .dot{width:0.5rem;height:0.5rem;border-radius:50%;background:#525556;}
       #pa-mb-master .dot.live{background:#5aa348;box-shadow:0 0 6px #5aa348;}
       #pa-mb-master .hint{font-size:0.78rem;color:#818586;margin-top:0.2rem;overflow:hidden;text-overflow:ellipsis;}
       #pa-mb-master .hint.bad{color:#e08894;}
-      #pa-mb-pin{flex:none;opacity:.45;filter:grayscale(1);}
-      #pa-mb-pin.on{opacity:1;filter:none;background:#c51a1b;border-color:#0a0908;color:#eaf7ec;
-        box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
       #pa-mb-track{flex:none;width:3.4rem;height:1.75rem;border-radius:1rem;border:2px solid #0a0908;cursor:pointer;
         position:relative;background:#302d2a;box-shadow:inset 0 2px 0 #423f3b,inset 0 -2px 0 #141312;transition:background .15s;}
       #pa-mb-track.on{background:#c51a1b;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
@@ -137,7 +151,10 @@ export class MumbleUI {
         border-radius:50%;background:#f5f3f0;box-shadow:0 2px 3px rgba(0,0,0,.5);transition:left .15s;}
       #pa-mb-track.on .knob{left:1.6rem;}
       #pa-mb-sub{margin-top:0.65rem;}
-      #pa-mb-sub.off{opacity:.4;pointer-events:none;filter:grayscale(.4);}
+      /* The tree carries this itself rather than inheriting it: it used to sit
+         inside #pa-mb-sub, and moving it out to be the panel's scroller must not
+         quietly make a dead channel list look live. */
+      #pa-mb-sub.off,#pa-mb-tree.off{opacity:.4;pointer-events:none;filter:grayscale(.4);}
       #pa-mb-sub .row{display:flex;align-items:center;gap:0.55rem;margin:0.45rem 0;font-size:0.9rem;}
       #pa-mb-sub .row label{flex:0 0 auto;min-width:4rem;color:#adb0b2;}
       #pa-mb-sub input[type=range]{flex:1;accent-color:#c51a1b;}
@@ -160,7 +177,20 @@ export class MumbleUI {
       #pa-mb-meter .lvl{position:absolute;left:0;top:0;bottom:0;width:0;background:#6b7280;transition:width .05s linear;}
       #pa-mb-meter .lvl.on{background:#5aa348;}
       #pa-mb-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#e7da00;}
-      #pa-mb-tree{margin-top:0.7rem;max-height:16rem;overflow-y:auto;}
+      /* The panel's one scrolling region: every channel from the root down, plus
+         the users in each. It takes all the height the settings above and the
+         lines below don't want, and scrolls inside its own bevelled well, so the
+         edge of the scroller is where scrolling visibly starts. The min-height is
+         what stops a short window from collapsing it to nothing — below that,
+         #pa-mb scrolls as a whole instead. */
+      #pa-mb-tree{margin-top:0.7rem;flex:1 1 auto;min-height:7rem;
+        overflow-y:auto;overscroll-behavior:contain;
+        border:2px solid #0a0908;border-radius:0.4rem;padding:0.3rem;
+        box-shadow:inset 0 2px 0 #2c2a28,inset 0 -3px 0 #050505;
+        /* Panel colour, not the deep-inset token: the border and bevel already
+           mark the well, and #141312 here would flatten it against the user
+           rows (also #141312) and swallow the "you are here" channel tint. */
+        background:#1c1a19;}
       #pa-mb-tree .ch{display:flex;align-items:center;gap:0.4rem;padding:0.28rem 0.4rem;border-radius:0.3rem;
         cursor:pointer;font-size:0.88rem;color:#cac8c3;}
       #pa-mb-tree .ch:hover{background:#1c1a18;}
@@ -169,6 +199,13 @@ export class MumbleUI {
       #pa-mb-tree .ch .c{font-size:0.75rem;color:#818586;}
       #pa-mb-tree .us{display:flex;align-items:center;gap:0.4rem;padding:0.22rem 0.4rem;margin:0.15rem 0;
         background:#141312;border:2px solid #0a0908;border-radius:0.4rem;}
+      /* Tree indentation. Depth arrives as a custom property on the row (see
+         mkChannelRow / mkUserRow) rather than as an inline pixel padding, so a
+         compact column can tighten the step without the JS knowing how wide it
+         is. Both rules must stay after the .ch / .us shorthands above, which
+         would otherwise reset them. */
+      #pa-mb-tree .ch{padding-left:calc(0.4rem + var(--mb-depth,0) * 0.8rem);}
+      #pa-mb-tree .us{margin-left:calc(0.4rem + var(--mb-depth,0) * 0.8rem);}
       #pa-mb-tree .us .tk{width:0.45rem;height:0.45rem;border-radius:50%;background:#423f3b;flex:none;}
       #pa-mb-tree .us .tk.on{background:#5aa348;box-shadow:0 0 5px #5aa348;}
       #pa-mb-tree .us .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.86rem;color:#f0eeea;}
@@ -191,6 +228,28 @@ export class MumbleUI {
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
       #pa-mb-cfg{font-size:0.78rem;color:#818586;margin-top:0.5rem;}
       #pa-mb-cfg a{color:#4998c0;cursor:pointer;text-decoration:underline;}
+
+      /* ---- compact column ----------------------------------------------------
+         ui/dockWindow.ts sets .pa-compact on the window below ~21rem. Nothing
+         here changes a font-size: the row of controls a user row carries (talk
+         dot, name, mic, headphones, mute, volume) is what actually runs out of
+         width first, so the tightening is all gaps, labels and that dropdown. */
+      .pa-compact #pa-mb-master{padding:0.5rem 0.55rem;gap:0.5rem;}
+      .pa-compact #pa-mb-sub{margin-top:0.5rem;}
+      .pa-compact #pa-mb-sub .row{gap:0.4rem;margin:0.35rem 0;}
+      .pa-compact #pa-mb-sub .row label{min-width:3.1rem;}
+      .pa-compact #pa-mb-sub .val{min-width:2.6rem;}
+      /* Three buttons no longer fit on one line, so let them take two rather
+         than shrink the hit targets. */
+      .pa-compact #pa-mb-btns{flex-wrap:wrap;}
+      .pa-compact #pa-mb-tree{margin-top:0.5rem;padding:0.25rem;}
+      .pa-compact #pa-mb-tree .us{gap:0.3rem;padding:0.2rem 0.3rem;}
+      .pa-compact #pa-mb-tree .us .vol{width:3.5rem;}
+      .pa-compact #pa-mb-tree .ch{padding:0.25rem 0.3rem;}
+      /* A narrow column can't spend 0.8rem a level; nesting still has to be
+         legible at depth 3 or 4 without pushing every name into an ellipsis. */
+      .pa-compact #pa-mb-tree .ch{padding-left:calc(0.3rem + var(--mb-depth,0) * 0.5rem);}
+      .pa-compact #pa-mb-tree .us{margin-left:calc(0.3rem + var(--mb-depth,0) * 0.5rem);}
     `;
     document.head.appendChild(style);
   }
@@ -198,15 +257,24 @@ export class MumbleUI {
   private build(mount: HTMLElement): void {
     const root = document.createElement('div');
     root.id = 'pa-mb';
-    root.innerHTML = `
-      <div id="pa-mb-master">
-        <div class="ti">
-          <div class="title"><span class="dot"></span>Mumble</div>
-          <div class="hint"></div>
-        </div>
-        <button id="pa-mb-pin" title="Keep this panel open">📌</button>
-        <div id="pa-mb-track"><div class="knob"></div></div>
+    // The header strip belongs to the window, not to either view: it is where
+    // the connection lives, and reading its state while you edit the server you
+    // are connecting to is the whole point of putting the settings in here.
+    const master = document.createElement('div');
+    master.id = 'pa-mb-master';
+    master.innerHTML = `
+      <div class="ti">
+        <div class="title"><span class="dot"></span>Mumble</div>
+        <div class="hint"></div>
       </div>
+      <button class="cfg" id="pa-mb-cfgbtn" title="Server, identity and connection settings" aria-label="Mumble settings">⚙</button>
+      <div id="pa-mb-track"><div class="knob"></div></div>`;
+    root.appendChild(master);
+
+    const main = document.createElement('section');
+    main.id = 'pa-mb-main';
+    main.dataset.view = 'main';
+    main.innerHTML = `
       <div id="pa-mb-sub">
         <div id="pa-mb-btns">
           <button id="pa-mb-mic" title="Mute your microphone">🎤 Mic</button>
@@ -219,30 +287,41 @@ export class MumbleUI {
         <div class="row"><label>Volume</label><input id="pa-mb-vol" type="range" min="0" max="200"></div>
         <div class="row"><label>Threshold</label><input id="pa-mb-thresh" type="range" min="0" max="100"></div>
         <div class="row"><label>Level</label><div id="pa-mb-meter"><div class="lvl"></div><div class="thr"></div></div></div>
-        <div id="pa-mb-tree"></div>
       </div>
+      <div id="pa-mb-tree"></div>
       <label class="chk" title="System notification when someone joins or leaves your channel"><input id="pa-mb-alerts" type="checkbox"> Join/leave alerts</label>
       <div id="pa-mb-note" hidden></div>
-      <div id="pa-mb-cfg">Server and identity live in <a>Settings</a>.</div>`;
+      <div id="pa-mb-cfg">Server and identity live in <a>⚙ settings</a>.</div>`;
+    root.appendChild(main);
+    this.mainEl = main;
 
-    this.dot = root.querySelector('.dot')!;
-    this.hint = root.querySelector('.hint')!;
-    this.track = root.querySelector('#pa-mb-track')!;
-    this.sub = root.querySelector('#pa-mb-sub')!;
-    this.micBtn = root.querySelector('#pa-mb-mic')!;
-    this.deafBtn = root.querySelector('#pa-mb-deaf')!;
-    this.regBtn = root.querySelector('#pa-mb-reg')!;
-    this.micSel = root.querySelector('#pa-mb-micsel')!;
-    this.spkSel = root.querySelector('#pa-mb-spksel')!;
-    this.micGainEl = root.querySelector('#pa-mb-micgain')!;
-    this.gainValEl = root.querySelector('#pa-mb-gainval')!;
-    this.masterEl = root.querySelector('#pa-mb-vol')!;
-    this.threshEl = root.querySelector('#pa-mb-thresh')!;
-    this.meterLvl = root.querySelector('#pa-mb-meter .lvl')!;
-    this.meterThr = root.querySelector('#pa-mb-meter .thr')!;
-    this.treeEl = root.querySelector('#pa-mb-tree')!;
-    this.alertsEl = root.querySelector('#pa-mb-alerts')!;
-    this.pinBtn = root.querySelector('#pa-mb-pin')!;
+    this.dot = master.querySelector('.dot')!;
+    this.hint = master.querySelector('.hint')!;
+    this.track = master.querySelector('#pa-mb-track')!;
+    this.cfgBtn = master.querySelector('#pa-mb-cfgbtn')!;
+    this.sub = main.querySelector('#pa-mb-sub')!;
+    this.micBtn = main.querySelector('#pa-mb-mic')!;
+    this.deafBtn = main.querySelector('#pa-mb-deaf')!;
+    this.regBtn = main.querySelector('#pa-mb-reg')!;
+    this.micSel = main.querySelector('#pa-mb-micsel')!;
+    this.spkSel = main.querySelector('#pa-mb-spksel')!;
+    this.micGainEl = main.querySelector('#pa-mb-micgain')!;
+    this.gainValEl = main.querySelector('#pa-mb-gainval')!;
+    this.masterEl = main.querySelector('#pa-mb-vol')!;
+    this.threshEl = main.querySelector('#pa-mb-thresh')!;
+    this.meterLvl = main.querySelector('#pa-mb-meter .lvl')!;
+    this.meterThr = main.querySelector('#pa-mb-meter .thr')!;
+    this.treeEl = main.querySelector('#pa-mb-tree')!;
+    this.alertsEl = main.querySelector('#pa-mb-alerts')!;
+
+    // The settings view. Saving reconnects with the new details — the panel used
+    // to be told to do that from the office's Settings panel; now it is next door.
+    this.settings = new MumbleSettingsUI({
+      onBack: () => this.showSettings(false),
+      onSaved: () => void this.voice?.reconnect(),
+    });
+    this.settings.el.style.display = 'none';
+    root.appendChild(this.settings.el);
 
     const voice = this.voice!;
     this.track.addEventListener('click', () => {
@@ -254,8 +333,6 @@ export class MumbleUI {
         this.hooks.onJoin?.();
       }
     });
-    this.pinBtn.classList.toggle('on', this.pinned);
-    this.pinBtn.onclick = () => this.setPinned(!this.pinned);
     this.micBtn.onclick = () => voice.toggleMic();
     this.deafBtn.onclick = () => voice.toggleDeafen();
     this.regBtn.onclick = () => voice.selfRegister();
@@ -265,18 +342,13 @@ export class MumbleUI {
     this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
-    root.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.hooks.onOpenSettings?.());
+    main.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.showSettings(true));
+    // Toggle, not push: the ⚙ is on screen in both views, so pressing it again
+    // has to be the way back rather than a no-op (same as Matrix's 🔐 / 🔔).
+    this.cfgBtn.onclick = () => this.showSettings(!this.settingsOpen);
 
     mount.appendChild(root);
     this.renderDevices({ mics: [], speakers: [] });
-  }
-
-  private setPinned(on: boolean): void {
-    this.pinned = on;
-    localStorage.setItem('pa-mb-pinned', on ? '1' : '0');
-    this.pinBtn?.classList.toggle('on', on);
-    this.pinBtn!.title = on ? 'Unpin — let this panel close with the others' : 'Keep this panel open';
-    this.hooks.onPinChange?.(on);
   }
 
   private renderState(s: MumbleVoiceState): void {
@@ -295,10 +367,13 @@ export class MumbleUI {
           ? 'Connecting…'
           : s.host
             ? 'Off'
-            : 'Not configured — open Settings';
+            : 'Not configured — open ⚙';
     hint.title = hint.textContent;
 
     this.sub!.classList.toggle('off', !s.connected);
+    // The tree is a sibling of the settings block now (it is the panel's
+    // scroller), so it no longer inherits the dimming and has to be told.
+    this.treeEl?.classList.toggle('off', !s.connected);
     this.micBtn!.classList.toggle('on', !s.micOn);
     // Mumble ties self-deaf to self-mute, so say so on both buttons rather than
     // letting the mic appear to switch the sound back on out of nowhere.
@@ -446,7 +521,7 @@ export class MumbleUI {
       el: row,
       update: (channel, userCount, depth) => {
         row.classList.toggle('here', channel.id === this.lastState?.channel);
-        row.style.paddingLeft = `${0.4 + depth * 0.8}rem`;
+        row.style.setProperty('--mb-depth', String(depth));
         name.textContent = channel.name;
         count.textContent = userCount > 0 ? String(userCount) : '';
         row.title = channel.description ? `${channel.name} — ${channel.description}` : `Join ${channel.name}`;
@@ -497,7 +572,7 @@ export class MumbleUI {
       el: row,
       update: (u, depth, tree) => {
         who = u.name;
-        row.style.marginLeft = `${0.4 + depth * 0.8}rem`;
+        row.style.setProperty('--mb-depth', String(depth));
         talk.className = `tk${tree.talking.has(u.session) ? ' on' : ''}`;
         name.textContent = u.name;
         name.title = u.userId !== undefined ? `${u.name} — registered on the server` : u.name;

@@ -249,7 +249,7 @@ export class FurnitureEditor {
   private build(): void {
     const style = document.createElement('style');
     style.textContent = `
-      #pa-furn{position:fixed;top:3.7rem;right:0.75rem;z-index:61;display:none;width:23rem;background:#1c1a19;
+      #pa-furn{position:fixed;top:3.7rem;right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));z-index:61;display:none;width:23rem;background:#1c1a19;
         border:2px solid #0a0908;border-radius:0.6rem;color:#f1efec;padding:0.9rem;font-family:'FS Pixel Sans',monospace;
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);max-height:92vh;overflow:auto;}
       #pa-furn h4{margin:0 0 0.6rem;font-size:1.25rem;color:#f5f3f0;}

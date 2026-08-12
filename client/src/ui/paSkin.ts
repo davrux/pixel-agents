@@ -9,8 +9,32 @@ export function injectPaSkin(): void {
   style.id = 'pa-skin';
   style.textContent = `
       .pa-ui{font-family:'FS Pixel Sans',ui-monospace,monospace;}
+      /* Scrollbars, in the same tokens as everything else — the default ones are
+         the last piece of host chrome visible inside our own panels.
+         Both mechanisms on purpose, because neither covers both engines: the
+         standard properties are what Firefox honours, the -webkit- pseudos are
+         what Chromium/Electron honour and the only way to get the 2px border the
+         rest of the skin has. Where a browser supports both it picks one; they
+         are set from the same tokens, so it does not matter which.
+         scrollbar-width/-color inherit, so declaring them on .pa-ui reaches every
+         scroller inside it (panel bodies, the Matrix timeline and room list, the
+         Mumble channel tree, the chat log, a code block) without listing them. */
+      .pa-ui{scrollbar-width:thin;scrollbar-color:#37342f #141312;}
+      .pa-ui::-webkit-scrollbar,.pa-ui ::-webkit-scrollbar{width:0.6rem;height:0.6rem;}
+      .pa-ui::-webkit-scrollbar-track,.pa-ui ::-webkit-scrollbar-track{background:#141312;border-radius:0.3rem;}
+      .pa-ui::-webkit-scrollbar-thumb,.pa-ui ::-webkit-scrollbar-thumb{background:#37342f;
+        border:2px solid #0a0908;border-radius:0.3rem;}
+      .pa-ui::-webkit-scrollbar-thumb:hover,.pa-ui ::-webkit-scrollbar-thumb:hover{background:#4a4744;}
+      /* Where a horizontal and a vertical bar meet (a wide code block in a
+         narrow column), so the gap is not the host's grey. */
+      .pa-ui::-webkit-scrollbar-corner,.pa-ui ::-webkit-scrollbar-corner{background:#141312;}
       /* Grouped top bar: Audio · Zone · Space · Assets  … ☰ (design). */
-      #pa-menubar{position:fixed;top:0.6rem;left:0.75rem;right:calc(0.75rem + var(--pa-side-panel-w, 0px));z-index:60;display:flex;align-items:center;gap:0.55rem;}
+      /* Spans the game only: the docked application windows (--pa-dock-l /
+         --pa-dock-r, see ui/dockWindow.ts) and an open action iframe each take
+         their width off an end rather than being covered by the bar. */
+      #pa-menubar{position:fixed;top:0.6rem;left:calc(0.75rem + var(--pa-dock-l, 0px));
+        right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));
+        z-index:60;display:flex;align-items:center;gap:0.55rem;}
       .pa-btn{display:inline-flex;align-items:center;gap:0.45rem;cursor:pointer;position:relative;white-space:nowrap;
         background:#242220;border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;
         font:1.05rem 'FS Pixel Sans',monospace;padding:0.5rem 0.8rem;
@@ -46,14 +70,26 @@ export function injectPaSkin(): void {
         max-height:calc(100vh - 4.7rem);overflow-y:auto;overscroll-behavior:contain;
         background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;color:#f1efec;
         box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
-      .pa-panel.left{left:0.75rem;}
-      .pa-panel.right{right:calc(0.75rem + var(--pa-side-panel-w, 0px));}
-      /* A pinned Mumble panel stays docked on the right, so the other right-hand
-         popovers step aside for it. Only where there is room — on a narrow
-         window they overlap as before rather than being pushed off-screen. */
-      @media (min-width: 56rem) {
-        body.pa-mumble-pinned .pa-panel.right:not(#pa-mumble-panel){right:calc(25.5rem + var(--pa-side-panel-w, 0px));}
-      }
+      /* Popovers hang off the menubar, so they follow it inboard of whatever
+         windows are docked (see #pa-menubar above). */
+      .pa-panel.left{left:calc(0.75rem + var(--pa-dock-l, 0px));}
+      .pa-panel.right{right:calc(0.75rem + var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));}
+      /* Being inset from one side is not enough: a 24rem popover pinned to the
+         left window's inner edge still reaches into the right window once both
+         are open, which happens at about 1500px of window width. So the width
+         is clamped to the room actually left between them (--pa-hud-gap, see
+         index.html), less the popover's own two margins.
+
+         The 20rem max() is the floor, and it is where this deliberately stops
+         being polite: below that a menu would be too narrow to use, so it keeps
+         20rem and overlaps the far window instead — which is fine, because a
+         popover sits in the layer above both windows (z 60 vs 56, see
+         dockWindow.ts) and is gone the moment you dismiss it. Shrink while
+         shrinking still leaves something usable; overlap only when it doesn't.
+
+         :not(.pa-window) because a docked window is also a .pa-panel and its
+         width is the user's to drag — it sets max-width:none for that reason. */
+      .pa-panel:not(.pa-window){max-width:max(20rem, min(94vw, calc(var(--pa-hud-gap, 100vw) - 1.5rem)));}
       .pa-panel .pa-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
         padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;
         position:sticky;top:0;background:#1c1a19;z-index:2;}

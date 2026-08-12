@@ -13,18 +13,47 @@
         font-display: block;
       }
       html, body { margin: 0; padding: 0; height: 100%; background: #171514; overflow: hidden; }
-      /* UI scale: 1rem grows with the viewport so every rem-based overlay scales
-         with the display (and is comfortably larger than the old fixed sizes). */
-      :root { font-size: clamp(17px, 0.5vw + 13px, 26px); }
-      /* --pa-side-panel-w is set/cleared from JS (see ui/actionIframe.ts) when
-         a docked side panel (an 'iframe' action) opens — every other fixed,
-         right-anchored piece of UI (the ☰ menubar, its popovers, the ambient
-         meeting-area widget — see paSkin.ts / meetingArea.ts) reads the same
-         variable so they step aside instead of sliding underneath the panel.
-         #game itself shrinking is what Phaser's Scale.RESIZE mode picks up
-         via its ResizeObserver and resizes the canvas + camera to match, no
-         manual game.scale call needed. */
-      #game { width: calc(100vw - var(--pa-side-panel-w, 0px)); height: 100vh; transition: width 0.18s ease; }
+      /* UI scale: ONE size for every rem in the app, deliberately not viewport-
+         relative. This used to be clamp(17px, 0.5vw + 13px, 26px), so 1rem grew
+         with the window — which meant resizing the Electron window re-scaled the
+         text and icons of everything rem-based (both docked application windows,
+         the menubar, its popovers, the chat box) while you were reading it, and a
+         window dragged narrower got *bigger* type in a smaller column.
+         A narrow column is now handled by dropping chrome and padding instead —
+         see .pa-compact in ui/dockWindow.ts — never by resizing type.
+         --pa-ui-px is the single knob: raise it for a larger UI everywhere. */
+      :root {
+        --pa-ui-px: 20px;
+        font-size: var(--pa-ui-px);
+        --pa-hud-gap: calc(
+          100vw - var(--pa-dock-l, 0px) - var(--pa-dock-r, 0px) - var(--pa-side-panel-w, 0px)
+        );
+      }
+      /* Three variables inset the game so everything docked beside it gets its
+         own column instead of covering it:
+           --pa-dock-l / --pa-dock-r  the open application windows (Matrix chat
+                                      left, Mumble right) — see ui/dockWindow.ts
+           --pa-side-panel-w          an 'iframe' action's side panel, outboard
+                                      of the right window — see ui/actionIframe.ts
+         Every other fixed, edge-anchored piece of UI (the ☰ menubar, its
+         popovers, the chat box, the ambient meeting-area widget — see
+         paSkin.ts / chatUI.ts / meetingArea.ts) reads the same variables so
+         they step aside instead of sliding underneath. #game itself shrinking
+         is what Phaser's Scale.RESIZE mode picks up via its ResizeObserver and
+         resizes the canvas + camera to match, no manual game.scale call.
+
+         --pa-hud-gap is those three folded into the one number every centre
+         anchored overlay actually needs: how much room is left between the
+         windows. Being inset from one side is not enough — a 24rem popover
+         pinned to the left window's inner edge still runs into the right
+         window once both are open, which is only ~1500px of window width away.
+         Anything sized in the middle of the screen clamps its width to this. */
+      #game {
+        position: fixed; top: 0; bottom: 0;
+        left: var(--pa-dock-l, 0px);
+        right: calc(var(--pa-dock-r, 0px) + var(--pa-side-panel-w, 0px));
+        transition: left 0.18s ease, right 0.18s ease;
+      }
       #status {
         position: fixed; top: 0.5rem; left: 0.5rem; z-index: 10;
         font: 0.85rem/1.4 'FS Pixel Sans', ui-monospace, monospace; color: #adb0b2;

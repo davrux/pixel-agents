@@ -159,9 +159,9 @@ chmod +x pixel-agents-latest-x86_64.AppImage
 
 #### Mumble voice (desktop only)
 
-The desktop app is also a **Mumble client**. Set a server, name and (optionally)
-a certificate under *Settings → Mumble voice*, then open the **🎧 Mumble** panel
-from the top bar and flip its switch: you get the server's channel tree, its
+The desktop app is also a **Mumble client**. Open the **🎧 Mumble** panel from
+the top bar, set a server, name and (optionally) a certificate behind its ⚙
+button, then flip its switch: you get the server's channel tree, its
 users, push-to-talk with a threshold gate, and per-user volume — alongside, but
 independent of, the built-in zone voice. The 📌 pin keeps the panel open while
 you play instead of closing when you open another menu. You can only be in one

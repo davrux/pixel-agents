@@ -198,10 +198,15 @@ Add a matching command for any new destination (see AGENTS.md convention).
     in `userData/mumble.json`, secrets via `safeStorage`, TOFU cert check),
     `service.ts` (owns one session, validates every IPC payload).
   - `client/src/voice/Mumble*.ts` is renderer: WebCodecs Opus encode/decode, an
-    80 ms jitter buffer, per-user mixing, the panel and the settings block. The
-    panel is its own top-bar entry (not inside Audio) and can be pinned open;
-    in the office that means it opts out of setMenu's one-panel-at-a-time rule
-    (`body.pa-mumble-pinned` shifts the other right-hand popovers aside).
+    80 ms jitter buffer, per-user mixing, the panel and the settings view. The
+    panel is its own top-bar entry (not inside Audio) and, in the office, the
+    right-hand **docked application window** (see "Docked windows" below) — not
+    a popover, so it neither closes nor is closed by the menus.
+  - The connection settings (`MumbleSettingsUI`) are a **second view of that same
+    window**, reached by ⚙ in its header strip, the way Matrix keeps its account
+    pages inside the chat window: `#pa-mb` holds a persistent `#pa-mb-master`
+    strip plus one `<section>` per view, and only one section is displayed. They
+    used to be a block inside the office's Settings panel.
   - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
     both were once broken, which made voices drift low and slow:
     1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on
@@ -241,6 +246,69 @@ Add a matching command for any new destination (see AGENTS.md convention).
     both paths.
   - The pixel-agents server is uninvolved apart from an optional
     `GET /mumble/config` address suggestion (`MUMBLE_HOST`/`_PORT`/`_CHANNEL`).
+- **Docked windows** (`client/src/ui/dockWindow.ts`) — the office runs as three
+  columns: Matrix chat left, the Phaser world in the middle, Mumble right. A
+  window is the same `.pa-panel` chrome `mkPanel` builds, plus a `DockWindow`
+  that makes it a full-height column with a drag-to-resize grip and remembers
+  its width + open state in `localStorage` (`pa-mx-win-*`, `pa-mb-win-*`), so a
+  zone change (a full page reload) brings both back.
+  - The layout is two custom properties on `<html>`: `--pa-dock-l` /
+    `--pa-dock-r`, set only while that side's window is open. `#game`
+    (`index.html`) is inset by both plus `--pa-side-panel-w` (an `iframe`
+    action's panel, outboard of the right window), and Phaser's `Scale.RESIZE`
+    ResizeObserver does the rest — never call `game.scale` by hand.
+  - **Anything fixed to a screen edge must read those variables**, or it ends up
+    underneath a window: the menubar and its popovers (`paSkin.ts`), the chat
+    box (`chatUI.ts`), the meeting widget (`meetingArea.ts`), the layout
+    editor's rail and the asset editors. Full-screen modal overlays (arcade,
+    conference, admin, dialogs) deliberately do not — they cover everything.
+  - **…and must clamp its width to `--pa-hud-gap`.** Being inset from one side is
+    only half of it: a 24rem popover pinned to the left window's inner edge still
+    runs into the right window once both are open, which is only ~1500px of
+    window width away. `--pa-hud-gap` (`index.html`) is the three variables
+    folded into "how much room is left between the windows"; every centre-anchored
+    overlay caps its width against it. Use the `var(--pa-hud-gap, 100vw)` fallback
+    — an undefined custom property invalidates the whole declaration, which for a
+    `max-width` silently means *no cap at all*.
+  - The two clamps differ on purpose. A **popover** stops shrinking at a 20rem
+    floor and overlaps past that, because it lives in the layer *above* the
+    windows and you dismiss it in a second. The **chat box and meeting widget**
+    have no floor and shrink all the way, because they sit *below* that layer, so
+    for them an overlap means being covered rather than covering.
+  - **Stacking is explicit; do not let two things share a layer.** A window is
+    `z-index:56` — game and chat box (55) below it, the popover layer (60) and the
+    editors' panels (61) above, 57-59 left to the in-game HUD. Before that a
+    window inherited `.pa-panel`'s 60 and *tied* with the popovers, so the winner
+    was construction order in `buildPanels`: Audio is built before both windows
+    and every other menu after them, which made Audio the one menu that opened
+    underneath a window while the rest opened on top. A tie is not a default, it
+    is a coin toss.
+  - Neither window is a `MenuId`: `setMenu()` does not touch them, and the
+    click-outside handler treats them as inside. Closing is the ✕, the top-bar
+    button, or (Matrix only) Escape at its root view.
+  - **The UI scale is fixed, not viewport-relative.** `:root` in `index.html`
+    sets `font-size: var(--pa-ui-px)` (one constant). It used to be
+    `clamp(17px, 0.5vw + 13px, 26px)`, which re-scaled the text and icons of
+    every rem-based overlay while you resized the Electron window — a window
+    dragged narrower got *larger* type in a smaller column. Change `--pa-ui-px`
+    to resize the whole UI; do not reintroduce a `vw` term.
+  - A narrow column adapts by **showing less at the same size**, never by
+    shrinking type. Below `compactBelowRem` a window gets `.pa-compact`, and the
+    rest is CSS: shared chrome loses padding here, and each panel drops its own
+    secondary rows (`matrixSkin.ts` hides the room-list preview line and your own
+    MXID; `MumbleUI.injectStyles` tightens the tree indent and the per-user row).
+    Nothing under `.pa-compact` may set a `font-size` or resize an icon box.
+  - `desiredPx` vs `widthPx`: the ceiling is a fraction of the viewport, so the
+    width the user asked for is kept separately from the width that currently
+    fits. Fold them together and a window narrowed by a temporarily small
+    viewport can never grow back — `reflow()` re-fits the request, only a drag or
+    a restore calls `requestWidth()`.
+  - `fill: true` makes the body a non-scrolling flex column, for a panel that
+    pins chrome around its own scroller. Both application windows use it: Matrix
+    pins a status strip and composer around its timeline, Mumble pins its header
+    strip and its device controls above the channel tree (`#pa-mb-tree` is that
+    view's one scroller, with a `min-height` floor and `#pa-mb-main` scrolling
+    only as a short-window fallback).
 
 ## Ops gotchas
 - **Push:** `GIT_SSH_COMMAND="ssh -4" git push …` (Codeberg hangs over IPv6).

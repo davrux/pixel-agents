@@ -1,6 +1,29 @@
 # electron-builder packaging config for the Pixel Agents desktop app.
-# Produces an unsigned Linux AppImage (no code-signing certs; T5.3 confirms
-# install-and-launch on real Linux). The authoritative build gate is T5.1.
+# Produces packages for all three desktops with no code-signing certs: Linux
+# AppImage, Windows NSIS installer, macOS dmg for x64 + arm64 (ad-hoc signed —
+# see `mac.identity` for why that is not the same as unsigned). T5.3
+# confirms install-and-launch on real Linux; Windows and macOS have only ever
+# been built, never installed and launched by a human. The authoritative build
+# gate is T5.1.
+#
+# Build each target on its own OS. .github/workflows/desktop.yml runs the three
+# in parallel on their own runners; `pnpm dist:desktop` on your own machine only
+# ever produces a package for the machine you are sitting at, because
+# electron-builder with no platform flag targets the host.
+#
+# What cross-building from Linux actually does, measured rather than assumed:
+#   --win --dir   works, no wine — it packages win-unpacked and even generates
+#                 the .ico from icon.png
+#   --win         FAILS with "spawn wine ENOENT": the NSIS installer step needs
+#                 wine. It leaves a ~180 KB .exe behind, which is the installer
+#                 stub without its payload — a broken file that looks plausible.
+#                 Delete it if you ever see one.
+#   --mac         not possible here at all; the dmg needs macOS's hdiutil.
+#
+# Nothing here needs a per-platform native rebuild: the main process imports
+# only `electron` and `node:` builtins (Mumble included — it speaks its
+# protocol over node:tls), and desktop/package.json declares no runtime
+# dependencies at all.
 #
 # Packaged layout must satisfy the path math in desktop/src/main.ts, which
 # resolves from import.meta.url: main.js + preload.js sit together, and
@@ -55,8 +78,66 @@ linux:
   # matches Electron's app_id / StartupWMClass (clears the WM_CLASS advisory).
   syncDesktopName: true
 
-# No signing: unsigned build (no certs available in this environment / CI).
-# Hardcoded literal prefix (not ${productName}, which contains a space, and
-# ${executableName} isn't a supported artifactName macro) keeps the artifact
-# filename shell-friendly, e.g. "pixel-agents-0.1.0-x86_64.AppImage".
-artifactName: pixel-agents-${version}-${arch}.AppImage
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: build/icon.png
+
+nsis:
+  # Not electron-builder's default one-click installer, which installs the
+  # moment you open it with no directory prompt — that reads like something
+  # that got past you, doubly so for an unsigned binary SmartScreen has just
+  # warned about. perMachine stays at its default (false), so the installer
+  # never asks for an admin prompt it cannot justify with a signature.
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+mac:
+  target:
+    - target: dmg
+      # Apple Silicon needs its own slice. Without arm64 here those users get
+      # the x64 build running under Rosetta, which for an Electron app means
+      # paying the translation cost on every frame.
+      arch:
+        - x64
+        - arm64
+  icon: build/icon.png
+  category: public.app-category.social-networking
+  # Ad-hoc signed ("-"), NOT unsigned.
+  #
+  # This was `identity: null` (skip signing entirely), which is fine on Intel —
+  # you get the usual "unidentified developer" prompt and can right-click →
+  # Open. On Apple Silicon it is fatal: arm64 code must carry a valid signature
+  # to execute at all, so the app cannot launch and Finder reports the
+  # misleading "'Pixel Agents' is damaged and can't be opened. You should move
+  # it to the Bin." Nothing is damaged; there is simply no signature.
+  #
+  # "-" signs with no identity, which satisfies the arm64 requirement without a
+  # certificate. It is still not notarised, so a download is still quarantined
+  # and Gatekeeper still asks — but it is now the answerable kind of question
+  # (Open Anyway / xattr -dr com.apple.quarantine, see the release notes) rather
+  # than a dead end.
+  identity: "-"
+  # Required with ad-hoc signing: hardened runtime enforces library validation,
+  # which rejects Electron's pre-signed framework because it carries a different
+  # Team ID, and the app dies on launch. The alternative is an entitlements file
+  # granting com.apple.security.cs.disable-library-validation — more moving
+  # parts for something whose only purpose is to satisfy notarisation, which an
+  # unsigned build is not doing anyway.
+  hardenedRuntime: false
+  notarize: false
+
+# No signing on any platform (no certs available in this environment / CI), so
+# each OS greets the download in its own way: macOS Gatekeeper refuses an
+# unsigned app outright until it is un-quarantined, Windows shows a SmartScreen
+# warning, Linux just needs chmod +x. Release notes say so.
+#
+# The literal `pixel-agents` prefix is deliberate (not ${productName}, which
+# contains a space, and ${executableName} is not a supported artifactName
+# macro) and keeps the filename shell-friendly. ${ext} is what makes one
+# artifactName safe for all three platforms: this used to hardcode .AppImage,
+# which would have named the Windows installer "…-x64.AppImage" — a file
+# Windows will not run on a double-click.
+artifactName: pixel-agents-${version}-${arch}.${ext}
