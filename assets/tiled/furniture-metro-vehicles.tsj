@@ -1,0 +1,917 @@
+{
+  "columns": 0,
+  "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+  },
+  "name": "furniture-metro-vehicles",
+  "tilecount": 36,
+  "tiledversion": "1.11.0",
+  "tileheight": 112,
+  "tilewidth": 96,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_01.png",
+      "imagewidth": 48,
+      "imageheight": 96,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_02.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_03.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_04.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_05.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_06.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_07.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_08.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_09.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_10.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_11.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_12.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_13.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_14.png",
+      "imagewidth": 96,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_15.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 15"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_16.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 16"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_17.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 17"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_18.png",
+      "imagewidth": 80,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 18"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_19.png",
+      "imagewidth": 48,
+      "imageheight": 112,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 19"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_20.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_20"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 20"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_21.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_21"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 21"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_22.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_22"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 22"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_23.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_23"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 23"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_24.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_24"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 24"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_25.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_25"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 25"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_26.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_26"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 26"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_27.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_27"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 27"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_28.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_28"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 28"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_29.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_29"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 29"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_30.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_30"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 30"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_31.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_31"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 31"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_32.png",
+      "imagewidth": 96,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_32"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 32"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_33.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_33"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 33"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_34.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_34"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 34"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_35.png",
+      "imagewidth": 64,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_35"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 35"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CAR_36.png",
+      "imagewidth": 80,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CAR_36"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Car 36"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

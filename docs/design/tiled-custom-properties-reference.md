@@ -52,6 +52,11 @@ the 10px around the strip comes out as flat color instead of room floor.
 Every tile in `furniture-*.tsj`. This is the **catalog definition** — one entry per
 furniture *type* (not per placed instance; see FurnitureObject for that).
 
+The `furniture-metro-*.tsj` files (home / hospital / vehicles, all `METRO_`-prefixed
+ids) are machine-generated from the MetroCity pack by
+`server/scripts/gen-metro-furniture.mts` — don't hand-edit them, re-run that instead.
+Everything else about them is ordinary: same class, same properties, same catalog.
+
 | Property | Type | Required? | Notes |
 |---|---|---|---|
 | `id` | string | **required** | Stable catalog identifier. Skipped with a console warning if missing. |

@@ -1,0 +1,917 @@
+{
+  "columns": 0,
+  "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+  },
+  "name": "furniture-metro-hospital",
+  "tilecount": 36,
+  "tiledversion": "1.11.0",
+  "tileheight": 80,
+  "tilewidth": 128,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HBED_01.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HBED_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital bed 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HBED_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HBED_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital bed 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_01.png",
+      "imagewidth": 16,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_02.png",
+      "imagewidth": 16,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_03.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_04.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_05.png",
+      "imagewidth": 48,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_06.png",
+      "imagewidth": 16,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_07.png",
+      "imagewidth": 80,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_08.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_09.png",
+      "imagewidth": 80,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HDOOR_10.png",
+      "imagewidth": 80,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HDOOR_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital door 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_01.png",
+      "imagewidth": 16,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_02.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_03.png",
+      "imagewidth": 64,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_04.png",
+      "imagewidth": 128,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_05.png",
+      "imagewidth": 128,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_06.png",
+      "imagewidth": 128,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_07.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_08.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_09.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_10.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_11.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_12.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_13.png",
+      "imagewidth": 64,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_14.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_15.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 15"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_16.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 16"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_17.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 17"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_18.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 18"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_19.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 19"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_20.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_20"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 20"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_21.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_21"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 21"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_22.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_22"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 22"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_23.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_23"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 23"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_HMISC_24.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_HMISC_24"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hospital misc 24"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}

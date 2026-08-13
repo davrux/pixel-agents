@@ -1,0 +1,5262 @@
+{
+  "columns": 0,
+  "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+  },
+  "name": "furniture-metro-home",
+  "tilecount": 202,
+  "tiledversion": "1.11.0",
+  "tileheight": 96,
+  "tilewidth": 128,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_01.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_03.png",
+      "imagewidth": 32,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_04.png",
+      "imagewidth": 80,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_05.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_06.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BATH_07.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BATH_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bathroom 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_01.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_02.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_03.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_04.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_05.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_06.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_07.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_08.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_09.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_10.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_11.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_12.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_13.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_14.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_15.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 15"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED_16.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 16"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_01.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_03.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_04.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_05.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_06.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_07.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_08.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_09.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_10.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_11.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_12.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_13.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_14.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_15.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 15"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_16.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 16"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_17.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 17"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_18.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 18"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_19.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 19"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_BED2_20.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_BED2_20"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bed 20"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_RUG_01.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_RUG_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Rug 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_RUG_02.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_RUG_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Rug 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_RUG_03.png",
+      "imagewidth": 64,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_RUG_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Rug 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_RUG_04.png",
+      "imagewidth": 64,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_RUG_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Rug 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_RUG_05.png",
+      "imagewidth": 64,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_RUG_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Rug 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_01.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_02.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_03.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_04.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_05.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 53,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_06.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_07.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY_08.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_01.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_02.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 58,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_03.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_04.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_05.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_06.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_07.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CHIMNEY2_08.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CHIMNEY2_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fireplace 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_01.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 65,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_03.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_04.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_05.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_06.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_07.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 71,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_08.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 72,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_CUPBOARD_09.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_CUPBOARD_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Cupboard 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "storage",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 73,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_01.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 74,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_02.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 75,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_03.png",
+      "imagewidth": 16,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 76,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_04.png",
+      "imagewidth": 32,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 77,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_05.png",
+      "imagewidth": 32,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_06.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 79,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_07.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_08.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_09.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_10.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_11.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_12.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_13.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_DOOR_14.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_DOOR_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Door 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_01.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_02.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_03.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_04.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 91,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_05.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 92,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PLANT_06.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PLANT_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Plant 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_01.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 94,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_03.png",
+      "imagewidth": 32,
+      "imageheight": 96,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 96,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_04.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_05.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 98,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_06.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_07.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_08.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_09.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_10.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_11.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN_12.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_01.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_02.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_03.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_04.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_05.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_KITCHEN2_06.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_KITCHEN2_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Kitchen 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "kitchens",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_01.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 112,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_02.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_03.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_04.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_05.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LAMP_06.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LAMP_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Lamp 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING_01.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 118,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING_02.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_01.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_02.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 121,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_03.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 122,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_04.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 123,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_05.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 124,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_06.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 125,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_07.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 126,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_08.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 127,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_09.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 128,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_10.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 129,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_11.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_12.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_13.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 132,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_14.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 133,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_15.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 15"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 134,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_16.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 16"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 135,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_17.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 17"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 136,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_18.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 18"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 137,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_19.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 19"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 138,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_20.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_20"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 20"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 139,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_21.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_21"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 21"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 140,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_22.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_22"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 22"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 141,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_23.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_23"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 23"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 142,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_24.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_24"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 24"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 143,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_25.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_25"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 25"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 144,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_26.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_26"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 26"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 145,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_27.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_27"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 27"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 146,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_28.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_28"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 28"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 147,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_29.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_29"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 29"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 148,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_30.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_30"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 30"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 149,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_31.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_31"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 31"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 150,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_32.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_32"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 32"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 151,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_33.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_33"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 33"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 152,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_34.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_34"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 34"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 153,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_35.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_35"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 35"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 154,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_36.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_36"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 36"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 155,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_37.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_37"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 37"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 156,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_38.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_38"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 38"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 157,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_39.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_39"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 39"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 158,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_LIVING2_40.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_LIVING2_40"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Living room 40"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 159,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_01.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 160,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_02.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_03.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 162,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_04.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 163,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_05.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 164,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_06.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 165,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_07.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 166,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_08.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 167,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_09.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 168,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_MISC_10.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_MISC_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Misc 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "misc",
+          "propertytype": "Category"
+        }
+      ]
+    },
+    {
+      "id": 169,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_01.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 170,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_02.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 171,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_03.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 172,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_04.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 173,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_05.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 174,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_06.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 175,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_07.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 176,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_08.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 177,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_09.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 178,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING_10.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 179,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING2_01.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING2_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 180,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING2_02.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING2_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 181,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING2_03.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING2_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 182,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING2_04.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING2_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 183,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_PAINTING2_05.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_PAINTING2_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Painting 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 184,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TV_01.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TV_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "TV 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 185,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TV_02.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TV_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "TV 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 186,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TV_03.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TV_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "TV 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 187,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TV_04.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TV_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "TV 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "electronics",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": 188,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_01.png",
+      "imagewidth": 64,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 1"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        }
+      ]
+    },
+    {
+      "id": 189,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_02.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 2"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 190,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_03.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 3"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 191,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_04.png",
+      "imagewidth": 128,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 4"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 192,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_05.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 5"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 193,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_06.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 6"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 194,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_07.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 7"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 195,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_08.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 8"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 196,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_09.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 9"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 197,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_10.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 10"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 198,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_11.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 11"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 199,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_12.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 12"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_13.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 13"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    },
+    {
+      "id": 201,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_WINDOW_14.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_WINDOW_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Window 14"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "value": "decor",
+          "propertytype": "Category"
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 3
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}
