@@ -181,10 +181,12 @@ export class MatrixStore {
   private readonly onOnline = (): void => this.retryNow();
   private readonly onOffline = (): void => this.setStatus('offline');
 
-  /** Live events that arrived as ciphertext and are still being decrypted. Only
-   *  an id in here may notify when `Decrypted` fires: that event also fires for
-   *  history whose keys turn up much later, and backfilled messages from last
-   *  week must not pop notifications. */
+  /** Live events that arrived as ciphertext and have not been read yet (see
+   *  `considerNotify` — sync starts their decryption only after the timeline
+   *  event, so most of these are not even in flight when parked). Only an id in
+   *  here may notify when `Decrypted` fires: that event also fires for history
+   *  whose keys turn up much later, and backfilled messages from last week must
+   *  not pop notifications. */
   private readonly awaitingDecrypt = new Set<string>();
 
   private readonly notifier: MatrixNotifier;
@@ -587,11 +589,21 @@ export class MatrixStore {
    * preference on — would put the SDK's internal error text in an OS
    * notification.
    *
-   * A still-decrypting event is parked in `awaitingDecrypt` instead, and comes
-   * back through `MatrixEventEvent.Decrypted`. A permanent failure is dropped:
-   * push rules cannot be evaluated against a body nobody can read, so we cannot
-   * tell a muted room from a mention, and guessing in either direction is worse
-   * than the unread badge the room list already shows.
+   * An event that is still ciphertext is parked in `awaitingDecrypt` instead,
+   * and comes back through `MatrixEventEvent.Decrypted`. A permanent failure is
+   * dropped: push rules cannot be evaluated against a body nobody can read, so
+   * we cannot tell a muted room from a mention, and guessing in either
+   * direction is worse than the unread badge the room list already shows.
+   *
+   * "Still ciphertext" is deliberately NOT `isBeingDecrypted()`: sync maps a
+   * joined room's timeline events with `decrypt: false`
+   * (`sync.ts` -> `mapSyncEventsFormat(joinObj.timeline, room, false)`) and only
+   * kicks decryption off in `room.decryptCriticalEvents()`, which runs *after*
+   * `injectRoomEvents` has already emitted `RoomEvent.Timeline`. A live message
+   * in an encrypted room therefore arrives here with no decryption started at
+   * all — not decrypted, not being decrypted, not a failure — and gating on
+   * `isBeingDecrypted()` alone dropped it at the `m.room.message` check below
+   * and never re-considered it on `Decrypted`, silencing every encrypted room.
    */
   private considerNotify(ev: MatrixEvent, room: Room | undefined, recalculate: boolean): void {
     const client = this.client;
@@ -599,7 +611,13 @@ export class MatrixStore {
     // The initial sync replays every room's recent history as live events.
     if (!this.everPrepared) return;
 
-    if (ev.isBeingDecrypted()) {
+    // Dispatch order as in `classify()`: never on `getType()` first. `getType()`
+    // reports the *clear* type once an event is decrypted, so it still reading
+    // `m.room.encrypted` is what "nobody has read this yet" looks like —
+    // whether decryption is in flight or has not been started. A permanent
+    // failure never reaches it: the SDK's synthetic clear event reports
+    // `m.room.message`, and the check below catches it.
+    if (ev.isBeingDecrypted() || ev.getType() === sdk.EventType.RoomMessageEncrypted) {
       const id = ev.getId();
       // Bounded for the same reason the notifier's dedupe set is: an event that
       // never decrypts must not pin an entry here forever.
