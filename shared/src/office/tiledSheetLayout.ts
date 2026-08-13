@@ -43,54 +43,35 @@ export const WALL_TILE_SPACING = 6;
 /** One entry per floor "set" — index = OfficeLayout.tileFloorSet, matching
  *  a <name>.tsj / png/<name>.png pair (server/scripts/bake-floor-wall-tiled.mts
  *  writes these; client/src/net/tiledSheets.ts fetches them in this exact
- *  order). The regular set is named after its actual source palette (see
- *  palettes.ts's PALETTE_64 — Kerrie Lake's "Resurrect 64",
- *  lospec.com/palette-list/resurrect-64, verified hex-for-hex against the
- *  published palette); the warm set keeps its plain "-warm" name since
- *  WARM_PALETTE_64 isn't a published/named palette, just generated for this
- *  project. 'floor-warm' shares the same 11 base patterns as the regular set
- *  (plus one warm-only pattern, wood planks) — see FLOOR_SET_PALETTES.
- *  'floor-metro-*' is an unrelated set of its own 7 patterns (tile grid, wood,
- *  decking) derived from the MetroCity Interior pack, not a recolor of the base
- *  patterns — see server/scripts/gen-metro-source-art.mts.
- *
- *  The '-endesga' pairs bake the same two pattern lists against Endesga's
- *  "Endesga 64" (see palettes.ts's ENDESGA_PALETTE_64) — its neutral-heavy
- *  ramps suit the near-greyscale metro textures better than the other two
- *  palettes, which push everything toward a hue.
+ *  order). Each set is named after its own art plus the palette it bakes
+ *  against: 'floor-*' is this project's original 11 hand-drawn patterns,
+ *  'floor-metro-*' an unrelated set of 7 patterns (tile grid, wood, decking)
+ *  derived from the MetroCity Interior pack (see
+ *  server/scripts/gen-metro-source-art.mts) — not a recolor of the others.
+ *  '-resurrect64' is Kerrie Lake's "Resurrect 64"
+ *  (lospec.com/palette-list/resurrect-64), '-endesga' is Endesga's "Endesga 64"
+ *  (lospec.com/palette-list/endesga-64), both verified hex-for-hex — see
+ *  palettes.ts.
  *
  *  APPEND ONLY: a saved layout stores this index in tileFloorSet, so
  *  reordering silently restyles every existing floor tile. */
 export const FLOOR_SET_FILES = [
   'floor-resurrect64',
-  'floor-warm',
   'floor-metro-resurrect64',
   'floor-endesga',
   'floor-metro-endesga',
 ];
 
 /** One entry per wall "set" — index = OfficeLayout.tileWallSet, matching a
- *  wall-<name>.tsj / png/wall-<name>.png pair. Sets 2/3 share the same
- *  source art as sets 0/1 respectively, just baked with a different
- *  palette (see palettes.ts's WALL_SET_PALETTES) — a deliberate style+color
- *  pairing, not a naming coincidence. Same resurrect64/warm naming as
- *  FLOOR_SET_FILES above.
- *
- *  The two 'wall-metro-*' sets (same art, different palette) are the thin-wall
- *  style: a 6px strip centered in its cell instead of art filling the whole
- *  tile, so they only read correctly where floor is drawn beneath the wall.
- *  Their art is synthesized from the MetroCity Interior pack's own wall
- *  cross-sections, and they are the only sets with more than 16 pieces — 4
- *  north-wall face pieces follow the bitmask ones. See
- *  server/scripts/gen-metro-source-art.mts.
+ *  wall-<name>.tsj / png/wall-<name>.png pair. Both sets are the same
+ *  thin-wall art baked against a different palette (same '-resurrect64' /
+ *  '-endesga' naming as FLOOR_SET_FILES above): a 6px strip inside its cell
+ *  rather than art filling the whole tile, so they only read correctly where
+ *  floor is drawn beneath the wall (see OfficeLayout.tileWallFloorPattern).
+ *  Synthesized from the MetroCity Interior pack's own wall cross-sections, and
+ *  the only sets with more than 16 pieces — 4 north-wall face pieces follow the
+ *  bitmask ones. See server/scripts/gen-metro-source-art.mts.
  *
  *  APPEND ONLY: a saved layout stores this index in tileWallSet, so
  *  reordering silently restyles every existing wall tile. */
-export const WALL_SET_FILES = [
-  'wall-0-resurrect64',
-  'wall-1-resurrect64',
-  'wall-0-warm',
-  'wall-1-warm',
-  'wall-metro-resurrect64',
-  'wall-metro-endesga',
-];
+export const WALL_SET_FILES = ['wall-metro-resurrect64', 'wall-metro-endesga'];

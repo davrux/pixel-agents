@@ -17,12 +17,10 @@
  * positionally because these files are entirely machine-generated — nothing
  * ever hand-edits their tile lists, unlike furniture-*.tsj.
  *
- * "Sets" (see FLOOR_SET_FILES/WALL_SET_FILES in tiledSheetLayout.ts): floor
- * and wall each come in a regular (PALETTE_64) and a warm (WARM_PALETTE_64)
- * variant, one .tsj/.png pair per variant — never mixed into one file, so
- * opening e.g. floor.tsj in Tiled always shows the same 11 patterns
- * regardless of how many warm variants exist. floor-warm additionally has
- * one warm-only pattern (wood planks) with no regular counterpart.
+ * "Sets" (see FLOOR_SET_FILES/WALL_SET_FILES in tiledSheetLayout.ts): every
+ * (art, palette) combination is its own .tsj/.png pair, never mixed into one
+ * file — so opening e.g. floor-resurrect64.tsj in Tiled always shows the same
+ * 11 patterns no matter how many other bakes of that art exist.
  *
  * Run (from server/): node --import tsx scripts/bake-floor-wall-tiled.mts
  */
@@ -32,7 +30,7 @@ import * as path from 'node:path';
 
 import { decodeFloorPng, parseWallPng } from '../src/core/assets/pngDecoder.js';
 import { averageLightness, getColorizedSprite } from '../../shared/src/office/colorize.js';
-import { ENDESGA_PALETTE_64, PALETTE_64, WARM_PALETTE_64, swatchColor } from '../../shared/src/office/palettes.js';
+import { ENDESGA_PALETTE_64, PALETTE_64, swatchColor } from '../../shared/src/office/palettes.js';
 import {
   FLOOR_TILE_W,
   FLOOR_TILE_H,
@@ -124,9 +122,8 @@ function checkPaletteSize(palette: PaletteSwatch[], label: string): PaletteSwatc
   return palette;
 }
 
-/** The 11 shared base floor patterns the regular + warm floor sets include
- *  (in order — row i = floor_<i>.png). floor-warm additionally appends its own
- *  warm-only pattern (wood planks) after these. */
+/** This project's own 11 floor patterns, in order — row i = floor_<i>.png.
+ *  Shared by the resurrect64 and endesga bakes of that art. */
 const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p}.png`);
 
 /** The metro floor set's own patterns — a separate list, not an extension of
@@ -262,11 +259,6 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
 
 fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
 bakeFloorSheet('floor-resurrect64', BASE_FLOOR_PATTERN_FILES, PALETTE_64);
-bakeFloorSheet('floor-warm', [...BASE_FLOOR_PATTERN_FILES, 'floor_11.png'], WARM_PALETTE_64);
-bakeWallSheet('wall-0-resurrect64', 'wall_0.png', PALETTE_64);
-bakeWallSheet('wall-1-resurrect64', 'wall_1.png', PALETTE_64);
-bakeWallSheet('wall-0-warm', 'wall_0.png', WARM_PALETTE_64);
-bakeWallSheet('wall-1-warm', 'wall_1.png', WARM_PALETTE_64);
 bakeFloorSheet('floor-metro-resurrect64', METRO_FLOOR_PATTERN_FILES, PALETTE_64);
 bakeWallSheet('wall-metro-resurrect64', 'wall_metro.png', PALETTE_64);
 bakeFloorSheet('floor-endesga', BASE_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
