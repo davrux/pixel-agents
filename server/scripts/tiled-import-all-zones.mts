@@ -26,7 +26,7 @@ import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore } from '../src/layoutStore.js';
 import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, resolveZoneId, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, isNoImportMap, resolveZoneId, NO_IMPORT_SUFFIX, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -39,7 +39,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const files = fs.existsSync(ZONES_DIR) ? fs.readdirSync(ZONES_DIR).filter((f) => f.endsWith('.tmj')).sort() : [];
+  const all = fs.existsSync(ZONES_DIR) ? fs.readdirSync(ZONES_DIR).filter((f) => f.endsWith('.tmj')).sort() : [];
+  // Scratch copies are filtered out here rather than left to fail inside
+  // importZoneTmjFile, so a batch run reports them as skipped instead of as
+  // errors (see isNoImportMap).
+  const files = all.filter((f) => !isNoImportMap(f));
+  for (const f of all.filter(isNoImportMap)) console.log(`· ${f} skipped (${NO_IMPORT_SUFFIX})`);
   if (files.length === 0) {
     console.error(`No .tmj files found in ${ZONES_DIR}.`);
     process.exit(1);

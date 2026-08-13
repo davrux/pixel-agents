@@ -20,7 +20,7 @@ import { loadAssetBundle } from '../src/assets.js';
 import { LayoutStore } from '../src/layoutStore.js';
 import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, isNoImportMap, NO_IMPORT_SUFFIX, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -39,6 +39,10 @@ async function main(): Promise<void> {
   }
 
   const tmjPath = path.join(ZONES_DIR, `${zoneId}.tmj`);
+  if (isNoImportMap(tmjPath)) {
+    console.error(`${path.basename(tmjPath)} carries the ${NO_IMPORT_SUFFIX} suffix — scratch maps are never imported. Copy it to a name without that suffix first.`);
+    process.exit(1);
+  }
   if (!fs.existsSync(tmjPath)) {
     console.error(`No exported map at ${tmjPath} — run tiled-export-zone.mts first.`);
     process.exit(1);

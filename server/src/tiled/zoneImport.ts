@@ -31,6 +31,24 @@ const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || path.resolve(
  *  new one per import. */
 export const DEFAULT_TILED_IMPORT_LAYOUT_NAME = 'TiledImport';
 
+/** Filename suffix marking a zones/*.tmj as a scratch copy that must never be
+ *  imported: `uponu-noimport.tmj` is a place to try things out while the real
+ *  `uponu.tmj` stays untouched. */
+export const NO_IMPORT_SUFFIX = '-noimport';
+
+/**
+ * Is this a scratch map that must not be imported?
+ *
+ * Keyed on the FILENAME, deliberately not on the map's own `mapName` — a
+ * scratch copy is normally made by duplicating a real map, so it arrives
+ * carrying that map's mapName, and resolveZoneId would happily point it at the
+ * live zone. That is exactly the accident this prevents: without the check,
+ * saving a copy called `uponu-noimport.tmj` imports straight over `uponu`.
+ */
+export function isNoImportMap(filename: string): boolean {
+  return path.basename(filename, '.tmj').toLowerCase().endsWith(NO_IMPORT_SUFFIX);
+}
+
 export interface ZoneImportResult {
   cols: number;
   rows: number;
@@ -78,6 +96,11 @@ export async function importZoneTmjFile(
   layoutStore: LayoutStore,
   zones: ZoneStore,
 ): Promise<ZoneImportResult> {
+  // Enforced here, in the one place every import path funnels through, so no
+  // caller can forget it (see isNoImportMap for why the filename decides).
+  if (isNoImportMap(tmjPath)) {
+    throw new Error(`${path.basename(tmjPath)} carries the ${NO_IMPORT_SUFFIX} suffix and is never imported`);
+  }
   const tmj = JSON.parse(fs.readFileSync(tmjPath, 'utf-8'));
   const tiledDir = path.join(ASSETS_ROOT, 'assets', 'tiled');
   const { layout, images } = importTmjToLayout(tmj, registry, (relPath) => {
@@ -170,6 +193,10 @@ export function watchZoneFiles(): void {
     pending.delete(file);
     const tmjPath = path.join(zonesDir, file);
     if (!fs.existsSync(tmjPath)) return; // deleted before its debounce fired
+    if (isNoImportMap(file)) {
+      console.log(`[tiled-watch] ${file} skipped (${NO_IMPORT_SUFFIX})`);
+      return;
+    }
     const zoneId = resolveZoneId(tmjPath, file);
     try {
       // Reloaded fresh per import (not cached at boot) so a furniture
