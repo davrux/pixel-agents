@@ -1793,6 +1793,12 @@ export class OfficeState {
             ch.x = ch.pendingWarp.col * TILE_SIZE + TILE_SIZE / 2;
             ch.y = ch.pendingWarp.row * TILE_SIZE + TILE_SIZE / 2;
             ch.pendingWarp = null;
+            // Arrive facing the viewer. A warp keeps the same Character, so
+            // without this you materialise still facing whatever way you last
+            // walked before stepping into the portal — often away from the
+            // camera, which reads as arriving with your back turned. A freshly
+            // joined player already starts DOWN (see createCharacter).
+            ch.dir = Direction.DOWN;
             ch.matrixEffect = 'spawn';
             ch.matrixEffectTimer = 0;
             ch.matrixEffectSeeds = matrixEffectSeeds();
