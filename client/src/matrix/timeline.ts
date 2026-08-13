@@ -159,6 +159,55 @@ export interface TimelineHooks {
   loadImage(content: MxImageContent): Promise<string>;
   /** The user clicked a loaded picture — open the full-size viewer. */
   onOpenImage(content: MxImageContent, url: string): void;
+  /** The row's ⋯ button was activated: open the message menu (react / reply /
+   *  edit / delete) for this event, anchored to `anchor`. */
+  onOpenActions(ev: MxEvent, anchor: HTMLElement): void;
+  /** A reaction chip was activated — add my reaction with that key, or take it
+   *  away again if it is already mine. */
+  onToggleReaction(eventId: string, key: string): void;
+  /** The quote above a reply was activated — bring the quoted message into
+   *  view (see `revealEvent`, which the caller routes back into). */
+  onJumpToReply(eventId: string): void;
+}
+
+/** What the message menu may offer for one event. Lives here because the row's
+ *  ⋯ button and the menu itself have to agree on it exactly: a button that
+ *  opens an empty menu is worse than no button. */
+export interface MsgActions {
+  react: boolean;
+  reply: boolean;
+  edit: boolean;
+  remove: boolean;
+  any: boolean;
+}
+
+export function messageActionsFor(ev: MxEvent): MsgActions {
+  // A local echo has no event id yet, so nothing can relate to it — and there
+  // is nothing to delete server-side either. A deleted message is done.
+  const settled = ev.event_id !== '' && ev.echo === undefined && !ev.redacted;
+  const readable = settled && !ev.decrypting && !ev.decryptError;
+  const actions = {
+    react: settled,
+    reply: readable,
+    edit: ev.canEdit === true,
+    remove: ev.canRedact === true,
+    any: false,
+  };
+  actions.any = actions.react || actions.reply || actions.edit || actions.remove;
+  return actions;
+}
+
+/** Row classes set from outside `update()` — the open-menu marker and the
+ *  jump-to flash. A sync tick repainting the row must not drop them, so the
+ *  class reset in `update()` puts these back. */
+const STICKY_ROW_CLASSES = ['mx-menu-open', 'mx-flash'];
+
+/** How much of a reaction key to draw. The key is remote text: usually one
+ *  emoji, but nothing stops it being a paragraph, and a chip is not the place
+ *  to find that out. Sliced by code point so an emoji is never cut in half. */
+function reactionLabel(key: string): string {
+  const points = Array.from(key);
+  return points.length > 8 ? `${points.slice(0, 8).join('')}…` : key;
 }
 
 export interface TimelineRenderOpts {
@@ -183,6 +232,8 @@ interface MsgRow {
   el: HTMLDivElement;
   txt: HTMLDivElement;
   retry: HTMLSpanElement;
+  /** The ⋯ button, so the view can mark the row while its menu is open. */
+  menuBtn: HTMLButtonElement;
   /** The decrypt-failure action link ("Unlock"/"Verify"). Hidden except on a
    *  `decryptError` row whose `action` is set. */
   act: HTMLSpanElement;
@@ -290,6 +341,67 @@ function buildMsgRow(deps: RowDeps): MsgRow {
   const txt = document.createElement('div');
   txt.className = 'mx-txt';
   txt.dir = 'auto';
+
+  // ---- reply quote ------------------------------------------------------
+  // A button, not a decorative block: it jumps to the quoted message, so it
+  // has to be reachable and activatable from the keyboard like any other
+  // control.
+  const quote = document.createElement('button');
+  quote.type = 'button';
+  quote.className = 'mx-quote';
+  quote.hidden = true;
+  // The two lines are stacked by an inner element rather than by the button
+  // itself: whether a <button> can be a flex container is exactly the kind of
+  // thing Chrome and Firefox have disagreed about, and if the flexbox were
+  // ignored these two spans would run onto one unclamped line and widen the
+  // whole timeline (AGENTS rule 8 — it must work in both).
+  const quoteIn = document.createElement('span');
+  quoteIn.className = 'mx-quote-in';
+  const quoteWho = document.createElement('span');
+  quoteWho.className = 'who';
+  quoteWho.dir = 'auto';
+  const quoteWhat = document.createElement('span');
+  quoteWhat.className = 'what';
+  quoteWhat.dir = 'auto';
+  quoteIn.append(quoteWho, quoteWhat);
+  quote.appendChild(quoteIn);
+  quote.addEventListener('click', () => {
+    const id = lastEvent?.replyTo?.eventId;
+    if (id) deps.onJumpToReply(id);
+  });
+
+  // ---- edited marker ----------------------------------------------------
+  // Appended *inside* `.mx-txt` at the end of every update, because both body
+  // paths (innerHTML for plain text, replaceChildren for a formatted body)
+  // clear that element — so it cannot simply be added once.
+  const edited = document.createElement('span');
+  edited.className = 'mx-edited';
+  edited.textContent = '(edited)';
+  edited.title = 'This message was edited';
+
+  // ---- reactions --------------------------------------------------------
+  const reacts = document.createElement('div');
+  reacts.className = 'mx-reacts';
+  reacts.hidden = true;
+
+  // ---- the ⋯ menu button -----------------------------------------------
+  // Kept in the tab order even while invisible (CSS reveals it on hover or
+  // focus-within): hover-only actions are unreachable without a pointer, and
+  // this is the only route to reply/edit/delete.
+  const menuBtn = document.createElement('button');
+  menuBtn.type = 'button';
+  menuBtn.className = 'mx-msg-menu';
+  menuBtn.textContent = '⋯';
+  menuBtn.title = 'Message actions';
+  menuBtn.setAttribute('aria-label', 'Message actions');
+  menuBtn.setAttribute('aria-haspopup', 'menu');
+  const actions = document.createElement('div');
+  actions.className = 'mx-actions';
+  actions.hidden = true;
+  actions.appendChild(menuBtn);
+  menuBtn.addEventListener('click', () => {
+    if (lastEvent) deps.onOpenActions(lastEvent, menuBtn);
+  });
   const retry = document.createElement('span');
   retry.className = 'mx-retry';
   retry.textContent = 'Failed — Retry';
@@ -486,11 +598,93 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     status.title = 'Sent';
   };
 
-  el.append(txt, figure, retry, act, status);
+  // ---- reply quote / reactions / actions painting -----------------------
+
+  const paintQuote = (ev: MxEvent): void => {
+    const to = ev.replyTo;
+    if (!to || ev.redacted) {
+      quote.hidden = true;
+      return;
+    }
+    quote.hidden = false;
+    quote.classList.toggle('missing', to.missing);
+    quoteWho.textContent = to.missing ? 'Quoted message' : to.senderName || to.sender;
+    quoteWhat.textContent = to.missing ? 'not loaded — scroll up to find it' : to.text;
+    quote.title = to.missing
+      ? "That message isn't loaded yet"
+      : `In reply to ${to.senderName || to.sender}${to.text ? `: ${to.text}` : ''}`;
+  };
+
+  /** Signature of the chips currently drawn. Same reason as `statusKey`:
+   *  `render()` runs on every sync tick, and rebuilding the chips each time
+   *  would drop a focused one out from under the keyboard. */
+  let reactKey = '';
+
+  const paintReactions = (ev: MxEvent): void => {
+    const list = ev.redacted ? [] : ev.reactions ?? [];
+    const key = list.map((r) => `${r.key} ${r.count} ${r.mine ? 1 : 0}${r.myEventId ? '!' : ''}`).join('');
+    if (key === reactKey) return;
+    reactKey = key;
+    // Clicking a chip changes its own count, so the rebuild below removes the
+    // very element that was activated — and focus with it, all the way out to
+    // <body>, where the panel stops owning the keyboard and WASD starts walking
+    // the player's avatar. Remember which key had focus and hand it to whatever
+    // replaces it; if that key is gone entirely (my own last reaction removed),
+    // fall back to the row's ⋯ button, which is still inside the panel.
+    const active = document.activeElement;
+    const refocusKey =
+      active instanceof HTMLElement && reacts.contains(active) ? active.dataset.mxKey ?? '' : null;
+    if (list.length === 0) {
+      reacts.hidden = true;
+      reacts.replaceChildren();
+      if (refocusKey !== null && !actions.hidden) menuBtn.focus();
+      return;
+    }
+    reacts.replaceChildren(
+      ...list.map((r) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'mx-react';
+        // Only ever compared (see refocusKey), never rendered from.
+        chip.dataset.mxKey = r.key;
+        if (r.mine) chip.classList.add('mine');
+        // Mine, but still in flight — there is no reaction event to redact yet,
+        // so the chip says "wait" rather than silently ignoring a click.
+        if (r.mine && !r.myEventId) chip.classList.add('pending');
+        const label = document.createElement('span');
+        label.className = 'k';
+        label.textContent = reactionLabel(r.key);
+        const count = document.createElement('span');
+        count.className = 'n';
+        count.textContent = String(r.count);
+        chip.append(label, count);
+        chip.title = `${r.senderNames.join(', ')} reacted with ${reactionLabel(r.key)}`;
+        chip.setAttribute(
+          'aria-label',
+          `${r.mine ? 'Remove your reaction' : 'React'} ${reactionLabel(r.key)}, ${r.count}`,
+        );
+        chip.addEventListener('click', () => {
+          const id = lastEvent?.event_id;
+          if (id) deps.onToggleReaction(id, r.key);
+        });
+        return chip;
+      }),
+    );
+    reacts.hidden = false;
+    if (refocusKey !== null) {
+      const again = Array.from(reacts.children).find(
+        (c) => c instanceof HTMLElement && c.dataset.mxKey === refocusKey,
+      );
+      if (again instanceof HTMLElement) again.focus();
+      else if (!actions.hidden) menuBtn.focus();
+    }
+  };
+
+  el.append(quote, txt, figure, retry, act, reacts, status, actions);
 
   const update = (ev: MxEvent): void => {
     lastEvent = ev;
-    el.className = 'mx-msg';
+    el.className = ['mx-msg', ...STICKY_ROW_CLASSES.filter((c) => el.classList.contains(c))].join(' ');
     // Reset here too: `.mx-rich` is added by the formatted-body path, and a row
     // recycled onto a plain message must not keep its block spacing.
     txt.className = 'mx-txt';
@@ -498,8 +692,11 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     txt.hidden = false;
     retry.hidden = true;
     act.hidden = true;
+    paintQuote(ev);
+    paintReactions(ev);
+    actions.hidden = !messageActionsFor(ev).any;
 
-    if (ev.unsigned?.redacted_because !== undefined) {
+    if (ev.redacted) {
       el.classList.add('deleted');
       clearMedia();
       txt.textContent = '(message deleted)';
@@ -556,6 +753,11 @@ function buildMsgRow(deps: RowDeps): MsgRow {
       }
     }
 
+    // Last, because both body paths above replace `.mx-txt`'s children. Not
+    // shown on a picture row: its `.mx-txt` is the filename caption, and
+    // pictures cannot be edited in the first place.
+    if (ev.edited === true && !txt.hidden) txt.appendChild(edited);
+
     if (ev.echo === 'pending') el.classList.add('pending');
     else if (ev.echo === 'failed') {
       el.classList.add('failed');
@@ -563,7 +765,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     }
   };
 
-  return { el, txt, retry, act, update, setStatus };
+  return { el, txt, retry, act, menuBtn, update, setStatus };
 }
 
 /** One rendered top-level item: a day separator or a sender group. Only
@@ -586,6 +788,8 @@ export class TimelineView {
   private readonly decryptActionTokens = new WeakMap<HTMLElement, MxDecryptAction>();
   private groupTimeEls: { el: HTMLElement; ts: number }[] = [];
   private lastFirstKey: string | null = null;
+  /** Row key whose message menu is currently open — see `setMenuOpenRow`. */
+  private menuRowId: string | null = null;
   private moreInteractive = false;
   /**
    * Whether reaching the top should load more by itself. Distinct from
@@ -775,7 +979,7 @@ export class TimelineView {
       const ev = trimmed[i]!;
       if (ev.sender !== opts.selfUserId) continue;
       if (ev.echo !== undefined) continue;
-      if (ev.unsigned?.redacted_because !== undefined) continue;
+      if (ev.redacted) continue;
       sentCheckEventId = ev.event_id;
       break;
     }
@@ -862,6 +1066,46 @@ export class TimelineView {
     this.stickToBottom = before.atBottom || pinned;
     this.lastFirstKey = firstMsgKey;
     this.el.removeAttribute('aria-busy');
+  }
+
+  /**
+   * Scroll the quoted message into view and flash it, for the reply quote's
+   * "jump to this" click. Returns false when that message is not one of the
+   * rows we hold — trimmed, or never paginated to — so the caller can say so
+   * instead of leaving a dead control.
+   *
+   * Scrolls only our own scroller (rather than `scrollIntoView`, which walks
+   * every scrollable ancestor and would move the docked panel or the page
+   * under the reader).
+   */
+  revealEvent(eventId: string): boolean {
+    const row = this.rows.get(eventId);
+    if (!row) return false;
+    const target = row.el.getBoundingClientRect();
+    const view = this.el.getBoundingClientRect();
+    this.el.scrollTop += target.top - view.top - Math.max(0, (view.height - target.height) / 2);
+    // Restart the flash even if this row is already the flashing one: clicking
+    // the same quote twice has to look like it did something.
+    row.el.classList.remove('mx-flash');
+    void row.el.offsetWidth;
+    row.el.classList.add('mx-flash');
+    this.stickToBottom = this.isAtBottom();
+    return true;
+  }
+
+  /** Mark the row whose menu is open, so its ⋯ button stays visible while the
+   *  pointer is over the menu rather than the row. */
+  setMenuOpenRow(eventId: string | null): void {
+    const mark = (id: string | null, on: boolean): void => {
+      const row = id === null ? undefined : this.rows.get(id);
+      if (!row) return;
+      row.el.classList.toggle('mx-menu-open', on);
+      row.menuBtn.setAttribute('aria-expanded', on ? 'true' : 'false');
+    };
+    if (this.menuRowId === eventId) return;
+    mark(this.menuRowId, false);
+    this.menuRowId = eventId;
+    mark(eventId, true);
   }
 
   refreshTimes(): void {

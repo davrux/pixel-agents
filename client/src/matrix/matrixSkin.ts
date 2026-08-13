@@ -233,7 +233,8 @@ export function injectMatrixSkin(): void {
 }
 .mx-grp-head .mx-time{color:#818586;font-size:0.78rem}
 
-.mx-msg{padding-left:0}
+/* position:relative anchors the floating ⋯ button below. */
+.mx-msg{padding-left:0;position:relative}
 .mx-msg .mx-txt{
   color:#f1efec;font-size:0.95rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere;
   font-family:'FS Pixel Sans',ui-monospace,monospace;
@@ -243,6 +244,76 @@ export function injectMatrixSkin(): void {
 .mx-msg.deleted .mx-txt{color:#818586;font-style:italic}
 .mx-msg.notice .mx-txt,.mx-msg.emote .mx-txt{color:#adb0b2}
 .mx-retry{color:#4998c0;cursor:pointer;font-size:0.8rem;margin-left:0.4rem;text-decoration:underline}
+
+/* ---- message actions (timeline.ts buildMsgRow) ------------------------------
+   The ⋯ button floats over the row's top-right corner, Element-style: a 26rem
+   column has no width to spare for a permanent gutter. Hidden by opacity rather
+   than display so it keeps its place in the tab order — pointer-events:none is
+   what stops the invisible button from swallowing clicks meant for the text
+   under it, and :focus-within reveals it for anyone arriving by keyboard. */
+.mx-actions{position:absolute;top:-0.2rem;right:0;opacity:0;pointer-events:none;transition:opacity .08s linear}
+.mx-actions[hidden]{display:none}
+.mx-msg:hover .mx-actions,.mx-msg:focus-within .mx-actions,.mx-msg.mx-menu-open .mx-actions{
+  opacity:1;pointer-events:auto;
+}
+.mx-msg-menu{
+  padding:0 0.35rem;line-height:1.15;font-size:0.95rem;font-family:inherit;cursor:pointer;
+  color:#adb0b2;background:#242220;border:2px solid #0a0908;border-radius:0.35rem;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-msg-menu:hover{color:#f1efec}
+.mx-msg-menu:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+
+/* An edit marker, inline at the end of the message it belongs to. */
+.mx-edited{color:#818586;font-size:0.72rem;margin-left:0.35rem;white-space:nowrap}
+
+/* The quoted message above a reply. Two lines at most: who, and a one-line
+   preview — the full message is one click away (it scrolls to it). The stacking
+   lives on .mx-quote-in, not on the <button>; see buildMsgRow for why. */
+.mx-quote{
+  display:block;width:100%;text-align:left;margin-bottom:0.2rem;
+  padding:0.15rem 0 0.15rem 0.45rem;border:0;border-left:3px solid #4a4744;border-radius:0;
+  background:none;box-shadow:none;cursor:pointer;font-family:inherit;overflow:hidden;
+}
+.mx-quote[hidden]{display:none}
+.mx-quote-in{display:flex;flex-direction:column;gap:0.05rem;min-width:0;overflow:hidden}
+.mx-quote .who{color:#adb0b2;font-size:0.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-quote .what{color:#818586;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-quote:hover{border-left-color:#4998c0}
+.mx-quote:hover .what{color:#adb0b2}
+.mx-quote.missing{cursor:default}
+.mx-quote.missing .what{font-style:italic}
+.mx-quote:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+
+/* Where a reply lands after jumping to it from a quote. Deliberately brief and
+   colour-only: the row must not change size, or the jump would move the very
+   thing it just scrolled to. */
+.mx-msg.mx-flash{animation:mx-flash 1.1s ease-out}
+@keyframes mx-flash{
+  0%{background:rgba(231,218,0,.22)}
+  100%{background:transparent}
+}
+
+/* Reaction chips. Same chip tokens as .mx-chip, sized down: a row of them has
+   to fit under a message in a narrow column, and wrap when it doesn't. */
+.mx-reacts{display:flex;flex-wrap:wrap;gap:0.25rem;margin-top:0.25rem}
+.mx-reacts[hidden]{display:none}
+.mx-react{
+  display:inline-flex;align-items:center;cursor:pointer;
+  padding:0.05rem 0.35rem;border-radius:0.6rem;border:2px solid #0a0908;
+  background:#37342f;color:#adb0b2;font:0.78rem/1.5 'FS Pixel Sans',ui-monospace,monospace;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-react .k{font-size:0.85rem}
+/* A margin rather than the flex gap property, so the emoji and its count stay
+   apart even if a browser declines to make this <button> a flex container. */
+.mx-react .n{margin-left:0.25rem}
+.mx-react:hover{color:#f1efec}
+/* Mine reads "active", which in this palette is the primary red — the same
+   meaning it carries on a toggled button elsewhere in the app. */
+.mx-react.mine{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a, inset 0 -3px 0 #5c0f10}
+.mx-react.pending{opacity:.6;cursor:progress}
+.mx-react:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
 
 /* Delivery gutter (timeline.ts setStatus): a check on your newest confirmed
    message, replaced by the pictures of whoever has read up to that message.
@@ -389,6 +460,49 @@ export function injectMatrixSkin(): void {
 .mx-rooms-foot-row{display:flex;gap:0.5rem}
 .mx-rooms-foot-row .pa-b{flex:1}
 
+/* ---- message options menu (messageMenu.ts) ----------------------------------
+   A panel-shaped popover, positioned by script inside #pa-mx. Panel tokens
+   (the deeper bevel + drop shadow), because that is what every other floating
+   surface in the app uses. */
+.mx-menu{
+  position:absolute;z-index:6;min-width:9.5rem;max-width:calc(100% - 0.75rem);
+  display:flex;flex-direction:column;gap:0.25rem;padding:0.35rem;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+  box-shadow:inset 0 2px 0 #292725, inset 0 -3px 0 #030303, 0 12px 28px rgba(0,0,0,.55);
+}
+.mx-menu-emoji{display:flex;flex-wrap:wrap;gap:0.15rem;margin-bottom:0.15rem}
+.mx-menu-e{
+  padding:0.15rem 0.25rem;min-width:1.6rem;cursor:pointer;font:1rem/1.3 'FS Pixel Sans',ui-monospace,monospace;
+  color:#f1efec;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-menu-e.other{color:#adb0b2}
+.mx-menu-e:hover{background:#37342f}
+.mx-menu-e:focus-visible,.mx-menu-row:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+.mx-menu-row{
+  display:flex;align-items:center;gap:0.45rem;padding:0.4rem 0.5rem;cursor:pointer;text-align:left;
+  color:#f1efec;background:#242220;border:2px solid #0a0908;border-radius:0.45rem;
+  font:0.9rem/1.3 'FS Pixel Sans',ui-monospace,monospace;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-menu-row:hover{background:#37342f}
+.mx-menu-row.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a, inset 0 -3px 0 #45111a}
+
+/* ---- composer context bar (MatrixUI: replying to / editing) -----------------
+   Its own line above the composer controls (which is why it takes the full
+   basis of the wrapping flex row), shaped like the inset controls beside it. */
+.mx-ctx{
+  flex-basis:100%;display:flex;align-items:center;gap:0.45rem;min-width:0;
+  padding:0.3rem 0.45rem;border:2px solid #0a0908;border-radius:0.45rem;background:#262422;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-ctx[hidden]{display:none}
+.mx-ctx .mx-ctx-i{flex:0 0 auto;color:#4998c0}
+.mx-ctx-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.05rem;overflow:hidden}
+.mx-ctx-main .who{color:#adb0b2;font-size:0.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-ctx-main .what{color:#818586;font-size:0.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-ctx .pa-b{flex:0 0 auto;padding:0.2rem 0.45rem}
+
 .mx-toast{
   position:absolute;left:50%;bottom:4.2rem;transform:translateX(-50%);
   background:#242220;border:2px solid #0a0908;border-radius:0.45rem;
@@ -483,6 +597,9 @@ export function injectMatrixSkin(): void {
 /* A room name has more to lose from truncation than a timestamp does. */
 .pa-compact #pa-mx .pa-list-row small{max-width:28%}
 .pa-compact .mx-rich pre{padding:0.35rem 0.4rem}
+/* Tightened so all nine reaction buttons still fit on one line of the message
+   menu — a lone ＋ wrapping onto a second row reads like a mistake. */
+.pa-compact .mx-menu-e{padding:0.1rem 0.15rem;min-width:1.4rem}
 .pa-compact .mx-keyrow{gap:0.35rem 0.45rem}
 
 /* A fingerprint is compared visually, so it must wrap onto more than one line rather than force a

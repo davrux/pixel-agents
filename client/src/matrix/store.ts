@@ -43,8 +43,10 @@ import type {
   MxEvent,
   MxEventUnsigned,
   MxMember,
+  MxReaction,
   MxReader,
   MxMembership,
+  MxReplyTo,
   MxRoom,
   MxSession,
   MxSecretRequest,
@@ -134,6 +136,74 @@ function toMxMembership(m: string): MxMembership {
   if (m === 'invite') return 'invite';
   if (m === 'join') return 'join';
   return 'leave';
+}
+
+/** Message kinds an edit is offered for. A picture is deliberately not one:
+ *  `m.new_content` would have to carry a whole new upload, and "edit" for a
+ *  file means "delete and send again" in every other client too. */
+const EDITABLE_MSGTYPES = new Set(['m.text', 'm.emote', 'm.notice']);
+
+/** The subset of `m.relates_to` this client acts on. */
+interface MxRelatesTo {
+  rel_type?: string;
+  event_id?: string;
+  key?: string;
+  'm.in_reply_to'?: { event_id?: string };
+}
+
+/**
+ * An event's relation, wire content first.
+ *
+ * Both halves are needed. In an encrypted room the sender lifts
+ * `m.relates_to` out of the ciphertext into the cleartext content (the spec
+ * requires it, so the *server* can aggregate) — that is the wire copy, and the
+ * only one the SDK's own `getRelation()`/`replyEventId` ever look at. The
+ * decrypted copy is the fallback for a sender that didn't lift it, which is
+ * still common for replies specifically: without it, a reply from such a client
+ * would render as an ordinary message with a stray `> quoted` prefix.
+ */
+function relationOf(ev: MatrixEvent): MxRelatesTo | undefined {
+  const wire = ev.getRelation() as MxRelatesTo | null;
+  if (wire) return wire;
+  const clear = (ev.getOriginalContent() as { 'm.relates_to'?: MxRelatesTo })['m.relates_to'];
+  return clear ?? undefined;
+}
+
+/** True for an edit event itself (`m.replace`). These are never rows: the SDK
+ *  folds them into the event they replace, whose `getContent()` then returns the
+ *  new text, so rendering them too would double every edited message. */
+function isEditRelation(ev: MatrixEvent): boolean {
+  return relationOf(ev)?.rel_type === 'm.replace';
+}
+
+/** The event this one replies to, or undefined when it isn't a reply. */
+function replyTargetId(ev: MatrixEvent): string | undefined {
+  const id = relationOf(ev)?.['m.in_reply_to']?.event_id;
+  return typeof id === 'string' && id ? id : undefined;
+}
+
+/**
+ * Drop a rich-reply fallback from a plain-text body: the `> <@alice> …` block
+ * senders prepend so that a client with no reply support still shows the
+ * context. We draw the quote ourselves from the relation, so the fallback would
+ * be the same text twice.
+ *
+ * Only ever called for an event that *is* a reply, and it never returns an
+ * empty string — a one-line reply consisting of nothing but a quote is far
+ * likelier to be a fallback we misread than a message the sender meant to
+ * be blank.
+ *
+ * (We don't send this fallback ourselves — see `send()` — but Element and most
+ * other clients still do.)
+ */
+function stripReplyFallback(body: string): string {
+  if (!body.startsWith('>')) return body;
+  const lines = body.split('\n');
+  let i = 0;
+  while (i < lines.length && lines[i]!.startsWith('>')) i++;
+  while (i < lines.length && lines[i]!.trim() === '') i++;
+  const rest = lines.slice(i).join('\n');
+  return rest || body;
 }
 
 export class MatrixStore {
@@ -399,6 +469,20 @@ export class MatrixStore {
     const onRedaction = (_event: MatrixEvent, room: Room): void => this.emitTimelineDirty(room.roomId);
     client.on(RoomEvent.Redaction, onRedaction);
     this.unsubs.push(() => client.off(RoomEvent.Redaction, onRedaction));
+
+    // An edit landing on a message. The edit event's own arrival already dirties
+    // the timeline, but the SDK aggregates it onto its target asynchronously
+    // (the target may still be decrypting), so the render that follows the
+    // arrival can still show the old text. This is the signal that the swap has
+    // actually happened. Re-emitted for every mapped event by the SDK's own
+    // event mapper, so one client-level listener covers every room.
+    const onReplaced = (event: MatrixEvent): void => {
+      const roomId = event.getRoomId();
+      if (roomId) this.emitTimelineDirty(roomId);
+      this.markRoomsDirty();
+    };
+    client.on(MatrixEventEvent.Replaced, onReplaced);
+    this.unsubs.push(() => client.off(MatrixEventEvent.Replaced, onReplaced));
 
     // Somebody else read something: the only thing that moves a reader's
     // picture from one row to another (see readReceipts).
@@ -724,21 +808,33 @@ export class MatrixStore {
     const mxUnsigned: MxEventUnsigned | undefined = unsigned
       ? { transaction_id: unsigned.transaction_id, redacted_because: unsigned.redacted_because, age: unsigned.age }
       : undefined;
+    // A redaction of ours that hasn't been acknowledged yet counts: the SDK has
+    // already emptied the event's content, so treating it as a normal message
+    // would draw an empty row until the server echoes the redaction back.
+    const redacted = ev.isRedacted() || ev.localRedactionEvent() !== null;
+    let content = readable ? (ev.getContent() as Record<string, unknown>) : {};
+    if (readable && replyTargetId(ev) !== undefined && typeof content.body === 'string') {
+      // Copied, never mutated in place: this object is the SDK's own content.
+      const body = stripReplyFallback(content.body);
+      if (body !== content.body) content = { ...content, body };
+    }
     return {
       event_id: ev.getId() ?? '',
       type,
       sender: ev.getSender() ?? '',
       origin_server_ts: ev.getTs(),
-      content: readable ? (ev.getContent() as Record<string, unknown>) : {},
+      content,
       unsigned: mxUnsigned,
       txnId,
       echo,
       decrypting: extra.decrypting,
       decryptError: extra.decryptError,
+      redacted: redacted ? true : undefined,
     };
   }
 
   private previewText(ev: MxEvent): string {
+    if (ev.redacted) return '(message deleted)';
     if (ev.decrypting || ev.decryptError) return '🔒 Encrypted message';
     const body = ev.content?.body;
     // An m.image's body is its filename, which on its own reads like someone
@@ -777,6 +873,9 @@ export class MatrixStore {
     for (let i = live.length - 1; i >= 0; i--) {
       const ev = live[i];
       if (ev.status === EventStatus.CANCELLED) continue;
+      // An edit is not the room's newest message — the message it rewrites is,
+      // and that one already reads back as the edited text.
+      if (isEditRelation(ev)) continue;
       const mapped = this.classify(ev);
       if (!mapped) continue;
       lastTs = mapped.origin_server_ts;
@@ -965,16 +1064,146 @@ export class MatrixStore {
   timeline(roomId: string): MxEvent[] {
     const room = this.client?.getRoom(roomId);
     if (!room) return [];
+    // Reactions first: they are aggregated onto the messages built below, and a
+    // reaction can sit anywhere in the window relative to its target.
+    const reactions = this.collectReactions(room);
     const out: MxEvent[] = [];
-    for (const ev of room.getLiveTimeline().getEvents()) this.pushClassified(out, ev);
-    for (const ev of room.getPendingEvents()) this.pushClassified(out, ev);
+    for (const ev of room.getLiveTimeline().getEvents()) this.pushClassified(out, room, ev, reactions);
+    for (const ev of room.getPendingEvents()) this.pushClassified(out, room, ev, reactions);
     return out;
   }
 
-  private pushClassified(out: MxEvent[], ev: MatrixEvent): void {
+  private pushClassified(
+    out: MxEvent[],
+    room: Room,
+    ev: MatrixEvent,
+    reactions: Map<string, MxReaction[]>,
+  ): void {
     if (ev.status === EventStatus.CANCELLED) return;
+    // Relations that are not rows of their own: an edit belongs to the message
+    // it rewrites, a reaction to the chips under it. (A reaction is dropped by
+    // `classify` too — its type isn't a message — but saying so here is what
+    // makes the rule readable in one place.)
+    if (ev.getType() === sdk.EventType.Reaction || isEditRelation(ev)) return;
     const mapped = this.classify(ev);
-    if (mapped) out.push(mapped);
+    if (!mapped) return;
+    this.annotate(room, ev, mapped, reactions);
+    out.push(mapped);
+  }
+
+  /** Everything a *row* needs beyond the event itself: reactions, the quoted
+   *  message, the edited marker and what this session may do to it. Kept out of
+   *  `classify` because the room-list projection shares that and needs none of
+   *  it. */
+  private annotate(
+    room: Room,
+    ev: MatrixEvent,
+    mapped: MxEvent,
+    reactions: Map<string, MxReaction[]>,
+  ): void {
+    if (mapped.redacted) return; // nothing left to react to, quote, edit or re-delete
+    const onThis = reactions.get(mapped.event_id);
+    if (onThis) mapped.reactions = onThis;
+    const replyId = replyTargetId(ev);
+    if (replyId !== undefined) mapped.replyTo = this.replyToOf(room, replyId);
+    if (ev.replacingEventId() !== undefined) mapped.edited = true;
+    // `maySendRedactionForEvent` covers all of it: membership, the
+    // m.room.redaction power level, "mine or I outrank you", and refusing a
+    // still-pending event. Hiding the control is UX — the homeserver is the gate.
+    if (mapped.event_id && room.currentState.maySendRedactionForEvent(ev, this.userId)) {
+      mapped.canRedact = true;
+    }
+    const msgtype = typeof mapped.content.msgtype === 'string' ? mapped.content.msgtype : 'm.text';
+    if (
+      mapped.event_id &&
+      ev.status === null &&
+      mapped.sender === this.userId &&
+      !mapped.decrypting &&
+      !mapped.decryptError &&
+      EDITABLE_MSGTYPES.has(msgtype)
+    ) {
+      mapped.canEdit = true;
+    }
+  }
+
+  /**
+   * Fold every `m.reaction` in the loaded window onto its target, as
+   * `eventId -> [{key, count, mine, …}]`.
+   *
+   * Aggregated from the events themselves rather than through the SDK's
+   * `Relations` container: that one aggregates asynchronously (it awaits the
+   * target event, and decryption), so a render triggered by the very sync tick
+   * that delivered a reaction can miss it. Reading the window we are already
+   * walking is synchronous, includes our own not-yet-sent reaction from
+   * `getPendingEvents()`, and de-duplicates a local echo against its remote
+   * copy for free, because senders are keyed.
+   *
+   * The cost of this choice: a reaction whose event has not been paginated to is
+   * invisible, even if the homeserver bundled it into the message's unsigned
+   * aggregations. In practice a reaction arrives within a page of the message it
+   * is on, so back-pagination brings both — the same behaviour Element has.
+   */
+  private collectReactions(room: Room): Map<string, MxReaction[]> {
+    // target -> key -> sender -> reaction event id ('' while a local echo)
+    const bySender = new Map<string, Map<string, Map<string, string>>>();
+    const visit = (ev: MatrixEvent): void => {
+      if (ev.getType() !== sdk.EventType.Reaction) return;
+      if (ev.status === EventStatus.CANCELLED || ev.isRedacted() || ev.localRedactionEvent() !== null) return;
+      const rel = relationOf(ev);
+      if (rel?.rel_type !== 'm.annotation') return;
+      const target = rel.event_id;
+      const key = rel.key;
+      const sender = ev.getSender();
+      if (!target || !key || !sender) return;
+      let keys = bySender.get(target);
+      if (!keys) {
+        keys = new Map();
+        bySender.set(target, keys);
+      }
+      let senders = keys.get(key);
+      if (!senders) {
+        senders = new Map();
+        keys.set(key, senders);
+      }
+      // A confirmed reaction wins over a local echo of the same (sender, key).
+      const id = ev.status === null ? ev.getId() ?? '' : '';
+      if (id || !senders.has(sender)) senders.set(sender, id);
+    };
+    for (const ev of room.getLiveTimeline().getEvents()) visit(ev);
+    for (const ev of room.getPendingEvents()) visit(ev);
+
+    const out = new Map<string, MxReaction[]>();
+    for (const [target, keys] of bySender) {
+      const list: MxReaction[] = [];
+      for (const [key, senders] of keys) {
+        list.push({
+          key,
+          count: senders.size,
+          mine: senders.has(this.userId),
+          myEventId: senders.get(this.userId) ?? '',
+          senderNames: Array.from(senders.keys()).map((id) => room.getMember(id)?.name ?? id),
+        });
+      }
+      out.set(target, list);
+    }
+    return out;
+  }
+
+  /** The quote line above a reply. A target outside the loaded window is
+   *  reported as `missing` rather than guessed at or fetched — the row says so,
+   *  which is honest and costs no request per reply. */
+  private replyToOf(room: Room, eventId: string): MxReplyTo {
+    const target = room.findEventById(eventId);
+    if (!target) return { eventId, sender: '', senderName: '', text: '', missing: true };
+    const sender = target.getSender() ?? '';
+    const mapped = this.classify(target);
+    return {
+      eventId,
+      sender,
+      senderName: room.getMember(sender)?.name ?? sender,
+      text: mapped ? this.previewText(mapped) : '',
+      missing: false,
+    };
   }
 
   atStart(roomId: string): boolean {
@@ -1047,26 +1276,111 @@ export class MatrixStore {
 
   // ---- send / echo ---------------------------------------------------------
 
-  async send(roomId: string, body: string): Promise<void> {
+  /**
+   * Send a message, optionally as a reply to `replyToEventId`.
+   *
+   * No rich-reply *fallback* is generated (the `> <@alice> …` body prefix and
+   * the `<mx-reply>` block): the spec deprecated it in favour of the relation
+   * alone, and every reply-aware client — which is all of them — draws the
+   * quote from `m.in_reply_to`. Incoming fallbacks are still stripped on the way
+   * in (see `stripReplyFallback`), because plenty of clients still send them.
+   */
+  async send(roomId: string, body: string, replyToEventId?: string): Promise<void> {
     const client = this.client;
     if (!client) return;
-    // `body` stays the user's literal text in both branches — it is the
-    // fallback every client without an HTML renderer shows, so it must never
-    // become the generated markup.
+    // `body` stays the user's literal text — it is what every client without an
+    // HTML renderer shows, so it must never become the generated markup.
+    const content: Record<string, unknown> = { msgtype: 'm.text', body };
     const formatted = toHtml(body);
+    if (formatted) {
+      content.format = 'org.matrix.custom.html';
+      content.formatted_body = formatted;
+    }
+    if (replyToEventId) {
+      content['m.relates_to'] = { 'm.in_reply_to': { event_id: replyToEventId } };
+    }
     try {
-      if (formatted) {
-        await client.sendMessage(roomId, {
-          msgtype: 'm.text',
-          body,
-          format: 'org.matrix.custom.html',
-          formatted_body: formatted,
-        } as unknown as RoomMessageEventContent);
-      } else {
-        await client.sendTextMessage(roomId, body);
-      }
+      await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
     } catch {
       // failure surfaces as the .failed local-echo row (EventStatus.NOT_SENT)
+    }
+  }
+
+  /**
+   * Replace an earlier message of ours with `body`.
+   *
+   * The top-level `body`/`formatted_body` carry the spec's `* new text`
+   * fallback, for clients that don't aggregate edits; `m.new_content` is the
+   * real new message and the only part our own timeline ever shows (the SDK
+   * folds it onto the original, so `getContent()` returns it).
+   *
+   * `eventId` must be the *original* message, never a previous edit — which is
+   * what the rows are keyed by, so the UI has nothing else to pass.
+   */
+  async editMessage(roomId: string, eventId: string, body: string): Promise<void> {
+    const client = this.client;
+    const room = client?.getRoom(roomId);
+    const target = room?.findEventById(eventId);
+    if (!client || !target) throw new MatrixError(0, '', 'That message is no longer loaded.');
+    const msgtype = (target.getContent() as { msgtype?: unknown }).msgtype;
+    const formatted = toHtml(body);
+    const newContent: Record<string, unknown> = {
+      msgtype: typeof msgtype === 'string' && EDITABLE_MSGTYPES.has(msgtype) ? msgtype : 'm.text',
+      body,
+    };
+    if (formatted) {
+      newContent.format = 'org.matrix.custom.html';
+      newContent.formatted_body = formatted;
+    }
+    const content: Record<string, unknown> = {
+      ...newContent,
+      body: `* ${body}`,
+      'm.new_content': newContent,
+      'm.relates_to': { rel_type: 'm.replace', event_id: eventId },
+    };
+    if (formatted) content.formatted_body = `* ${formatted}`;
+    try {
+      await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
+    } catch (err) {
+      throw MatrixError.from(err);
+    }
+  }
+
+  /**
+   * Add my reaction `key` to an event, or take it away again if it is already
+   * mine. Rejects with a display-ready message — unlike a message send, a
+   * reaction has no row of its own to fail into.
+   */
+  async toggleReaction(roomId: string, eventId: string, key: string): Promise<void> {
+    const client = this.client;
+    const room = client?.getRoom(roomId);
+    if (!client || !room) throw new MatrixError(0, '', 'Not connected.');
+    const mine = this.collectReactions(room).get(eventId)?.find((r) => r.key === key);
+    try {
+      if (!mine?.mine) {
+        await client.sendEvent(roomId, sdk.EventType.Reaction, {
+          'm.relates_to': { rel_type: sdk.RelationType.Annotation, event_id: eventId, key },
+        });
+      } else if (mine.myEventId) {
+        await client.redactEvent(roomId, mine.myEventId);
+      }
+      // else: my reaction is still a local echo, so there is no event to redact
+      // yet. Doing nothing is right — the chip is already showing.
+    } catch (err) {
+      throw MatrixError.from(err);
+    }
+  }
+
+  /** Delete a message (`m.room.redaction`). The SDK empties the event locally
+   *  straight away, so the row reads "(message deleted)" before the server
+   *  answers. Rejects with a display-ready message. */
+  async redact(roomId: string, eventId: string): Promise<void> {
+    const client = this.client;
+    if (!client) throw new MatrixError(0, '', 'Not connected.');
+    try {
+      await client.redactEvent(roomId, eventId);
+    } catch (err) {
+      throw MatrixError.from(err);
     }
   }
 

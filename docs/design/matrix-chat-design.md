@@ -836,17 +836,36 @@ Per-surface states:
 
 ### 5.6 Timeline rendering rules
 
-- **Only `m.room.message` and `m.room.encrypted` are rendered.** Reactions, receipts, state changes,
+- **Only `m.room.message` and `m.room.encrypted` are rendered.** Receipts, state changes,
   typing, redaction events and everything else are consumed for bookkeeping and **not** drawn —
-  never as unlabelled junk rows.
+  never as unlabelled junk rows. Two message events are deliberately *not* rows either, because they
+  belong to another row: an `m.reaction` (drawn as a chip under its target) and an `m.replace` edit
+  (folded into the message it rewrites — rendering it too would double every edited message).
 - **Grouping:** consecutive events from the same sender within 5 minutes and not crossing a day
   boundary form one `.mx-grp` under a single sender header.
 - **Timestamps:** relative — `now`, `3m`, `2h`, `Mon 14:32` (<7 days), `12 Mar`. A single
   60-second interval re-renders visible group headers; it is cleared when the panel is not pinned and
   hidden. Absolute time is always available in the `title` attribute.
-- **Redacted** (`unsigned.redacted_because`): *"(message deleted)"*, dim.
-- **Edits** (`m.replace`): the relation is ignored; the fallback body (which the spec defines as
-  `* <new text>`) renders as an ordinary message. Zero code, honest output.
+- **Redacted:** *"(message deleted)"*, dim. Both a server-confirmed redaction
+  (`unsigned.redacted_because`) and one of ours still in flight (`localRedactionEvent()`) — the SDK
+  empties the content for the second too, so anything else would draw a blank row.
+- **Edits** (`m.replace`): the SDK's aggregation is used, so a row shows the current text and carries
+  a dim *(edited)* marker. The edit event's own `* <new text>` fallback body is never drawn.
+- **Replies** (`m.in_reply_to`): a clickable one-line quote above the message — sender plus a preview
+  of the quoted message, or *"not loaded"* when it is outside the loaded window. Clicking it scrolls
+  to that message and flashes it. Incoming `> <@alice> …` / `<mx-reply>` fallbacks are **stripped**
+  (we draw the quote from the relation, so the fallback would be the same text twice) and never
+  *sent* — the spec deprecated them.
+- **Reactions** (`m.annotation`): chips under the message, `key ×count`, mine highlighted, click to
+  toggle. Aggregated by the store from the reaction events in the loaded window rather than through
+  the SDK's async `Relations` container, so a reaction is never one render behind; the cost is that a
+  reaction whose event has not been paginated to is not shown (as in Element).
+- **Per-message actions:** a ⋯ button floats over each row on hover or focus and opens the message
+  menu (`messageMenu.ts`) — quick reactions plus Reply / Edit / Delete. Which entries appear is one
+  function, `messageActionsFor`, shared by the button and the menu so a visible button can never open
+  an empty menu. Edit is offered for our own `m.text`/`m.emote`/`m.notice` only; Delete follows the
+  SDK's `maySendRedactionForEvent` (ours, or we hold the `redact` power level). Both are **UX gating
+  only** — the homeserver is the authority, and a refusal surfaces as a toast.
 - **`formatted_body` HTML is ignored** — the plain `body` is escaped then linkified
   (http/https only, escape-per-segment).
 - **Non-text msgtypes:** `m.image`/`m.file`/`m.audio`/`m.video` render as
@@ -1103,7 +1122,11 @@ the reason they are shaped the way they are.
 
 - ~~**No E2EE**~~ **[shipped]** — full rust-crypto E2EE; see `matrix-e2ee-design.md`.
 - **No voice or video calls** (Matrix VoIP, Element Call). Voice in this app is Mumble + LiveKit zone voice.
-- **No threads, no reactions, no message editing, no replies, no redaction UI.**
+- ~~**No reactions, no message editing, no replies, no redaction UI**~~ **[shipped]** — the per-message
+  ⋯ menu: react (eight quick emoji plus "any emoji"), reply, edit your own, delete. See the rendering
+  rules in §5.6 for how each is drawn and why relations are aggregated in the store rather than in the
+  SDK. Still **no threads**: a thread is a second timeline with its own pagination, unread state and
+  room-list surface, which is a feature, not a control on a row.
 - ~~**No read-receipt display**~~ **[shipped]** — the delivery gutter at the end of a row
   (`timeline.ts` `setStatus`): a check on your newest confirmed message, replaced by the pictures of
   whoever has read up to that message. Matrix gives each user one read receipt per room, so
@@ -1118,7 +1141,8 @@ the reason they are shaped the way they are.
 - **No Spaces** (`m.space` hierarchy), no room directory browsing, no public-room search.
 - **No SSO/OIDC/CAS login, no registration, no password reset, no 3PID/email invites.**
 - **No room settings** — no rename, topic, avatar, join rules, history visibility, power levels.
-- **No moderation** — no kick, ban, mute, or redact.
+- **No moderation** — no kick, ban or mute. Redaction exists only as the message menu's Delete, which
+  is per-message and offered exactly where the SDK says it is allowed; there is no moderator view.
 - ~~**No notifications**~~ **[shipped, desktop only]** — OS notifications via `notify.ts` +
   `bridge.ts`'s `notifyDesktop`. The browser build is still badges-only: it has no permission-free
   path to a notification, and the 🔔 button and its view are not built there at all. Push rules are
