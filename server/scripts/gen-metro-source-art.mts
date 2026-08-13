@@ -87,6 +87,28 @@ const FACE_BASEBOARD_TILE = { tx: 4, ty: 7 };
 const CORNICE_H = 7;
 const BASEBOARD_H = 4;
 
+/**
+ * The pack's OTHER north-wall face blocks, taken verbatim — one piece per tile
+ * row of the block, in the order the artist stacked them.
+ *
+ * Only structurally distinct blocks are here. The pack also draws the same face
+ * in white, teal, dark teal, cream and red, but those are pure recolours (cornice
+ * and baseboard are pixel-identical across them, verified), and the 64-swatch
+ * palette already covers colour — importing them would be five copies of one
+ * piece. What IS distinct: a striped-wallpaper fill, and the hospital's grey trim
+ * in three stackings (plain, a low rail, a handrail that spans two tiles).
+ *
+ * Taken row-by-row rather than decomposed into cornice/fill/baseboard because the
+ * rails sit at heights the artist chose — reducing them to a scheme of mine would
+ * either lose a variant or invent one.
+ */
+const FACE_BLOCKS: Array<{ sheet: 'house' | 'hospital'; tx: number; rows: number[]; note: string }> = [
+  { sheet: 'house', tx: 26, rows: [5, 6, 7, 8], note: 'wood trim, striped wallpaper' },
+  { sheet: 'hospital', tx: 10, rows: [4, 5, 6, 7], note: 'grey trim, plain' },
+  { sheet: 'hospital', tx: 2, rows: [4, 5, 6, 7], note: 'grey trim, low rail' },
+  { sheet: 'hospital', tx: 6, rows: [4, 5, 6, 7], note: 'grey trim, handrail' },
+];
+
 type Rgba = [number, number, number, number];
 
 function pixelReader(file: string): { at: (x: number, y: number) => Rgba } {
@@ -139,6 +161,19 @@ function buildFacePieces(): Rgba[][][] {
     return row;
   });
   return [cornice, fill, baseboard, solid];
+}
+
+/** The FACE_BLOCKS above, flattened to one piece per source row. */
+function buildExtraFacePieces(): Rgba[][][] {
+  const readers = { house: pixelReader(HOUSE), hospital: pixelReader(HOSPITAL) };
+  const out: Rgba[][][] = [];
+  for (const block of FACE_BLOCKS) {
+    const { at } = readers[block.sheet];
+    for (const ty of block.rows) {
+      out.push(Array.from({ length: 16 }, (_, y) => Array.from({ length: 16 }, (_, x) => at(block.tx * 16 + x, ty * 16 + y))));
+    }
+  }
+  return out;
 }
 
 /** Geometry, in cell coordinates (0-15). The vertical strip is 6px wide
@@ -273,6 +308,7 @@ const { strip, band } = readSource();
 const pieces = [
   ...Array.from({ length: WALL_BITMASK_COUNT }, (_, mask) => buildPiece(mask, strip, band)),
   ...buildFacePieces(),
+  ...buildExtraFacePieces(),
 ];
 // The grid must come out exactly full — parseWallPng derives a set's piece
 // count from the sheet's height, so a half-empty last row would read back as
