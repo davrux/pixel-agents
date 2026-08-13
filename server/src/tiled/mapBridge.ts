@@ -614,6 +614,10 @@ export function importTmjToLayout(
     const latticeSet: number[] = new Array((cols + 1) * (rows + 1)).fill(0);
     const latticeColor: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
     const latticePiece: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
+    // Which points the mapper actually painted. Kept separately because a
+    // painted point may legitimately have `null` as its colour (the Natural
+    // column), so "no entry in latticeColor" cannot mean "not painted".
+    const wasPainted = new Array((cols + 1) * (rows + 1)).fill(false);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const resolved = resolveGid(wallLatticeLayer[r * cols + c] ?? 0);
@@ -622,6 +626,7 @@ export function importTmjToLayout(
         const li = latticeIndex(cols, c, r);
         latticeSet[li] = setIndexFromFile(WALL_SET_FILES, resolved.tileset.file);
         latticeColor[li] = swatchIndex;
+        wasPainted[li] = true;
         if (piece >= WALL_BITMASK_COUNT) {
           latticePiece[li] = piece;
           continue;
@@ -632,6 +637,55 @@ export function importTmjToLayout(
         if (piece & 8 && c > 0) walls.horizontal[hIndex(cols, c - 1, r)] = true; // W
       }
     }
+
+    /**
+     * Give the ends of a wall run the run's own colour.
+     *
+     * A run of edges spans one more lattice point than the mapper paints
+     * pieces for: painting "east+west" along a corridor asserts the edges, and
+     * the point past the last edge then has a west-only mask and is drawn as
+     * the run's end cap — but nobody ever painted a tile there, so it had no
+     * colour and came out in the sheet's Natural column. On a red wall that is
+     * a white stub at every doorway, which reads as a rendering fault rather
+     * than as "you did not paint this corner".
+     *
+     * So an unpainted point inherits colour and set from a neighbour it shares
+     * an actual edge with. Repeated until nothing changes, so a chain of them
+     * (two runs meeting at an unpainted corner) resolves too; the pass count is
+     * bounded by the lattice size and settles in one or two rounds in practice.
+     */
+    const inheritEnds = (): void => {
+      for (let pass = 0; pass < 4; pass++) {
+        let changed = false;
+        for (let r = 0; r <= rows; r++) {
+          for (let c = 0; c <= cols; c++) {
+            const li = latticeIndex(cols, c, r);
+            if (wasPainted[li]) continue;
+            const mask = latticeMask(walls, cols, rows, c, r);
+            if (mask === 0) continue;
+            // Only across edges that exist — the neighbour on the other side of
+            // a wall you are not connected to has nothing to do with this run.
+            const neighbours: Array<[number, number]> = [];
+            if (mask & 1) neighbours.push([c, r - 1]);
+            if (mask & 2) neighbours.push([c + 1, r]);
+            if (mask & 4) neighbours.push([c, r + 1]);
+            if (mask & 8) neighbours.push([c - 1, r]);
+            for (const [nc, nr] of neighbours) {
+              if (nc < 0 || nr < 0 || nc > cols || nr > rows) continue;
+              const ni = latticeIndex(cols, nc, nr);
+              if (!wasPainted[ni]) continue;
+              latticeColor[li] = latticeColor[ni];
+              latticeSet[li] = latticeSet[ni];
+              wasPainted[li] = true; // settled — may now seed a further end
+              changed = true;
+              break;
+            }
+          }
+        }
+        if (!changed) return;
+      }
+    };
+    inheritEnds();
     // Faces are read per cell off their own un-offset layer.
     const facePiece: Array<number | null> = new Array(cols * rows).fill(null);
     const faceSet: number[] = new Array(cols * rows).fill(0);
