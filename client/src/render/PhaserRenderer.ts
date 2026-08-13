@@ -38,7 +38,7 @@ export interface RenderSource {
   tileMap: TileTypeVal[][];
 }
 import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
-import { getWallInstances, hasWallSprites, wallSwatchToHex } from '@pixel/shared/office/wallTiles.js';
+import { getWallEdgeInstances, getWallInstances, hasWallSprites, wallSwatchToHex } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
@@ -238,9 +238,14 @@ export class PhaserRenderer {
       this.images.push(img);
     }
 
-    // Wall sprite instances (auto-tiled) — participate in depth sort.
+    // Wall sprite instances (auto-tiled) — participate in depth sort. Edge
+    // walls (OfficeLayout.walls) and WALL-tile walls are alternatives, never
+    // both: a migrated layout has no WALL entries left in tiles.
     if (hasWallSprites()) {
-      for (const w of getWallInstances(tileMap, tileColors, cols, tileWallSet, tileWallMask)) {
+      const wallInstances = layout.walls
+        ? getWallEdgeInstances(layout.walls, cols, layout.rows)
+        : getWallInstances(tileMap, tileColors, cols, tileWallSet, tileWallMask);
+      for (const w of wallInstances) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.

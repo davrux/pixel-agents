@@ -13,8 +13,9 @@
 
 import { WALL_COLOR } from './constants.js';
 import { paletteForWallSet } from './palettes.js';
-import type { FurnitureInstance, SpriteData, TileType as TileTypeVal } from './types.js';
+import type { FurnitureInstance, SpriteData, TileType as TileTypeVal, WallEdges } from './types.js';
 import { TILE_SIZE, TileType } from './types.js';
+import { latticeIndex, latticeMask } from './wallEdges.js';
 
 /** wallSheets[setIndex][bitmask][0] = Natural (raw, uncolorized); [1+i] =
  *  WALL_SET_PALETTES[setIndex][i] colorized. Populated once by the client's
@@ -134,6 +135,47 @@ export function getWallInstances(
         x: c * TILE_SIZE,
         y: r * TILE_SIZE + wallInfo.offsetY,
         zY: (r + 1) * TILE_SIZE,
+      });
+    }
+  }
+  return instances;
+}
+
+/**
+ * Build the z-sortable instances for EDGE walls (see types.ts's WallEdges).
+ *
+ * One instance per lattice point that any wall edge touches, drawn half a tile
+ * up and left of the cell grid — that offset is the whole difference from
+ * getWallInstances above, since the four edges meeting at a lattice point form
+ * the same N/E/S/W mask the cell autotile already uses, so the pieces are
+ * identical. A piece override on the lattice point wins over the derived mask,
+ * exactly as tileWallMask does per cell (that's how a north-wall face gets
+ * placed — nothing derives those from adjacency).
+ *
+ * zY sorts by the lattice point's own row boundary: a wall on the boundary
+ * between rows r-1 and r should occlude anything standing in row r-1 and be
+ * occluded by anything in row r, which is what r * TILE_SIZE gives.
+ */
+export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number): FurnitureInstance[] {
+  if (wallSheets.length === 0) return [];
+  const instances: FurnitureInstance[] = [];
+  for (let r = 0; r <= rows; r++) {
+    for (let c = 0; c <= cols; c++) {
+      const derived = latticeMask(walls, cols, rows, c, r);
+      if (derived === 0) continue;
+      const li = latticeIndex(cols, c, r);
+      const override = walls.latticePiece?.[li];
+      const piece = override ?? derived;
+      const set = wallSheets[walls.latticeSet?.[li] ?? 0] ?? wallSheets[0];
+      const sprite = set?.[piece]?.[(walls.latticeColor?.[li] ?? null) === null ? 0 : (walls.latticeColor![li] as number) + 1];
+      if (!sprite) continue;
+      instances.push({
+        sprite,
+        // Bottom-anchored like every wall sprite (see getWallSprite), then
+        // shifted onto the lattice.
+        x: c * TILE_SIZE - TILE_SIZE / 2,
+        y: r * TILE_SIZE - TILE_SIZE / 2 + (TILE_SIZE - sprite.length),
+        zY: r * TILE_SIZE,
       });
     }
   }

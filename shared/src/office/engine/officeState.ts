@@ -38,6 +38,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
+import { wallOnNorthEdge } from '../wallEdges.js';
 import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
 import {
   firstSkinId,
@@ -103,6 +104,11 @@ export class OfficeState {
   /** Standing interaction points derived from appliances (coffee machine, …). */
   stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
+  /** Walls as edges between cells (see types.ts's WallEdges) — what every
+   *  findPath below consults so a wall blocks the STEP between two cells
+   *  instead of costing a walkable cell of its own. Undefined on a layout that
+   *  still uses WALL tiles. */
+  walls: OfficeLayout['walls'];
   /** "col,row" of every tile occupied by an `approachThrough` furniture item —
    *  see getReachThroughTiles/computeApproachTiles. */
   private reachThroughTiles: Set<string>;
@@ -175,6 +181,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
+    this.walls = this.layout.walls;
     this.reachThroughTiles = getReachThroughTiles(this.layout.furniture);
     this.actionAreas = computeActionAreas(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
@@ -220,6 +227,7 @@ export class OfficeState {
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
+    this.walls = layout.walls;
     this.reachThroughTiles = getReachThroughTiles(layout.furniture);
     this.actionAreas = computeActionAreas(layout);
     this.actionTileKeys = computeActionTileKeys(layout);
@@ -409,7 +417,14 @@ export class OfficeState {
     const wallRow = row + h - 1;
     let wallMounted = true;
     for (let dc = 0; dc < w && wallMounted; dc++) {
-      if (this.tileMap[wallRow]?.[col + dc] !== TileType.WALL) wallMounted = false;
+      // "Mounted on a wall" means the item's bottom row stands against one. With
+      // cell walls that was "the tile IS a wall"; with edge walls the wall is on
+      // that row's north boundary and the row itself is ordinary floor (see
+      // wallEdges.ts's wallOnNorthEdge).
+      const mounted = this.walls
+        ? wallOnNorthEdge(this.walls, this.layout.cols, col + dc, wallRow)
+        : this.tileMap[wallRow]?.[col + dc] === TileType.WALL;
+      if (!mounted) wallMounted = false;
     }
     const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
     const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side
@@ -552,7 +567,7 @@ export class OfficeState {
     if (!uid) return;
     const station = this.stations.get(uid)!;
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles),
+      findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
 
     // Reserve the station and head over (start the cooldown regardless).
@@ -911,7 +926,7 @@ export class OfficeState {
     // — a plain walk-click shouldn't cut through a meeting room/kiosk/etc. on
     // its way somewhere else, but can still land ON one directly when that's
     // the actual target (its own cost is unavoidable either way).
-    const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles, this.actionTileKeys);
+    const path = findPath(ch.tileCol, ch.tileRow, target.col, target.row, this.tileMap, this.blockedTiles, this.actionTileKeys, this.walls);
     if (path.length === 0) return false;
     ch.heldDir = null; // a click-to-walk target overrides any held WASD direction
     ch.pendingSitFacing = null; // …and cancels a pending click-to-sit
@@ -994,7 +1009,7 @@ export class OfficeState {
     const key = `${col},${row}`;
     const wasBlocked = this.blockedTiles.has(key);
     if (wasBlocked) this.blockedTiles.delete(key); // allow pathing onto the seat
-    const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles);
+    const path = findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, undefined, this.walls);
     if (wasBlocked) this.blockedTiles.add(key);
     if (path.length === 0) return false;
     ch.path = path;
@@ -1164,7 +1179,7 @@ export class OfficeState {
     }
     if (approaches.length === 0) return false; // no walkable spot at the item → can't reach it
     const reachable = approaches
-      .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles) }))
+      .map((a) => ({ a, path: findPath(ch.tileCol, ch.tileRow, a.col, a.row, this.tileMap, this.blockedTiles, undefined, this.walls) }))
       .filter((r) => r.path.length > 0);
     if (reachable.length === 0) return false; // unreachable from here
     const pick = reachable[Math.floor(Math.random() * reachable.length)];
@@ -1216,7 +1231,7 @@ export class OfficeState {
       return true;
     }
     const reachable = spots
-      .map(([uid, s]) => ({ uid, s, path: findPath(ch.tileCol, ch.tileRow, s.col, s.row, this.tileMap, this.blockedTiles) }))
+      .map(([uid, s]) => ({ uid, s, path: findPath(ch.tileCol, ch.tileRow, s.col, s.row, this.tileMap, this.blockedTiles, undefined, this.walls) }))
       .filter((r) => r.path.length > 0);
     if (reachable.length === 0) return false;
     const free = reachable.filter((r) => r.s.occupantId === null);
@@ -1324,7 +1339,7 @@ export class OfficeState {
     ch.seatId = seatId;
     // Pathfind to new seat (unblock own seat tile for this query)
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -1351,7 +1366,7 @@ export class OfficeState {
     const seat = this.seats.get(ch.seatId);
     if (!seat) return;
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
+      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -1381,7 +1396,7 @@ export class OfficeState {
       if (!key || key !== `${col},${row}`) return false;
     }
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles),
+      findPath(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
     if (path.length === 0) return false;
     ch.path = path;
@@ -1785,6 +1800,7 @@ export class OfficeState {
           this.stations,
           this.tileMap,
           this.blockedTiles,
+          this.walls,
         ),
       );
 
@@ -1951,7 +1967,7 @@ export class OfficeState {
     if (action === 'chase') {
       const cat = this.nearestLivingPetOfKind(pet, PetKindEnum.CAT);
       if (!cat) return null;
-      const path = findPath(pet.tileCol, pet.tileRow, cat.tileCol, cat.tileRow, this.tileMap, this.blockedTiles);
+      const path = findPath(pet.tileCol, pet.tileRow, cat.tileCol, cat.tileRow, this.tileMap, this.blockedTiles, undefined, this.walls);
       return path.length > 0 ? path : null;
     }
     if (action === 'flee') {
@@ -1970,7 +1986,7 @@ export class OfficeState {
         )
         .sort((a, b) => distFromDog(b.col, b.row) - distFromDog(a.col, a.row));
       for (const t of candidates.slice(0, 8)) {
-        const path = findPath(pet.tileCol, pet.tileRow, t.col, t.row, this.tileMap, this.blockedTiles);
+        const path = findPath(pet.tileCol, pet.tileRow, t.col, t.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         if (path.length > 0) return path;
       }
       return null;
@@ -1995,6 +2011,7 @@ export class OfficeState {
       walkableTiles: this.walkableTiles,
       tileMap: this.tileMap,
       blockedTiles: this.blockedTiles,
+      walls: this.walls,
       findTarget: (pet: Pet, action: NpcAction) => this.findFreePetTarget(pet, action),
       releaseClaim: (pet: Pet) => this.releasePetClaim(pet),
       // Wrap the injected brain so it receives a fresh affordance snapshot; left
@@ -2157,7 +2174,7 @@ export class OfficeState {
     if (action === 'drink') {
       for (const [uid, s] of this.stations) {
         if (s.occupantId !== null || this.petStationClaims.has(uid)) continue;
-        const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles);
+        const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         const reachable = path.length > 0 || (pet.tileCol === s.col && pet.tileRow === s.row);
         if (!reachable) continue;
         candidates.push({
@@ -2183,7 +2200,7 @@ export class OfficeState {
         if (this.petTalkClaims.has(ch.id)) continue;
         const approach = this.adjacentApproach(ch.tileCol, ch.tileRow);
         if (!approach) continue;
-        const path = findPath(pet.tileCol, pet.tileRow, approach.col, approach.row, this.tileMap, this.blockedTiles);
+        const path = findPath(pet.tileCol, pet.tileRow, approach.col, approach.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         const reachable = path.length > 0 || (pet.tileCol === approach.col && pet.tileRow === approach.row);
         if (!reachable) continue;
         candidates.push({
@@ -2216,6 +2233,8 @@ export class OfficeState {
         seat.seatRow,
         this.tileMap,
         this.blockedTiles,
+        undefined,
+        this.walls,
       );
       if (had) this.blockedTiles.add(key);
       const reachable = path.length > 0 || (pet.tileCol === seat.seatCol && pet.tileRow === seat.seatRow);
@@ -2250,7 +2269,7 @@ export class OfficeState {
         const key = `${spot.col},${spot.row}`;
         const had = this.blockedTiles.has(key);
         if (had) this.blockedTiles.delete(key);
-        const path = findPath(pet.tileCol, pet.tileRow, spot.col, spot.row, this.tileMap, this.blockedTiles);
+        const path = findPath(pet.tileCol, pet.tileRow, spot.col, spot.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         if (had) this.blockedTiles.add(key);
         const reachable = path.length > 0 || (pet.tileCol === spot.col && pet.tileRow === spot.row);
         if (!reachable) continue;

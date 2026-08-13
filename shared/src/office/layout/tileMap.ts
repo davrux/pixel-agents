@@ -1,4 +1,27 @@
 import { TileType } from '../types.js';
+import type { WallEdges } from '../types.js';
+import { crossingBlocked } from '../wallEdges.js';
+
+/**
+ * Can you step from one 4-adjacent cell to another? "Walkable" is about the
+ * destination cell; this is about the boundary between the two, which is where
+ * a wall lives in the edge model (see wallEdges.ts). Every neighbour expansion
+ * in this file goes through here — a walkable cell you can't reach because a
+ * wall stands between you and it is exactly what edge walls express.
+ */
+export function canStep(
+  fromCol: number,
+  fromRow: number,
+  toCol: number,
+  toRow: number,
+  tileMap: TileType[][],
+  blockedTiles: Set<string>,
+  walls?: WallEdges,
+): boolean {
+  if (!isWalkable(toCol, toRow, tileMap, blockedTiles)) return false;
+  const cols = tileMap.length > 0 ? tileMap[0].length : 0;
+  return !crossingBlocked(walls, cols, fromCol, fromRow, toCol, toRow);
+}
 
 /** Check if a tile is walkable (floor, carpet, or doorway, and not blocked by furniture) */
 export function isWalkable(
@@ -79,6 +102,7 @@ function bfsPath(
   endRow: number,
   tileMap: TileType[][],
   blockedTiles: Set<string>,
+  walls?: WallEdges,
 ): Array<{ col: number; row: number }> {
   const key = (c: number, r: number) => `${c},${r}`;
   const startKey = key(startCol, startRow);
@@ -111,7 +135,7 @@ function bfsPath(
       const nk = key(nc, nr);
 
       if (visited.has(nk)) continue;
-      if (!isWalkable(nc, nr, tileMap, blockedTiles)) continue;
+      if (!canStep(curr.col, curr.row, nc, nr, tileMap, blockedTiles, walls)) continue;
 
       visited.add(nk);
       parent.set(nk, currKey);
@@ -138,6 +162,7 @@ function dijkstraPath(
   tileMap: TileType[][],
   blockedTiles: Set<string>,
   avoidTiles: Set<string>,
+  walls?: WallEdges,
 ): Array<{ col: number; row: number }> {
   const key = (c: number, r: number) => `${c},${r}`;
   const startKey = key(startCol, startRow);
@@ -200,7 +225,7 @@ function dijkstraPath(
       const nr = row + d.dr;
       const nk = key(nc, nr);
       if (visited.has(nk)) continue;
-      if (!isWalkable(nc, nr, tileMap, blockedTiles)) continue;
+      if (!canStep(col, row, nc, nr, tileMap, blockedTiles, walls)) continue;
       const nd = cost + (avoidTiles.has(nk) ? AVOID_TILE_COST : 1);
       if ((dist.get(nk) ?? Infinity) <= nd) continue;
       dist.set(nk, nd);
@@ -224,13 +249,14 @@ export function findPath(
   tileMap: TileType[][],
   blockedTiles: Set<string>,
   avoidTiles?: Set<string>,
+  walls?: WallEdges,
 ): Array<{ col: number; row: number }> {
   if (startCol === endCol && startRow === endRow) return [];
   // End must be walkable (or be a chair tile which may be adjacent to desk)
   // We allow the end tile even if it's not strictly walkable for chair positions
   if (!isWalkable(endCol, endRow, tileMap, blockedTiles)) return [];
   if (!avoidTiles || avoidTiles.size === 0) {
-    return bfsPath(startCol, startRow, endCol, endRow, tileMap, blockedTiles);
+    return bfsPath(startCol, startRow, endCol, endRow, tileMap, blockedTiles, walls);
   }
-  return dijkstraPath(startCol, startRow, endCol, endRow, tileMap, blockedTiles, avoidTiles);
+  return dijkstraPath(startCol, startRow, endCol, endRow, tileMap, blockedTiles, avoidTiles, walls);
 }

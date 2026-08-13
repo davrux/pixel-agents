@@ -416,6 +416,45 @@ export interface PlacedImage {
   flippedVertically?: boolean;
 }
 
+/**
+ * Walls, as EDGES between cells rather than cells of their own.
+ *
+ * A vertical edge sits on a column boundary: index r*(cols+1)+c is the edge
+ * between cell (c-1,r) and (c,r), so c runs 0..cols inclusive (c=0 and c=cols
+ * are the map's outer boundary). A horizontal edge sits on a row boundary:
+ * index r*cols+c is the edge between cell (c,r-1) and (c,r), r running
+ * 0..rows inclusive.
+ *
+ * Why edges and not cells: a wall is 6px of art, but a wall CELL blocks all
+ * 16px of movement and hides a whole floor tile, so cell walls always cost a
+ * full tile of room for a thin line and leave ~10px of the cell reading as
+ * floor you can't walk on. As an edge, a wall blocks only the step between its
+ * two cells; both cells stay walkable floor.
+ *
+ * Rendering needs no new art: the four edges meeting at a lattice point form
+ * exactly the same N=1/E=2/S=4/W=8 mask the cell autotile already uses (see
+ * wallTiles.ts), so a wall network is drawn as those same pieces placed on the
+ * lattice — half a tile up and left of the cell grid. `piece` overrides that
+ * derived mask for one lattice point, the same way tileWallMask did per cell
+ * (this is how a north-wall FACE piece gets placed, since nothing derives
+ * those from adjacency).
+ */
+export interface WallEdges {
+  /** Column-boundary edges, (cols+1) × rows, row-major. true = wall. */
+  vertical: boolean[];
+  /** Row-boundary edges, cols × (rows+1), row-major. true = wall. */
+  horizontal: boolean[];
+  /** Which wall set each lattice point draws from (see tiledSheetLayout.ts's
+   *  WALL_SET_FILES), (cols+1) × (rows+1), row-major. Missing/0 = set 0. */
+  latticeSet?: number[];
+  /** Per-lattice-point swatch into that set's palette, or null for "Natural".
+   *  Same layout as latticeSet. */
+  latticeColor?: Array<number | null>;
+  /** Per-lattice-point piece override (see the interface comment) — null/absent
+   *  derives the piece from the four incident edges. Same layout as latticeSet. */
+  latticePiece?: Array<number | null>;
+}
+
 export interface OfficeLayout {
   version: 1;
   cols: number;
@@ -471,6 +510,10 @@ export interface OfficeLayout {
   tileWallFloorPattern?: Array<number | null>;
   tileWallFloorSet?: number[];
   tileWallFloorColor?: Array<number | null>;
+  /** Walls as edges between cells — the model that replaces WALL cells, see
+   *  WallEdges. While both exist, a layout uses one or the other: a migrated
+   *  layout has `walls` and no WALL entries in `tiles`. */
+  walls?: WallEdges;
   /** Per-tile "blocks movement" flag, parallel to tiles array — independent of
    *  floor pattern (e.g. a puddle painted with the same pattern as the rest of
    *  the room, but this one tile shouldn't be walkable). true = blocked;

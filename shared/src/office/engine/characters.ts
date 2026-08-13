@@ -13,6 +13,7 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
+import type { WallEdges } from '../types.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
 import { spriteForPose } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
@@ -89,6 +90,8 @@ export function updateCharacter(
   stations: Map<string, InteractionPoint>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  /** Wall edges, so wandering respects walls — see wallEdges.ts. */
+  walls?: WallEdges,
 ): void {
   // Animation frame phase is cosmetic and timed client-side (the server syncs
   // pose/dir/state, not the frame index). The engine no longer advances frames.
@@ -154,6 +157,8 @@ export function updateCharacter(
             seat.seatRow,
             tileMap,
             blockedTiles,
+            undefined,
+            walls,
           );
           if (path.length > 0) {
             ch.path = path;
@@ -185,6 +190,8 @@ export function updateCharacter(
               seat.seatRow,
               tileMap,
               blockedTiles,
+              undefined,
+              walls,
             );
             if (path.length > 0) {
               ch.path = path;
@@ -205,6 +212,8 @@ export function updateCharacter(
             target.row,
             tileMap,
             blockedTiles,
+            undefined,
+            walls,
           );
           if (path.length > 0) {
             ch.path = path;
@@ -311,6 +320,8 @@ export function updateCharacter(
               seat.seatRow,
               tileMap,
               blockedTiles,
+              undefined,
+              walls,
             );
             if (newPath.length > 0) {
               ch.path = newPath;

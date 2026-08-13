@@ -27,6 +27,7 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
+import type { WallEdges } from '../types.js';
 import { getNpcSprites, spriteForPose } from '../sprites/spriteData.js';
 import type { Pet, PetKind, SpriteData, TileType as TileTypeVal } from '../types.js';
 import { Direction, PetState } from '../types.js';
@@ -87,6 +88,8 @@ export interface PetUpdateContext {
   walkableTiles: Array<{ col: number; row: number }>;
   tileMap: TileTypeVal[][];
   blockedTiles: Set<string>;
+  /** Wall edges, so a pet can't wander through a wall — see wallEdges.ts. */
+  walls?: WallEdges;
   /** Find + claim a free interaction target reachable from the pet for the given
    *  action ('sit' → seat/desk, 'drink' → appliance station), or null. */
   findTarget: (pet: Pet, action: NpcAction) => PetTarget | null;
@@ -259,10 +262,10 @@ export function updatePet(pet: Pet, dt: number, ctx: PetUpdateContext): void {
         // No reachable target — fall through to a random wander.
       }
       // Random wander
-      const { walkableTiles, tileMap, blockedTiles } = ctx;
+      const { walkableTiles, tileMap, blockedTiles, walls } = ctx;
       if (walkableTiles.length > 0) {
         const target = walkableTiles[Math.floor(Math.random() * walkableTiles.length)];
-        const path = findPath(pet.tileCol, pet.tileRow, target.col, target.row, tileMap, blockedTiles);
+        const path = findPath(pet.tileCol, pet.tileRow, target.col, target.row, tileMap, blockedTiles, undefined, walls);
         if (path.length > 0) {
           pet.path = path;
           pet.moveProgress = 0;
