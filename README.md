@@ -138,6 +138,26 @@ to. On first launch the app shows a **Connection** screen — enter the server U
 The server URL and token persist across relaunches; you can change the server or
 sign out from within the app.
 
+**A working OS keyring is required to sign in.** The bearer token is stored via
+Electron `safeStorage`, and the app refuses to fall back to writing it in
+plaintext — so if `safeStorage` cannot encrypt, sign-in cannot complete even
+with correct credentials against a reachable server. macOS (Keychain) and
+Windows (DPAPI) always have one. **On Linux you need a running Secret Service
+provider** — `gnome-keyring-daemon`, or KWallet with its
+`org.freedesktop.secrets` shim — unlocked for your session:
+
+```bash
+# Is a Secret Service provider on the session bus?
+busctl --user list | grep org.freedesktop.secrets
+```
+
+No output means no keyring: install and start `gnome-keyring`, and the sign-in
+screen will say so rather than blaming your connection. Note this is about the
+*session* keyring, not the desktop environment: the app forces Chromium's
+`gnome-libsecret` backend precisely so tiling WMs (Hyprland, sway, …) work,
+since Chromium otherwise picks a backend from the desktop-environment *name* and
+silently degrades to its plaintext store.
+
 **Build a distributable** (currently a Linux AppImage, unsigned):
 
 ```bash

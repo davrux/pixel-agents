@@ -36,6 +36,7 @@ const api: PixelDesktopApi = {
   getToken: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.getToken),
   setToken: (token: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setToken, token),
   clearToken: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.clearToken),
+  keychainAvailable: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.keychainAvailable),
   pickScreenSource: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.pickScreenSource),
   closeWindow: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.closeWindow),
   toggleDevTools: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.toggleDevTools),

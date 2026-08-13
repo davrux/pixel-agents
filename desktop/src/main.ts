@@ -342,6 +342,7 @@ function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(channels.getToken, (): Promise<string | null> => readToken());
   ipcMain.handle(channels.setToken, (_event, token: string): Promise<void> => writeToken(token));
   ipcMain.handle(channels.clearToken, (): Promise<void> => clearStoredToken());
+  ipcMain.handle(channels.keychainAvailable, (): boolean => safeStorage.isEncryptionAvailable());
   ipcMain.handle(channels.pickScreenSource, (): Promise<{ id: string } | null> => pickScreenSource());
   ipcMain.handle(channels.closeWindow, (event): void => {
     BrowserWindow.fromWebContents(event.sender)?.close();

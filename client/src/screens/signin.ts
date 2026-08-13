@@ -30,6 +30,13 @@ const MAX_LOGIN_ID_LEN = 32;
 
 const NETWORK_ERROR_MESSAGE = 'Sign-in failed — check your connection and try again.';
 const MISSING_LOGIN_MESSAGE = 'Enter a login id.';
+/** Shown when the credentials were accepted but the token cannot be stored: with
+ *  no OS keychain, `setToken` refuses to write the token in plaintext, so the
+ *  sign-in cannot complete. Blaming the connection here (as this path used to)
+ *  sends the user off debugging a network that is demonstrably fine. */
+const NO_KEYCHAIN_MESSAGE =
+  'No system keyring available, so your sign-in cannot be stored securely. ' +
+  'On Linux, start a keyring service (gnome-keyring or KWallet) and try again.';
 
 /**
  * Normalize a raw login id with the same rules the server applies
@@ -317,8 +324,18 @@ export function showSignInScreen(): Promise<void> {
       try {
         await desktop().setToken(result.token);
       } catch {
+        // The token exchange already succeeded, so the server and the network are
+        // fine — the only way storing it fails is an unavailable keychain. Ask
+        // main which it was instead of guessing, and fall back to the generic
+        // message if even that call fails.
+        let hasKeychain = true;
+        try {
+          hasKeychain = await desktop().keychainAvailable();
+        } catch {
+          hasKeychain = true;
+        }
         setLoading(false);
-        setError(NETWORK_ERROR_MESSAGE);
+        setError(hasKeychain ? NETWORK_ERROR_MESSAGE : NO_KEYCHAIN_MESSAGE);
         return;
       }
 
