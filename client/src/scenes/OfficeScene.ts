@@ -120,10 +120,13 @@ const IDLE_GRACE_FRAMES = 6;
 const SLEEP_AFTER_IDLE_FRAMES = 120;
 
 /** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
- *  derived from the agent id so all viewers render an identical sweep. */
-function matrixSeeds(id: number): number[] {
+ *  derived from the agent id — and from which half of the effect this is, so a
+ *  warp's dissolve and the materialise that follows it don't run the exact same
+ *  column order back to back. Both inputs are synced, so every viewer still
+ *  renders an identical sweep. */
+function matrixSeeds(id: number, phase: 'spawn' | 'despawn'): number[] {
   const seeds: number[] = [];
-  let s = (id * 2654435761) >>> 0; // Knuth multiplicative hash
+  let s = ((id * 2654435761) ^ (phase === 'spawn' ? 0x9e3779b9 : 0)) >>> 0; // Knuth multiplicative hash
   for (let i = 0; i < MATRIX_SEED_COUNT; i++) {
     s = (s * 1664525 + 1013904223) >>> 0; // LCG step
     seeds.push(s / 0xffffffff);
@@ -828,11 +831,19 @@ export class OfficeScene extends Phaser.Scene {
     rc.bubbleTimer = cs.bubbleTimer as number;
     // Matrix spawn/despawn: the server starts/ends it; the client runs the timer
     // locally (smooth 60fps) and derives the per-column stagger from the agent id
-    // so all viewers see an identical sweep. Only (re)seed when it starts.
+    // so all viewers see an identical sweep.
+    //
+    // Re-seeded whenever the effect CHANGES, not only when it starts from
+    // nothing. A warp goes despawn → spawn within one server tick and never
+    // passes through null, so the old "started from nothing" test skipped it:
+    // the timer carried on from the dissolve, already past the duration, and the
+    // arrival rendered as a finished character with no sweep at all — the figure
+    // simply popped into place, with the dissolve's last half-eaten frame
+    // showing at the new position for a moment first.
     const me = ((cs.matrixEffect as string) || null) as Character['matrixEffect'];
-    if (me && !rc.matrixEffect) {
+    if (me && me !== rc.matrixEffect) {
       rc.matrixEffectTimer = (cs.matrixEffectTimer as number) || 0;
-      rc.matrixEffectSeeds = matrixSeeds(rc.id);
+      rc.matrixEffectSeeds = matrixSeeds(rc.id, me);
     } else if (!me) {
       rc.matrixEffectTimer = 0;
       rc.matrixEffectSeeds = undefined;

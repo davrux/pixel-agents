@@ -127,9 +127,19 @@ export function renderMatrixEffect(
           ctx.fillStyle = MATRIX_HEAD_COLOR;
           ctx.fillRect(px, py, zoom, zoom);
         } else if (distFromHead < MATRIX_TRAIL_LENGTH) {
-          // Trail zone: fading green
+          const trailPos = distFromHead / MATRIX_TRAIL_LENGTH;
+          // The character fades out UNDER the trail rather than ending at the
+          // head. Without this the dissolve was a hard line travelling down a
+          // solid figure — a wipe, not a dissolve — with the sparse green
+          // falling through empty space behind it. The materialise half always
+          // drew the pixel under its trail; this is the same thing backwards.
+          if (hasPixel) {
+            ctx.globalAlpha = 1 - trailPos;
+            ctx.fillStyle = pixel;
+            ctx.fillRect(px, py, zoom, zoom);
+            ctx.globalAlpha = 1;
+          }
           if (flickerVisible(col, row, time)) {
-            const trailPos = distFromHead / MATRIX_TRAIL_LENGTH;
             const alpha = (1 - trailPos) * MATRIX_TRAIL_EMPTY_ALPHA;
             ctx.fillStyle =
               trailPos < MATRIX_TRAIL_MID_THRESHOLD
