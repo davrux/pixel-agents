@@ -168,9 +168,12 @@ export interface PixelDesktopApi {
   probeServer(url: string): Promise<boolean>;
   /** Decrypts the bearer token from safeStorage. */
   getToken(): Promise<string | null>;
-  /** Encrypts the bearer token to safeStorage. */
+  /** Encrypts the bearer token to safeStorage. Rejects when there is no OS
+   *  keychain, rather than persisting the token in plaintext. */
   setToken(token: string): Promise<void>;
   clearToken(): Promise<void>;
+  /** Whether safeStorage can actually encrypt — i.e. whether `setToken` can succeed. */
+  keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021). */
   pickScreenSource(): Promise<{ id: string } | null>;
   /** Closes the window that made the call (quits the app on Linux/Windows). */

@@ -22,6 +22,7 @@ export const PIXEL_DESKTOP_CHANNELS = {
   getToken: 'pixelDesktop:getToken',
   setToken: 'pixelDesktop:setToken',
   clearToken: 'pixelDesktop:clearToken',
+  keychainAvailable: 'pixelDesktop:keychainAvailable',
   pickScreenSource: 'pixelDesktop:pickScreenSource',
   closeWindow: 'pixelDesktop:closeWindow',
   toggleDevTools: 'pixelDesktop:toggleDevTools',
@@ -241,9 +242,14 @@ export interface PixelDesktopApi {
   probeServer(url: string): Promise<boolean>;
   /** Decrypts the bearer token from safeStorage (T4.3). */
   getToken(): Promise<string | null>;
-  /** Encrypts the bearer token to safeStorage (T4.3). */
+  /** Encrypts the bearer token to safeStorage (T4.3). Rejects when there is no
+   *  OS keychain, rather than persisting the token in plaintext. */
   setToken(token: string): Promise<void>;
   clearToken(): Promise<void>;
+  /** Whether safeStorage can actually encrypt — i.e. whether `setToken` can
+   *  succeed. Lets the sign-in screen tell a missing keyring apart from a
+   *  network failure instead of blaming the connection for both. */
+  keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021; implemented in T4.4). */
   pickScreenSource(): Promise<{ id: string } | null>;
   /** Closes the window that made the call (quits the app on Linux/Windows). */
