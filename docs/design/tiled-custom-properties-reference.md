@@ -18,7 +18,7 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 - **Custom Types Editor** (View menu): where the *definitions* below actually live —
   this is a separate view from the Properties panel. If a tile/object looks like it
   has no properties, check it's got the right `Class` assigned first.
-- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLatticeLayer, CollisionLayer) is a
+- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLatticeLayer, WallFaceLayer, CollisionLayer) is a
   pure marker — assigning it doesn't add any fields, it just tags the tile/layer so
   our import code recognizes it. Don't add properties to these by hand; see
   "Position-derived data" below for why.
@@ -233,10 +233,25 @@ map-sized and the map's far right/bottom boundary points have no tile to paint.
 Keep the usual VOID margin and this never comes up; a wall on the very last
 row/column has to move one cell inward.
 
-The **north-wall face** pieces (the last four in each metro wall set) are
-decorative wall *surface*, not barriers: they imply no edges and are kept
-verbatim as painted. Paint the edge run along the base of a faced wall to get
-the actual barrier.
+The **north-wall face** pieces (the last four in each metro wall set) do NOT go
+here — they belong on WallFaceLayer below. A face fills a whole tile, and this
+layer is offset half a tile, so a face painted here lands 8px off the floor grid.
+
+### WallFaceLayer *(useAs: layer)*
+
+No members. Assign to the tile layer holding north-wall **face** pieces — normally
+named "WallFaces", with **no offset**. Cell-aligned, unlike WallLatticeLayer: a
+face is the flat wall surface a room is looked *at*, filling whole tiles, so it
+sits on the floor grid.
+
+Stack the pieces to whatever height the wall should be (cornice on top, baseboard
+at the bottom, fill between; the 1-tall variant carries both). They are decoration
+only — a face blocks nothing. A correctly built faced wall therefore needs three
+things:
+
+1. face pieces here, in the rows above the wall's base,
+2. a horizontal edge run on WallLatticeLayer along that base — the barrier, and
+3. **Collision** over the face cells, so nobody walks into the wall from behind.
 
 ### CollisionLayer *(useAs: layer)*
 

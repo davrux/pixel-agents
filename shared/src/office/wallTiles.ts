@@ -78,3 +78,41 @@ export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: numbe
   }
   return instances;
 }
+
+/**
+ * Build the z-sortable instances for north-wall FACE pieces (see WallEdges.faces).
+ *
+ * Cell-aligned, with none of the half-tile offset the edge pieces get: a face
+ * fills its whole tile, so it has to land on the floor grid or its cornice and
+ * vertical seams read 8px off. zY is the cell's bottom edge, so a face occludes
+ * whatever stands in the row above it and is occluded by anything in its own
+ * row — matching how the wall it depicts would.
+ */
+export function getWallFaceInstances(
+  faces: NonNullable<WallEdges['faces']>,
+  cols: number,
+  rows: number,
+): FurnitureInstance[] {
+  if (wallSheets.length === 0) return [];
+  const instances: FurnitureInstance[] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const piece = faces.piece[i];
+      if (piece == null) continue;
+      const set = wallSheets[faces.set?.[i] ?? 0] ?? wallSheets[0];
+      const swatch = faces.color?.[i] ?? null;
+      const sprite = set?.[piece]?.[swatch === null ? 0 : swatch + 1];
+      if (!sprite) continue;
+      instances.push({
+        sprite,
+        x: c * TILE_SIZE,
+        // Bottom-anchored, like every wall sprite (the art sits in the bottom
+        // 16 rows of a 32-tall slot).
+        y: r * TILE_SIZE + (TILE_SIZE - sprite.length),
+        zY: (r + 1) * TILE_SIZE,
+      });
+    }
+  }
+  return instances;
+}

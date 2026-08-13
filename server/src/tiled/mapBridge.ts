@@ -125,6 +125,23 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     }
   }
 
+  // ── Wall face layer: north-wall surface (see WallEdges.faces) ────
+  // Cell-aligned and NOT offset, unlike the lattice layer above: a face fills a
+  // whole tile, so it belongs on the floor grid. Painting a face on the lattice
+  // layer instead would put it 8px off.
+  const wallFaces: number[] = [];
+  for (let i = 0; i < cols * rows; i++) {
+    const piece = walls?.faces?.piece[i] ?? null;
+    if (piece == null) {
+      wallFaces.push(0);
+      continue;
+    }
+    const swatchIdx = walls?.faces?.color?.[i] ?? null;
+    const col = swatchIdx === null ? 0 : swatchIdx + 1;
+    const wallSet = WALL_SET_FILES[walls?.faces?.set?.[i] ?? 0] ?? WALL_SET_FILES[0];
+    wallFaces.push(gidAt(registry, `${wallSet}.tsj`, piece * TILED_SHEET_COLUMNS + col) ?? 0);
+  }
+
   // ── Collision layer: tileBlocked, parameterless marker tile ──────
   const collisionGid = findGid(registry, 'collision.tsj', () => true) ?? 0;
   const collision: number[] = [];
@@ -378,6 +395,19 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
         visible: true,
         data: wallLattice,
       },
+      {
+        id: 9,
+        name: 'WallFaces',
+        class: 'WallFaceLayer',
+        type: 'tilelayer',
+        width: cols,
+        height: rows,
+        x: 0,
+        y: 0,
+        opacity: 1,
+        visible: true,
+        data: wallFaces,
+      },
       { id: 2, name: 'Collision', class: 'CollisionLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
       { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
       { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
@@ -470,6 +500,8 @@ export function importTmjToLayout(
   // OfficeLayout.walls). Ground is floor only — a WallTile painted there is not
   // a wall.
   const wallLatticeLayer = (layers.find((l) => l.class === 'WallLatticeLayer')?.data as number[]) ?? [];
+  // North-wall face surface, cell-aligned on its own layer (see WallEdges.faces).
+  const wallFaceLayer = (layers.find((l) => l.class === 'WallFaceLayer')?.data as number[]) ?? [];
 
   // Objects are classified by their own nature — a native Tiled field
   // (`text`/`image`, always present on Tiled's own Text/Image object types
@@ -586,7 +618,27 @@ export function importTmjToLayout(
         if (piece & 8 && c > 0) walls.horizontal[hIndex(cols, c - 1, r)] = true; // W
       }
     }
-    return { ...walls, latticeSet, latticeColor, latticePiece };
+    // Faces are read per cell off their own un-offset layer.
+    const facePiece: Array<number | null> = new Array(cols * rows).fill(null);
+    const faceSet: number[] = new Array(cols * rows).fill(0);
+    const faceColor: Array<number | null> = new Array(cols * rows).fill(null);
+    let anyFace = false;
+    for (let i = 0; i < cols * rows; i++) {
+      const resolved = resolveGid(wallFaceLayer[i] ?? 0);
+      if (resolved?.class !== 'WallTile') continue;
+      const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      facePiece[i] = piece;
+      faceSet[i] = setIndexFromFile(WALL_SET_FILES, resolved.tileset.file);
+      faceColor[i] = swatchIndex;
+      anyFace = true;
+    }
+    return {
+      ...walls,
+      latticeSet,
+      latticeColor,
+      latticePiece,
+      ...(anyFace ? { faces: { piece: facePiece, set: faceSet, color: faceColor } } : {}),
+    };
   })();
 
   const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {

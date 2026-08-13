@@ -452,8 +452,33 @@ export interface WallEdges {
    *  Same layout as latticeSet. */
   latticeColor?: Array<number | null>;
   /** Per-lattice-point piece override (see the interface comment) — null/absent
-   *  derives the piece from the four incident edges. Same layout as latticeSet. */
+   *  derives the piece from the four incident edges. Same layout as latticeSet.
+   *  For forcing a particular junction; wall FACES are not this, see faces. */
   latticePiece?: Array<number | null>;
+  /**
+   * North-wall FACE pieces: the flat wall surface a room is looked *at*, drawn
+   * above the edge that actually blocks. Indexed per CELL (cols × rows,
+   * row-major) — unlike everything else here, which is per lattice point.
+   *
+   * That difference is the whole reason faces are their own field. An edge piece
+   * is drawn half a tile up and left so its 6px strip lands centred on the
+   * boundary; a face piece fills its whole tile, so the same offset would shift
+   * it 8px off the floor grid and put its cornice and vertical seams mid-cell.
+   * Faces are cell-aligned surface, so they live on cells.
+   *
+   * Stack them to whatever height the wall should be (see the metro sets' last
+   * four pieces: cornice / fill / baseboard / a 1-tall variant with both). They
+   * are decoration only — they block nothing, and the barrier for a faced wall
+   * is the horizontal edge run along its base.
+   */
+  faces?: {
+    /** Piece index per cell, or null for no face. cols × rows, row-major. */
+    piece: Array<number | null>;
+    /** Which wall set each face draws from. Same layout; missing/0 = set 0. */
+    set?: number[];
+    /** Per-face swatch, or null for "Natural". Same layout. */
+    color?: Array<number | null>;
+  };
 }
 
 export interface OfficeLayout {

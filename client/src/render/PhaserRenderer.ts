@@ -38,7 +38,7 @@ export interface RenderSource {
   tileMap: TileTypeVal[][];
 }
 import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
-import { getWallEdgeInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
+import { getWallEdgeInstances, getWallFaceInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
@@ -223,7 +223,11 @@ export class PhaserRenderer {
     // Wall sprite instances — participate in depth sort. One per lattice point
     // any wall edge touches (see OfficeLayout.walls).
     if (hasWallSprites() && layout.walls) {
-      for (const w of getWallEdgeInstances(layout.walls, cols, layout.rows)) {
+      const wallParts = [
+        ...getWallEdgeInstances(layout.walls, cols, layout.rows),
+        ...(layout.walls.faces ? getWallFaceInstances(layout.walls.faces, cols, layout.rows) : []),
+      ];
+      for (const w of wallParts) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.
