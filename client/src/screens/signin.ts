@@ -84,6 +84,7 @@ function ensureStyles(): void {
       color:#7fa7e0;font-size:0.85rem;text-decoration:underline;cursor:pointer;}
     #pa-signin .alt button:hover:not(:disabled){background:none;color:#a9c6f0;}
     #pa-signin .alt button:disabled{opacity:0.5;cursor:not-allowed;}
+    #pa-signin .alt .sep{color:#4a5070;font-size:0.85rem;margin:0 0.2rem;}
   `;
   document.head.appendChild(style);
 }
@@ -97,6 +98,7 @@ interface SignInElements {
   submit: HTMLButtonElement;
   serverEl: HTMLParagraphElement;
   changeServer: HTMLButtonElement;
+  devTools: HTMLButtonElement;
 }
 
 /** Set the "signing in to <origin>" line from the currently configured server. */
@@ -185,7 +187,19 @@ function buildOverlay(): SignInElements {
   const changeServer = document.createElement('button');
   changeServer.type = 'button';
   changeServer.textContent = 'Change server';
-  alt.appendChild(changeServer);
+
+  // The Electron shell hides the native menu bar, and the in-world HUD's 🛠
+  // toggle only exists once the world has booted — so a sign-in that never
+  // succeeds would otherwise have no way to reach DevTools. Offer the same
+  // toggle here, on the last screen before the world.
+  const sep = document.createElement('span');
+  sep.className = 'sep';
+  sep.textContent = '·';
+  const devTools = document.createElement('button');
+  devTools.type = 'button';
+  devTools.textContent = 'Developer tools';
+  devTools.title = 'Toggle developer tools';
+  alt.append(changeServer, sep, devTools);
 
   form.append(
     loginLabel,
@@ -202,7 +216,7 @@ function buildOverlay(): SignInElements {
   box.append(title, hint, form);
   overlay.appendChild(box);
 
-  return { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer };
+  return { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer, devTools };
 }
 
 /** Outcome of the token exchange: a token to store, or an inline error message. */
@@ -260,7 +274,7 @@ async function requestToken(
  */
 export function showSignInScreen(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer } =
+    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer, devTools } =
       buildOverlay();
 
     const setError = (message: string): void => {
@@ -275,8 +289,12 @@ export function showSignInScreen(): Promise<void> {
       tokenInput.disabled = loading;
       submit.disabled = loading;
       changeServer.disabled = loading;
+      // `devTools` is deliberately left enabled: an in-flight sign-in is exactly
+      // when you want to open the console and watch the request.
       submit.textContent = loading ? 'Signing in…' : 'Sign in';
     };
+
+    devTools.onclick = () => void desktop().toggleDevTools();
 
     const submitCredentials = async (): Promise<void> => {
       clearError();
