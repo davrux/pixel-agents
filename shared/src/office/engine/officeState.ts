@@ -417,14 +417,10 @@ export class OfficeState {
     const wallRow = row + h - 1;
     let wallMounted = true;
     for (let dc = 0; dc < w && wallMounted; dc++) {
-      // "Mounted on a wall" means the item's bottom row stands against one. With
-      // cell walls that was "the tile IS a wall"; with edge walls the wall is on
-      // that row's north boundary and the row itself is ordinary floor (see
-      // wallEdges.ts's wallOnNorthEdge).
-      const mounted = this.walls
-        ? wallOnNorthEdge(this.walls, this.layout.cols, col + dc, wallRow)
-        : this.tileMap[wallRow]?.[col + dc] === TileType.WALL;
-      if (!mounted) wallMounted = false;
+      // "Mounted on a wall" means the item's bottom row stands against one —
+      // i.e. that row's north boundary carries a wall edge, the row itself being
+      // ordinary floor (see wallEdges.ts's wallOnNorthEdge).
+      if (!wallOnNorthEdge(this.walls, this.layout.cols, col + dc, wallRow)) wallMounted = false;
     }
     const artRow = row - 1; // just north of the sprite's own body — the ambiguous side
     const farRow = wallRow + 1; // just south of the wall — the room on the wall's far side

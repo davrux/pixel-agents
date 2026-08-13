@@ -25,15 +25,15 @@
  * flat wall surface a room is looked *at* rather than the thin top-down line.
  * Nothing derives those from adjacency — a computed mask is only ever 0-15 —
  * so they exist purely to be painted by hand in Tiled, which is what
- * OfficeLayout.tileWallMask already carries through import and render.
+ * WallEdges.latticePiece already carries through import and render.
  *
  * Two deliberate departures from the source pack:
  *   - Arms are CENTERED in the cell (strip at x5-10, band at y4-12) rather
  *     than edge-hugging. A wall in our engine occupies a whole grid cell
- *     (tiles[i] === TileType.WALL blocks all 16px), so edge-hugging art would
- *     sit half a cell away from the area it actually blocks. Centered leaves
- *     ~5px of floor visible on either side, which is what makes the thin look
- *     read correctly once floor is drawn beneath walls.
+ *     back when a wall WAS a cell, so edge-hugging art would have sat half a
+ *     cell away from what it blocked. Walls are edges now (see WallEdges) and
+ *     these same centered pieces are drawn on the lattice, which puts them on
+ *     the boundaries — the centering is what makes that work.
  *   - Art occupies only the BOTTOM 16 rows of each 16x32 piece slot. The slot
  *     is 32 tall because wall sprites are bottom-anchored and may extend one
  *     cell upward (see wallTiles.ts's getWallSprite offsetY); Metro's thin
@@ -122,7 +122,7 @@ function readSource(): { strip: Rgba[]; band: Rgba[][] } {
  *
  *  These pieces are unreachable from neighbour adjacency by construction (a
  *  derived mask is only ever 0-15), so they exist purely to be painted
- *  deliberately in Tiled — which is exactly what OfficeLayout.tileWallMask
+ *  deliberately in Tiled — which is exactly what WallEdges.latticePiece
  *  already carries through import and render. */
 function buildFacePieces(): Rgba[][][] {
   const { at } = pixelReader(HOUSE);

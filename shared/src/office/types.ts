@@ -7,8 +7,11 @@ export {
   TILE_SIZE,
 } from './constants.js';
 
+/** A ground cell is a floor pattern (1-based, matching a row of the floor set —
+ *  see tiledSheetLayout.ts) or VOID. There is no WALL member: a wall is an EDGE
+ *  between two cells now (see WallEdges), not a cell of its own, so 0 is simply
+ *  an unused value rather than a meaning. */
 export const TileType = {
-  WALL: 0,
   FLOOR_1: 1,
   FLOOR_2: 2,
   FLOOR_3: 3,
@@ -20,7 +23,6 @@ export const TileType = {
   FLOOR_9: 9,
   FLOOR_10: 10, // grass (garden/outside zones) — floors/floor_9.png
   FLOOR_11: 11, // water (ponds) — floors/floor_10.png
-  FLOOR_12: 12, // wood planks, warm palette — floors/floor_11.png
   VOID: 255,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
@@ -435,9 +437,8 @@ export interface PlacedImage {
  * exactly the same N=1/E=2/S=4/W=8 mask the cell autotile already uses (see
  * wallTiles.ts), so a wall network is drawn as those same pieces placed on the
  * lattice — half a tile up and left of the cell grid. `piece` overrides that
- * derived mask for one lattice point, the same way tileWallMask did per cell
- * (this is how a north-wall FACE piece gets placed, since nothing derives
- * those from adjacency).
+ * derived mask for one lattice point — this is how a north-wall FACE piece gets
+ * placed, since nothing derives those from adjacency.
  */
 export interface WallEdges {
   /** Column-boundary edges, (cols+1) × rows, row-major. true = wall. */
@@ -474,42 +475,6 @@ export interface OfficeLayout {
    *  meaningful where tiles[i] is a floor pattern (not WALL/VOID).
    *  Missing/0 = the base "floor" set. */
   tileFloorSet?: number[];
-  /** Per-tile wall style (which wall-<name>.tsj set, see
-   *  tiledSheetLayout.ts's WALL_SET_FILES), parallel to tiles array — only
-   *  meaningful where tiles[i] === TileType.WALL. Missing/0 = set 0. Absent
-   *  entirely on old saved layouts (every wall tile always rendered as set
-   *  0 before this field existed, since getWallInstances had no per-tile
-   *  way to pick a different one — see docs/design/tiled-editor-integration.md). */
-  tileWallSet?: number[];
-  /** Per-tile wall autotile piece (0-15 bitmask, N=1/E=2/S=4/W=8 — see
-   *  wallTiles.ts's buildWallMask), parallel to tiles array — only meaningful
-   *  where tiles[i] === TileType.WALL. Set on Tiled import from the actual
-   *  GID's row within its wall tileset (see mapBridge.ts), so a mapper's
-   *  hand-placed autotile variant renders exactly as authored instead of
-   *  always being re-derived from tile-neighbor adjacency. Missing/null
-   *  entries (every non-wall tile, and any layout saved before this field
-   *  existed) fall back to that same neighbor-derived computation, so old
-   *  data keeps rendering exactly as it always has — no migration needed. */
-  tileWallMask?: Array<number | null>;
-  /** The floor drawn *beneath* a wall tile — pattern, set and swatch, the
-   *  same triple as (tiles, tileFloorSet, tileColors) describes for an
-   *  ordinary floor tile, all parallel to tiles and only meaningful where
-   *  tiles[i] === TileType.WALL.
-   *
-   *  Needed because tiles[i] holds either a floor pattern or WALL, never
-   *  both, so a wall cell has no floor of its own and used to paint a flat
-   *  WALL_COLOR fill across all 16px. That is invisible for wall art that
-   *  covers its whole tile, but it defeats a thin wall set (see
-   *  tiledSheetLayout.ts's WALL_SET_FILES set 4): a 6px strip centered in the
-   *  cell wants the remaining 10px to read as the room's floor, not as flat
-   *  color.
-   *
-   *  tileWallFloorPattern null/missing keeps exactly the old flat-fill
-   *  behaviour, so layouts saved before this existed — and wall sets whose
-   *  art fills the tile anyway — render unchanged. */
-  tileWallFloorPattern?: Array<number | null>;
-  tileWallFloorSet?: number[];
-  tileWallFloorColor?: Array<number | null>;
   /** Walls as edges between cells — the model that replaces WALL cells, see
    *  WallEdges. While both exist, a layout uses one or the other: a migrated
    *  layout has `walls` and no WALL entries in `tiles`. */

@@ -1,6 +1,7 @@
 import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
 import { getCatalogEntry } from './furnitureCatalog.js';
+import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
 /** Convert flat tile array from layout into 2D grid */
 export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
@@ -284,35 +285,44 @@ export function getSeatTiles(seats: Map<string, Seat>): Set<string> {
   return tiles;
 }
 
+/**
+ * Wall edges ringing the outside of a cols×rows field: the map's four outer
+ * boundaries. Every cell stays walkable floor — the ring is what stops anyone
+ * leaving (see wallEdges.ts).
+ */
+function borderWalls(cols: number, rows: number): NonNullable<OfficeLayout['walls']> {
+  const walls = emptyWallEdges(cols, rows);
+  for (let r = 0; r < rows; r++) {
+    walls.vertical[vIndex(cols, 0, r)] = true;
+    walls.vertical[vIndex(cols, cols, r)] = true;
+  }
+  for (let c = 0; c < cols; c++) {
+    walls.horizontal[hIndex(cols, c, 0)] = true;
+    walls.horizontal[hIndex(cols, c, rows)] = true;
+  }
+  return walls;
+}
+
 /** Create a minimal fallback layout (used only when no default-layout.json exists) */
 export function createDefaultLayout(): OfficeLayout {
-  const W = TileType.WALL;
-  const F1 = TileType.FLOOR_1;
-  const F2 = TileType.FLOOR_2;
-
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<number | null> = [];
-  // Every wall tile needs the floor that shows beneath it — see
-  // OfficeLayout.tileWallFloorPattern; nothing falls back to a flat fill.
-  const tileWallFloorPattern: Array<number | null> = [];
-
   for (let r = 0; r < DEFAULT_ROWS; r++) {
     for (let c = 0; c < DEFAULT_COLS; c++) {
-      const edge = r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1;
-      if (edge) {
-        tiles.push(W);
-      } else if (c < 10) {
-        tiles.push(F1);
-      } else {
-        tiles.push(F2);
-      }
-      tileWallFloorPattern.push(edge ? F1 : null);
+      tiles.push(c < 10 ? TileType.FLOOR_1 : TileType.FLOOR_2);
       tileColors.push(null); // Natural — this fallback is cosmetically irrelevant; default-layout.json provides the real default
     }
   }
-
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, tileWallFloorPattern, furniture: [] };
+  return {
+    version: 1,
+    cols: DEFAULT_COLS,
+    rows: DEFAULT_ROWS,
+    tiles,
+    tileColors,
+    walls: borderWalls(DEFAULT_COLS, DEFAULT_ROWS),
+    furniture: [],
+  };
 }
 
 /** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
@@ -325,19 +335,13 @@ export function createBlankZoneLayout(
 ): OfficeLayout {
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<number | null> = [];
-  // The border walls carry the same floor beneath them as the field itself —
-  // see OfficeLayout.tileWallFloorPattern; a wall tile has no floor of its own
-  // and nothing falls back to a flat fill.
-  const tileWallFloorPattern: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
-      tiles.push(edge ? TileType.WALL : TileType.FLOOR_3);
-      tileWallFloorPattern.push(edge ? TileType.FLOOR_3 : null);
+      tiles.push(TileType.FLOOR_3);
       tileColors.push(null);
     }
   }
-  return { version: 1, cols, rows, tiles, tileColors, tileWallFloorPattern, furniture };
+  return { version: 1, cols, rows, tiles, tileColors, walls: borderWalls(cols, rows), furniture };
 }
 
 /** The plaza: the second builtin zone, with a beam pad (walk onto it → zone

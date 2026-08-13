@@ -23,7 +23,9 @@ export function canStep(
   return !crossingBlocked(walls, cols, fromCol, fromRow, toCol, toRow);
 }
 
-/** Check if a tile is walkable (floor, carpet, or doorway, and not blocked by furniture) */
+/** Can an entity STAND on this cell: in bounds, not VOID, not blocked by
+ *  furniture or a tileBlocked flag. Walls don't appear here — a wall is an edge
+ *  between cells, so it's canStep above that refuses to cross one. */
 export function isWalkable(
   col: number,
   row: number,
@@ -34,7 +36,7 @@ export function isWalkable(
   const cols = rows > 0 ? tileMap[0].length : 0;
   if (row < 0 || row >= rows || col < 0 || col >= cols) return false;
   const t = tileMap[row][col];
-  if (t === TileType.WALL || t === TileType.VOID) return false;
+  if (t === TileType.VOID) return false;
   if (blockedTiles.has(`${col},${row}`)) return false;
   return true;
 }

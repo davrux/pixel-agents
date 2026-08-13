@@ -1,7 +1,6 @@
 /**
  * Grid layout of the pre-baked Tiled floor/wall sprite sheets
- * (assets/tiled/png/floor-resurrect64.png, wall-0-resurrect64.png,
- * wall-1-resurrect64.png, plus their -warm counterparts — see
+ * (assets/tiled/png/floor-*.png, wall-metro-*.png — see
  * server/scripts/bake-floor-wall-tiled.mts). One shared source so the bake
  * script and the client's sheet loader (client/src/net/tiledSheets.ts) can
  * never disagree on how a flat tile index maps to (pattern|bitmask, swatch).
@@ -27,7 +26,7 @@ export const FLOOR_TILE_H = TILE_SIZE;
 export const WALL_TILE_W = TILE_SIZE;
 export const WALL_TILE_H = 32;
 /** How many of a wall set's pieces are the adjacency autotile ones (N=1, E=2,
- *  S=4, W=8 — see wallTiles.ts's buildWallMask). Always the FIRST 16 rows of
+ *  S=4, W=8 — see wallEdges.ts's latticeMask). Always the FIRST 16 rows of
  *  every set; a set's total row count can be larger, see the header comment. */
 export const WALL_BITMASK_COUNT = 16;
 /** Transparent gap (px) baked between adjacent wall tiles in the sheet image
@@ -62,16 +61,17 @@ export const FLOOR_SET_FILES = [
   'floor-metro-endesga',
 ];
 
-/** One entry per wall "set" — index = OfficeLayout.tileWallSet, matching a
+/** One entry per wall "set" — index = WallEdges.latticeSet, matching a
  *  wall-<name>.tsj / png/wall-<name>.png pair. Both sets are the same
  *  thin-wall art baked against a different palette (same '-resurrect64' /
  *  '-endesga' naming as FLOOR_SET_FILES above): a 6px strip inside its cell
  *  rather than art filling the whole tile, so they only read correctly where
- *  floor is drawn beneath the wall (see OfficeLayout.tileWallFloorPattern).
+ *  they sit on the cell boundaries with floor on both sides (see
+ *  OfficeLayout.walls).
  *  Synthesized from the MetroCity Interior pack's own wall cross-sections, and
  *  the only sets with more than 16 pieces — 4 north-wall face pieces follow the
  *  bitmask ones. See server/scripts/gen-metro-source-art.mts.
  *
- *  APPEND ONLY: a saved layout stores this index in tileWallSet, so
- *  reordering silently restyles every existing wall tile. */
+ *  APPEND ONLY: a saved layout stores this index in WallEdges.latticeSet, so
+ *  reordering silently restyles every existing wall. */
 export const WALL_SET_FILES = ['wall-metro-resurrect64', 'wall-metro-endesga'];

@@ -38,7 +38,7 @@ export interface RenderSource {
   tileMap: TileTypeVal[][];
 }
 import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
-import { getWallEdgeInstances, getWallInstances, hasWallSprites, wallSwatchToHex } from '@pixel/shared/office/wallTiles.js';
+import { getWallEdgeInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
@@ -176,43 +176,25 @@ export class PhaserRenderer {
     const tileMap = this.state.tileMap;
     const tileColors = layout.tileColors;
     const tileFloorSet = layout.tileFloorSet;
-    const tileWallSet = layout.tileWallSet;
-    const tileWallMask = layout.tileWallMask;
-    const tileWallFloorPattern = layout.tileWallFloorPattern;
-    const tileWallFloorSet = layout.tileWallFloorSet;
-    const tileWallFloorColor = layout.tileWallFloorColor;
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
-    // Floor, under every non-void tile including walls. A wall tile's own
-    // tiles[] slot holds WALL rather than a pattern, so its floor comes from
-    // the parallel tileWallFloor* arrays instead (see
-    // OfficeLayout.tileWallFloorPattern) — that's what lets a thin wall set
-    // show room floor around its 6px strip. Every layout producer fills those
-    // arrays; a wall cell without one is a data bug and deliberately renders as
-    // a visible hole rather than being papered over with a flat fill. The wall
-    // sprite itself is drawn later, as a z-sorted instance (see wallTiles.ts's
-    // getWallInstances).
+    // Floor, under every non-void cell. Every cell is floor now — a wall is an
+    // edge between cells (see OfficeLayout.walls), drawn later as a z-sorted
+    // instance, so there is no wall cell to special-case here.
     for (let r = 0; r < tileMap.length; r++) {
       for (let c = 0; c < tileMap[r].length; c++) {
         const tile = tileMap[r][c];
         if (tile === TileType.VOID) continue;
         const px = c * TILE_SIZE;
         const py = r * TILE_SIZE;
-        const idx = r * cols + c;
-        const isWall = tile === TileType.WALL;
         if (!useFloors) {
-          // Baked sheets haven't arrived yet — a flat fill is all there is to
-          // draw. Walls use their own swatch so the room outline still reads.
-          const hex = isWall ? wallSwatchToHex(tileColors?.[idx], tileWallSet?.[idx] ?? 0) : '#808080';
-          this.statics.push(this.solid(px, py, hex, FLOOR_DEPTH));
+          // Baked sheets haven't arrived yet — a flat fill is all there is to draw.
+          this.statics.push(this.solid(px, py, '#808080', FLOOR_DEPTH));
           continue;
         }
-        const pattern = isWall ? tileWallFloorPattern?.[idx] : tile;
-        if (pattern == null) continue;
-        const swatch = isWall ? tileWallFloorColor?.[idx] : tileColors?.[idx];
-        const set = (isWall ? tileWallFloorSet?.[idx] : tileFloorSet?.[idx]) ?? 0;
-        const tex = spriteTexture(this.scene, getColorizedFloorSprite(pattern, swatch, set));
+        const idx = r * cols + c;
+        const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], tileFloorSet?.[idx] ?? 0));
         this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
     }
@@ -238,14 +220,10 @@ export class PhaserRenderer {
       this.images.push(img);
     }
 
-    // Wall sprite instances (auto-tiled) — participate in depth sort. Edge
-    // walls (OfficeLayout.walls) and WALL-tile walls are alternatives, never
-    // both: a migrated layout has no WALL entries left in tiles.
-    if (hasWallSprites()) {
-      const wallInstances = layout.walls
-        ? getWallEdgeInstances(layout.walls, cols, layout.rows)
-        : getWallInstances(tileMap, tileColors, cols, tileWallSet, tileWallMask);
-      for (const w of wallInstances) {
+    // Wall sprite instances — participate in depth sort. One per lattice point
+    // any wall edge touches (see OfficeLayout.walls).
+    if (hasWallSprites() && layout.walls) {
+      for (const w of getWallEdgeInstances(layout.walls, cols, layout.rows)) {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.

@@ -76,7 +76,7 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
  * after the 16 adjacency ones — the metro set's north-wall faces, see
  * server/scripts/gen-metro-source-art.mts. Indices 0-15 are always the
  * bitmask pieces; anything past that is reachable only via an explicitly
- * authored OfficeLayout.tileWallMask.
+ * authored piece (see WallEdges.latticePiece).
  */
 export function parseWallPng(pngBuffer: Buffer): string[][][] {
   const png = PNG.sync.read(pngBuffer);

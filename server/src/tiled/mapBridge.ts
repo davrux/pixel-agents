@@ -30,32 +30,6 @@ export interface TmjExportResult {
   tmj: Record<string, unknown>;
 }
 
-/** Which wall piece to export for a cell: the exact one the layout already
- *  carries (OfficeLayout.tileWallMask, set on import from the GID the mapper
- *  actually placed and rendered verbatim ever since — see wallTiles.ts's
- *  getWallSprite), else derived from neighbours for a layout that has no
- *  stored piece.
- *
- *  Preferring the stored piece is what keeps export→edit→import lossless: a
- *  mapper who deliberately picks a piece our adjacency rule wouldn't (an open
- *  wall end mid-run, say) used to get it silently normalized away on the next
- *  export, even though the renderer had been honouring it all along.
- *
- *  The derived fallback is N=1,E=2,S=4,W=8 — same convention as
- *  shared/src/office/wallTiles.ts's buildWallMask, reimplemented against
- *  OfficeLayout's flat tiles[] instead of a 2D tileMap. */
-function wallBitmask(layout: OfficeLayout, col: number, row: number): number {
-  const { cols, rows, tiles } = layout;
-  const stored = layout.tileWallMask?.[row * cols + col];
-  if (stored != null) return stored;
-  const at = (c: number, r: number) => tiles[r * cols + c];
-  let mask = 0;
-  if (row > 0 && at(col, row - 1) === TileType.WALL) mask |= 1;
-  if (col < cols - 1 && at(col + 1, row) === TileType.WALL) mask |= 2;
-  if (row < rows - 1 && at(col, row + 1) === TileType.WALL) mask |= 4;
-  if (col > 0 && at(col - 1, row) === TileType.WALL) mask |= 8;
-  return mask;
-}
 
 /** Tiled's own GID flip bits (top two bits of the 32-bit GID field) — plain
  *  addition/subtraction, not a bitwise op: these GIDs are always far below
@@ -106,39 +80,16 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
   // row = pattern-1 (floor) or bitmask (wall) — exactly how
   // bake-floor-wall-tiled.mts lays the sheet out.
   //
-  // Walls go in their OWN layer above the floor, not mixed into Ground, so a
-  // wall cell can also carry the floor drawn beneath it (see
-  // OfficeLayout.tileWallFloorPattern) — one cell, two tiles, which a single
-  // tile layer cannot express. A wall cell whose layout has no floor beneath
-  // leaves Ground empty there, exactly as it looked when walls lived in
-  // Ground.
+  // Ground is floor only. Walls are edges on their own lattice layer below.
   const floorGid = (pattern: number, set: number | undefined, swatchIdx: number | null): number => {
     const col = swatchIdx === null ? 0 : swatchIdx + 1;
     const floorSet = FLOOR_SET_FILES[set ?? 0] ?? FLOOR_SET_FILES[0];
     return gidAt(registry, `${floorSet}.tsj`, (pattern - 1) * TILED_SHEET_COLUMNS + col) ?? 0;
   };
   const ground: number[] = [];
-  const wall: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const i = r * cols + c;
-      const t = tiles[i];
-      if (t === TileType.VOID) {
-        ground.push(0);
-        wall.push(0);
-      } else if (t === TileType.WALL) {
-        const swatchIdx = layout.tileColors?.[i] ?? null;
-        const col = swatchIdx === null ? 0 : swatchIdx + 1;
-        const mask = wallBitmask(layout, c, r);
-        const wallSet = WALL_SET_FILES[layout.tileWallSet?.[i] ?? 0] ?? WALL_SET_FILES[0];
-        wall.push(gidAt(registry, `${wallSet}.tsj`, mask * TILED_SHEET_COLUMNS + col) ?? 0);
-        const under = layout.tileWallFloorPattern?.[i] ?? null;
-        ground.push(under == null ? 0 : floorGid(under, layout.tileWallFloorSet?.[i], layout.tileWallFloorColor?.[i] ?? null));
-      } else {
-        ground.push(floorGid(t, layout.tileFloorSet?.[i], layout.tileColors?.[i] ?? null));
-        wall.push(0);
-      }
-    }
+  for (let i = 0; i < cols * rows; i++) {
+    const t = tiles[i];
+    ground.push(t === TileType.VOID ? 0 : floorGid(t, layout.tileFloorSet?.[i], layout.tileColors?.[i] ?? null));
   }
 
   // ── Wall lattice layer: edge walls (see OfficeLayout.walls) ──────
@@ -409,9 +360,6 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     tilesets: tilesetRefs,
     layers: [
       { id: 1, name: 'Ground', class: 'GroundLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
-      // Above Ground, below everything else: a wall hides the floor drawn
-      // beneath it, and furniture/characters still draw over both.
-      { id: 7, name: 'Wall', class: 'WallLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: wall },
       // The half-tile offset is what puts these tiles on the cell boundaries
       // instead of in the cells — Tiled renders the layer shifted, so what you
       // paint is what the game draws.
@@ -510,7 +458,7 @@ export function importTmjToLayout(
   // registry.resolve's disk-order assumption — see resolveFromTmjTilesets.
   const resolveGid = resolveFromTmjTilesets(registry, (tmj.tilesets as Array<{ firstgid: number; source: string }>) ?? []);
 
-  // Classified by the layer's own `class` (GroundLayer/WallLayer/
+  // Classified by the layer's own `class` (GroundLayer/WallLatticeLayer/
   // CollisionLayer — see Pixels.tiled-project), not by name — same reasoning
   // as the object classification below: a mapper renaming these tile layers
   // must not silently empty out the whole map. Tiled writes a layer's custom
@@ -518,15 +466,10 @@ export function importTmjToLayout(
   // uses structurally for tilelayer/objectgroup/imagelayer/group).
   const ground = (layers.find((l) => l.class === 'GroundLayer')?.data as number[]) ?? [];
   const collision = (layers.find((l) => l.class === 'CollisionLayer')?.data as number[]) ?? [];
-  // Walls have their own layer so a cell can hold both a wall and the floor
-  // beneath it. A WallTile painted into Ground is NOT a wall — Ground is the
-  // floor layer, full stop; a map has to put its walls in a WallLayer.
-  const wallLayer = (layers.find((l) => l.class === 'WallLayer')?.data as number[]) ?? [];
-  // Edge walls (see OfficeLayout.walls) live on their own half-offset lattice
-  // layer. A map has one or the other: if this layer carries anything, walls are
-  // edges and the cell-wall layer above is ignored.
+  // Walls are edges, painted on their own half-offset lattice layer (see
+  // OfficeLayout.walls). Ground is floor only — a WallTile painted there is not
+  // a wall.
   const wallLatticeLayer = (layers.find((l) => l.class === 'WallLatticeLayer')?.data as number[]) ?? [];
-  const hasLatticeWalls = wallLatticeLayer.some((gid) => gid !== 0);
 
   // Objects are classified by their own nature — a native Tiled field
   // (`text`/`image`, always present on Tiled's own Text/Image object types
@@ -586,64 +529,24 @@ export function importTmjToLayout(
   const tiles: number[] = [];
   const tileColors: OfficeLayout['tileColors'] = [];
   const tileFloorSet: number[] = [];
-  const tileWallSet: number[] = [];
-  const tileWallMask: OfficeLayout['tileWallMask'] = [];
-  const tileWallFloorPattern: OfficeLayout['tileWallFloorPattern'] = [];
-  const tileWallFloorSet: number[] = [];
-  const tileWallFloorColor: OfficeLayout['tileWallFloorColor'] = [];
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const groundResolved = resolveGid(ground[i] ?? 0);
-    const wallResolved = hasLatticeWalls ? null : resolveGid(wallLayer[i] ?? 0);
-    const wall = wallResolved?.class === 'WallTile' ? wallResolved : null;
-    // Classify by Tiled's own `class` (FloorTile/WallTile — see
-    // Pixels.tiled-project), not by which file a tile lives in — a mapper
-    // reorganizing tileset files must not silently break this (see
-    // docs/design/tiled-editor-integration.md).
-    if (wall) {
-      tiles.push(TileType.WALL);
-      const { row, swatchIndex } = rowAndSwatchFromLocalId(wall.localId);
-      tileColors.push(swatchIndex);
-      tileFloorSet.push(0);
-      // Which set this came from — unlike the floor/wall/void classification
-      // above, this one legitimately IS about the file, since "which set"
-      // has no other identity (see setIndexFromFile).
-      tileWallSet.push(setIndexFromFile(WALL_SET_FILES, wall.tileset.file));
-      // The exact autotile piece the mapper placed (see OfficeLayout.
-      // tileWallMask) — rendered verbatim, not re-derived from adjacency.
-      tileWallMask.push(row);
-      // Whatever the mapper painted in Ground under this wall, if anything —
-      // the floor that shows around a thin wall strip (see
-      // OfficeLayout.tileWallFloorPattern).
-      if (groundResolved?.class === 'FloorTile') {
-        const under = rowAndSwatchFromLocalId(groundResolved.localId);
-        tileWallFloorPattern.push(under.row + 1);
-        tileWallFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, groundResolved.tileset.file));
-        tileWallFloorColor.push(under.swatchIndex);
-      } else {
-        tileWallFloorPattern.push(null);
-        tileWallFloorSet.push(0);
-        tileWallFloorColor.push(null);
-      }
-    } else if (groundResolved?.class === 'FloorTile') {
+    // Classify by Tiled's own `class` (FloorTile — see Pixels.tiled-project),
+    // not by which file a tile lives in — a mapper reorganizing tileset files
+    // must not silently break this (see docs/design/tiled-editor-integration.md).
+    if (groundResolved?.class === 'FloorTile') {
       const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId);
       tiles.push(row + 1);
       tileColors.push(swatchIndex);
+      // Which set this came from — unlike the floor/void classification above,
+      // this one legitimately IS about the file, since "which set" has no other
+      // identity (see setIndexFromFile).
       tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, groundResolved.tileset.file));
-      tileWallSet.push(0);
-      tileWallMask.push(null);
-      tileWallFloorPattern.push(null);
-      tileWallFloorSet.push(0);
-      tileWallFloorColor.push(null);
     } else {
       tiles.push(TileType.VOID);
       tileColors.push(null);
       tileFloorSet.push(0);
-      tileWallSet.push(0);
-      tileWallMask.push(null);
-      tileWallFloorPattern.push(null);
-      tileWallFloorSet.push(0);
-      tileWallFloorColor.push(null);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
@@ -660,8 +563,7 @@ export function importTmjToLayout(
    * latticePiece override. The barrier for a faced wall is the edge run the
    * mapper paints along its base.
    */
-  const wallEdges = ((): OfficeLayout['walls'] => {
-    if (!hasLatticeWalls) return undefined;
+  const wallEdges = ((): NonNullable<OfficeLayout['walls']> => {
     const walls = emptyWallEdges(cols, rows);
     const latticeSet: number[] = new Array((cols + 1) * (rows + 1)).fill(0);
     const latticeColor: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
@@ -834,12 +736,7 @@ export function importTmjToLayout(
     furniture,
     tileColors,
     tileFloorSet,
-    tileWallSet,
-    tileWallMask,
-    tileWallFloorPattern,
-    tileWallFloorSet,
-    tileWallFloorColor,
-    ...(wallEdges ? { walls: wallEdges } : {}),
+    walls: wallEdges,
     tileBlocked,
     tileActions,
     texts,

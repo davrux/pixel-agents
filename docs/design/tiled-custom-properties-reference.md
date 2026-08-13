@@ -18,7 +18,7 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 - **Custom Types Editor** (View menu): where the *definitions* below actually live —
   this is a separate view from the Properties panel. If a tile/object looks like it
   has no properties, check it's got the right `Class` assigned first.
-- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLayer, WallLatticeLayer, CollisionLayer) is a
+- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLatticeLayer, CollisionLayer) is a
   pure marker — assigning it doesn't add any fields, it just tags the tile/layer so
   our import code recognizes it. Don't add properties to these by hand; see
   "Position-derived data" below for why.
@@ -209,21 +209,9 @@ No members. Assign to whichever tile layer holds floor GIDs — normally named
 "Ground", but the **name doesn't matter**, only this class does. There must be
 exactly one per map.
 
-Paint floor here **under walls too**: a wall cell whose Ground holds a FloorTile
-gets that floor drawn beneath the wall, which is what a thin wall set needs to
-show room floor around its strip instead of flat color. Leaving Ground empty
-under a wall is fine and gives the older flat-fill look.
-
-### WallLayer *(useAs: layer)*
-
-No members. Assign to whichever tile layer holds wall GIDs — normally named
-"Wall", above Ground. Exactly one per map; the class is what matters, not the
-name or the position in the Layers panel.
-
-**Legacy.** This is the old model, where a wall was a whole *cell*: it blocked
-all 16px and hid a floor tile, for 6px of art. Use WallLatticeLayer instead. A
-map is imported one way or the other — if its lattice layer has anything painted,
-this layer is ignored entirely.
+Paint floor **everywhere a room reaches**, walls included: walls are edges on the
+boundaries now (see WallLatticeLayer), so every cell is walkable floor and none of
+them is hidden by a wall.
 
 ### WallLatticeLayer *(useAs: layer)*
 

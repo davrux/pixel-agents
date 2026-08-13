@@ -224,17 +224,6 @@
             "members": []
         },
         {
-            "id": 18,
-            "name": "WallLayer",
-            "type": "class",
-            "useAs": [
-                "layer"
-            ],
-            "color": "#ff5a7ea4",
-            "drawFill": false,
-            "members": []
-        },
-        {
             "id": 15,
             "name": "CollisionLayer",
             "type": "class",

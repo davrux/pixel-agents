@@ -76,7 +76,7 @@ export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [
   ENDESGA_PALETTE_64,
 ];
 
-/** Which closed palette each wall "set" (OfficeLayout.tileWallSet, see
+/** Which closed palette each wall "set" (WallEdges.latticeSet, see
  *  tiledSheetLayout.ts's WALL_SET_FILES) is baked from — parallel-indexed
  *  with WALL_SET_FILES. */
 export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, ENDESGA_PALETTE_64];
