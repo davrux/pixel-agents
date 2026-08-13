@@ -42,13 +42,11 @@
             "members": [
                 { "name": "id", "type": "string", "value": "" },
                 { "name": "label", "type": "string", "value": "" },
-                { "name": "category", "type": "string", "value": "misc", "propertyType": "Category" },
+                { "name": "canSitOn", "type": "bool", "value": false },
+                { "name": "sitFacing", "type": "string", "value": "", "propertyType": "SitFacing" },
+                { "name": "petCanSitOn", "type": "bool", "value": false },
                 { "name": "backgroundTiles", "type": "int", "value": 0 },
-                { "name": "occupiesSurface", "type": "bool", "value": false },
-                { "name": "orientation", "type": "string", "value": "", "propertyType": "Orientation" },
-                { "name": "stateGroup", "type": "string", "value": "" },
-                { "name": "state", "type": "string", "value": "", "propertyType": "FurnitureState" },
-                { "name": "onTrigger", "type": "string", "value": "", "propertyType": "OnTrigger" },
+                { "name": "onState", "type": "string", "value": "" },
                 { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
@@ -65,14 +63,17 @@
             "color": "#ffa0ffa0",
             "drawFill": false,
             "members": [
-                { "name": "id", "type": "string", "value": "" },
-                { "name": "name", "type": "string", "value": "" },
                 { "name": "approachSides", "type": "string", "value": "", "propertyType": "ApproachSide" },
                 { "name": "approachThrough", "type": "bool", "value": false },
                 { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" }
+                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
+                { "name": "canSitOn", "type": "bool", "value": false },
+                { "name": "sitFacing", "type": "string", "value": "", "propertyType": "SitFacing" },
+                { "name": "petCanSitOn", "type": "bool", "value": false },
+                { "name": "backgroundTiles", "type": "int", "value": 0 },
+                { "name": "onState", "type": "string", "value": "" }
             ]
         },
         {
@@ -122,39 +123,16 @@
         },
         {
             "id": 8,
-            "name": "Orientation",
+            "name": "SitFacing",
             "type": "enum",
             "storageType": "string",
             "valuesAsFlags": false,
             "values": [
                 "",
-                "front",
-                "back",
-                "side"
-            ]
-        },
-        {
-            "id": 9,
-            "name": "FurnitureState",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "",
-                "on",
-                "off"
-            ]
-        },
-        {
-            "id": 10,
-            "name": "OnTrigger",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "",
-                "autoFacing",
-                "click"
+                "N",
+                "E",
+                "S",
+                "W"
             ]
         },
         {
@@ -168,24 +146,6 @@
                 "S",
                 "E",
                 "W"
-            ]
-        },
-        {
-            "id": 12,
-            "name": "Category",
-            "type": "enum",
-            "storageType": "string",
-            "valuesAsFlags": false,
-            "values": [
-                "floor",
-                "walls",
-                "desks",
-                "chairs",
-                "storage",
-                "electronics",
-                "decor",
-                "kitchens",
-                "misc"
             ]
         },
         {

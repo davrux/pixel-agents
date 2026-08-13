@@ -1,6 +1,6 @@
 import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry } from './furnitureCatalog.js';
+import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveSitFacing } from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
 /** Convert flat tile array from layout into 2D grid */
@@ -18,21 +18,6 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
 
 /** Convert placed furniture into renderable FurnitureInstance[] */
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
-  // Pre-compute desk zY per tile so surface items can sort in front of desks
-  const deskZByTile = new Map<string, number>();
-  for (const item of furniture) {
-    const entry = getCatalogEntry(item.id);
-    if (!entry || !entry.isDesk) continue;
-    const deskZY = item.row * TILE_SIZE + entry.sprite.length;
-    for (let dr = 0; dr < entry.footprintH; dr++) {
-      for (let dc = 0; dc < entry.footprintW; dc++) {
-        const key = `${item.col + dc},${item.row + dr}`;
-        const prev = deskZByTile.get(key);
-        if (prev === undefined || deskZY > prev) deskZByTile.set(key, deskZY);
-      }
-    }
-  }
-
   const instances: FurnitureInstance[] = [];
   for (const item of furniture) {
     const entry = getCatalogEntry(item.id);
@@ -42,28 +27,19 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     const spriteH = entry.sprite.length;
     let zY = y + spriteH;
 
-    // Chair z-sorting: ensure characters sitting on chairs render correctly
-    if (entry.category === 'chairs') {
-      if (entry.orientation === 'back') {
-        // Back-facing chairs render IN FRONT of the seated character
-        // (the chair back visually occludes the character behind it).
-        // Use the bottom footprint row so it sorts after the character
-        // even when the chair has background tiles that push seats down.
+    // Seat z-sorting: a character sitting here has to end up on the right side
+    // of the seat's own graphic.
+    if (resolveCanSitOn(item, entry)) {
+      if (resolveSitFacing(item, entry) === Direction.UP) {
+        // Sitting with their back to us, so the seat's back occludes them:
+        // sort the seat AFTER the character. The bottom footprint row (not the
+        // sprite height) so this still holds when background rows have pushed
+        // the seats themselves further down.
         zY = (item.row + entry.footprintH) * TILE_SIZE + 1;
       } else {
-        // All other chairs: cap zY to first row bottom so characters
-        // at any seat tile render in front of the chair
+        // Any other direction: the character is in front of the seat, so cap
+        // zY at the first row's bottom and let them sort after it.
         zY = (item.row + 1) * TILE_SIZE;
-      }
-    }
-
-    // Surface items render in front of the desk they sit on
-    if (entry.occupiesSurface) {
-      for (let dr = 0; dr < entry.footprintH; dr++) {
-        for (let dc = 0; dc < entry.footprintW; dc++) {
-          const deskZ = deskZByTile.get(`${item.col + dc},${item.row + dr}`);
-          if (deskZ !== undefined && deskZ + 0.5 > zY) zY = deskZ + 0.5;
-        }
       }
     }
 
@@ -98,7 +74,7 @@ export function getBlockedTiles(
   for (const item of furniture) {
     const entry = getCatalogEntry(item.id);
     if (!entry) continue;
-    const bgRows = entry.backgroundTiles || 0;
+    const bgRows = resolveBackgroundTiles(item, entry);
     for (let dr = 0; dr < entry.footprintH; dr++) {
       if (dr < bgRows) continue; // skip background rows — characters can walk through
       for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -156,7 +132,7 @@ export function getPlacementBlockedTiles(
     if (item.uid === excludeUid) continue;
     const entry = getCatalogEntry(item.id);
     if (!entry) continue;
-    const bgRows = entry.backgroundTiles || 0;
+    const bgRows = resolveBackgroundTiles(item, entry);
     for (let dr = 0; dr < entry.footprintH; dr++) {
       if (dr < bgRows) continue; // skip background rows
       for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -167,96 +143,27 @@ export function getPlacementBlockedTiles(
   return tiles;
 }
 
-/** Map chair orientation to character facing direction — 'front'/'back'/'side'
- *  are the only values the Orientation enum (Pixels.tiled-project) offers.
- *  Assumes the UNFLIPPED sprite — see mirrorFacing for why a flipped
- *  instance still needs this corrected. */
-function orientationToFacing(orientation: string): Direction {
-  switch (orientation) {
-    case 'front':
-      return Direction.DOWN;
-    case 'back':
-      return Direction.UP;
-    case 'side':
-      return Direction.RIGHT;
-    default:
-      return Direction.DOWN;
-  }
-}
-
-/** Mirror a facing direction to match a flipped sprite — orientationToFacing
- *  assumes the chair's UNFLIPPED art (e.g. "side" always means the base
- *  sprite's own rightward-facing pose), so a mapper who flips a chair
- *  horizontally/vertically in Tiled to visually face the other way needs the
- *  seat's actual sit-facing to follow, or a character sitting there faces
- *  into the now-mirrored chair's back. Only ever applied to an
- *  orientation-derived facing — the adjacent-desk-direction fallback below is
- *  already purely positional (real desk geometry), so flipping the chair's
- *  own art has no bearing on it. */
-function mirrorFacing(dir: Direction, flippedHorizontally?: boolean, flippedVertically?: boolean): Direction {
-  if (flippedHorizontally) {
-    if (dir === Direction.LEFT) dir = Direction.RIGHT;
-    else if (dir === Direction.RIGHT) dir = Direction.LEFT;
-  }
-  if (flippedVertically) {
-    if (dir === Direction.UP) dir = Direction.DOWN;
-    else if (dir === Direction.DOWN) dir = Direction.UP;
-  }
-  return dir;
-}
-
-/** Generate seats from chair furniture.
- *  Facing priority: 1) chair orientation, 2) adjacent desk, 3) forward (DOWN). */
+/** Generate seats from every sittable item — see resolveCanSitOn/
+ *  resolveSitFacing, which is where the "is this sittable, and which way do you
+ *  face" question is now answered (it used to be inferred here, from the
+ *  'chairs' category plus an art-orientation string plus the direction of the
+ *  nearest desk). */
 export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
   const seats = new Map<string, Seat>();
 
-  // Build set of all desk tiles
-  const deskTiles = new Set<string>();
+  // Every footprint tile below the background rows becomes a seat, so a 2-tile
+  // couch seats two.
   for (const item of furniture) {
     const entry = getCatalogEntry(item.id);
-    if (!entry || !entry.isDesk) continue;
-    for (let dr = 0; dr < entry.footprintH; dr++) {
-      for (let dc = 0; dc < entry.footprintW; dc++) {
-        deskTiles.add(`${item.col + dc},${item.row + dr}`);
-      }
-    }
-  }
+    if (!entry || !resolveCanSitOn(item, entry)) continue;
 
-  const dirs: Array<{ dc: number; dr: number; facing: Direction }> = [
-    { dc: 0, dr: -1, facing: Direction.UP }, // desk is above chair → face UP
-    { dc: 0, dr: 1, facing: Direction.DOWN }, // desk is below chair → face DOWN
-    { dc: -1, dr: 0, facing: Direction.LEFT }, // desk is left of chair → face LEFT
-    { dc: 1, dr: 0, facing: Direction.RIGHT }, // desk is right of chair → face RIGHT
-  ];
-
-  // For each chair, every footprint tile becomes a seat.
-  // Multi-tile chairs (e.g. 2-tile couches) produce multiple seats.
-  for (const item of furniture) {
-    const entry = getCatalogEntry(item.id);
-    if (!entry || entry.category !== 'chairs') continue;
-
+    const facingDir = resolveSitFacing(item, entry);
     let seatCount = 0;
-    const bgRows = entry.backgroundTiles ?? 0;
+    const bgRows = resolveBackgroundTiles(item, entry);
     for (let dr = bgRows; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
         const tileCol = item.col + dc;
         const tileRow = item.row + dr;
-
-        // Determine facing direction:
-        // 1) Chair orientation takes priority
-        // 2) Adjacent desk direction
-        // 3) Default forward (DOWN)
-        let facingDir: Direction = Direction.DOWN;
-        if (entry.orientation) {
-          facingDir = mirrorFacing(orientationToFacing(entry.orientation), item.flippedHorizontally, item.flippedVertically);
-        } else {
-          for (const d of dirs) {
-            if (deskTiles.has(`${tileCol + d.dc},${tileRow + d.dr}`)) {
-              facingDir = d.facing;
-              break;
-            }
-          }
-        }
 
         // First seat uses chair uid (backward compat), subsequent use uid:N
         const seatUid = seatCount === 0 ? item.uid : `${item.uid}:${seatCount}`;

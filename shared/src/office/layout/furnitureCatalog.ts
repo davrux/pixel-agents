@@ -1,31 +1,29 @@
-import type { Action, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
+import type { Action, Direction as DirectionVal, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
+import { Direction } from '../types.js';
 
 export interface LoadedAssetData {
   catalog: Array<{
     id: string;
     label: string;
-    category: string;
     width: number;
     height: number;
     footprintW: number;
     footprintH: number;
-    isDesk: boolean;
-    groupId?: string;
-    orientation?: string; // 'front' | 'back' | 'side'
-    state?: string; // 'on' | 'off'
-    /** On a state-pair item: what turns it on — see FurnitureCatalogEntry.onTrigger. */
-    onTrigger?: 'autoFacing' | 'click';
-    /** Wire/manifest name kept as-is (see FurnitureCatalogEntry.occupiesSurface
-     *  for the renamed internal field this maps to in buildDynamicCatalog). */
-    canPlaceOnSurfaces?: boolean;
+    /** Behaviour defaults for this type — see FurnitureCatalogEntry, and the
+     *  resolve* helpers below for how a placed instance overrides them. */
+    canSitOn?: boolean;
+    sitFacing?: DirectionVal;
+    petCanSitOn?: boolean;
     backgroundTiles?: number;
+    /** Catalog id this item becomes when switched on — see
+     *  FurnitureCatalogEntry.onState. */
+    onState?: string;
     /** This type's default Action (see FurnitureCatalogEntry.action) — the
      *  only way a catalog entry gets one; no per-kind legacy flags anymore
      *  (conference/arcade/meetingRoom/appliance/portal booleans, and the
      *  hardcoded COFFEE_MACHINE id special case, are gone — every generated
      *  and Tiled-authored item sets this directly). */
     action?: Action;
-    rotationScheme?: string;
     animationGroup?: string;
     frame?: number;
     /** How long (ms) this frame shows before advancing — Tiled's own
@@ -40,28 +38,6 @@ export interface LoadedAssetData {
  *  the same speed it always has. */
 export const DEFAULT_ANIMATION_FRAME_MS = 200;
 
-/** The full category list is Boden, Wände, plus these — Boden/Wände aren't
- *  values here since they're not furniture: they're their own Tiled tile
- *  classes (FloorTile/WallTile), inherently one-to-one with their own
- *  tileset, needing no category property of their own. Wall-MOUNTED
- *  furniture (paintings, clocks, shelves) used to be its own `wall` category
- *  here, which read confusingly next to the structural "Wände" — folded into
- *  `decor` (see docs/design/tiled-editor-integration.md). */
-export type FurnitureCategory = 'desks' | 'chairs' | 'storage' | 'decor' | 'electronics' | 'kitchens' | 'misc';
-
-/** @internal */
-export interface CatalogEntryWithCategory extends FurnitureCatalogEntry {
-  category: FurnitureCategory;
-}
-
-// ── State groups ────────────────────────────────────────────────
-// Maps asset ID → its on/off counterpart (symmetric for toggle)
-const stateGroups = new Map<string, string>();
-// off asset → on asset (see getOnStateType)
-const offToOn = new Map<string, string>();
-// Maps EITHER side of a state pair → what turns it on (see getOnTrigger)
-const onTriggerByType = new Map<string, 'autoFacing' | 'click'>();
-
 // ── Animation groups ────────────────────────────────────────────
 export interface AnimationFrameInfo {
   id: string;
@@ -70,23 +46,20 @@ export interface AnimationFrameInfo {
 // Maps animation group ID → ordered {id, durationMs} by frame index
 const animationGroups = new Map<string, AnimationFrameInfo[]>();
 
-// Internal catalog (includes all variants for getCatalogEntry lookups)
-let internalCatalog: CatalogEntryWithCategory[] | null = null;
-
-// Dynamic catalog built from loaded assets (when available)
-// Only includes "front" variants for grouped items (shown in editor palette)
-let dynamicCatalog: CatalogEntryWithCategory[] | null = null;
-let dynamicCategories: FurnitureCategory[] | null = null;
+/** Every catalog entry, on/off partners and non-first animation frames
+ *  included — a lookup table, not a palette. There used to be a second,
+ *  filtered "visible" list feeding the in-game furniture palette's category
+ *  sections; with authoring moved entirely to Tiled (whose own tileset panel
+ *  shows every tile, unfiltered) there is nothing left to filter for. */
+let catalog: FurnitureCatalogEntry[] | null = null;
 
 /**
- * Build catalog from loaded assets. Returns true if successful.
- * Once built, all getCatalog* functions use the dynamic catalog.
+ * Build the catalog from loaded assets. Returns true if successful.
  * Uses ONLY custom assets (excludes hardcoded furniture when assets are loaded).
  */
 export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   if (!assets?.catalog || !assets?.sprites) return false;
 
-  // Build all entries (including non-front variants)
   const allEntries = assets.catalog
     .map((asset) => {
       const sprite = assets.sprites[asset.id];
@@ -100,62 +73,21 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         footprintW: asset.footprintW,
         footprintH: asset.footprintH,
         sprite,
-        isDesk: asset.isDesk,
-        category: asset.category as FurnitureCategory,
-        ...(asset.orientation ? { orientation: asset.orientation } : {}),
-        ...(asset.canPlaceOnSurfaces ? { occupiesSurface: true } : {}),
+        ...(asset.canSitOn ? { canSitOn: true } : {}),
+        // `!== undefined`, not truthiness: Direction.DOWN is 0, so a plain
+        // `asset.sitFacing ? …` would silently drop every south-facing seat.
+        ...(asset.sitFacing !== undefined ? { sitFacing: asset.sitFacing } : {}),
+        ...(asset.petCanSitOn ? { petCanSitOn: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
-        ...(asset.onTrigger ? { onTrigger: asset.onTrigger } : {}),
+        ...(asset.onState ? { onState: asset.onState } : {}),
         ...(asset.action ? { action: asset.action } : {}),
       };
     })
-    .filter((e): e is CatalogEntryWithCategory => e !== null);
+    .filter((e): e is NonNullable<typeof e> => e !== null);
 
   if (allEntries.length === 0) return false;
 
-  // No rotation-group system: every orientation variant (front/back/side/…)
-  // is its own independent, always-visible catalog entry — the mapper places
-  // whichever one they want directly, there's no in-place rotate tool. (Was
-  // groupId+orientation-linked with a hidden non-front subset; dropped since
-  // Tiled's rotate handle geometrically rotates the graphic, which is wrong
-  // for perspective pixel art — see docs/design/tiled-editor-integration.md.)
-  stateGroups.clear();
-  offToOn.clear();
-  onTriggerByType.clear();
   animationGroups.clear();
-
-  // Build state groups (on ↔ off pairs within the same groupId — "orientation"
-  // in the key is vestigial from imports that still tag it, harmless either way)
-  const stateMap = new Map<string, Map<string, string>>(); // "groupId|orientation" → (state → assetId)
-  const triggerMap = new Map<string, 'autoFacing' | 'click'>(); // same key → onTrigger, if set
-  for (const asset of assets.catalog) {
-    if (asset.groupId && asset.state) {
-      const key = `${asset.groupId}|${asset.orientation || ''}`;
-      let sm = stateMap.get(key);
-      if (!sm) {
-        sm = new Map();
-        stateMap.set(key, sm);
-      }
-      if (asset.onTrigger && !triggerMap.has(key)) triggerMap.set(key, asset.onTrigger);
-      // For animation groups, use the first frame as the "on" representative
-      if (asset.animationGroup && asset.frame !== undefined && asset.frame > 0) continue;
-      sm.set(asset.state, asset.id);
-    }
-  }
-  for (const [key, sm] of stateMap) {
-    const onId = sm.get('on');
-    const offId = sm.get('off');
-    if (onId && offId) {
-      stateGroups.set(onId, offId);
-      stateGroups.set(offId, onId);
-      offToOn.set(offId, onId);
-      const trigger = triggerMap.get(key);
-      if (trigger) {
-        onTriggerByType.set(onId, trigger);
-        onTriggerByType.set(offId, trigger);
-      }
-    }
-  }
 
   // Build animation groups
   const animGroupCollector = new Map<string, Array<{ id: string; frame: number; durationMs: number }>>();
@@ -177,58 +109,15 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     );
   }
 
-  // Track "on" variant IDs and non-first animation frame IDs to exclude from the visible catalog
-  const onStateIds = new Set<string>();
-  const nonFirstFrameIds = new Set<string>();
-  for (const asset of assets.catalog) {
-    if (asset.state === 'on') onStateIds.add(asset.id);
-    if (asset.animationGroup && asset.frame !== undefined && asset.frame > 0) {
-      nonFirstFrameIds.add(asset.id);
-    }
-  }
+  catalog = allEntries;
 
-  // Store full internal catalog (all variants — for getCatalogEntry lookups)
-  internalCatalog = allEntries;
-
-  // Visible catalog: exclude "on" state variants and non-first anim frames —
-  // every orientation variant stays visible now (no rotation groups to hide
-  // a non-front subset behind).
-  const visibleEntries = allEntries.filter((e) => !onStateIds.has(e.id) && !nonFirstFrameIds.has(e.id));
-
-  // Strip a state suffix from labels for on/off pairs (e.g. imported data
-  // still tagging "... - Off").
-  for (const entry of visibleEntries) {
-    if (stateGroups.has(entry.id)) {
-      entry.label = entry.label
-        .replace(/ - Front - Off$/, '')
-        .replace(/ - Front$/, '')
-        .replace(/ - Off$/, '');
-    }
-  }
-
-  dynamicCatalog = visibleEntries;
-  dynamicCategories = Array.from(new Set(visibleEntries.map((e) => e.category)))
-    .filter((c): c is FurnitureCategory => !!c)
-    .sort();
-
-  const animGroupCount = animationGroups.size;
-  console.log(
-    `✓ Built dynamic catalog with ${allEntries.length} assets (${visibleEntries.length} visible, ${stateGroups.size / 2} state pairs, ${animGroupCount} animation groups)`,
-  );
+  const statePairs = allEntries.filter((e) => e.onState).length;
+  console.log(`✓ Built dynamic catalog with ${allEntries.length} assets (${statePairs} state pairs, ${animationGroups.size} animation groups)`);
   return true;
 }
 
-export function getCatalogEntry(id: string): CatalogEntryWithCategory | undefined {
-  // Check internal catalog (includes all variants, e.g., non-front rotations)
-  if (internalCatalog) {
-    return internalCatalog.find((e) => e.id === id);
-  }
-  return dynamicCatalog?.find((e) => e.id === id);
-}
-
-export function getCatalogByCategory(category: FurnitureCategory): CatalogEntryWithCategory[] {
-  const catalog = dynamicCatalog ?? [];
-  return catalog.filter((e) => e.category === category);
+export function getCatalogEntry(id: string): FurnitureCatalogEntry | undefined {
+  return catalog?.find((e) => e.id === id);
 }
 
 /** A placed item's effective action (see Action): its own override
@@ -238,39 +127,73 @@ export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEn
   return item.action ?? entry?.action ?? null;
 }
 
-export function getActiveCategories(): Array<{ id: FurnitureCategory; label: string }> {
-  const categories = dynamicCategories ?? [];
-  return FURNITURE_CATEGORIES.filter((c) => categories.includes(c.id));
+// ── Behaviour resolution ────────────────────────────────────────
+// Each of these answers one question about one PLACED item. The pattern is
+// always the same — the instance's own value if it set one, else the type's
+// default, else the "does nothing" fallback — so that a mapper can state a
+// behaviour once on the tile and still contradict it on a single placement.
+
+/** May a character sit here? */
+export function resolveCanSitOn(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): boolean {
+  return item.canSitOn ?? entry?.canSitOn ?? false;
 }
 
-/** @internal */
-export const FURNITURE_CATEGORIES: Array<{ id: FurnitureCategory; label: string }> = [
-  { id: 'desks', label: 'Desks' },
-  { id: 'chairs', label: 'Chairs' },
-  { id: 'storage', label: 'Storage' },
-  { id: 'electronics', label: 'Tech' },
-  { id: 'decor', label: 'Decor' },
-  { id: 'kitchens', label: 'Kitchen' },
-  { id: 'misc', label: 'Misc' },
-];
-
-/** Returns the toggled state variant (on↔off), or null if no state variant exists. */
-export function getToggledType(currentType: string): string | null {
-  return stateGroups.get(currentType) ?? null;
+/**
+ * Which way does a character sitting here look?
+ *
+ * Defaults to UP (north) when nobody said: the overwhelmingly common case is a
+ * seat at a desk against a wall, and guessing wrong is cheap and visible. This
+ * deliberately replaced a derivation that looked for an adjacent desk tile and
+ * fell back to DOWN — which needed a notion of "desk" in the engine, and still
+ * guessed wrong for anything that wasn't one.
+ *
+ * An explicit instance value is taken literally, while a value inherited from
+ * the catalog follows the instance's flips: the type's default describes the
+ * unflipped art ("this chair faces right"), so mirroring the art has to mirror
+ * the seat with it, or a character sits facing into the chair's back. A mapper
+ * who states sitFacing on the placement itself has already accounted for the
+ * flip they applied, and gets exactly what they asked for.
+ */
+export function resolveSitFacing(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): DirectionVal {
+  // `!== undefined` throughout, never truthiness — Direction.DOWN is 0.
+  if (item.sitFacing !== undefined) return item.sitFacing;
+  return mirrorFacing(entry?.sitFacing ?? Direction.UP, item.flippedHorizontally, item.flippedVertically);
 }
 
-/** Returns the "on" variant if this type has one, otherwise returns the type unchanged. */
-export function getOnStateType(currentType: string): string {
-  return offToOn.get(currentType) ?? currentType;
+/** May a pet rest on top of this? (Whether one actually FITS also depends on
+ *  what else is standing on the tile — see officeState.ts.) */
+export function resolvePetCanSitOn(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): boolean {
+  return item.petCanSitOn ?? entry?.petCanSitOn ?? false;
 }
 
-/** What turns an on/off state pair on (see FurnitureCatalogEntry.onTrigger) —
- *  either side's id works. Null if `type` has no state pair at all;
- *  'autoFacing' if it has one but never recorded an explicit trigger (old
- *  data predating this field — keeps behaving exactly as before). */
-export function getOnTrigger(type: string): 'autoFacing' | 'click' | null {
-  if (!stateGroups.has(type)) return null;
-  return onTriggerByType.get(type) ?? 'autoFacing';
+/** How many rows from the top of this placement stay walkable — see
+ *  FurnitureCatalogEntry.backgroundTiles for why this one is normally the
+ *  type's business and only exceptionally the instance's. */
+export function resolveBackgroundTiles(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): number {
+  return item.backgroundTiles ?? entry?.backgroundTiles ?? 0;
+}
+
+/** Mirror a facing direction to match a flipped sprite — see resolveSitFacing
+ *  for when this applies and when it deliberately doesn't. */
+export function mirrorFacing(dir: DirectionVal, flippedHorizontally?: boolean, flippedVertically?: boolean): DirectionVal {
+  if (flippedHorizontally) {
+    if (dir === Direction.LEFT) dir = Direction.RIGHT;
+    else if (dir === Direction.RIGHT) dir = Direction.LEFT;
+  }
+  if (flippedVertically) {
+    if (dir === Direction.UP) dir = Direction.DOWN;
+    else if (dir === Direction.DOWN) dir = Direction.UP;
+  }
+  return dir;
+}
+
+/** The "on" variant of this placement, or its own id unchanged if it has none —
+ *  so `resolveOnState(item, entry) === item.id` is also the test for "this isn't
+ *  a state pair at all". Only ever resolves one step: the "on" half is not itself
+ *  expected to name a further state. */
+export function resolveOnState(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): string {
+  const onState = item.onState ?? entry?.onState;
+  return onState && onState !== item.id ? onState : item.id;
 }
 
 /** Get the ordered {id, durationMs} animation frames for a given type, or

@@ -59,27 +59,37 @@ ids) are machine-generated from the MetroCity pack by
 `server/scripts/gen-metro-furniture.mts` — don't hand-edit them, re-run that instead.
 Everything else about them is ordinary: same class, same properties, same catalog.
 
+**Every tile carries every property below**, defaults included — not just the ones
+that differ. `server/scripts/sync-furniture-properties.mts` is what keeps that
+true; run it whenever the set changes (see AGENTS.md). So "Required?" here means
+what the value has to *say*, not whether the property is present: a property is
+never absent, and nothing has to be added by hand.
+
 | Property | Type | Required? | Notes |
 |---|---|---|---|
 | `id` | string | **required** | Stable catalog identifier. Skipped with a console warning if missing. |
-| `label` | string | optional | Display name in the in-game editor palette. Falls back to `id` if blank. |
-| `category` | string, enum `Category` | optional (defaults `misc`) | Browsing bucket — see the Category enum below. **Only `desks/chairs/storage/electronics/decor/kitchens/misc` are valid here** — see "Known quirk" at the bottom. |
+| `label` | string | optional | Display name. Falls back to `id` if blank. |
+| `canSitOn` | bool | optional | May a character sit here? Every footprint tile below the `backgroundTiles` rows becomes a seat, so a 2-tile couch seats two. |
+| `sitFacing` | string, enum `SitFacing` | optional | Which way a sitting character looks: `N`/`E`/`S`/`W`. Blank = `N`. Describes the *unflipped* art — a flipped placement mirrors it (see "Special case: sitFacing"). |
+| `petCanSitOn` | bool | optional | May a pet perch on top? It also has to fit: a pet takes the first footprint column with no other item standing on it. |
 | `backgroundTiles` | int | optional | How many rows from the *top* of the footprint stay walkable *and* placeable-over by another item (e.g. a wall-mounted painting's row overlapping where a desk could also go; a portal pad's whole tile being walkable so a player can stand right on it). |
-| `occupiesSurface` | bool | optional | Item sits on top of a desk surface (monitor, mug) — affects z-sort and pet placement logic. |
-| `orientation` | string, enum `Orientation` | optional | See "Special case: orientation" below — behavior depends entirely on category. |
-| `stateGroup` | string | only for on/off pairs | See "Special case: state pairs" below. |
-| `state` | string, enum `FurnitureState` | only for on/off pairs | `on` or `off` — needs a matching `stateGroup`. |
-| `onTrigger` | string, enum `OnTrigger` | optional, only meaningful with a state pair | `autoFacing` (default) or `click` — see state pairs below. |
+| `onState` | string | optional | Catalog `id` this tile turns *into* when switched on — set on the "off" half only. See "Special case: state pairs". |
 | `actionKind` | string, enum `ActionKind` | optional | This *type's* default Action — every placed instance gets this unless it carries its own override (see FurnitureObject below). Same enum, same "Special case: Actions" semantics as FurnitureObject's. There are no other per-kind flags anymore (no `conference`/`arcade`/`meetingRoom`/`appliance`/`portal` booleans, no hardcoded id special-cases) — this is the *only* way a catalog type gets a default action. |
 | `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
 | `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
 | `actionPose` | string, enum `ApplianceKind` | only with `actionKind: appliance` | E.g. `coffee` — this is how the bundled coffee machine (`COFFEE_MACHINE` in `furniture-kitchens.tsj`) is wired up. |
 
+There is deliberately **no category, and no taxonomy of any kind**. Behaviour used
+to be inferred from one: chairs were sittable because their category said
+`chairs`, desks hosted pets because theirs said `desks`. That made a correctly
+drawn, correctly categorised chair unsittable if any of several other properties
+were missing, with nothing in Tiled to point at. Each capability is now its own
+visible property.
+
 Animation (a lamp flicker, a spinning fan) is **not** a custom property — use Tiled's
 native tile `<animation>` (right-click a tile → "Tile Animation Editor"), pointing at
-sibling tiles in the *same* tileset. The anchor tile's own `state`/`stateGroup`
-becomes the "on" side; the animation's later frames are read but never become
-independent catalog entries.
+sibling tiles in the *same* tileset. Point an off-tile's `onState` at the animation's
+anchor frame; the later frames are read but never become independent catalog entries.
 
 ### FurnitureObject *(useAs: object)*
 
@@ -97,6 +107,32 @@ override.
 | `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
 | `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
 | `actionPose` | string, enum `ApplianceKind` | only with `actionKind: appliance` | E.g. `coffee`. |
+| `canSitOn` | bool | optional | Overrides the tile's own value for this placement only — makes one coffee machine sittable, or one chair not. |
+| `sitFacing` | string, enum `SitFacing` | optional | Overrides the tile's value. Taken **literally**: unlike the inherited default it is not mirrored by a flip, since you already know which way you flipped this one. |
+| `petCanSitOn` | bool | optional | Overrides the tile's value. |
+| `backgroundTiles` | int | optional | Overrides the tile's value — the only way to make a furniture tile walkable in one spot, since the Collision layer can only ever *add* blocking. |
+
+Unlike a FurnitureTile, a placed object carries **only the overrides it actually
+makes** — absence means "whatever this type says", and that distinction is the
+whole point: writing `canSitOn: false` onto every placement of a sittable chair
+just to be thorough would turn every chair in the map unsittable on the next
+import. Our exporter follows the same rule.
+
+You still *see* every field, because Tiled offers a class's members to any object
+assigned that class, file contents notwithstanding. That is why the class matters:
+**a placement dragged or pasted straight from the Tilesets panel has no class at
+all**, so Tiled shows it nothing to set. Either pick `FurnitureObject` in its
+Class field, or run
+
+```bash
+cd server && node --import tsx scripts/sync-furniture-properties.mts
+```
+
+which stamps the class onto every class-less furniture placement in
+`assets/tiled/zones/*.tmj` (decided by the tile each gid points at, never by the
+layer). Import itself doesn't care — it accepts a `FurnitureObject` *or* any
+object whose tile is a `FurnitureTile` — so this is purely about what Tiled lets
+you edit.
 
 A furniture item with no Tiled tileset representation (portals, conference monitor,
 arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code) still
@@ -265,10 +301,7 @@ class is what matters, not the name. Exactly one per map.
 
 | Enum | Values | Flags? | Used by |
 |---|---|---|---|
-| `Category` | `floor, walls, desks, chairs, storage, electronics, decor, kitchens, misc` | no | `FurnitureTile.category` |
-| `Orientation` | *(empty)*, `front, back, side` | no | `FurnitureTile.orientation` |
-| `FurnitureState` | *(empty)*, `on, off` | no | `FurnitureTile.state` |
-| `OnTrigger` | *(empty)*, `autoFacing, click` | no | `FurnitureTile.onTrigger` |
+| `SitFacing` | *(empty)*, `N, E, S, W` | no | `FurnitureTile`/`FurnitureObject`'s `sitFacing` |
 | `ApproachSide` | `N, S, E, W` | **yes** | `FurnitureObject.approachSides` |
 | `ActionKind` | *(empty)*, `meetingRoom, meetingManager, iframe, appliance, arcade, portal, toggle, spawnPoint` | no | `FurnitureTile`/`FurnitureObject`/`ActionArea`'s `actionKind` |
 | `ApplianceKind` | *(empty)*, `coffee` | no | `actionPose` |
@@ -279,44 +312,45 @@ comma-joined string (`"N,E"`) — matching `PlacedFurniture.approachSides` exact
 
 ## Special cases
 
-### Orientation — behavior depends on category
+### sitFacing — and what a flip does to it
 
-`orientation` (`front`/`back`/`side`) means **two different things** depending on
-what it's attached to, and for most items it does nothing at runtime at all:
+`sitFacing` says which way a character sitting here looks, as a compass letter.
+Blank means `N`, which suits the common case (a seat at a desk against a wall) and
+is wrong visibly rather than subtly when it doesn't.
 
-- **Chairs** (`category: chairs`): actively used. `back` chairs render *in front of*
-  the seated character (their backrest occludes); every other value renders behind.
-  It also picks the character's seated facing direction, with priority over "face
-  the adjacent desk".
-- **Everything else** (PC, laptop, …): purely descriptive/cosmetic *unless* it's
-  disambiguating two state pairs sharing one `stateGroup` name (see below) — in the
-  current bundled data this never actually comes up, since e.g. the PC's front
-  on/off pair already uses the unique `stateGroup` value `"PC_front"` rather than a
-  bare `"PC"` shared with a side/back variant. If you ever *do* reuse one
-  `stateGroup` name across orientations, `orientation` is what keeps their on/off
-  pairs from colliding.
+It also decides the **z-order**: a seat whose sitFacing is `N` renders *in front
+of* the character (you are looking away, so its backrest occludes you); any other
+direction renders behind them.
 
-### State pairs — needs exactly two tiles, matching stateGroup
+A tile's value describes the **unflipped** art, so a flipped placement mirrors it:
+flip an `E`-facing chair horizontally and its seat faces `W`, or a character would
+sit looking into the chair's back. An override set on the *placement* is taken
+literally instead — you already know which way you flipped that one.
+
+This replaced an `orientation` property (`front`/`back`/`side`) that meant
+different things on different items: on a chair it picked a facing (only if the
+category was `chairs`, otherwise silently nothing) and drove the z-order; on
+everything else it was decoration, except that it also namespaced state-pair keys.
+Three jobs, one string, no way to say "face west".
+
+### State pairs — the off tile names the on tile
 
 An on/off toggle (a monitor, a lamp) is **two separate FurnitureTile entries**, not
-one tile with a boolean:
+one tile with a boolean. Set `onState` on the "off" tile to the **`id` of the "on"
+tile**. That is the whole wiring; the on tile itself needs nothing.
 
-1. Give both tiles the **same** `stateGroup` value (any string you choose, e.g.
-   `"MY_LAMP"`).
-2. Set `state: off` on one, `state: on` on the other.
-3. Optionally set `onTrigger` on either (only needs setting once — it's read from
-   whichever side happens to be visited first when the catalog builds, and applied
-   to both):
-   - **`autoFacing`** (default if omitted): flips on when an active agent is seated
-     facing it — no action needed.
-   - **`click`**: flips *only* via an explicit click — but this requires the
-     **placed instance** (FurnitureObject) to *also* carry `actionKind: toggle`.
-     Setting `onTrigger: click` on the tile alone does nothing by itself; the two
-     properties work together.
+What flips it follows from the Action, so there is no separate setting:
 
-If only one side of a pair exists (no matching `state: on`/`state: off` sibling with
-the same `stateGroup`), the whole mechanism silently no-ops — no error, the tile
-just never toggles.
+| The tile has | Behaviour |
+|---|---|
+| `actionKind: toggle` | a light switch — walk up, click, it flips, and nothing else flips it |
+| `onState` and no toggle action | lights up on its own while an active agent sits facing it |
+
+If `onState` names an id that doesn't exist, the tile simply never toggles — no
+error. (This replaced a scheme where both tiles shared a `stateGroup` string and
+each declared `state: on`/`off`, plus an `onTrigger` enum read from whichever half
+the catalog builder happened to visit first. Naming the partner outright says the
+same thing without three properties having to agree.)
 
 ### Actions — actionKind decides which other property matters
 
@@ -346,11 +380,10 @@ narrower than what open space alone would already allow.
 
 ## Known quirks (not yet cleaned up)
 
-- **`Category`'s `floor`/`walls` values don't apply to `FurnitureTile`.** They exist
-  for historical reasons (see the design doc) but nothing ever sets them anymore —
-  FloorTile/WallTile lost their own `category` property when they became memberless
-  marker classes. If you pick `floor` or `walls` for a *furniture* tile's category
-  by mistake, the import code catches it (falls back to `misc` with a console
-  warning) — but Tiled's own dropdown won't stop you from picking a nonsensical
-  value in the first place. Splitting `Category` into a furniture-only enum would
-  close this gap; hasn't been done.
+- **A plain rectangle FurnitureObject inherits nothing.** Server-generated
+  furniture (portals, the arcade cabinet, …) exports as a bare rectangle rather
+  than a tile object when no GID backs it, and Tiled only shows inherited tile
+  properties for *tile* objects — so on those placements the behaviour properties
+  aren't offered at all. Harmless in practice (those ids get their behaviour from
+  code, not from a tile), but it's the one place the "you always see the full set"
+  promise doesn't hold.

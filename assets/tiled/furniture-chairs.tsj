@@ -24,10 +24,52 @@
           "value": "Cushioned Bench"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "S",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -49,16 +91,52 @@
           "value": "Cushioned Chair"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "back",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "N",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -80,16 +158,52 @@
           "value": "Cushioned Chair"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "S",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -111,16 +225,52 @@
           "value": "Cushioned Chair"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "E",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -142,16 +292,52 @@
           "value": "Sofa"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "back",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "N",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -173,16 +359,52 @@
           "value": "Sofa"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "S",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -204,16 +426,52 @@
           "value": "Sofa"
         },
         {
-          "name": "orientation",
-          "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
         },
         {
-          "name": "category",
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "E",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -235,10 +493,52 @@
           "value": "Wooden Bench"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "S",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -260,21 +560,52 @@
           "value": "Wooden Chair"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "N",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "back",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -296,21 +627,52 @@
           "value": "Wooden Chair"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "S",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -332,21 +694,52 @@
           "value": "Wooden Chair"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "E",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "chairs",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     }

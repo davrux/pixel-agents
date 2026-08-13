@@ -1,5 +1,17 @@
 # Tiled as the level/sprite editor — design + execution plan
 
+> **Later change, applies throughout this document:** furniture **categories are
+> gone**, and with them every behaviour that was derived from one. This document
+> records the migration as it was planned and built, when `category` was a real
+> property and things like "can you sit on this" followed from it. That model was
+> replaced: each capability is now its own property, present on every tile with its
+> default filled in, and overridable per placement. Where a row below reads
+> `category`, `orientation`, `occupiesSurface`, `isDesk`, `stateGroup`, `state` or
+> `onTrigger`, see instead `docs/design/tiled-custom-properties-reference.md` for
+> the current set, and `server/src/tiled/furnitureProps.ts` for its one definition.
+> The reason for the change: a mapper who drew a new chair, gave it the right
+> category and still could not sit on it had nothing in Tiled to point at.
+
 Branch: `office/tiled-catalog`. Supersedes the earlier `office/tiled-schema` branch's
 approach on several points (rectangle Action/Blocked areas, DB32-everywhere, full
 orientation/rotation-group support) — those were reconsidered and rejected in the planning
@@ -176,16 +188,15 @@ version of the same thing). "Enum" means Tiled shows a dropdown (or checkbox lis
 
 | Property | Type | Values | Notes |
 |---|---|---|---|
-| `id` | string | stable identifier, e.g. `SOFA_SIDE` | was called `type` — an identity, not a taxonomy (that's `category`'s job). The key saved layouts reference — renaming this breaks every layout that placed it (old DB rows self-heal via `promoteLegacyTypeKey`, see the mapping table above) |
+| `id` | string | stable identifier, e.g. `SOFA_SIDE` | was called `type` — an identity, not a taxonomy. The key saved layouts reference — renaming this breaks every layout that placed it (old DB rows self-heal via `promoteLegacyTypeKey`, see the mapping table above) |
 | `label` | string | free text | curated display name, not mechanically derivable from `id` (e.g. `PC_FRONT_ON_1` → "PC", `MONITOR` → "Conference Monitor") |
-| `category` | enum `Category` | `desks`, `chairs`, `storage`, `electronics`, `decor`, `kitchens`, `misc` (the furniture subset — `floor`/`walls` are the other two, see `FloorTile`/`WallTile` above) | pure browsing label — which file a tile lives in no longer matters |
 | `backgroundTiles` | int | 0+ | rows from the top of the footprint that are walkable-through ("background") rather than solid |
-| `occupiesSurface` | bool | | sits on top of a desk/surface — affects z-sort and pet placement |
-| `orientation` | enum `Orientation` | `front`, `back`, `side` | which facing this art shows; also namespaces an on/off state-pair key alongside `stateGroup` |
-| `stateGroup` | string | free text, shared between two tiles | pairs an on/off variant together |
-| `state` | enum `FurnitureState` | `on`, `off` | needs a matching `stateGroup` pair |
-| `onTrigger` | enum `OnTrigger` | `autoFacing`, `click` | what flips an on/off pair — `autoFacing` = an agent sits facing it, `click` = the `toggle` Action |
 | `appliance` | enum `ApplianceKind` | `coffee` | interaction station kind |
+
+The behaviour properties this table originally listed (`category`, `occupiesSurface`,
+`orientation`, `stateGroup`, `state`, `onTrigger`) were replaced by `canSitOn`,
+`sitFacing`, `petCanSitOn` and `onState` — see the note at the top of this document
+and the current reference doc.
 
 **`FurnitureObject`** (object, "Furniture" layer)
 

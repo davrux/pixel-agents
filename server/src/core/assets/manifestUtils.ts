@@ -6,25 +6,25 @@
  * logic (ManifestAsset/ManifestGroup/flattenManifest etc.), retired once
  * that tree was fully migrated (see docs/design/tiled-editor-integration.md).
  */
-import type { Action } from '@pixel/shared/office/types.js';
+import type { Action, Direction } from '@pixel/shared/office/types.js';
 
 export interface FurnitureAsset {
   id: string;
   name: string;
   label: string;
-  category: string;
   file: string;
   width: number;
   height: number;
   footprintW: number;
   footprintH: number;
-  isDesk: boolean;
-  groupId?: string;
-  canPlaceOnSurfaces?: boolean;
+  /** Behaviour defaults for this type — see FurnitureCatalogEntry, and
+   *  server/src/tiled/furnitureProps.ts for the Tiled properties they come
+   *  from. */
+  canSitOn?: boolean;
+  sitFacing?: Direction;
+  petCanSitOn?: boolean;
   backgroundTiles?: number;
-  orientation?: string;
-  state?: string;
-  onTrigger?: 'autoFacing' | 'click';
+  onState?: string;
   animationGroup?: string;
   frame?: number;
   durationMs?: number;

@@ -29,10 +29,52 @@
           "value": "Hospital bed 1"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -54,10 +96,52 @@
           "value": "Hospital bed 2"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -79,10 +163,52 @@
           "value": "Hospital door 1"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -104,10 +230,52 @@
           "value": "Hospital door 2"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -129,10 +297,52 @@
           "value": "Hospital door 3"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -154,10 +364,52 @@
           "value": "Hospital door 4"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -179,10 +431,52 @@
           "value": "Hospital door 5"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -204,10 +498,52 @@
           "value": "Hospital door 6"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -229,10 +565,52 @@
           "value": "Hospital door 7"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -254,10 +632,52 @@
           "value": "Hospital door 8"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -279,10 +699,52 @@
           "value": "Hospital door 9"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -304,10 +766,52 @@
           "value": "Hospital door 10"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -329,10 +833,52 @@
           "value": "Hospital misc 1"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -354,10 +900,52 @@
           "value": "Hospital misc 2"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -379,10 +967,52 @@
           "value": "Hospital misc 3"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -404,10 +1034,52 @@
           "value": "Hospital misc 4"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -429,10 +1101,52 @@
           "value": "Hospital misc 5"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -454,10 +1168,52 @@
           "value": "Hospital misc 6"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -479,10 +1235,52 @@
           "value": "Hospital misc 7"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -504,10 +1302,52 @@
           "value": "Hospital misc 8"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -529,10 +1369,52 @@
           "value": "Hospital misc 9"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -554,10 +1436,52 @@
           "value": "Hospital misc 10"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -576,13 +1500,55 @@
         {
           "name": "label",
           "type": "string",
-          "value": "Hospital misc 11"
+          "value": "Blauer Stuhl"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "E",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -604,10 +1570,52 @@
           "value": "Hospital misc 12"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -629,10 +1637,52 @@
           "value": "Hospital misc 13"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -654,10 +1704,52 @@
           "value": "Hospital misc 14"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -679,10 +1771,52 @@
           "value": "Hospital misc 15"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -704,10 +1838,52 @@
           "value": "Hospital misc 16"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -729,10 +1905,52 @@
           "value": "Hospital misc 17"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -754,10 +1972,52 @@
           "value": "Hospital misc 18"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -779,10 +2039,52 @@
           "value": "Hospital misc 19"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -804,10 +2106,52 @@
           "value": "Hospital misc 20"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -829,10 +2173,52 @@
           "value": "Hospital misc 21"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -854,10 +2240,52 @@
           "value": "Hospital misc 22"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -879,10 +2307,52 @@
           "value": "Hospital misc 23"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -904,10 +2374,52 @@
           "value": "Hospital misc 24"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "misc",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     }

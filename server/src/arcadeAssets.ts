@@ -63,12 +63,10 @@ export function arcadeAssets(): ArcadeAsset[] {
       entry: {
         id: 'ARCADE',
         label: 'Arcade Cabinet',
-        category: 'decor',
         width: 16,
         height: 32,
         footprintW: 1,
         footprintH: 2,
-        isDesk: false,
       },
       sprite: arcadeCabinetSprite(),
     },

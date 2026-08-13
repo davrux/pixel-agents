@@ -25,8 +25,9 @@ import {
   animationFrameAt,
   effectiveAction,
   getCatalogEntry,
-  getOnStateType,
-  getOnTrigger,
+  resolveOnState,
+  resolveBackgroundTiles,
+  resolvePetCanSitOn,
 } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
@@ -50,6 +51,7 @@ import {
 import type {
   Action,
   Character,
+  FurnitureCatalogEntry,
   FurnitureInstance,
   InteractionPoint,
   OfficeLayout,
@@ -412,7 +414,6 @@ export class OfficeState {
     row: number,
     w: number,
     h: number,
-    facing?: Direction,
     allowedSides?: Array<'N' | 'S' | 'E' | 'W'>,
   ): Array<{ col: number; row: number; facing: Direction }> {
     // An explicit allow-list (PlacedFurniture.approachSides) is a deliberate
@@ -438,11 +439,6 @@ export class OfficeState {
         if (!isWalkable(col + dc, farRow, this.tileMap, this.blockedTiles)) ambiguous = false;
       }
     }
-    // The art-side approach faces DOWN (toward the wall from the north); the
-    // far-side approach faces UP (toward the wall from the south) — see the
-    // cands table below. Default (facing unset) keeps the engine's
-    // long-standing far-side default.
-    const wantFacing = facing ?? Direction.UP;
     const seen = new Set<string>();
     const approaches: Array<{ col: number; row: number; facing: Direction }> = [];
     for (let dr = 0; dr < h; dr++) {
@@ -457,17 +453,19 @@ export class OfficeState {
         ];
         for (const [nc0, nr0, ddc, ddr, approachFacing, side] of cands) {
           if (restrict && !restrict.includes(side)) continue;
-          // Ambiguous case: reject the whole wrong side, not just the tile
-          // directly above/below the footprint — a *lateral* neighbor of the
-          // sprite's own body row (e.g. standing beside a narrow cabinet, at
-          // the same height as its screen) is on the art side exactly as much
-          // as the tile straight above it, and both must lose equally to
-          // whichever side `facing` actually picked. Judged on the immediate
+          // Ambiguous case: the far side (south of the wall) wins, and the
+          // whole art side loses — not just the tile directly above the
+          // footprint. A *lateral* neighbor of the sprite's own body row (e.g.
+          // standing beside a narrow cabinet, at the same height as its
+          // screen) is on the art side exactly as much as the tile straight
+          // above it, and both must lose equally. Judged on the immediate
           // neighbor (pre reach-through), not wherever it ends up below —
           // that's about which side of the WALL this is, unaffected by a
-          // counter sitting further out on the same side.
-          if (ambiguous && nr0 < wallRow && wantFacing !== Direction.DOWN) continue;
-          if (ambiguous && nr0 > wallRow && wantFacing !== Direction.UP) continue;
+          // counter sitting further out on the same side. A mapper who wants
+          // the art side instead says so with approachSides, which skips this
+          // resolution entirely (it used to be a per-instance `facing`, which
+          // no content ever set).
+          if (ambiguous && nr0 < wallRow) continue;
           // Reach-through: a blocked immediate neighbor that's occupied by an
           // `approachThrough` item (e.g. a kitchen counter) doesn't end the
           // search — keep stepping outward in the same direction until an
@@ -514,7 +512,7 @@ export class OfficeState {
       // override (the editor's Action… button) must be able to turn ANY
       // furniture into a station, not just ones the catalog itself flags.
       if (effectiveAction(item, entry)?.kind !== 'appliance') continue;
-      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.facing, item.approachSides).filter(
+      const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.approachSides).filter(
         (c) => !this.isStationTile(c.col, c.row),
       );
       spots.forEach((spot, i) => {
@@ -591,20 +589,44 @@ export class OfficeState {
     }
   }
 
-  private findFreeSeat(): string | null {
-    // Build set of tiles occupied by electronics (PCs, monitors, etc.)
-    const electronicsTiles = new Set<string>();
+  /**
+   * "col,row" of everything that switches itself on for whoever sits facing it
+   * (see FurnitureCatalogEntry.onState) — a workstation, in the only sense the
+   * engine needs: not "is this a computer" but "does sitting here light
+   * something up".
+   *
+   * Shared by findFreeSeat, which prefers such a seat when placing an agent,
+   * and rebuildFurnitureInstances, which actually performs the switching. Those
+   * two used to describe the same set independently — one by asking for the
+   * 'electronics' category, the other by asking for a state pair — so a mapper
+   * could make an item light up without agents preferring to sit at it.
+   */
+  private seatDrivenSwitchableTiles(): Set<string> {
+    const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.id);
-      if (!entry || entry.category !== 'electronics') continue;
+      if (!entry || !this.isSeatDrivenSwitchable(item, entry)) continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
-          electronicsTiles.add(`${item.col + dc},${item.row + dr}`);
+          tiles.add(`${item.col + dc},${item.row + dr}`);
         }
       }
     }
+    return tiles;
+  }
 
-    // Collect free seats, split into those facing electronics and the rest
+  /** Does this item have an on-state that a seated character triggers? An item
+   *  carrying the 'toggle' Action is a light-switch instead — it answers to a
+   *  click and to nothing else, so sitting near it must not flip it. */
+  private isSeatDrivenSwitchable(item: PlacedFurniture, entry: FurnitureCatalogEntry): boolean {
+    if (resolveOnState(item, entry) === item.id) return false;
+    return effectiveAction(item, entry)?.kind !== 'toggle';
+  }
+
+  private findFreeSeat(): string | null {
+    const switchableTiles = this.seatDrivenSwitchableTiles();
+
+    // Collect free seats, split into those facing a switchable and the rest
     const pcSeats: string[] = [];
     const otherSeats: string[] = [];
     for (const [uid, seat] of this.seats) {
@@ -622,22 +644,22 @@ export class OfficeState {
       for (let d = 1; d <= AUTO_ON_FACING_DEPTH && !facesPC; d++) {
         const tileCol = seat.seatCol + dCol * d;
         const tileRow = seat.seatRow + dRow * d;
-        if (electronicsTiles.has(`${tileCol},${tileRow}`)) {
+        if (switchableTiles.has(`${tileCol},${tileRow}`)) {
           facesPC = true;
           break;
         }
         if (dCol !== 0) {
           if (
-            electronicsTiles.has(`${tileCol},${tileRow - 1}`) ||
-            electronicsTiles.has(`${tileCol},${tileRow + 1}`)
+            switchableTiles.has(`${tileCol},${tileRow - 1}`) ||
+            switchableTiles.has(`${tileCol},${tileRow + 1}`)
           ) {
             facesPC = true;
             break;
           }
         } else {
           if (
-            electronicsTiles.has(`${tileCol - 1},${tileRow}`) ||
-            electronicsTiles.has(`${tileCol + 1},${tileRow}`)
+            switchableTiles.has(`${tileCol - 1},${tileRow}`) ||
+            switchableTiles.has(`${tileCol + 1},${tileRow}`)
           ) {
             facesPC = true;
             break;
@@ -1168,7 +1190,7 @@ export class OfficeState {
     ch.pendingAppliance = null;
     ch.pendingAction = null;
 
-    const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.facing, item!.approachSides);
+    const approaches = this.computeApproachTiles(anchorCol, anchorRow, fw, fh, item!.approachSides);
 
     // Strict proximity: you only trigger an action by actually standing at
     // one of its approach tiles (now, or on arrival after walking there). No
@@ -1561,7 +1583,7 @@ export class OfficeState {
     const seen = new Set<string>();
     let sig = '';
     for (const item of this.layout.furniture) {
-      const onType = getOnStateType(item.id);
+      const onType = resolveOnState(item, getCatalogEntry(item.id));
       const animType = onType !== item.id ? onType : item.id;
       if (seen.has(animType)) continue;
       seen.add(animType);
@@ -1614,15 +1636,15 @@ export class OfficeState {
       // Ambient (always-on) animation: a stateless animation member, e.g. the
       // goldfish bowl. Excludes state-paired members (PC), whose placed type is
       // the "off" variant and therefore has no animation frames of its own.
-      if (getOnStateType(item.id) === item.id) {
+      if (resolveOnState(item, entry) === item.id) {
         const frame = animationFrameAt(item.id, elapsedMs);
         if (frame) return { ...item, type: frame };
       }
 
       // Manually toggled (click-to-toggle) on/off — independent of seating;
-      // only ever set for onTrigger:'click' items (see toggleFurniture).
+      // only ever set for items carrying the 'toggle' Action (see toggleFurniture).
       if (this.manuallyToggledOn.has(item.uid)) {
-        let onType = getOnStateType(item.id);
+        let onType = resolveOnState(item, entry);
         if (onType !== item.id) {
           onType = animationFrameAt(onType, elapsedMs) ?? onType;
           return { ...item, type: onType };
@@ -1630,13 +1652,13 @@ export class OfficeState {
       }
 
       // Auto-on: an active agent seated facing this furniture turns it "on" —
-      // only for the default/auto-facing trigger; a click-toggle item only
-      // responds to toggleFurniture(), never to who's sitting nearby.
-      if (autoOnTiles.size > 0 && getOnTrigger(item.id) !== 'click') {
+      // only for a seat-driven switchable; a click-toggle item only responds to
+      // toggleFurniture(), never to who's sitting nearby.
+      if (autoOnTiles.size > 0 && this.isSeatDrivenSwitchable(item, entry)) {
         for (let dr = 0; dr < entry.footprintH; dr++) {
           for (let dc = 0; dc < entry.footprintW; dc++) {
             if (autoOnTiles.has(`${item.col + dc},${item.row + dr}`)) {
-              let onType = getOnStateType(item.id);
+              let onType = resolveOnState(item, entry);
               if (onType !== item.id) {
                 onType = animationFrameAt(onType, elapsedMs) ?? onType;
                 return { ...item, type: onType };
@@ -1658,13 +1680,13 @@ export class OfficeState {
    *  walkPlayerToAction resolved the action from; re-find the item there
    *  (same candidate rule: the topmost item that actually has an action)
    *  rather than threading its uid through the whole arrival-queue payload.
-   *  No-ops if that item isn't actually an onTrigger:'click' state pair. */
+   *  No-ops if that item has no on-state to flip. */
   toggleFurniture(anchorCol: number, anchorRow: number): void {
     const item = this.layout.furniture.find((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
       return effectiveAction(f, getCatalogEntry(f.id))?.kind === 'toggle';
     });
-    if (!item || getOnTrigger(item.id) !== 'click') return;
+    if (!item || resolveOnState(item, getCatalogEntry(item.id)) === item.id) return;
     if (this.manuallyToggledOn.has(item.uid)) this.manuallyToggledOn.delete(item.uid);
     else this.manuallyToggledOn.add(item.uid);
     this.rebuildFurnitureInstances();
@@ -1885,61 +1907,83 @@ export class OfficeState {
     return null;
   }
 
-  /** A free seat or a free desk surface (a desk with at least one column clear of
-   *  computers/mugs) exists somewhere — any pet may rest on either. Cheap: no
-   *  pathfinding (reachability is confirmed later by findFreePetTarget). */
+  /** A free seat or a free pet perch (a `petCanSitOn` item with at least one
+   *  column clear of whatever else is standing on it) exists somewhere — any pet
+   *  may rest on either. Cheap: no pathfinding (reachability is confirmed later
+   *  by findFreePetTarget). */
   private hasRestAffordance(_pet: Pet): boolean {
     for (const seat of this.seats.values()) {
       if (!seat.assigned) return true;
     }
-    const occupied = this.occupiedDeskSurfaceTiles();
+    const occupied = this.occupiedSurfaceTiles();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.id);
-      if (entry?.category !== 'desks') continue;
+      if (!entry || !resolvePetCanSitOn(item, entry)) continue;
       if (!this.isFurnitureFreeForPet(item.uid)) continue;
       if (this.freeDeskRestColumn(item, entry, occupied) !== null) return true;
     }
     return false;
   }
 
-  /** Tiles covered by an on-desk item — a computer (electronics) or a coffee mug /
-   *  other surface object (occupiesSurface) — so a pet won't rest on that spot. */
-  private occupiedDeskSurfaceTiles(): Set<string> {
-    const tiles = new Set<string>();
+  /**
+   * "col,row" → the uids of every item solidly standing there, so a pet's
+   * would-be perch can be tested for "is something else already on this spot".
+   *
+   * This used to enumerate the KINDS of thing that could be in the way — the
+   * 'electronics' category, plus anything flagged `occupiesSurface` — which
+   * meant a mapper putting some third kind of object on a desk got a pet
+   * sitting inside it. A monitor and a flower pot are in the way for the same
+   * reason, which is that they are there.
+   *
+   * Background rows don't count (same rule as getBlockedTiles): a painting hung
+   * on the wall behind a desk overlaps the desk's top row without occupying it,
+   * and never blocked a perch before.
+   */
+  private occupiedSurfaceTiles(): Map<string, Set<string>> {
+    const tiles = new Map<string, Set<string>>();
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.id);
       if (!entry) continue;
-      if (entry.category !== 'electronics' && !entry.occupiesSurface) continue;
-      for (let dr = 0; dr < entry.footprintH; dr++) {
+      const bgRows = resolveBackgroundTiles(item, entry);
+      for (let dr = bgRows; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
-          tiles.add(`${item.col + dc},${item.row + dr}`);
+          const key = `${item.col + dc},${item.row + dr}`;
+          let uids = tiles.get(key);
+          if (!uids) {
+            uids = new Set();
+            tiles.set(key, uids);
+          }
+          uids.add(item.uid);
         }
       }
     }
     return tiles;
   }
 
-  /** First desk column with no computer/mug on any of its tiles, as a rest spot
-   *  anchored on the desk's BOTTOM footprint row (so it depth-sorts in front of
-   *  the desk sprite) plus the lift that raises the pet onto the surface. Null if
-   *  every column is occupied. Pure existence check — no reachability. */
+  /** First column of this perch with nothing else standing on it, as a rest spot
+   *  anchored on the item's BOTTOM footprint row (so it depth-sorts in front of
+   *  the sprite) plus the lift that raises the pet onto the surface. Null if
+   *  every column is taken. Pure existence check — no reachability. */
   private freeDeskRestColumn(
     item: PlacedFurniture,
     entry: { footprintW: number; footprintH: number; sprite: { length: number } },
-    occupied: Set<string>,
+    occupied: Map<string, Set<string>>,
   ): { col: number; row: number; lift: number } | null {
     const bottomRow = item.row + entry.footprintH - 1;
     for (let dc = 0; dc < entry.footprintW; dc++) {
       let columnFree = true;
       for (let dr = 0; dr < entry.footprintH; dr++) {
-        if (occupied.has(`${item.col + dc},${item.row + dr}`)) {
+        // The perch covers its own tiles, so "occupied" means somebody ELSE is
+        // standing here too.
+        const uids = occupied.get(`${item.col + dc},${item.row + dr}`);
+        if (uids && [...uids].some((uid) => uid !== item.uid)) {
           columnFree = false;
           break;
         }
       }
       if (!columnFree) continue;
-      // Desk sprites are exactly footprintH tiles tall, so lifting by the part
-      // above the bottom row (spriteH − one tile) lands the pet on the surface.
+      // A perch's sprite is exactly footprintH tiles tall, so lifting by the
+      // part above the bottom row (spriteH − one tile) lands the pet on top.
       return { col: item.col + dc, row: bottomRow, lift: entry.sprite.length - TILE_SIZE };
     }
     return null;
@@ -2261,10 +2305,10 @@ export class OfficeState {
     // front of the desk) and carry the lift that raises it onto the surface; the
     // bottom tile is normally blocked, so unblock it just long enough to path on.
     if (action === 'sit') {
-      const occupied = this.occupiedDeskSurfaceTiles();
+      const occupied = this.occupiedSurfaceTiles();
       for (const item of this.layout.furniture) {
         const entry = getCatalogEntry(item.id);
-        if (!entry || entry.category !== 'desks') continue;
+        if (!entry || !resolvePetCanSitOn(item, entry)) continue;
         if (!this.isFurnitureFreeForPet(item.uid)) continue;
         const spot = this.freeDeskRestColumn(item, entry, occupied);
         if (!spot) continue;

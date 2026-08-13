@@ -72,12 +72,10 @@ export function portalAssets(): PortalAsset[] {
       entry: {
         id: 'DOOR',
         label: 'Door',
-        category: 'decor',
         width: 16,
         height: 24,
         footprintW: 1,
         footprintH: 1,
-        isDesk: false,
         backgroundTiles: 1, // non-blocking → you step onto the door tile to use it
       },
       sprite: doorSprite(),
@@ -86,12 +84,10 @@ export function portalAssets(): PortalAsset[] {
       entry: {
         id: 'BEAM_PAD',
         label: 'Beam Pad',
-        category: 'decor',
         width: 16,
         height: 16,
         footprintW: 1,
         footprintH: 1,
-        isDesk: false,
         backgroundTiles: 1, // non-blocking → you can stand on the pad
       },
       sprite: beamPadSprite(),

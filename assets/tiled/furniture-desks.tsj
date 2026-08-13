@@ -24,10 +24,52 @@
           "value": "Coffee Table"
         },
         {
-          "name": "category",
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -49,21 +91,52 @@
           "value": "Desk"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -85,21 +158,52 @@
           "value": "Desk"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -121,21 +225,52 @@
           "value": "Small Table"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -157,21 +292,52 @@
           "value": "Small Table"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "orientation",
+          "name": "onState",
           "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -193,15 +359,52 @@
           "value": "Table"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": true
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "category",
+          "name": "onState",
           "type": "string",
-          "value": "desks",
-          "propertytype": "Category"
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     }

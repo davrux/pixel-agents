@@ -316,6 +316,30 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   account/admin actions. It then shows up in `/help` automatically. Current
   set: `/help /afk /users /admin-site /add /delete /set-admin /remove-admin
   /kick`.
+- **Furniture behaviour is stated on the tile, never inferred.** Whether you can
+  sit on something, which way you then face, whether a pet may perch on it, what
+  it turns into when switched on — each is its own property, present on **every**
+  furniture tile with its default filled in, and overridable per placement (see
+  `server/src/tiled/furnitureProps.ts`, which defines the set once for the
+  catalog reader, the map bridge and the sync script). Behaviour must never be
+  derived from a taxonomy again: it used to come from `category === 'chairs'` and
+  friends, so a correctly-drawn, correctly-categorised chair could still be
+  unsittable with nothing in Tiled to point at.
+  **When you add, rename or retire a furniture property, do it in the same
+  commit as `FURNITURE_TILE_PROPS` and then distribute it:**
+  ```bash
+  cd server && node --import tsx scripts/sync-furniture-properties.mts
+  ```
+  That stamps the property onto all ~350 tiles across every
+  `assets/tiled/furniture*.tsj`, clears retired ones out of the zone maps, and
+  gives class-less furniture placements their `FurnitureObject` class. A tile
+  that is merely *missing* a property silently behaves as if someone had chosen
+  its default — which is the exact failure this whole arrangement exists to
+  prevent. Also add the property to **both** the `FurnitureTile` and
+  `FurnitureObject` classes in `assets/tiled/Pixels.tiled-project`: Tiled only
+  offers a class's own members, so a property missing from `FurnitureObject` is
+  settable on the type and invisible on every placement. Keep the object class a
+  superset of the tile class, `label`/`name` aside.
 - **Measuring performance:** judge render/mesher perf by **frame / CPU time**,
   not proxies like triangle count (greedy meshing once measured *slower* despite
   −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +
@@ -353,6 +377,9 @@ identifies the owner; copy it from in-app Settings).
   invariants above. Treat its failures as blockers.
 - `pnpm -r run check-types` (or `tsc --noEmit` per package) must be clean.
 - `pnpm build` must succeed.
+- If you touched furniture properties:
+  `cd server && node --import tsx scripts/sync-furniture-properties.mts --check`
+  must report zero changes (see the furniture-behaviour convention above).
 - For engine changes, prefer a small headless test driving `OfficeState`
   directly (see how stations/poses were verified) plus a quick run with `MOCK=N`.
 - For client changes, sanity-check the Electron desktop app too (rule 10) —

@@ -24,21 +24,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "back",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "category",
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -60,38 +91,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "stateGroup",
-          "type": "string",
-          "value": "LAPTOP_front"
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-          "name": "state",
-          "type": "string",
-          "value": "off",
-          "propertytype": "FurnitureState"
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
         },
         {
-          "name": "onTrigger",
+          "name": "onState",
           "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
+          "value": "LAPTOP_FRONT_ON_1"
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -113,38 +158,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "stateGroup",
-          "type": "string",
-          "value": "LAPTOP_front"
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
         },
         {
-          "name": "onTrigger",
+          "name": "onState",
           "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ],
       "animation": [
@@ -180,38 +239,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "stateGroup",
-          "type": "string",
-          "value": "LAPTOP_front"
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
         },
         {
-          "name": "onTrigger",
+          "name": "onState",
           "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -233,38 +306,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "stateGroup",
-          "type": "string",
-          "value": "LAPTOP_front"
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
         },
         {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
         },
         {
-          "name": "onTrigger",
+          "name": "onState",
           "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionKind",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -286,21 +373,52 @@
           "value": "Laptop"
         },
         {
-          "name": "occupiesSurface",
+          "name": "canSitOn",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "sitFacing",
           "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "value": "",
+          "propertytype": "SitFacing"
         },
         {
-          "name": "category",
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -322,26 +440,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "back",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionPose",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -363,43 +507,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": "PC_FRONT_ON_1"
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "stateGroup",
+          "name": "actionPose",
           "type": "string",
-          "value": "PC_front"
-        },
-        {
-          "name": "state",
-          "type": "string",
-          "value": "off",
-          "propertytype": "FurnitureState"
-        },
-        {
-          "name": "onTrigger",
-          "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
-        },
-        {
-          "name": "category",
-          "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -421,43 +574,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "stateGroup",
+          "name": "actionPose",
           "type": "string",
-          "value": "PC_front"
-        },
-        {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
-        },
-        {
-          "name": "onTrigger",
-          "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
-        },
-        {
-          "name": "category",
-          "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ],
       "animation": [
@@ -493,43 +655,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "stateGroup",
+          "name": "actionPose",
           "type": "string",
-          "value": "PC_front"
-        },
-        {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
-        },
-        {
-          "name": "onTrigger",
-          "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
-        },
-        {
-          "name": "category",
-          "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -551,43 +722,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "front",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "stateGroup",
+          "name": "actionPose",
           "type": "string",
-          "value": "PC_front"
-        },
-        {
-          "name": "state",
-          "type": "string",
-          "value": "on",
-          "propertytype": "FurnitureState"
-        },
-        {
-          "name": "onTrigger",
-          "type": "string",
-          "value": "autoFacing",
-          "propertytype": "OnTrigger"
-        },
-        {
-          "name": "category",
-          "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     },
@@ -609,26 +789,52 @@
           "value": "PC"
         },
         {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 1
         },
         {
-          "name": "occupiesSurface",
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
           "type": "bool",
-          "value": true
+          "value": false
         },
         {
-          "name": "orientation",
+          "name": "actionUrl",
           "type": "string",
-          "value": "side",
-          "propertytype": "Orientation"
+          "value": ""
         },
         {
-          "name": "category",
+          "name": "actionPose",
           "type": "string",
-          "value": "electronics",
-          "propertytype": "Category"
+          "value": "",
+          "propertytype": "ApplianceKind"
         }
       ]
     }

@@ -239,8 +239,9 @@ export type Action =
    *  today's door/beam-pad. Triggers on arrival/rest, like every other
    *  auto-firing action — not a click. */
   | { kind: 'portal' }
-  /** Flip an on/off state pair (see FurnitureCatalogEntry.onTrigger:'click')
-   *  between its two poses — a literal light-switch. No client notification;
+  /** Flip an on/off state pair (see FurnitureCatalogEntry.onState) between its
+   *  two poses — a literal light-switch. Carrying this action is itself what
+   *  makes the pair click-driven rather than seat-driven. No client notification;
    *  the resulting type swap reaches everyone through the normal furniture
    *  sync, same as the auto-facing on/off already does. */
   | { kind: 'toggle' }
@@ -255,45 +256,57 @@ export type Action =
    *  stripped out. */
   | { kind: 'spawnPoint' };
 
+/**
+ * The behaviour of a piece of furniture is stated, never inferred.
+ *
+ * Every property below that describes what an item DOES (rather than what it
+ * looks like) exists on both this catalog entry and on PlacedFurniture, and is
+ * resolved instance-first — see furnitureCatalog.ts's resolve* helpers. The
+ * catalog value is the sensible default for that art ("a chair is sittable"),
+ * the instance value is the exception ("you may sit on THIS coffee machine").
+ *
+ * This replaced a set of rules that derived behaviour from `category`: chairs
+ * were sittable because their category said 'chairs', desks hosted pets because
+ * theirs said 'desks'. That meant a mapper who drew a new chair and gave it the
+ * right category still got a chair nobody could sit on if they missed one of
+ * several other properties, with nothing to point at. Categories are gone
+ * entirely; behaviour is now visible on the tile itself.
+ */
 export interface FurnitureCatalogEntry {
   /** Stable, unique catalog identifier — was called `type` (renamed: this is
-   *  an identity, not a taxonomy; `category` is the taxonomy). */
+   *  an identity, not a taxonomy). */
   id: string;
   label: string;
   footprintW: number;
   footprintH: number;
   sprite: SpriteData;
-  isDesk: boolean;
-  category?: string;
   /** This type's default Action (see effectiveAction) — every placed instance
-   *  gets this unless it carries its own PlacedFurniture.action override. Set
-   *  via FurnitureEditor's Action picker (the same TILE_ACTION_CHOICES list
-   *  LayoutEditor uses for per-instance overrides). */
+   *  gets this unless it carries its own PlacedFurniture.action override. */
   action?: Action;
-  /** Which facing this art shows: 'front' | 'back' | 'side' */
-  orientation?: string;
-  /** Whether this item sits ON TOP of a desk/table surface (e.g. a monitor, a
-   *  coffee mug) — drives z-sort (renders in front of the surface it's on)
-   *  and pet behavior (pets won't try to rest where one of these already
-   *  is). Renamed from canPlaceOnSurfaces: that name's other job — gating
-   *  which tool's palette an item could be placed from — had no runtime
-   *  meaning and was dropped (see docs/design/tiled-editor-integration.md);
-   *  this is the one real, remaining reason the flag exists. */
-  occupiesSurface?: boolean;
+  /** May a character sit on this? (see resolveCanSitOn) */
+  canSitOn?: boolean;
+  /** Which way a sitting character looks (see resolveSitFacing). */
+  sitFacing?: Direction;
+  /** May a pet rest on top of this? (see resolvePetCanSitOn) */
+  petCanSitOn?: boolean;
   /** Number of tile rows from the top of the footprint that are "background"
    *  — stay walkable, and can have another item's footprint placed over
    *  them too (see layoutSerializer.ts's getBlockedTiles/
-   *  getPlacementBlockedTiles, which both skip these rows). Default 0. */
+   *  getPlacementBlockedTiles, which both skip these rows). Default 0.
+   *  Unlike its neighbours here this describes the ART — which rows of the
+   *  sprite are a backrest or a wall-mounted upper half — so the catalog
+   *  value is normally the right one; the instance override exists because
+   *  nothing else can free up a furniture tile (Collision only ever adds). */
   backgroundTiles?: number;
-  /** For an item with an on/off state pair: what turns it on. 'autoFacing' —
-   *  an active agent seated facing it (today's PC/laptop behaviour, unchanged).
-   *  'click' — a literal light-switch via the 'toggle' Action; walking up and
-   *  clicking flips it, nothing else does. Absent unless the item actually
-   *  has a state pair; a state pair with no explicit trigger falls back to
-   *  'autoFacing' for old data, but the Furniture editor requires an explicit
-   *  pick for any pair added through it — auto-facing doesn't suit every
-   *  kind of object. */
-  onTrigger?: 'autoFacing' | 'click';
+  /** The catalog id this item turns INTO when switched on, for an on/off pair
+   *  (e.g. a dark PC becoming a lit one). Set on the "off" half only; the
+   *  named "on" half needs nothing. What triggers the switch follows from the
+   *  Action rather than a separate setting: a 'toggle' Action means a click
+   *  flips it, no action at all means it lights up on its own while someone
+   *  sits facing it. Was derived from a shared `stateGroup` plus matching
+   *  `state: off|on` values, which paired items by convention; naming the
+   *  partner outright says the same thing without the guesswork. */
+  onState?: string;
 }
 
 export interface PlacedFurniture {
@@ -304,13 +317,15 @@ export interface PlacedFurniture {
   row: number;
   /** Optional instance name (e.g. a conference monitor's stable room name). */
   name?: string;
-  /** @deprecated superseded by approachSides (LayoutEditor no longer exposes
-   *  a control for this) — kept only so old saved layouts keep resolving a
-   *  wall-mounted item's ambiguous side exactly as before. Still read by
-   *  computeApproachTiles as the fallback when approachSides is unset/empty.
-   *  DOWN = approached from the art side (the row the sprite renders in,
-   *  above the wall); UP = approached from the far side (below the wall). */
-  facing?: Direction;
+  /** Per-instance overrides of the catalog defaults with the same names (see
+   *  FurnitureCatalogEntry, and the resolve* helpers in furnitureCatalog.ts).
+   *  Unset means "whatever this type says"; setting one is how a mapper makes
+   *  a single placement behave unlike the rest of its kind. */
+  canSitOn?: boolean;
+  sitFacing?: Direction;
+  petCanSitOn?: boolean;
+  backgroundTiles?: number;
+  onState?: string;
   /** Which side(s) a player may approach this item from, for any Action-
    *  bearing or appliance item (not just wall-mounted ones) — see
    *  computeApproachTiles. Unset or empty = today's automatic behaviour

@@ -134,11 +134,8 @@ export interface LogoAsset {
 /** Catalog entries + sprites for the uponu wall logos, to merge into the bundle. */
 export function logoAssets(): LogoAsset[] {
   const base = {
-    category: 'decor',
     height: 32,
     footprintH: 2,
-    isDesk: false,
-    canPlaceOnSurfaces: false,
   };
   // width/footprintW are per-entry: the traced wordmark needs 3 tiles, the
   // classic plaque still fits in 2.

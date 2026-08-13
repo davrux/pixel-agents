@@ -26,13 +26,30 @@
  * Interior/Demo, which is screenshots, not art.
  *
  * The MetroCity pack itself lives outside the repo (tmp/metro, gitignored);
- * only the derived PNGs + tilesets are committed. Re-run only to re-derive them.
+ * only the derived PNGs + tilesets are committed.
  *
- * Run (from server/): node --import tsx scripts/gen-metro-furniture.mts
+ * ── This runs ONCE, and then never again by accident ──
+ *
+ * It writes each tileset from scratch, at the defaults. The tiles it produces
+ * are then maintained BY HAND in Tiled — that is where a metro sofa gets
+ * `canSitOn` and a real label instead of "Living room 7", and no rule over a
+ * source sheet's name could decide those for it. Re-running would throw all of
+ * that away, so it refuses to overwrite a tileset that already exists.
+ *
+ * Which means: adding a NEW sheet to SHEETS below is not enough on its own,
+ * because its items would land in an existing file. Adding a new tileset (a
+ * different pack, its own furniture-*.tsj) is the easy direction and needs no
+ * special handling at all.
+ *
+ * Run (from server/): node --import tsx scripts/gen-metro-furniture.mts [--force]
+ *   --force   overwrite existing tilesets, discarding every hand-set value in
+ *             them. Only with a plan for restoring them.
  */
 import { PNG } from 'pngjs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const PACK = path.join(ROOT, 'tmp', 'metro');
@@ -43,42 +60,44 @@ const TILE = 16;
  *  a lone highlight left outside an item's own silhouette), not items. */
 const MIN_PIXELS = 12;
 
-/** `category` is a pure browsing label (see tiledFurniture.ts) — one per source
- *  sheet is as fine-grained as this pack's own organisation gets.
- *  `wallMounted` marks sheets whose items hang ON a wall rather than stand on
+/** `wallMounted` marks sheets whose items hang ON a wall rather than stand on
  *  the floor; those get backgroundTiles = their full height so the tiles they
- *  cover stay walkable, exactly like the existing wall-mounted decor. */
+ *  cover stay walkable, exactly like the existing wall-mounted decor.
+ *
+ *  Everything else a tile can do (sittable, a pet perch, an action) is left at
+ *  its default here and set per item in Tiled afterwards — 274 items sliced out
+ *  of an art pack automatically is a catalog of sprites, and no rule over a
+ *  source sheet's name can decide which of them are chairs. */
 interface Sheet {
   file: string;
   id: string;
   label: string;
-  category: string;
   wallMounted?: boolean;
 }
 const SHEETS: Sheet[] = [
-  { file: 'Interior/Home/Bathroom-Sheet.png', id: 'BATH', label: 'Bathroom', category: 'misc' },
-  { file: 'Interior/Home/Beds-Sheet.png', id: 'BED', label: 'Bed', category: 'misc' },
-  { file: 'Interior/Home/Beds1-Sheet.png', id: 'BED2', label: 'Bed', category: 'misc' },
-  { file: 'Interior/Home/Carpet-Sheet.png', id: 'RUG', label: 'Rug', category: 'decor' },
-  { file: 'Interior/Home/Chimney-Sheet.png', id: 'CHIMNEY', label: 'Fireplace', category: 'decor' },
-  { file: 'Interior/Home/Chimney1-Sheet.png', id: 'CHIMNEY2', label: 'Fireplace', category: 'decor' },
-  { file: 'Interior/Home/Cupboard-Sheet.png', id: 'CUPBOARD', label: 'Cupboard', category: 'storage' },
-  { file: 'Interior/Home/Doors-Sheet.png', id: 'DOOR', label: 'Door', category: 'misc' },
-  { file: 'Interior/Home/Flowers-Sheet.png', id: 'PLANT', label: 'Plant', category: 'decor' },
-  { file: 'Interior/Home/Kitchen-Sheet.png', id: 'KITCHEN', label: 'Kitchen', category: 'kitchens' },
-  { file: 'Interior/Home/Kitchen1-Sheet.png', id: 'KITCHEN2', label: 'Kitchen', category: 'kitchens' },
-  { file: 'Interior/Home/Lights-Sheet.png', id: 'LAMP', label: 'Lamp', category: 'decor', wallMounted: true },
-  { file: 'Interior/Home/LivingRoom-Sheet.png', id: 'LIVING', label: 'Living room', category: 'misc' },
-  { file: 'Interior/Home/LivingRoom1-Sheet.png', id: 'LIVING2', label: 'Living room', category: 'misc' },
-  { file: 'Interior/Home/Miscellaneous-Sheet.png', id: 'MISC', label: 'Misc', category: 'misc' },
-  { file: 'Interior/Home/Paintings-Sheet.png', id: 'PAINTING', label: 'Painting', category: 'decor', wallMounted: true },
-  { file: 'Interior/Home/Paintings1-Sheet.png', id: 'PAINTING2', label: 'Painting', category: 'decor', wallMounted: true },
-  { file: 'Interior/Home/TV-Sheet.png', id: 'TV', label: 'TV', category: 'electronics', wallMounted: true },
-  { file: 'Interior/Home/Windows-Sheet.png', id: 'WINDOW', label: 'Window', category: 'decor', wallMounted: true },
-  { file: 'Interior/Hospital/BedHospital-Sheet.png', id: 'HBED', label: 'Hospital bed', category: 'misc' },
-  { file: 'Interior/Hospital/DoorsHospital-Sheet.png', id: 'HDOOR', label: 'Hospital door', category: 'misc' },
-  { file: 'Interior/Hospital/Miscellaneous-Sheet.png', id: 'HMISC', label: 'Hospital misc', category: 'misc' },
-  { file: 'MetroCity/Cars-Sheet.png', id: 'CAR', label: 'Car', category: 'misc' },
+  { file: 'Interior/Home/Bathroom-Sheet.png', id: 'BATH', label: 'Bathroom' },
+  { file: 'Interior/Home/Beds-Sheet.png', id: 'BED', label: 'Bed' },
+  { file: 'Interior/Home/Beds1-Sheet.png', id: 'BED2', label: 'Bed' },
+  { file: 'Interior/Home/Carpet-Sheet.png', id: 'RUG', label: 'Rug' },
+  { file: 'Interior/Home/Chimney-Sheet.png', id: 'CHIMNEY', label: 'Fireplace' },
+  { file: 'Interior/Home/Chimney1-Sheet.png', id: 'CHIMNEY2', label: 'Fireplace' },
+  { file: 'Interior/Home/Cupboard-Sheet.png', id: 'CUPBOARD', label: 'Cupboard' },
+  { file: 'Interior/Home/Doors-Sheet.png', id: 'DOOR', label: 'Door' },
+  { file: 'Interior/Home/Flowers-Sheet.png', id: 'PLANT', label: 'Plant' },
+  { file: 'Interior/Home/Kitchen-Sheet.png', id: 'KITCHEN', label: 'Kitchen' },
+  { file: 'Interior/Home/Kitchen1-Sheet.png', id: 'KITCHEN2', label: 'Kitchen' },
+  { file: 'Interior/Home/Lights-Sheet.png', id: 'LAMP', label: 'Lamp', wallMounted: true },
+  { file: 'Interior/Home/LivingRoom-Sheet.png', id: 'LIVING', label: 'Living room' },
+  { file: 'Interior/Home/LivingRoom1-Sheet.png', id: 'LIVING2', label: 'Living room' },
+  { file: 'Interior/Home/Miscellaneous-Sheet.png', id: 'MISC', label: 'Misc' },
+  { file: 'Interior/Home/Paintings-Sheet.png', id: 'PAINTING', label: 'Painting', wallMounted: true },
+  { file: 'Interior/Home/Paintings1-Sheet.png', id: 'PAINTING2', label: 'Painting', wallMounted: true },
+  { file: 'Interior/Home/TV-Sheet.png', id: 'TV', label: 'TV', wallMounted: true },
+  { file: 'Interior/Home/Windows-Sheet.png', id: 'WINDOW', label: 'Window', wallMounted: true },
+  { file: 'Interior/Hospital/BedHospital-Sheet.png', id: 'HBED', label: 'Hospital bed' },
+  { file: 'Interior/Hospital/DoorsHospital-Sheet.png', id: 'HDOOR', label: 'Hospital door' },
+  { file: 'Interior/Hospital/Miscellaneous-Sheet.png', id: 'HMISC', label: 'Hospital misc' },
+  { file: 'MetroCity/Cars-Sheet.png', id: 'CAR', label: 'Car' },
 ];
 
 /** Which tileset file each sheet's items land in — grouped, so the Tilesets
@@ -173,7 +192,17 @@ interface TileEntry {
   image: string;
   imagewidth: number;
   imageheight: number;
-  properties: Array<{ name: string; type: string; value: string | number; propertytype?: string }>;
+  properties: Array<{ name: string; type: string; value: string | number | boolean; propertytype?: string }>;
+}
+
+// Checked before any work: the PNGs get rewritten too, and a script that does
+// its job and only then refuses to save it is just confusing.
+const FORCE = process.argv.includes('--force');
+const clobber = [...new Set(SHEETS.map(tilesetFor))].filter((n) => fs.existsSync(path.join(OUT_TSJ_DIR, `${n}.tsj`)));
+if (clobber.length > 0 && !FORCE) {
+  console.error(`✗ these tilesets already exist and are hand-maintained: ${clobber.join(', ')}`);
+  console.error('  Rewriting them would discard every property set in Tiled since. Pass --force if that is really what you want.');
+  process.exit(1);
 }
 
 fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
@@ -190,16 +219,28 @@ for (const sheet of SHEETS) {
     const itemId = `METRO_${sheet.id}_${String(i + 1).padStart(2, '0')}`;
     fs.writeFileSync(path.join(OUT_PNG_DIR, `${itemId}.png`), PNG.sync.write(out));
     written++;
+    // The whole behaviour set, defaults included, so these arrive in the same
+    // shape sync-furniture-properties.mts keeps every other tile in — a mapper
+    // opening a metro item sees everything it could do, not a short list.
     const props: TileEntry['properties'] = [
       { name: 'id', type: 'string', value: itemId },
-      { name: 'label', type: 'string', value: `${sheet.label} ${i + 1}` },
-      { name: 'category', type: 'string', value: sheet.category, propertytype: 'Category' },
+      ...FURNITURE_TILE_PROPS.map((spec) => {
+        const value =
+          spec.name === 'label'
+            ? `${sheet.label} ${i + 1}`
+            : // Hangs on a wall: every tile it covers stays walkable — same
+              // meaning as the existing wall-mounted decor's backgroundTiles.
+              spec.name === 'backgroundTiles' && sheet.wallMounted
+              ? out.height / TILE
+              : spec.default;
+        return {
+          name: spec.name,
+          type: typeof value === 'boolean' ? 'bool' : typeof value === 'number' ? 'int' : 'string',
+          value,
+          ...(spec.propertyType ? { propertytype: spec.propertyType } : {}),
+        };
+      }),
     ];
-    if (sheet.wallMounted) {
-      // Hangs on a wall: every tile it covers stays walkable — same meaning as
-      // the existing wall-mounted decor's backgroundTiles.
-      props.push({ name: 'backgroundTiles', type: 'int', value: out.height / TILE });
-    }
     entries.push({
       id: entries.length,
       type: 'FurnitureTile',
@@ -210,7 +251,7 @@ for (const sheet of SHEETS) {
     });
   });
   bySet.set(setName, entries);
-  console.log(`  ${sheet.file} → ${boxes.length} items (${sheet.category}${sheet.wallMounted ? ', wall-mounted' : ''})`);
+  console.log(`  ${sheet.file} → ${boxes.length} items${sheet.wallMounted ? ' (wall-mounted)' : ''}`);
 }
 
 for (const [name, tiles] of [...bySet.entries()].sort()) {

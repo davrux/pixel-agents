@@ -23,6 +23,7 @@ import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js
 
 import { findGid, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
 import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
+import { furnitureBehaviourFromObject, furnitureBehaviourProps } from './furnitureProps.js';
 import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
 import { emptyWallEdges, hIndex, latticeIndex, latticeMask, vIndex } from '@pixel/shared/office/wallEdges.js';
 
@@ -164,19 +165,32 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     // every import, see importTmjToLayout) and no `zOffset` (stacking comes
     // purely from this object's position in the list — see orderedFurniture
     // above and its import-side counterpart) — both dropped per
-    // docs/design/tiled-editor-integration.md. `id` IS always written, even
-    // when a GID is also set (yes, Tiled then shows the same value twice —
-    // once inherited from the tile, once as this explicit property) — the
-    // GID's only job is picking the right sprite + flip state to *display*;
-    // making identity depend on resolving it back through the registry was
-    // needless indirection when the object can just say what it is directly.
-    // Import reads `id` as a flat property lookup, full stop.
+    // docs/design/tiled-editor-integration.md.
+    //
+    // `id` is written ONLY for the rectangle placeholder below, the one case
+    // with no GID to derive identity from. It used to be written always, on
+    // the reasoning that an object may as well say outright what it is instead
+    // of making identity depend on resolving a GID through the registry. True
+    // for reading a .tmj — but it also made identity a hand-editable field
+    // that OVERRODE the GID, so retyping it silently swapped the item while
+    // Tiled kept drawing the old sprite. Identity now comes from the sprite
+    // you can see, and there is nothing on a normal placement to get wrong.
     const properties: TiledProp[] = [
-      prop('id', item.id),
-      prop('name', item.name ?? ''),
+      ...(gid === null ? [prop('id', item.id)] : []),
+      // No `name` property: Tiled objects have a native Name field (top of the
+      // Properties panel, and what its object list shows), so a custom one
+      // beside it was a second field with the same meaning — and the one a
+      // mapper would naturally type into was the one nothing read. See `base`
+      // below, which sets the native field, and the import-side counterpart.
       prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : '', 'ApproachSide'),
       prop('approachThrough', !!item.approachThrough),
       ...actionProps(item.action ?? null),
+      // The exception to "every field always present" above: a behaviour
+      // override is written only when this placement actually has one, because
+      // here absence carries meaning — see furnitureProps.ts's header. Tiled
+      // shows a tile object its tile's own values regardless, so the mapper
+      // still sees the full set.
+      ...furnitureBehaviourProps(item),
     ];
 
     const base = {
@@ -643,17 +657,21 @@ export function importTmjToLayout(
 
   const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
-    // Identity is normally a flat property read (always present — see the
-    // matching export-side comment), independent of the GID entirely. But a
-    // sprite dragged straight from the Tilesets panel (see
-    // isFurnitureTileObject above) carries no properties at all, so fall
-    // back to the `id` already baked onto the FurnitureTile itself — the
-    // GID still says exactly what this is, just indirectly instead of
-    // redundantly. The GID's flip bits are read back separately, purely for
-    // `flippedHorizontally`/`flippedVertically` — an unrelated concern either way.
+    // Identity comes from the GID — i.e. from the tile whose sprite you can
+    // see — and an `id` property is read only when there is no GID at all (the
+    // rectangle placeholder; see the matching export-side comment for why it
+    // is no longer written otherwise). This ordering matters: with the property
+    // winning, a hand-edited `id` repointed the placement while the canvas went
+    // on showing the old sprite. The GID's flip bits are read back separately,
+    // purely for `flippedHorizontally`/`flippedVertically` — an unrelated
+    // concern either way.
     const rawGid = Number(obj.gid) || 0;
     const resolvedTile = rawGid > 0 ? resolveGid(baseGid(rawGid)) : null;
-    const id = typeof props.id === 'string' && props.id ? props.id : typeof resolvedTile?.props.id === 'string' ? resolvedTile.props.id : '';
+    const tileId = typeof resolvedTile?.props.id === 'string' ? resolvedTile.props.id : '';
+    const id = tileId || (typeof props.id === 'string' ? props.id : '');
+    if (tileId && typeof props.id === 'string' && props.id && props.id !== tileId) {
+      console.warn(`[tiled] furniture object at ${obj.x},${obj.y} carries id "${props.id}" but its tile is "${tileId}" — the tile wins; delete the stale property`);
+    }
     const entry = getCatalogEntry(id);
     const fh = entry?.footprintH ?? 1;
     const hasGid = rawGid > 0;
@@ -677,13 +695,18 @@ export function importTmjToLayout(
       }
       if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
     }
-    if (typeof props.name === 'string' && props.name) item.name = props.name;
+    // The native Tiled object Name, not a custom property — see the export side.
+    if (typeof obj.name === 'string' && obj.name) item.name = obj.name;
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
     }
     if (props.approachThrough === true) item.approachThrough = true;
     const action = actionFromProps(props);
     if (action) item.action = action;
+    // Read from this OBJECT's own properties only, never the tile's — the tile's
+    // values are the catalog default that these would override, and copying them
+    // down onto the placement would freeze them there.
+    Object.assign(item, furnitureBehaviourFromObject(props));
     return item;
   });
 

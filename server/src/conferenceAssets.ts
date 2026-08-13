@@ -59,13 +59,10 @@ export function conferenceAssets(): ConferenceAsset[] {
       entry: {
         id: 'MONITOR',
         label: 'Conference Monitor',
-        category: 'decor',
         width: 32,
         height: 32,
         footprintW: 2,
         footprintH: 2,
-        isDesk: false,
-        canPlaceOnSurfaces: true,
       },
       sprite: monitorSprite(),
     },

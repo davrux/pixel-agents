@@ -22,7 +22,7 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, effectiveAction, getCatalogEntry, FURNITURE_CATEGORIES } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
 import { createBlankZoneLayout, createPlazaLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -1688,17 +1688,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) {
         return false;
       }
-      // A category outside the closed FurnitureCategory union would save fine
-      // (nothing else here checks it) but getActiveCategories() only ever
-      // shows the 8 known ones — an unlisted category is invisible,
-      // unplaceable furniture, not a validation gap to let through silently.
-      if (typeof c.category !== 'string' || !FURNITURE_CATEGORIES.some((fc) => fc.id === c.category)) return false;
       // This type's default Action (see FurnitureCatalogEntry.action) — same
       // shape/validation as a per-instance override, just one level up.
       if (c.action !== undefined && !sanitizeAction(c.action)) return false;
       // Animation membership (Tiled-style per-frame timing — see
       // furnitureCatalog.ts's animationFrameAt): a frame index and a bounded
-      // per-frame duration, same range the Furniture editor itself clamps to.
+      // per-frame duration, bounded to a sane range.
       if (c.animationGroup !== undefined && (typeof c.animationGroup !== 'string' || c.animationGroup.length > 64)) {
         return false;
       }
@@ -1711,9 +1706,17 @@ export class SimRoom extends Room<{ state: RoomState }> {
       ) {
         return false;
       }
-      // On/off trigger (see FurnitureCatalogEntry.onTrigger) — one of exactly
-      // two known values, not an arbitrary string.
-      if (c.onTrigger !== undefined && c.onTrigger !== 'autoFacing' && c.onTrigger !== 'click') return false;
+      // Behaviour flags (see FurnitureCatalogEntry): plain booleans, a compass
+      // direction, a row count, and the id of an on-state — bounded, and
+      // rejected rather than coerced if they arrive as something else.
+      for (const flag of ['canSitOn', 'petCanSitOn'] as const) {
+        if (c[flag] !== undefined && typeof c[flag] !== 'boolean') return false;
+      }
+      if (c.sitFacing !== undefined && ![0, 1, 2, 3].includes(c.sitFacing as number)) return false;
+      if (c.backgroundTiles !== undefined && (!Number.isInteger(c.backgroundTiles) || (c.backgroundTiles as number) < 0 || (c.backgroundTiles as number) > 16)) {
+        return false;
+      }
+      if (c.onState !== undefined && (typeof c.onState !== 'string' || c.onState.length > 64)) return false;
       // Import provenance (see FurnitureCatalogEntry.source/sourceKey) — free
       // text, just bounded.
       if (c.source !== undefined && (typeof c.source !== 'string' || c.source.length > 64)) return false;
@@ -1911,6 +1914,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.action = action ? JSON.stringify(action) : '';
       fs.flippedHorizontally = !!p.flippedHorizontally;
       fs.flippedVertically = !!p.flippedVertically;
+      // -1 = "not overridden" throughout (see FurnitureSync) — never coerce an
+      // absent override to false, or every inherited seat arrives unsittable.
+      fs.canSitOn = p.canSitOn === undefined ? -1 : p.canSitOn ? 1 : 0;
+      fs.petCanSitOn = p.petCanSitOn === undefined ? -1 : p.petCanSitOn ? 1 : 0;
+      fs.sitFacing = p.sitFacing ?? -1;
+      fs.backgroundTiles = p.backgroundTiles ?? -1;
+      fs.onState = p.onState ?? '';
       this.state.furniture.push(fs);
     }
   }

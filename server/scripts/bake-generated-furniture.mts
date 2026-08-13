@@ -3,8 +3,9 @@
  * Bake the server-generated, code-drawn furniture (portals, conference
  * monitor, arcade cabinet, meeting-room kiosk, wall logos — never backed by
  * a PNG on disk, see assets.ts's `generated` array) into real Tiled tiles,
- * appended to the existing category tilesets (furniture-decor.tsj /
- * furniture-wallmount.tsj, matching each item's own catalog `category`).
+ * appended to furniture-decor.tsj (one destination — these are a handful of
+ * fixtures, not a browsable collection, and furniture tilesets carry no
+ * taxonomy of their own since a tile's behaviour is stated on the tile).
  * Without this, these types have no Tiled GID at all and the map bridge
  * exports them as blank placeholder rectangles — correct but not a useful
  * reference for "how do I use the arcade cabinet / an ad-hoc meeting kiosk".
@@ -13,6 +14,8 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+
+import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
 import { PNG } from 'pngjs';
 
 import { portalAssets } from '../src/portalAssets.js';
@@ -48,7 +51,6 @@ function spriteToPngBuffer(sprite: SpriteData, w: number, h: number): Buffer {
 interface GeneratedItem {
   id: string;
   label: string;
-  category: string;
   width: number;
   height: number;
   sprite: SpriteData;
@@ -61,7 +63,6 @@ function collect(): GeneratedItem[] {
     return {
       id: e.id as string,
       label: (e.label as string) ?? (e.id as string),
-      category: e.category as string,
       width: e.width as number,
       height: e.height as number,
       sprite: g.sprite,
@@ -89,14 +90,18 @@ function appendToTileset(slug: string, items: GeneratedItem[]): void {
       imageheight: item.height,
       properties: [
         { name: 'id', type: 'string', value: item.id },
-        { name: 'label', type: 'string', value: item.label },
-        { name: 'category', type: 'string', value: item.category, propertytype: 'Category' },
-        { name: 'backgroundTiles', type: 'int', value: 0 },
-        { name: 'occupiesSurface', type: 'bool', value: false },
-        { name: 'orientation', type: 'string', value: '', propertytype: 'Orientation' },
-        { name: 'stateGroup', type: 'string', value: '' },
-        { name: 'state', type: 'string', value: '', propertytype: 'FurnitureState' },
-        { name: 'onTrigger', type: 'string', value: '', propertytype: 'OnTrigger' },
+        // The whole behaviour set, defaults included — the same shape
+        // sync-furniture-properties.mts keeps every other tile in, so a
+        // re-bake doesn't produce the one tile that's missing half its
+        // properties. Real values come from assets.ts's `generated` array,
+        // which is the runtime catalog for these ids; these tiles exist so the
+        // map bridge has a GID to draw.
+        ...FURNITURE_TILE_PROPS.map((spec) => ({
+          name: spec.name,
+          type: typeof spec.default === 'boolean' ? 'bool' : typeof spec.default === 'number' ? 'int' : 'string',
+          value: spec.name === 'label' ? item.label : spec.default,
+          ...(spec.propertyType ? { propertytype: spec.propertyType } : {}),
+        })),
         // Not authored by hand like the migrated 44 — flags this tile as
         // server-generated code (see assets.ts's `generated` array), so a
         // future re-bake knows it can safely overwrite/regenerate these
@@ -110,19 +115,4 @@ function appendToTileset(slug: string, items: GeneratedItem[]): void {
   console.log(`✓ ${tsjPath} +${items.length} tiles (tilecount now ${json.tilecount})`);
 }
 
-const all = collect();
-const byCategory = new Map<string, GeneratedItem[]>();
-for (const item of all) {
-  if (!byCategory.has(item.category)) byCategory.set(item.category, []);
-  byCategory.get(item.category)!.push(item);
-}
-
-const CATEGORY_SLUG: Record<string, string> = { decor: 'decor' };
-for (const [category, items] of byCategory) {
-  const slug = CATEGORY_SLUG[category];
-  if (!slug) {
-    console.warn(`No tileset slug for category "${category}" — skipping ${items.map((i) => i.id).join(', ')}`);
-    continue;
-  }
-  appendToTileset(slug, items);
-}
+appendToTileset('decor', collect());

@@ -79,6 +79,25 @@ export class FurnitureSync extends Schema {
    *  last, same schema-evolution reasoning as `action` above. */
   @type('boolean') flippedHorizontally = false;
   @type('boolean') flippedVertically = false;
+  /**
+   * Per-instance behaviour overrides (see PlacedFurniture) — the client has to
+   * receive these, not just the server: whether a tile is a seat you can click
+   * is decided in OfficeScene, so a placement the server considers sittable is
+   * unclickable if the override never crosses the wire.
+   *
+   * `-1` means "no override, use the catalog default" — a plain `boolean` can't
+   * express it, since "this one specific chair is NOT sittable" and "this one
+   * says nothing" are different answers. Appended last, same schema-evolution
+   * reasoning as `action` above.
+   */
+  @type('int8') canSitOn = -1;
+  @type('int8') petCanSitOn = -1;
+  /** Direction (0..3), or -1 for no override. */
+  @type('int8') sitFacing = -1;
+  /** Row count, or -1 for no override. */
+  @type('int8') backgroundTiles = -1;
+  /** Catalog id to switch to, or '' for no override. */
+  @type('string') onState = '';
 }
 
 export class RoomState extends Schema {

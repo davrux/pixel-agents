@@ -65,12 +65,10 @@ export function meetingRoomAssets(): MeetingRoomAsset[] {
       entry: {
         id: 'MEETING_KIOSK',
         label: 'Meeting Room Kiosk',
-        category: 'decor',
         width: 16,
         height: 32,
         footprintW: 1,
         footprintH: 2,
-        isDesk: false,
       },
       sprite: meetingKioskSprite(),
     },

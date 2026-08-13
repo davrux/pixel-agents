@@ -33,11 +33,10 @@ import {
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import {
-  getActiveCategories,
-  getCatalogByCategory,
   getCatalogEntry,
   effectiveAction,
-  type CatalogEntryWithCategory,
+  resolveBackgroundTiles,
+  resolveCanSitOn,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
@@ -53,7 +52,6 @@ import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
-import { FurnitureEditor } from '../editor/FurnitureEditor.js';
 import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
@@ -265,7 +263,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Where the character editor's "← Back" returns — set by whoever opens it
    *  (the Assets panel, or Settings for the viewer's own avatar). */
   private charEditorReturn: MenuId = 'assets';
-  private furnEditor!: FurnitureEditor;
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   /** Bundled (file) furniture ids — anything else is user-added/imported and
@@ -303,11 +300,10 @@ export class OfficeScene extends Phaser.Scene {
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
   private spaceTab: 'layouts' | 'zones' = 'layouts';
-  private assetsTab: 'chars' | 'furniture' | 'images' = 'chars';
+  private assetsTab: 'chars' | 'images' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
-  private selectedFurnAsset: string | null = null;
   /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
    *  often too small to make out at a glance, hence the zoom control. */
   private furnZoom: 1 | 2 | 4 = 2;
@@ -491,13 +487,6 @@ export class OfficeScene extends Phaser.Scene {
           this.charEditor.editEntity('me', this.myAvatarId);
         }
       },
-    });
-    this.furnEditor = new FurnitureEditor({
-      getRawCatalog: () => this.furnitureCatalogRaw,
-      save: (name, data) => this.room?.send('saveAsset', { assetType: 'furniture', name, data }),
-      reset: (name) => this.room?.send('deleteAsset', { assetType: 'furniture', name }),
-      entryButton: false,
-      onBack: () => void this.setMenu('assets'),
     });
 
     // Zone voice: its controls render into the Audio panel body; the scene owns
@@ -885,6 +874,12 @@ export class OfficeScene extends Phaser.Scene {
         action?: string;
         flippedHorizontally?: boolean;
         flippedVertically?: boolean;
+        // Behaviour overrides, -1 = not overridden — see FurnitureSync.
+        canSitOn: number;
+        petCanSitOn: number;
+        sitFacing: number;
+        backgroundTiles: number;
+        onState?: string;
       }>;
     }).furniture;
     this.furniturePlacements = arr.map((f, i) => {
@@ -905,18 +900,28 @@ export class OfficeScene extends Phaser.Scene {
         action,
         ...(f.flippedHorizontally ? { flippedHorizontally: true } : {}),
         ...(f.flippedVertically ? { flippedVertically: true } : {}),
+        // -1 = not overridden (see FurnitureSync); anything else is a real
+        // answer that has to survive the wire, or isSeatTile below and the
+        // seat z-sort both fall back to the catalog and disagree with the
+        // server about what you may sit on.
+        ...(f.canSitOn >= 0 ? { canSitOn: f.canSitOn === 1 } : {}),
+        ...(f.petCanSitOn >= 0 ? { petCanSitOn: f.petCanSitOn === 1 } : {}),
+        ...(f.sitFacing >= 0 ? { sitFacing: f.sitFacing as Direction } : {}),
+        ...(f.backgroundTiles >= 0 ? { backgroundTiles: f.backgroundTiles } : {}),
+        ...(f.onState ? { onState: f.onState } : {}),
       };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
   }
 
-  /** True if the tile is a sittable seat (a 'chairs'-category furniture tile,
-   *  below any walk-through backrest rows) — click it to sit. */
+  /** True if the tile is a sittable seat (a `canSitOn` item's tile, below any
+   *  walk-through backrest rows) — click it to sit. Has to agree with
+   *  layoutToSeats, which is where the seats themselves come from. */
   private isSeatTile(col: number, row: number): boolean {
     for (const f of this.furniturePlacements) {
       const entry = getCatalogEntry(f.id);
-      if (!entry || entry.category !== 'chairs') continue;
-      const bg = entry.backgroundTiles ?? 0;
+      if (!entry || !resolveCanSitOn(f, entry)) continue;
+      const bg = resolveBackgroundTiles(f, entry);
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row + bg && row < f.row + entry.footprintH) {
         return true;
       }
@@ -1843,12 +1848,10 @@ export class OfficeScene extends Phaser.Scene {
    * asset editor. The layout editor is the exception (you edit via the canvas).
    */
   private async setMenu(menu: MenuId): Promise<void> {
-    // The character/furniture editors open as overlays; leaving one with unsaved
-    // edits confirms/discards first, then closes it.
+    // The character editor opens as an overlay; leaving it with unsaved edits
+    // confirms/discards first, then closes it.
     if (this.charEditor?.isOpen() && !(await this.charEditor.confirmLeave())) return;
-    if (this.furnEditor?.isOpen() && !(await this.furnEditor.confirmLeave())) return;
     this.charEditor?.close();
-    this.furnEditor?.forceClose();
 
     this.currentMenu = menu;
     const show = (el: HTMLElement | undefined, id: MenuId): void => {
@@ -2406,10 +2409,6 @@ export class OfficeScene extends Phaser.Scene {
         this.assetsTab = 'chars';
         this.renderAssetsPanel();
       }),
-      mkSeg('Furniture', this.assetsTab === 'furniture', () => {
-        this.assetsTab = 'furniture';
-        this.renderAssetsPanel();
-      }),
       mkSeg('Images', this.assetsTab === 'images', () => {
         this.assetsTab = 'images';
         this.renderAssetsPanel();
@@ -2417,7 +2416,6 @@ export class OfficeScene extends Phaser.Scene {
     );
     body.appendChild(seg);
     if (this.assetsTab === 'chars') this.renderCharAssets(body);
-    else if (this.assetsTab === 'furniture') this.renderFurnAssets(body);
     else this.renderImageAssets(body);
   }
 
@@ -2526,42 +2524,6 @@ export class OfficeScene extends Phaser.Scene {
       }
       body.appendChild(row);
     }
-  }
-
-  private renderFurnAssets(body: HTMLElement): void {
-    const add = document.createElement('button');
-    add.className = 'pa-b primary wide';
-    add.textContent = '＋ New furniture';
-    add.onclick = () => {
-      void this.setMenu(null);
-      this.furnEditor.newItem();
-    };
-    body.appendChild(add);
-
-    // Zoom: every tile renders at its own native size (honest relative sizing,
-    // no squeeze-to-fit), which is often too small to make out at a glance —
-    // this scales the whole grid uniformly instead of per-item.
-    body.appendChild(
-      buildZoomSeg(this.furnZoom, (z) => {
-        this.furnZoom = z;
-        this.renderAssetsPanel();
-      }),
-    );
-
-    for (const cat of getActiveCategories()) {
-      const entries = getCatalogByCategory(cat.id);
-      if (!entries.length) continue;
-      const head = document.createElement('div');
-      head.className = 'grouplbl';
-      head.textContent = cat.label;
-      body.appendChild(head);
-      const grid = document.createElement('div');
-      grid.className = 'pa-assetgrid';
-      for (const e of entries) grid.appendChild(this.mkFurnTile(e));
-      body.appendChild(grid);
-    }
-
-    this.renderFurnActionBar(body);
   }
 
   /** Uploaded background images (see shared/office/imageAssets.ts) — PNG only,
@@ -2720,61 +2682,6 @@ export class OfficeScene extends Phaser.Scene {
     let id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
     while (taken.has(id)) id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
     return id;
-  }
-
-  /** One Furniture-assets grid tile: native-size (× furnZoom) thumbnail +
-   *  label, click to select — acted on via the bottom action bar rather than
-   *  per-tile buttons, so a big import stays a compact grid instead of a long
-   *  list (see renderFurnAssets / renderFurnActionBar). */
-  private mkFurnTile(e: CatalogEntryWithCategory): HTMLElement {
-    const item = document.createElement('div');
-    item.className = 'pa-assetgrid-item' + (e.id === this.selectedFurnAsset ? ' sel' : '');
-    item.title = e.label;
-    item.appendChild(this.mkThumb(e.sprite, this.furnZoom));
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = e.label;
-    item.appendChild(nm);
-    item.onclick = () => {
-      this.selectedFurnAsset = e.id;
-      this.renderAssetsPanel();
-    };
-    return item;
-  }
-
-  /** Sticky bottom bar for whichever tile is selected in the Furniture-assets
-   *  grid — Edit / Reset, the same actions the old per-row buttons offered. */
-  private renderFurnActionBar(body: HTMLElement): void {
-    if (!this.selectedFurnAsset) return;
-    const entry = getCatalogEntry(this.selectedFurnAsset);
-    if (!entry) {
-      this.selectedFurnAsset = null;
-      return;
-    }
-    const bar = document.createElement('div');
-    bar.className = 'pa-asset-actionbar';
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = entry.label;
-    const edit = document.createElement('button');
-    edit.className = 'pa-b';
-    edit.textContent = 'Edit';
-    edit.onclick = () => {
-      void this.setMenu(null);
-      this.furnEditor.edit(entry.id);
-    };
-    const reset = document.createElement('button');
-    reset.className = 'pa-b danger';
-    reset.textContent = 'Reset';
-    reset.title = 'Revert to the bundled default (or delete a custom item)';
-    reset.onclick = async () => {
-      if (!(await confirmDialog(`Reset ${entry.id}?`, { danger: true, confirmLabel: 'Reset' }))) return;
-      this.room?.send('deleteAsset', { assetType: 'furniture', name: entry.id });
-      this.selectedFurnAsset = null;
-      window.setTimeout(() => this.renderAssetsPanel(), 250);
-    };
-    bar.append(nm, edit, reset);
-    body.appendChild(bar);
   }
 
   /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */
