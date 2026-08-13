@@ -74,7 +74,7 @@ import {
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
-import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
+import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, MAX_IMAGE_ASSET_BYTES, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
@@ -1113,8 +1113,14 @@ export class OfficeScene extends Phaser.Scene {
     this.setMatrixOpen(this.matrixWin?.isOpen !== true);
   }
 
-  /** Unread-count badge on the ✉ bar button. */
+  /** Unread-count badge on the ✉ bar button, and — on desktop — the same count
+   *  on the system tray icon, so unread chat is visible while the window is
+   *  minimised or hidden. Reported before the button lookup below: the tray
+   *  must still be told about a count that arrives before the HUD exists (the
+   *  Matrix store syncs in the background whether or not the panel was ever
+   *  opened), and about the reset to 0 on an identity change. */
   private setMatrixUnread(n: number): void {
+    setDesktopUnreadCount(n);
     if (!this.matrixBtn) return;
     let badge = this.matrixBtn.querySelector<HTMLSpanElement>('.mx-badge');
     if (!badge) {

@@ -46,6 +46,8 @@ const api: PixelDesktopApi = {
   reload: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.reload),
   notify: (notification: DesktopNotification) =>
     ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.notify, notification),
+  setUnreadCount: (count: number) =>
+    ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setUnreadCount, count),
   mumble: {
     connect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleConnect),
     disconnect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleDisconnect),

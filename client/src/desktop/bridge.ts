@@ -176,7 +176,8 @@ export interface PixelDesktopApi {
   keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021). */
   pickScreenSource(): Promise<{ id: string } | null>;
-  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  /** Closes the window that made the call. Quits the app on Linux/Windows,
+   *  unless the user enabled the tray's "Close button hides to tray". */
   closeWindow(): Promise<void>;
   /** Opens/closes DevTools for the calling window's web contents. */
   toggleDevTools(): Promise<void>;
@@ -184,6 +185,9 @@ export interface PixelDesktopApi {
   reload(): Promise<void>;
   /** Shows an OS notification via the main process. */
   notify(notification: DesktopNotification): Promise<void>;
+  /** Reports the unread chat count for the system tray icon and the
+   *  dock/launcher badge. */
+  setUnreadCount(count: number): Promise<void>;
   /** Mumble voice client (desktop only). */
   mumble: MumbleApi;
   /** TimeTracking client (desktop only). */
@@ -247,6 +251,21 @@ export function notifyDesktop(title: string, body: string, silent = false): void
   if (!isDesktop()) return;
   void desktop()
     .notify({ title, body, silent })
+    .catch(() => undefined);
+}
+
+/**
+ * Publish the unread chat count to the desktop shell, which shows it on the
+ * system tray icon and the dock/launcher badge. A no-op in the browser, where
+ * the tab title is the only equivalent surface and the app does not own it.
+ *
+ * Never throws and never needs awaiting: like a notification, the badge is a
+ * report about state the caller has already applied to its own UI.
+ */
+export function setDesktopUnreadCount(count: number): void {
+  if (!isDesktop()) return;
+  void desktop()
+    .setUnreadCount(count)
     .catch(() => undefined);
 }
 

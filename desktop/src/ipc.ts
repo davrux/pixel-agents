@@ -28,6 +28,7 @@ export const PIXEL_DESKTOP_CHANNELS = {
   toggleDevTools: 'pixelDesktop:toggleDevTools',
   reload: 'pixelDesktop:reload',
   notify: 'pixelDesktop:notify',
+  setUnreadCount: 'pixelDesktop:setUnreadCount',
   // Mumble voice. Control is invoke/handle like everything above; audio is
   // fire-and-forget in both directions because a promise per 20 ms frame would
   // be pure overhead at 50 packets/s.
@@ -252,7 +253,10 @@ export interface PixelDesktopApi {
   keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021; implemented in T4.4). */
   pickScreenSource(): Promise<{ id: string } | null>;
-  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  /** Closes the window that made the call. Quits the app on Linux/Windows —
+   *  unless the user turned on the tray's "Close button hides to tray", which
+   *  this path deliberately honours too, so the HUD's ✕ and the OS titlebar's
+   *  behave alike. */
   closeWindow(): Promise<void>;
   /** Opens/closes DevTools for the calling window's web contents. */
   toggleDevTools(): Promise<void>;
@@ -262,6 +266,12 @@ export interface PixelDesktopApi {
   /** Shows an OS notification. Resolves whether or not the platform showed one
    *  — a notification is an aside, never something the caller must handle. */
   notify(notification: DesktopNotification): Promise<void>;
+  /** Reports the number of unread chat messages, for the system tray icon and
+   *  the dock/launcher badge. The renderer owns the Matrix session, so it is the
+   *  only side that can know this; main only decides how to display it. Safe to
+   *  call with the same value repeatedly — main ignores a count that has not
+   *  changed. */
+  setUnreadCount(count: number): Promise<void>;
   /** Mumble voice client (protocol + TLS live in main; audio lives here). */
   mumble: MumbleApi;
   /** TimeTracking (credential + third-party HTTP live in main). */
