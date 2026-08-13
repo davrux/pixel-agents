@@ -292,22 +292,27 @@ export function createDefaultLayout(): OfficeLayout {
 
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<number | null> = [];
+  // Every wall tile needs the floor that shows beneath it — see
+  // OfficeLayout.tileWallFloorPattern; nothing falls back to a flat fill.
+  const tileWallFloorPattern: Array<number | null> = [];
 
   for (let r = 0; r < DEFAULT_ROWS; r++) {
     for (let c = 0; c < DEFAULT_COLS; c++) {
-      if (r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1) {
+      const edge = r === 0 || r === DEFAULT_ROWS - 1 || c === 0 || c === DEFAULT_COLS - 1;
+      if (edge) {
         tiles.push(W);
       } else if (c < 10) {
         tiles.push(F1);
       } else {
         tiles.push(F2);
       }
+      tileWallFloorPattern.push(edge ? F1 : null);
       tileColors.push(null); // Natural — this fallback is cosmetically irrelevant; default-layout.json provides the real default
     }
   }
 
   // Minimal fallback with no furniture — the default-layout.json provides the real default
-  return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, furniture: [] };
+  return { version: 1, cols: DEFAULT_COLS, rows: DEFAULT_ROWS, tiles, tileColors, tileWallFloorPattern, furniture: [] };
 }
 
 /** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
@@ -320,14 +325,19 @@ export function createBlankZoneLayout(
 ): OfficeLayout {
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<number | null> = [];
+  // The border walls carry the same floor beneath them as the field itself —
+  // see OfficeLayout.tileWallFloorPattern; a wall tile has no floor of its own
+  // and nothing falls back to a flat fill.
+  const tileWallFloorPattern: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const edge = r === 0 || r === rows - 1 || c === 0 || c === cols - 1;
       tiles.push(edge ? TileType.WALL : TileType.FLOOR_3);
+      tileWallFloorPattern.push(edge ? TileType.FLOOR_3 : null);
       tileColors.push(null);
     }
   }
-  return { version: 1, cols, rows, tiles, tileColors, furniture };
+  return { version: 1, cols, rows, tiles, tileColors, tileWallFloorPattern, furniture };
 }
 
 /** The plaza: the second builtin zone, with a beam pad (walk onto it → zone

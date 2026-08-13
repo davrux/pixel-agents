@@ -184,13 +184,15 @@ export class PhaserRenderer {
     const cols = layout.cols;
     const useFloors = hasFloorSprites();
 
-    // Floor + wall base color. A wall tile has no floor pattern of its own
-    // (tiles[i] holds either a pattern or WALL), so it normally paints a flat
-    // fill in the wall's own color — but where the layout carries a floor
-    // beneath the wall (see OfficeLayout.tileWallFloorPattern) that floor is
-    // drawn instead, which is what lets a thin wall set show room floor around
-    // its strip rather than flat color. The wall sprite itself is drawn later,
-    // as a z-sorted instance (see wallTiles.ts's getWallInstances).
+    // Floor, under every non-void tile including walls. A wall tile's own
+    // tiles[] slot holds WALL rather than a pattern, so its floor comes from
+    // the parallel tileWallFloor* arrays instead (see
+    // OfficeLayout.tileWallFloorPattern) — that's what lets a thin wall set
+    // show room floor around its 6px strip. Every layout producer fills those
+    // arrays; a wall cell without one is a data bug and deliberately renders as
+    // a visible hole rather than being papered over with a flat fill. The wall
+    // sprite itself is drawn later, as a z-sorted instance (see wallTiles.ts's
+    // getWallInstances).
     for (let r = 0; r < tileMap.length; r++) {
       for (let c = 0; c < tileMap[r].length; c++) {
         const tile = tileMap[r][c];
@@ -199,17 +201,19 @@ export class PhaserRenderer {
         const py = r * TILE_SIZE;
         const idx = r * cols + c;
         const isWall = tile === TileType.WALL;
-        const underWall = isWall ? (tileWallFloorPattern?.[idx] ?? null) : null;
-        if (useFloors && underWall != null) {
-          const tex = spriteTexture(this.scene, getColorizedFloorSprite(underWall, tileWallFloorColor?.[idx], tileWallFloorSet?.[idx] ?? 0));
-          this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
-        } else if (isWall || !useFloors) {
+        if (!useFloors) {
+          // Baked sheets haven't arrived yet — a flat fill is all there is to
+          // draw. Walls use their own swatch so the room outline still reads.
           const hex = isWall ? wallSwatchToHex(tileColors?.[idx], tileWallSet?.[idx] ?? 0) : '#808080';
           this.statics.push(this.solid(px, py, hex, FLOOR_DEPTH));
-        } else {
-          const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], tileFloorSet?.[idx] ?? 0));
-          this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
+          continue;
         }
+        const pattern = isWall ? tileWallFloorPattern?.[idx] : tile;
+        if (pattern == null) continue;
+        const swatch = isWall ? tileWallFloorColor?.[idx] : tileColors?.[idx];
+        const set = (isWall ? tileWallFloorSet?.[idx] : tileFloorSet?.[idx]) ?? 0;
+        const tex = spriteTexture(this.scene, getColorizedFloorSprite(pattern, swatch, set));
+        this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
     }
 

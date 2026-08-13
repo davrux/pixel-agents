@@ -467,10 +467,8 @@ export function importTmjToLayout(
   const ground = (layers.find((l) => l.class === 'GroundLayer')?.data as number[]) ?? [];
   const collision = (layers.find((l) => l.class === 'CollisionLayer')?.data as number[]) ?? [];
   // Walls have their own layer so a cell can hold both a wall and the floor
-  // beneath it. Absent on maps exported before that layer existed (and on
-  // hand-made maps that never added one), where walls were painted straight
-  // into Ground — those still import, they just have no floor under a wall.
-  // A WallTile found in Ground is therefore still honoured below.
+  // beneath it. A WallTile painted into Ground is NOT a wall — Ground is the
+  // floor layer, full stop; a map has to put its walls in a WallLayer.
   const wallLayer = (layers.find((l) => l.class === 'WallLayer')?.data as number[]) ?? [];
 
   // Objects are classified by their own nature — a native Tiled field
@@ -539,11 +537,8 @@ export function importTmjToLayout(
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const groundResolved = resolveGid(ground[i] ?? 0);
-    // A wall comes from the Wall layer, but a WallTile painted into Ground is
-    // still accepted (see wallLayer above) — so whichever of the two carries
-    // one wins, Wall layer first.
     const wallResolved = resolveGid(wallLayer[i] ?? 0);
-    const wall = wallResolved?.class === 'WallTile' ? wallResolved : groundResolved?.class === 'WallTile' ? groundResolved : null;
+    const wall = wallResolved?.class === 'WallTile' ? wallResolved : null;
     // Classify by Tiled's own `class` (FloorTile/WallTile — see
     // Pixels.tiled-project), not by which file a tile lives in — a mapper
     // reorganizing tileset files must not silently break this (see
