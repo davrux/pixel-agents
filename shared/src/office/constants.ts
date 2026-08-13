@@ -90,7 +90,6 @@ export const MATRIX_HEAD_COLOR = '#ccffcc';
 export const matrixGreenBright = (a: number): string => `rgba(0, 255, 65, ${a})`;
 export const matrixGreenMid = (a: number): string => `rgba(0, 170, 40, ${a})`;
 export const matrixGreenDim = (a: number): string => `rgba(0, 85, 20, ${a})`;
-export const MATRIX_TRAIL_OVERLAY_ALPHA = 0.6;
 export const MATRIX_TRAIL_EMPTY_ALPHA = 0.5;
 export const MATRIX_TRAIL_MID_THRESHOLD = 0.33;
 export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;

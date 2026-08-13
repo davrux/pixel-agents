@@ -8,7 +8,6 @@ import {
   MATRIX_TRAIL_EMPTY_ALPHA,
   MATRIX_TRAIL_LENGTH,
   MATRIX_TRAIL_MID_THRESHOLD,
-  MATRIX_TRAIL_OVERLAY_ALPHA,
   matrixGreenBright,
   matrixGreenDim,
   matrixGreenMid,
@@ -34,8 +33,18 @@ function generateSeeds(): number[] {
 export { generateSeeds as matrixEffectSeeds };
 
 /**
- * Render a character with a Matrix-style digital rain spawn/despawn effect.
- * Per-pixel rendering: each column sweeps top-to-bottom with a bright head and fading green trail.
+ * Render a character materialising or dissolving under Matrix-style digital rain.
+ *
+ * The body's opacity is driven by overall progress, and the rain is drawn over
+ * it — so the figure is always whole, just fainter or more solid. It used to be
+ * the other way round: the rain's head *uncovered* the character row by row on
+ * the way down, which meant that for most of the animation the legs did not
+ * exist yet and a head-and-torso hovered in the air. That reads as a figure
+ * missing its lower half rather than as a materialisation, and no amount of
+ * tuning the trail length fixes it — a reveal front is a reveal front.
+ *
+ * The rain keeps the per-column stagger, so the sweep still looks like falling
+ * code rather than a uniform fade.
  */
 export function renderMatrixEffect(
   ctx: CanvasRenderingContext2D,
@@ -45,113 +54,56 @@ export function renderMatrixEffect(
   drawY: number,
   zoom: number,
 ): void {
-  const progress = ch.matrixEffectTimer / MATRIX_EFFECT_DURATION;
+  const progress = Math.max(0, Math.min(1, ch.matrixEffectTimer / MATRIX_EFFECT_DURATION));
   const isSpawn = ch.matrixEffect === 'spawn';
   const time = ch.matrixEffectTimer;
   // Measured off the sprite, never assumed: frame size is per-character (see
   // CharacterSpec), and a hardcoded row count silently stopped drawing every
-  // taller character below that row for the effect's whole duration — which
-  // looked like half a figure arriving, not like a materialisation.
+  // taller character below that row for the effect's whole duration.
   const rows = spriteData.length;
   const cols = rows > 0 ? spriteData[0].length : 0;
   const totalSweep = rows + MATRIX_TRAIL_LENGTH;
+  // Solid a little before the sweep finishes on the way in, and not fully gone
+  // until it has passed on the way out, so the body never snaps at either end.
+  const bodyAlpha = isSpawn ? Math.min(1, progress * 1.35) : Math.max(0, 1 - progress * 1.15);
 
   for (let col = 0; col < cols; col++) {
-    // Stagger: each column starts at a slightly different time
+    // Stagger: each column starts at a slightly different time.
     const stagger = (ch.matrixEffectSeeds[col] ?? 0) * MATRIX_COLUMN_STAGGER_RANGE;
-    const colProgress = Math.max(
-      0,
-      Math.min(1, (progress - stagger) / (1 - MATRIX_COLUMN_STAGGER_RANGE)),
-    );
+    const colProgress = Math.max(0, Math.min(1, (progress - stagger) / (1 - MATRIX_COLUMN_STAGGER_RANGE)));
     const headRow = colProgress * totalSweep;
 
     for (let row = 0; row < rows; row++) {
       const pixel = spriteData[row]?.[col];
-      const hasPixel = pixel && pixel !== '';
-      const distFromHead = headRow - row;
       const px = drawX + col * zoom;
       const py = drawY + row * zoom;
 
-      if (isSpawn) {
-        // Spawn: head sweeps down revealing character pixels
-        if (distFromHead < 0) {
-          // Above head: invisible
-          continue;
-        } else if (distFromHead < 1) {
-          // Head pixel: bright white-green
-          ctx.fillStyle = MATRIX_HEAD_COLOR;
-          ctx.fillRect(px, py, zoom, zoom);
-        } else if (distFromHead < MATRIX_TRAIL_LENGTH) {
-          // Trail zone: show character pixel with green overlay, or just green if no pixel
-          const trailPos = distFromHead / MATRIX_TRAIL_LENGTH;
-          if (hasPixel) {
-            // Draw original pixel
-            ctx.fillStyle = pixel;
-            ctx.fillRect(px, py, zoom, zoom);
-            // Green overlay that fades as trail progresses
-            const greenAlpha = (1 - trailPos) * MATRIX_TRAIL_OVERLAY_ALPHA;
-            if (flickerVisible(col, row, time)) {
-              ctx.fillStyle = matrixGreenBright(greenAlpha);
-              ctx.fillRect(px, py, zoom, zoom);
-            }
-          } else {
-            // No character pixel: fading green trail
-            if (flickerVisible(col, row, time)) {
-              const alpha = (1 - trailPos) * MATRIX_TRAIL_EMPTY_ALPHA;
-              ctx.fillStyle =
-                trailPos < MATRIX_TRAIL_MID_THRESHOLD
-                  ? matrixGreenBright(alpha)
-                  : trailPos < MATRIX_TRAIL_DIM_THRESHOLD
-                    ? matrixGreenMid(alpha)
-                    : matrixGreenDim(alpha);
-              ctx.fillRect(px, py, zoom, zoom);
-            }
-          }
-        } else {
-          // Below trail: normal character pixel
-          if (hasPixel) {
-            ctx.fillStyle = pixel;
-            ctx.fillRect(px, py, zoom, zoom);
-          }
-        }
-      } else {
-        // Despawn: head sweeps down consuming character pixels
-        if (distFromHead < 0) {
-          // Above head: normal character pixel (not yet consumed)
-          if (hasPixel) {
-            ctx.fillStyle = pixel;
-            ctx.fillRect(px, py, zoom, zoom);
-          }
-        } else if (distFromHead < 1) {
-          // Head pixel: bright white-green
-          ctx.fillStyle = MATRIX_HEAD_COLOR;
-          ctx.fillRect(px, py, zoom, zoom);
-        } else if (distFromHead < MATRIX_TRAIL_LENGTH) {
-          const trailPos = distFromHead / MATRIX_TRAIL_LENGTH;
-          // The character fades out UNDER the trail rather than ending at the
-          // head. Without this the dissolve was a hard line travelling down a
-          // solid figure — a wipe, not a dissolve — with the sparse green
-          // falling through empty space behind it. The materialise half always
-          // drew the pixel under its trail; this is the same thing backwards.
-          if (hasPixel) {
-            ctx.globalAlpha = 1 - trailPos;
-            ctx.fillStyle = pixel;
-            ctx.fillRect(px, py, zoom, zoom);
-            ctx.globalAlpha = 1;
-          }
-          if (flickerVisible(col, row, time)) {
-            const alpha = (1 - trailPos) * MATRIX_TRAIL_EMPTY_ALPHA;
-            ctx.fillStyle =
-              trailPos < MATRIX_TRAIL_MID_THRESHOLD
-                ? matrixGreenBright(alpha)
-                : trailPos < MATRIX_TRAIL_DIM_THRESHOLD
-                  ? matrixGreenMid(alpha)
-                  : matrixGreenDim(alpha);
-            ctx.fillRect(px, py, zoom, zoom);
-          }
-        }
-        // Below trail: nothing (consumed)
+      // 1. The body, whole, at the current opacity.
+      if (pixel && pixel !== '' && bodyAlpha > 0) {
+        ctx.globalAlpha = bodyAlpha;
+        ctx.fillStyle = pixel;
+        ctx.fillRect(px, py, zoom, zoom);
+        ctx.globalAlpha = 1;
       }
+
+      // 2. The rain on top: a bright head with a fading trail behind it.
+      const distFromHead = headRow - row;
+      if (distFromHead < 0 || distFromHead >= MATRIX_TRAIL_LENGTH) continue;
+      if (distFromHead < 1) {
+        ctx.fillStyle = MATRIX_HEAD_COLOR;
+        ctx.fillRect(px, py, zoom, zoom);
+        continue;
+      }
+      if (!flickerVisible(col, row, time)) continue;
+      const trailPos = distFromHead / MATRIX_TRAIL_LENGTH;
+      const alpha = (1 - trailPos) * MATRIX_TRAIL_EMPTY_ALPHA;
+      ctx.fillStyle =
+        trailPos < MATRIX_TRAIL_MID_THRESHOLD
+          ? matrixGreenBright(alpha)
+          : trailPos < MATRIX_TRAIL_DIM_THRESHOLD
+            ? matrixGreenMid(alpha)
+            : matrixGreenDim(alpha);
+      ctx.fillRect(px, py, zoom, zoom);
     }
   }
 }
