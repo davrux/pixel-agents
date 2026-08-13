@@ -80,6 +80,37 @@ export interface MxDecryptError {
   action: MxDecryptAction | null;
 }
 
+/**
+ * One annotation key on one message, already folded across senders: `👍 3`.
+ * The store aggregates these from the `m.reaction` events in the loaded window
+ * (see MatrixStore.timeline), so a reaction whose target has been trimmed or
+ * never paginated to simply doesn't appear.
+ */
+export interface MxReaction {
+  /** The annotation key — usually an emoji, but it is remote text, so treat it
+   *  as such: the view clamps how much of it it draws. */
+  key: string;
+  count: number;
+  /** I am one of the senders. */
+  mine: boolean;
+  /** My own reaction event, for un-reacting. `''` while my reaction is still a
+   *  local echo — there is nothing to redact yet. */
+  myEventId: string;
+  /** Display names of everyone who reacted with this key, for the tooltip. */
+  senderNames: string[];
+}
+
+/** What a message is a reply to, resolved for the quote line above it. */
+export interface MxReplyTo {
+  eventId: string;
+  sender: string;
+  senderName: string;
+  /** One-line preview of the quoted message; `''` when there is nothing to show. */
+  text: string;
+  /** The quoted event isn't in the loaded window, so only the relation is known. */
+  missing: boolean;
+}
+
 export interface MxEvent {
   event_id: string;
   type: string;
@@ -96,6 +127,24 @@ export interface MxEvent {
   decrypting?: true;
   /** Set once decryption has definitively failed. */
   decryptError?: MxDecryptError;
+  /** Deleted — remotely (`unsigned.redacted_because`) *or* by a redaction of
+   *  ours that is still in flight. Both must read as deleted: a locally
+   *  redacted event's content is already `{}`, so anything else would draw a
+   *  blank row. */
+  redacted?: true;
+  /** An `m.replace` has been applied — `content` is already the new text. */
+  edited?: true;
+  /** Reactions to this event, in the order their keys were first seen.
+   *  Absent when there are none. */
+  reactions?: MxReaction[];
+  /** Set when this message is a reply. */
+  replyTo?: MxReplyTo;
+  /** This session may redact this event (mine, or we hold the power level).
+   *  A hint for what to offer, never a guarantee — the homeserver decides. */
+  canRedact?: true;
+  /** This session may edit this event: our own, still readable, and a message
+   *  kind an edit makes sense for. */
+  canEdit?: true;
 }
 
 /**

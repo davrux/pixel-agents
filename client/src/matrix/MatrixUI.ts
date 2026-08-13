@@ -23,7 +23,14 @@
  * (./EncryptionUI.js) — this file only mounts it as an eighth section and
  * routes to it.
  */
-import { MatrixError, type MxDirectoryUser, type MxMember, type MxRoom, type MxSession } from './types.js';
+import {
+  MatrixError,
+  type MxDirectoryUser,
+  type MxEvent,
+  type MxMember,
+  type MxRoom,
+  type MxSession,
+} from './types.js';
 import {
   clearSession,
   describeError,
@@ -37,8 +44,9 @@ import {
 } from './session.js';
 import { MatrixStore } from './store.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
-import { fmtRelative, TimelineView, type TimelineHooks } from './timeline.js';
-import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
+import { fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
+import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
+import { confirmDialog, passwordPromptDialog, promptDialog } from '../ui/dialog.js';
 import { readNotifyPrefs, writeNotifyPrefs } from './storage.js';
 import { isDesktop } from '../desktop/bridge.js';
 import { createEncryptionView, type EncryptionViewHandle, type EncryptionViewHooks } from './EncryptionUI.js';
@@ -156,6 +164,22 @@ export class MatrixUI {
   private composerTextarea!: HTMLTextAreaElement;
   private composerSendBtn!: HTMLButtonElement;
   private composerDisabledEl!: HTMLDivElement;
+  /** The "replying to …" / "editing …" bar above the composer controls. */
+  private composerCtxEl!: HTMLDivElement;
+  private composerCtxIconEl!: HTMLSpanElement;
+  private composerCtxWhoEl!: HTMLSpanElement;
+  private composerCtxWhatEl!: HTMLSpanElement;
+  /** The message the composer is replying to, or null. Mutually exclusive with
+   *  `editing` — both are cleared when a room is opened or left. */
+  private replyingTo: { eventId: string; who: string; text: string } | null = null;
+  /** The message the composer is rewriting: its id, plus the draft that was in
+   *  the composer when editing started, restored when it is cancelled. */
+  private editing: { eventId: string; stashedDraft: string } | null = null;
+  /** The open message menu and the ⋯ button it belongs to, so pressing that
+   *  same button again closes it (and pressing a different one moves it) rather
+   *  than stacking a second menu. */
+  private msgMenu: MessageMenuHandle | null = null;
+  private msgMenuAnchor: HTMLElement | null = null;
   private attachBtn!: HTMLButtonElement;
   private attachInput!: HTMLInputElement;
   private uploadStatusEl!: HTMLDivElement;
@@ -284,6 +308,7 @@ export class MatrixUI {
 
   destroy(): void {
     this.stopTimelineRefresh();
+    this.closeMessageActions();
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
     if (this.loginDiscoverTimer !== undefined) clearTimeout(this.loginDiscoverTimer);
     this.loginDiscoverAbort?.abort();
@@ -508,6 +533,13 @@ export class MatrixUI {
     this.stack = [{ view: 'rooms' }, { view: 'room', roomId }];
     this.openRoomId = roomId;
     this.hideUploadStatus();
+    // A reply or an edit belongs to the room it was started in; the draft below
+    // is restored per room, and these would otherwise be applied to the wrong
+    // message entirely.
+    this.closeMessageActions();
+    this.replyingTo = null;
+    this.editing = null;
+    this.paintComposerContext();
     this.store?.openRoom(roomId).catch(() => {
       /* surfaced via store.timelineError() in the next render */
     });
@@ -557,6 +589,7 @@ export class MatrixUI {
       this.store?.closeRoom();
       this.openRoomId = null;
       this.stopTimelineRefresh();
+      this.dropComposerContext();
     }
     this.renderCurrent();
   }
@@ -566,9 +599,21 @@ export class MatrixUI {
       this.store?.closeRoom();
       this.openRoomId = null;
       this.stopTimelineRefresh();
+      this.dropComposerContext();
     }
     this.stack = [{ view: 'rooms' }];
     this.renderCurrent();
+  }
+
+  /** Leaving the room view: an open message menu and a half-finished
+   *  reply/edit both belong to a room that is no longer on screen. The edit's
+   *  stashed draft is deliberately dropped rather than written back — the
+   *  composer's own draft for this room was saved when it was typed. */
+  private dropComposerContext(): void {
+    this.closeMessageActions();
+    this.replyingTo = null;
+    this.editing = null;
+    this.paintComposerContext();
   }
 
   private handleEscape(): void {
@@ -1290,6 +1335,13 @@ export class MatrixUI {
       loadImage: (content) =>
         this.store ? this.store.imageUrl(content) : Promise.reject(new Error('Not connected.')),
       onOpenImage: (content, url) => openImageViewer(content.body, url),
+      onOpenActions: (ev, anchor) => this.openMessageActions(ev, anchor),
+      onToggleReaction: (eventId, key) => void this.handleToggleReaction(eventId, key),
+      onJumpToReply: (eventId) => {
+        if (!this.timelineView.revealEvent(eventId)) {
+          this.toast("That message isn't loaded — load earlier messages to reach it.");
+        }
+      },
     };
     this.timelineView = new TimelineView(hooks);
     section.appendChild(this.timelineView.el);
@@ -1307,7 +1359,10 @@ export class MatrixUI {
       } else if (ev.key === 'Escape') {
         ev.preventDefault();
         ev.stopPropagation();
-        this.composerTextarea.blur();
+        // Escape backs out of one thing at a time: first the reply/edit the
+        // composer is in the middle of, and only then the composer itself.
+        if (this.replyingTo || this.editing) this.cancelComposerContext();
+        else this.composerTextarea.blur();
       }
     });
     this.composerTextarea.addEventListener('input', () => {
@@ -1358,7 +1413,32 @@ export class MatrixUI {
     this.uploadStatusEl = document.createElement('div');
     this.uploadStatusEl.className = 'mx-upload';
     this.uploadStatusEl.hidden = true;
+
+    // "Replying to Alice: …" / "Editing your message". First child of the
+    // composer so it sits above the text box (the composer wraps, and this row
+    // takes the full basis).
+    this.composerCtxEl = document.createElement('div');
+    this.composerCtxEl.className = 'mx-ctx';
+    this.composerCtxEl.hidden = true;
+    this.composerCtxIconEl = document.createElement('span');
+    this.composerCtxIconEl.className = 'mx-ctx-i';
+    const ctxMain = document.createElement('div');
+    ctxMain.className = 'mx-ctx-main';
+    this.composerCtxWhoEl = document.createElement('span');
+    this.composerCtxWhoEl.className = 'who';
+    this.composerCtxWhatEl = document.createElement('span');
+    this.composerCtxWhatEl.className = 'what';
+    ctxMain.append(this.composerCtxWhoEl, this.composerCtxWhatEl);
+    const ctxCancel = document.createElement('button');
+    ctxCancel.className = 'pa-b';
+    ctxCancel.textContent = '✕';
+    ctxCancel.title = 'Cancel';
+    ctxCancel.setAttribute('aria-label', 'Cancel');
+    ctxCancel.addEventListener('click', () => this.cancelComposerContext());
+    this.composerCtxEl.append(this.composerCtxIconEl, ctxMain, ctxCancel);
+
     composer.append(
+      this.composerCtxEl,
       this.composerTextarea,
       this.attachBtn,
       this.composerSendBtn,
@@ -1454,6 +1534,11 @@ export class MatrixUI {
     }
 
     const composerDisabled = this.store.cryptoState === 'unavailable';
+    // Nothing can be written in this session, so a pending reply/edit is a
+    // promise the composer can't keep.
+    if (composerDisabled && (this.replyingTo || this.editing)) this.dropComposerContext();
+    this.paintComposerContext();
+    this.composerCtxEl.style.display = composerDisabled ? 'none' : '';
     this.composerTextarea.style.display = composerDisabled ? 'none' : '';
     this.composerSendBtn.style.display = composerDisabled ? 'none' : '';
     // Pictures go out the same door as text: if this session can't send a
@@ -1489,6 +1574,10 @@ export class MatrixUI {
   private saveDraft(): void {
     const rid = this.openRoomId;
     if (!rid) return;
+    // While an edit has the box, what is in it is that message's text, not a
+    // draft for this room — the real draft is parked in `editing.stashedDraft`
+    // and must survive both cancelling and saving.
+    if (this.editing) return;
     try {
       const v = this.composerTextarea.value;
       if (v) sessionStorage.setItem(`pa-mx-draft:${rid}`, v);
@@ -1509,21 +1598,218 @@ export class MatrixUI {
   private sendComposer(): void {
     const rid = this.openRoomId;
     if (!rid || !this.store) return;
-    // client.sendTextMessage consults the room's own encryption state and
-    // encrypts automatically — there is nothing left to gate here.
+    // client.sendMessage consults the room's own encryption state and encrypts
+    // automatically — there is nothing left to gate here.
     const body = this.composerTextarea.value.trim();
-    if (!body) return;
-    this.composerTextarea.value = '';
+    const editing = this.editing;
+    if (!body) {
+      // An emptied edit box is a request to delete the message in most clients;
+      // here it is simply refused, because "did that delete it?" is not a
+      // question a chat client should leave open.
+      if (editing) this.toast('An edited message cannot be empty — delete it instead.');
+      return;
+    }
+    const replyTo = this.replyingTo?.eventId;
+    // An edit borrowed the box, so saving it hands the box back to whatever
+    // draft was in it; a normal send empties it (and its stored draft).
+    this.composerTextarea.value = editing ? editing.stashedDraft : '';
     this.autoGrow(this.composerTextarea);
-    this.clearDraft(rid);
+    if (!editing) this.clearDraft(rid);
+    this.replyingTo = null;
+    this.editing = null;
+    this.paintComposerContext();
+    if (editing) {
+      // No pinning: an edit lands in place, wherever that is, and yanking the
+      // timeline to the bottom would take the reader away from what they just
+      // rewrote.
+      void this.store.editMessage(rid, editing.eventId, body).catch((e: unknown) => {
+        this.toast(this.errText(e));
+      });
+      return;
+    }
     // Sending is the one action that overrides "keep the reader's position":
     // whatever you were reading up in history, you want to see what you just
     // wrote. Before the await, so it also applies if the send fails — the
     // `.failed` row with its Retry link is exactly what you need to see.
     this.timelineView.pinToBottom();
-    void this.store.send(rid, body).catch(() => {
+    void this.store.send(rid, body, replyTo).catch(() => {
       /* the store surfaces the failure via the echo row itself */
     });
+  }
+
+  // ==================================================================
+  // message actions (react / reply / edit / delete)
+  // ==================================================================
+
+  /** Open the ⋯ menu for one message. What it offers is `messageActionsFor`
+   *  narrowed by what this session can actually do: reply and edit both need a
+   *  working composer, which a session without encryption doesn't have. */
+  private openMessageActions(ev: MxEvent, anchor: HTMLElement): void {
+    const rid = this.openRoomId;
+    if (!rid || !this.store) return;
+    // Pressing the same ⋯ again closes the menu; pressing another row's moves
+    // it there. (A pointer press outside already closes it before the click
+    // lands — this is what makes keyboard activation behave the same way.)
+    if (this.msgMenu) {
+      const sameButton = this.msgMenuAnchor === anchor;
+      this.closeMessageActions();
+      if (sameButton) return;
+    }
+    const can = messageActionsFor(ev);
+    const composerUsable = this.store.cryptoState !== 'unavailable';
+    const spec = {
+      react: can.react,
+      reply: can.reply && composerUsable,
+      edit: can.edit && composerUsable,
+      remove: can.remove,
+    };
+    if (!spec.react && !spec.reply && !spec.edit && !spec.remove) return;
+    this.timelineView.setMenuOpenRow(ev.event_id);
+    this.msgMenuAnchor = anchor;
+    this.msgMenu = openMessageMenu({
+      anchor,
+      container: this.root,
+      can: spec,
+      onReact: (key) => {
+        void this.handleToggleReaction(ev.event_id, key);
+        // The menu (and the button that was clicked in it) is already gone, so
+        // without this focus sits on <body> — see refocusComposer. The chip
+        // path keeps focus among the chips instead (timeline.ts).
+        this.refocusComposer();
+      },
+      onReactOther: () => void this.handleReactOther(ev.event_id),
+      onReply: () => this.startReply(ev),
+      onEdit: () => this.startEdit(ev),
+      onDelete: () => void this.handleDelete(ev.event_id),
+      onClose: () => {
+        this.msgMenu = null;
+        this.msgMenuAnchor = null;
+        this.timelineView.setMenuOpenRow(null);
+      },
+    });
+  }
+
+  private closeMessageActions(): void {
+    this.msgMenu?.close();
+    this.msgMenu = null;
+    this.msgMenuAnchor = null;
+  }
+
+  private async handleToggleReaction(eventId: string, key: string): Promise<void> {
+    const rid = this.openRoomId;
+    if (!rid || !this.store || !eventId || !key) return;
+    try {
+      await this.store.toggleReaction(rid, eventId, key);
+    } catch (e) {
+      this.toast(this.errText(e));
+    }
+  }
+
+  /** The ＋ entry: any emoji, not just the quick eight. A prompt rather than a
+   *  picker — a full emoji keyboard is the OS's job (and every desktop has one),
+   *  and this way the field also takes a pasted one. */
+  private async handleReactOther(eventId: string): Promise<void> {
+    const raw = await promptDialog('React with which emoji?', '', { confirmLabel: 'React', maxLength: 32 });
+    this.refocusComposer();
+    if (raw === null) return;
+    const key = raw.trim();
+    if (!key) return;
+    await this.handleToggleReaction(eventId, key);
+  }
+
+  /** Take focus back after a modal dialog. Those live in `document.body`, so
+   *  dismissing one leaves focus on `<body>` — and with the panel no longer
+   *  owning focus (`ownsFocus`), the next keystroke walks the player's avatar
+   *  around the office instead of typing. */
+  private refocusComposer(): void {
+    if (this.stack[this.stack.length - 1]?.view !== 'room') return;
+    if (this.composerTextarea.style.display === 'none') return;
+    this.composerTextarea.focus();
+  }
+
+  private startReply(ev: MxEvent): void {
+    const rid = this.openRoomId;
+    if (!rid || !this.store) return;
+    // An edit and a reply are the same box, so starting one ends the other —
+    // including putting back the draft the edit had displaced.
+    if (this.editing) this.cancelComposerContext();
+    this.replyingTo = {
+      eventId: ev.event_id,
+      who: this.store.displayName(rid, ev.sender),
+      text: typeof ev.content.body === 'string' ? ev.content.body.replace(/\s+/g, ' ').trim() : '',
+    };
+    this.paintComposerContext();
+    this.composerTextarea.focus();
+  }
+
+  private startEdit(ev: MxEvent): void {
+    if (!this.openRoomId) return;
+    const body = typeof ev.content.body === 'string' ? ev.content.body : '';
+    this.replyingTo = null;
+    // The draft in the box is not lost, just parked: cancelling the edit puts
+    // it back (and so does sending it).
+    this.editing = { eventId: ev.event_id, stashedDraft: this.editing?.stashedDraft ?? this.composerTextarea.value };
+    this.composerTextarea.value = body;
+    this.autoGrow(this.composerTextarea);
+    this.paintComposerContext();
+    this.composerTextarea.focus();
+    this.composerTextarea.setSelectionRange(body.length, body.length);
+  }
+
+  /** Leave reply/edit mode without sending. */
+  private cancelComposerContext(): void {
+    const editing = this.editing;
+    this.replyingTo = null;
+    this.editing = null;
+    if (editing) {
+      this.composerTextarea.value = editing.stashedDraft;
+      this.autoGrow(this.composerTextarea);
+      this.saveDraft();
+    }
+    this.paintComposerContext();
+    this.composerTextarea.focus();
+  }
+
+  /** Reflect `replyingTo`/`editing` into the bar above the composer and the send
+   *  button. Called from every place that changes either, and from
+   *  renderRoomView so a repaint can't lose it. */
+  private paintComposerContext(): void {
+    if (this.editing) {
+      this.composerCtxEl.hidden = false;
+      this.composerCtxIconEl.textContent = '✎';
+      this.composerCtxWhoEl.textContent = 'Editing your message';
+      this.composerCtxWhatEl.textContent = 'Enter saves · Esc cancels';
+    } else if (this.replyingTo) {
+      this.composerCtxEl.hidden = false;
+      this.composerCtxIconEl.textContent = '↩';
+      this.composerCtxWhoEl.textContent = `Replying to ${this.replyingTo.who}`;
+      this.composerCtxWhatEl.textContent = this.replyingTo.text;
+    } else {
+      this.composerCtxEl.hidden = true;
+    }
+    this.composerSendBtn.textContent = this.editing ? '✓' : '➤';
+    this.composerSendBtn.title = this.editing ? 'Save the edit' : 'Send';
+  }
+
+  private async handleDelete(eventId: string): Promise<void> {
+    const rid = this.openRoomId;
+    if (!rid || !this.store) return;
+    const ok = await confirmDialog('Delete this message for everyone?', {
+      danger: true,
+      confirmLabel: 'Delete',
+    });
+    this.refocusComposer();
+    if (!ok) return;
+    // Deleting the message being edited or replied to would leave the composer
+    // pointing at nothing.
+    if (this.editing?.eventId === eventId || this.replyingTo?.eventId === eventId) {
+      this.cancelComposerContext();
+    }
+    try {
+      await this.store.redact(rid, eventId);
+    } catch (e) {
+      this.toast(this.errText(e));
+    }
   }
 
   private startTimelineRefresh(): void {
