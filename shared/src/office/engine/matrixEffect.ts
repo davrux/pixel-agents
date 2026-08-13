@@ -3,8 +3,7 @@ import {
   MATRIX_FLICKER_FPS,
   MATRIX_FLICKER_VISIBILITY_THRESHOLD,
   MATRIX_HEAD_COLOR,
-  MATRIX_SPRITE_COLS,
-  MATRIX_SPRITE_ROWS,
+  MATRIX_SEED_COUNT,
   MATRIX_TRAIL_DIM_THRESHOLD,
   MATRIX_TRAIL_EMPTY_ALPHA,
   MATRIX_TRAIL_LENGTH,
@@ -26,7 +25,7 @@ function flickerVisible(col: number, row: number, time: number): boolean {
 
 function generateSeeds(): number[] {
   const seeds: number[] = [];
-  for (let i = 0; i < MATRIX_SPRITE_COLS; i++) {
+  for (let i = 0; i < MATRIX_SEED_COUNT; i++) {
     seeds.push(Math.random());
   }
   return seeds;
@@ -49,9 +48,15 @@ export function renderMatrixEffect(
   const progress = ch.matrixEffectTimer / MATRIX_EFFECT_DURATION;
   const isSpawn = ch.matrixEffect === 'spawn';
   const time = ch.matrixEffectTimer;
-  const totalSweep = MATRIX_SPRITE_ROWS + MATRIX_TRAIL_LENGTH;
+  // Measured off the sprite, never assumed: frame size is per-character (see
+  // CharacterSpec), and a hardcoded row count silently stopped drawing every
+  // taller character below that row for the effect's whole duration — which
+  // looked like half a figure arriving, not like a materialisation.
+  const rows = spriteData.length;
+  const cols = rows > 0 ? spriteData[0].length : 0;
+  const totalSweep = rows + MATRIX_TRAIL_LENGTH;
 
-  for (let col = 0; col < MATRIX_SPRITE_COLS; col++) {
+  for (let col = 0; col < cols; col++) {
     // Stagger: each column starts at a slightly different time
     const stagger = (ch.matrixEffectSeeds[col] ?? 0) * MATRIX_COLUMN_STAGGER_RANGE;
     const colProgress = Math.max(
@@ -60,7 +65,7 @@ export function renderMatrixEffect(
     );
     const headRow = colProgress * totalSweep;
 
-    for (let row = 0; row < MATRIX_SPRITE_ROWS; row++) {
+    for (let row = 0; row < rows; row++) {
       const pixel = spriteData[row]?.[col];
       const hasPixel = pixel && pixel !== '';
       const distFromHead = headRow - row;

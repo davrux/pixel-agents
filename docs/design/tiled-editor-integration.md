@@ -1,28 +1,26 @@
-# Tiled as the level/sprite editor — design + execution plan
+# Tiled as the level/sprite editor — design record
 
-> **Later change, applies throughout this document:** furniture **categories are
-> gone**, and with them every behaviour that was derived from one. This document
-> records the migration as it was planned and built, when `category` was a real
-> property and things like "can you sit on this" followed from it. That model was
-> replaced: each capability is now its own property, present on every tile with its
-> default filled in, and overridable per placement. Where a row below reads
-> `category`, `orientation`, `occupiesSurface`, `isDesk`, `stateGroup`, `state` or
-> `onTrigger`, see instead `docs/design/tiled-custom-properties-reference.md` for
-> the current set, and `server/src/tiled/furnitureProps.ts` for its one definition.
-> The reason for the change: a mapper who drew a new chair, gave it the right
-> category and still could not sit on it had nothing in Tiled to point at.
+What this is: the reasoning behind moving level and catalog authoring into
+[Tiled](https://www.mapeditor.org/), kept because the *why* is still load-bearing
+— the decisions below are what the code does today. The migration itself is
+done; where a decision was later revised, the row says so rather than being
+quietly rewritten, because "we tried X and it broke like this" is the part worth
+keeping.
 
-Branch: `office/tiled-catalog`. Supersedes the earlier `office/tiled-schema` branch's
-approach on several points (rectangle Action/Blocked areas, DB32-everywhere, full
-orientation/rotation-group support) — those were reconsidered and rejected in the planning
-discussion that produced this doc. That branch's `exportLayoutToTmj`/`importTmjToLayout`
-scripts are evidence a Tiled bridge is feasible, not reusable as-is.
+For "what do I type into which field", see
+`docs/design/tiled-custom-properties-reference.md` — that is the maintained
+reference, and this document deliberately no longer repeats it.
 
-Goal: let the user edit levels in [Tiled](https://www.mapeditor.org/) and sprites in
-Pixelorama-style tools, instead of (or alongside) the in-house LayoutEditor/FurnitureEditor.
-Guiding principle throughout: replace our engine's ad-hoc "Sonderlocken" with Tiled-native
-equivalents wherever a genuinely good fit exists, and only fall back to custom properties
-where Tiled has no concept at all — not contorting our model to force a fit.
+Branch: `office/tiled-catalog`. Supersedes the earlier `office/tiled-schema`
+branch's approach on several points (rectangle Action/Blocked areas,
+DB32-everywhere, full orientation/rotation-group support) — those were
+reconsidered and rejected in the planning discussion that produced this doc.
+
+Guiding principle throughout: replace our engine's ad-hoc "Sonderlocken" with
+Tiled-native equivalents wherever a genuinely good fit exists, and only fall back
+to custom properties where Tiled has no concept at all — not contorting our model
+to force a fit. Authoring now happens in Tiled **only**: the in-game
+LayoutEditor, FurnitureEditor and FloorEditor have all been removed.
 
 ## Decisions
 
@@ -33,195 +31,93 @@ where Tiled has no concept at all — not contorting our model to force a fit.
   (pathfinding/walkability/actions/sorting) and the renderer read typed flat arrays
   everywhere; making `.tmj` authoritative would mean rewriting that whole engine to read
   Tiled's untyped property bags, and we'd still need a typed intermediate layer at runtime
-  anyway. Workflow discipline for concurrent edits (in-game editor vs. re-importing a stale
-  `.tmj`) is informal — no version-check/lock, just don't edit the same zone in both places
-  at once.
+  anyway. There is no longer a second place to edit a zone from — the in-game
+  editors are gone — so the old "don't edit the same zone in two places" caveat
+  is moot; a `.tmj` save is imported by the file watcher and becomes the zone's
+  active layout.
 - **Furniture catalog** (`FurnitureCatalogEntry[]`, global — not per-zone): a Tiled tileset
   *becomes* the source of truth, replacing `assets/furniture/<TYPE>/manifest.json` entirely.
   This is tractable (unlike the map) because it's a small, static, boot-time-only catalog
-  build (`buildFurnitureCatalog()`), not the live simulation engine. **No export/import step
-  at all** — the `.tsx`/`.tsj` file on disk IS the data; edit it in Tiled, save, done. Only
-  the dev server watching that file and reloading is new work (prod import comes later, not
-  in this pass).
+  build, not the live simulation engine. **No export/import step at all** — the
+  `.tsj` file on disk IS the data; edit it in Tiled, save, done. The dev server
+  watches those files and rebuilds the catalog on save.
 
 ## Per-feature mapping
 
 | Sonderlocke | Resolution |
 |---|---|
 | `type` (furniture identity — `PlacedFurniture`/`FurnitureCatalogEntry`/`FurnitureSync`) | **renamed to `id` everywhere**, internal and Tiled-facing alike. "Type" implied a taxonomy; this is an identity (the stable key every placed instance references), which is exactly what `category` is for — keeping both named `type` was actively misleading. Touches: the shared types, `getCatalogEntry`/`isMirroredLeft` and every call site, `FurnitureSync`'s wire schema field, the Tiled `id` custom property (was `type`) on every `furniture-*.tsj` tile and on `FurnitureObject`'s no-GID fallback. Old saved layouts (DB rows with a literal `type` JSON key) self-heal on load via `layoutSerializer.ts`'s `promoteLegacyTypeKey` — no DB migration needed. |
-| Classifying a Ground-layer tile as floor vs. wall vs. void on import | **reads the `category` property explicitly** (`floor` / `walls`), not implicit property-presence sniffing (previously: "has a `bitmask` prop → wall") and not which file it came from — a mapper reorganizing tileset files can't silently break import. `FloorTile`/`WallTile` each get `category` baked as a fixed constant (`FLOOR_CATEGORY`/`WALL_CATEGORY` in `server/src/tiled/categories.ts`, the single source both the bake script and `mapBridge.ts` import) on every one of their tiles — trivially the same value throughout, since the Tiled *class* already fully determines it, but explicit beats implicit for the actual classification logic. |
-| Category, the full picture | One flat mental model of **9** categories: **floor**, **walls** (each their own Tiled class — `FloorTile`/`WallTile` — with `category` fixed per the row above) plus the 7 furniture ones (`desks`, `chairs`, `storage`, `electronics`, `decor`, `kitchens`, `misc` — via `FurnitureTile.category`, enum `Category` in Pixels.tiled-project, shared with floor/walls in the same enum). |
+| Classifying a Ground-layer tile as floor vs. wall vs. void on import | **the tile's Tiled class** (`FloorTile`/`WallTile`), plus which layer class it was painted on. Not property sniffing, and not the tileset's filename — a mapper reorganising files can't silently break import. *Revised:* this briefly went through a `category` property baked onto every floor/wall tile, on "explicit beats implicit" grounds; the class already determines it completely, so the property was pure duplication and went when categories did. |
+| Categories | **Gone entirely.** There was a flat model of nine (floor, walls, and seven furniture ones), and furniture behaviour was derived from it: chairs were sittable because their category said `chairs`. That meant a correctly drawn, correctly categorised chair could still be unsittable because some *other* property was missing, with nothing in Tiled to point at. Each capability is now its own property on the tile, always present, with its default filled in — see the reference doc and `server/src/tiled/furnitureProps.ts`. |
 | Actions (`tileActions`, `PlacedFurniture.action`) | **Point objects**, not rectangles — one per acted-on tile/instance, custom properties for params (`kind`, `url`, `video`, `pose`). Position IS the tile reference — col/row are always derived from the point's x/y on import, never stored as their own properties (Tiled doesn't keep custom properties in sync when an object is dragged, so a stored col/row would silently go stale the moment you move the point). Meeting-room area grouping stays flood-fill/adjacency-derived at import time, same as today. |
 | Block tiles (`tileBlocked`) | dedicated parameterless tile layer ("Collision"), painted like any tile layer. |
 | Walls (`OfficeLayout.walls`) | **edges between cells**, not cells of their own. A wall cell used to block all 16px and hide a floor tile for 6px of art; as an edge it blocks only the step between its two cells and both stay walkable floor. Stored as the two boundary grids (vertical (cols+1)×rows, horizontal cols×(rows+1)). Rendering needs no new art: the four edges meeting at a lattice point form exactly the N/E/S/W mask the baked pieces were cut for, so a wall network draws as those same pieces on the lattice — half a tile up and left of the cell grid. Collision splits into `isWalkable` ("can you stand here", unchanged) and `canStep` ("can you cross A→B", the new one every neighbour expansion goes through). Authored on a single `WallLatticeLayer` with offsetx/offsety = -8, so painting in Tiled draws on the boundaries and the Wang brush keeps working. |
 | Approach-Sides (`PlacedFurniture.approachSides`) | one string property (`"N,E"`), not 4 bools — matches `Array<'N'\|'S'\|'E'\|'W'>` via join/split. Empty/absent = unrestricted. |
-| On/Off pairing (`groupId`+`state`, `onTrigger`) | 2-3 custom properties on two tileset tiles. The "on" side's own animation (if any) is a native Tiled tile `<animation>`. |
+| On/Off pairing | The "off" tile names its partner: `onState` = the on tile's `id`. The on side's animation (if any) is a native Tiled tile `<animation>`. *Revised:* was a shared `stateGroup` string plus `state: on\|off` plus an `onTrigger` enum — three properties that had to agree, paired by convention. What flips it now follows from the Action instead of a fourth setting: a `toggle` Action means a click, no action means it lights up for whoever sits facing it. |
 | Rotation/orientation groups (`groupId`+`orientation`, `rotationScheme`) | **dropped entirely.** Affects 8/44 current types (`DESK`, `SOFA`, `PC`, `LAPTOP`, `WOODEN_CHAIR`, `CUSHIONED_CHAIR`, `SMALL_TABLE`, `KITCHEN_COUNTER`). Each orientation becomes its own independent catalog entry, placed manually, no rotate-in-place tool. Tiled's rotate handle geometrically rotates the graphic, which is wrong for perspective pixel art; a custom Tiled plugin was ruled out as disproportionate. Horizontal flip is a related but separate concern — see the `flippedHorizontally` row below. |
 | Furniture recoloring (`PlacedFurniture.color`) | **dropped entirely**, not even kept as metadata. Sprites render exactly as drawn. `colorize.ts`'s `adjustSprite` stays — turns out it's also used for character hue-shifting (`spriteData.ts`), not furniture-only as first assumed; only the furniture-specific call sites (LayoutEditor's placement/drag/select recolor) are removed. |
 | Floor/wall recoloring (`tileColors`) | **closed palette, baked as real tileset variants** (was continuous HSBC). Both floor and wall now share one **64-color palette, Kerrie Lake's "Resurrect 64"** (lospec.com/palette-list/resurrect-64) — originally floor used DB32 (32) and wall a separate DawnBringer16 (16), kept apart only so wall's ×16 autotile-bitmask multiplier wouldn't also multiply against a large color count; at 64 colors that's 2 sets × 16 masks × 64 colors = 2048 wall tiles, still a perfectly reasonable sheet size, so keeping two different palettes stopped being worth the inconsistency. `shared/src/office/palettes.ts`'s `PALETTE_64` is the single source; `FLOOR_PALETTE`/`WALL_PALETTE` both reference it. The in-game LayoutEditor's floor/wall picker is a swatch picker over the same closed palette (not just a Tiled-side snap) — see Phase 1. **The closed palette also retired the live game's runtime colorize step entirely** — the server no longer decodes/colorizes `assets/floors/floor_N.png`/`assets/walls/wall_N.png` or sends them over Colyseus (`floorTilesLoaded`/`wallTilesLoaded` are gone); the client fetches the same baked `png/floor.png`/`wall-{0,1}.png` sheets Tiled itself paints from, once, as plain static HTTP (`server` mounts `/assets/tiled/png`, `client/src/net/tiledSheets.ts` fetches + slices them into `shared/src/office/floorTiles.ts`/`wallTiles.ts`'s per-(pattern\|bitmask, swatch) lookup tables — see `paletteSwatchIndex` in `palettes.ts`). The in-game Floor Pattern Editor (`FloorEditor.ts`) was retired outright rather than ported — new floor/wall art or colors go exclusively through the Tiled/bake-script pipeline now, same as furniture. `colorize.ts`'s `colorizeSprite`/`getColorizedSprite` (Colorize/HSL-recenter mode) survive only as a build-time dependency of `bake-floor-wall-tiled.mts`; `adjustSprite` (the separate hue-shift mode) is unaffected and still runs live for characters/pets. |
 | `canPlaceOnWalls` / `canPlaceOnFloor` | **dropped entirely** — verified zero runtime consumers anywhere (wall-mounting is derived purely from the physical tile under the item, `officeState.ts computeApproachTiles`). Pure dead editor-time palette filters. |
-| `canPlaceOnSurfaces` | Two consumers today turned out to be the same underlying fact used twice. (1) Action-click tiebreak among 2+ stacked actionable items — **dropped, folds into native Tiled object-list order** (see zOffset below). (2) Pet logic (`occupiedDeskSurfaceTiles`) — genuine, kept. **Renamed to `occupiesSurface`** to reflect its one remaining job. |
+| `canPlaceOnSurfaces` | **Gone.** Its click-tiebreak job folded into native Tiled object-list order (see zOffset below); its pet job was renamed `occupiesSurface` and then dropped too, once a pet's perch became an explicit `petCanSitOn` and "is something already standing here" replaced enumerating the kinds of thing that could be in the way. |
 | `zOffset` / manual stacking override | subsumed by Tiled's native **object list order** within an object layer (drag to reorder in the Objects panel) — no numeric property, ever (export sorts objects into the list by current zOffset; import re-derives zOffset purely from each object's index in that list). Overlapping-object *selectability while editing* was never really about zOffset; Tiled's own Objects panel + Alt-click cycling already solves that. |
 | `PlacedFurniture.uid` | **never exported at all** — it's internal engine plumbing only (station claims, on/off toggle state, editor selection), not something a Tiled edit needs to preserve. Every import (furniture, text, images) generates a fresh one. |
-| `FurnitureObject.id` | **Always written**, GID or not — identity is a flat property read, full stop, no registry lookup needed to know what's placed. (Earlier revision omitted it when a GID was present, reasoning Tiled already shows it inherited from the tile — technically true, but it made import's identity resolution depend on resolving the GID back through the tileset registry for no real benefit, since the GID's only actual job is picking the right sprite + flip state to *display*. Yes, Tiled now shows the same value twice for GID-backed objects; that's an acceptable, harmless redundancy for a meaningfully simpler import path.) |
+| `FurnitureObject.id` | **Not written for a GID-backed placement** — its identity is the tile whose sprite it draws. *Revised twice:* first omitted, then written always ("identity should be a flat property read, no registry lookup"), now omitted again. The flat read was genuinely simpler, but it made identity a hand-editable field that OVERRODE the GID, so retyping it swapped the item while Tiled went on drawing the old sprite. The rectangle placeholder for an item with no tile at all keeps its `id`, because there nothing else says what it is. `name` went the same way: Tiled objects have a native Name field, and a custom property beside it meant two places to type and only one that worked. |
 | `flippedHorizontally` (was: `mirrorSide` catalog flag + a virtual `":left"` catalog id) | **Revised.** The old design gated flipping behind a catalog-level `mirrorSide` flag and represented a flipped instance as a wholly separate catalog id (`"SOFA_SIDE:left"`) with no tile of its own. Now it's a plain per-instance boolean, `PlacedFurniture.flippedHorizontally`, adopted directly from Tiled's own object-flip concept (named after Tiled's `FLIPPED_HORIZONTALLY_FLAG`) — no catalog gate, since Tiled itself has none (any object can be flipped there). `id` stays clean (`"SOFA_SIDE"`, never `":left"`). Export sets Tiled's native GID flip bit purely so the canvas shows a real mirrored sprite; import reads that same bit back into `flippedHorizontally` — a display concern only, entirely separate from `id`. Tiled's object model also supports vertical/diagonal flip and continuous rotation; neither is adopted, since our hand-drawn 2.5D perspective art would render broken under either (same reasoning as the dropped rotation groups above) — import silently ignores them. Old saved layouts with the `":left"` suffix self-heal via `layoutSerializer.ts`'s `promoteLegacyLeftSuffix`. |
-| Walls (`TileType.WALL`, bitmask autotile) | **Wang Sets** (Tiled's native autotiling, formerly "Terrain") — exact match for our 4-neighbor-bitmask → 1-of-16-sprites system. Multiple wall styles = multiple Wang Sets in the tileset. No custom property, no import-time autotile recompute. |
+| Wall autotiling | **Wang Sets** (Tiled's native autotiling) over the 16 bitmask pieces, so painting a wall picks the piece. No custom property, no import-time autotile recompute. Note this pairs with the edge model above, not with the old `TileType.WALL` cells: the same 16 pieces, painted on the lattice. |
 | Image fit mode (`PlacedImage.fit`) | **dropped** — a placed image's Tiled object (a GID-backed tile object from `images.tsj`, see docs/design/tiled-custom-properties-reference.md's Image section — there's no separate "Image Object" concept in Tiled's own format) already has free-form width/height (stretch = size=footprint; center = size=native, unchanged). The only reason we had the enum was decoupling a click-hitbox from visual size for our own hard-to-click canvas editor; Tiled has its own selection UI. |
 | Void / grid growth (`TileType.VOID`) | **dropped** — an empty Tiled cell (GID 0) already means what VOID means; Tiled's native Map → Resize Map already does directional grow/shrink. |
-| `isDesk` | no property needed, either side — already purely derived from `category==='desks'` today, stays derived from whichever tileset file a tile lives in. |
-| Category, furniture specifically | A `category` custom property on `FurnitureTile` (not which tileset file a tile lives in) — the original one-file-per-category plan was confusing for wall-*mounted* items specifically, since a mapper can place them anywhere in Tiled (no placement enforcement), so a dedicated `furniture-wallmount.tsj` implied a restriction that didn't exist; those tiles moved into `furniture-decor.tsj`, and the `wall` category value itself was dropped (folded into `decor`) once it read confusingly next to the structural "Wände" (see the Category-full-picture row above). Which tileset FILE a furniture tile lives in is not load-bearing at all now — `parseFurnitureTileset` reads `category` per-tile and `assetLoader.ts` globs every `furniture-*.tsj` regardless of name. |
+| `isDesk` | **Gone.** It was derived from `category === 'desks'` and did two jobs: a z-sort lift for items standing on a surface, and marking where a pet may rest. The first is handled by object-list order (zOffset), the second is now `petCanSitOn` on the tile. |
+| Which tileset file a tile lives in | **Not load-bearing at all.** `assetLoader.ts` globs every `furniture-*.tsj` and each tile states its own behaviour, so the split into files is organisational convenience. A one-file-per-category plan was considered and dropped: a dedicated `furniture-wallmount.tsj` implied a placement restriction that does not exist, since a mapper can put a wall-mounted item anywhere. |
 
 ## Directory layout
 
-Self-contained, everything commitable (replaces `assets/tiled/`'s prior contents, which were
-from the rejected branch's rectangle/rotation-era approach and are gone):
-
-As actually built (`.tsj`/JSON, not `.tsx`/XML — no XML parser dependency; `category` is now
-a per-tile property, not a file split, see the Category row above, so a furniture file's name
-is just an arbitrary grouping, not semantically load-bearing):
+Everything derived is committed, so `git clone` + open the Tiled project just
+works with no mandatory build step. The tileset names carry their palette
+(`-resurrect64` / `-endesga`) or their source pack (`-metro`); see
+`shared/src/office/tiledSheetLayout.ts`, whose `FLOOR_SET_FILES` /
+`WALL_SET_FILES` arrays are append-only, because a saved layout stores the index.
 
 ```
 assets/tiled/
-├── Pixels.tiled-project        # custom property type defs
-├── floor.tsj                   # → png/floor.png
-├── wall-0.tsj / wall-1.tsj     # → png/wall-0.png / png/wall-1.png
-├── furniture-desks.tsj         # → png/furniture/desks/*.png
-├── furniture-chairs.tsj
-├── furniture-electronics.tsj
-├── furniture-decor.tsj         # includes `category: "wall"` (wall-mounted) items too
-├── furniture-kitchens.tsj
-├── furniture-misc.tsj
-├── png/
-│   ├── floor.png               # generated: 11 patterns × 64 Resurrect-64 colors
-│   ├── wall-0.png / wall-1.png # generated: 16 bitmask pieces × 64 Resurrect-64 colors
-│   └── furniture/<category>/*.png   # migrated once from assets/furniture/<TYPE>/*.png
-└── zones/<zoneId>.tmj          # export/import working file per zone (OfficeLayout stays
-                                 # authoritative in the DB either way)
+├── Pixels.tiled-project              # custom property/class definitions
+├── floor-resurrect64.tsj             # 11 patterns × 64 swatches + Natural
+├── floor-endesga.tsj
+├── floor-metro-resurrect64.tsj       # 7 patterns derived from the MetroCity pack
+├── floor-metro-endesga.tsj
+├── wall-metro-resurrect64.tsj        # 16 bitmask pieces + 4 north-wall faces
+├── wall-metro-endesga.tsj
+├── collision.tsj                     # one parameterless "blocked" marker tile
+├── images.tsj                        # placed background images
+├── furniture-{chairs,decor,desks,electronics,kitchens,misc}.tsj
+├── furniture-metro-{home,hospital,vehicles}.tsj   # generated, then hand-maintained
+├── png/                              # every sheet above, baked
+└── zones/<zoneId>.tmj                # per-zone working file (gitignored; the DB
+                                      # stays authoritative either way)
 ```
 
-Generated PNGs and `.tsx` files are committed (so `git clone` + open the Tiled project just
-works, no mandatory build step first). `assets/furniture/<TYPE>/manifest.json` is retired
-once the migration script has run and the new loader is verified — not dual-maintained.
+Scripts that produce these live in `server/scripts/`: `bake-floor-wall-tiled.mts`
+(floor/wall sheets), `gen-metro-source-art.mts` (wall/floor art from the pack),
+`gen-metro-furniture.mts` (one-time furniture slice; refuses to re-run over
+hand-edited tilesets), `bake-images-tiled.mts`, `bake-generated-furniture.mts`
+(code-drawn fixtures so the bridge has a sprite to draw), and
+`sync-furniture-properties.mts` (keeps every tile carrying every property).
 
-## Execution phases
+## Still open
 
-Each phase gated by `pnpm -r run check-types`, `pnpm --filter @pixel/client run build`,
-`bash .claude/skills/mmo-readiness/check.sh`, committed separately.
-
-1. **Shared model simplification** (no Tiled involvement yet — cleans up the engine per the
-   decisions above, de-risks everything downstream by shipping on a simpler base first):
-   - Remove rotation-group machinery from `furnitureCatalog.ts` (`rotationGroups` map,
-     `getRotatedType`, `rotationScheme`/`orientation`-linking) while keeping plain
-     `mirrorSide` flip support.
-   - Remove `PlacedFurniture.color` and furniture recolor UI in `LayoutEditor` (placement
-     ghost, drag preview, select-tool live recolor). `colorize.ts`'s `adjustSprite` stays —
-     also used for character hue-shifting, not furniture-only.
-   - Switch floor/wall `tileColors` from continuous `ColorValue{h,s,b,c}` to a closed
-     palette (DB32 for floor, Dawnbringer16 for wall) — swatch picker replaces the HSBC
-     sliders in `LayoutEditor` for floor/wall specifically.
-   - Remove `canPlaceOnWalls`/`canPlaceOnFloor` (type, manifest field, editor checkboxes,
-     asset pipeline).
-   - Rename `canPlaceOnSurfaces` → `occupiesSurface`; drop its role in the furniture-action
-     click tiebreak (`officeState.ts`), keep it for `occupiedDeskSurfaceTiles` (pet logic).
-   - Existing manifests/saved layouts affected by these cuts: no converter, per this
-     project's norm — old data just renders with the simplified behavior going forward.
-
-2. **Furniture catalog → Tiled tileset**:
-   - One-time migration script: read all `assets/furniture/<TYPE>/manifest.json` + PNGs,
-     group by category, emit `assets/tiled/furniture-<category>.tsx` with the properties
-     above, copy PNGs into `assets/tiled/png/furniture/<category>/`.
-   - New `buildFurnitureCatalog()` path that reads these Tiled tileset files (prefer `.tsj`
-     JSON over `.tsx` XML — no XML parser dependency) instead of `manifest.json` trees.
-   - Dev-server file watcher: touching any `assets/tiled/furniture-*.tsx` (or `.tsj`)
-     reloads the in-memory catalog immediately, matching "save in Tiled → live" from the
-     planning discussion. Prod hot-reload/import path is explicitly out of scope for now.
-   - Cut over once verified; delete the old manifest-reading code path and the 44
-     `manifest.json` files.
-
-3. **Floor/wall palette baking**:
-   - Script generates `png/floor.png` (11 patterns × DB32) and `png/wall-0.png`/
-     `png/wall-1.png` (16 bitmask pieces × Dawnbringer16), plus their `.tsx` (wall ones as
-     Wang Sets).
-   - Wire the same generated palette into the runtime (Phase 1 already switched
-     `tileColors` to closed-palette; this phase produces the actual baked assets Tiled
-     shows, sourced from the same palette definition).
-
-4. **Map (zone) bridge**: `exportLayoutToTmj`/`importTmjToLayout` per the mapping table
-   above (point objects, Wang Sets, native object order, GID-0 void) — write fresh, do not
-   extend the old branch's scripts. Output/input path fixed at `assets/tiled/zones/<zoneId>.tmj`.
-
-## Explicitly deferred / open
-
-- Prod server picking up catalog/zone changes (dev-only file-watch for now).
-- Exact migration script robustness (malformed manifests, edge cases in the 44 existing
-  furniture folders) — handle as encountered, this is a one-time script, not permanent
-  infrastructure.
-- Whether `zones/*.tmj` snapshots get committed as history or treated as pure scratch —
-  leaning toward committing (diffable, doubles as a way to hand off a level without DB
-  access) but not firmly decided.
+- Prod server picking up catalog/zone changes — the file watch is dev-only.
+- `zones/*.tmj` are currently gitignored, i.e. treated as scratch. Committing them
+  would make levels diffable and hand-offable without DB access; the argument
+  against is that the DB is authoritative and two copies drift. Undecided, and
+  worth noting the cost of the status quo: a zone file lost or corrupted has no
+  history to recover from.
+- A furniture item can still be uploaded as a DB override through the server's
+  `saveAsset` path, left from the removed in-game editor. Nothing sends one
+  anymore.
 
 ## Custom property reference
 
-Every custom property currently round-tripped through Tiled, by class (see
-`assets/tiled/Pixels.tiled-project` for the exact JSON — this table is the human-readable
-version of the same thing). "Enum" means Tiled shows a dropdown (or checkbox list, for
-`ApproachSide`); the property is still stored as a plain string underneath.
-
-**`FloorTile`** (tile, `floor.tsj`)
-
-| Property | Type | Values | Notes |
-|---|---|---|---|
-| `pattern` | int | 1–11 | which of the 11 floor art patterns |
-| `hue` | int | 0–359 | paired with `sat`, identifies a `PALETTE_64` swatch |
-| `sat` | int | 0–100 | see `hue` |
-| `category` | enum `Category` | always `floor` | fixed per tile by the bake script — see the Category rows above |
-
-**`WallTile`** (tile, `wall-0.tsj`/`wall-1.tsj`)
-
-| Property | Type | Values | Notes |
-|---|---|---|---|
-| `bitmask` | int | 0–15 | 4-neighbor autotile mask (N=1,E=2,S=4,W=8) — which of the 16 pieces |
-| `hue` / `sat` | int | same as `FloorTile` | same `PALETTE_64` |
-| `category` | enum `Category` | always `walls` | fixed per tile by the bake script |
-
-**`FurnitureTile`** (tile, `furniture-*.tsj`)
-
-| Property | Type | Values | Notes |
-|---|---|---|---|
-| `id` | string | stable identifier, e.g. `SOFA_SIDE` | was called `type` — an identity, not a taxonomy. The key saved layouts reference — renaming this breaks every layout that placed it (old DB rows self-heal via `promoteLegacyTypeKey`, see the mapping table above) |
-| `label` | string | free text | curated display name, not mechanically derivable from `id` (e.g. `PC_FRONT_ON_1` → "PC", `MONITOR` → "Conference Monitor") |
-| `backgroundTiles` | int | 0+ | rows from the top of the footprint that are walkable-through ("background") rather than solid |
-| `appliance` | enum `ApplianceKind` | `coffee` | interaction station kind |
-
-The behaviour properties this table originally listed (`category`, `occupiesSurface`,
-`orientation`, `stateGroup`, `state`, `onTrigger`) were replaced by `canSitOn`,
-`sitFacing`, `petCanSitOn` and `onState` — see the note at the top of this document
-and the current reference doc.
-
-**`FurnitureObject`** (object, "Furniture" layer)
-
-| Property | Type | Values | Notes |
-|---|---|---|---|
-| `id` | string | stable identifier | **always present**, GID or not (see the mapping table above) |
-| `name` | string | free text | this *instance's* name (e.g. a conference room's stable name) — not the catalog label |
-| `approachSides` | enum `ApproachSide` (flags) | any combination of `N`, `S`, `E`, `W` | which side(s) a player may approach from; empty = automatic |
-| `actionKind` | enum `ActionKind` | `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `toggle`, or empty | per-instance Action override |
-| `actionVideo` | bool | | only meaningful when `actionKind = meetingRoom` |
-| `actionUrl` | string | `https://` URL | only meaningful when `actionKind = iframe` |
-| `actionPose` | enum `ApplianceKind` | `coffee` | only meaningful when `actionKind = appliance` |
-| *(not a property)* `flippedHorizontally` | — | — | in Tiled, use the object's native **Flip Horizontally** action — no custom property involved. Export/import translate this to/from Tiled's own GID flip bit directly (see the `flippedHorizontally` mapping-table row above). |
-
-**`ActionArea`** (object, "Actions" layer)
-
-Same four `action*` properties as `FurnitureObject` above. Placed as either a Point (one
-tile) or a Rectangle (every tile it covers) — no `col`/`row`/size property either way, the
-shape's own x/y/width/height on the map IS the tile reference, always re-derived on import
-(never stored, since Tiled doesn't keep custom properties in sync when you drag or resize an
-object). Export collapses a solid rectangular block of same-action tiles into one Rectangle;
-an irregular shape still exports as one Point per tile. Overlapping shapes resolve by object-
-list order, later wins — see docs/design/tiled-custom-properties-reference.md's ActionArea
-section for the full explanation.
-
-**Never round-tripped at all**: `uid` (every import generates a fresh one — pure internal
-engine identity, see the mapping table above), `zOffset` (derived from the object's position
-in the Objects panel list).
+Moved out. `docs/design/tiled-custom-properties-reference.md` is the maintained
+one; this document used to carry a second copy, which drifted from it — the
+floor/wall tables here still listed `pattern`/`hue`/`sat` properties long after
+those became position-derived, and the furniture table still listed properties
+that had been deleted.

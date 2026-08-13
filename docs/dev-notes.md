@@ -259,8 +259,9 @@ Add a matching command for any new destination (see AGENTS.md convention).
     ResizeObserver does the rest — never call `game.scale` by hand.
   - **Anything fixed to a screen edge must read those variables**, or it ends up
     underneath a window: the menubar and its popovers (`paSkin.ts`), the chat
-    box (`chatUI.ts`), the meeting widget (`meetingArea.ts`), the layout
-    editor's rail and the asset editors. Full-screen modal overlays (arcade,
+    box (`chatUI.ts`), the meeting widget (`meetingArea.ts`) and the asset
+    editors (characters and images; the layout and furniture editors are gone,
+    authoring is Tiled-only). Full-screen modal overlays (arcade,
     conference, admin, dialogs) deliberately do not — they cover everything.
   - **…and must clamp its width to `--pa-hud-gap`.** Being inset from one side is
     only half of it: a 24rem popover pinned to the left window's inner edge still

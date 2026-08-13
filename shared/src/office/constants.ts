@@ -69,10 +69,17 @@ export const PET_EFFECT_DURATION_SEC = 0.3;
 export const PET_Z_SORT_OFFSET = 0.5;
 
 // ── Matrix Effect ────────────────────────────────────────────
-export const MATRIX_EFFECT_DURATION_SEC = 0.3;
+/** How long a character takes to materialise or dissolve. A warp plays both
+ *  halves back to back, so it costs twice this. Long enough that the sweep
+ *  reads as an animation rather than as a frame that failed to draw. */
+export const MATRIX_EFFECT_DURATION_SEC = 0.7;
 export const MATRIX_TRAIL_LENGTH = 6;
-export const MATRIX_SPRITE_COLS = 16;
-export const MATRIX_SPRITE_ROWS = 24;
+/** How many per-column rain seeds to generate. NOT the sprite's width — the
+ *  effect measures that off the sprite itself (see renderMatrixEffect), because
+ *  frame size is per-character and a fixed 16×24 cut every 16×32 character off
+ *  at the knees for the whole animation. This is just an upper bound, matching
+ *  the largest frame the character editor allows; surplus seeds cost nothing. */
+export const MATRIX_SEED_COUNT = 64;
 export const MATRIX_FLICKER_FPS = 30;
 export const MATRIX_FLICKER_VISIBILITY_THRESHOLD = 180;
 export const MATRIX_COLUMN_STAGGER_RANGE = 0.3;

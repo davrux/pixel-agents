@@ -10,7 +10,7 @@ import {
   FUEL_COLOR_DANGER,
   FUEL_COLOR_OK,
   FUEL_COLOR_WARN,
-  MATRIX_SPRITE_COLS,
+  MATRIX_SEED_COUNT,
   MAX_CONTEXT_TOKENS,
   TOKEN_CRITICAL_THRESHOLD,
   TOKEN_DANGER_THRESHOLD,
@@ -124,7 +124,7 @@ const SLEEP_AFTER_IDLE_FRAMES = 120;
 function matrixSeeds(id: number): number[] {
   const seeds: number[] = [];
   let s = (id * 2654435761) >>> 0; // Knuth multiplicative hash
-  for (let i = 0; i < MATRIX_SPRITE_COLS; i++) {
+  for (let i = 0; i < MATRIX_SEED_COUNT; i++) {
     s = (s * 1664525 + 1013904223) >>> 0; // LCG step
     seeds.push(s / 0xffffffff);
   }
