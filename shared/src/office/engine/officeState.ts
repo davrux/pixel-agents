@@ -38,7 +38,7 @@ import {
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
-import { wallOnNorthEdge } from '../wallEdges.js';
+import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
 import {
   firstSkinId,
@@ -78,7 +78,13 @@ import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
  *  tiles the layout itself marks blocked (layout.tileBlocked, independent of
  *  floor pattern). The single Set isWalkable checks. */
 function computeBlockedTiles(layout: OfficeLayout): Set<string> {
-  return new Set([...getBlockedTiles(layout.furniture), ...getBlockedFloorTiles(layout)]);
+  return new Set([
+    ...getBlockedTiles(layout.furniture),
+    ...getBlockedFloorTiles(layout),
+    // A wall face is solid wall, so its cells are never walkable — see
+    // faceBlockedTiles for why this is derived rather than painted.
+    ...faceBlockedTiles(layout.walls, layout.cols),
+  ]);
 }
 
 /** "col,row" keys of every tile carrying a tile action (any kind) — a plain

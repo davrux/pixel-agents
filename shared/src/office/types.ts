@@ -467,9 +467,10 @@ export interface WallEdges {
    * Faces are cell-aligned surface, so they live on cells.
    *
    * Stack them to whatever height the wall should be (see the metro sets' last
-   * four pieces: cornice / fill / baseboard / a 1-tall variant with both). They
-   * are decoration only — they block nothing, and the barrier for a faced wall
-   * is the horizontal edge run along its base.
+   * four pieces: cornice / fill / baseboard / a 1-tall variant with both). A face
+   * cell is non-walkable automatically (see wallEdges.ts's faceBlockedTiles) —
+   * it depicts solid wall, so nothing should stand in it. The edge run along the
+   * wall's base is still what blocks approach from the room side.
    */
   faces?: {
     /** Piece index per cell, or null for no face. cols × rows, row-major. */

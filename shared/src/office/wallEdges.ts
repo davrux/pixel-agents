@@ -94,3 +94,26 @@ export function wallOnNorthEdge(walls: WallEdges | undefined, cols: number, col:
   if (!walls) return false;
   return !!walls.horizontal[hIndex(cols, col, row)];
 }
+
+/**
+ * "col,row" of every cell carrying a north-wall face piece — non-walkable by
+ * construction, since a face depicts solid wall.
+ *
+ * Derived rather than painted for the same reason furniture footprints are (see
+ * officeState.ts's computeBlockedTiles, which unions both): there is no such
+ * thing as a wall surface you may stand in, so requiring the mapper to paint
+ * Collision over every face would be a step that is always needed and easy to
+ * forget — and forgetting it produces a wall you can walk into from behind,
+ * which reads as a bug rather than as a missing brush stroke. The edge run along
+ * a faced wall's base only blocks approach from that side; this blocks the wall's
+ * own body.
+ */
+export function faceBlockedTiles(walls: WallEdges | undefined, cols: number): Set<string> {
+  const keys = new Set<string>();
+  const piece = walls?.faces?.piece;
+  if (!piece) return keys;
+  for (let i = 0; i < piece.length; i++) {
+    if (piece[i] != null) keys.add(`${i % cols},${Math.floor(i / cols)}`);
+  }
+  return keys;
+}

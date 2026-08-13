@@ -245,13 +245,15 @@ face is the flat wall surface a room is looked *at*, filling whole tiles, so it
 sits on the floor grid.
 
 Stack the pieces to whatever height the wall should be (cornice on top, baseboard
-at the bottom, fill between; the 1-tall variant carries both). They are decoration
-only — a face blocks nothing. A correctly built faced wall therefore needs three
-things:
+at the bottom, fill between; the 1-tall variant carries both). A correctly built
+faced wall is two things:
 
-1. face pieces here, in the rows above the wall's base,
-2. a horizontal edge run on WallLatticeLayer along that base — the barrier, and
-3. **Collision** over the face cells, so nobody walks into the wall from behind.
+1. face pieces here, in the rows above the wall's base, and
+2. a horizontal edge run on WallLatticeLayer along that base — the barrier.
+
+**Don't paint Collision over the faces** — a face cell is non-walkable
+automatically, the same way a furniture footprint is. A face depicts solid wall,
+so there is no case where you'd want to stand in one.
 
 ### CollisionLayer *(useAs: layer)*
 
