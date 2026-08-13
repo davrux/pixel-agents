@@ -1661,14 +1661,24 @@ export class OfficeScene extends Phaser.Scene {
         this.portalPickerTile = null;
       }
     }
-    if (this.furnitureDirty) {
+    // A rebuild has to reach the renderer in this same frame. sceneBusy() checks
+    // furnitureDirty for exactly that reason — but the flag is cleared right
+    // here, before that check runs, so it could never actually hold the loop
+    // open. Remember it locally instead and treat the rebuild frame as busy.
+    // Without this, a rebuild landing in an idle window (the common case on a
+    // fresh join: the furniture catalog arrives while nothing is moving yet)
+    // updates furnitureArr and then returns at the idle throttle below before
+    // syncFurniture() ever draws it — and the loop goes to sleep with the
+    // furniture never rendered, until some unrelated input wakes it.
+    const furnitureRebuilt = this.furnitureDirty;
+    if (furnitureRebuilt) {
       this.rebuildFurniture();
       this.furnitureDirty = false;
     }
     // Idle throttle: when nothing is moving/animating, skip the per-frame entity
     // sync + DOM overlays (the bulk of the CPU) and, after a short grace, sleep the
     // whole render loop — woken again by input, state patches, voice or tab focus.
-    const busy = this.sceneBusy(_time);
+    const busy = this.sceneBusy(_time) || furnitureRebuilt;
     if (busy) this.idleFrames = 0;
     else this.idleFrames++;
     const justStopped = !busy && this.wasBusy;
@@ -1732,7 +1742,8 @@ export class OfficeScene extends Phaser.Scene {
    *  active bubble/tooltip, or an interactive mode. When false for a while the
    *  loop idles (skips work, then sleeps) until something wakes it. */
   private sceneBusy(now: number): boolean {
-    if (this.furnitureDirty) return true;
+    // NOT furnitureDirty: update() clears it before calling this, so checking it
+    // here can never fire. update() ORs the rebuild in directly instead.
     if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
     if (this.voiceSpeakUntil.size > 0) return true; // pulsing in-world speaking ring
