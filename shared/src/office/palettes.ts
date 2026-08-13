@@ -81,30 +81,6 @@ export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [
  *  with WALL_SET_FILES. */
 export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, ENDESGA_PALETTE_64];
 
-export function paletteForFloorSet(setIndex: number): PaletteSwatch[] {
-  return FLOOR_SET_PALETTES[setIndex] ?? PALETTE_64;
-}
-
-export function paletteForWallSet(setIndex: number): PaletteSwatch[] {
-  return WALL_SET_PALETTES[setIndex] ?? PALETTE_64;
-}
-
-/** Reverse of swatchColor(): which palette swatch (if any) a stored
- *  ColorValue matches, by (h, s) — the same equality check the Layout
- *  editor's own swatch picker already uses to highlight the active one.
- *  Returns null for "Natural" (no tint): color is absent, or colorize is
- *  explicitly false (the "Natural" swatch button's own ColorValue) — one
- *  rule for both floor and wall, matching the baked Tiled sheets' own
- *  Natural/swatch split (see bake-floor-wall-tiled.mts). */
-export function paletteSwatchIndex(
-  palette: PaletteSwatch[],
-  color: ColorValue | null | undefined,
-): number | null {
-  if (!color || color.colorize === false) return null;
-  const idx = palette.findIndex((sw) => sw.h === color.h && sw.s === color.s);
-  return idx >= 0 ? idx : null;
-}
-
 /** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite —
  *  `b` carries the swatch's own real lightness (derived from its hex) as a
  *  target brightness, per colorizeSprite's recentering; see PaletteSwatch's

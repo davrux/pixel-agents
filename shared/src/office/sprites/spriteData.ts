@@ -117,11 +117,6 @@ export function getSkinIds(): string[] {
   return loadedCharacters ? loadedCharacters.map((c) => c.id) : [];
 }
 
-/** Whether a skin id is currently loaded. */
-export function hasSkin(id: string): boolean {
-  return charById.has(id);
-}
-
 /** Number of loaded character skins, or PALETTE_COUNT as a fallback. */
 export function getLoadedCharacterCount(): number {
   return loadedCharacters ? loadedCharacters.length : PALETTE_COUNT;
@@ -138,12 +133,6 @@ export function getCharacterSize(skin: string): { w: number; h: number } {
   const f = resolveCharData(skin)?.down?.[0];
   if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
   return { w: 16, h: 32 };
-}
-
-/** Animation spec of a character skin, or the default (historical) layout when
- *  the skin carries none. */
-export function getCharacterSpec(skin: string): CharacterSpec {
-  return resolveCharData(skin)?.spec ?? DEFAULT_CHARACTER_SPEC;
 }
 
 /** Flip a SpriteData horizontally (for generating left sprites from right) */
@@ -451,14 +440,6 @@ export function getNpcRoster(): Array<{ kind: PetKindName; variant: number; data
 export function getNpcConfig(kind: PetKindName, variant: number): NpcConfig {
   const arr = loadedNpcs[kind];
   return resolveNpcConfig(arr?.[variant % (arr.length || 1)]?.npc);
-}
-
-/** Frame size (w×h) of an NPC template (falls back to 16×16). */
-export function getNpcSize(kind: PetKindName, variant: number): { w: number; h: number } {
-  const arr = loadedNpcs[kind];
-  const f = arr?.[variant % (arr.length || 1)]?.down?.[0];
-  if (f && f.length) return { w: f[0]?.length ?? 16, h: f.length };
-  return { w: 16, h: 16 };
 }
 
 /**

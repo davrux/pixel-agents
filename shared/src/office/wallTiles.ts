@@ -32,13 +32,6 @@ export function hasWallSprites(): boolean {
   return wallSheets.length > 0;
 }
 
-/** Get number of available wall sets */
-export function getWallSetCount(): number {
-  return wallSheets.length;
-}
-
-
-
 /**
  * Build the z-sortable instances for EDGE walls (see types.ts's WallEdges).
  *

@@ -26,12 +26,6 @@ export function hasFloorSprites(): boolean {
   return floorSheets.length > 0;
 }
 
-/** Get count of available floor patterns in a set (0 until the baked sheet
- *  for that set loads). */
-export function getFloorPatternCount(setIndex = 0): number {
-  return floorSheets[setIndex]?.length ?? 0;
-}
-
 const ERROR_TILE: SpriteData = Array.from({ length: TILE_SIZE }, () =>
   Array(TILE_SIZE).fill(CANVAS_ERROR_TILE_COLOR) as string[],
 );

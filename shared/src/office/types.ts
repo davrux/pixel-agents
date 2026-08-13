@@ -179,13 +179,6 @@ export interface FurnitureInstance {
   flippedVertically?: boolean;
 }
 
-export interface ToolActivity {
-  toolId: string;
-  status: string;
-  done: boolean;
-  permissionWait?: boolean;
-}
-
 export const EditTool = {
   TILE_PAINT: 'tile_paint',
   WALL_PAINT: 'wall_paint',

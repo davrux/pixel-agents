@@ -82,12 +82,6 @@ export function latticeMask(walls: WallEdges, cols: number, rows: number, c: num
   return mask;
 }
 
-/** Does any wall edge touch this lattice point? (mask !== 0, without building
- *  the mask — used to skip empty lattice points cheaply while rendering.) */
-export function latticeOccupied(walls: WallEdges, cols: number, rows: number, c: number, r: number): boolean {
-  return latticeMask(walls, cols, rows, c, r) !== 0;
-}
-
 /** Whether a cell has a wall on its north edge — the edge-model replacement for
  *  "the tile above is a WALL", which is how wall-mounted furniture anchors. */
 export function wallOnNorthEdge(walls: WallEdges | undefined, cols: number, col: number, row: number): boolean {

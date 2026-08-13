@@ -38,8 +38,6 @@ export const COFFEE_COOLDOWN_MAX_SEC = 90.0;
 // Pets spawn based on connected agents: target = min(PET_MAX, floor(agents / PET_AGENTS_PER_PET))
 export const PET_AGENTS_PER_PET = 2;
 export const PET_MAX = 4;
-export const PET_SPAWN_INTERVAL_MIN_SEC = 20;
-export const PET_SPAWN_INTERVAL_MAX_SEC = 60;
 export const PET_LIFESPAN_SEC = 600; // ~10 minutes
 export const PET_WALK_SPEED_PX_PER_SEC = 40;
 export const PET_WALK_FRAME_DURATION_SEC = 0.12;
@@ -94,79 +92,16 @@ export const MATRIX_TRAIL_DIM_THRESHOLD = 0.66;
 export const CHARACTER_BASELINE_HEIGHT = 32;
 export const CHARACTER_SITTING_OFFSET_PX = 6;
 export const CHARACTER_Z_SORT_OFFSET = 0.5;
-export const OUTLINE_Z_SORT_OFFSET = 0.001;
-export const SELECTED_OUTLINE_ALPHA = 1.0;
-export const HOVERED_OUTLINE_ALPHA = 0.5;
-export const GHOST_PREVIEW_SPRITE_ALPHA = 0.5;
-export const GHOST_PREVIEW_TINT_ALPHA = 0.25;
-export const SELECTION_DASH_PATTERN: [number, number] = [4, 3];
-export const BUTTON_MIN_RADIUS = 6;
-export const BUTTON_RADIUS_ZOOM_FACTOR = 3;
-export const BUTTON_ICON_SIZE_FACTOR = 0.45;
-export const BUTTON_LINE_WIDTH_MIN = 1.5;
-export const BUTTON_LINE_WIDTH_ZOOM_FACTOR = 0.5;
 export const BUBBLE_FADE_DURATION_SEC = 0.5;
 export const BUBBLE_SITTING_OFFSET_PX = 10;
 export const BUBBLE_VERTICAL_OFFSET_PX = 24;
 
-// ── Rendering - Overlay Colors (canvas, not CSS) ─────────────
-export const SEAT_OWN_COLOR = 'rgba(0, 127, 212, 0.35)';
-export const SEAT_AVAILABLE_COLOR = 'rgba(0, 200, 80, 0.35)';
-export const SEAT_BUSY_COLOR = 'rgba(220, 50, 50, 0.35)';
-export const GRID_LINE_COLOR = 'rgba(255,255,255,0.12)';
-export const VOID_TILE_OUTLINE_COLOR = 'rgba(255,255,255,0.08)';
-export const VOID_TILE_DASH_PATTERN: [number, number] = [2, 2];
-export const GHOST_BORDER_HOVER_FILL = 'rgba(60, 130, 220, 0.25)';
-export const GHOST_BORDER_HOVER_STROKE = 'rgba(60, 130, 220, 0.5)';
-export const GHOST_BORDER_STROKE = 'rgba(255, 255, 255, 0.06)';
-export const GHOST_VALID_TINT = '#00ff00';
-export const GHOST_INVALID_TINT = '#ff0000';
-export const SELECTION_HIGHLIGHT_COLOR = '#007fd4';
-export const DELETE_BUTTON_BG = 'rgba(200, 50, 50, 0.85)';
-export const ROTATE_BUTTON_BG = 'rgba(50, 120, 200, 0.85)';
-export const BUTTON_ICON_COLOR = '#fff';
-export const CANVAS_FALLBACK_TILE_COLOR = '#444';
 export const CANVAS_ERROR_TILE_COLOR = '#FF00FF';
 export const WALL_COLOR = '#3A3A5C';
 
-// ── Camera ───────────────────────────────────────────────────
-export const CAMERA_FOLLOW_LERP = 0.1;
-export const CAMERA_FOLLOW_SNAP_THRESHOLD = 0.5;
-
 // ── Zoom ─────────────────────────────────────────────────────
 export const ZOOM_MIN = 1;
-export const ZOOM_MAX = 10;
 export const ZOOM_DEFAULT_DPR_FACTOR = 2;
-export const ZOOM_LEVEL_FADE_DELAY_MS = 1500;
-export const ZOOM_LEVEL_HIDE_DELAY_MS = 2000;
-export const ZOOM_LEVEL_FADE_DURATION_SEC = 0.5;
-export const ZOOM_SCROLL_THRESHOLD = 50;
-export const PAN_MARGIN_FRACTION = 0.25;
-
-// ── Editor ───────────────────────────────────────────────────
-export const UNDO_STACK_MAX_SIZE = 50;
-export const LAYOUT_SAVE_DEBOUNCE_MS = 500;
-
-// ── Notification Sound (done: ascending chime) ─────────────
-export const NOTIFICATION_NOTE_1_HZ = 659.25; // E5
-export const NOTIFICATION_NOTE_2_HZ = 1318.51; // E6 (octave up)
-export const NOTIFICATION_NOTE_1_START_SEC = 0;
-export const NOTIFICATION_NOTE_2_START_SEC = 0.1;
-export const NOTIFICATION_NOTE_DURATION_SEC = 0.18;
-export const NOTIFICATION_VOLUME = 0.14;
-
-// ── Permission Sound (attention: descending double tap) ────
-export const PERMISSION_NOTE_1_HZ = 880; // A5
-export const PERMISSION_NOTE_2_HZ = 659.25; // E5 (down a fourth)
-export const PERMISSION_NOTE_1_START_SEC = 0;
-export const PERMISSION_NOTE_2_START_SEC = 0.12;
-export const PERMISSION_NOTE_DURATION_SEC = 0.15;
-export const PERMISSION_VOLUME = 0.12;
-
-// ── Version Notice ──────────────────────────────────────────
-export const WHATS_NEW_AUTO_CLOSE_MS = 20000;
-export const WHATS_NEW_FADE_MS = 1000;
-
 // ── Game Logic ───────────────────────────────────────────────
 export const MAX_DELTA_TIME_SEC = 0.1;
 export const WAITING_BUBBLE_DURATION_SEC = 2.0;
@@ -188,12 +123,7 @@ export const MAX_CONTEXT_TOKENS = 200_000;
 export const TOKEN_WARN_THRESHOLD = 0.6;
 export const TOKEN_DANGER_THRESHOLD = 0.8;
 export const TOKEN_CRITICAL_THRESHOLD = 0.95;
-export const FUEL_GAUGE_WIDTH_PX = 40;
-export const FUEL_GAUGE_HEIGHT_PX = 4;
 export const FUEL_COLOR_OK = '#44cc44';
 export const FUEL_COLOR_WARN = '#ffcc00';
 export const FUEL_COLOR_DANGER = '#ff8800';
 export const FUEL_COLOR_CRITICAL = '#ff2222';
-export const FUEL_GAUGE_BG = '#222';
-export const TEAM_LEAD_COLOR = '#ffd700';
-export const TEAM_ROLE_COLOR = '#66aaff';

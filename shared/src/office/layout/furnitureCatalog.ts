@@ -205,11 +205,6 @@ export function getAnimationFrameData(type: string): AnimationFrameInfo[] | null
   return null;
 }
 
-/** Get ordered animation frame asset IDs for a given type, or null if not animated. */
-export function getAnimationFrames(type: string): string[] | null {
-  return getAnimationFrameData(type)?.map((f) => f.id) ?? null;
-}
-
 /** Which frame of `type`'s animation group is showing at `elapsedMs` — the
  *  standard way engines play back a Tiled `<animation>` (accumulate elapsed
  *  time, loop it against the group's total duration, walk each frame's own
