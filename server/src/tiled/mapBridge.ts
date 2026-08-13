@@ -23,7 +23,8 @@ import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js
 
 import { findGid, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
 import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
-import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
+import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
+import { emptyWallEdges, hIndex, latticeIndex, latticeMask, vIndex } from '@pixel/shared/office/wallEdges.js';
 
 export interface TmjExportResult {
   tmj: Record<string, unknown>;
@@ -137,6 +138,39 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
         ground.push(floorGid(t, layout.tileFloorSet?.[i], layout.tileColors?.[i] ?? null));
         wall.push(0);
       }
+    }
+  }
+
+  // ── Wall lattice layer: edge walls (see OfficeLayout.walls) ──────
+  // One tile per LATTICE POINT — the corner shared by four cells — because the
+  // four edges meeting there form exactly the piece's own N/E/S/W bitmask, so
+  // one painted tile states which of those edges are wall. That is also why the
+  // layer carries a half-tile negative offset: the same tiles, drawn on the
+  // boundaries instead of in the cells.
+  //
+  // Lattice point (c,r) is the top-left corner of cell (c,r), so the layer is
+  // map-sized and the map's far right/bottom boundary points (c=cols, r=rows)
+  // have no tile to paint. Maps keep a VOID margin, so nothing real lives out
+  // there; a wall on the very last row/column has to move one cell inward.
+  const wallLattice: number[] = [];
+  const walls = layout.walls;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!walls) {
+        wallLattice.push(0);
+        continue;
+      }
+      const li = latticeIndex(cols, c, r);
+      const derived = latticeMask(walls, cols, rows, c, r);
+      const piece = walls.latticePiece?.[li] ?? (derived === 0 ? null : derived);
+      if (piece == null) {
+        wallLattice.push(0);
+        continue;
+      }
+      const swatchIdx = walls.latticeColor?.[li] ?? null;
+      const col = swatchIdx === null ? 0 : swatchIdx + 1;
+      const wallSet = WALL_SET_FILES[walls.latticeSet?.[li] ?? 0] ?? WALL_SET_FILES[0];
+      wallLattice.push(gidAt(registry, `${wallSet}.tsj`, piece * TILED_SHEET_COLUMNS + col) ?? 0);
     }
   }
 
@@ -378,6 +412,24 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
       // Above Ground, below everything else: a wall hides the floor drawn
       // beneath it, and furniture/characters still draw over both.
       { id: 7, name: 'Wall', class: 'WallLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: wall },
+      // The half-tile offset is what puts these tiles on the cell boundaries
+      // instead of in the cells — Tiled renders the layer shifted, so what you
+      // paint is what the game draws.
+      {
+        id: 8,
+        name: 'Walls',
+        class: 'WallLatticeLayer',
+        type: 'tilelayer',
+        width: cols,
+        height: rows,
+        x: 0,
+        y: 0,
+        offsetx: -TILE_SIZE / 2,
+        offsety: -TILE_SIZE / 2,
+        opacity: 1,
+        visible: true,
+        data: wallLattice,
+      },
       { id: 2, name: 'Collision', class: 'CollisionLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
       { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
       { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
@@ -470,6 +522,11 @@ export function importTmjToLayout(
   // beneath it. A WallTile painted into Ground is NOT a wall — Ground is the
   // floor layer, full stop; a map has to put its walls in a WallLayer.
   const wallLayer = (layers.find((l) => l.class === 'WallLayer')?.data as number[]) ?? [];
+  // Edge walls (see OfficeLayout.walls) live on their own half-offset lattice
+  // layer. A map has one or the other: if this layer carries anything, walls are
+  // edges and the cell-wall layer above is ignored.
+  const wallLatticeLayer = (layers.find((l) => l.class === 'WallLatticeLayer')?.data as number[]) ?? [];
+  const hasLatticeWalls = wallLatticeLayer.some((gid) => gid !== 0);
 
   // Objects are classified by their own nature — a native Tiled field
   // (`text`/`image`, always present on Tiled's own Text/Image object types
@@ -537,7 +594,7 @@ export function importTmjToLayout(
   const tileBlocked: boolean[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const groundResolved = resolveGid(ground[i] ?? 0);
-    const wallResolved = resolveGid(wallLayer[i] ?? 0);
+    const wallResolved = hasLatticeWalls ? null : resolveGid(wallLayer[i] ?? 0);
     const wall = wallResolved?.class === 'WallTile' ? wallResolved : null;
     // Classify by Tiled's own `class` (FloorTile/WallTile — see
     // Pixels.tiled-project), not by which file a tile lives in — a mapper
@@ -590,6 +647,45 @@ export function importTmjToLayout(
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
+
+  /**
+   * Rebuild the edge sets from the painted lattice tiles. A piece's own bitmask
+   * IS the statement about which of the four edges at that point are wall, so a
+   * painted tile sets those edges — union across lattice points, so two
+   * neighbours that disagree about their shared edge both get their way rather
+   * than one silently winning.
+   *
+   * Pieces past the bitmask range are the north-wall FACES: decorative wall
+   * surface, not barriers, so they set no edges and are kept verbatim as a
+   * latticePiece override. The barrier for a faced wall is the edge run the
+   * mapper paints along its base.
+   */
+  const wallEdges = ((): OfficeLayout['walls'] => {
+    if (!hasLatticeWalls) return undefined;
+    const walls = emptyWallEdges(cols, rows);
+    const latticeSet: number[] = new Array((cols + 1) * (rows + 1)).fill(0);
+    const latticeColor: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
+    const latticePiece: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const resolved = resolveGid(wallLatticeLayer[r * cols + c] ?? 0);
+        if (resolved?.class !== 'WallTile') continue;
+        const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+        const li = latticeIndex(cols, c, r);
+        latticeSet[li] = setIndexFromFile(WALL_SET_FILES, resolved.tileset.file);
+        latticeColor[li] = swatchIndex;
+        if (piece >= WALL_BITMASK_COUNT) {
+          latticePiece[li] = piece;
+          continue;
+        }
+        if (piece & 1 && r > 0) walls.vertical[vIndex(cols, c, r - 1)] = true; // N
+        if (piece & 2) walls.horizontal[hIndex(cols, c, r)] = true; // E
+        if (piece & 4 && r < rows) walls.vertical[vIndex(cols, c, r)] = true; // S
+        if (piece & 8 && c > 0) walls.horizontal[hIndex(cols, c - 1, r)] = true; // W
+      }
+    }
+    return { ...walls, latticeSet, latticeColor, latticePiece };
+  })();
 
   const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
@@ -743,6 +839,7 @@ export function importTmjToLayout(
     tileWallFloorPattern,
     tileWallFloorSet,
     tileWallFloorColor,
+    ...(wallEdges ? { walls: wallEdges } : {}),
     tileBlocked,
     tileActions,
     texts,

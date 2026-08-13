@@ -18,7 +18,7 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 - **Custom Types Editor** (View menu): where the *definitions* below actually live —
   this is a separate view from the Properties panel. If a tile/object looks like it
   has no properties, check it's got the right `Class` assigned first.
-- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLayer, CollisionLayer) is a
+- A class with **no members** (FloorTile, WallTile, GroundLayer, WallLayer, WallLatticeLayer, CollisionLayer) is a
   pure marker — assigning it doesn't add any fields, it just tags the tile/layer so
   our import code recognizes it. Don't add properties to these by hand; see
   "Position-derived data" below for why.
@@ -27,8 +27,8 @@ Custom Types Editor in Tiled — not the Properties panel, see below).
 
 ### FloorTile *(useAs: tile)*
 
-No members. Every tile in `floor-resurrect64.tsj` / `floor-warm.tsj` /
-`floor-metro-resurrect64.tsj` gets this class.
+No members. Every tile in `floor-resurrect64.tsj` / `floor-metro-resurrect64.tsj` /
+`floor-endesga.tsj` / `floor-metro-endesga.tsj` gets this class.
 
 **Position-derived data**: which floor *pattern* a tile is, and which palette
 *swatch* (or "Natural") colors it, come purely from the tile's row/column position
@@ -39,13 +39,15 @@ hand-edits their tile list. **Don't add `pattern`/`hue`/`sat`-style properties h
 
 ### WallTile *(useAs: tile)*
 
-No members. Every tile in `wall-0-resurrect64.tsj` / `wall-1-resurrect64.tsj` / `wall-0-warm.tsj` /
-`wall-1-warm.tsj` / `wall-metro-resurrect64.tsj` gets this class. Same position-derived
-logic as FloorTile — bitmask (row) and swatch (column) come from position, not properties.
+No members. Every tile in `wall-metro-resurrect64.tsj` / `wall-metro-endesga.tsj`
+gets this class. Same position-derived logic as FloorTile — piece (row) and swatch
+(column) come from position, not properties.
 
-`wall-metro-resurrect64` is the **thin** wall set: a 6px strip centered in the cell
-rather than art covering the whole tile. Paint floor under it in the Ground layer or
-the 10px around the strip comes out as flat color instead of room floor.
+Both are the **thin** wall style: a 6px strip, not art covering a whole tile. Paint
+them on the **WallLatticeLayer** (see below), where they sit on the cell boundaries
+and cost no walkable cell. The last four pieces in each set are the north-wall
+**face** pieces — stackable wall surface, one cell tall each, which nothing derives
+from adjacency, so they only appear where you paint them.
 
 ### FurnitureTile *(useAs: tile)*
 
@@ -218,11 +220,35 @@ No members. Assign to whichever tile layer holds wall GIDs — normally named
 "Wall", above Ground. Exactly one per map; the class is what matters, not the
 name or the position in the Layers panel.
 
-Walls have their own layer purely so one cell can hold both a wall and the
-floor under it. WallTiles painted into **Ground** are still imported as walls
-(that's where they lived before this layer existed, and it's what a hand-made
-map without a Wall layer does) — they just get no floor beneath. If both layers
-carry a wall for the same cell, the Wall layer wins.
+**Legacy.** This is the old model, where a wall was a whole *cell*: it blocked
+all 16px and hid a floor tile, for 6px of art. Use WallLatticeLayer instead. A
+map is imported one way or the other — if its lattice layer has anything painted,
+this layer is ignored entirely.
+
+### WallLatticeLayer *(useAs: layer)*
+
+No members. Assign to the tile layer holding wall GIDs — normally named "Walls",
+with **`offsetx` and `offsety` both −8**. That half-tile offset is the whole
+idea: the same wall tiles, drawn on the cell *boundaries* instead of in the
+cells, so a wall no longer costs a walkable cell.
+
+One tile per **lattice point** (a corner shared by four cells), not per cell. A
+wall piece's own N/E/S/W bitmask states which of the four edges meeting at that
+point are wall, so painting a piece paints those edges — which means the Wang /
+Terrain brush works exactly as it always did, you're just drawing on the
+boundaries. Two neighbouring points that disagree about the edge they share both
+get their way (the edges are unioned), so you can't paint a half-open wall by
+accident.
+
+Lattice point (c,r) is the top-left corner of cell (c,r), so the layer is
+map-sized and the map's far right/bottom boundary points have no tile to paint.
+Keep the usual VOID margin and this never comes up; a wall on the very last
+row/column has to move one cell inward.
+
+The **north-wall face** pieces (the last four in each metro wall set) are
+decorative wall *surface*, not barriers: they imply no edges and are kept
+verbatim as painted. Paint the edge run along the base of a faced wall to get
+the actual barrier.
 
 ### CollisionLayer *(useAs: layer)*
 

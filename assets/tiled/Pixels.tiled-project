@@ -213,6 +213,17 @@
             "members": []
         },
         {
+            "id": 19,
+            "name": "WallLatticeLayer",
+            "type": "class",
+            "useAs": [
+                "layer"
+            ],
+            "color": "#ff8ab4d8",
+            "drawFill": false,
+            "members": []
+        },
+        {
             "id": 18,
             "name": "WallLayer",
             "type": "class",
