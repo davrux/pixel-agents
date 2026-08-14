@@ -48,6 +48,10 @@ import WebSocket from 'ws';
 
 /** The room name index.ts registers (shared/protocol.ts WORLD_ROOM). */
 const WORLD_ROOM = 'world';
+/** Any zone id: these tests assert that the world room is matchmakeable at all,
+ *  and an unknown zone resolves to the default one — so naming a real zone here
+ *  would only couple the test to whichever zone happens to be the default. */
+const ANY_ZONE = 'any-zone';
 const ADMIN_TOKEN = 'matchmaking-int-test-token';
 /** Asset decoding on boot dominates startup; keep this well clear of it. */
 const BOOT_TIMEOUT_MS = 60_000;
@@ -154,7 +158,7 @@ test('matchmaking routes are mounted: an undefined room name is answered by Coly
 });
 
 test('the world room is matchmakeable: a seat reservation is issued', async () => {
-  const { status, body } = await matchmake(WORLD_ROOM, { zone: 'office' });
+  const { status, body } = await matchmake(WORLD_ROOM, { zone: ANY_ZONE });
 
   assert.equal(status, 200);
   // The seat reservation the client feeds into its websocket join URL.
@@ -205,7 +209,7 @@ function joinOutcome(url: string): Promise<'accepted' | 'closed'> {
 }
 
 async function joinUrl(token?: string): Promise<string> {
-  const { status, body } = await matchmake(WORLD_ROOM, { zone: 'office' });
+  const { status, body } = await matchmake(WORLD_ROOM, { zone: ANY_ZONE });
   // Assert the reservation first: otherwise a broken matchmaking mount yields a
   // nonsense URL whose socket also closes, and the "refused" cases below would
   // pass for entirely the wrong reason.

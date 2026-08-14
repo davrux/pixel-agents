@@ -394,9 +394,12 @@ export class ZoneStore {
    */
   private seed(): void {
     if (this.has(DEFAULT_ZONE)) return;
+    // Label = the id: a placeholder, renameable in-game (editZone). Hardcoding a
+    // display name here would put content back into code, and the id is the only
+    // thing this function actually knows.
     this.db
       .prepare("INSERT INTO zones(id,label,created_at,npc) VALUES(?,?,?,'[]')")
-      .run(DEFAULT_ZONE, 'Office', Date.now());
+      .run(DEFAULT_ZONE, DEFAULT_ZONE, Date.now());
   }
 
   private meta(key: string): string | undefined {

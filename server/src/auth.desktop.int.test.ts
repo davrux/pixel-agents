@@ -319,7 +319,7 @@ function callOnAuth(
   const proto = SimRoom.prototype as any;
   const self = {
     authRequired,
-    zone: { id: 'office' },
+    zone: { id: 'test-zone' },
     zones: { isZoneAdmin: () => false, zoneHasPassword: () => false, canEnterPrivateZone: () => true },
     gateEntry: proto.gateEntry,
   };

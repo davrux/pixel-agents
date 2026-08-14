@@ -71,10 +71,10 @@ export function readMapName(tmjPath: string): string | null {
 
 /** The zone id a .tmj resolves to: its own `mapName` (falling back to the
  *  filename), lowercased. Every zone id in this system is already lowercase
- *  ("office", "uponu", ...) and ZoneStore.create's slugify always lowercases
+ *  ("uponu", ...) and ZoneStore.create's slugify always lowercases
  *  whatever label it's given — but a zone LOOKUP (`ZoneStore.has`) is a
  *  plain, case-SENSITIVE string match. Skipping this normalization means a
- *  mapName of "Office" or "UPONU" would fail to match the real "office"/
+ *  mapName of "UPONU" would fail to match the real
  *  "uponu" zone and silently create a near-duplicate ("uponu-2", ...)
  *  instead of updating the one that already exists — exactly the mismatch
  *  this closes. */

@@ -380,7 +380,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // The registry is the only source of zones now (no builtin table to fall back
     // on), and ZoneStore.seed guarantees the default one exists — so an unknown or
     // absent id lands there rather than in a synthesised config.
-    this.zone = (options.zone && this.zones.get(options.zone)) || this.zones.get(DEFAULT_ZONE) || { id: DEFAULT_ZONE, label: 'Office' };
+    this.zone = (options.zone && this.zones.get(options.zone)) || this.zones.get(DEFAULT_ZONE) || { id: DEFAULT_ZONE, label: DEFAULT_ZONE };
     this.setState(new RoomState());
     // Dispose the room when the last client leaves (Colyseus default; VoxelRoom does
     // the same). Frees this zone's per-room heap — the merged asset bundle, OfficeState,

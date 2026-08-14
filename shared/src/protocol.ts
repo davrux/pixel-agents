@@ -29,7 +29,11 @@ export function isPlayerAvatarSkin(id: string): boolean {
 // hosted as its own Colyseus room instance of WORLD_ROOM (matchmade by `zone`).
 // Each zone loads its own layout; assets are shared across zones for now.
 
-export const DEFAULT_ZONE = 'office';
+/** The zone a client lands in when it names none, and the one zone the registry
+ *  guarantees exists (see zoneStore.seed) and refuses to delete — there has to be
+ *  somewhere to arrive. Was 'office' while that zone existed; it is a plain id, so
+ *  moving it is a one-line change plus a pushed map for the new one. */
+export const DEFAULT_ZONE = 'uponu';
 
 /**
  * A zone as the registry stores it (see server/src/zoneStore.ts) — id, label and
