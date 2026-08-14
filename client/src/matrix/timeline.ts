@@ -132,6 +132,13 @@ function applyOrder(el: HTMLElement, nodes: HTMLElement[]): void {
 
 /** DOM cap: never keep more than this many message rows alive at once. */
 const MAX_ROWS = 400;
+/**
+ * How much of the capped window sits *above* the row the reader is looking at
+ * when they are up in history. The rest sits below, so scrolling either way
+ * has somewhere to go, and a backward page has room to land: the window slides
+ * with the reader instead of being pinned to one end of the loaded events.
+ */
+const TRIM_KEEP_ABOVE = MAX_ROWS / 2;
 /** Sender-grouping window. */
 const GROUP_WINDOW_MS = 5 * MINUTE;
 /** "Near the bottom" threshold for stick-to-bottom / trim-from-top decisions. */
@@ -775,6 +782,29 @@ type TopItem =
   | { kind: 'day'; el: HTMLDivElement }
   | { kind: 'group'; el: HTMLDivElement; body: HTMLDivElement; sender: string; lastTs: number };
 
+/**
+ * The row a render has to keep still, and where it was: the topmost row that
+ * was on screen when the render started, plus its offset from the top of the
+ * viewport.
+ *
+ * Putting *that row* back where it was is the general form of "don't move the
+ * timeline under the reader" — it holds whether the render prepended a
+ * backward page, appended a new message, or sliid the capped window (all
+ * three at once, even), which is more than a before/after scrollHeight delta
+ * can say.
+ */
+interface ScrollAnchor {
+  el: HTMLElement;
+  /** Row key, so the trim below can find the same event in the new array. */
+  key: string;
+  offset: number;
+}
+
+/** Does `ev` resolve to `key` under the same rules as `resolveRow`? */
+function eventHasKey(ev: MxEvent, key: string): boolean {
+  return ev.event_id === key || ev.txnId === key || ev.unsigned?.transaction_id === key;
+}
+
 export class TimelineView {
   readonly el: HTMLDivElement;
 
@@ -787,7 +817,6 @@ export class TimelineView {
   private readonly retryTokens = new WeakMap<HTMLElement, string>();
   private readonly decryptActionTokens = new WeakMap<HTMLElement, MxDecryptAction>();
   private groupTimeEls: { el: HTMLElement; ts: number }[] = [];
-  private lastFirstKey: string | null = null;
   /** Row key whose message menu is currently open — see `setMenuOpenRow`. */
   private menuRowId: string | null = null;
   private moreInteractive = false;
@@ -802,6 +831,11 @@ export class TimelineView {
    *  the window before the store reports `loading`. */
   private paginateRequested = false;
   private topObserver: IntersectionObserver | null = null;
+  /** Watches our own box, not our content: the composer beside us grows as the
+   *  reader types (and the reply bar appears above it), which takes height away
+   *  from this scroller and would otherwise slide the newest message out from
+   *  under someone who is in the middle of answering it. */
+  private sizeObserver: ResizeObserver | null = null;
   /** Set by `pinToBottom()`, consumed by the next `render()`. See there for why
    *  this outlives the call rather than just scrolling on the spot. */
   private forceBottom = false;
@@ -812,6 +846,12 @@ export class TimelineView {
 
   private readonly onScroll = (): void => {
     this.stickToBottom = this.isAtBottom();
+    // A pin that is still waiting for its render is an intent ("show me what I
+    // just sent"), and scrolling away is the reader withdrawing it. Without
+    // this it survives until *some* render happens — which, for a send that
+    // never produces one (a picture whose upload fails), means an unrelated
+    // message minutes later yanks the timeline to the bottom.
+    if (!this.stickToBottom) this.forceBottom = false;
   };
 
   private readonly onClick = (e: MouseEvent): void => {
@@ -877,8 +917,16 @@ export class TimelineView {
     //
     // It self-limits without a counter: each page is prepended and `render()`
     // restores the scroll position, which pushes the sentinel back out of view.
-    // It only fires again once the reader scrolls up to it, or if the viewport
-    // still isn't full — and stops for good at `atStart`.
+    // It only fires again once the reader scrolls up to it — and stops for good
+    // at `atStart`.
+    //
+    // "Pushes it out of view" is what re-arms it, though, and a page does not
+    // always manage that: 80 events that are all reactions, redactions or
+    // membership changes render nothing at all, and a short page can leave a
+    // tall panel still unfilled. An observer only reports *crossings*, so in
+    // both cases the sentinel stays continuously intersecting and never fires
+    // again — scrollback dies silently. `rearmTopObserver` below re-delivers
+    // the current state after each render to cover exactly that.
     if (typeof IntersectionObserver === 'function') {
       this.topObserver = new IntersectionObserver(
         (entries) => {
@@ -892,6 +940,16 @@ export class TimelineView {
         { root: this.el, rootMargin: '300px 0px 0px 0px' },
       );
       this.topObserver.observe(this.moreEl);
+    }
+
+    // Same reasoning as `onMediaResize` below, for the other axis: by the time
+    // the box has shrunk, "am I at the bottom" is already false for exactly the
+    // reader we are trying to keep put, so this reads the remembered stickiness.
+    if (typeof ResizeObserver === 'function') {
+      this.sizeObserver = new ResizeObserver(() => {
+        if (this.stickToBottom) this.scrollToBottom();
+      });
+      this.sizeObserver.observe(this.el);
     }
 
     this.rowDeps = {
@@ -933,13 +991,43 @@ export class TimelineView {
     this.scrollToBottom();
   }
 
+  /**
+   * "A different room is about to be drawn here." One TimelineView serves every
+   * room (MatrixUI builds it once), so without this the next `render()` decides
+   * where to land from the *previous* room's scroll offset: leave a room while
+   * reading history, open another, and it opens somewhere in the middle of that
+   * one's history with nothing to say so — and, because MatrixUI only marks a
+   * room read when `isAtBottom()`, it does not clear its unread badge either.
+   *
+   * Rows are dropped rather than left for the next render to reconcile: they
+   * belong to the room being left, and a key collision across rooms is not
+   * worth reasoning about. `forceBottom` is what actually lands the new room on
+   * its newest message — the same "show me" the composer's send uses.
+   */
+  reset(): void {
+    for (const row of this.rows.values()) row.el.remove();
+    this.rows.clear();
+    this.groupTimeEls = [];
+    this.menuRowId = null;
+    this.paginateRequested = false;
+    this.forceBottom = true;
+    this.stickToBottom = true;
+    this.el.scrollTop = 0;
+  }
+
   render(events: MxEvent[], opts: TimelineRenderOpts): void {
-    const before = {
-      scrollTop: this.el.scrollTop,
-      scrollHeight: this.el.scrollHeight,
-      atBottom: this.isAtBottom(),
-    };
-    if (!before.atBottom) this.el.setAttribute('aria-busy', 'true');
+    // Read once, up front: everything below decides from these, and the render
+    // itself moves the layout they describe.
+    //
+    // A pin is consumed here rather than at the end, because it also decides
+    // *which* messages get built — a send while scrolled up in a room past the
+    // DOM cap would otherwise keep the history window and drop the very message
+    // it is about to scroll to.
+    const pinned = this.forceBottom;
+    this.forceBottom = false;
+    const keepBottom = this.isAtBottom() || pinned;
+    const anchor = keepBottom ? null : this.captureAnchor();
+    if (!keepBottom) this.el.setAttribute('aria-busy', 'true');
 
     this.renderMore(opts);
 
@@ -949,15 +1037,24 @@ export class TimelineView {
     // trim never leaves an orphaned, now-empty group wrapper or day
     // separator behind — trimming here means those events are simply never
     // built for the dropped rows.
+    //
+    // The window slides with the reader rather than sticking to one end of the
+    // loaded events. Pinning it to an end looks stable until the reader crosses
+    // the cap, and then flips the whole window between "newest 400" and "oldest
+    // 400" depending on where they happen to be standing — one arriving message
+    // while they read history used to jump them ~60 messages backwards.
     let trimmed = renderable;
     if (renderable.length > MAX_ROWS) {
-      const over = renderable.length - MAX_ROWS;
-      trimmed = before.atBottom
-        // Drop from the front (oldest) — a reader at the bottom never sees it.
-        ? renderable.slice(over)
-        // Scrolled up reading history — drop from the back (newest) instead,
-        // keeping the reader's current position stable.
-        : renderable.slice(0, renderable.length - over);
+      const maxStart = renderable.length - MAX_ROWS;
+      let start = maxStart;
+      if (!keepBottom) {
+        const at = anchor === null ? -1 : renderable.findIndex((ev) => eventHasKey(ev, anchor.key));
+        // No anchor to find (it was redacted away, or there were no rows yet)
+        // leaves the newest window, which is where a reader with nothing on
+        // screen to keep still is best served anyway.
+        if (at >= 0) start = Math.min(Math.max(0, at - TRIM_KEEP_ABOVE), maxStart);
+      }
+      trimmed = renderable.slice(start, start + MAX_ROWS);
     }
 
     const touchedKeys = new Set<string>();
@@ -988,7 +1085,6 @@ export class TimelineView {
     let currentGroup: (TopItem & { kind: 'group' }) | null = null;
     let lastDay: string | null = null;
     let newestGroup: HTMLDivElement | null = null;
-    let firstMsgKey: string | null = null;
     const now = Date.now();
 
     for (const ev of trimmed) {
@@ -1031,7 +1127,6 @@ export class TimelineView {
         readers: opts.receipts.get(ev.event_id) ?? [],
       });
       currentGroup!.body.appendChild(row.el);
-      if (firstMsgKey === null) firstMsgKey = key;
     }
 
     // Drop rows that are no longer part of this render at all (e.g. trimmed,
@@ -1051,21 +1146,57 @@ export class TimelineView {
 
     applyOrder(this.el, topNodes);
 
-    const prepended =
-      this.lastFirstKey !== null && this.lastFirstKey !== firstMsgKey && this.rows.has(this.lastFirstKey);
-    // One-shot: a pinned render lands at the bottom, which makes `atBottom` true
-    // for the render after it, so the pin carries itself forward until the
-    // reader scrolls away again.
-    const pinned = this.forceBottom;
-    this.forceBottom = false;
-    if (before.atBottom || pinned) {
-      this.scrollToBottom();
-    } else if (prepended) {
-      this.el.scrollTop = before.scrollTop + (this.el.scrollHeight - before.scrollHeight);
-    }
-    this.stickToBottom = before.atBottom || pinned;
-    this.lastFirstKey = firstMsgKey;
+    // A pinned render lands at the bottom, which makes `isAtBottom()` true for
+    // the render after it, so the pin carries itself forward until the reader
+    // scrolls away again (`onScroll` also drops an unconsumed one).
+    if (keepBottom) this.scrollToBottom();
+    else if (anchor) this.restoreAnchor(anchor);
+    this.stickToBottom = keepBottom;
     this.el.removeAttribute('aria-busy');
+    this.rearmTopObserver();
+  }
+
+  /** The topmost row still on screen, and how far below the top of the viewport
+   *  it sits — see ScrollAnchor. Null when nothing is rendered yet. */
+  private captureAnchor(): ScrollAnchor | null {
+    const viewTop = this.el.getBoundingClientRect().top;
+    for (const el of this.el.querySelectorAll<HTMLElement>('.mx-msg')) {
+      const rect = el.getBoundingClientRect();
+      // The first row whose *bottom* has not yet passed the fold: the one the
+      // reader is actually looking at, even when it is only half on screen.
+      if (rect.bottom <= viewTop) continue;
+      // An event with neither an id nor a txn id keys to '', which would match
+      // the wrong event in the trim below — better no anchor than a wrong one.
+      const key = el.dataset.rowKey;
+      if (!key) continue;
+      return { el, key, offset: rect.top - viewTop };
+    }
+    return null;
+  }
+
+  /** Put the anchor row back where it was. Nothing to do when this render
+   *  dropped it (trimmed, redacted, or the room changed under us) — there is no
+   *  honest position to restore in that case. */
+  private restoreAnchor(anchor: ScrollAnchor): void {
+    if (!this.el.contains(anchor.el)) return;
+    const viewTop = this.el.getBoundingClientRect().top;
+    this.el.scrollTop += anchor.el.getBoundingClientRect().top - viewTop - anchor.offset;
+  }
+
+  /**
+   * Re-deliver the sentinel's current intersection state on the next frame.
+   *
+   * An IntersectionObserver reports crossings, not states, so a render that
+   * left the sentinel where it already was — a page of events that render
+   * nothing, or one too short to fill the panel — would never hear from it
+   * again. Re-observing asks for one fresh report; when the sentinel really is
+   * off screen (the ordinary case) that report is "not intersecting" and the
+   * callback returns immediately.
+   */
+  private rearmTopObserver(): void {
+    if (!this.topObserver || !this.autoPaginate || this.paginateRequested) return;
+    this.topObserver.unobserve(this.moreEl);
+    this.topObserver.observe(this.moreEl);
   }
 
   /**
@@ -1120,6 +1251,8 @@ export class TimelineView {
     this.el.removeEventListener('scroll', this.onScroll);
     this.topObserver?.disconnect();
     this.topObserver = null;
+    this.sizeObserver?.disconnect();
+    this.sizeObserver = null;
     this.rows.clear();
     this.groupTimeEls = [];
   }
@@ -1201,12 +1334,17 @@ export class TimelineView {
         key = ev.event_id;
       }
       row.update(ev);
+      // Kept on the element itself so `captureAnchor` can read the key off a
+      // row it found by walking the DOM in timeline order — the `rows` map is
+      // in insertion order, which re-keying above does not preserve.
+      row.el.dataset.rowKey = key;
       return { row, key };
     }
 
     const row = buildMsgRow(this.rowDeps);
     row.update(ev);
     const newKey = ev.txnId ?? ev.event_id;
+    row.el.dataset.rowKey = newKey;
     this.rows.set(newKey, row);
     return { row, key: newKey };
   }

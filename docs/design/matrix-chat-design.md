@@ -870,18 +870,58 @@ Per-surface states:
   (http/https only, escape-per-segment).
 - **Non-text msgtypes:** `m.image`/`m.file`/`m.audio`/`m.video` render as
   *"📎 `<filename>` (not supported in this client)"* — labelled, not blank.
-- **DOM cap: a hard 400 message elements, always enforced.** Trim from the *far* end relative to the
-  user's position: when at the bottom, drop from the top; when scrolled up (i.e. after
-  back-pagination), drop from the bottom, keeping the read position stable. An earlier draft only
-  trimmed "when the user is scrolled to the bottom", which means a user who scrolls up in a busy
-  room and walks away grows the DOM without bound. Trimming adjusts `scrollTop` by the removed
-  height in the same frame so the viewport never yanks.
-- **Scroll anchoring:** append sticks to the bottom only if already within 24 px of the bottom.
-- **Back-pagination scroll restore, synchronously, in one frame:** read `scrollHeight` → insert the
-  prepended nodes → set `scrollTop += (newScrollHeight - oldScrollHeight)`. **Not** from a
-  `requestAnimationFrame` callback, and with `overflow-anchor:none` on the container and its
-  children (§5.4) so the browser's own scroll anchoring does not add a second, engine-specific
-  correction on top of ours.
+- **DOM cap: a hard 400 message elements, always enforced.** The window **slides with the reader**
+  rather than sticking to either end of the loaded events: at the bottom it is the newest 400;
+  scrolled up it is the 400 centred on the row the reader is looking at (200 above, the rest below,
+  `TRIM_KEEP_ABOVE`). An earlier draft only trimmed "when the user is scrolled to the bottom", which
+  grows the DOM without bound for a user who scrolls up in a busy room and walks away; the draft
+  after it trimmed from the far end (top when at the bottom, bottom when scrolled up), which is
+  stable right up until the reader crosses the cap and then **flips the whole window between "oldest
+  400" and "newest 400"** depending on where they are standing — one arriving message while reading
+  history jumped them ~60 messages backwards (measured). Anchoring on the reader also leaves a
+  backward page somewhere to land, which an end-pinned window does not.
+- **Scroll anchoring: one rule, not a set of special cases.** Before the render, remember the topmost
+  row still on screen and its offset from the top of the viewport; after it, put that row back at
+  that offset. This holds for a prepended backward page, an appended message, a slid window, or all
+  three at once — which a before/after `scrollHeight` delta cannot express. It runs **synchronously,
+  in one frame** (not from a `requestAnimationFrame` callback), with `overflow-anchor:none` on the
+  container and its children (§5.4) so the browser's own scroll anchoring does not add a second,
+  engine-specific correction on top of ours. Two things override it: the reader being within 24 px of
+  the bottom (stick to the newest message), and an explicit pin (below).
+- **The scroller's own height is watched, not just its content.** A `ResizeObserver` on `#pa-mx-tl`
+  re-pins a stuck-to-bottom reader whenever the box shrinks — which it does *while you type*, because
+  the composer beside it auto-grows to 5 rows and the reply/edit bar appears above that. Without it,
+  writing a four-line reply pushed the message being replied to 68 px below the fold (measured), and
+  opening the reply bar cost another 51 px. Same reasoning as the per-picture `onMediaResize` hook,
+  and like it, this reads the *remembered* stickiness: by the time the box has shrunk, "am I at the
+  bottom" is already false for exactly the reader being kept put.
+- **A pin is an intent with a lifetime.** `pinToBottom()` ("show me what I just sent") arms the next
+  render, because the message is usually not in the DOM yet. It is cleared by that render, by
+  `reset()`, **and by the reader scrolling away** — otherwise a send that never produces a render (a
+  picture whose upload fails) leaves it armed, and an unrelated message minutes later yanks the
+  timeline to the bottom. A pin also decides *which* messages get built, not only where to scroll:
+  consumed before the trim, so a send while scrolled up past the cap cannot drop the very message it
+  is about to scroll to.
+- **Opening a room resets the view (`TimelineView.reset()`, called from `openRoomView`).** One
+  TimelineView draws every room, so without this the first render of the new room decides where to
+  land from the *previous* room's scroll offset: leaving a room mid-history and opening another
+  landed 4.7 k px up in that one's history with nothing to say so, and — since a room is only marked
+  read while `isAtBottom()` — its unread badge never cleared either. Unconditional, including
+  re-opening the room just left: "open a chat" means its newest message.
+- **Infinite scrollback is an `IntersectionObserver` on `.mx-more`** (the "Load earlier messages"
+  slot doubles as the sentinel), rooted on the scroller with a 300 px top margin so the fetch starts
+  before the reader reaches it. An observer rather than a `scrollTop` threshold because it also fires
+  when the loaded history is simply shorter than the panel — the case a scroll handler never sees,
+  since there is nothing to scroll, and what fills a tall window on open. It never auto-fires during
+  a load, at the start of the room, or on an error (a failed page stays a deliberate click rather
+  than hammering a homeserver that is already refusing).
+  **An observer reports crossings, not states**, so the sentinel being pushed back out of view is
+  what re-arms it — and a page does not always manage that: 80 events that are all reactions,
+  redactions or membership changes render nothing at all, and a short page can leave a tall panel
+  still unfilled. In both cases the sentinel stays continuously intersecting and never fires again,
+  killing scrollback silently (measured: one page, then nothing). Every render therefore re-observes
+  the sentinel to ask for one fresh report; when it really is off screen that report is "not
+  intersecting" and costs a returned-immediately callback. Termination is unchanged — `atStart`.
 - **Incremental diff:** rows live in a `Map`, updated in place, and are ordered with an
   `applyOrder`-style helper ported from `MumbleUI.ts:545-559` — nodes already in the right place are
   never removed and re-inserted, so selection and focus survive updates.
@@ -976,7 +1016,7 @@ The three isolation guards in §4 are what make row 6 true. Nothing in this pane
 | `session.ts` | `normaliseHomeserverUrl` (applied to typed *and* discovered URLs), well-known discovery, login-flow probe, login/logout, and the per-pixel-user `localStorage` credential store (§3) including restore and involuntary-logout clearing. | 170 |
 | `sync.ts` | The `/sync` long-poll loop (filter, `since`, backoff, offline handling) and `MatrixStore` — rooms, `summary` ingest + `roomDisplayName`, DM classification, invites, unread counts, capped per-room timeline windows with gap markers, `applySync()`, back-pagination, optimistic send + `transaction_id` reconciliation, read-modify-write `m.direct`, and a tiny typed emitter. **No DOM.** | 520 |
 | `matrixSkin.ts` | The single idempotent `<style id="pa-mx-style">` injection (§5.4 table). | 150 |
-| `timeline.ts` | Keyed, diffing timeline renderer: grouping, day separators, relative time, the copied `esc`/`linkify`, encrypted/redacted/unsupported placeholders, gap markers, scroll anchoring + synchronous prepend restore, hard DOM cap, pagination trigger. | 340 |
+| `timeline.ts` | Keyed, diffing timeline renderer: grouping, day separators, relative time, the copied `esc`/`linkify`, encrypted/redacted/unsupported placeholders, gap markers, synchronous row-anchored scroll restore, the reader-centred DOM cap, viewport-size re-pinning, and the self-re-arming pagination sentinel. | 340 |
 | `MatrixUI.ts` | The panel root and view router: `login`, `rooms`, `room`, `members`, `newdm`, `newgroup`, `join`; status strip; pin button; composer; `toast()`; keyboard rules; `sessionStorage` view/draft restore; exposes `isPinned`, `ownsFocus()`, `openDm(mxid)`, `destroy()`. | 680 |
 | `index.ts` | `createMatrixClient(mount, hooks): MatrixClientHandle` — the one and only dynamic-import entry point; wires skin + session + sync + UI. | 60 |
 

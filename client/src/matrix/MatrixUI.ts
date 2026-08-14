@@ -532,6 +532,12 @@ export class MatrixUI {
   private openRoomView(roomId: string): void {
     this.stack = [{ view: 'rooms' }, { view: 'room', roomId }];
     this.openRoomId = roomId;
+    // One TimelineView draws every room, so it has to be told the room changed
+    // before the render below — otherwise it decides where to land from where
+    // the *last* room was scrolled to (see TimelineView.reset). Unconditional,
+    // including re-opening the room just left: "open a chat" means its newest
+    // message, not wherever you happened to stop reading last time.
+    this.timelineView.reset();
     this.hideUploadStatus();
     // A reply or an edit belongs to the room it was started in; the draft below
     // is restored per room, and these would otherwise be applied to the wrong
