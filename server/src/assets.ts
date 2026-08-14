@@ -8,11 +8,6 @@ import {
   loadPetSprites,
 } from './assetLoader.js';
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from './constants.js';
-import { portalAssets } from './portalAssets.js';
-import { conferenceAssets } from './conferenceAssets.js';
-import { arcadeAssets } from './arcadeAssets.js';
-import { meetingRoomAssets } from './meetingRoomAssets.js';
-import { logoAssets } from './logoAssets.js';
 import { updateFurnitureDefaults } from './assetOverrides.js';
 import { controlBus, ASSET_CHANGED_EVENT } from './controlBus.js';
 
@@ -52,18 +47,15 @@ export async function buildFurnitureCatalogAndSprites(): Promise<{
   loaded: boolean;
 }> {
   const furniture = await loadFurnitureTilesets(ASSETS_ROOT);
-  const generated = [
-    ...portalAssets(),
-    ...conferenceAssets(),
-    ...arcadeAssets(),
-    ...meetingRoomAssets(),
-    ...logoAssets(),
-  ];
-  const catalog = [...(furniture?.catalog ?? []), ...generated.map((p) => p.entry)];
-  const sprites: Record<string, unknown> = {
-    ...(furniture ? Object.fromEntries(furniture.sprites) : {}),
-    ...Object.fromEntries(generated.map((p) => [p.entry.id as string, p.sprite])),
-  };
+  // Everything comes from the tilesets. There used to be a second source here —
+  // portals, conference monitor, arcade cabinet, meeting kiosk and the wall logos
+  // were drawn in code and appended to the catalog, while a baked copy of the same
+  // art sat in furniture-decor.tsj purely so Tiled could show a real sprite. Two
+  // copies of one picture, and the behaviour was authored in Tiled either way, so
+  // the code half was pure duplication (see git history for the generators and
+  // bake-generated-furniture.mts).
+  const catalog = furniture?.catalog ?? [];
+  const sprites: Record<string, unknown> = furniture ? Object.fromEntries(furniture.sprites) : {};
   return { catalog, sprites, loaded: !!furniture };
 }
 

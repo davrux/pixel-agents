@@ -138,14 +138,15 @@ layer). Import itself doesn't care — it accepts a `FurnitureObject` *or* any
 object whose tile is a `FurnitureTile` — so this is purely about what Tiled lets
 you edit.
 
-A furniture item with no Tiled tileset representation (portals, conference monitor,
-arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code) still
-is placed as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
-canvas instead of a real sprite. Imports fine either way. **These types have no
-default action on their catalog entry** — unlike a real `FurnitureTile` (which can
-set one, see above), there's no tile to bake it onto, so every placed `DOOR`/
-`BEAM_PAD`/`ARCADE`/`MONITOR`/`MEETING_KIOSK` instance must set its own `actionKind`
-explicitly or it simply does nothing when clicked/walked onto.
+A `FurnitureObject` without a `gid` — a plain rectangle instead of a tile object —
+still imports fine, and is what you get if you draw a rectangle by hand and give it
+an `id`. Every id in the catalog now has a real tile though: the fixtures that used
+to exist only in code (`DOOR`, `BEAM_PAD`, `MONITOR`, `ARCADE`, `MEETING_KIOSK`, the
+wall logos) are ordinary FurnitureTiles in `furniture-decor.tsj` like everything
+else. **None of them sets a default action**, which is deliberate rather than a
+limitation — a door leads nowhere in particular and an arcade cabinet is scenery
+until you say otherwise — so a placement that sets no `actionKind` does nothing when
+clicked or walked onto.
 
 `flippedHorizontally`/`flippedVertically` aren't custom properties — they're Tiled's
 own native object flip (right-click the object, or flip before placing from the
@@ -385,10 +386,9 @@ narrower than what open space alone would already allow.
 
 ## Known quirks (not yet cleaned up)
 
-- **A plain rectangle FurnitureObject inherits nothing.** Server-generated
-  furniture (portals, the arcade cabinet, …) exports as a bare rectangle rather
-  than a tile object when no GID backs it, and Tiled only shows inherited tile
-  properties for *tile* objects — so on those placements the behaviour properties
-  aren't offered at all. Harmless in practice (those ids get their behaviour from
-  code, not from a tile), but it's the one place the "you always see the full set"
-  promise doesn't hold.
+- **A plain rectangle FurnitureObject inherits nothing.** Tiled only shows
+  inherited tile properties for *tile* objects, so a hand-drawn rectangle carrying
+  just an `id` is not offered the behaviour properties at all. This used to matter
+  for the code-drawn fixtures, which had no tile to inherit from; they are real
+  tiles now, so it only affects rectangles you draw yourself — place from the
+  Tilesets panel instead and the full set appears.

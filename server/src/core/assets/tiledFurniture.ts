@@ -11,15 +11,17 @@
  *   canSitOn        (bool)   see FurnitureCatalogEntry.canSitOn
  *   sitFacing       (string) 'N' | 'E' | 'S' | 'W' — see FurnitureCatalogEntry.sitFacing
  *   petCanSitOn     (bool)   see FurnitureCatalogEntry.petCanSitOn
+ *   canWalkOver     (bool)   see FurnitureCatalogEntry.canWalkOver
  *   backgroundTiles (int)    see FurnitureCatalogEntry.backgroundTiles
  *   onState         (string) catalog id this becomes when switched on — see
  *                            FurnitureCatalogEntry.onState
  *   actionKind      (string) this type's default Action (see FurnitureCatalogEntry.action)
  *                            — 'meetingRoom' | 'meetingManager' | 'iframe' | 'appliance' |
- *                            'arcade' | 'portal' | 'toggle'; empty = no default action
+ *                            'arcade' | 'portal' | 'toggle' | 'spawnPoint'; empty = none
  *   actionVideo     (bool)   only with actionKind 'meetingRoom'
  *   actionUrl       (string) only with actionKind 'iframe' — https:// only
  *   actionPose      (string) only with actionKind 'appliance', e.g. 'coffee'
+ *   meetingRoomName (string) only with actionKind 'meetingRoom' — the room's name
  *
  * Every tile carries every one of these, defaults included, rather than only
  * the ones that differ — see server/scripts/sync-furniture-properties.mts, which
@@ -103,15 +105,6 @@ export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: Fu
     const anim = tile.animation;
     if (!anim && frameComponentIds.has(tile.id)) continue;
     const props = propsOf(tile);
-    // Server-generated furniture (portals, conference monitor, arcade
-    // cabinet, meeting-room kiosk, wall logos — see
-    // server/scripts/bake-generated-furniture.mts) is baked into these same
-    // tilesets purely so the Tiled MAP bridge can give it a real sprite
-    // instead of a blank placeholder; it must NOT also become a runtime
-    // catalog entry here, or it would duplicate (and shadow the real
-    // action/portal/appliance flags of) the entry assets.ts's own
-    // `generated` array already injects.
-    if (props.generated === true) continue;
     const id = typeof props.id === 'string' ? props.id : undefined;
     if (!id) {
       console.warn(`[tiledFurniture] Skipping tile ${tile.id} in "${json.name}" — missing "id" property`);

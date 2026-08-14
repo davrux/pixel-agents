@@ -1958,11 +1958,6 @@
           "value": "DOOR"
         },
         {
-          "name": "generated",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "label",
           "type": "string",
           "value": "Door"
@@ -1991,7 +1986,7 @@
         {
           "name": "backgroundTiles",
           "type": "int",
-          "value": 0
+          "value": 2
         },
         {
           "name": "onState",
@@ -2040,11 +2035,6 @@
           "value": "BEAM_PAD"
         },
         {
-          "name": "generated",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "label",
           "type": "string",
           "value": "Beam Pad"
@@ -2073,7 +2063,7 @@
         {
           "name": "backgroundTiles",
           "type": "int",
-          "value": 0
+          "value": 1
         },
         {
           "name": "onState",
@@ -2120,11 +2110,6 @@
           "name": "id",
           "type": "string",
           "value": "MONITOR"
-        },
-        {
-          "name": "generated",
-          "type": "bool",
-          "value": true
         },
         {
           "name": "label",
@@ -2204,11 +2189,6 @@
           "value": "ARCADE"
         },
         {
-          "name": "generated",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "label",
           "type": "string",
           "value": "Arcade Cabinet"
@@ -2284,11 +2264,6 @@
           "name": "id",
           "type": "string",
           "value": "MEETING_KIOSK"
-        },
-        {
-          "name": "generated",
-          "type": "bool",
-          "value": true
         },
         {
           "name": "label",
@@ -2368,11 +2343,6 @@
           "value": "UPONU_LOGO"
         },
         {
-          "name": "generated",
-          "type": "bool",
-          "value": true
-        },
-        {
           "name": "label",
           "type": "string",
           "value": "Uponu Logo"
@@ -2448,11 +2418,6 @@
           "name": "id",
           "type": "string",
           "value": "UPONU_LOGO_DARK"
-        },
-        {
-          "name": "generated",
-          "type": "bool",
-          "value": true
         },
         {
           "name": "label",

@@ -55,9 +55,10 @@ New features must extend these, not grow a parallel mechanism beside them.
   builtin zone table and nothing creates a zone from in-game; `DEFAULT_ZONE` is
   only the id a client lands in when it names none. **Do not** add a new room
   class per zone.
-- **Portals are content, not code.** A portal is placed furniture carrying the
-  catalog `portal` flag (a door, a beam pad); the server derives trigger tiles
-  from where it is placed and offers a destination picker. Add travel by placing
+- **Portals are content, not code.** A portal is placed furniture whose action is
+  `portal` (a door, a beam pad — the flag it used to be became an action kind, so
+  travel is expressed exactly like every other interaction); the server derives
+  trigger tiles from where it is placed and offers a destination picker. Add travel by placing
   furniture, never by hard-coding a coordinate jump.
 - **Human players.** Spawn/despawn (spectator toggle), click-to-walk (server
   resolves the path), avatar/skin selection, naming (own avatar = player name;

@@ -51,12 +51,12 @@ const FIX_GIDS = process.argv.includes('--fix-gids');
 
 let staleMaps = 0;
 
-/** Properties a FurnitureTile may carry beyond the synced set. `id` is the
+/** Properties a FurnitureTile may carry beyond the synced set: just `id`, the
  *  catalog identity (never defaulted — a tile without one is an error, not
- *  something to paper over); `generated` marks a tile baked in purely so the
- *  map bridge can draw server-generated furniture, which must not become a
- *  catalog entry (see tiledFurniture.ts). */
-const EXTRA_TILE_PROPS = new Set(['id', 'generated']);
+ *  something to paper over). `generated` used to be allowed here too, marking a
+ *  tile whose catalog entry came from code instead; those entries are gone, so a
+ *  leftover `generated` is now reported and stripped like any other unknown. */
+const EXTRA_TILE_PROPS = new Set(['id']);
 
 /**
  * Properties a placed FurnitureObject may carry: its per-instance overrides.

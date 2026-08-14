@@ -106,9 +106,15 @@ assets/tiled/
 Scripts that produce these live in `server/scripts/`: `bake-floor-wall-tiled.mts`
 (floor/wall sheets), `gen-metro-source-art.mts` (wall/floor art from the pack),
 `gen-metro-furniture.mts` (one-time furniture slice; refuses to re-run over
-hand-edited tilesets), `bake-images-tiled.mts`, `bake-generated-furniture.mts`
-(code-drawn fixtures so the bridge has a sprite to draw), and
+hand-edited tilesets), `bake-images-tiled.mts`, and
 `sync-furniture-properties.mts` (keeps every tile carrying every property).
+
+`bake-generated-furniture.mts` is gone: it baked the code-drawn fixtures (portals,
+conference monitor, arcade cabinet, meeting kiosk, wall logos) into
+`furniture-decor.tsj` so Tiled had a sprite to show, while the catalog entry itself
+still came from code — two copies of one picture, with the behaviour authored in
+Tiled either way. The baked tiles are now the only source and the generators went
+with the script.
 
 ## Still open
 
