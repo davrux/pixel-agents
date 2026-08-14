@@ -1640,6 +1640,38 @@ export class OfficeScene extends Phaser.Scene {
       }
     });
     this.setupKeyboardMovement();
+    this.setupWorldClickFocusRelease();
+  }
+
+  /**
+   * Clicking the world gives the keyboard back to the world.
+   *
+   * Without this the app can be left with no way to walk at all. Every panel
+   * that takes text — the Matrix composer (focused deliberately when a room
+   * opens, so the first keystroke types instead of walking the avatar), zone
+   * chat, any editor field — is a DOM element layered over the canvas, and
+   * `blocked()` in setupKeyboardMovement stands down for exactly that. The
+   * escape hatch a browser normally provides is "click somewhere else", but
+   * Phaser's input manager calls preventDefault on the canvas' pointerdown,
+   * which is what suppresses the focus change — so the field kept focus, WASD
+   * kept typing into it, and clicking the office did nothing about it.
+   *
+   * Capture phase on the canvas: a click that reaches the canvas at all was not
+   * over a panel (an overlay would be the event's target instead), so this can
+   * never steal focus from a field the user is actually pointing at.
+   */
+  private setupWorldClickFocusRelease(): void {
+    this.game.canvas?.addEventListener(
+      'pointerdown',
+      () => {
+        const el = document.activeElement;
+        // <body> means nothing holds it, and the canvas itself is not a text
+        // sink — anything else (input, textarea, a panel's button) is what
+        // would keep swallowing WASD.
+        if (el instanceof HTMLElement && el !== document.body && el !== this.game.canvas) el.blur();
+      },
+      { capture: true },
+    );
   }
 
   /**

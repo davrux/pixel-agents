@@ -481,6 +481,14 @@ The word "chat" is never used unqualified in the Matrix panel; rooms are "rooms"
    panel, WASD/arrows/C/M do not move the avatar; clicking the canvas (or `Escape` out of the panel)
    restores them. `input.keyboard.enabled` is never touched — the arcade overlay remains the only
    thing that toggles it.
+   *"Clicking the canvas restores them" was aspirational until 2026-08-14:* Phaser's input manager
+   calls `preventDefault` on the canvas' `pointerdown`, which suppresses the browser's own focus
+   change, so the composer kept focus and every W/A/S/D went on being typed into it — with a room
+   open (which focuses the composer deliberately, see `openRoom`) the world became unreachable by
+   keyboard for the rest of the session. `OfficeScene.setupWorldClickFocusRelease()` now blurs
+   whatever holds focus on a canvas `pointerdown`, in the capture phase; a click that reaches the
+   canvas was by definition not over a panel, so it can never steal focus from a field being
+   pointed at.
 
 ---
 
