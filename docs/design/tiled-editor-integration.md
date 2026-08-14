@@ -33,8 +33,9 @@ LayoutEditor, FurnitureEditor and FloorEditor have all been removed.
   Tiled's untyped property bags, and we'd still need a typed intermediate layer at runtime
   anyway. There is no longer a second place to edit a zone from — the in-game
   editors are gone — so the old "don't edit the same zone in two places" caveat
-  is moot; a `.tmj` save is imported by the file watcher and becomes the zone's
-  active layout.
+  is moot. A `.tmj` reaches a server by being pushed to it
+  (`server/scripts/push-zones.mts` → `POST /tiled/zone`), which imports it and
+  makes it that zone's active layout.
 - **Furniture catalog** (`FurnitureCatalogEntry[]`, global — not per-zone): a Tiled tileset
   *becomes* the source of truth, replacing `assets/furniture/<TYPE>/manifest.json` entirely.
   This is tractable (unlike the map) because it's a small, static, boot-time-only catalog
@@ -104,12 +105,18 @@ hand-edited tilesets), `bake-images-tiled.mts`, `bake-generated-furniture.mts`
 
 ## Still open
 
-- Prod server picking up catalog/zone changes — the file watch is dev-only.
-- `zones/*.tmj` are currently gitignored, i.e. treated as scratch. Committing them
-  would make levels diffable and hand-offable without DB access; the argument
-  against is that the DB is authoritative and two copies drift. Undecided, and
-  worth noting the cost of the status quo: a zone file lost or corrupted has no
-  history to recover from.
+- The **furniture catalog** still only reloads on a dev-server file watch; only
+  zones can be pushed. A tileset change therefore still needs a deploy.
+- `zones/*.tmj` are gitignored, i.e. treated as scratch — which is exactly why
+  they have to be pushed: no deploy carries them. Committing them would make
+  levels diffable and hand-offable without DB access; the argument against is
+  that the DB is authoritative and two copies drift. Undecided, and worth noting
+  the cost of the status quo: a zone file lost or corrupted has no history.
+- A push is rejected wholesale if its zone id is malformed, but a map authored
+  against different tilesets than the server has is accepted with a warning and
+  a count of placements that did not resolve. Refusing outright would be the
+  stricter choice; it would also block a mapper whose one new tile has not been
+  deployed yet.
 - A furniture item can still be uploaded as a DB override through the server's
   `saveAsset` path, left from the removed in-game editor. Nothing sends one
   anymore.

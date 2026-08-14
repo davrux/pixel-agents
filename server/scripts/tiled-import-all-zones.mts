@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 /**
  * Import every assets/tiled/zones/*.tmj file at once — the batch counterpart
- * to the live server's own watchZoneFiles (see tiled/zoneImport.ts), for
+ * to pushing them (server/scripts/push-zones.mts), for
  * running the same import by hand: offline, against a stopped server, or
  * just to force a fresh import without waiting on a file-save event.
  *

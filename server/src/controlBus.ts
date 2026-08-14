@@ -39,7 +39,7 @@ export const ZONE_DELETED_EVENT = 'zoneDeleted';
 export const ASSET_CHANGED_EVENT = 'assetChanged';
 
 /** A zone's saved layout changed on disk via Tiled (see
- *  tiled/zoneImport.ts's watchZoneFiles) rather than through this room's own
+ *  tiled/zonePushApi.ts's push endpoint) rather than through this room's own
  *  save/save-as messages — so unlike those, nothing already told THIS room
  *  to reload. Payload: the zone id. The room hosting that zone (if any is
  *  currently live) rebuilds from the newly active layout and rebroadcasts,

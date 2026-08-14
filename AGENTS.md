@@ -340,6 +340,19 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   offers a class's own members, so a property missing from `FurnitureObject` is
   settable on the type and invisible on every placement. Keep the object class a
   superset of the tile class, `label`/`name` aside.
+- **Zone maps reach a server by being pushed, never by being deployed.**
+  `assets/tiled/zones/*.tmj` is gitignored, so a level edit rides along with no
+  release. Push it:
+  ```bash
+  cd server && node --import tsx scripts/push-zones.mts --server=<host:port> [--watch]
+  ```
+  Auth is `PIXEL_ADMIN_TOKEN` in `X-Pixel-Admin-Token` (see
+  `src/tiled/zonePushApi.ts` for why that and not a session). The dev server does
+  **not** watch its zones directory — `--watch` against 127.0.0.1 is the same
+  command as a deploy push, so local and production behave alike. Tilesets are a
+  different matter: they are committed and still need a real deploy, and pushing
+  a map authored against newer ones reports how many placements failed to
+  resolve rather than failing.
 - **Measuring performance:** judge render/mesher perf by **frame / CPU time**,
   not proxies like triangle count (greedy meshing once measured *slower* despite
   −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +

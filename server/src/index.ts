@@ -36,8 +36,8 @@ import express, { type Request, type Response, type NextFunction, type RequestHa
 
 import { WORLD_ROOM } from '@pixel/shared';
 
-import { loadAssetBundle, watchFurnitureTilesets } from './assets.js';
-import { watchZoneFiles } from './tiled/zoneImport.js';
+import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.js';
+import { registerZonePushApi } from './tiled/zonePushApi.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
@@ -139,7 +139,6 @@ async function main(): Promise<void> {
   const bundle = await loadAssetBundle();
   initAssetDefaults(bundle); // process-wide merged-bundle cache (see assetOverrides.ts)
   watchFurnitureTilesets(); // live-reload assets/tiled/furniture-*.tsj on save (see assets.ts)
-  watchZoneFiles(); // live-import assets/tiled/zones/*.tmj on save (see tiled/zoneImport.ts)
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
 
   const app = express();
@@ -200,6 +199,10 @@ async function main(): Promise<void> {
   if (ADMIN_TOKEN) {
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
+    // Zone maps arrive by push, never by watching a directory — the deploy
+    // server has no zones/*.tmj of its own (they are gitignored, so no deploy
+    // carries them). See tiled/zonePushApi.ts and scripts/push-zones.mts.
+    registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in

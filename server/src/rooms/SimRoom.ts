@@ -278,7 +278,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   };
 
   /** This zone's saved layout changed on disk via Tiled (see
-   *  tiled/zoneImport.ts's watchZoneFiles) — nothing else told this
+   *  tiled/zonePushApi.ts's push endpoint) — nothing else told this
    *  already-running room to pick it up, unlike a loadLayout/saveLayout(As)
    *  message which reloads the room that issued it as a side effect. Same
    *  reload as those: rebuild the engine from the (now different) active
