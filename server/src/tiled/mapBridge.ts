@@ -32,6 +32,9 @@ import { emptyWallEdges, hIndex, latticeIndex, vIndex } from '@pixel/shared/offi
  *  concept here and is never set or read. */
 const TILED_FLIP_H = 0x80000000;
 const TILED_FLIP_V = 0x40000000;
+/** Tiled's third flip bit. We render nothing rotated, but a gid carrying it still
+ *  has to RESOLVE — see baseGid. */
+const TILED_FLIP_D = 0x20000000;
 
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
  *  corner of the tile's image, not top-left like every other object type. */
@@ -160,6 +163,7 @@ export function importTmjToLayout(
     let raw = Number(gid) || 0;
     if (raw >= TILED_FLIP_H) raw -= TILED_FLIP_H;
     if (raw >= TILED_FLIP_V) raw -= TILED_FLIP_V;
+    if (raw >= TILED_FLIP_D) raw -= TILED_FLIP_D;
     return raw;
   };
   const isFurnitureTileObject = (o: Record<string, unknown>): boolean => {
@@ -197,7 +201,10 @@ export function importTmjToLayout(
   const floorSets: string[] = [];
   const wallSets: string[] = [];
   for (let i = 0; i < cols * rows; i++) {
-    const groundResolved = resolveGid(ground[i] ?? 0);
+    // Through baseGid like every other gid read: a flipped tile is still that
+    // tile. Without this a mirrored floor tile resolved to nothing and the cell
+    // silently became VOID — the same trap that swallowed painted wall pieces.
+    const groundResolved = resolveGid(baseGid(ground[i]));
     // Classify by Tiled's own `class` (FloorTile — see Pixels.tiled-project),
     // not by which file a tile lives in — a mapper reorganizing tileset files
     // must not silently break this (see docs/design/tiled-editor-integration.md).
@@ -236,7 +243,12 @@ export function importTmjToLayout(
     const latticePiece: Array<number | null> = new Array((cols + 1) * (rows + 1)).fill(null);
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const resolved = resolveGid(wallLatticeLayer[r * cols + c] ?? 0);
+        // baseGid: a mapper mirroring a wall piece (Tiled's X/Y/Z while painting)
+        // sets a flip bit, and the raw gid then matches no tileset range at all —
+        // so the piece was dropped and that stretch of wall simply did not appear,
+        // while the editor showed it perfectly. Costly to diagnose from a
+        // screenshot; cheap to prevent here.
+        const resolved = resolveGid(baseGid(wallLatticeLayer[r * cols + c]));
         if (resolved?.class !== 'WallTile') continue;
         const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
         const li = latticeIndex(cols, c, r);
@@ -264,7 +276,7 @@ export function importTmjToLayout(
     const faceColor: Array<number | null> = new Array(cols * rows).fill(null);
     let anyFace = false;
     for (let i = 0; i < cols * rows; i++) {
-      const resolved = resolveGid(wallFaceLayer[i] ?? 0);
+      const resolved = resolveGid(baseGid(wallFaceLayer[i]));
       if (resolved?.class !== 'WallTile') continue;
       const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
       facePiece[i] = piece;
