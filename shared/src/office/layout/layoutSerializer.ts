@@ -1,6 +1,6 @@
 import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
-import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType } from '../types.js';
-import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveSitFacing } from './furnitureCatalog.js';
+import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
+import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing } from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
 /** Convert flat tile array from layout into 2D grid */
@@ -66,17 +66,26 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Clear anything already standing on the tiles this item occupies.
-    const bgRows = resolveBackgroundTiles(item, entry);
-    const tiles: string[] = [];
-    for (let dr = bgRows; dr < entry.footprintH; dr++) {
-      for (let dc = 0; dc < entry.footprintW; dc++) tiles.push(`${item.col + dc},${item.row + dr}`);
+    // A walk-over decal (rug, doormat) leaves the stacking question alone
+    // entirely: it lies UNDER everything by definition, so it neither gets
+    // lifted by what it covers nor counts as the thing an item on that tile is
+    // standing on. Taking part would let a rug push a chair's zY up by half a
+    // step for no reason.
+    if (resolveCanWalkOver(item, entry)) {
+      zY = WALK_OVER_DEPTH;
+    } else {
+      // Clear anything already standing on the tiles this item occupies.
+      const bgRows = resolveBackgroundTiles(item, entry);
+      const tiles: string[] = [];
+      for (let dr = bgRows; dr < entry.footprintH; dr++) {
+        for (let dc = 0; dc < entry.footprintW; dc++) tiles.push(`${item.col + dc},${item.row + dr}`);
+      }
+      for (const t of tiles) {
+        const below = topByTile.get(t);
+        if (below !== undefined && below >= zY) zY = below + 0.5;
+      }
+      for (const t of tiles) topByTile.set(t, Math.max(topByTile.get(t) ?? 0, zY));
     }
-    for (const t of tiles) {
-      const below = topByTile.get(t);
-      if (below !== undefined && below >= zY) zY = below + 0.5;
-    }
-    for (const t of tiles) topByTile.set(t, Math.max(topByTile.get(t) ?? 0, zY));
 
     const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
 
@@ -93,7 +102,8 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 }
 
 /** Get all tiles blocked by furniture footprints, optionally excluding a set of tiles.
- *  Skips top backgroundTiles rows so characters can walk through them. */
+ *  Skips top backgroundTiles rows so characters can walk through them, and
+ *  `canWalkOver` items entirely — a rug is scenery, not an obstacle. */
 export function getBlockedTiles(
   furniture: PlacedFurniture[],
   excludeTiles?: Set<string>,
@@ -102,6 +112,7 @@ export function getBlockedTiles(
   for (const item of furniture) {
     const entry = getCatalogEntry(item.id);
     if (!entry) continue;
+    if (resolveCanWalkOver(item, entry)) continue; // walk-over decal — never an obstacle
     const bgRows = resolveBackgroundTiles(item, entry);
     for (let dr = 0; dr < entry.footprintH; dr++) {
       if (dr < bgRows) continue; // skip background rows — characters can walk through
@@ -150,26 +161,6 @@ export function getBlockedFloorTiles(layout: OfficeLayout): Set<string> {
   return tiles;
 }
 
-/** Get tiles blocked for placement purposes — skips top backgroundTiles rows per item */
-export function getPlacementBlockedTiles(
-  furniture: PlacedFurniture[],
-  excludeUid?: string,
-): Set<string> {
-  const tiles = new Set<string>();
-  for (const item of furniture) {
-    if (item.uid === excludeUid) continue;
-    const entry = getCatalogEntry(item.id);
-    if (!entry) continue;
-    const bgRows = resolveBackgroundTiles(item, entry);
-    for (let dr = 0; dr < entry.footprintH; dr++) {
-      if (dr < bgRows) continue; // skip background rows
-      for (let dc = 0; dc < entry.footprintW; dc++) {
-        tiles.add(`${item.col + dc},${item.row + dr}`);
-      }
-    }
-  }
-  return tiles;
-}
 
 /** Generate seats from every sittable item — see resolveCanSitOn/
  *  resolveSitFacing, which is where the "is this sittable, and which way do you

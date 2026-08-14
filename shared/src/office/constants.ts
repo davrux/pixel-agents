@@ -136,3 +136,17 @@ export const FUEL_COLOR_OK = '#44cc44';
 export const FUEL_COLOR_WARN = '#ffcc00';
 export const FUEL_COLOR_DANGER = '#ff8800';
 export const FUEL_COLOR_CRITICAL = '#ff2222';
+
+/**
+ * Render depth of a `canWalkOver` furniture item (see FurnitureCatalogEntry) —
+ * a rug is scenery on the floor, not something to sort against.
+ *
+ * It has to be a fixed band rather than a position-derived value: ordinary
+ * furniture and every entity sort by their world-pixel bottom edge (>= 0), so
+ * ANY position-derived depth would put a multi-row rug over the feet of someone
+ * standing on its upper row. The two bands directly below this one live in
+ * client/src/render/PhaserRenderer.ts — FLOOR_DEPTH (-100000) and, one above it,
+ * IMAGE_DEPTH for placed images. Keep that order: floor < image < walk-over <
+ * everything positional.
+ */
+export const WALK_OVER_DEPTH = -99998;

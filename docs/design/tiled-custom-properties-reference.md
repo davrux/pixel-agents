@@ -72,6 +72,7 @@ never absent, and nothing has to be added by hand.
 | `canSitOn` | bool | optional | May a character sit here? Every footprint tile below the `backgroundTiles` rows becomes a seat, so a 2-tile couch seats two. |
 | `sitFacing` | string, enum `SitFacing` | optional | Which way a sitting character looks: `N`/`E`/`S`/`W`. Blank = `N`. Describes the *unflipped* art — a flipped placement mirrors it (see "Special case: sitFacing"). |
 | `petCanSitOn` | bool | optional | May a pet perch on top? It also has to fit: a pet takes the first footprint column with no other item standing on it. |
+| `canWalkOver` | bool | optional | Is this a floor decal you walk **over** — a rug, a doormat, a painted marking? It blocks nothing and renders just above the floor, below every character and every other item. Both halves come together on purpose: exempting it from collision alone would still draw a two-row rug over the feet of whoever stands on its upper row, because ordinary furniture sorts by its sprite's bottom edge. |
 | `backgroundTiles` | int | optional | How many rows from the *top* of the footprint stay walkable *and* placeable-over by another item (e.g. a wall-mounted painting's row overlapping where a desk could also go; a portal pad's whole tile being walkable so a player can stand right on it). |
 | `onState` | string | optional | Catalog `id` this tile turns *into* when switched on — set on the "off" half only. See "Special case: state pairs". |
 | `actionKind` | string, enum `ActionKind` | optional | This *type's* default Action — every placed instance gets this unless it carries its own override (see FurnitureObject below). Same enum, same "Special case: Actions" semantics as FurnitureObject's. There are no other per-kind flags anymore (no `conference`/`arcade`/`meetingRoom`/`appliance`/`portal` booleans, no hardcoded id special-cases) — this is the *only* way a catalog type gets a default action. |
@@ -110,6 +111,7 @@ override.
 | `canSitOn` | bool | optional | Overrides the tile's own value for this placement only — makes one coffee machine sittable, or one chair not. |
 | `sitFacing` | string, enum `SitFacing` | optional | Overrides the tile's value. Taken **literally**: unlike the inherited default it is not mirrored by a flip, since you already know which way you flipped this one. |
 | `petCanSitOn` | bool | optional | Overrides the tile's value. |
+| `canWalkOver` | bool | optional | Overrides the tile's value — e.g. one rug of a kind that is normally furniture, or a mat you *do* want to block. |
 | `backgroundTiles` | int | optional | Overrides the tile's value — the only way to make a furniture tile walkable in one spot, since the Collision layer can only ever *add* blocking. |
 
 Unlike a FurnitureTile, a placed object carries **only the overrides it actually

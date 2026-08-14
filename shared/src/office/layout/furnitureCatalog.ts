@@ -166,6 +166,13 @@ export function resolvePetCanSitOn(item: PlacedFurniture, entry: FurnitureCatalo
   return item.petCanSitOn ?? entry?.petCanSitOn ?? false;
 }
 
+/** Is this placement a floor decal you walk over? See
+ *  FurnitureCatalogEntry.canWalkOver for why walkability and render depth are
+ *  one property. */
+export function resolveCanWalkOver(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): boolean {
+  return item.canWalkOver ?? entry?.canWalkOver ?? false;
+}
+
 /** How many rows from the top of this placement stay walkable — see
  *  FurnitureCatalogEntry.backgroundTiles for why this one is normally the
  *  type's business and only exceptionally the instance's. */

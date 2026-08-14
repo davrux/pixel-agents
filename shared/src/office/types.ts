@@ -5,6 +5,7 @@ export {
   MAX_COLS,
   MAX_ROWS,
   TILE_SIZE,
+  WALK_OVER_DEPTH,
 } from './constants.js';
 
 /** A ground cell is a floor pattern (1-based, matching a row of the floor set —
@@ -282,10 +283,20 @@ export interface FurnitureCatalogEntry {
   sitFacing?: Direction;
   /** May a pet rest on top of this? (see resolvePetCanSitOn) */
   petCanSitOn?: boolean;
+  /** Is this a floor decal you walk OVER rather than an obstacle — a rug, a
+   *  doormat, a painted marking (see resolveCanWalkOver)? Two facts in one
+   *  property, deliberately: such an item blocks nothing (getBlockedTiles skips
+   *  it whole) AND renders at WALK_OVER_DEPTH, below every entity. Exempting it
+   *  from collision alone would not be enough — ordinary furniture sorts by its
+   *  sprite's bottom edge, so a rug two rows tall would be drawn over the feet
+   *  of anyone standing on its upper row. Nobody would ever want one without
+   *  the other, which is why this is one answer and not two. */
+  canWalkOver?: boolean;
   /** Number of tile rows from the top of the footprint that are "background"
    *  — stay walkable, and can have another item's footprint placed over
-   *  them too (see layoutSerializer.ts's getBlockedTiles/
-   *  getPlacementBlockedTiles, which both skip these rows). Default 0.
+   *  them too (see layoutSerializer.ts's getBlockedTiles, which skips these
+   *  rows). Default 0. For a decal that is walkable in its ENTIRETY, use
+   *  canWalkOver instead — it also fixes the render depth, which this does not.
    *  Unlike its neighbours here this describes the ART — which rows of the
    *  sprite are a backrest or a wall-mounted upper half — so the catalog
    *  value is normally the right one; the instance override exists because
@@ -317,6 +328,7 @@ export interface PlacedFurniture {
   canSitOn?: boolean;
   sitFacing?: Direction;
   petCanSitOn?: boolean;
+  canWalkOver?: boolean;
   backgroundTiles?: number;
   onState?: string;
   /** Which side(s) a player may approach this item from, for any Action-

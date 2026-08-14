@@ -40,6 +40,11 @@
           "value": false
         },
         {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -107,6 +112,11 @@
           "value": false
         },
         {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -170,6 +180,11 @@
         },
         {
           "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
           "type": "bool",
           "value": false
         },
@@ -255,6 +270,11 @@
           "value": false
         },
         {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
           "name": "backgroundTiles",
           "type": "int",
           "value": 0
@@ -318,6 +338,11 @@
         },
         {
           "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
           "type": "bool",
           "value": false
         },

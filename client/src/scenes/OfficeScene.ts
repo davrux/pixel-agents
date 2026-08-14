@@ -884,6 +884,7 @@ export class OfficeScene extends Phaser.Scene {
         // Behaviour overrides, -1 = not overridden — see FurnitureSync.
         canSitOn: number;
         petCanSitOn: number;
+        canWalkOver: number;
         sitFacing: number;
         backgroundTiles: number;
         onState?: string;
@@ -914,6 +915,7 @@ export class OfficeScene extends Phaser.Scene {
         // server about what you may sit on.
         ...(f.canSitOn >= 0 ? { canSitOn: f.canSitOn === 1 } : {}),
         ...(f.petCanSitOn >= 0 ? { petCanSitOn: f.petCanSitOn === 1 } : {}),
+        ...(f.canWalkOver >= 0 ? { canWalkOver: f.canWalkOver === 1 } : {}),
         ...(f.sitFacing >= 0 ? { sitFacing: f.sitFacing as Direction } : {}),
         ...(f.backgroundTiles >= 0 ? { backgroundTiles: f.backgroundTiles } : {}),
         ...(f.onState ? { onState: f.onState } : {}),

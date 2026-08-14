@@ -98,6 +98,12 @@ export class FurnitureSync extends Schema {
   @type('int8') backgroundTiles = -1;
   /** Catalog id to switch to, or '' for no override. */
   @type('string') onState = '';
+  /** Walk-over decal (rug/doormat) — 1 yes, 0 no, -1 no override. The client
+   *  needs it for the same reason as canSitOn: it decides depth and clickability
+   *  on its side too, so a placement the server treats as scenery must not look
+   *  like an obstacle there. Appended last, same schema-evolution reasoning as
+   *  `action` above. */
+  @type('int8') canWalkOver = -1;
   /**
    * Stacking order among OVERLAPPING items — the object's position in Tiled's
    * own Furniture object list (see mapBridge.ts).
