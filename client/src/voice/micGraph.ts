@@ -21,6 +21,15 @@ export const MAX_MIC_GAIN = 20;
 
 export interface MicGraphOpts {
   deviceId?: string;
+  /**
+   * Process this already-captured audio instead of opening a device.
+   *
+   * For a caller that has *just* been granted a microphone as part of a combined
+   * camera+mic capture (see LiveKitConference): asking for the device again would
+   * make Firefox show a second permission prompt, which is exactly what the one
+   * combined request was for. The graph takes ownership — `stop()` stops it.
+   */
+  stream?: MediaStream;
   /** Input gain, 0..{@link MAX_MIC_GAIN} (1 = unity). */
   gain: number;
   /** Voice-activity threshold, 0..1 (0 = always transmit). */
@@ -82,14 +91,16 @@ export class MicGraph {
   }
 
   static async start(opts: MicGraphOpts): Promise<MicGraph> {
-    const raw = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: opts.deviceId ? { exact: opts.deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: false, // the sensitivity slider is the manual replacement
-      },
-    });
+    const raw =
+      opts.stream ??
+      (await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: opts.deviceId ? { exact: opts.deviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: false, // the sensitivity slider is the manual replacement
+        },
+      }));
     const ctx = new AudioContext({ sampleRate: 48000 });
     await ctx.resume().catch(() => undefined);
     // Callers encode at a hardcoded 48 kHz, so a denied request would time-warp

@@ -29,10 +29,12 @@ import {
   type Participant,
   type RemoteParticipant,
   type Track as LkTrack,
+  type LocalTrackPublication,
   type TrackPublication,
 } from 'livekit-client';
 import { reactionById, type Reaction } from './reactions.js';
 import { getAudioSettings, onAudioSettingsChange } from '../voice/audioSettings.js';
+import { MicGraph } from '../voice/micGraph.js';
 import { CameraFilters, type VideoFilterId } from './videoFilters.js';
 
 export interface ConferenceState {
@@ -84,6 +86,8 @@ export interface ConferenceCallbacks {
   onVideoFilter?: (id: VideoFilterId) => void;
   /** Number of active screen-shares changed (0 → nobody sharing). */
   onScreens?: (count: number) => void;
+  /** Live input level 0..1 of our own processed mic, for a level meter. */
+  onMicLevel?: (level: number) => void;
   /**
    * Who is talking right now, as LiveKit identities (`p<playerId>` — see
    * SimRoom.mintVoiceToken). Feeds the in-world speaking ring: being in a meeting
@@ -133,8 +137,22 @@ export class LiveKitConference {
   private micOn = true;
   private screenOn = false;
   private speakerId?: string;
+  /** Device id the mic is currently captured from ('' = system default). Our own
+   *  bookkeeping because, once the graph owns the capture, LiveKit's
+   *  `getActiveDevice('audioinput')` no longer describes what we are recording. */
+  private micId?: string;
   /** Unsubscribe from the shared audio settings (set on connect). */
   private unsubAudio?: () => void;
+  /**
+   * Our own mic, processed: raw device → gain → gate → published track.
+   *
+   * NOT LiveKit's own capture (setMicrophoneEnabled), because that publishes the
+   * bare device and the viewer's sensitivity and voice-activity threshold would do
+   * nothing in a meeting. The graph is the same one the zone-wide call used, lifted
+   * rather than reinvented — see micGraph.ts.
+   */
+  private micGraph?: MicGraph;
+  private micPub?: LocalTrackPublication;
 
   constructor(
     private stage: HTMLElement,
@@ -174,7 +192,19 @@ export class LiveKitConference {
     if (audio.speakerId) this.speakerId = audio.speakerId;
     this.unsubAudio?.();
     this.unsubAudio = onAudioSettingsChange((next) => void this.applyAudioSettings(next));
-    const room = new Room({ adaptiveStream: true, dynacast: true });
+    // The chosen input has to be the capture default, not a switch afterwards: the
+    // combined camera+mic request happens before anything of ours runs, and its
+    // track is the one the graph adopts (see processPublishedMic).
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+      audioCaptureDefaults: {
+        ...(audio.micId ? { deviceId: audio.micId } : {}),
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: false, // the sensitivity slider replaces it (micGraph.ts)
+      },
+    });
     this.room = room;
     room
       .on(RoomEvent.TrackSubscribed, (track, _pub, p) => this.addTrack(track, p, false))
@@ -254,6 +284,9 @@ export class LiveKitConference {
     }
     try {
       await lp.enableCameraAndMicrophone();
+      // That published the *raw* device. Swap in the processed one, and keep the
+      // raw mic if the swap fails — audible beats correct.
+      this.micOn = (await this.processPublishedMic()) || this.micOn;
       return;
     } catch (e) {
       const err = e as Error;
@@ -289,9 +322,87 @@ export class LiveKitConference {
     if (!lp) return false;
     try {
       if (kind === 'cam') await lp.setCameraEnabled(true);
-      else await lp.setMicrophoneEnabled(true);
+      else return await this.publishProcessedMic();
       return true;
     } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Capture the mic through the viewer's own gain + voice gate and publish THAT.
+   *
+   * The alternative — LiveKit's setMicrophoneEnabled — publishes the raw device,
+   * which is why the sensitivity and threshold sliders had no effect on meetings.
+   * A failure here is reported as "no microphone" by the caller rather than thrown,
+   * same as a camera failure.
+   *
+   * Verified from a single browser (headless Chromium, fake device, live LiveKit):
+   * one getUserMedia, and the RTP sender's audio track is this graph's
+   * MediaStreamAudioDestinationNode — so it really is the processed audio on the
+   * wire, in both this path and processPublishedMic's. Mute/unmute flips that same
+   * track rather than republishing.
+   *
+   * STILL UNTESTED (needs a second participant): that the far end actually *hears*
+   * it, that the gate cuts and reopens without clipping words, and that a mid-call
+   * device change (switchMic) stays audible across the swap.
+   */
+  private async publishProcessedMic(): Promise<boolean> {
+    const lp = this.room?.localParticipant;
+    if (!lp) return false;
+    const s = getAudioSettings();
+    try {
+      this.micGraph = await MicGraph.start({
+        deviceId: s.micId || undefined,
+        gain: s.micGain,
+        threshold: s.micThreshold,
+        onLevel: (level) => this.cb.onMicLevel?.(level),
+      });
+      this.micPub = await lp.publishTrack(this.micGraph.createTrack(), { source: Track.Source.Microphone });
+      this.micId = s.micId;
+      return true;
+    } catch {
+      this.micGraph?.stop();
+      this.micGraph = undefined;
+      this.micPub = undefined;
+      return false;
+    }
+  }
+
+  /**
+   * Re-route the microphone LiveKit itself captured (`enableCameraAndMicrophone`)
+   * through our gain + gate, without touching the camera.
+   *
+   * The combined capture exists to show one permission prompt instead of two, so
+   * this must not open the device a second time — Firefox would prompt again. It
+   * adopts the granted track instead, which is why the unpublish must not stop it:
+   * that track is the graph's input from here on.
+   *
+   * Same verification status as publishProcessedMic — see there.
+   */
+  private async processPublishedMic(): Promise<boolean> {
+    const lp = this.room?.localParticipant;
+    const rawTrack = lp?.getTrackPublication(Track.Source.Microphone)?.track;
+    if (!lp || !rawTrack) return false;
+    const s = getAudioSettings();
+    try {
+      await lp.unpublishTrack(rawTrack, false); // false = keep the track alive
+      this.micGraph = await MicGraph.start({
+        stream: new MediaStream([rawTrack.mediaStreamTrack]),
+        gain: s.micGain,
+        threshold: s.micThreshold,
+        onLevel: (level) => this.cb.onMicLevel?.(level),
+      });
+      this.micPub = await lp.publishTrack(this.micGraph.createTrack(), { source: Track.Source.Microphone });
+      this.micId = s.micId;
+      return true;
+    } catch {
+      // Half-swapped is the one unacceptable outcome: put an unprocessed mic back
+      // rather than leave the meeting silent.
+      this.micGraph?.stop();
+      this.micGraph = undefined;
+      this.micPub = undefined;
+      await lp.setMicrophoneEnabled(true).catch(() => undefined);
       return false;
     }
   }
@@ -669,8 +780,22 @@ export class LiveKitConference {
   async toggleMic(): Promise<void> {
     const next = !this.micOn;
     try {
-      await this.room?.localParticipant.setMicrophoneEnabled(next);
-      this.micOn = next;
+      // Mute the publication, not LiveKit's capture: the track is ours (see
+      // publishProcessedMic), so setMicrophoneEnabled would not touch it. If we
+      // never got a mic at all, this is the moment to try again — unless LiveKit
+      // is holding an unprocessed one (the swap's fallback), which it owns and
+      // must therefore also switch off, or we'd publish a second microphone.
+      const lkMic = this.room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (!this.micPub && lkMic) {
+        await this.room?.localParticipant.setMicrophoneEnabled(next);
+        this.micOn = next;
+      } else if (!this.micPub) {
+        this.micOn = next ? await this.publishProcessedMic() : false;
+      } else {
+        if (next) await this.micPub.unmute();
+        else await this.micPub.mute();
+        this.micOn = next;
+      }
     } catch {
       this.micOn = false;
       this.cb.onNotice?.(`Microphone unavailable. ${grantHint()}`);
@@ -711,7 +836,7 @@ export class LiveKitConference {
         mics,
         speakers,
         camId: room.getActiveDevice('videoinput'),
-        micId: room.getActiveDevice('audioinput'),
+        micId: this.micId ?? room.getActiveDevice('audioinput'),
         speakerId: room.getActiveDevice('audiooutput') ?? this.speakerId,
       });
     } catch {
@@ -722,10 +847,14 @@ export class LiveKitConference {
   /** Re-apply the viewer's audio preferences to this live call. Device switches go
    *  through the same methods the meeting window's own pickers use, so there is one
    *  path and no second source of truth. */
-  private async applyAudioSettings(s: { micId: string; speakerId: string; master: number }): Promise<void> {
+  private async applyAudioSettings(s: { micId: string; speakerId: string; master: number; micGain: number; micThreshold: number }): Promise<void> {
     if (!this.room) return;
     if (s.speakerId && s.speakerId !== this.speakerId) await this.switchSpeaker(s.speakerId);
-    if (s.micId) await this.room.switchActiveDevice('audioinput', s.micId).catch(() => undefined);
+    // Only on an actual change: switchMic re-opens the device, and this runs on
+    // every settings change — dragging the gain slider must not reopen the mic.
+    if (s.micId && s.micId !== this.micId) await this.switchMic(s.micId).catch(() => undefined);
+    this.micGraph?.setGain(s.micGain);
+    this.micGraph?.setThreshold(s.micThreshold);
     for (const identity of new Set([...this.audios.values()].map((a) => a.identity))) this.applyVolume(identity);
   }
 
@@ -734,7 +863,12 @@ export class LiveKitConference {
     await this.emitDevices();
   }
   async switchMic(deviceId: string): Promise<void> {
-    await this.room?.switchActiveDevice('audioinput', deviceId);
+    // Swap the source feeding the graph, so the PUBLISHED track stays the same —
+    // no republish, and nobody hears a gap. Falls back to LiveKit's own switch
+    // when there is no graph (mic never came up).
+    if (this.micGraph) await this.micGraph.switchDevice(deviceId);
+    else await this.room?.switchActiveDevice('audioinput', deviceId);
+    this.micId = deviceId;
     await this.emitDevices();
   }
   async switchSpeaker(deviceId: string): Promise<void> {
@@ -773,6 +907,12 @@ export class LiveKitConference {
 
   private cleanup(): void {
     void this.filters.destroy(); // also covers a drop we didn't initiate (idempotent)
+    // Here rather than in disconnect(), so a call the server or the network ends
+    // also releases the microphone — otherwise the device light stays on.
+    this.micGraph?.stop();
+    this.micGraph = undefined;
+    this.micPub = undefined;
+    this.micId = undefined;
     for (const t of this.tiles.values()) t.root.remove();
     this.tiles.clear();
     for (const el of this.screens.values()) el.remove();
