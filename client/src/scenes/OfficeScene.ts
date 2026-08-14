@@ -253,7 +253,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
-  /** Player ids currently talking via zone voice (client-side, from LiveKit). */
+  /** Player ids currently talking in a meeting (client-side, from LiveKit). */
   private voiceSpeakers = new Set<number>();
   /** Per-player zone-voice presence + mic-mute + sound-off (from LiveKit). Fed to
    *  the renderer, which draws the crossed 🎤 / 🔊 markers over the avatars. */
@@ -2964,6 +2964,7 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
+      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
@@ -3116,6 +3117,7 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
+      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
       onScreens: (n) => {
         // The mini popup has no room for a screen share (meetingArea's own
         // screens container stays hidden) — expand into the full window,
@@ -3939,6 +3941,25 @@ export class OfficeScene extends Phaser.Scene {
       b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
+  }
+
+  /**
+   * Who is talking, from a meeting's LiveKit identities (`p<playerId>` — see
+   * SimRoom.mintVoiceToken) to the player ids the renderer draws rings under.
+   *
+   * Being in a meeting is what puts a ring on an avatar now. The identity scheme
+   * is the same one zone voice used, so this is a parse rather than a lookup, and
+   * an identity that doesn't match (a guest, a stale participant) simply doesn't
+   * get one instead of drawing over somebody else.
+   */
+  private setVoiceSpeakers(identities: Set<string>): void {
+    const ids = new Set<number>();
+    for (const identity of identities) {
+      const m = /^p(\d+)$/.exec(identity);
+      if (m) ids.add(Number(m[1]));
+    }
+    this.voiceSpeakers = ids;
+    this.wake(true); // talking indicators changed → one frame to pick it up
   }
 
   /** Feed the in-world voice indicators (Phaser): the pulsing ring under whoever

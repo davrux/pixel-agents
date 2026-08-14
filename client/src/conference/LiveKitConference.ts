@@ -83,6 +83,13 @@ export interface ConferenceCallbacks {
   onVideoFilter?: (id: VideoFilterId) => void;
   /** Number of active screen-shares changed (0 → nobody sharing). */
   onScreens?: (count: number) => void;
+  /**
+   * Who is talking right now, as LiveKit identities (`p<playerId>` — see
+   * SimRoom.mintVoiceToken). Feeds the in-world speaking ring: being in a meeting
+   * is what makes an avatar show one now that there is no zone-wide voice, and the
+   * identity scheme is the same either way, so the ring needs no second mapping.
+   */
+  onSpeakers?: (identities: Set<string>) => void;
 }
 
 interface PTile {
@@ -393,6 +400,9 @@ export class LiveKitConference {
   private markSpeakers(speakers: Participant[]): void {
     const active = new Set(speakers.map((s) => s.identity));
     for (const [identity, t] of this.tiles) t.root.classList.toggle('speaking', active.has(identity));
+    // Our own identity is in here too, which is wanted: you see your own ring in
+    // the world exactly as others see it.
+    this.cb.onSpeakers?.(active);
   }
 
   /** A camera track was (un)muted — a participant toggled their cam without unpublishing.
