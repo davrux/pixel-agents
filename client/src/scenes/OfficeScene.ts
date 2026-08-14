@@ -38,7 +38,6 @@ import {
   resolveBackgroundTiles,
   resolveCanSitOn,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import { getImageAssetList, type ImageAsset } from '@pixel/shared/office/imageAssets.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
@@ -68,7 +67,7 @@ import { loadTiledSheets } from '../net/tiledSheets.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
-import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, MAX_IMAGE_ASSET_BYTES, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
@@ -303,15 +302,12 @@ export class OfficeScene extends Phaser.Scene {
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
   private spaceTab: 'layouts' | 'zones' = 'layouts';
-  private assetsTab: 'chars' | 'images' = 'chars';
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
   /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
    *  often too small to make out at a glance, hence the zoom control. */
   private furnZoom: 1 | 2 | 4 = 2;
-  /** Which uploaded background image is selected in the Images-assets grid. */
-  private selectedImageAssetId: string | null = null;
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -2403,34 +2399,15 @@ export class OfficeScene extends Phaser.Scene {
       .join('');
   }
 
-  // ── Assets browser (Characters / Furniture) ──────────────────────
+  // ── Assets browser (Characters / NPCs) ───────────────────────────
 
   private renderAssetsPanel(): void {
     const body = this.assetsBody;
     if (!body) return;
     body.replaceChildren();
-    const seg = document.createElement('div');
-    seg.className = 'pa-seg';
-    const mkSeg = (label: string, on: boolean, onClick: () => void): HTMLElement => {
-      const s = document.createElement('div');
-      s.className = 'seg' + (on ? ' on' : '');
-      s.textContent = label;
-      s.onclick = onClick;
-      return s;
-    };
-    seg.append(
-      mkSeg('Characters', this.assetsTab === 'chars', () => {
-        this.assetsTab = 'chars';
-        this.renderAssetsPanel();
-      }),
-      mkSeg('Images', this.assetsTab === 'images', () => {
-        this.assetsTab = 'images';
-        this.renderAssetsPanel();
-      }),
-    );
-    body.appendChild(seg);
-    if (this.assetsTab === 'chars') this.renderCharAssets(body);
-    else this.renderImageAssets(body);
+    // No segmented control: uploaded background images used to be the second
+    // tab here, and characters/NPCs are the only editable assets left.
+    this.renderCharAssets(body);
   }
 
   /** Next free char_<n> id (ids are stable, never reused) — mirrors the editor. */
@@ -2538,164 +2515,6 @@ export class OfficeScene extends Phaser.Scene {
       }
       body.appendChild(row);
     }
-  }
-
-  /** Uploaded background images (see shared/office/imageAssets.ts) — PNG only,
-   *  placed via the Layout editor's Image tool as pure decoration (fixed
-   *  depth above the floor, below furniture — see PhaserRenderer's
-   *  IMAGE_DEPTH). This tab is upload + manage; placement happens in the
-   *  layout editor, same division as Furniture (catalog management here,
-   *  arranging what's already in the catalog there). */
-  private renderImageAssets(body: HTMLElement): void {
-    const uploadBtn = document.createElement('button');
-    uploadBtn.className = 'pa-b primary wide';
-    uploadBtn.textContent = '📥 Upload PNG…';
-    uploadBtn.title = `PNG only, up to ${Math.round(MAX_IMAGE_ASSET_BYTES / 1000)} KB`;
-    const uploadInput = document.createElement('input');
-    uploadInput.type = 'file';
-    uploadInput.accept = 'image/png';
-    uploadInput.multiple = true;
-    uploadInput.style.display = 'none';
-    const uploadStatus = document.createElement('div');
-    uploadStatus.className = 'muted';
-    uploadStatus.style.margin = '0.3rem 0';
-    uploadInput.onchange = () => {
-      if (uploadInput.files?.length) void this.uploadImageAssets(Array.from(uploadInput.files), uploadStatus);
-      uploadInput.value = '';
-    };
-    uploadBtn.onclick = () => uploadInput.click();
-    body.append(uploadBtn, uploadInput, uploadStatus);
-
-    const assets = getImageAssetList();
-    if (assets.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'grouplbl';
-      empty.textContent = 'None yet.';
-      body.appendChild(empty);
-    }
-    const grid = document.createElement('div');
-    grid.className = 'pa-assetgrid';
-    for (const asset of assets) grid.appendChild(this.mkImageAssetTile(asset));
-    body.appendChild(grid);
-
-    this.renderImageActionBar(body);
-  }
-
-  private mkImageAssetTile(asset: ImageAsset): HTMLElement {
-    const item = document.createElement('div');
-    item.className = 'pa-assetgrid-item' + (asset.id === this.selectedImageAssetId ? ' sel' : '');
-    item.title = `${asset.label} (${asset.width}×${asset.height})`;
-    const img = document.createElement('img');
-    img.src = asset.data;
-    img.style.cssText = 'max-width:5rem;max-height:5rem;display:block;image-rendering:pixelated;';
-    item.appendChild(img);
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = asset.label;
-    item.appendChild(nm);
-    item.onclick = () => {
-      this.selectedImageAssetId = asset.id;
-      this.renderAssetsPanel();
-    };
-    return item;
-  }
-
-  /** Sticky bottom bar for the selected image — Preview (the grid thumbnail is
-   *  capped at 5rem, too small to judge a real upload) and Delete (nothing to
-   *  Edit: a raster upload isn't paintable like a SpriteData sprite). */
-  private renderImageActionBar(body: HTMLElement): void {
-    if (!this.selectedImageAssetId) return;
-    const asset = getImageAssetList().find((a) => a.id === this.selectedImageAssetId);
-    if (!asset) {
-      this.selectedImageAssetId = null;
-      return;
-    }
-    const bar = document.createElement('div');
-    bar.className = 'pa-asset-actionbar';
-    const nm = document.createElement('span');
-    nm.className = 'nm';
-    nm.textContent = asset.label;
-    const preview = document.createElement('button');
-    preview.className = 'pa-b';
-    preview.textContent = '🔍 Preview';
-    preview.title = 'View at full size';
-    preview.onclick = () => {
-      const body2 = document.createElement('div');
-      body2.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:0.5rem;';
-      const img = document.createElement('img');
-      img.src = asset.data;
-      img.style.cssText = 'max-width:min(80vw,60rem);max-height:70vh;image-rendering:pixelated;border:2px solid #0a0908;';
-      const dims = document.createElement('span');
-      dims.className = 'muted';
-      dims.textContent = `${asset.width}×${asset.height}`;
-      body2.append(img, dims);
-      openPaDialog({ title: asset.label, body: body2, buttons: [] });
-    };
-    const del = document.createElement('button');
-    del.className = 'pa-b danger';
-    del.textContent = 'Delete';
-    del.title = 'Remove this image (any placements referencing it just stop rendering)';
-    del.onclick = async () => {
-      if (!(await confirmDialog(`Delete "${asset.label}"?`, { danger: true, confirmLabel: 'Delete' }))) return;
-      this.room?.send('deleteAsset', { assetType: 'image', name: asset.id });
-      this.selectedImageAssetId = null;
-      window.setTimeout(() => this.renderAssetsPanel(), 250);
-    };
-    bar.append(nm, preview, del);
-    body.appendChild(bar);
-  }
-
-  /** Read each PNG file, decode its natural pixel size, and save it as a new
-   *  image asset. Client-side size/type checks mirror the server's own
-   *  (validImageData in SimRoom.ts) — this just fails fast with a clear
-   *  message instead of a silent server-side drop. */
-  private async uploadImageAssets(files: File[], status: HTMLElement): Promise<void> {
-    status.textContent = files.length > 1 ? `Uploading ${files.length} images…` : 'Uploading…';
-    let added = 0;
-    for (const file of files) {
-      if (file.type !== 'image/png') {
-        status.textContent = `Skipped "${file.name}": not a PNG.`;
-        continue;
-      }
-      if (file.size > MAX_IMAGE_ASSET_BYTES) {
-        status.textContent = `Skipped "${file.name}": over ${Math.round(MAX_IMAGE_ASSET_BYTES / 1000)} KB.`;
-        continue;
-      }
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-      const { width, height } = await new Promise<{ width: number; height: number }>((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
-        img.onerror = () => reject(new Error('not a decodable image'));
-        img.src = dataUrl;
-      });
-      const label = file.name.replace(/\.[^.]+$/, '').slice(0, 64);
-      const id = this.uniqueImageId(label || 'image');
-      this.room?.send('saveAsset', { assetType: 'image', name: id, data: { data: dataUrl, width, height, label } });
-      added++;
-    }
-    status.textContent = `Uploaded ${added} of ${files.length}.`;
-    window.setTimeout(() => this.renderAssetsPanel(), 800);
-  }
-
-  /** A fresh image asset id, distinct from anything already uploaded. */
-  private uniqueImageId(base: string): string {
-    const sanitized = base.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'image';
-    const taken = new Set(getImageAssetList().map((a) => a.id));
-    if (!taken.has(sanitized)) return sanitized;
-    // A random tag, not a sequential _2/_3 counter: two people uploading the
-    // same filename at nearly the same moment would otherwise race to the
-    // SAME next free slot (each computed from their own stale local list) and
-    // silently overwrite one another — a random tag makes that collision
-    // astronomically unlikely instead of a near-certainty under real
-    // concurrency.
-    let id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
-    while (taken.has(id)) id = `${sanitized}_${Math.random().toString(36).slice(2, 6)}`;
-    return id;
   }
 
   /** A small pixel-art thumbnail (a single sprite frame drawn 1:1, CSS-scaled). */

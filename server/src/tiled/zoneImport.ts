@@ -13,7 +13,8 @@ import { appStore } from '../appStore.js';
 import { loadDefaultLayout } from '../assetLoader.js';
 import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
-import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
+import { controlBus, ZONE_LAYOUT_CHANGED_EVENT, ASSET_CHANGED_EVENT } from '../controlBus.js';
+import { invalidateMergedBundle } from '../assetOverrides.js';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions } from '../layoutSanitize.js';
 import { importTmjToLayout } from './mapBridge.js';
 import { loadTiledRegistry, type TiledRegistry } from './tiledRegistry.js';
@@ -147,6 +148,15 @@ export async function importZoneTmj(
       height,
       label,
     });
+  }
+  // The store is not what clients read — they get the merged bundle, which caches
+  // the DB overrides. Writing an image without dropping that cache leaves a pushed
+  // map's images invisible until something unrelated invalidates it (or the process
+  // restarts). This is now the ONLY writer of image assets: the in-game upload tab
+  // is gone, so nothing else would ever invalidate on their behalf.
+  if (images.length > 0) {
+    invalidateMergedBundle();
+    controlBus.emit(ASSET_CHANGED_EVENT, 'image');
   }
 
   // Round-trip through (de)serializeLayout so this matches exactly what a

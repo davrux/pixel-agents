@@ -176,11 +176,6 @@ export const MAX_PLACED_IMAGES = 100;
  *  wide), well past what the old in-game Image tool's own UI ever produced. */
 export const MAX_IMAGE_FOOTPRINT_TILES = 128;
 
-/** Max size (bytes, decoded) of one uploaded background image — a PNG this
- *  big is already a lot of decoration; bigger risks bloating every layout
- *  save/broadcast that includes it. */
-export const MAX_IMAGE_ASSET_BYTES = 300_000;
-
 /** Default/min/max font size (px) for a placed free-text label. */
 export const TEXT_LABEL_DEFAULT_FONT_SIZE = 8;
 export const TEXT_LABEL_MIN_FONT_SIZE = 6;

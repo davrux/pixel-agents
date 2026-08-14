@@ -20,7 +20,10 @@ Guiding principle throughout: replace our engine's ad-hoc "Sonderlocken" with
 Tiled-native equivalents wherever a genuinely good fit exists, and only fall back
 to custom properties where Tiled has no concept at all — not contorting our model
 to force a fit. Authoring now happens in Tiled **only**: the in-game
-LayoutEditor, FurnitureEditor and FloorEditor have all been removed.
+LayoutEditor, FurnitureEditor and FloorEditor have all been removed, as has the
+Assets panel's image-upload tab — a placed image now comes from an `ImageTile` in
+the map, and the zone importer stores the PNG it points at. What remains editable
+in-game is deliberately only what is *not* part of a map: avatars and NPCs.
 
 ## Decisions
 

@@ -10,7 +10,6 @@ import {
   mayRunCommand,
   KICK_CLOSE_CODE,
   DEFAULT_ZONE,
-  MAX_IMAGE_ASSET_BYTES,
   type CommandSpec,
 } from '@pixel/shared';
 import type { AgentEvent, ZoneConfig } from '@pixel/shared';
@@ -1451,7 +1450,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
       if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
-      if (type === 'image' && !this.validImageData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1469,8 +1467,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Asset overrides ──────────────────────────────────────────────
 
+  /** The asset types a CLIENT may write, deliberately narrower than ASSET_TYPES:
+   *  an `image` asset is only ever written by the zone importer (a pushed .tmj
+   *  carries the PNGs its ImageTiles use — see tiled/zoneImport.ts), never by a
+   *  viewer. The in-game upload tab that used to send them is gone, so the
+   *  gallery handlers must stop accepting the type as well — a write path with
+   *  no caller is still a write path. */
   private validAssetType(t: unknown): AssetType | null {
-    return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+    const clientEditable: readonly AssetType[] = ['character', 'pet', 'furniture'];
+    return (clientEditable as readonly string[]).includes(t as string) ? (t as AssetType) : null;
   }
 
   /** Is `id` a currently-loaded skin id (char_<n>)? Gates skin-pin messages. */
@@ -1665,17 +1670,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  *length* are checked here (cheap, no decoding) — a client-supplied
    *  width/height that doesn't match the actual image just makes for a
    *  stretched/squashed placement, not a security issue. */
-  private validImageData(data: unknown): boolean {
-    if (!data || typeof data !== 'object') return false;
-    const d = data as { data?: unknown; width?: unknown; height?: unknown; label?: unknown };
-    if (typeof d.data !== 'string' || !d.data.startsWith('data:image/png;base64,')) return false;
-    if (d.data.length > MAX_IMAGE_ASSET_BYTES * 1.4) return false; // base64 ≈ 4/3 the decoded size
-    if (!Number.isInteger(d.width) || !Number.isInteger(d.height) || (d.width as number) < 1 || (d.height as number) < 1) return false;
-    if ((d.width as number) > 4096 || (d.height as number) > 4096) return false;
-    if (d.label !== undefined && (typeof d.label !== 'string' || d.label.length > 64)) return false;
-    return true;
-  }
-
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
   private validFurnitureData(data: unknown): boolean {
     const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
@@ -1754,7 +1748,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.os.rebuildFromLayout(this.activeLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
-      // 'image' is client-render only — just rebroadcast below.
+      // 'image': nothing to re-apply server-side (the client renders them) —
+      // just rebroadcast below, which is how a pushed map's images reach viewers.
     }
     const msgType = messageTypeForAsset(type);
     const message = this.bundle.messages.find((m) => m.type === msgType);
