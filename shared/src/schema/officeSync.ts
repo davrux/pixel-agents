@@ -98,6 +98,18 @@ export class FurnitureSync extends Schema {
   @type('int8') backgroundTiles = -1;
   /** Catalog id to switch to, or '' for no override. */
   @type('string') onState = '';
+  /**
+   * Stacking order among OVERLAPPING items — the object's position in Tiled's
+   * own Furniture object list (see mapBridge.ts).
+   *
+   * It has to be synced: depth sorting happens on the client, and without this
+   * every stacked item fell back to a purely positional sort, which puts a bowl
+   * standing on a table behind the table because the table's sprite is taller.
+   * That used to be papered over by a per-catalog `occupiesSurface` flag lifting
+   * such items; this is the same fix without needing to declare which things can
+   * stand on which. Appended last, same schema-evolution reasoning as `action`.
+   */
+  @type('int16') zOffset = 0;
 }
 
 export class RoomState extends Schema {

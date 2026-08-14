@@ -891,6 +891,7 @@ export class OfficeScene extends Phaser.Scene {
         sitFacing: number;
         backgroundTiles: number;
         onState?: string;
+        zOffset: number;
       }>;
     }).furniture;
     this.furniturePlacements = arr.map((f, i) => {
@@ -920,6 +921,8 @@ export class OfficeScene extends Phaser.Scene {
         ...(f.sitFacing >= 0 ? { sitFacing: f.sitFacing as Direction } : {}),
         ...(f.backgroundTiles >= 0 ? { backgroundTiles: f.backgroundTiles } : {}),
         ...(f.onState ? { onState: f.onState } : {}),
+        // Stacking among overlapping items — see FurnitureSync.zOffset.
+        ...(f.zOffset ? { zOffset: f.zOffset } : {}),
       };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);

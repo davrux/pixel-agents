@@ -65,13 +65,18 @@ function wallSet(name: string | undefined): SpriteData[][] | undefined {
 export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number, setNames: string[] = []): FurnitureInstance[] {
   if (Object.keys(wallSheets).length === 0) return [];
   const instances: FurnitureInstance[] = [];
+  // Was anything painted at all? If so the lattice layer is the truth and only
+  // painted points draw — anything else invents wall the editor does not show
+  // (see mapBridge.ts's import). A layout built in code paints nothing and has
+  // only edges, so there the mask is all there is to go on.
+  const authored = walls.latticePiece?.some((p) => p != null) ?? false;
   for (let r = 0; r <= rows; r++) {
     for (let c = 0; c <= cols; c++) {
-      const derived = latticeMask(walls, cols, rows, c, r);
-      if (derived === 0) continue;
       const li = latticeIndex(cols, c, r);
-      const override = walls.latticePiece?.[li];
-      const piece = override ?? derived;
+      const painted = walls.latticePiece?.[li];
+      const derived = latticeMask(walls, cols, rows, c, r);
+      if (authored ? painted == null : derived === 0) continue;
+      const piece = painted ?? derived;
       const set = wallSet(setNames[walls.latticeSet?.[li] ?? 0]);
       const sprite = set?.[piece]?.[(walls.latticeColor?.[li] ?? null) === null ? 0 : (walls.latticeColor![li] as number) + 1];
       if (!sprite) continue;

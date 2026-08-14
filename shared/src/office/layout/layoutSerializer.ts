@@ -16,10 +16,33 @@ export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
   return map;
 }
 
-/** Convert placed furniture into renderable FurnitureInstance[] */
+/**
+ * Convert placed furniture into renderable FurnitureInstance[].
+ *
+ * Depth is positional — a thing further down the map draws in front — with one
+ * exception: among items whose footprints OVERLAP, the one later in Tiled's
+ * object list wins, lifted just far enough to sort above what it covers. That is
+ * what puts a bowl standing on a table in front of the table, whose sprite is
+ * taller and would otherwise win on position alone.
+ *
+ * `zOffset` used to be added with a ×100_000 multiplier, which made the object
+ * list order beat position GLOBALLY: the last object in the list drew in front
+ * of everything, anywhere on the map. Overlap-scoped is what was actually
+ * wanted, and it needs no per-catalog "this can stand on things" flag, which is
+ * how the same problem was solved before.
+ */
 export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): FurnitureInstance[] {
   const instances: FurnitureInstance[] = [];
-  for (const item of furniture) {
+  // Stacking order: Tiled's object list (zOffset), array order as the tiebreak.
+  const stackOrder = furniture
+    .map((f, i) => ({ f, i }))
+    .sort((a, b) => (a.f.zOffset ?? 0) - (b.f.zOffset ?? 0) || a.i - b.i)
+    .map(({ f }) => f);
+  // Highest zY assigned so far per tile, so a later item can clear it. Only the
+  // rows an item really occupies count (background rows are air — a painting
+  // hung over a desk's top row is not standing on the desk).
+  const topByTile = new Map<string, number>();
+  for (const item of stackOrder) {
     const entry = getCatalogEntry(item.id);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
@@ -43,12 +66,17 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       }
     }
 
-    // Manual stacking override ("bring to front" / "send to back" in the
-    // editor) — a large multiplier so any nonzero offset decisively wins over
-    // the position-based heuristics above (which only ever differ by single
-    // digits / fractions of a tile), while the default (unset = 0) leaves
-    // every existing layout's ordering completely unchanged.
-    if (item.zOffset) zY += item.zOffset * 100_000;
+    // Clear anything already standing on the tiles this item occupies.
+    const bgRows = resolveBackgroundTiles(item, entry);
+    const tiles: string[] = [];
+    for (let dr = bgRows; dr < entry.footprintH; dr++) {
+      for (let dc = 0; dc < entry.footprintW; dc++) tiles.push(`${item.col + dc},${item.row + dr}`);
+    }
+    for (const t of tiles) {
+      const below = topByTile.get(t);
+      if (below !== undefined && below >= zY) zY = below + 0.5;
+    }
+    for (const t of tiles) topByTile.set(t, Math.max(topByTile.get(t) ?? 0, zY));
 
     const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
 

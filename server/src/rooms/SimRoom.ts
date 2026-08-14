@@ -1921,6 +1921,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.sitFacing = p.sitFacing ?? -1;
       fs.backgroundTiles = p.backgroundTiles ?? -1;
       fs.onState = p.onState ?? '';
+      fs.zOffset = p.zOffset ?? 0;
       this.state.furniture.push(fs);
     }
   }
