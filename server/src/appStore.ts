@@ -231,12 +231,24 @@ class AppStore {
   }
 
   // ── Per-user player position (per zone), to respawn where they left ──
-  /** Last player tile for a user in a zone, or null. */
+  /**
+   * Last player tile for a user in a zone, or null.
+   *
+   * Validated rather than trusted: an entry of `{}` (which is what a write with
+   * undefined coordinates leaves behind, since JSON.stringify drops those keys)
+   * used to come back as a truthy "position" and then blow up the join. Anything
+   * that isn't a pair of integers counts as "no stored position" — you spawn at
+   * the zone's arrival point, which is exactly what a first-time visitor gets.
+   */
   getPlayerPos(name: string, zone: string): { col: number; row: number } | null {
     const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
-    return all[`${name}|${zone}`] ?? null;
+    const pos = all[`${name}|${zone}`];
+    return pos && Number.isInteger(pos.col) && Number.isInteger(pos.row) ? pos : null;
   }
+  /** Remember where a player left off. A non-tile is not stored at all — writing
+   *  it is what produced the `{}` entry above. */
   setPlayerPos(name: string, zone: string, col: number, row: number): void {
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return;
     const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
     all[`${name}|${zone}`] = { col, row };
     this.setSetting('playerPos', all);

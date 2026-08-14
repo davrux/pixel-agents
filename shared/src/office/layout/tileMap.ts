@@ -32,6 +32,14 @@ export function isWalkable(
   tileMap: TileType[][],
   blockedTiles: Set<string>,
 ): boolean {
+  // Not-a-tile first, and not as belt-and-braces: `undefined < 0` and
+  // `undefined >= rows` are BOTH false, so a bad coordinate sailed straight
+  // through the range check into `tileMap[undefined][undefined]` — a TypeError
+  // that killed whatever was asking. It cost a player their zone: a stored spawn
+  // position of `{}` (see appStore.getPlayerPos) made every join throw
+  // "Cannot read properties of undefined (reading 'undefined')" during
+  // matchmaking. A coordinate that isn't a tile index simply isn't walkable.
+  if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
   const rows = tileMap.length;
   const cols = rows > 0 ? tileMap[0].length : 0;
   if (row < 0 || row >= rows || col < 0 || col >= cols) return false;
