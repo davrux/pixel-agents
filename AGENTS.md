@@ -134,10 +134,19 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
 3. **Deterministic, grid-based.** Movement is tile-based A* on a grid
    (`layout/tileMap.ts`). No physics engine — it would break determinism and
    headless server execution.
-4. **Data model first.** Places an agent can occupy are `InteractionPoint`s
-   (`posture: sit|stand`, `occupantId` for one-capacity reservation *per
-   point*). Seats (chairs) still use the older `Seat` type and are meant to
-   fold into `InteractionPoint` over time. Appliances are data-driven — any
+4. **Data model first.** Every place a character can occupy is an
+   `InteractionPoint` (`posture: sit|stand`, `occupantId` for one-capacity
+   reservation *per point*) in the single `OfficeState.points` map — chairs and
+   appliance stand tiles alike. The older, separate `Seat` type with its
+   `assigned: boolean` is gone: two models for "somebody is here" meant a player's
+   sit was recorded nowhere, so an agent could be assigned the chair a player was
+   sitting on. **Occupancy is symmetric and goes through `claimPoint`** — an agent
+   is never sent to an occupied point and a player is refused one, whoever got
+   there first. A character holds at most two point ids: `homePointId` (an agent's
+   own desk, a *reservation* it keeps while fetching coffee) and `atPointId`
+   (where it is right now, players included). Pets keep their own claim set
+   (`petSeatClaims`) because pet and character ids share one number space, but the
+   exclusion is mutual. Appliances are data-driven — any
    catalog entry with the `appliance` flag (see `getCatalogEntry(...).appliance`)
    yields a stand point per walkable tile around its footprint (not just
    one), via `OfficeState.computeApproachTiles` — no hardcoded type list to

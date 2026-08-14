@@ -21,7 +21,6 @@ import type {
   Character,
   CharacterPose,
   InteractionPoint,
-  Seat,
   SpriteData,
   TileType as TileTypeVal,
 } from '../types.js';
@@ -37,17 +36,17 @@ export function isReadingTool(tool: string | null): boolean {
 export function createCharacter(
   id: number,
   skin: string,
-  seatId: string | null,
-  seat: Seat | null,
+  homePointId: string | null,
+  home: InteractionPoint | null,
   hueShift = 0,
 ): Character {
-  const col = seat ? seat.seatCol : 1;
-  const row = seat ? seat.seatRow : 1;
+  const col = home ? home.col : 1;
+  const row = home ? home.row : 1;
   const center = tileCenter(col, row);
   return {
     id,
     state: CharacterState.TYPE,
-    dir: seat ? seat.facingDir : Direction.DOWN,
+    dir: home ? home.facingDir : Direction.DOWN,
     x: center.x,
     y: center.y,
     tileCol: col,
@@ -63,9 +62,9 @@ export function createCharacter(
     wanderCount: 0,
     wanderLimit: randomInt(WANDER_MOVES_BEFORE_REST_MIN, WANDER_MOVES_BEFORE_REST_MAX),
     isActive: true,
-    seatId,
-    stationId: null,
-    stationTimer: 0,
+    homePointId,
+    atPointId: null,
+    atPointTimer: 0,
     coffeeCooldown: randomRange(COFFEE_COOLDOWN_MIN_SEC, COFFEE_COOLDOWN_MAX_SEC),
     bubbleType: null,
     bubbleTimer: 0,
@@ -86,8 +85,10 @@ export function updateCharacter(
   ch: Character,
   dt: number,
   walkableTiles: Array<{ col: number; row: number }>,
-  seats: Map<string, Seat>,
-  stations: Map<string, InteractionPoint>,
+  /** Every interaction point in the zone — chairs and appliance stand tiles
+   *  alike (see InteractionPoint). One map, because "somebody is here" is one
+   *  question; `posture` says which kind of here. */
+  points: Map<string, InteractionPoint>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
   /** Wall edges, so wandering respects walls — see wallEdges.ts. */
@@ -119,16 +120,16 @@ export function updateCharacter(
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
 
       // Standing at an interaction station (e.g. coffee machine)?
-      if (ch.stationId) {
-        const station = stations.get(ch.stationId);
-        if (!station || ch.isActive) {
+      if (ch.atPointId) {
+        const at = points.get(ch.atPointId);
+        if (!at || ch.isActive) {
           // Work resumed or station vanished → end the break and continue below.
-          releaseStation(ch, stations);
+          releasePoint(ch, points);
         } else {
-          ch.dir = station.facingDir;
-          ch.stationTimer -= dt;
-          if (ch.stationTimer <= 0) {
-            releaseStation(ch, stations);
+          ch.dir = at.facingDir;
+          ch.atPointTimer -= dt;
+          if (ch.atPointTimer <= 0) {
+            releasePoint(ch, points);
             ch.frame = 0;
             ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
           }
@@ -141,20 +142,20 @@ export function updateCharacter(
 
       // If became active, pathfind to seat
       if (ch.isActive) {
-        if (!ch.seatId) {
+        if (!ch.homePointId) {
           // No seat assigned — type in place
           ch.state = CharacterState.TYPE;
           ch.frame = 0;
           ch.frameTimer = 0;
           break;
         }
-        const seat = seats.get(ch.seatId);
-        if (seat) {
+        const home = points.get(ch.homePointId);
+        if (home) {
           const path = findPath(
             ch.tileCol,
             ch.tileRow,
-            seat.seatCol,
-            seat.seatRow,
+            home.col,
+            home.row,
             tileMap,
             blockedTiles,
             undefined,
@@ -169,7 +170,7 @@ export function updateCharacter(
           } else {
             // Already at seat or no path — sit down
             ch.state = CharacterState.TYPE;
-            ch.dir = seat.facingDir;
+            ch.dir = home.facingDir;
             ch.frame = 0;
             ch.frameTimer = 0;
           }
@@ -180,14 +181,14 @@ export function updateCharacter(
       ch.wanderTimer -= dt;
       if (ch.wanderTimer <= 0) {
         // Check if we've wandered enough — return to seat for a rest
-        if (ch.wanderCount >= ch.wanderLimit && ch.seatId) {
-          const seat = seats.get(ch.seatId);
-          if (seat) {
+        if (ch.wanderCount >= ch.wanderLimit && ch.homePointId) {
+          const home = points.get(ch.homePointId);
+          if (home) {
             const path = findPath(
               ch.tileCol,
               ch.tileRow,
-              seat.seatCol,
-              seat.seatRow,
+              home.col,
+              home.row,
               tileMap,
               blockedTiles,
               undefined,
@@ -235,45 +236,45 @@ export function updateCharacter(
         snapToTile(ch);
 
         // Arrived at an interaction station → stand facing the furniture.
-        if (ch.stationId) {
-          const station = stations.get(ch.stationId);
-          if (
-            station &&
-            !ch.isActive &&
-            ch.tileCol === station.col &&
-            ch.tileRow === station.row
-          ) {
+        if (ch.atPointId) {
+          const at = points.get(ch.atPointId);
+          if (at && !ch.isActive && ch.tileCol === at.col && ch.tileRow === at.row) {
             ch.state = CharacterState.IDLE;
-            ch.dir = station.facingDir;
-            ch.stationTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
+            ch.dir = at.facingDir;
+            ch.atPointTimer = randomRange(COFFEE_STAND_MIN_SEC, COFFEE_STAND_MAX_SEC);
             ch.frame = 0;
             ch.frameTimer = 0;
             break;
           }
           // Not actually there, became active, or station gone → drop the claim.
-          releaseStation(ch, stations);
+          releasePoint(ch, points);
         }
 
         if (ch.isActive) {
-          if (!ch.seatId) {
+          if (!ch.homePointId) {
             // No seat — type in place
             ch.state = CharacterState.TYPE;
           } else {
-            const seat = seats.get(ch.seatId);
-            if (seat && ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
+            const home = points.get(ch.homePointId);
+            if (home && ch.tileCol === home.col && ch.tileRow === home.row) {
               ch.state = CharacterState.TYPE;
-              ch.dir = seat.facingDir;
+              ch.dir = home.facingDir;
+              // Sitting at your own point also OCCUPIES it — the same fact a
+              // player's sit records, so "who is here" is one question for both
+              // (see OfficeState.autoOnSitters).
+              claimPoint(ch, points, ch.homePointId);
             } else {
               ch.state = CharacterState.IDLE;
             }
           }
         } else {
           // Check if arrived at assigned seat — sit down for a rest before wandering again
-          if (ch.seatId) {
-            const seat = seats.get(ch.seatId);
-            if (seat && ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
+          if (ch.homePointId) {
+            const home = points.get(ch.homePointId);
+            if (home && ch.tileCol === home.col && ch.tileRow === home.row) {
               ch.state = CharacterState.TYPE;
-              ch.dir = seat.facingDir;
+              ch.dir = home.facingDir;
+              claimPoint(ch, points, ch.homePointId);
               // seatTimer < 0 is a sentinel from setAgentActive(false) meaning
               // "turn just ended" — skip the long rest so idle transition is immediate
               if (ch.seatTimer < 0) {
@@ -303,21 +304,21 @@ export function updateCharacter(
       stepAlongPath(ch, dt, WALK_SPEED_PX_PER_SEC);
 
       // If work resumed while walking to a coffee break, abandon the claim.
-      if (ch.isActive && ch.stationId) {
-        releaseStation(ch, stations);
+      if (ch.isActive && ch.atPointId) {
+        releasePoint(ch, points);
       }
 
       // If became active while wandering, repath to seat
-      if (ch.isActive && ch.seatId) {
-        const seat = seats.get(ch.seatId);
-        if (seat) {
+      if (ch.isActive && ch.homePointId) {
+        const home = points.get(ch.homePointId);
+        if (home) {
           const lastStep = ch.path[ch.path.length - 1];
-          if (!lastStep || lastStep.col !== seat.seatCol || lastStep.row !== seat.seatRow) {
+          if (!lastStep || lastStep.col !== home.col || lastStep.row !== home.row) {
             const newPath = findPath(
               ch.tileCol,
               ch.tileRow,
-              seat.seatCol,
-              seat.seatRow,
+              home.col,
+              home.row,
               tileMap,
               blockedTiles,
               undefined,
@@ -348,7 +349,7 @@ export function getCharacterPose(ch: Character): CharacterPose {
     case CharacterState.IDLE:
     default:
       // Standing at an interaction station (coffee machine, …) vs plain idle.
-      return ch.stationId ? Pose.COFFEE : Pose.IDLE;
+      return ch.atPointId ? Pose.COFFEE : Pose.IDLE;
   }
 }
 
@@ -359,15 +360,32 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
   return spriteForPose(pose, ch.dir, ch.frame, sprites);
 }
 
-/** Release the character's interaction-station claim (idempotent). Exported so
- *  officeState's player-only movement path (which doesn't run the agent FSM
- *  above) can release a player's own station claim too. */
-export function releaseStation(ch: Character, stations: Map<string, InteractionPoint>): void {
-  if (!ch.stationId) return;
-  const station = stations.get(ch.stationId);
-  if (station && station.occupantId === ch.id) station.occupantId = null;
-  ch.stationId = null;
-  ch.stationTimer = 0;
+/** Let go of whatever point this character was occupying (idempotent). Exported
+ *  because officeState's player-only movement path doesn't run the agent FSM
+ *  above and has to release a player's own claim itself. */
+export function releasePoint(ch: Character, points: Map<string, InteractionPoint>): void {
+  if (!ch.atPointId) return;
+  const at = points.get(ch.atPointId);
+  if (at && at.occupantId === ch.id) at.occupantId = null;
+  ch.atPointId = null;
+  ch.atPointTimer = 0;
+}
+
+/**
+ * Take a point, if it is free or already ours; false when somebody else holds it.
+ *
+ * This one rule is what makes occupancy symmetric. Both the agent FSM and a
+ * player's click go through here, so an agent can no longer be sent to the chair
+ * a player is sitting on — which is exactly what used to happen, since a player's
+ * sit was recorded nowhere and the old `Seat.assigned` boolean stayed false.
+ */
+export function claimPoint(ch: Character, points: Map<string, InteractionPoint>, uid: string): boolean {
+  const point = points.get(uid);
+  if (!point || (point.occupantId !== null && point.occupantId !== ch.id)) return false;
+  if (ch.atPointId && ch.atPointId !== uid) releasePoint(ch, points);
+  point.occupantId = ch.id;
+  ch.atPointId = uid;
+  return true;
 }
 
 function randomRange(min: number, max: number): number {

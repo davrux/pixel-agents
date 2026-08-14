@@ -1,4 +1,4 @@
-import type { FurnitureInstance, OfficeLayout, PlacedFurniture, Seat, TileType as TileTypeVal } from '../types.js';
+import type { FurnitureInstance, InteractionPoint, OfficeLayout, PlacedFurniture, TileType as TileTypeVal } from '../types.js';
 import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
 import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing } from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
@@ -163,15 +163,16 @@ export function getBlockedFloorTiles(layout: OfficeLayout): Set<string> {
 }
 
 
-/** Generate seats from every sittable item — see resolveCanSitOn/
+/** Every sittable item's tiles as `sit` interaction points — see resolveCanSitOn/
  *  resolveSitFacing, which is where the "is this sittable, and which way do you
- *  face" question is now answered (it used to be inferred here, from the
- *  'chairs' category plus an art-orientation string plus the direction of the
- *  nearest desk). */
-export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
-  const seats = new Map<string, Seat>();
+ *  face" question is answered (it used to be inferred here, from the 'chairs'
+ *  category plus an art-orientation string plus the direction of the nearest
+ *  desk). The standing counterpart for appliances is built in officeState's
+ *  computeApproachTiles; both end up in the one OfficeState.points map. */
+export function layoutToSitPoints(furniture: PlacedFurniture[]): Map<string, InteractionPoint> {
+  const points = new Map<string, InteractionPoint>();
 
-  // Every footprint tile below the background rows becomes a seat, so a 2-tile
+  // Every footprint tile below the background rows becomes a point, so a 2-tile
   // couch seats two.
   for (const item of furniture) {
     const entry = getCatalogEntry(item.id);
@@ -182,33 +183,30 @@ export function layoutToSeats(furniture: PlacedFurniture[]): Map<string, Seat> {
     const bgRows = resolveBackgroundTiles(item, entry);
     for (let dr = bgRows; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
-        const tileCol = item.col + dc;
-        const tileRow = item.row + dr;
-
-        // First seat uses chair uid (backward compat), subsequent use uid:N
-        const seatUid = seatCount === 0 ? item.uid : `${item.uid}:${seatCount}`;
-        seats.set(seatUid, {
-          uid: seatUid,
-          seatCol: tileCol,
-          seatRow: tileRow,
+        // The first point keeps the item's own uid, the rest get `uid:N` — so a
+        // one-seat chair's point id is still just the chair's uid.
+        const uid = seatCount === 0 ? item.uid : `${item.uid}:${seatCount}`;
+        points.set(uid, {
+          uid,
+          col: item.col + dc,
+          row: item.row + dr,
           facingDir,
-          assigned: false,
+          posture: 'sit',
+          occupantId: null,
         });
         seatCount++;
       }
     }
   }
 
-  return seats;
+  return points;
 }
 
-/** Get the set of tiles occupied by seats (so they can be excluded from blocked tiles)
+/** The tiles of a set of points (so they can be excluded from blocked tiles)
  * @internal */
-export function getSeatTiles(seats: Map<string, Seat>): Set<string> {
+export function getPointTiles(points: Map<string, InteractionPoint>): Set<string> {
   const tiles = new Set<string>();
-  for (const seat of seats.values()) {
-    tiles.add(`${seat.seatCol},${seat.seatRow}`);
-  }
+  for (const p of points.values()) tiles.add(`${p.col},${p.row}`);
   return tiles;
 }
 

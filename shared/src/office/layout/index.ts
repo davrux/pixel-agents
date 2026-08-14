@@ -11,9 +11,9 @@ export {
   deserializeLayout,
   getBlockedFloorTiles,
   getBlockedTiles,
-  getSeatTiles,
+  getPointTiles,
   layoutToFurnitureInstances,
-  layoutToSeats,
+  layoutToSitPoints,
   layoutToTileMap,
   serializeLayout,
 } from './layoutSerializer.js';

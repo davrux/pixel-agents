@@ -35,7 +35,7 @@ import {
   getBlockedTiles,
   getReachThroughTiles,
   layoutToFurnitureInstances,
-  layoutToSeats,
+  layoutToSitPoints,
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
 import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
@@ -58,7 +58,6 @@ import type {
   Pet,
   PetKind,
   PlacedFurniture,
-  Seat,
   TileType as TileTypeVal,
 } from '../types.js';
 import {
@@ -70,7 +69,7 @@ import {
   TILE_SIZE,
   TileType,
 } from '../types.js';
-import { createCharacter, releaseStation, updateCharacter } from './characters.js';
+import { claimPoint, createCharacter, releasePoint, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
@@ -108,9 +107,11 @@ function computeActionTileKeys(layout: OfficeLayout): Set<string> {
 export class OfficeState {
   layout: OfficeLayout;
   tileMap: TileTypeVal[][];
-  seats: Map<string, Seat>;
+  /** Every place a character can occupy: chairs (posture 'sit') and appliance
+   *  stand tiles (posture 'stand') in one map, one occupant each. Absorbed the
+   *  separate `seats`/`stations` pair — see InteractionPoint. */
+  points: Map<string, InteractionPoint> = new Map();
   /** Standing interaction points derived from appliances (coffee machine, …). */
-  stations: Map<string, InteractionPoint> = new Map();
   blockedTiles: Set<string>;
   /** Walls as edges between cells (see types.ts's WallEdges) — what every
    *  findPath below consults so a wall blocks the STEP between two cells
@@ -159,6 +160,12 @@ export class OfficeState {
   /** Live pets, keyed by a dedicated id space (disjoint from characters). */
   pets: Map<number, Pet> = new Map();
   /** Non-chair furniture uids currently claimed by a pet. */
+  /** Sit points a pet has claimed. Separate from InteractionPoint.occupantId
+   *  because pet ids and character ids share one number space, so a pet could
+   *  not be told apart from a character in that slot — but the exclusion is
+   *  mutual all the same: both sides consult both (see findFreeSitPoint). It
+   *  mirrors petFurnitureClaims/petStationClaims below. */
+  private petSeatClaims: Set<string> = new Set();
   private petFurnitureClaims: Set<string> = new Set();
   /** Appliance-station uids currently claimed by a pet (mutually exclusive with
    *  an agent's `occupantId` claim on the same station). */
@@ -189,7 +196,6 @@ export class OfficeState {
   constructor(layout?: OfficeLayout) {
     this.layout = layout || createDefaultLayout();
     this.tileMap = layoutToTileMap(this.layout);
-    this.seats = layoutToSeats(this.layout.furniture);
     this.blockedTiles = computeBlockedTiles(this.layout);
     this.walls = this.layout.walls;
     this.reachThroughTiles = getReachThroughTiles(this.layout.furniture);
@@ -207,7 +213,7 @@ export class OfficeState {
     this.furniturePlacements = this.layout.furniture;
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
-    this.buildStations();
+    this.buildPoints();
     this.computePortalTiles();
   }
 
@@ -217,6 +223,7 @@ export class OfficeState {
     // Pets hold seat/furniture/tile claims that won't survive a layout rebuild.
     // Drop them outright; they respawn naturally from the spawn loop.
     this.pets.clear();
+    this.petSeatClaims.clear();
     this.petFurnitureClaims.clear();
     this.petStationClaims.clear();
     this.petTalkClaims.clear();
@@ -235,7 +242,6 @@ export class OfficeState {
 
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
-    this.seats = layoutToSeats(layout.furniture);
     this.blockedTiles = computeBlockedTiles(layout);
     this.walls = layout.walls;
     this.reachThroughTiles = getReachThroughTiles(layout.furniture);
@@ -245,11 +251,11 @@ export class OfficeState {
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
     // Station uids are regenerated; drop stale claims on every character.
-    this.buildStations();
+    this.buildPoints();
     this.computePortalTiles();
     for (const ch of this.characters.values()) {
-      ch.stationId = null;
-      ch.stationTimer = 0;
+      ch.atPointId = null;
+      ch.atPointTimer = 0;
     }
 
     // Shift character positions when grid expands left/up
@@ -265,50 +271,59 @@ export class OfficeState {
       }
     }
 
-    // Reassign characters to new seats, preserving existing assignments when possible
-    for (const seat of this.seats.values()) {
-      seat.assigned = false;
+    // Occupancy is re-DERIVED here rather than reset and rebuilt: `occupantId`
+    // names its holder, so re-applying what the characters themselves say is the
+    // whole job, and a claim on a point the new layout no longer has simply drops
+    // out. The old `assigned` boolean couldn't be checked against anything, which
+    // is why this needed two passes and a comment about preserving assignments.
+    for (const p of this.points.values()) p.occupantId = null;
+    const reclaim = (ch: Character, uid: string): boolean => {
+      const p = this.points.get(uid);
+      if (!p || (p.occupantId !== null && p.occupantId !== ch.id)) return false;
+      p.occupantId = ch.id;
+      return true;
+    };
+    for (const ch of this.characters.values()) {
+      if (ch.homePointId && !reclaim(ch, ch.homePointId)) ch.homePointId = null;
+    }
+    for (const ch of this.characters.values()) {
+      if (ch.atPointId && !reclaim(ch, ch.atPointId)) {
+        ch.atPointId = null;
+        ch.atPointTimer = 0;
+      }
     }
 
-    // First pass: try to keep characters at their existing seats
+    // Whoever kept their own point stands on it again.
     for (const ch of this.characters.values()) {
-      if (ch.seatId && this.seats.has(ch.seatId)) {
-        const seat = this.seats.get(ch.seatId)!;
-        if (!seat.assigned) {
-          seat.assigned = true;
-          // Snap character to seat position
-          ch.tileCol = seat.seatCol;
-          ch.tileRow = seat.seatRow;
-          const cx = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
-          const cy = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
-          ch.x = cx;
-          ch.y = cy;
-          ch.dir = seat.facingDir;
-          continue;
-        }
-      }
-      ch.seatId = null; // will be reassigned below
+      const home = ch.homePointId ? this.points.get(ch.homePointId) : undefined;
+      if (!home) continue;
+      ch.tileCol = home.col;
+      ch.tileRow = home.row;
+      ch.x = home.col * TILE_SIZE + TILE_SIZE / 2;
+      ch.y = home.row * TILE_SIZE + TILE_SIZE / 2;
+      ch.dir = home.facingDir;
     }
 
-    // Second pass: assign remaining characters to free seats
+    // Anyone left without one gets a free point — agents only. A player has no
+    // desk of their own (homePointId is the agent-side reservation), and handing
+    // them one here would teleport them onto a chair the moment a map is pushed.
     for (const ch of this.characters.values()) {
-      if (ch.seatId) continue;
-      const seatId = this.findFreeSeat();
-      if (seatId) {
-        this.seats.get(seatId)!.assigned = true;
-        ch.seatId = seatId;
-        const seat = this.seats.get(seatId)!;
-        ch.tileCol = seat.seatCol;
-        ch.tileRow = seat.seatRow;
-        ch.x = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
-        ch.y = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
-        ch.dir = seat.facingDir;
-      }
+      if (ch.homePointId || ch.isPlayer) continue;
+      const uid = this.findFreeSitPoint();
+      if (!uid) continue;
+      const point = this.points.get(uid)!;
+      point.occupantId = ch.id;
+      ch.homePointId = uid;
+      ch.tileCol = point.col;
+      ch.tileRow = point.row;
+      ch.x = point.col * TILE_SIZE + TILE_SIZE / 2;
+      ch.y = point.row * TILE_SIZE + TILE_SIZE / 2;
+      ch.dir = point.facingDir;
     }
 
     // Relocate any characters that ended up outside bounds or on non-walkable tiles
     for (const ch of this.characters.values()) {
-      if (ch.seatId) continue; // seated characters are fine
+      if (ch.homePointId) continue; // seated characters are fine
       if (
         ch.tileCol < 0 ||
         ch.tileCol >= layout.cols ||
@@ -363,12 +378,11 @@ export class OfficeState {
     return pool.length > 0 ? pool : this.walkableTiles;
   }
 
-  /** Get the blocked-tile key for a character's own seat, or null */
+  /** The blocked-tile key of a character's own point, or null */
   private ownSeatKey(ch: Character): string | null {
-    if (!ch.seatId) return null;
-    const seat = this.seats.get(ch.seatId);
-    if (!seat) return null;
-    return `${seat.seatCol},${seat.seatRow}`;
+    if (!ch.homePointId) return null;
+    const point = this.points.get(ch.homePointId);
+    return point ? `${point.col},${point.row}` : null;
   }
 
   /** Temporarily unblock a character's own seat, run fn, then re-block */
@@ -499,14 +513,20 @@ export class OfficeState {
     return approaches;
   }
 
-  /** One standing point PER walkable tile adjacent to each appliance (not just
-   *  the first) — so multiple visitors spread out around it instead of
-   *  stacking on a single fixed tile. findFreeStation() already picks randomly
-   *  among every free entry across every appliance, so registering more
-   *  entries per appliance is all that's needed for that to also randomize
-   *  position around one single appliance. */
-  private buildStations(): void {
-    this.stations = new Map();
+  /**
+   * (Re)build the whole points map: every sittable tile as a `sit` point, plus one
+   * `stand` point PER walkable tile adjacent to each appliance (not just the
+   * first) — so multiple visitors spread out around it instead of stacking on a
+   * single fixed tile. findFreeStation() picks randomly among every free entry
+   * across every appliance, so registering more entries per appliance is all that
+   * is needed for that to also randomise position around one appliance.
+   *
+   * Both kinds live in ONE map, so this builds both: an earlier version of this
+   * merge had the sit points built at the call site and then silently erased here
+   * by a `new Map()`, which left the zone with no seats at all.
+   */
+  private buildPoints(): void {
+    this.points = layoutToSitPoints(this.layout.furniture);
     for (const item of this.layout.furniture) {
       const entry = getCatalogEntry(item.id);
       if (!entry) continue;
@@ -515,26 +535,24 @@ export class OfficeState {
       // furniture into a station, not just ones the catalog itself flags.
       if (effectiveAction(item, entry)?.kind !== 'appliance') continue;
       const spots = this.computeApproachTiles(item.col, item.row, entry.footprintW, entry.footprintH, item.approachSides).filter(
-        (c) => !this.isStationTile(c.col, c.row),
+        (c) => !this.isPointTile(c.col, c.row),
       );
       spots.forEach((spot, i) => {
         const uid = `station:${item.uid}:${i}`;
-        this.stations.set(uid, {
+        this.points.set(uid, {
           uid,
           col: spot.col,
           row: spot.row,
           facingDir: spot.facing,
           posture: 'stand',
-          station: 'appliance',
-          furnitureType: item.id,
           occupantId: null,
         });
       });
     }
   }
 
-  private isStationTile(col: number, row: number): boolean {
-    for (const s of this.stations.values()) {
+  private isPointTile(col: number, row: number): boolean {
+    for (const s of this.points.values()) {
       if (s.col === col && s.row === row) return true;
     }
     return false;
@@ -542,7 +560,7 @@ export class OfficeState {
 
   private findFreeStation(): string | null {
     const free: string[] = [];
-    for (const [uid, s] of this.stations) {
+    for (const [uid, s] of this.points) {
       if (s.occupantId === null && !this.petStationClaims.has(uid)) free.push(uid);
     }
     if (free.length === 0) return null;
@@ -551,7 +569,7 @@ export class OfficeState {
 
   /** Any appliance station free for a pet to claim (cheap existence check). */
   private hasFreeStation(): boolean {
-    for (const [uid, s] of this.stations) {
+    for (const [uid, s] of this.points) {
       if (s.occupantId === null && !this.petStationClaims.has(uid)) return true;
     }
     return false;
@@ -561,20 +579,20 @@ export class OfficeState {
   private maybeStartCoffeeBreak(ch: Character, dt: number): void {
     if (ch.coffeeCooldown > 0) ch.coffeeCooldown -= dt;
     // Only when idle, off the clock, not already on a break, and standing still.
-    if (ch.isActive || ch.stationId || ch.state !== CharacterState.IDLE) return;
-    if (ch.path.length > 0 || ch.coffeeCooldown > 0 || this.stations.size === 0) return;
+    if (ch.isActive || ch.atPointId || ch.state !== CharacterState.IDLE) return;
+    if (ch.path.length > 0 || ch.coffeeCooldown > 0 || this.points.size === 0) return;
     if (Math.random() >= COFFEE_BREAK_CHANCE) return;
 
     const uid = this.findFreeStation();
     if (!uid) return;
-    const station = this.stations.get(uid)!;
+    const station = this.points.get(uid)!;
     const path = this.withOwnSeatUnblocked(ch, () =>
       findPath(ch.tileCol, ch.tileRow, station.col, station.row, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
 
     // Reserve the station and head over (start the cooldown regardless).
     station.occupantId = ch.id;
-    ch.stationId = uid;
+    ch.atPointId = uid;
     ch.coffeeCooldown =
       COFFEE_COOLDOWN_MIN_SEC + Math.random() * (COFFEE_COOLDOWN_MAX_SEC - COFFEE_COOLDOWN_MIN_SEC);
     if (path.length > 0) {
@@ -586,7 +604,7 @@ export class OfficeState {
     } else {
       // Already on the tile — stand immediately.
       ch.dir = station.facingDir;
-      ch.stationTimer =
+      ch.atPointTimer =
         COFFEE_STAND_MIN_SEC + Math.random() * (COFFEE_STAND_MAX_SEC - COFFEE_STAND_MIN_SEC);
     }
   }
@@ -597,7 +615,7 @@ export class OfficeState {
    * engine needs: not "is this a computer" but "does sitting here light
    * something up".
    *
-   * Shared by findFreeSeat, which prefers such a seat when placing an agent,
+   * Shared by findFreeSitPoint, which prefers such a seat when placing an agent,
    * and rebuildFurnitureInstances, which actually performs the switching. Those
    * two used to describe the same set independently — one by asking for the
    * 'electronics' category, the other by asking for a state pair — so a mapper
@@ -625,27 +643,31 @@ export class OfficeState {
     return effectiveAction(item, entry)?.kind !== 'toggle';
   }
 
-  private findFreeSeat(): string | null {
+  private findFreeSitPoint(): string | null {
     const switchableTiles = this.seatDrivenSwitchableTiles();
 
-    // Collect free seats, split into those facing a switchable and the rest
+    // Collect free sit points, split into those facing a switchable and the rest
     const pcSeats: string[] = [];
     const otherSeats: string[] = [];
-    for (const [uid, seat] of this.seats) {
-      if (seat.assigned) continue;
+    for (const [uid, point] of this.points) {
+      if (point.posture !== 'sit') continue; // an appliance's stand tile is not a desk
+      // Free means free for anyone: a point a PLAYER is sitting on has an
+      // occupantId now, which is the whole reason this merge happened — the old
+      // boolean only ever knew about agents.
+      if (point.occupantId !== null || this.petSeatClaims.has(uid)) continue;
       // Same "never auto-land someone in an active meeting" guarantee as
       // findFreeSpawnTile/spawnableTiles — a desk that happens to sit inside
       // a walk-in meeting area must not silently pull agents into calls.
-      if (this.areaIdAt(seat.seatCol, seat.seatRow) !== null) continue;
+      if (this.areaIdAt(point.col, point.row) !== null) continue;
 
       // Check if this seat faces electronics (same logic as auto-state detection)
       let facesPC = false;
       const dCol =
-        seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
-      const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
+        point.facingDir === Direction.RIGHT ? 1 : point.facingDir === Direction.LEFT ? -1 : 0;
+      const dRow = point.facingDir === Direction.DOWN ? 1 : point.facingDir === Direction.UP ? -1 : 0;
       for (let d = 1; d <= AUTO_ON_FACING_DEPTH && !facesPC; d++) {
-        const tileCol = seat.seatCol + dCol * d;
-        const tileRow = seat.seatRow + dRow * d;
+        const tileCol = point.col + dCol * d;
+        const tileRow = point.row + dRow * d;
         if (switchableTiles.has(`${tileCol},${tileRow}`)) {
           facesPC = true;
           break;
@@ -779,23 +801,23 @@ export class OfficeState {
       hueShift = pick.hueShift;
     }
 
-    // Try preferred seat first, then any free seat
-    let seatId: string | null = null;
-    if (preferredSeatId && this.seats.has(preferredSeatId)) {
-      const seat = this.seats.get(preferredSeatId)!;
-      if (!seat.assigned) {
-        seatId = preferredSeatId;
+    // Try the preferred point first, then any free one
+    let pointId: string | null = null;
+    if (preferredSeatId) {
+      const preferred = this.points.get(preferredSeatId);
+      if (preferred && preferred.posture === 'sit' && preferred.occupantId === null) {
+        pointId = preferredSeatId;
       }
     }
-    if (!seatId) {
-      seatId = this.findFreeSeat();
+    if (!pointId) {
+      pointId = this.findFreeSitPoint();
     }
 
     let ch: Character;
-    if (seatId) {
-      const seat = this.seats.get(seatId)!;
-      seat.assigned = true;
-      ch = createCharacter(id, skin, seatId, seat, hueShift);
+    if (pointId) {
+      const point = this.points.get(pointId)!;
+      point.occupantId = id;
+      ch = createCharacter(id, skin, pointId, point, hueShift);
     } else {
       // No seats — spawn at a random walkable tile (never inside a meeting area).
       const pool = this.spawnableTiles();
@@ -822,16 +844,15 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch) return;
     if (ch.matrixEffect === 'despawn') return; // already despawning
-    // Free seat and clear selection immediately
-    if (ch.seatId) {
-      const seat = this.seats.get(ch.seatId);
-      if (seat) seat.assigned = false;
+    // Let go of both relations at once — the reservation and wherever it stands.
+    if (ch.homePointId) {
+      const home = this.points.get(ch.homePointId);
+      if (home && home.occupantId === id) home.occupantId = null;
     }
-    // Release any interaction-station claim.
-    if (ch.stationId) {
-      const station = this.stations.get(ch.stationId);
-      if (station && station.occupantId === id) station.occupantId = null;
-      ch.stationId = null;
+    if (ch.atPointId) {
+      const at = this.points.get(ch.atPointId);
+      if (at && at.occupantId === id) at.occupantId = null;
+      ch.atPointId = null;
     }
     if (this.selectedAgentId === id) this.selectedAgentId = null;
     if (this.cameraFollowId === id) this.cameraFollowId = null;
@@ -977,16 +998,16 @@ export class OfficeState {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
-    // Unlike findFreeSpawnTile/findFreeSeat (automatic placement, which must
+    // Unlike findFreeSpawnTile/findFreeSitPoint (automatic placement, which must
     // never silently drop someone into a call), a warp is the player's own
     // explicit choice of destination — it may land on a meeting-area tile,
     // same as walking there; membership picks it up on the next tick (see
     // updateMeetingRoomMembership).
-    if (ch.stationId) releaseStation(ch, this.stations);
-    if (ch.seatId) {
-      const seat = this.seats.get(ch.seatId);
-      if (seat) seat.assigned = false;
-      ch.seatId = null;
+    if (ch.atPointId) releasePoint(ch, this.points);
+    if (ch.homePointId) {
+      const home = this.points.get(ch.homePointId);
+      if (home && home.occupantId === ch.id) home.occupantId = null;
+      ch.homePointId = null;
     }
     ch.heldDir = null;
     ch.pendingSitFacing = null;
@@ -1010,14 +1031,18 @@ export class OfficeState {
   sitPlayerAt(id: number, col: number, row: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
-    let seat: Seat | undefined;
-    for (const s of this.seats.values()) {
-      if (s.seatCol === col && s.seatRow === row) {
-        seat = s;
+    let point: InteractionPoint | undefined;
+    for (const p of this.points.values()) {
+      if (p.posture === 'sit' && p.col === col && p.row === row) {
+        point = p;
         break;
       }
     }
-    if (!seat) return false;
+    if (!point) return false;
+    // Symmetric occupancy: you cannot sit where somebody else already is. The
+    // same rule that stops an agent being sent to a player's chair (see
+    // claimPoint) — one occupant per point, whoever asks.
+    if (point.occupantId !== null && point.occupantId !== ch.id) return false;
     ch.heldDir = null;
     ch.afk = false; // moving to a seat clears the afk marker
     ch.pendingAction = null; // a click-to-sit cancels a pending walk-to-action
@@ -1026,10 +1051,12 @@ export class OfficeState {
       ch.path = [];
       ch.moveProgress = 0;
       snapToTile(ch);
-      ch.dir = seat.facingDir;
+      ch.dir = point.facingDir;
       ch.state = CharacterState.SIT;
       ch.pendingSitFacing = null;
-      releaseStation(ch, this.stations); // sitting ends any appliance pose
+      // Claiming replaces any appliance claim we held (claimPoint releases the
+      // old one), which is what used to be a bare releasePoint here.
+      claimPoint(ch, this.points, point.uid);
       return true;
     }
     const key = `${col},${row}`;
@@ -1041,7 +1068,8 @@ export class OfficeState {
     ch.path = path;
     ch.moveProgress = 0;
     ch.state = CharacterState.WALK;
-    ch.pendingSitFacing = seat.facingDir; // sit on arrival
+    ch.pendingSitFacing = point.facingDir; // sit on arrival
+    ch.pendingSitPointId = point.uid; // …and take the point then, not now
     return true;
   }
 
@@ -1081,7 +1109,7 @@ export class OfficeState {
       ch.state = CharacterState.SIT;
       // Sitting down at an appliance's stand tile ends the pose — updatePlayerMovement
       // returns early while SIT, so nothing else would drop the claim.
-      releaseStation(ch, this.stations);
+      releasePoint(ch, this.points);
     } else if (ch.state === CharacterState.SIT) {
       ch.state = CharacterState.IDLE;
     }
@@ -1218,7 +1246,7 @@ export class OfficeState {
 
   /** Walk a player to one of an appliance's stand tiles (e.g. coffee machine),
    *  facing it, then hold the cosmetic "using it" pose (COFFEE) on arrival —
-   *  same stationId/occupantId claim the agent FSM already uses for NPC coffee
+   *  same atPointId/occupantId claim the agent FSM already uses for NPC coffee
    *  breaks (see characters.ts), just started by a click instead of AI. Unlike
    *  an NPC's timed break, a player holds the pose indefinitely (stationTimer
    *  stays 0 and never counts down) until they walk away or sit down — see
@@ -1240,7 +1268,7 @@ export class OfficeState {
     );
     if (!item) return false;
     const prefix = `station:${item.uid}:`;
-    const spots = [...this.stations.entries()].filter(([uid]) => uid.startsWith(prefix));
+    const spots = [...this.points.entries()].filter(([uid]) => uid.startsWith(prefix));
     if (spots.length === 0) return false;
     ch.heldDir = null;
     ch.pendingSitFacing = null;
@@ -1250,9 +1278,9 @@ export class OfficeState {
     if (here) {
       const [uid, s] = here;
       ch.dir = s.facingDir;
-      ch.stationId = uid;
+      ch.atPointId = uid;
       s.occupantId = ch.id;
-      ch.stationTimer = 0; // players hold the pose until they move (no timeout)
+      ch.atPointTimer = 0; // players hold the pose until they move (no timeout)
       ch.pendingAppliance = null;
       return true;
     }
@@ -1278,7 +1306,7 @@ export class OfficeState {
     // walkPlayer/useAppliance) ends any appliance pose right away — players
     // aren't run through the agent FSM (see the isPlayer branch above), so
     // nothing else would release this claim once they move on.
-    if (ch.stationId && ch.path.length > 0) releaseStation(ch, this.stations);
+    if (ch.atPointId && ch.path.length > 0) releasePoint(ch, this.points);
     // Standing at a tile with a key held → begin a step that way.
     if (ch.path.length === 0) this.tryStepHeldDir(ch);
 
@@ -1311,15 +1339,25 @@ export class OfficeState {
           // Reached an appliance's stand tile → face it, claim it, hold the pose.
           ch.dir = ch.pendingAppliance.facing;
           ch.state = CharacterState.IDLE;
-          ch.stationId = ch.pendingAppliance.stationUid;
-          const claimed = this.stations.get(ch.pendingAppliance.stationUid);
+          ch.atPointId = ch.pendingAppliance.stationUid;
+          const claimed = this.points.get(ch.pendingAppliance.stationUid);
           if (claimed) claimed.occupantId = ch.id;
-          ch.stationTimer = 0; // held until the player moves away (no timeout)
+          ch.atPointTimer = 0; // held until the player moves away (no timeout)
           ch.pendingAppliance = null;
         } else if (ch.pendingSitFacing !== null && ch.pendingSitFacing !== undefined) {
           // Arrived at a seat (click-to-sit) → sit facing the seat's direction.
-          ch.dir = ch.pendingSitFacing;
-          ch.state = CharacterState.SIT;
+          // The point is claimed HERE, not when the walk started: somebody may
+          // have taken it in the meantime, and then we just stand there.
+          const target = ch.pendingSitPointId ? this.points.get(ch.pendingSitPointId) : undefined;
+          const free = !target || target.occupantId === null || target.occupantId === ch.id;
+          ch.pendingSitPointId = null;
+          if (free) {
+            ch.dir = ch.pendingSitFacing;
+            ch.state = CharacterState.SIT;
+            if (target) claimPoint(ch, this.points, target.uid);
+          } else {
+            ch.state = CharacterState.IDLE;
+          }
           ch.pendingSitFacing = null;
         } else {
           ch.state = CharacterState.IDLE;
@@ -1341,31 +1379,31 @@ export class OfficeState {
     }
   }
 
-  /** Find seat uid at a given tile position, or null */
+  /** The sit point at a tile, or null */
   getSeatAtTile(col: number, row: number): string | null {
-    for (const [uid, seat] of this.seats) {
-      if (seat.seatCol === col && seat.seatRow === row) return uid;
+    for (const [uid, point] of this.points) {
+      if (point.posture === 'sit' && point.col === col && point.row === row) return uid;
     }
     return null;
   }
 
   /** Reassign an agent from their current seat to a new seat */
-  reassignSeat(agentId: number, seatId: string): void {
+  reassignSeat(agentId: number, pointId: string): void {
     const ch = this.characters.get(agentId);
     if (!ch) return;
-    // Unassign old seat
-    if (ch.seatId) {
-      const old = this.seats.get(ch.seatId);
-      if (old) old.assigned = false;
+    // Take the new point first — if somebody holds it, nothing changes at all,
+    // which is better than releasing the old one and ending up with neither.
+    const point = this.points.get(pointId);
+    if (!point || point.posture !== 'sit' || (point.occupantId !== null && point.occupantId !== ch.id)) return;
+    if (ch.homePointId && ch.homePointId !== pointId) {
+      const old = this.points.get(ch.homePointId);
+      if (old && old.occupantId === ch.id) old.occupantId = null;
     }
-    // Assign new seat
-    const seat = this.seats.get(seatId);
-    if (!seat || seat.assigned) return;
-    seat.assigned = true;
-    ch.seatId = seatId;
+    point.occupantId = ch.id;
+    ch.homePointId = pointId;
     // Pathfind to new seat (unblock own seat tile for this query)
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles, undefined, this.walls),
+      findPath(ch.tileCol, ch.tileRow, point.col, point.row, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -1376,7 +1414,7 @@ export class OfficeState {
     } else {
       // Already at seat or no path — sit down
       ch.state = CharacterState.TYPE;
-      ch.dir = seat.facingDir;
+      ch.dir = point.facingDir;
       ch.frame = 0;
       ch.frameTimer = 0;
       if (!ch.isActive) {
@@ -1388,11 +1426,11 @@ export class OfficeState {
   /** Send an agent back to their currently assigned seat */
   sendToSeat(agentId: number): void {
     const ch = this.characters.get(agentId);
-    if (!ch || !ch.seatId) return;
-    const seat = this.seats.get(ch.seatId);
-    if (!seat) return;
+    if (!ch || !ch.homePointId) return;
+    const point = this.points.get(ch.homePointId);
+    if (!point) return;
     const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles, undefined, this.walls),
+      findPath(ch.tileCol, ch.tileRow, point.col, point.row, this.tileMap, this.blockedTiles, undefined, this.walls),
     );
     if (path.length > 0) {
       ch.path = path;
@@ -1403,7 +1441,7 @@ export class OfficeState {
     } else {
       // Already at seat — sit down
       ch.state = CharacterState.TYPE;
-      ch.dir = seat.facingDir;
+      ch.dir = point.facingDir;
       ch.frame = 0;
       ch.frameTimer = 0;
       if (!ch.isActive) {
@@ -1502,9 +1540,9 @@ export class OfficeState {
         this.subagentMeta.delete(id);
         return;
       }
-      if (ch.seatId) {
-        const seat = this.seats.get(ch.seatId);
-        if (seat) seat.assigned = false;
+      if (ch.homePointId) {
+        const home = this.points.get(ch.homePointId);
+        if (home && home.occupantId === ch.id) home.occupantId = null;
       }
       // Start despawn animation — keep character in map for rendering
       ch.matrixEffect = 'despawn';
@@ -1533,9 +1571,9 @@ export class OfficeState {
             toRemove.push(key);
             continue;
           }
-          if (ch.seatId) {
-            const seat = this.seats.get(ch.seatId);
-            if (seat) seat.assigned = false;
+          if (ch.homePointId) {
+            const home = this.points.get(ch.homePointId);
+            if (home && home.occupantId === ch.id) home.occupantId = null;
           }
           // Start despawn animation
           ch.matrixEffect = 'despawn';
@@ -1603,7 +1641,7 @@ export class OfficeState {
    *  An agent counts only while its turn is active (an idle agent resting in a
    *  chair leaves the screen dark); a player counts whenever seated, since a
    *  player has no notion of an active turn (`isActive` is false by construction
-   *  and `seatId` — the agent-side seat *reservation* — is never assigned to
+   *  and `homePointId` — the agent-side reservation — is never assigned to
    *  them, which is why they used to be skipped here entirely). */
   private autoOnSitters(): Array<{ col: number; row: number; dir: Direction }> {
     const out: Array<{ col: number; row: number; dir: Direction }> = [];
@@ -1612,9 +1650,9 @@ export class OfficeState {
         if (ch.state === CharacterState.SIT) out.push({ col: ch.tileCol, row: ch.tileRow, dir: ch.dir });
         continue;
       }
-      if (!ch.isActive || !ch.seatId) continue;
-      const seat = this.seats.get(ch.seatId);
-      if (seat) out.push({ col: seat.seatCol, row: seat.seatRow, dir: seat.facingDir });
+      if (!ch.isActive || !ch.homePointId) continue;
+      const home = this.points.get(ch.homePointId);
+      if (home) out.push({ col: home.col, row: home.row, dir: home.facingDir });
     }
     return out;
   }
@@ -1869,8 +1907,7 @@ export class OfficeState {
           ch,
           dt,
           this.walkableTiles,
-          this.seats,
-          this.stations,
+          this.points,
           this.tileMap,
           this.blockedTiles,
           this.walls,
@@ -1961,8 +1998,8 @@ export class OfficeState {
    *  may rest on either. Cheap: no pathfinding (reachability is confirmed later
    *  by findFreePetTarget). */
   private hasRestAffordance(_pet: Pet): boolean {
-    for (const seat of this.seats.values()) {
-      if (!seat.assigned) return true;
+    for (const point of this.points.values()) {
+      if (point.posture === 'sit' && point.occupantId === null) return true;
     }
     const occupied = this.occupiedSurfaceTiles();
     for (const item of this.layout.furniture) {
@@ -2208,10 +2245,7 @@ export class OfficeState {
 
   /** Release a pet's seat/furniture/station claim. */
   private releasePetClaim(pet: Pet): void {
-    if (pet.targetSeatId) {
-      const seat = this.seats.get(pet.targetSeatId);
-      if (seat) seat.assigned = false;
-    }
+    if (pet.targetSeatId) this.petSeatClaims.delete(pet.targetSeatId);
     if (pet.targetFurnitureUid) {
       this.petFurnitureClaims.delete(pet.targetFurnitureUid);
     }
@@ -2228,15 +2262,15 @@ export class OfficeState {
     if (this.petFurnitureClaims.has(uid)) return false;
     // Not in use by an agent actively seated facing it
     for (const ch of this.characters.values()) {
-      if (!ch.isActive || !ch.seatId) continue;
-      const seat = this.seats.get(ch.seatId);
-      if (seat && this.seatFacesFurniture(seat, uid)) return false;
+      if (!ch.isActive || !ch.homePointId) continue;
+      const home = this.points.get(ch.homePointId);
+      if (home && this.seatFacesFurniture(home, uid)) return false;
     }
     return true;
   }
 
-  /** Whether a seat faces (within depth) the given furniture item. */
-  private seatFacesFurniture(seat: Seat, uid: string): boolean {
+  /** Whether a sit point faces (within depth) the given furniture item. */
+  private seatFacesFurniture(point: InteractionPoint, uid: string): boolean {
     const item = this.layout.furniture.find((f) => f.uid === uid);
     if (!item) return false;
     const entry = getCatalogEntry(item.id);
@@ -2247,10 +2281,10 @@ export class OfficeState {
         footprint.add(`${item.col + dc},${item.row + dr}`);
       }
     }
-    const dCol = seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
-    const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
+    const dCol = point.facingDir === Direction.RIGHT ? 1 : point.facingDir === Direction.LEFT ? -1 : 0;
+    const dRow = point.facingDir === Direction.DOWN ? 1 : point.facingDir === Direction.UP ? -1 : 0;
     for (let d = 1; d <= AUTO_ON_FACING_DEPTH; d++) {
-      if (footprint.has(`${seat.seatCol + dCol * d},${seat.seatRow + dRow * d}`)) return true;
+      if (footprint.has(`${point.col + dCol * d},${point.row + dRow * d}`)) return true;
     }
     return false;
   }
@@ -2267,7 +2301,7 @@ export class OfficeState {
 
     // Appliance stations (coffee) — stand on the station tile.
     if (action === 'drink') {
-      for (const [uid, s] of this.stations) {
+      for (const [uid, s] of this.points) {
         if (s.occupantId !== null || this.petStationClaims.has(uid)) continue;
         const path = findPath(pet.tileCol, pet.tileRow, s.col, s.row, this.tileMap, this.blockedTiles, undefined, this.walls);
         const reachable = path.length > 0 || (pet.tileCol === s.col && pet.tileRow === s.row);
@@ -2314,25 +2348,27 @@ export class OfficeState {
       }
     }
 
-    // Chairs (reuse seats) — temporarily unblock the seat tile to path onto it
-    for (const [uid, seat] of this.seats) {
+    // Chairs (the same sit points characters use) — temporarily unblock the tile
+    // to path onto it
+    for (const [uid, point] of this.points) {
       if (action !== 'sit') break;
-      if (seat.assigned) continue;
-      const key = `${seat.seatCol},${seat.seatRow}`;
+      if (point.posture !== 'sit') continue;
+      if (point.occupantId !== null || this.petSeatClaims.has(uid)) continue;
+      const key = `${point.col},${point.row}`;
       const had = this.blockedTiles.has(key);
       if (had) this.blockedTiles.delete(key);
       const path = findPath(
         pet.tileCol,
         pet.tileRow,
-        seat.seatCol,
-        seat.seatRow,
+        point.col,
+        point.row,
         this.tileMap,
         this.blockedTiles,
         undefined,
         this.walls,
       );
       if (had) this.blockedTiles.add(key);
-      const reachable = path.length > 0 || (pet.tileCol === seat.seatCol && pet.tileRow === seat.seatRow);
+      const reachable = path.length > 0 || (pet.tileCol === point.col && pet.tileRow === point.row);
       if (!reachable) continue;
       candidates.push({
         kind: 'seat',
@@ -2341,9 +2377,9 @@ export class OfficeState {
         furnitureUid: null,
         stationId: null,
         agentId: null,
-        sitCol: seat.seatCol,
-        sitRow: seat.seatRow,
-        facing: seat.facingDir,
+        sitCol: point.col,
+        sitRow: point.row,
+        facing: point.facingDir,
         restLift: 0,
         path,
       });
@@ -2389,8 +2425,7 @@ export class OfficeState {
     const chosen = candidates[Math.floor(Math.random() * candidates.length)];
     // Claim it so agents/other pets won't take it
     if (chosen.kind === 'seat' && chosen.seatId) {
-      const seat = this.seats.get(chosen.seatId);
-      if (seat) seat.assigned = true;
+      this.petSeatClaims.add(chosen.seatId);
     } else if (chosen.kind === 'station' && chosen.stationId) {
       this.petStationClaims.add(chosen.stationId);
     } else if (chosen.kind === 'agent' && chosen.agentId !== null) {

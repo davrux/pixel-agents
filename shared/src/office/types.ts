@@ -67,42 +67,35 @@ export type Direction = (typeof Direction)[keyof typeof Direction];
 /** 2D array of hex color strings: '' = transparent, '#RRGGBB' = opaque, '#RRGGBBAA' = semi-transparent. [row][col] */
 export type SpriteData = string[][];
 
-export interface Seat {
-  /** Chair furniture uid */
-  uid: string;
-  /** Tile col where agent sits */
-  seatCol: number;
-  /** Tile row where agent sits */
-  seatRow: number;
-  /** Direction character faces when sitting (toward adjacent desk) */
-  facingDir: Direction;
-  assigned: boolean;
-}
-
 export type Posture = 'sit' | 'stand';
-export type StationKind = 'desk' | 'lounge' | 'appliance';
 
 /**
- * A place an agent can occupy and do something at — the generalised version of
- * Seat. Appliances such as the coffee machine yield a `stand` point on the
- * adjacent walkable tile, facing the furniture. Capacity is one (`occupantId`).
+ * A place a character can occupy and do something at: a chair to sit on, or the
+ * walkable tile in front of an appliance to stand at. Capacity is one, and
+ * `occupantId` says who has it — that single slot is the whole point, and it
+ * applies to players exactly as to agents.
  *
- * For now this models the new standing stations only; chair seats still use the
- * `Seat` type above and are intended to fold into this in a later step.
+ * This absorbed the old `Seat` type, which modelled chairs separately with an
+ * `assigned: boolean`. Two models for "somebody is here" is what let a player
+ * sit on a chair without anything recording it, so the seat stayed free and an
+ * agent could be assigned the very chair a player was sitting on. A boolean also
+ * cannot be checked against reality; an id can.
+ *
+ * `posture` decides what occupying means — sitting down, or standing at
+ * something. It used to sit here unread beside a `station: 'desk'|'lounge'|
+ * 'appliance'` taxonomy and a `furnitureType` string that nothing ever consumed;
+ * both went, this one is now what the pose derives from.
  */
 export interface InteractionPoint {
   uid: string;
-  /** Tile col the agent stands/sits on */
+  /** Tile col the character stands/sits on */
   col: number;
-  /** Tile row the agent stands/sits on */
+  /** Tile row the character stands/sits on */
   row: number;
-  /** Direction the agent faces while here (toward the furniture) */
+  /** Direction the character faces while here (toward the furniture) */
   facingDir: Direction;
   posture: Posture;
-  station: StationKind;
-  /** Furniture type this point belongs to (e.g. 'COFFEE_MACHINE') */
-  furnitureType: string;
-  /** Agent id currently occupying it, or null when free */
+  /** Character id currently holding it, or null when free */
   occupantId: number | null;
 }
 
@@ -625,19 +618,31 @@ export interface Character {
   wanderLimit: number;
   /** Whether the agent is actively working */
   isActive: boolean;
-  /** Assigned seat uid, or null if no seat */
-  seatId: string | null;
-  /** Interaction station (e.g. coffee machine) being visited, or null */
-  stationId: string | null;
-  /** Remaining time to stand at the current station, in seconds */
-  stationTimer: number;
+  /**
+   * The sit point this agent calls its own — a *reservation*, held even while it
+   * is away fetching coffee, so it comes back to the same desk instead of
+   * hopping. Null for players and for an agent with no free point to take.
+   *
+   * Deliberately separate from `atPointId` below: those are two different
+   * relations to the same kind of thing (mine vs. I am standing on it), and
+   * collapsing them into one claim would mean releasing your desk every time you
+   * walk to the coffee machine. Both index into OfficeState.points, and both go
+   * through the same one-occupant-per-point rule.
+   */
+  homePointId: string | null;
+  /** The point this character is occupying right now — a chair it sits on, or an
+   *  appliance's stand tile. Players use this too (that is what closes the
+   *  double-occupancy hole); null when standing anywhere else. */
+  atPointId: string | null;
+  /** Remaining time to stay at `atPointId`, in seconds (a coffee break's length) */
+  atPointTimer: number;
   /** Cooldown before the agent may take another coffee break, in seconds */
   coffeeCooldown: number;
   /** Active speech bubble type, or null if none showing */
   bubbleType: 'permission' | 'waiting' | null;
   /** Countdown timer for bubble (waiting: 2→0, permission: unused) */
   bubbleTimer: number;
-  /** Timer to stay seated while inactive after seat reassignment (counts down to 0) */
+  /** Timer to stay seated while inactive after a point reassignment (counts down to 0) */
   seatTimer: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
   isSubagent: boolean;
@@ -652,6 +657,10 @@ export interface Character {
   /** When walking to a seat (click-to-sit), the direction to face on arrival;
    *  null = no pending sit. Server-only intent. */
   pendingSitFacing?: Direction | null;
+  /** Which point that walk is aimed at, claimed on arrival rather than on
+   *  departure — somebody else may take it while you are still walking, and then
+   *  you simply end up standing there. Server-only intent. */
+  pendingSitPointId?: string | null;
   /** When walking to a furniture item's action (conference monitor,
    *  link-manager kiosk, arcade cabinet, iframe sprite, …), what to notify
    *  the room of on arrival (the room then tells the owning client to open
