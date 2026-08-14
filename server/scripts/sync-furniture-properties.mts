@@ -81,9 +81,11 @@ const OBJECT_PROPS = new Set([
   'actionVideo',
   'actionUrl',
   'actionPose',
+  'meetingRoomName',
   'canSitOn',
   'sitFacing',
   'petCanSitOn',
+  'canWalkOver',
   'backgroundTiles',
   'onState',
 ]);

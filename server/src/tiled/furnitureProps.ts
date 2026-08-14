@@ -83,6 +83,11 @@ export const FURNITURE_TILE_PROPS: ReadonlyArray<{
   { name: 'actionVideo', default: false },
   { name: 'actionUrl', default: '' },
   { name: 'actionPose', default: '', propertyType: 'ApplianceKind' },
+  // Belongs to the action, not to the furniture — same as the four above, and
+  // that is why it is here: any tile or placement that can carry a meetingRoom
+  // action can name the room (see actionProps.ts). An ActionArea gets it from
+  // its own class in Pixels.tiled-project.
+  { name: 'meetingRoomName', default: '' },
 ];
 
 /** The behaviour a FurnitureTile declares — the catalog default for every

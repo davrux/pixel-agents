@@ -79,6 +79,7 @@ never absent, and nothing has to be added by hand.
 | `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
 | `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
 | `actionPose` | string, enum `ApplianceKind` | only with `actionKind: appliance` | E.g. `coffee` — this is how the bundled coffee machine (`COFFEE_MACHINE` in `furniture-kitchens.tsj`) is wired up. |
+| `meetingRoomName` | string | only with `actionKind: meetingRoom` | What the room is called. The same property as on FurnitureObject and ActionArea — it belongs to the *action*, so anything that can carry one can name its room. Here it is the type's default; a placement may override it. |
 
 There is deliberately **no category, and no taxonomy of any kind**. Behaviour used
 to be inferred from one: chairs were sittable because their category said
@@ -108,6 +109,7 @@ override.
 | `actionVideo` | bool | only with `actionKind: meetingRoom` | Camera offered or audio/chat-only. |
 | `actionUrl` | string | only with `actionKind: iframe` | Must be `https://`. |
 | `actionPose` | string, enum `ApplianceKind` | only with `actionKind: appliance` | E.g. `coffee`. |
+| `meetingRoomName` | string | only with `actionKind: meetingRoom` | Overrides the tile's value — names this one placement's room. Wins over the object's Tiled **Name** on a conference monitor (the Name stays the fallback). Trimming/capping as in the ActionArea row. |
 | `canSitOn` | bool | optional | Overrides the tile's own value for this placement only — makes one coffee machine sittable, or one chair not. |
 | `sitFacing` | string, enum `SitFacing` | optional | Overrides the tile's value. Taken **literally**: unlike the inherited default it is not mirrored by a flip, since you already know which way you flipped this one. |
 | `petCanSitOn` | bool | optional | Overrides the tile's value. |
@@ -358,14 +360,14 @@ same thing without three properties having to agree.)
 ### Actions — actionKind decides which other property matters
 
 `actionKind` is a discriminated union, same idea as a TypeScript union type: which
-of `actionVideo` / `actionUrl` / `actionPose` actually gets read depends entirely on
+of `actionVideo` / `actionUrl` / `actionPose` / `meetingRoomName` actually gets read depends entirely on
 its value. The others are ignored (they still show up as empty/false/blank, because Tiled offers
 a class's whole member list, so you can *see* they exist even when irrelevant here):
 
 | `actionKind` | Reads | Ignores |
 |---|---|---|
 | *(empty)* | — | everything (no action) |
-| `meetingRoom` | `actionVideo` | `actionUrl`, `actionPose` |
+| `meetingRoom` | `actionVideo`, `meetingRoomName` | `actionUrl`, `actionPose` |
 | `meetingManager` | — | all three |
 | `iframe` | `actionUrl` (must be `https://`) | `actionVideo`, `actionPose` |
 | `appliance` | `actionPose` | `actionVideo`, `actionUrl` |

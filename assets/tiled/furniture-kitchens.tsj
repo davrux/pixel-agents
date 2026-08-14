@@ -75,6 +75,11 @@
           "type": "string",
           "value": "coffee",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -147,6 +152,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -219,6 +229,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -291,6 +306,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -363,6 +383,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -435,6 +460,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -507,6 +537,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     },
@@ -579,6 +614,11 @@
           "type": "string",
           "value": "",
           "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
         }
       ]
     }

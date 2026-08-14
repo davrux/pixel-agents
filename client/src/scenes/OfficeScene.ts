@@ -1478,7 +1478,15 @@ export class OfficeScene extends Phaser.Scene {
           if (action && action.action.kind === 'meetingRoom') {
             // Click a monitor (or any other 'meetingRoom'-action sprite) →
             // toggle join/leave, same as before (see toggleConference).
-            void this.toggleConference({ col: action.col, row: action.row, name: action.name });
+            // The action's own meetingRoomName wins over the placement's Tiled
+            // Name: naming the room is the action's business (an ActionArea has
+            // nothing else), while `name` also serves non-meeting purposes. The
+            // Name stays the fallback so maps that only set it keep their labels.
+            void this.toggleConference({
+              col: action.col,
+              row: action.row,
+              name: action.action.meetingRoomName ?? action.name,
+            });
           } else if (action) {
             // Server-authoritative walk-then-open (link-manager kiosk,
             // arcade cabinet, iframe sprite): it picks a (random, so
