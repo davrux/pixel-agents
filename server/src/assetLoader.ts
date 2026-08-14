@@ -13,6 +13,7 @@ import * as path from 'path';
 import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
+import { isFurnitureTileset } from './tiled/tiledRegistry.js';
 import {
   decodeCharacterPng,
   decodePetPng,
@@ -57,8 +58,11 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
     const catalog: FurnitureAsset[] = [];
     const sprites = new Map<string, string[][]>();
 
-    const furnitureFiles = fs.readdirSync(tiledDir).filter((f) => /^furniture-.*\.tsj$/.test(f)).sort();
-    for (const file of furnitureFiles) {
+    // Every .tsj is read and then judged by what is in it — a tileset holds
+    // furniture if its tiles say FurnitureTile. Naming it `furniture-*.tsj` is
+    // no longer required (see isFurnitureTileset).
+    const tilesetFiles = fs.readdirSync(tiledDir).filter((f) => f.endsWith('.tsj')).sort();
+    for (const file of tilesetFiles) {
       const tilesetPath = path.join(tiledDir, file);
 
       let tiled: TiledTilesetJson;
@@ -68,6 +72,7 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
         console.warn(`  ⚠️  Could not parse ${tilesetPath}: ${err instanceof Error ? err.message : err}`);
         continue;
       }
+      if (!isFurnitureTileset(tiled)) continue;
 
       const tilesetDir = path.dirname(tilesetPath);
       const entries = parseFurnitureTileset(tiled);

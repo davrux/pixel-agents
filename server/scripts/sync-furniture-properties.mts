@@ -39,6 +39,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
+import { isFurnitureTileset } from '../src/tiled/tiledRegistry.js';
 
 const TILED_DIR = path.resolve(import.meta.dirname, '..', '..', 'assets', 'tiled');
 
@@ -149,7 +150,7 @@ function syncTile(tile: { id: number; properties?: TiledProperty[] }, file: stri
 function syncTilesets(): string[] {
   const touched: string[] = [];
   for (const file of fs.readdirSync(TILED_DIR).sort()) {
-    if (!file.startsWith('furniture') || !file.endsWith('.tsj')) continue;
+    if (!file.endsWith('.tsj') || !isFurnitureTileset(JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')))) continue;
     const full = path.join(TILED_DIR, file);
     const json = JSON.parse(fs.readFileSync(full, 'utf-8')) as { tiles?: Array<{ id: number; properties?: TiledProperty[] }> };
     let dirty = false;
@@ -271,7 +272,7 @@ function tileClassByGid(mapPath: string, tilesets: Array<{ firstgid: number; sou
 function allTileIds(): Set<string> {
   const ids = new Set<string>();
   for (const file of fs.readdirSync(TILED_DIR)) {
-    if (!file.startsWith('furniture') || !file.endsWith('.tsj')) continue;
+    if (!file.endsWith('.tsj') || !isFurnitureTileset(JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')))) continue;
     const json = JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')) as { tiles?: Array<{ properties?: TiledProperty[] }> };
     for (const tile of json.tiles ?? []) {
       const id = (tile.properties ?? []).find((p) => p.name === 'id')?.value;
@@ -293,7 +294,7 @@ function checkOnStateTargets(): number {
   const ids = allTileIds();
   let bad = 0;
   for (const file of fs.readdirSync(TILED_DIR).sort()) {
-    if (!file.startsWith('furniture') || !file.endsWith('.tsj')) continue;
+    if (!file.endsWith('.tsj') || !isFurnitureTileset(JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')))) continue;
     const json = JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')) as { tiles?: Array<{ properties?: TiledProperty[] }> };
     for (const tile of json.tiles ?? []) {
       const props = new Map((tile.properties ?? []).map((p) => [p.name, p.value]));

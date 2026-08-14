@@ -49,6 +49,10 @@ interface TiledAnimationFrame {
 
 interface TiledTile {
   id: number;
+  /** Tiled's class for this tile — `FurnitureTile` here. Now load-bearing: it,
+   *  not the filename, is what marks a tileset as holding furniture (see
+   *  isFurnitureTileset). */
+  type?: string;
   image: string;
   imagewidth: number;
   imageheight: number;

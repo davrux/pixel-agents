@@ -21,7 +21,7 @@ import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { findGid, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { findGid, FURNITURE_TILE_CLASS, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
 import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject, furnitureBehaviourProps } from './furnitureProps.js';
 import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
@@ -56,8 +56,11 @@ function findFurnitureGid(registry: TiledRegistry, id: string, flippedHorizontal
 
 function findFurnitureGidExact(registry: TiledRegistry, id: string): number | null {
   for (const ts of registry.tilesets) {
-    if (!ts.file.startsWith('furniture-')) continue;
-    const localId = ts.tiles.findIndex((t) => t.props.id === id);
+    // Matched on the TILE's class, not the tileset's filename: a furniture
+    // tileset may be called anything (see isFurnitureTileset). Checking the
+    // found tile rather than the file also rules out a same-named `id` property
+    // on some other kind of tile answering for a furniture lookup.
+    const localId = ts.tiles.findIndex((t) => t.class === FURNITURE_TILE_CLASS && t.props.id === id);
     if (localId >= 0) return ts.firstgid + localId;
   }
   return null;

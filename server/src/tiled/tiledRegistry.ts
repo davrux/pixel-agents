@@ -7,9 +7,10 @@
  *
  * Fixed, deterministic order: every FLOOR_SET_FILES entry, then every
  * WALL_SET_FILES entry, then collision, then images (see
- * bake-images-tiled.mts), then every furniture-*.tsj alphabetically —
- * stable across repeated exports as long as no tileset is added/removed/
- * reordered on disk.
+ * bake-images-tiled.mts), then every remaining .tsj alphabetically — stable
+ * across repeated exports as long as no tileset is added/removed/reordered on
+ * disk. (A map's own tilesets array is what an IMPORT trusts; see
+ * resolveFromTmjTilesets for why.)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -52,6 +53,22 @@ export interface RegistryTileset {
   tiles: RegistryTile[]; // index = local tile id
 }
 
+/** The Tiled class every furniture tile carries (see Pixels.tiled-project).
+ *  THE discriminator for "is this a furniture tileset" — not the filename. A
+ *  tileset used to have to be called `furniture-*.tsj`, which made a naming
+ *  convention load-bearing in four separate places while the class already said
+ *  the same thing, exactly the duplication that a `category` property on floor
+ *  and wall tiles was removed for. */
+export const FURNITURE_TILE_CLASS = 'FurnitureTile';
+
+/** Does this tileset hold furniture? Asked of the file's own tiles, so a
+ *  tileset may be named anything. (Floor and wall tileset FILENAMES are still
+ *  load-bearing for a different and unavoidable reason — a saved layout stores
+ *  an index into FLOOR_SET_FILES / WALL_SET_FILES.) */
+export function isFurnitureTileset(json: { tiles?: Array<{ type?: string }> }): boolean {
+  return (json.tiles ?? []).some((t) => t.type === FURNITURE_TILE_CLASS);
+}
+
 export interface TiledRegistry {
   tilesets: RegistryTileset[];
   /** Find the tileset matching `file` (e.g. "floor.tsj"), if loaded. */
@@ -72,11 +89,15 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
     'collision.tsj',
     'images.tsj',
   ];
-  const furnitureFiles = fs
+  // Everything not in the fixed order, alphabetically — not just `furniture-*`,
+  // so a tileset may be named anything. The fixed part has to stay fixed: a
+  // saved layout stores an INDEX into FLOOR_SET_FILES / WALL_SET_FILES, so those
+  // filenames are a real reference rather than a convention.
+  const rest = fs
     .readdirSync(tiledDir)
-    .filter((f) => /^furniture-.*\.tsj$/.test(f))
+    .filter((f) => f.endsWith('.tsj') && !fixedOrder.includes(f))
     .sort();
-  const files = [...fixedOrder.filter((f) => fs.existsSync(path.join(tiledDir, f))), ...furnitureFiles];
+  const files = [...fixedOrder.filter((f) => fs.existsSync(path.join(tiledDir, f))), ...rest];
 
   const tilesets: RegistryTileset[] = [];
   let nextGid = 1; // GID 0 is reserved for "empty" — never assigned to a tile.

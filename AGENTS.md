@@ -316,6 +316,14 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   account/admin actions. It then shows up in `/help` automatically. Current
   set: `/help /afk /users /admin-site /add /delete /set-admin /remove-admin
   /kick`.
+- **A tileset is what its tiles say it is, not what it is called.** A furniture
+  tileset is one whose tiles carry the `FurnitureTile` class (see
+  `isFurnitureTileset`) — the `furniture-` filename prefix used to decide that in
+  four separate places and no longer decides anything, so name a new pack
+  whatever suits it. **Exception, and it is a real one:** floor and wall tileset
+  FILENAMES are load-bearing, because a saved layout stores an index into
+  `FLOOR_SET_FILES` / `WALL_SET_FILES` — those arrays are append-only and
+  renaming or reordering silently restyles every floor tile in every map.
 - **Furniture behaviour is stated on the tile, never inferred.** Whether you can
   sit on something, which way you then face, whether a pet may perch on it, what
   it turns into when switched on — each is its own property, present on **every**

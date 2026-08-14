@@ -114,10 +114,14 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
   };
 }
 
-const TILESET_FILENAME_RE = /^furniture-.*\.tsj$/;
+/** Any tileset — the watcher cannot tell from the name whether a file holds
+ *  furniture (see isFurnitureTileset), and rebuilding the catalog after a
+ *  floor-sheet save is a cheap no-op rather than a reason to keep a naming
+ *  convention load-bearing. */
+const TILESET_FILENAME_RE = /\.tsj$/;
 
 /** "Save in Tiled → live", no server restart: watches assets/tiled for
- *  furniture-*.tsj changes and reloads just the furniture catalog into the
+ *  tileset changes and reloads the furniture catalog into the
  *  process-wide defaults (see assetOverrides.ts's updateFurnitureDefaults),
  *  then tells every zone to re-broadcast — same path a saveAsset edit takes
  *  (see SimRoom.ts's ASSET_CHANGED_EVENT handling). Call once at boot, after
@@ -155,5 +159,5 @@ export function watchFurnitureTilesets(): void {
     if (pending) clearTimeout(pending);
     pending = setTimeout(reload, 200);
   });
-  console.log(`[tiled-watch] watching ${tiledDir} for furniture-*.tsj changes`);
+  console.log(`[tiled-watch] watching ${tiledDir} for *.tsj changes`);
 }
