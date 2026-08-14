@@ -92,7 +92,7 @@
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
                 { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
-                { "name": "roomName", "type": "string", "value": "" }
+                { "name": "meetingRoomName", "type": "string", "value": "" }
             ]
         },
         {

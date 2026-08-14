@@ -178,7 +178,7 @@ drag or resize a shape, so a stored col/row would silently go stale).
 | `actionVideo` | bool | Only with `meetingRoom`. |
 | `actionUrl` | string | Only with `iframe`. |
 | `actionPose` | string, enum `ApplianceKind` | Only with `appliance`. |
-| `roomName` | string | Only with `meetingRoom`: what the room is called. Shown on both call windows — the small ambient popup and the expanded meeting window — so walking straight from one area into the next is recognisable; without it both just say "Meeting area". Whitespace-collapsed, trimmed and capped at 32 characters (UTF-8 intact, and a cap landing inside a surrogate pair drops the half-character rather than emitting it). Unprefixed on purpose, unlike its `action*` neighbours: it is the name you type, and a Tiled object's own `name` field is already taken by furniture instance names. |
+| `meetingRoomName` | string | Only with `meetingRoom`: what the room is called. Shown on both call windows — the small ambient popup and the expanded meeting window — so walking straight from one area into the next is recognisable; without it both just say "Meeting area". Whitespace-collapsed, trimmed and capped at 32 characters (UTF-8 intact, and a cap landing inside a surrogate pair drops the half-character rather than emitting it). Named for the action kind that owns it, like its `action*` neighbours: "room" alone is ambiguous here (LiveKit, Colyseus and Matrix all have rooms), and a Tiled object's own `name` field is already taken by furniture instance names. |
 
 **Overlaps**: if a Rectangle and a Point (or two Rectangles) cover the same
 tile with different settings, whichever is **later in Tiled's own object

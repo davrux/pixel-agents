@@ -1,6 +1,6 @@
 /**
  * The Tiled properties an Action is read from (`<prefix>Kind`/`Video`/`Url`/
- * `Pose`, plus the unprefixed `roomName`) — shared by mapBridge.ts
+ * `Pose`, plus `meetingRoomName`) — shared by mapBridge.ts
  * (FurnitureObject/ActionArea instances, tile actions) and tiledFurniture.ts
  * (FurnitureTile catalog definitions, e.g. the coffee machine's own default
  * action), so a FurnitureTile's action and a placed instance's override use
@@ -21,14 +21,14 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
   if (typeof kind !== 'string') return null;
   switch (kind) {
     case 'meetingRoom': {
-      // `roomName` is deliberately NOT prefixed like the others: it is the name
-      // the mapper types, and there is nothing for it to collide with (a Tiled
-      // object's own `name` is the native field, used for a furniture
-      // instance's name — see furnitureProps.ts). Trimmed/capped on the way in
-      // as well as server-side, so a hand-edited map can't smuggle a 4 KB title
-      // onto a call window.
-      const roomName = cleanName(props.roomName, MAX_NAME_LEN);
-      return { kind, video: props[`${prefix}Video`] === true, ...(roomName ? { roomName } : {}) };
+      // Named for the action kind that owns it, like actionKind/Video/Url/Pose
+      // beside it — it is not `roomName`, because "room" alone is ambiguous in
+      // this codebase (LiveKit rooms, Colyseus rooms, Matrix rooms) and a Tiled
+      // object's own `name` field is already spoken for by furniture instance
+      // names. Trimmed/capped on the way in as well as server-side, so a
+      // hand-edited map can't smuggle a 4 KB title onto a call window.
+      const meetingRoomName = cleanName(props.meetingRoomName, MAX_NAME_LEN);
+      return { kind, video: props[`${prefix}Video`] === true, ...(meetingRoomName ? { meetingRoomName } : {}) };
     }
     case 'meetingManager':
     case 'arcade':

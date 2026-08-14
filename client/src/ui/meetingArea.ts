@@ -37,7 +37,7 @@ export interface MeetingAreaDevices {
  * monitors) for device setup, chat, and a big screen-share spotlight.
  */
 export class MeetingAreaUI {
-  /** Fallback when the area's ActionArea carries no `roomName`. */
+  /** Fallback when the area's ActionArea carries no `meetingRoomName`. */
   private static readonly GENERIC_TITLE = '🤝 Meeting area';
 
   private readonly panel: HTMLDivElement;
@@ -119,11 +119,11 @@ export class MeetingAreaUI {
     return this.screensEl;
   }
 
-  /** Name this call's room (the area's `roomName`), or the generic label when it
-   *  has none. Set on every entry, because the whole point is telling two
+  /** Name this call's room (the area's `meetingRoomName`), or the generic label
+   *  when it has none. Set on every entry, because the whole point is telling two
    *  adjacent areas apart when you walk straight from one into the other. */
-  setTitle(roomName?: string): void {
-    this.titleEl.textContent = roomName ? `🤝 ${roomName}` : MeetingAreaUI.GENERIC_TITLE;
+  setTitle(meetingRoomName?: string): void {
+    this.titleEl.textContent = meetingRoomName ? `🤝 ${meetingRoomName}` : MeetingAreaUI.GENERIC_TITLE;
   }
 
   setVisible(visible: boolean): void {

@@ -116,8 +116,8 @@ export function sanitizeAction(raw: unknown): Action | null {
       // Same cap as every other user-entered name (32 chars, whitespace collapsed,
       // trimmed — see cleanName), applied here too and not only at import: this
       // runs on every write path, and the value ends up as a window title.
-      const roomName = cleanName(rec.roomName, MAX_NAME_LEN);
-      return { kind: 'meetingRoom', video: rec.video !== false, ...(roomName ? { roomName } : {}) };
+      const meetingRoomName = cleanName(rec.meetingRoomName, MAX_NAME_LEN);
+      return { kind: 'meetingRoom', video: rec.video !== false, ...(meetingRoomName ? { meetingRoomName } : {}) };
     }
     case 'meetingManager':
       return { kind: 'meetingManager' };
