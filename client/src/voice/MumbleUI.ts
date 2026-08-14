@@ -1,10 +1,10 @@
 /**
  * Mumble panel: the usual mic / deafen / volume controls and a self-register
  * button, over a tabbed well holding the two views of the server — its channel
- * tree with the users in each, and a log of who has arrived or left since we
- * connected. Rendered into whatever container the host gives it — in the office
- * that is the right-hand docked application window (see ui/dockWindow.ts),
- * which is why nothing here sizes or positions itself.
+ * tree with the users in each, and a log of who has arrived, left or changed
+ * channel since we connected. Rendered into whatever container the host gives
+ * it — in the office that is the right-hand docked application window (see
+ * ui/dockWindow.ts), which is why nothing here sizes or positions itself.
  *
  * The tabs are a swap, not a second scroller: both panels are built and only
  * one is displayed, so the window keeps exactly one scrolling region either way
@@ -75,7 +75,7 @@ interface ListenerRow {
 }
 
 /** The two panels the tab strip switches between: the server's channel tree,
- *  and who has come and gone since we connected. */
+ *  and what has happened on it since we connected. */
 type MumbleTab = 'channels' | 'activity';
 
 /** The tree flattened to the order it is drawn in, kept from the last render so
@@ -383,9 +383,16 @@ export class MumbleUI {
         font-size:0.85rem;color:#cac8c3;}
       #pa-mb-log .ev .t{flex:0 0 auto;color:#818586;font-size:0.78rem;font-variant-numeric:tabular-nums;}
       #pa-mb-log .ev .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-      #pa-mb-log .ev .a{flex:0 0 auto;font-size:0.78rem;}
+      /* Allowed to shrink and elide, unlike the fixed "joined"/"left" it used to
+         only ever hold: a move puts a channel name here, and a long one must
+         not squeeze the person's name out of the row beside it. */
+      #pa-mb-log .ev .a{flex:0 1 auto;min-width:0;max-width:55%;font-size:0.78rem;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #pa-mb-log .ev.in .a{color:#5aa348;}
       #pa-mb-log .ev.out .a{color:#818586;}
+      /* A channel move. Its own colour because it is neither an arrival nor a
+         departure — the person was already here and still is. */
+      #pa-mb-log .ev.mv .a{color:#7ea9c4;}
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
       /* ---- row popovers (panelMenu.ts) --------------------------------------
          The floating-surface look every other popover in the app uses (deeper
@@ -834,7 +841,7 @@ export class MumbleUI {
 
     if (entries.length === 0) {
       el.replaceChildren(
-        mkEmpty(this.lastState?.connected ? 'Nobody has come or gone yet.' : 'Not connected.'),
+        mkEmpty(this.lastState?.connected ? 'Nothing has happened yet.' : 'Not connected.'),
       );
       return;
     }
@@ -1179,12 +1186,18 @@ function applyStateIcon(el: HTMLElement, kind: 'mic' | 'speaker', user: MumbleUs
   }
 }
 
-/** One activity line: time, who, and which way they went. The time is shown as
- *  a time of day (the log is reset on every sync, so it never spans much) with
- *  the full date in the tooltip for the case where it does. */
+/**
+ * One activity line: time, who, and what they did.
+ *
+ * The time is shown as a time of day (the log is reset on every sync, so it
+ * never spans much) with the full date in the tooltip for the case where it
+ * does. A move shows only where they went — the destination is the part worth
+ * scanning a column of, and the panel is narrow — with the channel they came
+ * from in the row's tooltip.
+ */
 function mkActivityRow(e: MumbleActivity): HTMLElement {
   const row = document.createElement('div');
-  row.className = 'ev' + (e.joined ? ' in' : ' out');
+  row.className = `ev ${e.kind === 'joined' ? 'in' : e.kind === 'left' ? 'out' : 'mv'}`;
   const when = document.createElement('span');
   when.className = 't';
   const at = new Date(e.ts);
@@ -1197,7 +1210,12 @@ function mkActivityRow(e: MumbleActivity): HTMLElement {
   who.title = e.name;
   const what = document.createElement('span');
   what.className = 'a';
-  what.textContent = e.joined ? 'joined' : 'left';
+  if (e.kind === 'moved') {
+    what.textContent = `→ ${e.to ?? ''}`;
+    row.title = `${e.name}: ${e.from ?? '?'} → ${e.to ?? '?'}`;
+  } else {
+    what.textContent = e.kind === 'joined' ? 'joined' : 'left';
+  }
   row.append(when, who, what);
   return row;
 }

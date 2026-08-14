@@ -55,8 +55,11 @@ const ALERT_COALESCE_MS = 600;
 /** Above this, the notification counts instead of naming everyone. */
 const ALERT_MAX_NAMES = 4;
 /** How many activity lines to keep. Bounded because it is only ever read by
- *  eye — a server that churns for an afternoon must not grow this without end. */
-const MAX_ACTIVITY = 200;
+ *  eye — a server that churns for an afternoon must not grow this without end.
+ *  Roomier than it looks it needs to be because channel moves are logged too,
+ *  and people move far more often than they connect: a tight cap would push the
+ *  arrivals out behind a handful of restless afternoons. */
+const MAX_ACTIVITY = 300;
 /** Default input gain. Unity is far too quiet next to the official Mumble
  *  client, whose own amplification defaults well above 1x — a browser mic
  *  captured with AGC off simply arrives quieter than Mumble's. */
@@ -117,13 +120,17 @@ export interface MumbleVoiceState {
   noticeHint?: string;
 }
 
+/** What one activity line records. A move is deliberately its own kind rather
+ *  than a leave plus a join: the person never went anywhere. */
+export type MumbleActivityKind = 'joined' | 'left' | 'moved';
+
 /**
- * One line of the activity log: somebody arrived on, or left, the server.
+ * One line of the activity log: somebody arrived on, left, or changed channel.
  *
  * Server-wide, not channel-scoped — that is what the join/leave *alerts* are
  * (they only fire for our own channel, because an OS notification for every
  * stranger on a busy server is noise). The log answers a different question:
- * who has been around since we connected.
+ * who has been around since we connected, and where they went.
  */
 export interface MumbleActivity {
   /** Strictly increasing within one session, restarting at each sync. Lets a
@@ -134,7 +141,12 @@ export interface MumbleActivity {
   /** Wall clock, so it can be shown as a time of day. */
   ts: number;
   name: string;
-  joined: boolean;
+  kind: MumbleActivityKind;
+  /** For a move: the channels involved, by the *name they had at the time*.
+   *  This is a record of something that happened, and the tree it will be read
+   *  against has moved on — a channel can be renamed, or cease to exist. */
+  from?: string;
+  to?: string;
 }
 
 export interface MumbleTree {
@@ -496,6 +508,11 @@ export class MumbleVoice {
       case 'user': {
         const before = this.users.get(e.user.session);
         this.users.set(e.user.session, e.user);
+        // A prior session in another channel is a move; no prior session at all
+        // is an arrival. Both go in the log, as different things — including our
+        // own moves, which is the only record there is of having been moved by
+        // somebody else.
+        const switched = before !== undefined && before.channel !== e.user.channel;
         if (e.user.session === this.mySession) {
           // We moved: everyone around us changed at once, and we already know
           // where we went — announcing that as arrivals would be noise.
@@ -515,11 +532,9 @@ export class MumbleVoice {
           // that cross our own channel are worth a notification.
           if (e.user.channel === this.myChannel) this.queueAlert(e.user.name, true);
           else if (before && before.channel === this.myChannel) this.queueAlert(e.user.name, false);
-          // No `before` at all is the one that means "arrived on the server" —
-          // every other shape of this event is somebody moving between
-          // channels, which the tree already shows.
-          if (!before) this.logActivity(e.user.name, true);
+          if (!before) this.logActivity(e.user.name, 'joined');
         }
+        if (switched) this.logMove(e.user.name, before.channel, e.user.channel);
         this.emitTree();
         return;
       }
@@ -529,7 +544,7 @@ export class MumbleVoice {
         this.dropPeer(e.session);
         if (gone && e.session !== this.mySession) {
           if (gone.channel === this.myChannel) this.queueAlert(gone.name, false);
-          this.logActivity(gone.name, false);
+          this.logActivity(gone.name, 'left');
         }
         this.emitTree();
         return;
@@ -1428,15 +1443,33 @@ export class MumbleVoice {
 
   // ── server activity log ────────────────────────────────────────────────────
 
-  /** Record one arrival/departure. Gated on `connected` so a stray event before
-   *  sync cannot enter the whole roster as arrivals. */
-  private logActivity(name: string, joined: boolean): void {
+  /** Record one arrival/departure/move. Gated on `connected` so a stray event
+   *  before sync cannot enter the whole roster as arrivals. */
+  private logActivity(name: string, kind: MumbleActivityKind, from?: string, to?: string): void {
     if (!this.connected) return;
-    this.activityLog.push({ seq: ++this.activitySeq, ts: Date.now(), name: name || 'Someone', joined });
+    this.activityLog.push({
+      seq: ++this.activitySeq,
+      ts: Date.now(),
+      name: name || 'Someone',
+      kind,
+      from,
+      to,
+    });
     if (this.activityLog.length > MAX_ACTIVITY) {
       this.activityLog.splice(0, this.activityLog.length - MAX_ACTIVITY);
     }
     this.onActivity(this.activityLog);
+  }
+
+  /** A channel move, resolved to channel *names* here rather than kept as ids:
+   *  see MumbleActivity.from — by the time anyone reads this line, the ids may
+   *  name something else or nothing. */
+  private logMove(name: string, from: number, to: number): void {
+    this.logActivity(name, 'moved', this.channelName(from), this.channelName(to));
+  }
+
+  private channelName(id: number): string {
+    return this.channels.get(id)?.name ?? `channel ${id}`;
   }
 
   private clearActivity(): void {

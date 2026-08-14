@@ -208,15 +208,20 @@ Add a matching command for any new destination (see AGENTS.md convention).
     strip plus one `<section>` per view, and only one section is displayed. They
     used to be a block inside the office's Settings panel.
   - **Two tabs over one well** (`#pa-mb-tabs`, paSkin's `.pa-seg`): the channel
-    tree, and an **activity log** of who joined or left the server since the
-    last sync, newest first with a time of day. The log is `MumbleVoice`'s, not
-    the view's — it is built from the discrete `user`/`userRemove` events, which
-    is what lets it tell a genuine arrival (no prior session) from a channel
-    move, and skip the whole roster that arrives with `sync`. It is **server**
-    scoped, unlike the join/leave *alerts* next to it, which only fire for your
-    own channel because an OS notification per stranger is noise. A sync clears
-    it: anything that happened while we were away was never observed, and a log
-    that continued across the gap would have silent holes in it.
+    tree, and an **activity log** of who joined, left or changed channel since
+    the last sync, newest first with a time of day. The log is `MumbleVoice`'s,
+    not the view's — it is built from the discrete `user`/`userRemove` events,
+    which is what lets it tell an arrival (no prior session) from a move (a
+    prior session in another channel), and skip the whole roster that arrives
+    with `sync`. Those are three separate kinds, not a leave plus a join: a
+    mover never went anywhere. Our **own** moves are logged too — they are the
+    only record there is of having been moved by somebody else. Moves keep the
+    channel *names* rather than ids, because by the time the line is read the
+    tree has moved on. It is **server** scoped, unlike the join/leave *alerts*
+    next to it, which only fire for your own channel because an OS notification
+    per stranger is noise. A sync clears it: anything that happened while we
+    were away was never observed, and a log that continued across the gap would
+    have silent holes in it.
   - **Permissions, moving people, and ears.** Murmur answers a `PermissionQuery`
     with an ACL bitfield per channel (`ChanACL::Perm` — Write 0x1 … Move 0x20 …
     Listen 0x800; the table is in `MUMBLE_PERM`). Nothing pushes it: you ask, or
