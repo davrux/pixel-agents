@@ -123,16 +123,16 @@ export class MumbleUI {
          whole body and manages its own scrolling; only one is displayed. */
       #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;}
       #pa-mb > section{display:flex;flex-direction:column;flex:1;min-height:0;}
-      /* Main view: the controls above and the two lines below are fixed; the
+      /* Main view: the controls above and the lines below are fixed; the
          channel tree is the only thing that moves, so reading the roster never
          pushes the mic/volume/device settings you are adjusting off the top of
          the panel.
          The overflow-y here is the short-window fallback, not the normal case:
          the tree absorbs all the slack, so it only ever engages once the tree
-         has been squeezed down to its min-height and the last two lines would
-         otherwise be unreachable. */
+         has been squeezed down to its min-height and the alerts checkbox (or a
+         note below it) would otherwise be unreachable. */
       #pa-mb-main{overflow-y:auto;overscroll-behavior:contain;}
-      #pa-mb-master,#pa-mb-sub,#pa-mb .chk,#pa-mb-note,#pa-mb-cfg{flex:0 0 auto;}
+      #pa-mb-master,#pa-mb-sub,#pa-mb .chk,#pa-mb-note{flex:0 0 auto;}
       #pa-mb-master{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 0.8rem;
         background:#141312;border:2px solid #0a0908;border-radius:0.5rem;}
       /* The header strip is where ⚙ lives, so the title block gives up the slack
@@ -226,8 +226,6 @@ export class MumbleUI {
         border-radius:0.3rem;padding:0.1rem 0.15rem;font:0.78rem 'FS Pixel Sans',monospace;cursor:pointer;}
       #pa-mb-tree .empty{color:#818586;font-size:0.85rem;}
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
-      #pa-mb-cfg{font-size:0.78rem;color:#818586;margin-top:0.5rem;}
-      #pa-mb-cfg a{color:#4998c0;cursor:pointer;text-decoration:underline;}
 
       /* ---- compact column ----------------------------------------------------
          ui/dockWindow.ts sets .pa-compact on the window below ~21rem. Nothing
@@ -290,8 +288,7 @@ export class MumbleUI {
       </div>
       <div id="pa-mb-tree"></div>
       <label class="chk" title="System notification when someone joins or leaves your channel"><input id="pa-mb-alerts" type="checkbox"> Join/leave alerts</label>
-      <div id="pa-mb-note" hidden></div>
-      <div id="pa-mb-cfg">Server and identity live in <a>⚙ settings</a>.</div>`;
+      <div id="pa-mb-note" hidden></div>`;
     root.appendChild(main);
     this.mainEl = main;
 
@@ -342,7 +339,6 @@ export class MumbleUI {
     this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
-    main.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.showSettings(true));
     // Toggle, not push: the ⚙ is on screen in both views, so pressing it again
     // has to be the way back rather than a no-op (same as Matrix's 🔐 / 🔔).
     this.cfgBtn.onclick = () => this.showSettings(!this.settingsOpen);
