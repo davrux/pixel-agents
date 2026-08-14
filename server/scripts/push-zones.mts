@@ -47,6 +47,34 @@ const flag = (name: string, fallback = ''): string => {
 const has = (name: string): boolean => argv.includes(`--${name}`);
 const names = argv.filter((a) => !a.startsWith('--'));
 
+const USAGE = `push-zones — send zone maps to a running server
+
+  node --import tsx scripts/push-zones.mts [zone…] [options]
+  scripts/push-zones.sh [zone…] [options]            (from the repo root)
+
+  --server=<host:port>  default 127.0.0.1:2567
+  --token=<t>           default $PIXEL_ADMIN_TOKEN, else read from ./.env
+  --watch               keep running, push each map when it changes
+  --insecure            accept a self-signed certificate (implied for loopback)
+  --help                this
+
+With no zone names, every map in assets/tiled/zones is pushed. Names may be
+given with or without .tmj; scratch copies (*-noimport.tmj) are always skipped.`;
+
+if (has('help') || argv.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
+// An unknown flag is refused rather than ignored: the default action is "push
+// every zone to the default server", and a typo in --server= would otherwise
+// send them somewhere the caller did not mean quietly.
+const KNOWN = ['server', 'token', 'watch', 'insecure', 'help'];
+const unknown = argv.filter((a) => a.startsWith('--') && !KNOWN.includes(a.replace(/^--/, '').split('=')[0]));
+if (unknown.length > 0) {
+  console.error(`✗ unknown option(s): ${unknown.join(' ')}\n\n${USAGE}`);
+  process.exit(2);
+}
+
 const server = flag('server', '127.0.0.1:2567');
 const watch = has('watch');
 const isLoopback = /^(127\.|localhost|\[::1\])/.test(server);
