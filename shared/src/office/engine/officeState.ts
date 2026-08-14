@@ -1629,7 +1629,12 @@ export class OfficeState {
 
     // Build modified furniture list with auto-state and animation applied
     const elapsedMs = this.furnitureAnimElapsedMs;
-    const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item) => {
+    // Return type annotated on the callback, not just on the constant: without
+    // it TypeScript infers the callback's own type and a stray property rides
+    // along unnoticed. That is exactly how `type: frame` survived here — the
+    // field was renamed to `id` in the Tiled migration and these three swaps
+    // kept writing the old name, so animations and on/off never changed sprite.
+    const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item): PlacedFurniture => {
       const entry = getCatalogEntry(item.id);
       if (!entry) return item;
 
@@ -1638,7 +1643,7 @@ export class OfficeState {
       // the "off" variant and therefore has no animation frames of its own.
       if (resolveOnState(item, entry) === item.id) {
         const frame = animationFrameAt(item.id, elapsedMs);
-        if (frame) return { ...item, type: frame };
+        if (frame) return { ...item, id: frame };
       }
 
       // Manually toggled (click-to-toggle) on/off — independent of seating;
@@ -1647,7 +1652,7 @@ export class OfficeState {
         let onType = resolveOnState(item, entry);
         if (onType !== item.id) {
           onType = animationFrameAt(onType, elapsedMs) ?? onType;
-          return { ...item, type: onType };
+          return { ...item, id: onType };
         }
       }
 
@@ -1661,7 +1666,7 @@ export class OfficeState {
               let onType = resolveOnState(item, entry);
               if (onType !== item.id) {
                 onType = animationFrameAt(onType, elapsedMs) ?? onType;
-                return { ...item, type: onType };
+                return { ...item, id: onType };
               }
               return item;
             }
