@@ -13,12 +13,15 @@ import {
   MAX_PLACED_IMAGES,
   MAX_IMAGE_FOOTPRINT_TILES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
-  TILE_SIZE,
   MAX_NAME_LEN,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
   cleanName,
 } from '@pixel/shared';
+// TILE_SIZE from the engine's own constants, not the barrel: the barrel used to
+// re-export a second copy from the pre-Tiled worldConfig, and this import was
+// silently taking that one (same value, but the wrong source).
+import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import type { Action } from '@pixel/shared/office/types.js';
 
 /** Cap a saved layout's free-text labels (OfficeLayout.texts) to a sane
