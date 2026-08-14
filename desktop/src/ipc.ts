@@ -35,6 +35,9 @@ export const PIXEL_DESKTOP_CHANNELS = {
   mumbleConnect: 'pixelDesktop:mumbleConnect',
   mumbleDisconnect: 'pixelDesktop:mumbleDisconnect',
   mumbleJoinChannel: 'pixelDesktop:mumbleJoinChannel',
+  mumbleMoveUser: 'pixelDesktop:mumbleMoveUser',
+  mumbleSetListening: 'pixelDesktop:mumbleSetListening',
+  mumbleQueryPermissions: 'pixelDesktop:mumbleQueryPermissions',
   mumbleSelfState: 'pixelDesktop:mumbleSelfState',
   mumbleSendText: 'pixelDesktop:mumbleSendText',
   mumbleSelfRegister: 'pixelDesktop:mumbleSelfRegister',
@@ -88,6 +91,9 @@ export interface MumbleUserInfo {
   suppress: boolean;
   /** Present once the server reports a registered account for this user. */
   userId?: number;
+  /** Channels this user has an ear in (Mumble 1.4 ChannelListener): they hear
+   *  those as well as their own, without leaving it. */
+  listening: number[];
 }
 
 /** Pushed from main on the `mumbleEvent` channel. */
@@ -105,7 +111,13 @@ export type MumbleEvent =
   | { t: 'user'; user: MumbleUserInfo }
   | { t: 'userRemove'; session: number }
   | { t: 'text'; actor: number; message: string }
-  | { t: 'permission'; reason: string };
+  | { t: 'permission'; reason: string }
+  /** What we are allowed to do in one channel: Murmur's ACL bitfield (see
+   *  `PermissionQueryMsg` in mumble/protocol.ts for the bits, and `MUMBLE_PERM`
+   *  in the renderer for the names). `flush` means every cached answer is stale
+   *  — it arrives unsolicited when an admin edits an ACL, and then carries no
+   *  channel of its own. */
+  | { t: 'permissions'; channel?: number; permissions?: number; flush: boolean };
 
 /** Pushed from main on the `mumbleAudio` channel: one Opus packet. */
 export interface MumbleAudioIn {
@@ -145,6 +157,14 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
+  /** Move somebody else. Needs the Move permission in the destination; the
+   *  server refuses otherwise, which arrives as a `permission` event. */
+  moveUser(session: number, channelId: number): Promise<void>;
+  /** Place or remove an ear in another channel — we keep hearing our own and
+   *  hear that one too. Needs the Listen permission there. */
+  setListening(channelId: number, listening: boolean): Promise<void>;
+  /** Ask what we may do in a channel; answered by a `permissions` event. */
+  queryPermissions(channelId: number): Promise<void>;
   selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
   sendText(message: string): Promise<void>;
   selfRegister(): Promise<void>;

@@ -12,13 +12,17 @@ import {
 import {
   FrameReader,
   MSG,
+  decodePermissionQuery,
+  decodeServerSync,
   decodeUserState,
+  encodePermissionQuery,
   encodeUserState,
   frame,
   packAudio,
   unpackAudio,
   type MumbleFrame,
 } from './protocol.js';
+import { applyListening } from './session.js';
 import { encodeVarint, readVarint } from './varint.js';
 
 test('varint round-trips across every width boundary', () => {
@@ -63,6 +67,58 @@ test('protobuf round-trips a UserState', () => {
   // false-by-default would silently unmute people.
   assert.equal(decoded.name, undefined);
   assert.equal(decoded.mute, undefined);
+});
+
+test('UserState carries the ChannelListener deltas both ways', () => {
+  const decoded = decodeUserState(
+    Buffer.from(encodeUserState({ session: 3, listenAdd: [7, 8], listenRemove: [9] })),
+  );
+  assert.deepEqual(decoded.listenAdd, [7, 8]);
+  assert.deepEqual(decoded.listenRemove, [9]);
+  // An ordinary UserState says nothing about ears, and must not read as
+  // "stop listening to everything".
+  const plain = decodeUserState(Buffer.from(encodeUserState({ session: 3, selfMute: true })));
+  assert.deepEqual(plain.listenAdd, []);
+  assert.deepEqual(plain.listenRemove, []);
+});
+
+test('listening deltas accumulate rather than replace', () => {
+  assert.deepEqual(applyListening(undefined, [4], []), [4]);
+  assert.deepEqual(applyListening([4], [7], []), [4, 7]);
+  assert.deepEqual(applyListening([4, 7], [], [4]), [7]);
+  assert.deepEqual(applyListening([4, 7], [7], []), [4, 7]); // no duplicates
+  assert.deepEqual(applyListening([4, 7], [], []), [4, 7]); // untouched by an unrelated update
+  assert.deepEqual(applyListening(undefined, [], []), []);
+});
+
+test('PermissionQuery tells an answer apart from a flush', () => {
+  const query = readProto(encodePermissionQuery(12));
+  assert.equal(pbNum(query, 1), 12);
+
+  const answer = decodePermissionQuery(
+    new ProtoWriter().varint(1, 12).varint(2, 0x84e).finish(),
+  );
+  assert.equal(answer.channelId, 12);
+  assert.equal(answer.permissions, 0x84e);
+  assert.equal(answer.flush, false);
+
+  // The flush Murmur broadcasts when an ACL changes names no channel — and a
+  // channel that defaulted to 0 would be the root, whose permissions we would
+  // then wrongly believe to be none.
+  const flush = decodePermissionQuery(new ProtoWriter().bool(3, true).finish());
+  assert.equal(flush.channelId, undefined);
+  assert.equal(flush.permissions, undefined);
+  assert.equal(flush.flush, true);
+});
+
+test('ServerSync permissions stay optional', () => {
+  const withPerms = decodeServerSync(
+    new ProtoWriter().varint(1, 5).string(3, 'hi').varint(4, 0x1).finish(),
+  );
+  assert.equal(withPerms.session, 5);
+  assert.equal(withPerms.welcome, 'hi');
+  assert.equal(withPerms.permissions, 0x1);
+  assert.equal(decodeServerSync(new ProtoWriter().varint(1, 5).finish()).permissions, undefined);
 });
 
 test('protobuf handles strings, bools and repeated fields', () => {

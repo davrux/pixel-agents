@@ -10,6 +10,7 @@ import {
   pbBoolOpt,
   pbNum,
   pbNumOpt,
+  pbNums,
   pbStr,
   pbStrOpt,
   readProto,
@@ -30,6 +31,7 @@ export const MSG = {
   TEXT_MESSAGE: 11,
   PERMISSION_DENIED: 12,
   CRYPT_SETUP: 15,
+  PERMISSION_QUERY: 20,
   CODEC_VERSION: 21,
   SERVER_CONFIG: 24,
 } as const;
@@ -109,6 +111,10 @@ export interface UserStatePatch {
   selfDeaf?: boolean;
   /** 0 requests self-registration on the server. */
   userId?: number;
+  /** Channels to start listening to without leaving our own — Mumble 1.4's
+   *  ChannelListener ("place an ear"). Needs the Listen permission there. */
+  listenAdd?: number[];
+  listenRemove?: number[];
 }
 
 export function encodeUserState(patch: UserStatePatch): Uint8Array {
@@ -118,7 +124,15 @@ export function encodeUserState(patch: UserStatePatch): Uint8Array {
   if (patch.channelId !== undefined) w.varint(5, patch.channelId);
   if (patch.selfMute !== undefined) w.bool(9, patch.selfMute);
   if (patch.selfDeaf !== undefined) w.bool(10, patch.selfDeaf);
+  for (const id of patch.listenAdd ?? []) w.varint(21, id);
+  for (const id of patch.listenRemove ?? []) w.varint(22, id);
   return w.finish();
+}
+
+/** Ask what we are allowed to do in one channel. Murmur answers with a
+ *  PermissionQuery carrying the bitfield; see decodePermissionQuery. */
+export function encodePermissionQuery(channelId: number): Uint8Array {
+  return new ProtoWriter().varint(1, channelId).finish();
 }
 
 export function encodeTextMessage(channelId: number, message: string): Uint8Array {
@@ -146,9 +160,15 @@ export function decodeReject(payload: Uint8Array): { type: number; reason: strin
   return { type, reason: pbStr(f, 2) || REJECT_REASONS[type] || 'connection rejected' };
 }
 
-export function decodeServerSync(payload: Uint8Array): { session: number; welcome: string } {
+export function decodeServerSync(payload: Uint8Array): {
+  session: number;
+  welcome: string;
+  /** Our permissions in the channel we land in — the one answer we get for
+   *  free, without asking. Absent on servers that do not send it. */
+  permissions?: number;
+} {
   const f = readProto(payload);
-  return { session: pbNum(f, 1), welcome: pbStr(f, 3) };
+  return { session: pbNum(f, 1), welcome: pbStr(f, 3), permissions: pbNumOpt(f, 4) };
 }
 
 export interface ChannelStateMsg {
@@ -184,6 +204,11 @@ export interface UserStateMsg {
   suppress?: boolean;
   selfMute?: boolean;
   selfDeaf?: boolean;
+  /** Ears placed / removed. These are a *delta* on whatever the user was
+   *  already listening to, not the whole set — Murmur echoes back only the
+   *  additions it accepted, so the reader has to keep the running set. */
+  listenAdd: number[];
+  listenRemove: number[];
 }
 
 export function decodeUserState(payload: Uint8Array): UserStateMsg {
@@ -198,7 +223,35 @@ export function decodeUserState(payload: Uint8Array): UserStateMsg {
     suppress: pbBoolOpt(f, 8),
     selfMute: pbBoolOpt(f, 9),
     selfDeaf: pbBoolOpt(f, 10),
+    listenAdd: pbNums(f, 21),
+    listenRemove: pbNums(f, 22),
   };
+}
+
+/**
+ * `permissions` is Murmur's ACL bitfield (`ChanACL::Perm`) for one channel:
+ * Write 0x1, Traverse 0x2, Enter 0x4, Speak 0x8, MuteDeafen 0x10, Move 0x20,
+ * MakeChannel 0x40, LinkChannel 0x80, Whisper 0x100, TextMessage 0x200,
+ * MakeTempChannel 0x400, Listen 0x800; and, on the root channel only, Kick
+ * 0x10000, Ban 0x20000, Register 0x40000, SelfRegister 0x80000,
+ * ResetUserContent 0x100000.
+ *
+ * Nothing in main reads it — the renderer decides what to offer (see
+ * `MUMBLE_PERM` in client/src/voice/MumbleVoice.ts). It is spelled out here
+ * because this is where the number arrives.
+ */
+export interface PermissionQueryMsg {
+  /** Absent on the unsolicited flush Murmur sends when an ACL changes — which
+   *  is why this is optional rather than defaulting to 0, the root channel. */
+  channelId?: number;
+  permissions?: number;
+  /** Every cached answer is now stale; ask again for whatever still matters. */
+  flush: boolean;
+}
+
+export function decodePermissionQuery(payload: Uint8Array): PermissionQueryMsg {
+  const f = readProto(payload);
+  return { channelId: pbNumOpt(f, 1), permissions: pbNumOpt(f, 2), flush: pbBool(f, 3) };
 }
 
 export function decodeUserRemove(payload: Uint8Array): { session: number; reason: string } {

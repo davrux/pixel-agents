@@ -217,6 +217,28 @@ Add a matching command for any new destination (see AGENTS.md convention).
     own channel because an OS notification per stranger is noise. A sync clears
     it: anything that happened while we were away was never observed, and a log
     that continued across the gap would have silent holes in it.
+  - **Permissions, moving people, and ears.** Murmur answers a `PermissionQuery`
+    with an ACL bitfield per channel (`ChanACL::Perm` — Write 0x1 … Move 0x20 …
+    Listen 0x800; the table is in `MUMBLE_PERM`). Nothing pushes it: you ask, or
+    you get an unsolicited **flush** meaning every cached answer is stale. So
+    `MumbleVoice` caches per channel and the tree asks as it draws each row —
+    once per channel per session, and again by itself after a flush, which beats
+    querying a whole tree up front. **Unknown ≠ denied**: absent from the cache
+    has to stay distinct from a bitfield of 0, and Write counts for every bit
+    because it is Murmur's blanket grant.
+    - Two controls are gated by their own *presence*: a channel row's 👂 (place
+      an ear — Mumble 1.4's ChannelListener, hear that channel as well as your
+      own) where Listen is granted, and a user row's ⇄ (move them) once there is
+      any channel we may move people into. Both go out as a `UserState` — the ear
+      as the `listening_channel_add`/`_remove` **delta** (fields 21/22, which is
+      why `session.ts` keeps the running set), the move as somebody else's
+      session plus a channel id.
+    - The client only ever decides what to *offer*. The server refuses with
+      `PermissionDenied`, which lands in the panel's note — so that note no longer
+      hardcodes the "register your certificate" advice, it carries whatever hint
+      the thing you asked for supplied (`noticeHint`).
+    - An ear in the channel you then walk into is taken back down: Murmur would
+      otherwise have two reasons to route you that audio.
   - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
     both were once broken, which made voices drift low and slow:
     1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on

@@ -34,6 +34,9 @@ export interface MumbleUserInfo {
   suppress: boolean;
   /** Present once the server reports a registered account for this user. */
   userId?: number;
+  /** Channels this user has an ear in (Mumble 1.4 ChannelListener): they hear
+   *  those as well as their own, without leaving it. */
+  listening: number[];
 }
 
 export type MumbleEvent =
@@ -50,7 +53,11 @@ export type MumbleEvent =
   | { t: 'user'; user: MumbleUserInfo }
   | { t: 'userRemove'; session: number }
   | { t: 'text'; actor: number; message: string }
-  | { t: 'permission'; reason: string };
+  | { t: 'permission'; reason: string }
+  /** Murmur's ACL bitfield for one channel — `MUMBLE_PERM` in
+   *  voice/MumbleVoice.ts names the bits. `flush` means every cached answer is
+   *  stale (an admin edited an ACL) and carries no channel of its own. */
+  | { t: 'permissions'; channel?: number; permissions?: number; flush: boolean };
 
 export interface MumbleAudioIn {
   session: number;
@@ -87,6 +94,13 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
+  /** Move somebody else. Needs the Move permission in the destination; the
+   *  server refuses otherwise, and that arrives as a `permission` event. */
+  moveUser(session: number, channelId: number): Promise<void>;
+  /** Place or remove an ear in another channel. Needs Listen there. */
+  setListening(channelId: number, listening: boolean): Promise<void>;
+  /** Ask what we may do in a channel; answered by a `permissions` event. */
+  queryPermissions(channelId: number): Promise<void>;
   selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
   sendText(message: string): Promise<void>;
   selfRegister(): Promise<void>;

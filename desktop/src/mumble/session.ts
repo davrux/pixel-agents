@@ -18,12 +18,14 @@ import {
   decodeChannelState,
   decodeCodecVersion,
   decodePermissionDenied,
+  decodePermissionQuery,
   decodeReject,
   decodeServerSync,
   decodeTextMessage,
   decodeUserRemove,
   decodeUserState,
   encodeAuthenticate,
+  encodePermissionQuery,
   encodePing,
   encodeTextMessage,
   encodeUserState,
@@ -33,6 +35,7 @@ import {
   packAudio,
   unpackAudio,
   type ChannelStateMsg,
+  type PermissionQueryMsg,
   type UserStateMsg,
 } from './protocol.js';
 
@@ -61,6 +64,17 @@ export interface MumbleUser {
   suppress: boolean;
   /** Present once the server reports a registered account for this user. */
   userId?: number;
+  /** Channels this user has an ear in (Mumble 1.4 ChannelListener). Kept as a
+   *  running set here because the wire only ever carries the delta. */
+  listening: number[];
+}
+
+/** Answer to a PermissionQuery, or the unsolicited flush Murmur broadcasts
+ *  when an ACL changes — which carries no channel at all. */
+export interface MumblePermissions {
+  channel?: number;
+  permissions?: number;
+  flush: boolean;
 }
 
 export interface MumbleSessionOptions {
@@ -82,7 +96,7 @@ export interface MumbleSessionOptions {
 }
 
 /** Emits: sync, channel, channelRemove, user, userRemove, audio, text,
- *  permission, error, close. */
+ *  permission, permissions, error, close. */
 export class MumbleSession extends EventEmitter {
   private socket: TLSSocket | null = null;
   private readonly reader = new FrameReader(MAX_MESSAGE_BYTES);
@@ -215,6 +229,9 @@ export class MumbleSession extends EventEmitter {
       case MSG.PERMISSION_DENIED:
         this.emit('permission', decodePermissionDenied(payload));
         return;
+      case MSG.PERMISSION_QUERY:
+        this.onPermissionQuery(decodePermissionQuery(payload));
+        return;
       case MSG.REJECT:
         this.fail(decodeReject(payload).reason);
         return;
@@ -257,6 +274,7 @@ export class MumbleSession extends EventEmitter {
       deaf: msg.deaf ?? existing?.deaf ?? false,
       suppress: msg.suppress ?? existing?.suppress ?? false,
       userId: msg.userId ?? existing?.userId,
+      listening: applyListening(existing?.listening, msg.listenAdd, msg.listenRemove),
     };
     this.users.set(msg.session, user);
     if (msg.session === this.ourSession && msg.channelId !== undefined) {
@@ -266,7 +284,7 @@ export class MumbleSession extends EventEmitter {
   }
 
   private onServerSync(payload: Buffer): void {
-    const { session, welcome } = decodeServerSync(payload);
+    const { session, welcome, permissions } = decodeServerSync(payload);
     this.ourSession = session;
     this.currentChannel = this.users.get(session)?.channel ?? 0;
     this.synced = true;
@@ -278,6 +296,24 @@ export class MumbleSession extends EventEmitter {
       channels: [...this.channels.values()],
       users: [...this.users.values()],
     });
+    // After the sync, never before: the renderer empties its permission cache
+    // on a sync, and this is the one channel's answer it does not have to ask
+    // for. `currentChannel` is still where we landed — a join requested above
+    // only takes effect when the server echoes it back.
+    if (permissions !== undefined) {
+      this.emit('permissions', { channel: this.currentChannel, permissions, flush: false });
+    }
+  }
+
+  private onPermissionQuery(msg: PermissionQueryMsg): void {
+    if (!this.synced) return;
+    // A flush and an answer are independent: forward both parts as they came,
+    // and let the renderer clear before it stores.
+    this.emit('permissions', {
+      channel: msg.channelId,
+      permissions: msg.channelId === undefined ? undefined : (msg.permissions ?? 0),
+      flush: msg.flush,
+    } satisfies MumblePermissions);
   }
 
   private onAudio(payload: Buffer): void {
@@ -321,6 +357,39 @@ export class MumbleSession extends EventEmitter {
         return;
       }
     }
+  }
+
+  /**
+   * Move somebody else into a channel.
+   *
+   * The server is the authority — it answers PermissionDenied when we may not,
+   * which the renderer already surfaces as a notice. The checks here are not a
+   * permission model, only a bound on what a compromised renderer can make us
+   * send: a session and a channel the server has actually told us about.
+   */
+  moveUser(session: number, channelId: number): void {
+    if (!this.synced || !this.users.has(session) || !this.channels.has(channelId)) return;
+    this.send(MSG.USER_STATE, encodeUserState({ session, channelId }));
+  }
+
+  /** Place or remove an ear in another channel: we keep hearing our own, and
+   *  hear that one too. Needs the Listen permission there (Mumble 1.4+). */
+  setListening(channelId: number, listening: boolean): void {
+    if (!this.synced || !this.channels.has(channelId)) return;
+    this.send(
+      MSG.USER_STATE,
+      encodeUserState({
+        session: this.ourSession,
+        ...(listening ? { listenAdd: [channelId] } : { listenRemove: [channelId] }),
+      }),
+    );
+  }
+
+  /** Ask what we may do in one channel. The answer comes back as a
+   *  `permissions` event; there is no reply-matching to do. */
+  queryPermissions(channelId: number): void {
+    if (!this.synced || !this.channels.has(channelId)) return;
+    this.send(MSG.PERMISSION_QUERY, encodePermissionQuery(channelId));
   }
 
   setSelfState(selfMute: boolean, selfDeaf: boolean): void {
@@ -383,6 +452,19 @@ export class MumbleSession extends EventEmitter {
       this.pingTimer = null;
     }
   }
+}
+
+/** Fold a UserState's listen delta into the set the user already had. Returns
+ *  the previous array untouched when nothing changed, so the common case (every
+ *  ordinary UserState) allocates nothing. Exported for its test — the delta is
+ *  the whole subtlety of ChannelListener, and getting it wrong looks like an ear
+ *  that silently un-places itself on the next unrelated state change. */
+export function applyListening(current: number[] | undefined, add: number[], remove: number[]): number[] {
+  if (add.length === 0 && remove.length === 0) return current ?? [];
+  const set = new Set(current ?? []);
+  for (const id of add) set.add(id);
+  for (const id of remove) set.delete(id);
+  return [...set];
 }
 
 /** Turn Node's TLS/socket errors into something a user can act on. */

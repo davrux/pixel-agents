@@ -16,7 +16,12 @@ import {
   type MumbleSettingsPatch,
   type MumbleSettingsView,
 } from '../ipc.js';
-import { MumbleSession, type MumbleChannel, type MumbleUser } from './session.js';
+import {
+  MumbleSession,
+  type MumbleChannel,
+  type MumblePermissions,
+  type MumbleUser,
+} from './session.js';
 import {
   keychainAvailable,
   loadMumbleSecrets,
@@ -115,6 +120,9 @@ async function startSession(
     forward({ t: 'text', actor: msg.actor, message: msg.message }),
   );
   session.on('permission', (reason: string) => forward({ t: 'permission', reason }));
+  session.on('permissions', (p: MumblePermissions) =>
+    forward({ t: 'permissions', channel: p.channel, permissions: p.permissions, flush: p.flush }),
+  );
   session.on('error', (error: string) => forward({ t: 'status', state: 'error', error }));
   session.on('close', () => {
     forward({ t: 'status', state: 'closed' });
@@ -138,8 +146,27 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(channels.mumbleDisconnect, () => stop());
 
   ipcMain.handle(channels.mumbleJoinChannel, (event, id: unknown) => {
-    if (!isOwner(event.sender) || !Number.isInteger(id) || (id as number) < 0) return;
-    active?.session.joinChannel(id as number);
+    if (!isOwner(event.sender) || !isId(id)) return;
+    active?.session.joinChannel(id);
+  });
+
+  // Moving somebody else, and placing an ear in another channel, are both
+  // permission-gated — by the *server*, which refuses with PermissionDenied.
+  // Nothing here second-guesses that: the session only checks that the ids name
+  // things the server has told us about (see MumbleSession.moveUser).
+  ipcMain.handle(channels.mumbleMoveUser, (event, session: unknown, id: unknown) => {
+    if (!isOwner(event.sender) || !isId(session) || !isId(id)) return;
+    active?.session.moveUser(session, id);
+  });
+
+  ipcMain.handle(channels.mumbleSetListening, (event, id: unknown, listening: unknown) => {
+    if (!isOwner(event.sender) || !isId(id)) return;
+    active?.session.setListening(id, listening === true);
+  });
+
+  ipcMain.handle(channels.mumbleQueryPermissions, (event, id: unknown) => {
+    if (!isOwner(event.sender) || !isId(id)) return;
+    active?.session.queryPermissions(id);
   });
 
   ipcMain.handle(channels.mumbleSelfState, (event, state: unknown) => {
@@ -210,4 +237,9 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
 
 function isOwner(wc: WebContents): boolean {
   return active !== null && active.wc === wc;
+}
+
+/** A Mumble session or channel id off the wire: an unsigned 32-bit integer. */
+function isId(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 0xffffffff;
 }
