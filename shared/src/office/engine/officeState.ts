@@ -137,6 +137,8 @@ export class OfficeState {
    *  animation group loops against its own total duration (see
    *  animationFrameAt), so this is one shared clock, not a shared frame index. */
   furnitureAnimElapsedMs = 0;
+  /** Auto-on fingerprint as of the last rebuild (see autoOnSignature). */
+  private lastAutoOnSig = '';
   /** Furniture uids currently switched on via the click-to-toggle Action (see
    *  toggleFurniture) — ephemeral, like auto-on-facing: never written to the
    *  saved layout, resets to "off" on reload. */
@@ -1593,28 +1595,59 @@ export class OfficeState {
     return sig;
   }
 
-  /** Rebuild furniture instances with auto-state applied (active agents turn electronics ON) */
-  private rebuildFurnitureInstances(): void {
-    // Collect tiles where active agents face desks
-    const autoOnTiles = new Set<string>();
+  /** Every character that currently switches nearby electronics ON by sitting at
+   *  them, as `(col, row, facingDir)` of where they sit. Two kinds qualify, and a
+   *  human player is deliberately one of them: sitting down at a desk lights its
+   *  monitor exactly as an agent's does, which is what a player expects to see.
+   *
+   *  An agent counts only while its turn is active (an idle agent resting in a
+   *  chair leaves the screen dark); a player counts whenever seated, since a
+   *  player has no notion of an active turn (`isActive` is false by construction
+   *  and `seatId` — the agent-side seat *reservation* — is never assigned to
+   *  them, which is why they used to be skipped here entirely). */
+  private autoOnSitters(): Array<{ col: number; row: number; dir: Direction }> {
+    const out: Array<{ col: number; row: number; dir: Direction }> = [];
     for (const ch of this.characters.values()) {
+      if (ch.isPlayer) {
+        if (ch.state === CharacterState.SIT) out.push({ col: ch.tileCol, row: ch.tileRow, dir: ch.dir });
+        continue;
+      }
       if (!ch.isActive || !ch.seatId) continue;
       const seat = this.seats.get(ch.seatId);
-      if (!seat) continue;
-      // Find the desk tile(s) the agent faces from their seat
-      const dCol =
-        seat.facingDir === Direction.RIGHT ? 1 : seat.facingDir === Direction.LEFT ? -1 : 0;
-      const dRow = seat.facingDir === Direction.DOWN ? 1 : seat.facingDir === Direction.UP ? -1 : 0;
+      if (seat) out.push({ col: seat.seatCol, row: seat.seatRow, dir: seat.facingDir });
+    }
+    return out;
+  }
+
+  /** Fingerprint of who sits where, facing where — the auto-on input. Compared
+   *  per tick (see update) so sitting down or standing up switches electronics
+   *  right away: the rebuild used to be reached only when the animation clock
+   *  ticked over or setAgentActive fired, so on a map with no animated furniture
+   *  a monitor could stay dark until something unrelated happened. */
+  private autoOnSignature(): string {
+    let sig = '';
+    for (const s of this.autoOnSitters()) sig += `${s.col},${s.row},${s.dir}|`;
+    return sig;
+  }
+
+  /** Rebuild furniture instances with auto-state applied (sitting characters turn
+   *  electronics ON — see autoOnSitters) */
+  private rebuildFurnitureInstances(): void {
+    this.lastAutoOnSig = this.autoOnSignature();
+    // Collect the tiles those sitters face
+    const autoOnTiles = new Set<string>();
+    for (const sitter of this.autoOnSitters()) {
+      // Find the desk tile(s) faced from the seat
+      const dCol = sitter.dir === Direction.RIGHT ? 1 : sitter.dir === Direction.LEFT ? -1 : 0;
+      const dRow = sitter.dir === Direction.DOWN ? 1 : sitter.dir === Direction.UP ? -1 : 0;
       // Check tiles in the facing direction (desk could be 1-3 tiles deep)
       for (let d = 1; d <= AUTO_ON_FACING_DEPTH; d++) {
-        const tileCol = seat.seatCol + dCol * d;
-        const tileRow = seat.seatRow + dRow * d;
-        autoOnTiles.add(`${tileCol},${tileRow}`);
+        autoOnTiles.add(`${sitter.col + dCol * d},${sitter.row + dRow * d}`);
       }
       // Also check tiles to the sides of the facing direction (desks can be wide)
       for (let d = 1; d <= AUTO_ON_SIDE_DEPTH; d++) {
-        const baseCol = seat.seatCol + dCol * d;
-        const baseRow = seat.seatRow + dRow * d;
+        const baseCol = sitter.col + dCol * d;
+        const baseRow = sitter.row + dRow * d;
         if (dCol !== 0) {
           // Facing left/right: check tiles above and below
           autoOnTiles.add(`${baseCol},${baseRow - 1}`);
@@ -1775,7 +1808,12 @@ export class OfficeState {
     // only pay for a full rebuild when something actually changed.
     const prevSig = this.animationSignature(this.furnitureAnimElapsedMs);
     this.furnitureAnimElapsedMs += dt * 1000;
-    if (this.animationSignature(this.furnitureAnimElapsedMs) !== prevSig) {
+    // One rebuild covers both reasons it could be due this tick — a new animation
+    // frame, or somebody sitting down / standing up / turning in their seat.
+    if (
+      this.animationSignature(this.furnitureAnimElapsedMs) !== prevSig ||
+      this.autoOnSignature() !== this.lastAutoOnSig
+    ) {
       this.rebuildFurnitureInstances();
     }
 
