@@ -23,7 +23,7 @@
  */
 import { type MxDecryptAction, type MxEvent, type MxReader } from './types.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
-import { imageContentOf, type MxImageContent } from './media.js';
+import { fileContentOf, imageContentOf, type MxFileContent, type MxImageContent } from './media.js';
 import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
 
 /** Escape text to HTML. Copied verbatim from `client/src/ui/chatUI.ts` (module-
@@ -92,6 +92,23 @@ export function fmtRelative(ts: number, now: number = Date.now()): string {
     return `${WEEKDAYS[d.getDay()]} ${hh}:${mm}`;
   }
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+/** `340 B` / `12.4 KB` / `3.1 MB`. Decimal units, like every OS file manager
+ *  the reader compares this against. */
+export function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (n < 1000) return `${Math.round(n)} B`;
+  const units = ['KB', 'MB', 'GB'];
+  let v = n / 1000;
+  let i = 0;
+  // 999.5, not 1000: the rounding below happens after the unit is chosen, so a
+  // 999 999-byte file would otherwise print as "1000 KB".
+  while (v >= 999.5 && i < units.length - 1) {
+    v /= 1000;
+    i++;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
 }
 
 function sameCalendarDay(a: Date, b: Date): boolean {
@@ -166,6 +183,13 @@ export interface TimelineHooks {
   loadImage(content: MxImageContent): Promise<string>;
   /** The user clicked a loaded picture — open the full-size viewer. */
   onOpenImage(content: MxImageContent, url: string): void;
+  /** Resolve an opaque blob: URL for an `m.file`/`m.audio`/`m.video` row.
+   *  Called only when the reader clicks the row: unlike a picture, a file is
+   *  not fetched to be looked at. Rejects with a display-ready message. */
+  loadFile(content: MxFileContent): Promise<string>;
+  /** The bytes for a file row are in hand — hand them to the browser to save
+   *  under `content.body`. */
+  onSaveFile(content: MxFileContent, url: string): void;
   /** The row's ⋯ button was activated: open the message menu (react / reply /
    *  edit / delete) for this event, anchored to `anchor`. */
   onOpenActions(ev: MxEvent, anchor: HTMLElement): void;
@@ -271,14 +295,30 @@ function textBodyOf(ev: MxEvent): { html: string; plain: string; isAttachment: b
   const msgtype = typeof content.msgtype === 'string' ? content.msgtype : 'm.text';
   const body = typeof content.body === 'string' ? content.body : '';
   if (ATTACHMENT_TYPES.has(msgtype)) {
-    // m.image is handled by the picture path in `update()` below and never
-    // reaches here; the rest genuinely aren't supported yet.
-    return { html: '', plain: `📎 ${body} (not supported in this client)`, isAttachment: true };
+    // Every attachment with an address is drawn by the picture or file path in
+    // `update()` below and never reaches here. What is left is one that carries
+    // neither `url` nor `file` — nothing to fetch, so say so rather than offer
+    // a download that cannot work.
+    return { html: '', plain: `📎 ${body} (this attachment has no address)`, isAttachment: true };
   }
   if (msgtype === 'm.emote') {
     return { html: '* ' + linkify(body), plain: '', isAttachment: false };
   }
   return { html: linkify(body), plain: '', isAttachment: false };
+}
+
+/** The sub-line under a file row's name: what the reader needs to decide
+ *  whether to spend the download. `info.mimetype` is remote text, so only its
+ *  subtype is shown and only when it looks like a type at all — it lands in a
+ *  `textContent`, so this is about a row staying one line, not about escaping. */
+function describeFile(content: MxFileContent): string {
+  const parts: string[] = [];
+  const size = fmtBytes(content.info.size);
+  if (size) parts.push(size);
+  const subtype = /^[\w.+-]+\/([\w.+-]{1,24})$/.exec(content.info.mimetype)?.[1];
+  if (subtype && subtype !== 'octet-stream') parts.push(subtype.toUpperCase());
+  parts.push('click to save');
+  return parts.join(' · ');
 }
 
 /** `linkify`, but producing nodes instead of a string — this is what
@@ -548,6 +588,99 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     el.classList.remove('mx-has-img');
   }
 
+  // ---- file -------------------------------------------------------------
+  // A file is a name, a size and a download — never bytes we fetch on the
+  // reader's behalf (that is the whole difference from the picture path above:
+  // a room full of files must not pull them all down to draw a row).
+  const fileChip = document.createElement('button');
+  fileChip.type = 'button';
+  fileChip.className = 'mx-file';
+  fileChip.hidden = true;
+  const fileIcon = document.createElement('span');
+  fileIcon.className = 'i';
+  fileIcon.textContent = '📎';
+  const fileText = document.createElement('span');
+  fileText.className = 'mx-file-main';
+  const fileName = document.createElement('span');
+  fileName.className = 'nm';
+  fileName.dir = 'auto';
+  const fileMeta = document.createElement('span');
+  fileMeta.className = 'sub';
+  fileText.append(fileName, fileMeta);
+  fileChip.append(fileIcon, fileText);
+
+  /** Only 'loading' is real per-row state: a resolved download is handed
+   *  straight to the browser and the chip goes back to offering itself, since
+   *  the blob is cached and a second click is instant. */
+  let fileState: 'idle' | 'loading' | 'error' = 'idle';
+  let fileErr = '';
+  /** The mxc a load is running for, so a row recycled mid-download drops it. */
+  let fileKey = '';
+
+  fileChip.addEventListener('click', () => {
+    const content = fileContentOf(lastEvent?.content ?? {});
+    if (!content || fileState === 'loading') return;
+    const key = content.file?.url ?? content.url ?? '';
+    fileKey = key;
+    fileState = 'loading';
+    paintFile(content);
+    deps
+      .loadFile(content)
+      .then((url) => {
+        if (fileKey !== key) return;
+        fileState = 'idle';
+        fileErr = '';
+        paintFile(content);
+        deps.onSaveFile(content, url);
+      })
+      .catch((err: unknown) => {
+        if (fileKey !== key) return;
+        fileState = 'error';
+        fileErr = err instanceof Error && err.message ? err.message : "Couldn't download this file.";
+        paintFile(content);
+      });
+  });
+
+  function paintFile(content: MxFileContent): void {
+    // Only *appearing* changes the row's height — both of the chip's lines are
+    // single-line clamped, so a text swap ('Downloading…', an error) does not.
+    // `update()` repaints every visible row on every sync tick, so telling the
+    // view to re-pin on each of those would be 400 scrolls for no movement.
+    const grew = fileChip.hidden;
+    fileChip.hidden = false;
+    fileName.textContent = content.body;
+    fileMeta.textContent =
+      fileState === 'loading'
+        ? 'Downloading…'
+        : fileState === 'error'
+          ? `${fileErr} — click to retry`
+          : describeFile(content);
+    fileChip.classList.toggle('loading', fileState === 'loading');
+    fileChip.classList.toggle('failed', fileState === 'error');
+    fileChip.title = fileState === 'loading' ? content.body : `Save ${content.body}`;
+    fileChip.setAttribute('aria-label', `Save ${content.body}`);
+    // The chip carries the filename itself, so the caption row would say it
+    // twice.
+    txt.hidden = true;
+    txt.textContent = '';
+    if (grew) deps.onMediaResize();
+  }
+
+  function clearFile(): void {
+    if (fileChip.hidden) return;
+    fileKey = '';
+    fileState = 'idle';
+    fileErr = '';
+    fileChip.hidden = true;
+  }
+
+  /** Neither kind of attachment: a text row, or a row that lost its content
+   *  (deleted, undecryptable) while it was showing one. */
+  function clearAttachments(): void {
+    clearMedia();
+    clearFile();
+  }
+
   // ---- delivery gutter --------------------------------------------------
   const status = document.createElement('div');
   status.className = 'mx-status';
@@ -687,7 +820,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     }
   };
 
-  el.append(quote, txt, figure, retry, act, reacts, status, actions);
+  el.append(quote, txt, figure, fileChip, retry, act, reacts, status, actions);
 
   const update = (ev: MxEvent): void => {
     lastEvent = ev;
@@ -705,7 +838,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
 
     if (ev.redacted) {
       el.classList.add('deleted');
-      clearMedia();
+      clearAttachments();
       txt.textContent = '(message deleted)';
       return;
     }
@@ -718,13 +851,13 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     // event is never silently dropped.
     if (ev.decrypting) {
       el.classList.add('mx-utd', 'working');
-      clearMedia();
+      clearAttachments();
       txt.textContent = '🔒 Decrypting…';
       return;
     }
     if (ev.decryptError) {
       el.classList.add('mx-utd');
-      clearMedia();
+      clearAttachments();
       txt.textContent = ev.decryptError.text;
       el.title = ev.decryptError.code;
       if (ev.decryptError.action) {
@@ -743,14 +876,27 @@ function buildMsgRow(deps: RowDeps): MsgRow {
     else if (msgtype === 'm.emote') el.classList.add('emote');
 
     const image = imageContentOf(ev.content);
+    const file = image ? null : fileContentOf(ev.content);
     if (image) {
+      clearFile();
       // `el.className` was reset above, so the marker class and the whole
       // media state have to be re-applied on every update, not just the one
       // that starts the download.
       if (mediaKey === (image.file?.url ?? image.url ?? '') && mediaState !== 'idle') paintMedia(image);
       else startLoad(image, false);
-    } else {
+    } else if (file) {
       clearMedia();
+      // Same reason as the picture path: the class reset above means the chip
+      // has to be re-painted on every update, not only on a state change. A
+      // load already in flight for this same mxc keeps its 'Downloading…'.
+      if ((file.file?.url ?? file.url ?? '') !== fileKey) {
+        fileState = 'idle';
+        fileErr = '';
+        fileKey = '';
+      }
+      paintFile(file);
+    } else {
+      clearAttachments();
       const body = textBodyOf(ev);
       if (body.isAttachment) {
         txt.textContent = body.plain;

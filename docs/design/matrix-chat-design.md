@@ -868,8 +868,27 @@ Per-surface states:
   only** — the homeserver is the authority, and a refusal surfaces as a toast.
 - **`formatted_body` HTML is ignored** — the plain `body` is escaped then linkified
   (http/https only, escape-per-segment).
-- **Non-text msgtypes:** `m.image`/`m.file`/`m.audio`/`m.video` render as
-  *"📎 `<filename>` (not supported in this client)"* — labelled, not blank.
+- **Non-text msgtypes:** `m.image` is a picture row (loaded eagerly, click to open full size).
+  `m.file`/`m.audio`/`m.video` are one **file row** — 📎, the filename, and *size · type · click to
+  save* — whose bytes are fetched **only on that click** (`loadFile`/`onSaveFile`, and see the
+  download rule below); we play no audio or video, so all three are the same "named download". An
+  attachment carrying neither `url` nor `file` is the one case still labelled in text
+  (*"📎 `<filename>` (this attachment has no address)"*) — labelled, not blank.
+- **A file's blob is always `application/octet-stream`.** A picture's blob type comes from the
+  event's claimed `info.mimetype` passed through an allowlist (never the server's `Content-Type` —
+  see `media.ts`); a file's is not derived from anything, because its only destination is an
+  `<a download>` and a type is what would let the browser render it in place instead. `info.mimetype`
+  on a file row is *shown* to the reader and used for nothing else.
+- **Sending any file.** The 📎 button (an `<input type="file">` with no `accept`), a paste and a drop
+  all reach one entry point. PNG/JPEG/GIF go out as `m.image` (sniffed from the bytes, ≤16 MB —
+  the picture cap, because a picture row downloads itself); anything else as `m.file` (≤50 MB, the
+  file cap). What an `m.file` *claims* to be comes from `File.type`, downgraded to
+  `application/octet-stream` when it is malformed or a markup/scriptable type — we never volunteer
+  "this is a document you should execute" on the user's behalf, though the bytes go out unchanged.
+- **Nothing uploads without a confirmation.** A preview + name + size + destination room + whether it
+  will be encrypted, with Send/Cancel (`MatrixUI.confirmAttachment`, a native `<dialog>` in the
+  `.pa-panel` skin). This is the difference between paste-to-send and paste-then-look: a redaction
+  removes the row, not the fact that everyone in the room saw it.
 - **DOM cap: a hard 400 message elements, always enforced.** The window **slides with the reader**
   rather than sticking to either end of the loaded events: at the bottom it is the newest 400;
   scrolled up it is the 400 centred on the row the reader is looking at (200 above, the rest below,
@@ -1173,9 +1192,11 @@ the reason they are shaped the way they are.
   `getEventReadUpTo` already means "the newest event this member has read" and each reader's picture
   lands on exactly one row with no per-message bookkeeping. Our own marker is excluded (we send it
   ourselves, so it would put our face on everything we write). Still **no typing notifications**.
-- ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, over
+- ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, plus
+  **any file from disk** as `m.file` (and `m.audio`/`m.video` from other clients as a download), over
   Matrix 1.11 authenticated media with a token-bearing fetch and a per-session blob lifecycle
-  (`media.ts`). Other attachment types are still labelled placeholders.
+  (`media.ts`). Every send goes through a confirmation dialog first. Still **no inline audio/video
+  player** and **no thumbnails for a file**: a non-picture attachment is a name, a size and a save.
 - ~~**No avatars from `mxc://`**~~ **[shipped]** — real profile pictures, layered over the
   deterministic initials square so a slow or missing one degrades to what v1 drew.
 - **No Spaces** (`m.space` hierarchy), no room directory browsing, no public-room search.
@@ -1302,3 +1323,4 @@ the reason they are shaped the way they are.
 | 2026-08-07 | **§1 (Transport) and §2 (E2EE Position) marked SUPERSEDED** by `docs/design/matrix-e2ee-design.md`, at the repo owner's explicit request to use the official `matrix-js-sdk` with E2EE. No other section changed. |
 | 2026-08-07 | Adversarial review folded in. **Protocol corrections:** room display-name algorithm added (`summary.m.heroes`); DM classification no longer claims `m.room.create` carries `is_direct`; `unsigned.transaction_id` made the primary echo key; `account_data` filter switched from `{"limit":10}` to a `m.direct` type allowlist and a mandatory `GET` added before every write; accepting a DM invite now writes `m.direct`; members read via `/members?membership=join&membership=invite`; invite acceptance uses `/rooms/{roomId}/join`; raw room-id joins carry `server_name`; `presence` uses `not_types`. **Host corrections:** the Matrix panel bypasses `setMenu`'s `display:'block'` and uses `flex`; `--pa-dock-w` corrected to panel width + 1.5 rem (27.5 rem); `blocked()` extended for WASD/arrows; the bar button is gated on `viewerIdentity` and `destroy()` given a lifecycle owner; zone travel's full reload documented with `sessionStorage` restore. **Security:** the discovered `m.homeserver.base_url` is re-validated; the remote-content rule promoted to a hard rule covering `title`/`aria-label`/`href`/`style`; `esc()` extended with `'`. **Rendering:** gappy sync no longer wipes a back-paginated window; store and DOM caps made hard and bounded; `overflow-anchor:none` + synchronous scroll restore; `aria-live` scoped. **Scope:** `/matrix` moved into `shared/src/commands.ts` (the `/admin-site`-is-unregistered claim was false); `pa-mx-autostart`, the per-homeserver key dimension, `pa-mx-active`, `GET /profile`, `.pa-chip` and `.pa-select` removed; `.mx-av` tints drawn from existing accents; `.mx-toast` and `.mx-gap` given owners. |
 | 2026-08-10 | **§5.1 placement SUPERSEDED.** Matrix and Mumble became docked application windows either side of the game (Matrix left, Mumble right) instead of pinnable right-hand popovers. Pin state, `MatrixClientHandle.isPinned`/`unpin()`, `MumbleUI.isPinned`/`unpin()`, `onPinChange`, `applyDock()`, `--pa-dock-w`, `body.pa-dock-pinned`, `.pa-docked` and the `pa-mx-pinned`/`pa-mb-pinned` keys are all gone; `client/src/ui/dockWindow.ts` owns `--pa-dock-l`/`--pa-dock-r` (which inset `#game` alongside `--pa-side-panel-w`), a drag-to-resize grip, and the `pa-mx-win-*`/`pa-mb-win-*` width + open-state keys. `MatrixClientHandle` gains `setDocked(open)`, which replaces the pin as the timeline-poll gate. |
+| 2026-08-14 | **Attachments generalised from pictures to any file.** `media.ts` gains `MxFileContent`/`fileContentOf`, `uploadAttachment` (picture when the bytes sniff as one, `m.file` otherwise), `attachmentUrl` (an always-`application/octet-stream` blob) and `MAX_FILE_BYTES` (50 MB, beside the 16 MB picture cap); its three cache paths collapsed into one keyed `cached()` helper (`img|`/`file|`/`avatar|`, so a picture blob and a file blob for one mxc can never be confused). `store.sendImage` → `sendAttachment`. `timeline.ts` renders `m.file`/`m.audio`/`m.video` as a click-to-download file row, replacing the *"not supported in this client"* placeholder. **No upload starts without a confirmation dialog** (`MatrixUI.confirmAttachment`) — the 📎 button, paste and drop all pass through it. |

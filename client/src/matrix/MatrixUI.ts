@@ -43,8 +43,9 @@ import {
   saveSession,
 } from './session.js';
 import { MatrixStore } from './store.js';
+import { MAX_FILE_BYTES } from './media.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
-import { fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
+import { fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
 import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
 import { confirmDialog, passwordPromptDialog, promptDialog } from '../ui/dialog.js';
 import { readNotifyPrefs, writeNotifyPrefs } from './storage.js';
@@ -1341,6 +1342,9 @@ export class MatrixUI {
       loadImage: (content) =>
         this.store ? this.store.imageUrl(content) : Promise.reject(new Error('Not connected.')),
       onOpenImage: (content, url) => openImageViewer(content.body, url),
+      loadFile: (content) =>
+        this.store ? this.store.attachmentUrl(content) : Promise.reject(new Error('Not connected.')),
+      onSaveFile: (content, url) => saveBlobUrl(content.body, url),
       onOpenActions: (ev, anchor) => this.openMessageActions(ev, anchor),
       onToggleReaction: (eventId, key) => void this.handleToggleReaction(eventId, key),
       onJumpToReply: (eventId) => {
@@ -1377,7 +1381,8 @@ export class MatrixUI {
     });
     // A picture pasted into the composer is the fastest path there is for the
     // screenshot this feature exists for, so it gets the same treatment as the
-    // 🖼 button — see handlePickedFiles for the shared validation.
+    // 📎 button — see handlePickedFiles for the shared validation and the
+    // confirmation step.
     this.composerTextarea.addEventListener('paste', (ev) => {
       const files = filesFromDataTransfer(ev.clipboardData);
       if (files.length === 0) return;
@@ -1390,7 +1395,9 @@ export class MatrixUI {
     // this file's key-file import already makes.
     this.attachInput = document.createElement('input');
     this.attachInput.type = 'file';
-    this.attachInput.accept = 'image/png,image/jpeg,image/gif';
+    // No `accept`: any file can be sent. PNG/JPEG/GIF become a picture row,
+    // everything else an `m.file` the reader downloads (media.ts decides from
+    // the bytes, so the filter would only ever be a lie about what is allowed).
     this.attachInput.multiple = false;
     this.attachInput.hidden = true;
     this.attachInput.addEventListener('change', () => {
@@ -1403,9 +1410,9 @@ export class MatrixUI {
 
     this.attachBtn = document.createElement('button');
     this.attachBtn.className = 'pa-b';
-    this.attachBtn.textContent = '🖼';
-    this.attachBtn.setAttribute('aria-label', 'Send a picture');
-    this.attachBtn.title = 'Send a picture (PNG, JPEG, GIF) — or paste/drop one into the message box';
+    this.attachBtn.textContent = '📎';
+    this.attachBtn.setAttribute('aria-label', 'Send a file');
+    this.attachBtn.title = 'Send a file — or paste/drop one into the message box';
     this.attachBtn.addEventListener('click', () => this.attachInput.click());
 
     this.composerSendBtn = document.createElement('button');
@@ -1547,9 +1554,9 @@ export class MatrixUI {
     this.composerCtxEl.style.display = composerDisabled ? 'none' : '';
     this.composerTextarea.style.display = composerDisabled ? 'none' : '';
     this.composerSendBtn.style.display = composerDisabled ? 'none' : '';
-    // Pictures go out the same door as text: if this session can't send a
-    // message it must not be able to send a picture either — otherwise the
-    // 🖼 button is a live control sitting next to "sending is unavailable".
+    // Attachments go out the same door as text: if this session can't send a
+    // message it must not be able to send a file either — otherwise the
+    // 📎 button is a live control sitting next to "sending is unavailable".
     this.attachBtn.style.display = composerDisabled ? 'none' : '';
     this.composerDisabledEl.style.display = composerDisabled ? '' : 'none';
 
@@ -1830,10 +1837,15 @@ export class MatrixUI {
     }
   }
 
-  /** The single entry point for every way a picture can arrive (🖼 button,
-   *  paste, drop). Unlike a text send there is no local echo to fail into
-   *  until the upload finishes, so failures land in the composer's own status
-   *  line instead of a `.failed` row. */
+  /** The single entry point for every way a file can arrive (📎 button, paste,
+   *  drop). Nothing is uploaded until the confirmation dialog is accepted — a
+   *  paste is one keystroke away from every text message, and "Ctrl-V put my
+   *  screenshot in a room before I could look at it" is not recoverable: a
+   *  redaction removes the row, not the fact that everyone saw it.
+   *
+   *  Unlike a text send there is no local echo to fail into until the upload
+   *  finishes, so failures land in the composer's own status line instead of a
+   *  `.failed` row. */
   private async handlePickedFiles(files: File[]): Promise<void> {
     const rid = this.openRoomId;
     if (!rid || !this.store) return;
@@ -1843,32 +1855,45 @@ export class MatrixUI {
       return;
     }
     if (this.uploading) {
-      this.showUploadStatus('Still sending the last picture…', 'err');
+      this.showUploadStatus('Still sending the last file…', 'err');
       return;
     }
     const file = files[0];
     if (!file) return;
-    if (files.length > 1) {
-      this.showUploadStatus(`Sending the first of ${files.length} files — one at a time for now.`, '');
-    }
-    // A courtesy check only — File.type is whatever the OS guessed from the
-    // extension. The real gate is the magic-byte sniff in media.ts, which runs
-    // on the bytes and also decides the mimetype the event will claim.
-    if (file.type && !SENDABLE_TYPES.has(file.type)) {
-      this.showUploadStatus('Pictures can be PNG, JPEG or GIF.', 'err');
+    // Checked here as well as in media.ts so the dialog never asks about a file
+    // that cannot be sent in the first place.
+    if (file.size > MAX_FILE_BYTES) {
+      this.showUploadStatus(
+        `That file is too big (limit ${Math.floor(MAX_FILE_BYTES / 1024 / 1024)} MB).`,
+        'err',
+      );
       return;
     }
+
+    const room = this.store.room(rid);
+    const confirmed = await confirmAttachment({
+      file,
+      roomName: room?.name ?? rid,
+      encrypted: !!room?.encrypted,
+      alsoPicked: files.length - 1,
+    });
+    if (!confirmed) return;
+    // The dialog is modal, but the store keeps living behind it — a sign-out or
+    // another send could have landed while it was open.
+    if (!this.store || this.uploading) return;
 
     this.uploading = true;
     this.attachBtn.disabled = true;
     this.showUploadStatus(`Sending ${file.name}…`, '');
     // Same rule as a text send (see sendComposer): show me what I just sent.
     // Twice, deliberately — once now so the composer's progress line is on
-    // screen while the upload runs, and once after, because a picture has no
-    // local echo until the bytes are up and the row can appear minutes later.
-    this.timelineView.pinToBottom();
+    // screen while the upload runs, and once after, because an attachment has
+    // no local echo until the bytes are up and the row can appear minutes later.
+    if (this.openRoomId === rid) this.timelineView.pinToBottom();
     try {
-      await this.store.sendImage(rid, file, (fraction) => {
+      // Deliberately `rid`, not the currently open room: this is the room the
+      // dialog named, and that is what the user agreed to.
+      await this.store.sendAttachment(rid, file, (fraction) => {
         if (this.openRoomId !== rid) return;
         this.showUploadStatus(`Sending ${file.name}… ${Math.round(fraction * 100)}%`, '');
       });
@@ -1877,7 +1902,7 @@ export class MatrixUI {
       if (this.openRoomId === rid) this.timelineView.pinToBottom();
       this.hideUploadStatus();
     } catch (err) {
-      const msg = err instanceof Error && err.message ? err.message : "Couldn't send that picture.";
+      const msg = err instanceof Error && err.message ? err.message : "Couldn't send that file.";
       this.showUploadStatus(msg, 'err');
     } finally {
       this.uploading = false;
@@ -2601,11 +2626,13 @@ export class MatrixUI {
 
 
 // ======================================================================
-// picture helpers (module-private)
+// attachment helpers (module-private)
 // ======================================================================
 
-/** Mirrors media.ts's `sniffImage` — kept here only so an obviously wrong
- *  pick is refused before the file is read. media.ts remains the authority. */
+/** The types that will end up as a *picture* rather than a plain file. Used
+ *  only for presentation here — naming a nameless clipboard file, and deciding
+ *  whether the confirmation dialog can show a thumbnail. media.ts sniffs the
+ *  bytes and remains the authority on what is actually sent as what. */
 const SENDABLE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif']);
 
 /** True when a drag carries files at all — checked on `dragover` (where the
@@ -2636,9 +2663,158 @@ function filesFromDataTransfer(dt: DataTransfer | null): File[] {
  *  actually is — the mimetype the event carries still comes from the bytes. */
 function named(f: File): File {
   if (f.name) return f;
-  const type = SENDABLE_TYPES.has(f.type) ? f.type : 'image/png';
-  const ext = type === 'image/jpeg' ? 'jpg' : type === 'image/gif' ? 'gif' : 'png';
-  return new File([f], `pasted.${ext}`, { type });
+  if (SENDABLE_TYPES.has(f.type)) {
+    const ext = f.type === 'image/jpeg' ? 'jpg' : f.type === 'image/gif' ? 'gif' : 'png';
+    return new File([f], `pasted.${ext}`, { type: f.type });
+  }
+  // Anything else off the clipboard: a name is still required (it becomes the
+  // event body and the reader's download name), but inventing an extension for
+  // bytes we know nothing about would be a worse guess than none.
+  return new File([f], 'pasted-file', { type: f.type });
+}
+
+/** Hand a resolved blob: URL to the browser as a download. An `<a download>` on
+ *  the same blob is what the desktop shell turns into its normal save dialog —
+ *  `window.open` and `target="_blank"` are both inert there (AGENTS rule 10,
+ *  and see openImageViewer). Firefox only follows a programmatic click on an
+ *  anchor that is in the document, so it is attached for the click. */
+function saveBlobUrl(name: string, url: string): void {
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.rel = 'noopener';
+  a.hidden = true;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/**
+ * "Send this file?" — the gate in front of every upload (see
+ * `handlePickedFiles`). Resolves true only on Send; Esc, the backdrop, Cancel
+ * and closing all mean no.
+ *
+ * A native `<dialog>` + `showModal()`, like `openImageViewer`: the panel it
+ * covers is itself layered UI, and the browser's top layer is the one thing
+ * that always wins (see the note in ui/dialog.ts about z-index no longer being
+ * able to beat it).
+ */
+function confirmAttachment(o: {
+  file: File;
+  roomName: string;
+  encrypted: boolean;
+  /** How many further files came with this one — only the first is sent. */
+  alsoPicked: number;
+}): Promise<boolean> {
+  const isPicture = SENDABLE_TYPES.has(o.file.type);
+  const dialog = document.createElement('dialog');
+  dialog.className = 'pa-ui mx-confirm';
+  const panel = document.createElement('div');
+  panel.className = 'pa-panel';
+
+  const head = document.createElement('div');
+  head.className = 'pa-head';
+  const title = document.createElement('h4');
+  title.textContent = isPicture ? 'Send this picture?' : 'Send this file?';
+  const close = document.createElement('div');
+  close.className = 'pa-x';
+  close.textContent = '✕';
+  close.title = 'Cancel (Esc)';
+  head.append(title, close);
+
+  const body = document.createElement('div');
+  body.className = 'pa-body';
+
+  const row = document.createElement('div');
+  row.className = 'mx-confirm-row';
+  const preview = document.createElement('div');
+  preview.className = 'mx-confirm-prev';
+  let previewUrl = '';
+  if (isPicture) {
+    previewUrl = URL.createObjectURL(o.file);
+    const img = document.createElement('img');
+    img.src = previewUrl;
+    img.alt = o.file.name;
+    preview.appendChild(img);
+  } else {
+    preview.classList.add('generic');
+    preview.textContent = '📎';
+  }
+  const meta = document.createElement('div');
+  meta.className = 'mx-confirm-meta';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'nm';
+  nameEl.dir = 'auto';
+  nameEl.textContent = o.file.name;
+  nameEl.title = o.file.name;
+  const sizeEl = document.createElement('div');
+  sizeEl.className = 'sub';
+  const typeLabel = /^[\w.+-]+\/([\w.+-]{1,24})$/.exec(o.file.type)?.[1]?.toUpperCase() ?? '';
+  // `|| '0 B'` rather than hiding the line: a zero-byte pick is usually a
+  // dropped *folder*, and seeing that here is the cheapest way to notice.
+  sizeEl.textContent = [fmtBytes(o.file.size) || '0 B', typeLabel].filter(Boolean).join(' · ');
+  const toEl = document.createElement('div');
+  toEl.className = 'sub';
+  toEl.textContent = `To ${o.roomName}`;
+  toEl.title = o.roomName;
+  const encEl = document.createElement('div');
+  encEl.className = 'sub';
+  // Worth a line: the same click means two rather different things depending on
+  // the room, and this is the last moment it can still be taken back.
+  encEl.textContent = o.encrypted ? '🔒 Encrypted before it leaves this device' : 'Sent unencrypted';
+  meta.append(nameEl, sizeEl, toEl, encEl);
+  if (o.alsoPicked > 0) {
+    const extra = document.createElement('div');
+    extra.className = 'sub warn';
+    extra.textContent = `Only this one of ${o.alsoPicked + 1} files will be sent — one at a time for now.`;
+    meta.appendChild(extra);
+  }
+  row.append(preview, meta);
+  body.appendChild(row);
+
+  const foot = document.createElement('div');
+  foot.className = 'pa-foot';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'pa-b';
+  cancel.textContent = 'Cancel';
+  const send = document.createElement('button');
+  send.type = 'button';
+  send.className = 'pa-b primary';
+  send.textContent = 'Send';
+  foot.append(cancel, send);
+  body.appendChild(foot);
+
+  panel.append(head, body);
+  dialog.appendChild(panel);
+
+  return new Promise<boolean>((resolve) => {
+    let accepted = false;
+    const accept = (): void => {
+      accepted = true;
+      dialog.close();
+    };
+    send.addEventListener('click', accept);
+    cancel.addEventListener('click', () => dialog.close());
+    close.addEventListener('click', () => dialog.close());
+    // No Enter handler of our own: Send has focus when this opens, so Enter
+    // already activates it, and a dialog-wide one would send even when the
+    // reader had tabbed to Cancel and pressed Enter there.
+    // Backdrop click, same convention as openImageViewer/openPaDialog.
+    dialog.addEventListener('mousedown', (ev) => {
+      if (ev.target === dialog) dialog.close();
+    });
+    // Fires once on every close path (button, Esc, backdrop) — the one place
+    // the preview URL is revoked and the answer is handed back.
+    dialog.addEventListener('close', () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      dialog.remove();
+      resolve(accepted);
+    });
+    (document.getElementById('game') ?? document.body).appendChild(dialog);
+    dialog.showModal();
+    send.focus();
+  });
 }
 
 /** Full-size viewer. A native <dialog> rather than a new tab: the desktop
