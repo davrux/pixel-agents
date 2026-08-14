@@ -347,12 +347,15 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   cd server && node --import tsx scripts/push-zones.mts --server=<host:port> [--watch]
   ```
   Auth is `PIXEL_ADMIN_TOKEN` in `X-Pixel-Admin-Token` (see
-  `src/tiled/zonePushApi.ts` for why that and not a session). The dev server does
-  **not** watch its zones directory — `--watch` against 127.0.0.1 is the same
-  command as a deploy push, so local and production behave alike. Tilesets are a
-  different matter: they are committed and still need a real deploy, and pushing
-  a map authored against newer ones reports how many placements failed to
-  resolve rather than failing.
+  `src/tiled/zonePushApi.ts` for why that and not a session; the routes are
+  registered *before* the login gate, which 401s any session-less GET). The dev
+  server does **not** watch its zones directory — `--watch` against 127.0.0.1 is
+  the same command as a deploy push, so local and production behave alike.
+  The push also **syncs the tilesets and PNGs the server lacks**, by comparing
+  content hashes first so a one-line map edit doesn't ship 3.8 MB; the server
+  rebuilds its furniture catalog afterwards. `--no-assets` skips it. Those files
+  are committed and do arrive with a deploy, so a pushed one only survives until
+  the next release replaces it — which is the right outcome, not a loss.
 - **Measuring performance:** judge render/mesher perf by **frame / CPU time**,
   not proxies like triangle count (greedy meshing once measured *slower* despite
   −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +

@@ -124,6 +124,19 @@ const TILESET_FILENAME_RE = /^furniture-.*\.tsj$/;
  *  initAssetDefaults(). No separate prod/dev flag: harmless to leave running
  *  in any deployment, since a stable one never touches assets/tiled.
  *  See docs/design/tiled-editor-integration.md. */
+/** Rebuild the furniture catalog from whatever is on disk now and tell every
+ *  zone to re-broadcast. Exported because assets can arrive two ways: a file
+ *  saved in Tiled locally (the watcher below) and a push from another machine
+ *  (tiled/zonePushApi.ts) — the second writes files the watcher does not cover
+ *  (floor/wall sheets, PNGs) and should not depend on an fs event to finish the
+ *  job. Returns the item count for logging. */
+export async function reloadFurnitureCatalog(): Promise<number> {
+  const { catalog, sprites } = await buildFurnitureCatalogAndSprites();
+  updateFurnitureDefaults(catalog, sprites);
+  controlBus.emit(ASSET_CHANGED_EVENT, 'furniture');
+  return catalog.length;
+}
+
 export function watchFurnitureTilesets(): void {
   const tiledDir = join(ASSETS_ROOT, 'assets', 'tiled');
   if (!fs.existsSync(tiledDir)) return;
@@ -131,12 +144,8 @@ export function watchFurnitureTilesets(): void {
   let pending: NodeJS.Timeout | null = null;
   const reload = () => {
     pending = null;
-    buildFurnitureCatalogAndSprites()
-      .then(({ catalog, sprites }) => {
-        updateFurnitureDefaults(catalog, sprites);
-        controlBus.emit(ASSET_CHANGED_EVENT, 'furniture');
-        console.log(`[tiled-watch] furniture catalog reloaded (${catalog.length} items)`);
-      })
+    void reloadFurnitureCatalog()
+      .then((n) => console.log(`[tiled-watch] furniture catalog reloaded (${n} items)`))
       .catch((err) => console.warn('[tiled-watch] reload failed:', err instanceof Error ? err.message : err));
   };
 

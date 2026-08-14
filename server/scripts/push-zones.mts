@@ -28,6 +28,7 @@
  * given with or without the .tmj suffix. Scratch copies (*-noimport.tmj) are
  * always skipped, on the same reasoning as the local import.
  */
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as http from 'node:http';
@@ -56,6 +57,7 @@ const USAGE = `push-zones — send zone maps to a running server
   --token=<t>           default $PIXEL_ADMIN_TOKEN, else read from ./.env
   --watch               keep running, push each map when it changes
   --insecure            accept a self-signed certificate (implied for loopback)
+  --no-assets           skip the tileset/PNG sync, push only the maps
   --help                this
 
 With no zone names, every map in assets/tiled/zones is pushed. Names may be
@@ -68,7 +70,7 @@ if (has('help') || argv.includes('-h')) {
 // An unknown flag is refused rather than ignored: the default action is "push
 // every zone to the default server", and a typo in --server= would otherwise
 // send them somewhere the caller did not mean quietly.
-const KNOWN = ['server', 'token', 'watch', 'insecure', 'help'];
+const KNOWN = ['server', 'token', 'watch', 'insecure', 'help', 'no-assets'];
 const unknown = argv.filter((a) => a.startsWith('--') && !KNOWN.includes(a.replace(/^--/, '').split('=')[0]));
 if (unknown.length > 0) {
   console.error(`✗ unknown option(s): ${unknown.join(' ')}\n\n${USAGE}`);
@@ -128,6 +130,9 @@ function referencedFiles(tmj: Record<string, unknown>): Record<string, string> {
 interface PushResult {
   ok?: boolean;
   error?: string;
+  files?: Record<string, string>;
+  written?: number;
+  catalogItems?: number;
   cols?: number;
   rows?: number;
   furnitureCount?: number;
@@ -135,18 +140,18 @@ interface PushResult {
   unresolvedCount?: number;
 }
 
-function post(body: string): Promise<{ status: number; json: PushResult }> {
+function request(method: 'GET' | 'POST', route: string, body?: string): Promise<{ status: number; json: PushResult }> {
   const [host, port] = server.replace(/^https?:\/\//, '').split(':');
   const useHttps = !server.startsWith('http://');
   const mod = useHttps ? https : http;
   const options = {
     host,
     port: Number(port) || (useHttps ? 443 : 80),
-    path: '/tiled/zone',
-    method: 'POST',
+    path: route,
+    method,
     headers: {
       'content-type': 'application/json',
-      'content-length': Buffer.byteLength(body),
+      ...(body ? { 'content-length': Buffer.byteLength(body) } : {}),
       'x-pixel-admin-token': token,
     },
     ...(useHttps && insecure ? { rejectUnauthorized: false } : {}),
@@ -184,7 +189,7 @@ async function pushOne(file: string): Promise<boolean> {
   const body = JSON.stringify({ zoneId, tmj, files });
   const kb = Math.round(Buffer.byteLength(body) / 1024);
   try {
-    const { status, json } = await post(body);
+    const { status, json } = await request('POST', '/tiled/zone', body);
     if (status !== 200 || !json.ok) {
       console.error(`   ✗ ${file} → ${zoneId}: HTTP ${status} ${json.error ?? ''}`);
       return false;
@@ -209,8 +214,74 @@ function targets(): string[] {
   return fs.readdirSync(ZONES_DIR).filter((f) => f.endsWith('.tmj')).sort();
 }
 
+/**
+ * Send the tilesets and PNGs the server does not already have, byte for byte.
+ *
+ * These ARE committed and do arrive with a deploy, so this is not the transport
+ * of record for them — it is what stops "I added a tile in Tiled" from needing a
+ * release before the map that uses it can be pushed. Comparing content hashes
+ * first keeps it to what actually differs: a full set is ~350 PNGs, and sending
+ * those on every push would make a one-line map edit cost megabytes.
+ *
+ * Deliberately one-way: files the server has and we do not are left alone. A
+ * deploy is allowed to carry things this checkout has never seen, and deleting
+ * them from here would be a mapper's laptop overwriting the release.
+ */
+async function syncAssets(): Promise<boolean> {
+  const { status, json } = await request('GET', '/tiled/assets');
+  if (status !== 200 || !json.files) {
+    console.error(`   ✗ asset listing: HTTP ${status} ${json.error ?? ''}`);
+    return false;
+  }
+  const remote = json.files;
+  const send: Record<string, string> = {};
+  let bytes = 0;
+  for (const rel of localAssets()) {
+    const full = path.join(TILED_DIR, rel);
+    const buf = fs.readFileSync(full);
+    const hash = crypto.createHash('sha256').update(buf).digest('hex').slice(0, 16);
+    if (remote[rel] === hash) continue;
+    send[rel] = buf.toString('base64');
+    bytes += buf.length;
+  }
+  const n = Object.keys(send).length;
+  if (n === 0) {
+    console.log('   · assets already match');
+    return true;
+  }
+  const res = await request('POST', '/tiled/assets', JSON.stringify({ files: send }));
+  if (res.status !== 200 || !res.json.ok) {
+    console.error(`   ✗ assets: HTTP ${res.status} ${res.json.error ?? ''}`);
+    return false;
+  }
+  console.log(`   ✓ ${n} asset(s) sent (${Math.round(bytes / 1024)} KB), catalog now ${res.json.catalogItems} items`);
+  return true;
+}
+
+/** The same shapes the server accepts: a tileset at the top level, or a PNG
+ *  under png/. Kept in step with isPushableAsset in zonePushApi.ts — a mismatch
+ *  here only ever means "sent something that gets refused", never a silent gap. */
+function localAssets(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (!prefix && entry.name !== 'png') continue; // zones/, and nothing else
+        walk(path.join(dir, entry.name), rel);
+      } else if (/^[A-Za-z0-9._-]+\.tsj$/.test(rel) || /^png\/.+\.png$/.test(rel)) {
+        out.push(rel);
+      }
+    }
+  };
+  walk(TILED_DIR, '');
+  return out.sort();
+}
+
 console.log(`[push] ${server}${insecure ? ' (self-signed ok)' : ''}`);
 let failed = 0;
+if (!has('no-assets') && !(await syncAssets())) failed++;
 for (const file of targets()) if (!(await pushOne(file))) failed++;
 
 if (!watch) process.exit(failed === 0 ? 0 : 1);

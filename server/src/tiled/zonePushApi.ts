@@ -24,6 +24,10 @@ import type { Express, Request, Response } from 'express';
 import crypto from 'node:crypto';
 import express from 'express';
 
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { reloadFurnitureCatalog } from '../assets.js';
 import { LayoutStore } from '../layoutStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
@@ -62,14 +66,110 @@ export function registerZonePushApi(app: Express, adminToken: string | null, ass
   const layoutStore = new LayoutStore(loadDefaultLayout(assetsRoot));
   const zones = new ZoneStore();
 
-  app.post('/tiled/zone', json, (req: Request, res: Response) => {
-    const presented = req.header('x-pixel-admin-token') ?? '';
-    if (!presented || !tokenEquals(presented, adminToken)) {
-      return void res.status(401).json({ error: 'unauthorized' });
+  /**
+   * What the server has, so a pusher can send only what differs.
+   *
+   * Assets ARE committed and do arrive with a deploy — this exists so a mapper
+   * who added a tile does not have to wait for one. A pushed file therefore
+   * lives exactly as long as the directory does: on a container with no volume
+   * mounted at the assets path, the next redeploy replaces it with the
+   * committed version, which is the right outcome rather than a loss.
+   */
+  app.get('/tiled/assets', (req: Request, res: Response) => {
+    if (!authorized(req, res, adminToken)) return;
+    const files: Record<string, string> = {};
+    for (const rel of listPushableAssets(assetsRoot)) {
+      files[rel] = hashFile(path.join(assetsRoot, 'assets', 'tiled', rel));
     }
+    res.json({ files });
+  });
+
+  app.post('/tiled/assets', json, (req: Request, res: Response) => {
+    if (!authorized(req, res, adminToken)) return;
+    void handleAssetPush(req, res, assetsRoot);
+  });
+
+  app.post('/tiled/zone', json, (req: Request, res: Response) => {
+    if (!authorized(req, res, adminToken)) return;
     void handlePush(req, res, layoutStore, zones, assetsRoot);
   });
-  console.log('[zone-push] POST /tiled/zone ready (X-Pixel-Admin-Token)');
+  console.log('[zone-push] POST /tiled/zone + /tiled/assets ready (X-Pixel-Admin-Token)');
+}
+
+function authorized(req: Request, res: Response, adminToken: string): boolean {
+  const presented = req.header('x-pixel-admin-token') ?? '';
+  if (presented && tokenEquals(presented, adminToken)) return true;
+  res.status(401).json({ error: 'unauthorized' });
+  return false;
+}
+
+/**
+ * Which files a push may carry, as paths relative to assets/tiled.
+ *
+ * An allow-list by shape, not a denylist: a tileset at the top level, or a PNG
+ * under png/. Everything else the server reads from that directory — the Tiled
+ * project file, zone maps — is either editor-only or has its own route, and a
+ * write primitive that accepts arbitrary paths under an app directory is worth
+ * more to an attacker than the feature is to us.
+ */
+function isPushableAsset(rel: string): boolean {
+  if (rel.includes('..') || rel.startsWith('/') || rel.includes('\\')) return false;
+  if (/^[A-Za-z0-9._-]+\.tsj$/.test(rel)) return true;
+  return /^png\/[A-Za-z0-9._\/-]+\.png$/.test(rel) && !rel.includes('//');
+}
+
+function listPushableAssets(assetsRoot: string): string[] {
+  const base = path.join(assetsRoot, 'assets', 'tiled');
+  const out: string[] = [];
+  const walk = (dir: string, prefix: string): void => {
+    if (!fs.existsSync(dir)) return;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(path.join(dir, entry.name), rel);
+      else if (isPushableAsset(rel)) out.push(rel);
+    }
+  };
+  walk(base, '');
+  return out.sort();
+}
+
+/** Short content hash — only ever compared for equality, so 16 hex chars of
+ *  sha256 is plenty and keeps the listing small over the wire. */
+function hashFile(full: string): string {
+  return crypto.createHash('sha256').update(fs.readFileSync(full)).digest('hex').slice(0, 16);
+}
+
+async function handleAssetPush(req: Request, res: Response, assetsRoot: string): Promise<void> {
+  const body = (req.body ?? {}) as { files?: unknown };
+  if (!body.files || typeof body.files !== 'object') {
+    return void res.status(400).json({ error: 'missing files' });
+  }
+  const base = path.join(assetsRoot, 'assets', 'tiled');
+  const written: string[] = [];
+  try {
+    for (const [rel, b64] of Object.entries(body.files as Record<string, unknown>)) {
+      if (typeof b64 !== 'string' || !isPushableAsset(rel)) {
+        return void res.status(400).json({ error: `refused: ${rel}` });
+      }
+      const full = path.join(base, rel);
+      // Belt and braces over isPushableAsset: whatever path.join made of it has
+      // to still be inside the directory we meant.
+      if (!full.startsWith(base + path.sep)) return void res.status(400).json({ error: `refused: ${rel}` });
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, Buffer.from(b64, 'base64'));
+      written.push(rel);
+    }
+    // Explicitly, not via the fs watcher: that one only reacts to
+    // furniture-*.tsj, and a pushed floor sheet or PNG would otherwise sit on
+    // disk with the running process still serving the old catalog.
+    const items = await reloadFurnitureCatalog();
+    console.log(`[zone-push] ${written.length} asset(s) written, catalog reloaded (${items} items)`);
+    res.json({ ok: true, written: written.length, catalogItems: items });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[zone-push] asset push failed: ${message}`);
+    res.status(500).json({ error: message });
+  }
 }
 
 async function handlePush(req: Request, res: Response, layoutStore: LayoutStore, zones: ZoneStore, assetsRoot: string): Promise<void> {

@@ -197,12 +197,17 @@ async function main(): Promise<void> {
 
   // Login + cookie-session gate (only when an admin token is configured).
   if (ADMIN_TOKEN) {
+    // Before the login gate on purpose: that gate answers 401 to any GET without
+    // a browser SESSION, and a push authenticates with the admin token instead
+    // (it has no session and should not need one). These routes check that token
+    // themselves on every request — see tiled/zonePushApi.ts.
+    //
+    // Zone maps arrive this way and no other: the deploy server has no
+    // zones/*.tmj of its own, since they are gitignored and so ride along with
+    // no release. See also scripts/push-zones.mts.
+    registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
-    // Zone maps arrive by push, never by watching a directory — the deploy
-    // server has no zones/*.tmj of its own (they are gitignored, so no deploy
-    // carries them). See tiled/zonePushApi.ts and scripts/push-zones.mts.
-    registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in

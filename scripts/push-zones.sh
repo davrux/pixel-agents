@@ -2,7 +2,8 @@
 # Push zone maps to a running server — the only way a zone edit reaches one.
 # assets/tiled/zones/*.tmj is gitignored, so a level never rides along with a
 # deploy; this sends it over HTTP and the server imports it as that zone's
-# active layout. Works the same locally and against the deploy host.
+# active layout. Works the same locally and against the deploy host, and sends
+# any tilesets/PNGs the server is missing along with it.
 #
 # Usage: scripts/push-zones.sh [zone…] [options]
 #
@@ -14,6 +15,7 @@
 #   --token=<t>           default $PIXEL_ADMIN_TOKEN, else read from ./.env
 #   --watch               keep running and push each map when it changes
 #   --insecure            accept a self-signed cert (implied for loopback)
+#   --no-assets           skip the tileset/PNG sync, push only the maps
 #
 # Zone names may be given with or without .tmj; scratch copies (*-noimport.tmj)
 # are always skipped. See server/scripts/push-zones.mts for the details, and
