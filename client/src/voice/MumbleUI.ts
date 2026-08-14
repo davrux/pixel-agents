@@ -365,6 +365,13 @@ export class MumbleUI {
       /* Per-user mic / speaker state. Same red-slash idiom as the zone-voice
          mute buttons, so "off" reads identically across both panels. */
       #pa-mb-tree .us .st{flex:none;position:relative;display:inline-block;line-height:1;font-size:0.8rem;opacity:.75;}
+      /* Air between the name and the state icons, on top of the row's own gap.
+         The name is the one thing here that elides, so a long one used to run
+         right up against the mic — and the pair reads as a group describing the
+         person, which it cannot do while it is as close to the name as the two
+         icons are to each other. Structural rather than a class, because
+         applyStateIcon rewrites className from scratch on every repaint. */
+      #pa-mb-tree .us .nm + .st{margin-left:0.4rem;}
       #pa-mb-tree .us .st.off{opacity:1;}
       #pa-mb-tree .us .st.off::after{content:'';position:absolute;left:-12%;top:44%;width:124%;height:0.16em;
         background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
@@ -445,6 +452,9 @@ export class MumbleUI {
       .pa-compact #pa-mb-tree .us{gap:0.3rem;padding:0.2rem 0.3rem;}
       .pa-compact #pa-mb-tree .us .vol{width:3.5rem;}
       .pa-compact #pa-mb-tree .us .mu,.pa-compact #pa-mb-tree .us .mn{padding:0.1rem 0.2rem;}
+      /* Still separated from the name, but not at the cost of the name itself —
+         this column is the one where the row runs out of width first. */
+      .pa-compact #pa-mb-tree .us .nm + .st{margin-left:0.25rem;}
       .pa-compact #pa-mb .mb-menu .ls{max-height:11rem;}
       .pa-compact #pa-mb-tree .ch{padding:0.25rem 0.3rem;}
       /* A narrow column can't spend 0.8rem a level; nesting still has to be
