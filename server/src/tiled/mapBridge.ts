@@ -1,36 +1,27 @@
 /**
- * OfficeLayout ↔ Tiled .tmj bridge (task #157, see
- * docs/design/tiled-editor-integration.md). OfficeLayout stays the runtime
- * schema forever — .tmj is a pure edit-time export/import round-trip, not a
- * second source of truth. Written fresh; does not reuse the rejected
- * office/tiled-schema branch's scripts.
+ * Tiled .tmj → OfficeLayout importer (see docs/design/tiled-editor-integration.md).
+ * One-way by design: Tiled is where a zone is authored, OfficeLayout is what the
+ * engine runs, and nothing ever travels back. There used to be an exporter here
+ * (OfficeLayout → .tmj) so a layout edited in-game could be re-opened in Tiled;
+ * both halves of that loop are gone — the in-game world editor was removed and
+ * maps are only ever pushed (see scripts/push-zones.mts), so a second writer of
+ * .tmj would just be a way to overwrite the mapper's own file.
  *
- * Known, disclosed simplifications (not yet verified against a live Tiled
- * instance — same caveat as task #156's Wang sets):
- * - Tile Object Y anchor is assumed to be the tile's BOTTOM edge (Tiled's
- *   documented convention) — see tileObjectY/rowFromTileObjectY, the one
- *   place this assumption lives.
- * - Furniture types with no Tiled tileset representation (the server-
- *   generated portal/conference/arcade/meetingRoom/logo catalog entries —
- *   drawn in code, never baked into a .tsj) export as a plain (non-tile)
- *   rectangle Object carrying just a `type` property — round-trips exactly,
- *   just isn't visually a real sprite inside Tiled's own canvas.
+ * Consequence worth knowing: nothing in a .tmj needs to be *producible* by us,
+ * only readable. Where the old round-trip forced a lossless representation, the
+ * importer is free to derive (zOffset from object list order, uid freshly per
+ * import) and to ignore what our renderer cannot show (rotation, diagonal flip).
  */
 import type { Action, OfficeLayout, PlacedFurniture, PlacedImage, PlacedText } from '@pixel/shared/office/types.js';
 import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { findGid, floorSetNames, FURNITURE_TILE_CLASS, gidAt, resolveFromTmjTilesets, wallSetNames, type TiledRegistry } from './tiledRegistry.js';
-import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
-import { furnitureBehaviourFromObject, furnitureBehaviourProps } from './furnitureProps.js';
+import { resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { actionFromProps, type TiledProp, type PropBag } from './actionProps.js';
+import { furnitureBehaviourFromObject } from './furnitureProps.js';
 import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
-import { emptyWallEdges, hIndex, latticeIndex, latticeMask, vIndex } from '@pixel/shared/office/wallEdges.js';
-
-export interface TmjExportResult {
-  tmj: Record<string, unknown>;
-}
-
+import { emptyWallEdges, hIndex, latticeIndex, vIndex } from '@pixel/shared/office/wallEdges.js';
 
 /** Tiled's own GID flip bits (top two bits of the 32-bit GID field) — plain
  *  addition/subtraction, not a bitwise op: these GIDs are always far below
@@ -42,410 +33,15 @@ export interface TmjExportResult {
 const TILED_FLIP_H = 0x80000000;
 const TILED_FLIP_V = 0x40000000;
 
-/** `flippedHorizontally`/`flippedVertically` (see PlacedFurniture) map
- *  directly onto Tiled's own GID flip bits — purely cosmetic, so Tiled's
- *  canvas shows the real (mirrored) sprite instead of drawing the unflipped
- *  one. `id` (see the export/import properties block) already carries the
- *  true identity independent of this; the GID here is only ever consulted
- *  for *display*. */
-function findFurnitureGid(registry: TiledRegistry, id: string, flippedHorizontally: boolean, flippedVertically: boolean): number | null {
-  const direct = findFurnitureGidExact(registry, id);
-  if (direct === null) return null;
-  return direct + (flippedHorizontally ? TILED_FLIP_H : 0) + (flippedVertically ? TILED_FLIP_V : 0);
-}
-
-function findFurnitureGidExact(registry: TiledRegistry, id: string): number | null {
-  for (const ts of registry.tilesets) {
-    // Matched on the TILE's class, not the tileset's filename: a furniture
-    // tileset may be called anything (see isFurnitureTileset). Checking the
-    // found tile rather than the file also rules out a same-named `id` property
-    // on some other kind of tile answering for a furniture lookup.
-    const localId = ts.tiles.findIndex((t) => t.class === FURNITURE_TILE_CLASS && t.props.id === id);
-    if (localId >= 0) return ts.firstgid + localId;
-  }
-  return null;
-}
-
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
  *  corner of the tile's image, not top-left like every other object type. */
-function tileObjectY(row: number, footprintH: number): number {
-  return (row + footprintH) * TILE_SIZE;
-}
 function rowFromTileObjectY(y: number, footprintH: number): number {
   return Math.round(y / TILE_SIZE) - footprintH;
 }
 
-export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry, zoneId: string): TmjExportResult {
-  const { cols, rows, tiles } = layout;
-
-  // A set index is a position in THIS layout's own table (OfficeLayout.floorSets
-  // / wallSets), so the filename comes from there. A layout with no table — one
-  // built in code, which cannot know what is on disk — takes whatever the disk
-  // offers first.
-  const floorFallback = floorSetNames(registry);
-  const wallFallback = wallSetNames(registry);
-  const floorFile = (set: number | undefined): string => `${layout.floorSets?.[set ?? 0] ?? floorFallback[0] ?? ''}.tsj`;
-  const wallFile = (set: number | undefined): string => `${layout.wallSets?.[set ?? 0] ?? wallFallback[0] ?? ''}.tsj`;
-
-  // ── Ground + Wall layers: floor/wall GIDs, GID 0 = empty ─────────
-  // GID is computed directly from position — no property search needed.
-  // Column 0 = Natural, column 1+i = PALETTE_64[i] (see tiledSheetLayout.ts);
-  // row = pattern-1 (floor) or bitmask (wall) — exactly how
-  // bake-floor-wall-tiled.mts lays the sheet out.
-  //
-  // Ground is floor only. Walls are edges on their own lattice layer below.
-  const floorGid = (pattern: number, set: number | undefined, swatchIdx: number | null): number => {
-    const col = swatchIdx === null ? 0 : swatchIdx + 1;
-    return gidAt(registry, floorFile(set), (pattern - 1) * TILED_SHEET_COLUMNS + col) ?? 0;
-  };
-  const ground: number[] = [];
-  for (let i = 0; i < cols * rows; i++) {
-    const t = tiles[i];
-    ground.push(t === TileType.VOID ? 0 : floorGid(t, layout.tileFloorSet?.[i], layout.tileColors?.[i] ?? null));
-  }
-
-  // ── Wall lattice layer: edge walls (see OfficeLayout.walls) ──────
-  // One tile per LATTICE POINT — the corner shared by four cells — because the
-  // four edges meeting there form exactly the piece's own N/E/S/W bitmask, so
-  // one painted tile states which of those edges are wall. That is also why the
-  // layer carries a half-tile negative offset: the same tiles, drawn on the
-  // boundaries instead of in the cells.
-  //
-  // Lattice point (c,r) is the top-left corner of cell (c,r), so the layer is
-  // map-sized and the map's far right/bottom boundary points (c=cols, r=rows)
-  // have no tile to paint. Maps keep a VOID margin, so nothing real lives out
-  // there; a wall on the very last row/column has to move one cell inward.
-  const wallLattice: number[] = [];
-  const walls = layout.walls;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!walls) {
-        wallLattice.push(0);
-        continue;
-      }
-      const li = latticeIndex(cols, c, r);
-      const derived = latticeMask(walls, cols, rows, c, r);
-      const piece = walls.latticePiece?.[li] ?? (derived === 0 ? null : derived);
-      if (piece == null) {
-        wallLattice.push(0);
-        continue;
-      }
-      const swatchIdx = walls.latticeColor?.[li] ?? null;
-      const col = swatchIdx === null ? 0 : swatchIdx + 1;
-      wallLattice.push(gidAt(registry, wallFile(walls.latticeSet?.[li]), piece * TILED_SHEET_COLUMNS + col) ?? 0);
-    }
-  }
-
-  // ── Wall face layer: north-wall surface (see WallEdges.faces) ────
-  // Cell-aligned and NOT offset, unlike the lattice layer above: a face fills a
-  // whole tile, so it belongs on the floor grid. Painting a face on the lattice
-  // layer instead would put it 8px off.
-  const wallFaces: number[] = [];
-  for (let i = 0; i < cols * rows; i++) {
-    const piece = walls?.faces?.piece[i] ?? null;
-    if (piece == null) {
-      wallFaces.push(0);
-      continue;
-    }
-    const swatchIdx = walls?.faces?.color?.[i] ?? null;
-    const col = swatchIdx === null ? 0 : swatchIdx + 1;
-    wallFaces.push(gidAt(registry, wallFile(walls?.faces?.set?.[i]), piece * TILED_SHEET_COLUMNS + col) ?? 0);
-  }
-
-  // ── Collision layer: tileBlocked, parameterless marker tile ──────
-  const collisionGid = findGid(registry, 'collision.tsj', () => true) ?? 0;
-  const collision: number[] = [];
-  for (let i = 0; i < cols * rows; i++) collision.push(layout.tileBlocked?.[i] ? collisionGid : 0);
-
-  // ── Furniture: tile objects (or a plain rect fallback), list order = stacking ──
-  const orderedFurniture = [...layout.furniture]
-    .map((f, i) => ({ f, i }))
-    .sort((a, b) => (a.f.zOffset ?? 0) - (b.f.zOffset ?? 0) || a.i - b.i)
-    .map(({ f }) => f);
-
-  const furnitureObjects = orderedFurniture.map((item, idx) => {
-    const entry = getCatalogEntry(item.id);
-    const fw = entry?.footprintW ?? 1;
-    const fh = entry?.footprintH ?? 1;
-    const gid = findFurnitureGid(registry, item.id, !!item.flippedHorizontally, !!item.flippedVertically);
-    // Every field always present (even empty/0/false) — see actionProps's
-    // own note; the same "discoverable, not just whatever was set" reasoning
-    // applies to approachSides/name here. No `uid` (regenerated fresh on
-    // every import, see importTmjToLayout) and no `zOffset` (stacking comes
-    // purely from this object's position in the list — see orderedFurniture
-    // above and its import-side counterpart) — both dropped per
-    // docs/design/tiled-editor-integration.md.
-    //
-    // `id` is written ONLY for the rectangle placeholder below, the one case
-    // with no GID to derive identity from. It used to be written always, on
-    // the reasoning that an object may as well say outright what it is instead
-    // of making identity depend on resolving a GID through the registry. True
-    // for reading a .tmj — but it also made identity a hand-editable field
-    // that OVERRODE the GID, so retyping it silently swapped the item while
-    // Tiled kept drawing the old sprite. Identity now comes from the sprite
-    // you can see, and there is nothing on a normal placement to get wrong.
-    const properties: TiledProp[] = [
-      ...(gid === null ? [prop('id', item.id)] : []),
-      // No `name` property: Tiled objects have a native Name field (top of the
-      // Properties panel, and what its object list shows), so a custom one
-      // beside it was a second field with the same meaning — and the one a
-      // mapper would naturally type into was the one nothing read. See `base`
-      // below, which sets the native field, and the import-side counterpart.
-      prop('approachSides', item.approachSides && item.approachSides.length ? item.approachSides.join(',') : '', 'ApproachSide'),
-      prop('approachThrough', !!item.approachThrough),
-      ...actionProps(item.action ?? null),
-      // The exception to "every field always present" above: a behaviour
-      // override is written only when this placement actually has one, because
-      // here absence carries meaning — see furnitureProps.ts's header. Tiled
-      // shows a tile object its tile's own values regardless, so the mapper
-      // still sees the full set.
-      ...furnitureBehaviourProps(item),
-    ];
-
-    const base = {
-      id: idx + 1,
-      name: item.name ?? '',
-      type: 'FurnitureObject',
-      visible: true,
-      x: item.col * TILE_SIZE,
-      width: fw * TILE_SIZE,
-      height: fh * TILE_SIZE,
-      rotation: 0,
-      properties,
-    };
-    if (gid !== null) {
-      return { ...base, gid, y: tileObjectY(item.row, fh) };
-    }
-    // No Tiled tileset backs this id (server-generated furniture) — a
-    // plain rectangle placeholder, top-left anchored like every other
-    // non-tile object; round-trips via the `id` property either way.
-    return { ...base, y: item.row * TILE_SIZE };
-  });
-
-  // ── Actions: one Rectangle per maximal solid same-action block, else one
-  // Point per tile — a mapper filling a big area (e.g. a meeting room) gets
-  // one clean shape instead of one dot per tile; an irregular/hand-painted
-  // shape still round-trips exactly via individual points, exactly like
-  // every ActionArea did before rectangle support existed. "Solid" means the
-  // 4-connected same-action component's cell count equals its own bounding
-  // box's area — i.e. there's no gap or different action anywhere inside
-  // that box. Position IS the data either way — col/row (or the covered
-  // range) are derived from x/y/width/height on import, never stored as
-  // their own properties: Tiled doesn't update custom properties when an
-  // object is dragged or resized, so a stored col/row would silently go
-  // stale the moment someone moves or resizes the shape.
-  const actionObjects: Array<Record<string, unknown>> = [];
-  {
-    const tileActions = layout.tileActions ?? [];
-    const total = cols * rows;
-    const visited = new Uint8Array(total);
-    const stack: number[] = [];
-    for (let start = 0; start < total; start++) {
-      const startAction = tileActions[start];
-      if (visited[start] || !startAction) continue;
-      const component: number[] = [start];
-      visited[start] = 1;
-      stack.push(start);
-      let minCol = start % cols;
-      let maxCol = minCol;
-      let minRow = Math.floor(start / cols);
-      let maxRow = minRow;
-      while (stack.length > 0) {
-        const idx = stack.pop()!;
-        const c = idx % cols;
-        const r = Math.floor(idx / cols);
-        const neighbors = [
-          r > 0 ? idx - cols : -1,
-          r < rows - 1 ? idx + cols : -1,
-          c > 0 ? idx - 1 : -1,
-          c < cols - 1 ? idx + 1 : -1,
-        ];
-        for (const n of neighbors) {
-          if (n >= 0 && !visited[n] && actionsEqual(tileActions[n] ?? null, startAction)) {
-            visited[n] = 1;
-            component.push(n);
-            stack.push(n);
-            const nc = n % cols;
-            const nr = Math.floor(n / cols);
-            if (nc < minCol) minCol = nc;
-            if (nc > maxCol) maxCol = nc;
-            if (nr < minRow) minRow = nr;
-            if (nr > maxRow) maxRow = nr;
-          }
-        }
-      }
-      const boxCols = maxCol - minCol + 1;
-      const boxRows = maxRow - minRow + 1;
-      // A lone tile (1x1) stays a Point — a tiny rectangle sitting exactly on
-      // the tile's own edges is harder to spot/grab in Tiled than a dot, and
-      // single-tile actions (a portal, an appliance) are the common case.
-      if ((boxCols > 1 || boxRows > 1) && component.length === boxCols * boxRows) {
-        actionObjects.push({
-          id: 0, // renumbered below
-          name: '',
-          type: 'ActionArea',
-          x: minCol * TILE_SIZE,
-          y: minRow * TILE_SIZE,
-          width: boxCols * TILE_SIZE,
-          height: boxRows * TILE_SIZE,
-          rotation: 0,
-          properties: actionProps(startAction),
-        });
-      } else {
-        for (const idx of component) {
-          const c = idx % cols;
-          const r = Math.floor(idx / cols);
-          actionObjects.push({
-            id: 0, // renumbered below
-            name: '',
-            type: 'ActionArea',
-            point: true,
-            x: c * TILE_SIZE + TILE_SIZE / 2,
-            y: r * TILE_SIZE + TILE_SIZE / 2,
-            width: 0,
-            height: 0,
-            rotation: 0,
-            properties: actionProps(startAction),
-          });
-        }
-      }
-    }
-  }
-  actionObjects.forEach((o, i) => (o.id = i + 1));
-
-  // ── Text: native Tiled text objects ───────────────────────────────
-  // Our own anchor is free (bottom-center of the label, see PlacedText) while
-  // Tiled anchors a text object at its box's top-left — convert by centering
-  // a fixed-size box under the anchor point (approximate, same as before this
-  // became free-positioned: Tiled's own left/top text alignment inside that
-  // box was never pixel-exact with the renderer's centered layout either).
-  const TEXT_BOX_W = 8 * TILE_SIZE;
-  const TEXT_BOX_H = 2 * TILE_SIZE;
-  const textObjects = (layout.texts ?? []).map((t, idx) => ({
-    id: idx + 1,
-    name: '',
-    type: '',
-    x: t.x - TEXT_BOX_W / 2,
-    y: t.y - TEXT_BOX_H,
-    width: TEXT_BOX_W,
-    height: TEXT_BOX_H,
-    rotation: t.angle ?? 0,
-    visible: true,
-    text: {
-      text: t.text,
-      ...(t.fontFamily ? { fontfamily: t.fontFamily } : {}),
-      ...(t.fontSize ? { pixelsize: t.fontSize } : {}),
-      ...(t.color ? { color: t.color } : {}),
-      wrap: true,
-    },
-    properties: [],
-  }));
-
-  // ── Images: real GID-backed tile objects from images.tsj (see
-  // bake-images-tiled.mts) — Tiled's object format has no "standalone image
-  // file" field (only gid or text), so this is the only shape Tiled itself
-  // can actually create (via Insert Tile against that tileset); a bare
-  // object with a custom `image` property was never a real Tiled mechanism.
-  // Free pixel x/y/width/height (see PlacedImage) — Tiled anchors a
-  // GID-backed tile object at its BOTTOM-left corner, not top-left, so the
-  // stored top-left y needs the same +height conversion tileObjectY does for
-  // furniture, just inlined here since it's not tile-quantized. No rounding
-  // anywhere: whatever pixel box the mapper drew in Tiled comes back exactly
-  // on import. An image whose id isn't in images.tsj (not yet baked since it
-  // was uploaded) is skipped, matching the live renderer's own skip for a
-  // deleted image.
-  const imageObjects = (layout.images ?? []).flatMap((im, idx) => {
-    const baseGid = findGid(registry, 'images.tsj', (props) => props.imageId === im.imageId);
-    if (baseGid === null) return [];
-    const gid = baseGid + (im.flippedHorizontally ? TILED_FLIP_H : 0) + (im.flippedVertically ? TILED_FLIP_V : 0);
-    return [
-      {
-        id: idx + 1,
-        name: '',
-        type: 'Image',
-        gid,
-        x: im.x,
-        y: im.y + im.height,
-        width: im.width,
-        height: im.height,
-        rotation: 0,
-        visible: true,
-        properties: [prop('imageId', im.imageId)],
-      },
-    ];
-  });
-
-  const tilesetRefs = registry.tilesets.map((ts) => ({ firstgid: ts.firstgid, source: `../${ts.file}` }));
-
-  const tmj: Record<string, unknown> = {
-    compressionlevel: -1,
-    width: cols,
-    height: rows,
-    tilewidth: TILE_SIZE,
-    tileheight: TILE_SIZE,
-    infinite: false,
-    orientation: 'orthogonal',
-    renderorder: 'right-down',
-    tiledversion: '1.11.0',
-    type: 'map',
-    class: 'Map',
-    version: '1.10',
-    nextlayerid: 7,
-    nextobjectid: furnitureObjects.length + actionObjects.length + textObjects.length + imageObjects.length + 1,
-    // The Pixel Agents zone this map belongs to — read back on import
-    // instead of trusting the .tmj's own filename (same class-not-container
-    // principle as everywhere else in this bridge; see
-    // docs/design/tiled-custom-properties-reference.md's Map class).
-    properties: [prop('mapName', zoneId)],
-    tilesets: tilesetRefs,
-    layers: [
-      { id: 1, name: 'Ground', class: 'GroundLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 1, visible: true, data: ground },
-      // The half-tile offset is what puts these tiles on the cell boundaries
-      // instead of in the cells — Tiled renders the layer shifted, so what you
-      // paint is what the game draws.
-      {
-        id: 8,
-        name: 'Walls',
-        class: 'WallLatticeLayer',
-        type: 'tilelayer',
-        width: cols,
-        height: rows,
-        x: 0,
-        y: 0,
-        offsetx: -TILE_SIZE / 2,
-        offsety: -TILE_SIZE / 2,
-        opacity: 1,
-        visible: true,
-        data: wallLattice,
-      },
-      {
-        id: 9,
-        name: 'WallFaces',
-        class: 'WallFaceLayer',
-        type: 'tilelayer',
-        width: cols,
-        height: rows,
-        x: 0,
-        y: 0,
-        opacity: 1,
-        visible: true,
-        data: wallFaces,
-      },
-      { id: 2, name: 'Collision', class: 'CollisionLayer', type: 'tilelayer', width: cols, height: rows, x: 0, y: 0, opacity: 0.5, visible: true, data: collision },
-      { id: 3, name: 'Furniture', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: furnitureObjects },
-      { id: 4, name: 'Actions', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: actionObjects },
-      { id: 5, name: 'Text', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: textObjects },
-      { id: 6, name: 'Images', type: 'objectgroup', draworder: 'index', opacity: 1, visible: true, x: 0, y: 0, objects: imageObjects },
-    ],
-  };
-
-  return { tmj };
-}
-
-/** Every imported item gets a fresh identity — `uid` is purely internal
- *  engine plumbing (station claims, on/off toggle state, editor selection;
- *  see officeState.ts/LayoutEditor.ts), never something a Tiled edit needs
- *  to preserve across a round-trip. Not exported as a property at all. */
+/** Every imported item gets a fresh identity — `uid` is purely internal engine
+ *  plumbing (station claims, on/off toggle state; see officeState.ts), so it is
+ *  generated per import and never read from the map. */
 function generateUid(): string {
   return `imported_${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -463,7 +59,7 @@ function tiledColorToRgbHex(color: string): string | null {
 }
 
 /** Derive (row, swatch index) from a resolved tile's position within its
- *  tileset — the import-side counterpart to the export's gidAt() arithmetic.
+ *  tileset, undoing the sheet layout bake-floor-wall-tiled.mts writes out.
  *  Column 0 = Natural (null), column 1+i = PALETTE_64[i]; row = pattern-1
  *  (floor) or bitmask (wall). Positional, not property-based: floor.tsj/
  *  wall-*.tsj are entirely machine-generated (bake-floor-wall-tiled.mts), so

@@ -44,7 +44,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   if (!fs.existsSync(tmjPath)) {
-    console.error(`No exported map at ${tmjPath} — run tiled-export-zone.mts first.`);
+    console.error(`No map at ${tmjPath} — author the zone in Tiled and save it there first.`);
     process.exit(1);
   }
 

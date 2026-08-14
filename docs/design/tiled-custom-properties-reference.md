@@ -99,7 +99,7 @@ override.
 
 | Property | Type | Required? | Notes |
 |---|---|---|---|
-| `id` | string | required unless the object has a `gid` (see below) | Which FurnitureTile catalog entry this is — always written explicitly by our own exporter, even though a GID-backed object already implies it (deliberate redundancy, see the design doc). |
+| `id` | string | required unless the object has a `gid` (see below) | Which FurnitureTile catalog entry this is. Only consulted when the object has **no** `gid`: for a GID-backed placement the tile *is* the identity, and a leftover `id` property is ignored with a warning on import — retyping it used to swap the item while Tiled kept drawing the old sprite (see the design doc's `FurnitureObject.id` row). |
 | `name` | string | optional | E.g. a conference monitor's stable room name. |
 | `approachSides` | string, enum `ApproachSide` (flags) | optional | See "Special case: approachSides" below. Empty = unrestricted. |
 | `approachThrough` | bool | optional | Marks THIS item as a blocker players may search past when some other item's approach-tile search reaches it — e.g. a kitchen counter with an appliance mounted behind it. Still blocks ordinary movement/placement; only changes what counts as a dead end for *other* items' approach search. Default `false`. |
@@ -116,7 +116,7 @@ Unlike a FurnitureTile, a placed object carries **only the overrides it actually
 makes** — absence means "whatever this type says", and that distinction is the
 whole point: writing `canSitOn: false` onto every placement of a sittable chair
 just to be thorough would turn every chair in the map unsittable on the next
-import. Our exporter follows the same rule.
+import.
 
 You still *see* every field, because Tiled offers a class's members to any object
 assigned that class, file contents notwithstanding. That is why the class matters:
@@ -136,8 +136,8 @@ you edit.
 
 A furniture item with no Tiled tileset representation (portals, conference monitor,
 arcade cabinet, meeting-room kiosk, wall logos — all server-generated in code) still
-exports as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
-canvas instead of a real sprite. Round-trips fine either way. **These types have no
+is placed as a `FurnitureObject`, just without a `gid` — a plain rectangle in Tiled's
+canvas instead of a real sprite. Imports fine either way. **These types have no
 default action on their catalog entry** — unlike a real `FurnitureTile` (which can
 set one, see above), there's no tile to bake it onto, so every placed `DOOR`/
 `BEAM_PAD`/`ARCADE`/`MONITOR`/`MEETING_KIOSK` instance must set its own `actionKind`
@@ -204,7 +204,7 @@ Tile (T)** from `images.tsj` (see below), not a custom shape.
 | `imageId` | string | required unless the object has a `gid` (see below) | The stable id this image is stored/looked-up under in the live game. Always present on the tile itself (baked by bake-images-tiled.mts), so a plain Insert Tile placement with no properties of its own still resolves correctly — see FurnitureObject's identical `id` fallback above. |
 
 Tiled's native horizontal/vertical flip (right-click the object, or the
-Tileset panel's flip buttons before placing) is supported and round-trips —
+Tileset panel's flip buttons before placing) is supported and is read on import —
 unlike furniture's hand-drawn 2.5D art, an arbitrary uploaded image has no
 fixed camera angle, so both directions are safe (see
 `PlacedImage.flippedHorizontally`/`flippedVertically`).
@@ -356,8 +356,8 @@ same thing without three properties having to agree.)
 
 `actionKind` is a discriminated union, same idea as a TypeScript union type: which
 of `actionVideo` / `actionUrl` / `actionPose` actually gets read depends entirely on
-its value. The others are ignored (and always exported as empty/false/blank so
-you can *see* they exist, even when irrelevant for the current kind):
+its value. The others are ignored (they still show up as empty/false/blank, because Tiled offers
+a class's whole member list, so you can *see* they exist even when irrelevant here):
 
 | `actionKind` | Reads | Ignores |
 |---|---|---|
