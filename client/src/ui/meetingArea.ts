@@ -42,6 +42,8 @@ export class MeetingAreaUI {
 
   private readonly panel: HTMLDivElement;
   private readonly titleEl: HTMLSpanElement;
+  private readonly minBtn: HTMLButtonElement;
+  private minimized = false;
   private readonly statusEl: HTMLSpanElement;
   private readonly stageEl: HTMLDivElement;
   private readonly screensEl: HTMLDivElement;
@@ -62,8 +64,17 @@ export class MeetingAreaUI {
     this.titleEl.textContent = MeetingAreaUI.GENERIC_TITLE;
     this.statusEl = document.createElement('span');
     this.statusEl.className = 'pa-meet-status';
-    header.append(this.titleEl, this.statusEl);
+    this.minBtn = document.createElement('button');
+    this.minBtn.className = 'pa-meet-min';
+    this.minBtn.textContent = '🗕';
+    this.minBtn.title = 'Minimise (the call keeps running)';
+    this.minBtn.onclick = (e) => {
+      e.stopPropagation(); // the header is also the drag handle
+      this.setMinimized(!this.minimized);
+    };
+    header.append(this.titleEl, this.statusEl, this.minBtn);
     this.panel.appendChild(header);
+    this.wireDrag(header);
 
     this.stageEl = document.createElement('div');
     this.stageEl.className = 'pa-meet-stage';
@@ -129,6 +140,98 @@ export class MeetingAreaUI {
   setVisible(visible: boolean): void {
     this.panel.style.display = visible ? 'flex' : 'none';
     if (!visible) this.devPop.classList.remove('open');
+    // Re-apply a dragged position on every show: the window may have been
+    // resized (or the panel moved off-screen) while no call was running.
+    if (visible) this.applyStoredPosition();
+  }
+
+  /**
+   * Collapse to just the header — title, status and this button.
+   *
+   * Deliberately not "hide": a call you cannot see is a call you forget you are
+   * in. The stage stays in the DOM (display:none), so LiveKitConference keeps
+   * rendering into the same element and audio keeps playing — hiding an element
+   * does not pause its media.
+   */
+  setMinimized(min: boolean): void {
+    this.minimized = min;
+    this.panel.classList.toggle('min', min);
+    this.minBtn.textContent = min ? '🗖' : '🗕';
+    this.minBtn.title = min ? 'Restore' : 'Minimise (the call keeps running)';
+    if (min) this.devPop.classList.remove('open');
+  }
+
+  /** Drag by the header. Switches from the docked right/bottom anchoring to
+   *  left/top on first move, and remembers where you left it (a zone switch is a
+   *  full reload, so without storing it the panel would jump back every time). */
+  private wireDrag(handle: HTMLElement): void {
+    handle.style.cursor = 'move';
+    let startX = 0;
+    let startY = 0;
+    let baseLeft = 0;
+    let baseTop = 0;
+    let dragging = false;
+    const onMove = (e: PointerEvent): void => {
+      if (!dragging) return;
+      const w = this.panel.offsetWidth;
+      const h = this.panel.offsetHeight;
+      const left = Math.min(Math.max(0, baseLeft + e.clientX - startX), Math.max(0, window.innerWidth - w));
+      const top = Math.min(Math.max(0, baseTop + e.clientY - startY), Math.max(0, window.innerHeight - h));
+      this.place(left, top);
+    };
+    const onUp = (e: PointerEvent): void => {
+      if (!dragging) return;
+      dragging = false;
+      handle.releasePointerCapture(e.pointerId);
+      try {
+        localStorage.setItem('pa-meet-pos', JSON.stringify({ left: this.panel.offsetLeft, top: this.panel.offsetTop }));
+      } catch {
+        /* storage unavailable — the position just won't survive a reload */
+      }
+    };
+    handle.addEventListener('pointerdown', (e) => {
+      if ((e.target as HTMLElement).closest('button')) return; // the minimise button
+      const r = this.panel.getBoundingClientRect();
+      baseLeft = r.left;
+      baseTop = r.top;
+      startX = e.clientX;
+      startY = e.clientY;
+      dragging = true;
+      handle.setPointerCapture(e.pointerId);
+      e.preventDefault(); // no text selection while dragging
+    });
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  }
+
+  private place(left: number, top: number): void {
+    this.panel.style.left = `${left}px`;
+    this.panel.style.top = `${top}px`;
+    this.panel.style.right = 'auto';
+    this.panel.style.bottom = 'auto';
+  }
+
+  private applyStoredPosition(): void {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem('pa-meet-pos');
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const p = JSON.parse(raw) as { left?: number; top?: number };
+      if (typeof p.left !== 'number' || typeof p.top !== 'number') return;
+      const w = this.panel.offsetWidth || 224;
+      const h = this.panel.offsetHeight || 160;
+      this.place(
+        Math.min(Math.max(0, p.left), Math.max(0, window.innerWidth - w)),
+        Math.min(Math.max(0, p.top), Math.max(0, window.innerHeight - h)),
+      );
+    } catch {
+      /* malformed — keep the docked default */
+    }
   }
 
   setHandlers(h: MeetingAreaHandlers | null): void {
@@ -187,7 +290,18 @@ function injectMeetingAreaStyles(): void {
       background:#1c1a19;border:2px solid #0a0908;border-radius:0.5rem;
       padding:0.6rem;color:#f1efec;font-family:'FS Pixel Sans',ui-monospace,monospace;font-size:0.85rem;
       box-shadow:inset 0 0 0 1px rgba(255,255,255,.04),0 4px 18px rgba(0,0,0,.45);}
-    #pa-meeting .pa-meet-head{display:flex;align-items:baseline;justify-content:space-between;gap:0.4rem;font-weight:bold;}
+    #pa-meeting .pa-meet-head{display:flex;align-items:baseline;justify-content:space-between;gap:0.4rem;font-weight:bold;
+      touch-action:none;/* pointer drag, not scroll */}
+    #pa-meeting .pa-meet-min{flex:0 0 auto;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;
+      color:#adb0b2;font:0.9rem 'FS Pixel Sans',monospace;padding:0 0.35rem;cursor:pointer;
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-meeting .pa-meet-min:hover{color:#f1efec;}
+    /* Minimised: the header alone. The stage stays in the DOM so the call keeps
+       running and can be restored without a reconnect. */
+    #pa-meeting.min{width:auto;}
+    #pa-meeting.min .pa-meet-stage,
+    #pa-meeting.min .pa-meet-screens,
+    #pa-meeting.min .pa-meet-controls{display:none;}
     #pa-meeting .pa-meet-status{font-weight:normal;font-size:0.75rem;color:#7fbf6a;}
     #pa-meeting .pa-meet-status.err{color:#f2a1a1;}
     #pa-meeting .pa-meet-screens{display:none;}
