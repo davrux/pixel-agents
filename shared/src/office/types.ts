@@ -218,7 +218,16 @@ export type Action =
    *  furniture this is today's conference monitor (explicit join/leave
    *  click); on a tile this is today's walk-in meeting area (automatic
    *  membership). video:false = camera never offered, audio+chat only. */
-  | { kind: 'meetingRoom'; video: boolean }
+  | {
+      kind: 'meetingRoom';
+      video: boolean;
+      /** What this room is called, shown on the call windows (see MeetingAreaUI
+       *  and ConferenceUI). Authored as the `roomName` property on an ActionArea;
+       *  absent = the generic label. It exists because walking from one meeting
+       *  area straight into another gave no sign that the room had changed — the
+       *  small popup and the big window both said the same generic thing. */
+      roomName?: string;
+    }
   /** Opens the "manage my shareable /meet/<slug> links" dialog — today's
    *  meeting kiosk. The actual call happens on the separate /meet page, not
    *  in-world. */

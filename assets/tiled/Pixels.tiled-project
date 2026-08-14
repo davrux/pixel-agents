@@ -91,7 +91,8 @@
                 { "name": "actionKind", "type": "string", "value": "", "propertyType": "ActionKind" },
                 { "name": "actionVideo", "type": "bool", "value": false },
                 { "name": "actionUrl", "type": "string", "value": "" },
-                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" }
+                { "name": "actionPose", "type": "string", "value": "", "propertyType": "ApplianceKind" },
+                { "name": "roomName", "type": "string", "value": "" }
             ]
         },
         {

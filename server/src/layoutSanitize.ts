@@ -14,6 +14,7 @@ import {
   MAX_IMAGE_FOOTPRINT_TILES,
   TEXT_LABEL_DEFAULT_FONT_SIZE,
   TILE_SIZE,
+  MAX_NAME_LEN,
   clampTextLabelFontSize,
   sanitizeTextLabelFontFamily,
   cleanName,
@@ -111,8 +112,13 @@ export function sanitizeAction(raw: unknown): Action | null {
   if (!raw || typeof raw !== 'object') return null;
   const rec = raw as Record<string, unknown>;
   switch (rec.kind) {
-    case 'meetingRoom':
-      return { kind: 'meetingRoom', video: rec.video !== false };
+    case 'meetingRoom': {
+      // Same cap as every other user-entered name (32 chars, whitespace collapsed,
+      // trimmed — see cleanName), applied here too and not only at import: this
+      // runs on every write path, and the value ends up as a window title.
+      const roomName = cleanName(rec.roomName, MAX_NAME_LEN);
+      return { kind: 'meetingRoom', video: rec.video !== false, ...(roomName ? { roomName } : {}) };
+    }
     case 'meetingManager':
       return { kind: 'meetingManager' };
     case 'iframe': {

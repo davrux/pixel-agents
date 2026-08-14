@@ -1,44 +1,35 @@
 /**
- * The four Tiled properties (`<prefix>Kind`/`Video`/`Url`/`Pose`) an Action
- * round-trips through — shared by mapBridge.ts (FurnitureObject/ActionArea
- * instances, tile actions) and tiledFurniture.ts (FurnitureTile catalog
- * definitions, e.g. the coffee machine's own default action), so a
- * FurnitureTile's action and a placed instance's override use exactly the
- * same four fields and the same parsing.
+ * The Tiled properties an Action is read from (`<prefix>Kind`/`Video`/`Url`/
+ * `Pose`, plus the unprefixed `roomName`) — shared by mapBridge.ts
+ * (FurnitureObject/ActionArea instances, tile actions) and tiledFurniture.ts
+ * (FurnitureTile catalog definitions, e.g. the coffee machine's own default
+ * action), so a FurnitureTile's action and a placed instance's override use
+ * exactly the same fields and the same parsing.
+ *
+ * The write side is gone with the exporter (see mapBridge.ts): a .tmj is only
+ * ever read now, so there is nothing to emit and nothing to compare for
+ * equality.
  */
 import type { Action, ApplianceKind } from '@pixel/shared/office/types.js';
+import { cleanName, MAX_NAME_LEN } from '@pixel/shared';
 
 export type TiledProp = { name: string; type: string; value: string | number | boolean; propertytype?: string };
 export type PropBag = Record<string, string | number | boolean>;
-
-export function prop(name: string, value: string | number | boolean, propertyType?: string): TiledProp {
-  const type = typeof value === 'boolean' ? 'bool' : typeof value === 'number' ? 'int' : 'string';
-  return propertyType ? { name, type, value, propertytype: propertyType } : { name, type, value };
-}
-
-/** Always emits all four action-related properties (kind/video/url/pose),
- *  even when empty/inapplicable for this action's kind — so opening the
- *  .tsj/.tmj in Tiled shows every settable field up front instead of only
- *  whichever ones happened to be set on the item being exported (there's no
- *  other way to discover "oh, I can set actionUrl here" from the file).
- *  `actionKind`/`actionPose` carry `propertytype` so Tiled shows them as
- *  dropdowns (see Pixels.tiled-project's ActionKind/ApplianceKind enums) —
- *  Tiled reads this per-property, independent of the object's own class. */
-export function actionProps(action: Action | null, prefix = 'action'): TiledProp[] {
-  return [
-    prop(`${prefix}Kind`, action?.kind ?? '', 'ActionKind'),
-    prop(`${prefix}Video`, action?.kind === 'meetingRoom' ? action.video : false),
-    prop(`${prefix}Url`, action?.kind === 'iframe' ? action.url : ''),
-    prop(`${prefix}Pose`, action?.kind === 'appliance' ? action.pose : '', 'ApplianceKind'),
-  ];
-}
 
 export function actionFromProps(props: PropBag, prefix = 'action'): Action | null {
   const kind = props[`${prefix}Kind`];
   if (typeof kind !== 'string') return null;
   switch (kind) {
-    case 'meetingRoom':
-      return { kind, video: props[`${prefix}Video`] === true };
+    case 'meetingRoom': {
+      // `roomName` is deliberately NOT prefixed like the others: it is the name
+      // the mapper types, and there is nothing for it to collide with (a Tiled
+      // object's own `name` is the native field, used for a furniture
+      // instance's name — see furnitureProps.ts). Trimmed/capped on the way in
+      // as well as server-side, so a hand-edited map can't smuggle a 4 KB title
+      // onto a call window.
+      const roomName = cleanName(props.roomName, MAX_NAME_LEN);
+      return { kind, video: props[`${prefix}Video`] === true, ...(roomName ? { roomName } : {}) };
+    }
     case 'meetingManager':
     case 'arcade':
     case 'portal':
@@ -54,21 +45,3 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
   }
 }
 
-/** Deep-equal for Action — used to group tileActions into same-value blocks
- *  for export (see mapBridge.ts's Actions export block). `kind` alone isn't
- *  enough: two 'meetingRoom' tiles with different `video` are NOT the same
- *  action and must not merge into one exported shape. */
-export function actionsEqual(a: Action | null, b: Action | null): boolean {
-  if (a === b) return true;
-  if (!a || !b || a.kind !== b.kind) return false;
-  switch (a.kind) {
-    case 'meetingRoom':
-      return b.kind === 'meetingRoom' && a.video === b.video;
-    case 'iframe':
-      return b.kind === 'iframe' && a.url === b.url;
-    case 'appliance':
-      return b.kind === 'appliance' && a.pose === b.pose;
-    default:
-      return true; // meetingManager/arcade/portal/toggle/spawnPoint carry no other fields
-  }
-}

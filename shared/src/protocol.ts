@@ -145,7 +145,13 @@ export const MAX_NAME_LEN = 32;
 /** Normalise a user-entered name: collapse runs of whitespace to one space, trim
  *  the ends, and cap at `max` chars. Use everywhere names are accepted. */
 export function cleanName(input: unknown, max: number = MAX_NAME_LEN): string {
-  return (typeof input === 'string' ? input : '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const cut = (typeof input === 'string' ? input : '').replace(/\s+/g, ' ').trim().slice(0, max);
+  // `slice` counts UTF-16 code units, so a cap landing inside a surrogate pair
+  // (any emoji, and plenty of CJK extensions) would leave a lone surrogate —
+  // which is not valid UTF-8 and serialises as a replacement character. Drop the
+  // orphan rather than emit half a character.
+  const last = cut.charCodeAt(cut.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
 
 /** Max length for a placed free-text label (OfficeLayout.texts) — a label/

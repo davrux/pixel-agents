@@ -3012,6 +3012,21 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * The `roomName` on the meeting-area action at this tile, if any.
+   *
+   * Read from the layout we already hold rather than synced per call: it is
+   * authored content that arrives with the map (tileActions), so asking the
+   * server for it would be a round trip for something already in memory. Both
+   * call windows show it — walking from one area straight into the next is
+   * otherwise indistinguishable from staying put.
+   */
+  private meetingRoomName(col: number, row: number): string | undefined {
+    const layout = this.os.getLayout();
+    const action = layout.tileActions?.[row * layout.cols + col];
+    return action?.kind === 'meetingRoom' ? action.roomName : undefined;
+  }
+
   /** Auto-join on entering a meeting area's tile (mirrors WorkAdventure's
    *  proximity bubble — no explicit "Join" click): request a token for this
    *  area's own LiveKit room and open the small ambient popup. */
@@ -3023,6 +3038,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     this.myMeetingArea = { ...anchor };
     this.meetingAreaExpanded = false;
+    this.meetingArea?.setTitle(this.meetingRoomName(anchor.col, anchor.row));
     this.meetingArea?.setVisible(true);
     this.meetingArea?.setHandlers(this.meetingAreaMiniHandlers());
     this.room?.send('meetingRoomToken', { ...anchor, source: 'tile' });
@@ -3054,7 +3070,7 @@ export class OfficeScene extends Phaser.Scene {
     this.meetingAreaExpanded = true;
     this.meetingConf.retarget(this.confUI.stage, this.confUI.stage);
     this.meetingArea?.setVisible(false);
-    this.confUI.open('Meeting area', this.meetingAreaFullHandlers());
+    this.confUI.open(this.meetingRoomName(this.myMeetingArea.col, this.myMeetingArea.row) ?? 'Meeting area', this.meetingAreaFullHandlers());
   }
 
   /** Retarget the live call back to the small ambient popup, without hanging

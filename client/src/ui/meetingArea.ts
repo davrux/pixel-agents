@@ -37,7 +37,11 @@ export interface MeetingAreaDevices {
  * monitors) for device setup, chat, and a big screen-share spotlight.
  */
 export class MeetingAreaUI {
+  /** Fallback when the area's ActionArea carries no `roomName`. */
+  private static readonly GENERIC_TITLE = '🤝 Meeting area';
+
   private readonly panel: HTMLDivElement;
+  private readonly titleEl: HTMLSpanElement;
   private readonly statusEl: HTMLSpanElement;
   private readonly stageEl: HTMLDivElement;
   private readonly screensEl: HTMLDivElement;
@@ -54,11 +58,11 @@ export class MeetingAreaUI {
 
     const header = document.createElement('div');
     header.className = 'pa-meet-head';
-    const title = document.createElement('span');
-    title.textContent = '🤝 Meeting area';
+    this.titleEl = document.createElement('span');
+    this.titleEl.textContent = MeetingAreaUI.GENERIC_TITLE;
     this.statusEl = document.createElement('span');
     this.statusEl.className = 'pa-meet-status';
-    header.append(title, this.statusEl);
+    header.append(this.titleEl, this.statusEl);
     this.panel.appendChild(header);
 
     this.stageEl = document.createElement('div');
@@ -113,6 +117,13 @@ export class MeetingAreaUI {
    *  tiles into. */
   get screens(): HTMLElement {
     return this.screensEl;
+  }
+
+  /** Name this call's room (the area's `roomName`), or the generic label when it
+   *  has none. Set on every entry, because the whole point is telling two
+   *  adjacent areas apart when you walk straight from one into the other. */
+  setTitle(roomName?: string): void {
+    this.titleEl.textContent = roomName ? `🤝 ${roomName}` : MeetingAreaUI.GENERIC_TITLE;
   }
 
   setVisible(visible: boolean): void {
