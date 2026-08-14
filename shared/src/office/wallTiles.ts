@@ -15,21 +15,37 @@ import type { FurnitureInstance, SpriteData, WallEdges } from './types.js';
 import { TILE_SIZE } from './types.js';
 import { latticeIndex, latticeMask } from './wallEdges.js';
 
-/** wallSheets[setIndex][bitmask][0] = Natural (raw, uncolorized); [1+i] =
- *  WALL_SET_PALETTES[setIndex][i] colorized. Populated once by the client's
- *  tiledSheets loader from the baked assets/tiled/png/<WALL_SET_FILES[setIndex]>.png
- *  sheets — see tiledSheetLayout.ts's WALL_SET_FILES. */
-let wallSheets: SpriteData[][][] = [];
+/** wallSheets[setName][bitmask][0] = Natural (raw, uncolorized); [1+i] = the
+ *  set's palette colorized. Populated once by the client's tiledSheets loader.
+ *  Keyed by NAME rather than by a position in a list — see floorTiles.ts for
+ *  what that positional index cost. */
+let wallSheets: Record<string, SpriteData[][]> = {};
 
-/** Set wall tile sets (called once the baked wall-N.png sheets are fetched +
- *  sliced — see client/src/net/tiledSheets.ts). */
-export function setWallSheets(sheets: SpriteData[][][]): void {
+/** Set wall tile sets (called once the baked sheets are fetched + sliced —
+ *  see client/src/net/tiledSheets.ts). */
+export function setWallSheets(sheets: Record<string, SpriteData[][]>): void {
   wallSheets = sheets;
 }
 
 /** Check if wall sprites have been loaded */
 export function hasWallSprites(): boolean {
-  return wallSheets.length > 0;
+  return Object.keys(wallSheets).length > 0;
+}
+
+/** The named set, else whichever loaded first — a map naming a set this build
+ *  does not have (renamed or removed tileset) still draws walls. Warned once. */
+const warnedWallSets = new Set<string>();
+function wallSet(name: string | undefined): SpriteData[][] | undefined {
+  if (name !== undefined) {
+    const hit = wallSheets[name];
+    if (hit) return hit;
+    if (!warnedWallSets.has(name)) {
+      warnedWallSets.add(name);
+      console.warn(`[wallTiles] unknown wall set "${name}" — falling back`);
+    }
+  }
+  const names = Object.keys(wallSheets);
+  return names.length > 0 ? wallSheets[names[0]] : undefined;
 }
 
 /**
@@ -46,8 +62,8 @@ export function hasWallSprites(): boolean {
  * between rows r-1 and r should occlude anything standing in row r-1 and be
  * occluded by anything in row r, which is what r * TILE_SIZE gives.
  */
-export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number): FurnitureInstance[] {
-  if (wallSheets.length === 0) return [];
+export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number, setNames: string[] = []): FurnitureInstance[] {
+  if (Object.keys(wallSheets).length === 0) return [];
   const instances: FurnitureInstance[] = [];
   for (let r = 0; r <= rows; r++) {
     for (let c = 0; c <= cols; c++) {
@@ -56,7 +72,7 @@ export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: numbe
       const li = latticeIndex(cols, c, r);
       const override = walls.latticePiece?.[li];
       const piece = override ?? derived;
-      const set = wallSheets[walls.latticeSet?.[li] ?? 0] ?? wallSheets[0];
+      const set = wallSet(setNames[walls.latticeSet?.[li] ?? 0]);
       const sprite = set?.[piece]?.[(walls.latticeColor?.[li] ?? null) === null ? 0 : (walls.latticeColor![li] as number) + 1];
       if (!sprite) continue;
       instances.push({
@@ -85,15 +101,16 @@ export function getWallFaceInstances(
   faces: NonNullable<WallEdges['faces']>,
   cols: number,
   rows: number,
+  setNames: string[] = [],
 ): FurnitureInstance[] {
-  if (wallSheets.length === 0) return [];
+  if (Object.keys(wallSheets).length === 0) return [];
   const instances: FurnitureInstance[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
       const piece = faces.piece[i];
       if (piece == null) continue;
-      const set = wallSheets[faces.set?.[i] ?? 0] ?? wallSheets[0];
+      const set = wallSet(setNames[faces.set?.[i] ?? 0]);
       const swatch = faces.color?.[i] ?? null;
       const sprite = set?.[piece]?.[swatch === null ? 0 : swatch + 1];
       if (!sprite) continue;

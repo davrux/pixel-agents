@@ -17,7 +17,8 @@
  * positionally because these files are entirely machine-generated — nothing
  * ever hand-edits their tile lists, unlike furniture-*.tsj.
  *
- * "Sets" (see FLOOR_SET_FILES/WALL_SET_FILES in tiledSheetLayout.ts): every
+ * "Sets" (one tileset each, discovered by the tiles' own Tiled class rather
+ * than by filename — see tiled/tiledRegistry.ts's floorSetNames): every
  * (art, palette) combination is its own .tsj/.png pair, never mixed into one
  * file — so opening e.g. floor-resurrect64.tsj in Tiled always shows the same
  * 11 patterns no matter how many other bakes of that art exist.

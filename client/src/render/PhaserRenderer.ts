@@ -194,7 +194,10 @@ export class PhaserRenderer {
           continue;
         }
         const idx = r * cols + c;
-        const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], tileFloorSet?.[idx] ?? 0));
+        // The number is a position in THIS layout's own set table, not a global
+        // one — see OfficeLayout.floorSets.
+        const setName = layout.floorSets?.[tileFloorSet?.[idx] ?? 0];
+        const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], setName));
         this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
     }
@@ -224,8 +227,8 @@ export class PhaserRenderer {
     // any wall edge touches (see OfficeLayout.walls).
     if (hasWallSprites() && layout.walls) {
       const wallParts = [
-        ...getWallEdgeInstances(layout.walls, cols, layout.rows),
-        ...(layout.walls.faces ? getWallFaceInstances(layout.walls.faces, cols, layout.rows) : []),
+        ...getWallEdgeInstances(layout.walls, cols, layout.rows, layout.wallSets ?? []),
+        ...(layout.walls.faces ? getWallFaceInstances(layout.walls.faces, cols, layout.rows, layout.wallSets ?? []) : []),
       ];
       for (const w of wallParts) {
         const tex = spriteTexture(this.scene, w.sprite);

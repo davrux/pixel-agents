@@ -21,10 +21,10 @@ import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { findGid, FURNITURE_TILE_CLASS, gidAt, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { findGid, floorSetNames, FURNITURE_TILE_CLASS, gidAt, resolveFromTmjTilesets, wallSetNames, type TiledRegistry } from './tiledRegistry.js';
 import { prop, actionProps, actionFromProps, actionsEqual, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject, furnitureBehaviourProps } from './furnitureProps.js';
-import { FLOOR_SET_FILES, TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
+import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
 import { emptyWallEdges, hIndex, latticeIndex, latticeMask, vIndex } from '@pixel/shared/office/wallEdges.js';
 
 export interface TmjExportResult {
@@ -78,6 +78,15 @@ function rowFromTileObjectY(y: number, footprintH: number): number {
 export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry, zoneId: string): TmjExportResult {
   const { cols, rows, tiles } = layout;
 
+  // A set index is a position in THIS layout's own table (OfficeLayout.floorSets
+  // / wallSets), so the filename comes from there. A layout with no table — one
+  // built in code, which cannot know what is on disk — takes whatever the disk
+  // offers first.
+  const floorFallback = floorSetNames(registry);
+  const wallFallback = wallSetNames(registry);
+  const floorFile = (set: number | undefined): string => `${layout.floorSets?.[set ?? 0] ?? floorFallback[0] ?? ''}.tsj`;
+  const wallFile = (set: number | undefined): string => `${layout.wallSets?.[set ?? 0] ?? wallFallback[0] ?? ''}.tsj`;
+
   // ── Ground + Wall layers: floor/wall GIDs, GID 0 = empty ─────────
   // GID is computed directly from position — no property search needed.
   // Column 0 = Natural, column 1+i = PALETTE_64[i] (see tiledSheetLayout.ts);
@@ -87,8 +96,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
   // Ground is floor only. Walls are edges on their own lattice layer below.
   const floorGid = (pattern: number, set: number | undefined, swatchIdx: number | null): number => {
     const col = swatchIdx === null ? 0 : swatchIdx + 1;
-    const floorSet = FLOOR_SET_FILES[set ?? 0] ?? FLOOR_SET_FILES[0];
-    return gidAt(registry, `${floorSet}.tsj`, (pattern - 1) * TILED_SHEET_COLUMNS + col) ?? 0;
+    return gidAt(registry, floorFile(set), (pattern - 1) * TILED_SHEET_COLUMNS + col) ?? 0;
   };
   const ground: number[] = [];
   for (let i = 0; i < cols * rows; i++) {
@@ -124,8 +132,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
       }
       const swatchIdx = walls.latticeColor?.[li] ?? null;
       const col = swatchIdx === null ? 0 : swatchIdx + 1;
-      const wallSet = WALL_SET_FILES[walls.latticeSet?.[li] ?? 0] ?? WALL_SET_FILES[0];
-      wallLattice.push(gidAt(registry, `${wallSet}.tsj`, piece * TILED_SHEET_COLUMNS + col) ?? 0);
+      wallLattice.push(gidAt(registry, wallFile(walls.latticeSet?.[li]), piece * TILED_SHEET_COLUMNS + col) ?? 0);
     }
   }
 
@@ -142,8 +149,7 @@ export function exportLayoutToTmj(layout: OfficeLayout, registry: TiledRegistry,
     }
     const swatchIdx = walls?.faces?.color?.[i] ?? null;
     const col = swatchIdx === null ? 0 : swatchIdx + 1;
-    const wallSet = WALL_SET_FILES[walls?.faces?.set?.[i] ?? 0] ?? WALL_SET_FILES[0];
-    wallFaces.push(gidAt(registry, `${wallSet}.tsj`, piece * TILED_SHEET_COLUMNS + col) ?? 0);
+    wallFaces.push(gidAt(registry, wallFile(walls?.faces?.set?.[i]), piece * TILED_SHEET_COLUMNS + col) ?? 0);
   }
 
   // ── Collision layer: tileBlocked, parameterless marker tile ──────
@@ -469,13 +475,16 @@ function rowAndSwatchFromLocalId(localId: number): { row: number; swatchIndex: n
   return { row, swatchIndex: col === 0 ? null : col - 1 };
 }
 
-/** Which set (0, 1, 2, …) a FloorTile/WallTile GID resolved to, from its
- *  tileset's own filename (e.g. "wall-1-warm.tsj" + WALL_SET_FILES → 3).
- *  Unrecognized files (shouldn't happen — every FloorTile/WallTile lives in
- *  one of these by construction) fall back to 0. */
-function setIndexFromFile(files: string[], file: string): number {
-  const idx = files.indexOf(file.replace(/\.tsj$/, ''));
-  return idx >= 0 ? idx : 0;
+/** This tileset's position in the layout table being built, appending it if this
+ *  is the first tile from it. That is how a map ends up naming its own sets (see
+ *  OfficeLayout.floorSets): the table is whatever the map actually uses, in the
+ *  order first encountered, rather than a slice of a global list. */
+function setIndexInto(table: string[], file: string): number {
+  const name = file.replace(/\.tsj$/, '');
+  const idx = table.indexOf(name);
+  if (idx >= 0) return idx;
+  table.push(name);
+  return table.length - 1;
 }
 
 export interface TmjImportResult {
@@ -579,6 +588,10 @@ export function importTmjToLayout(
   const tileColors: OfficeLayout['tileColors'] = [];
   const tileFloorSet: number[] = [];
   const tileBlocked: boolean[] = [];
+  // Filled as tiles are met, so the layout ends up naming exactly the sets it
+  // uses — see setIndexInto.
+  const floorSets: string[] = [];
+  const wallSets: string[] = [];
   for (let i = 0; i < cols * rows; i++) {
     const groundResolved = resolveGid(ground[i] ?? 0);
     // Classify by Tiled's own `class` (FloorTile — see Pixels.tiled-project),
@@ -591,7 +604,7 @@ export function importTmjToLayout(
       // Which set this came from — unlike the floor/void classification above,
       // this one legitimately IS about the file, since "which set" has no other
       // identity (see setIndexFromFile).
-      tileFloorSet.push(setIndexFromFile(FLOOR_SET_FILES, groundResolved.tileset.file));
+      tileFloorSet.push(setIndexInto(floorSets, groundResolved.tileset.file));
     } else {
       tiles.push(TileType.VOID);
       tileColors.push(null);
@@ -627,7 +640,7 @@ export function importTmjToLayout(
         if (resolved?.class !== 'WallTile') continue;
         const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
         const li = latticeIndex(cols, c, r);
-        latticeSet[li] = setIndexFromFile(WALL_SET_FILES, resolved.tileset.file);
+        latticeSet[li] = setIndexInto(wallSets, resolved.tileset.file);
         latticeColor[li] = swatchIndex;
         wasPainted[li] = true;
         if (piece >= WALL_BITMASK_COUNT) {
@@ -699,7 +712,7 @@ export function importTmjToLayout(
       if (resolved?.class !== 'WallTile') continue;
       const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
       facePiece[i] = piece;
-      faceSet[i] = setIndexFromFile(WALL_SET_FILES, resolved.tileset.file);
+      faceSet[i] = setIndexInto(wallSets, resolved.tileset.file);
       faceColor[i] = swatchIndex;
       anyFace = true;
     }
@@ -868,6 +881,8 @@ export function importTmjToLayout(
     furniture,
     tileColors,
     tileFloorSet,
+    floorSets,
+    wallSets,
     walls: wallEdges,
     tileBlocked,
     tileActions,

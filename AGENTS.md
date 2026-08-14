@@ -320,10 +320,11 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   tileset is one whose tiles carry the `FurnitureTile` class (see
   `isFurnitureTileset`) — the `furniture-` filename prefix used to decide that in
   four separate places and no longer decides anything, so name a new pack
-  whatever suits it. **Exception, and it is a real one:** floor and wall tileset
-  FILENAMES are load-bearing, because a saved layout stores an index into
-  `FLOOR_SET_FILES` / `WALL_SET_FILES` — those arrays are append-only and
-  renaming or reordering silently restyles every floor tile in every map.
+  whatever suits it — floor and wall tilesets included. A layout **names** the
+  sets it uses (`OfficeLayout.floorSets` / `wallSets`) and the per-tile numbers
+  index that table, so renaming a tileset only affects maps saved before the
+  rename, and reordering affects nothing. Nothing in the code enumerates tileset
+  filenames; the client asks `/assets/tiled/sets.json` what exists.
 - **Furniture behaviour is stated on the tile, never inferred.** Whether you can
   sit on something, which way you then face, whether a pet may perch on it, what
   it turns into when switched on — each is its own property, present on **every**

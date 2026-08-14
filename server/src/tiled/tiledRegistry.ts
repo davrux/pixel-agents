@@ -5,17 +5,13 @@
  * map (each tileset occupies a contiguous [firstgid, firstgid+tilecount)
  * range, walked in the order the tilesets were added).
  *
- * Fixed, deterministic order: every FLOOR_SET_FILES entry, then every
- * WALL_SET_FILES entry, then collision, then images (see
- * bake-images-tiled.mts), then every remaining .tsj alphabetically — stable
- * across repeated exports as long as no tileset is added/removed/reordered on
- * disk. (A map's own tilesets array is what an IMPORT trusts; see
- * resolveFromTmjTilesets for why.)
+ * Deterministic order: every .tsj in the directory, alphabetically. Stable
+ * across repeated exports as long as no tileset is added or removed. (A map's
+ * own tilesets array is what an IMPORT trusts; see resolveFromTmjTilesets.)
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { FLOOR_SET_FILES, WALL_SET_FILES } from '@pixel/shared/office/tiledSheetLayout.js';
 
 type TiledProp = { name: string; type?: string; value: string | number | boolean };
 interface TiledTileJson {
@@ -60,13 +56,38 @@ export interface RegistryTileset {
  *  the same thing, exactly the duplication that a `category` property on floor
  *  and wall tiles was removed for. */
 export const FURNITURE_TILE_CLASS = 'FurnitureTile';
+export const FLOOR_TILE_CLASS = 'FloorTile';
+export const WALL_TILE_CLASS = 'WallTile';
 
 /** Does this tileset hold furniture? Asked of the file's own tiles, so a
- *  tileset may be named anything. (Floor and wall tileset FILENAMES are still
- *  load-bearing for a different and unavoidable reason — a saved layout stores
- *  an index into FLOOR_SET_FILES / WALL_SET_FILES.) */
+ *  tileset may be named anything — as may a floor or wall one, now that a layout
+ *  names the sets it uses instead of storing a position in a hardcoded list. */
 export function isFurnitureTileset(json: { tiles?: Array<{ type?: string }> }): boolean {
-  return (json.tiles ?? []).some((t) => t.type === FURNITURE_TILE_CLASS);
+  return tilesetHolds(json, FURNITURE_TILE_CLASS);
+}
+
+/** Does this tileset hold tiles of `cls`? The one question that decides what a
+ *  tileset IS — asked of its tiles, never of its filename. */
+export function tilesetHolds(json: { tiles?: Array<{ type?: string }> }, cls: string): boolean {
+  return (json.tiles ?? []).some((t) => t.type === cls);
+}
+
+/** The floor / wall sets on disk, by NAME (the tileset filename without .tsj),
+ *  alphabetically. Discovered from the tiles' own class, so nothing enumerates
+ *  filenames: adding, renaming or removing a tileset needs no code change. A
+ *  layout stores these names (OfficeLayout.floorSets / wallSets), so the order
+ *  here is only a stable presentation order, never an identity. */
+export function floorSetNames(registry: TiledRegistry): string[] {
+  return setNames(registry, FLOOR_TILE_CLASS);
+}
+export function wallSetNames(registry: TiledRegistry): string[] {
+  return setNames(registry, WALL_TILE_CLASS);
+}
+function setNames(registry: TiledRegistry, cls: string): string[] {
+  return registry.tilesets
+    .filter((ts) => ts.tiles.some((t) => t.class === cls))
+    .map((ts) => ts.file.replace(/\.tsj$/, ''))
+    .sort();
 }
 
 export interface TiledRegistry {
@@ -83,21 +104,14 @@ function propsOf(tile: TiledTileJson): Record<string, string | number | boolean>
 
 export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
   const tiledDir = path.join(assetsRoot, 'assets', 'tiled');
-  const fixedOrder = [
-    ...FLOOR_SET_FILES.map((f) => `${f}.tsj`),
-    ...WALL_SET_FILES.map((f) => `${f}.tsj`),
-    'collision.tsj',
-    'images.tsj',
-  ];
-  // Everything not in the fixed order, alphabetically — not just `furniture-*`,
-  // so a tileset may be named anything. The fixed part has to stay fixed: a
-  // saved layout stores an INDEX into FLOOR_SET_FILES / WALL_SET_FILES, so those
-  // filenames are a real reference rather than a convention.
-  const rest = fs
+  // Alphabetical, no fixed head: with nothing storing a position any more (see
+  // floorSetNames), the only requirement is that repeated runs agree — which
+  // matters because an EXPORT writes these firstgids into a map, and the map's
+  // own copy is what a later import trusts (resolveFromTmjTilesets).
+  const files = fs
     .readdirSync(tiledDir)
-    .filter((f) => f.endsWith('.tsj') && !fixedOrder.includes(f))
+    .filter((f) => f.endsWith('.tsj'))
     .sort();
-  const files = [...fixedOrder.filter((f) => fs.existsSync(path.join(tiledDir, f))), ...rest];
 
   const tilesets: RegistryTileset[] = [];
   let nextGid = 1; // GID 0 is reserved for "empty" — never assigned to a tile.

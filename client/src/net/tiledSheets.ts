@@ -1,6 +1,6 @@
 /**
  * Loads the pre-baked, closed-palette floor/wall sprite sheets Tiled itself
- * paints from (assets/tiled/png/<FLOOR_SET_FILES>.png, <WALL_SET_FILES>.png
+ * paints from (assets/tiled/png/<set>.png, the sets listed by sets.json
  * — see server/scripts/bake-floor-wall-tiled.mts), once via plain HTTP, and
  * slices them into per-(set, pattern|bitmask, swatch) SpriteData for
  * floorTiles.ts / wallTiles.ts. Replaces the old floorTilesLoaded/
@@ -10,12 +10,10 @@
 import { setFloorSheets } from '@pixel/shared/office/floorTiles.js';
 import { setWallSheets } from '@pixel/shared/office/wallTiles.js';
 import {
-  FLOOR_SET_FILES,
   FLOOR_TILE_H,
   FLOOR_TILE_W,
   TILED_SHEET_COLUMNS,
   WALL_BITMASK_COUNT,
-  WALL_SET_FILES,
   WALL_TILE_H,
   WALL_TILE_SPACING,
   WALL_TILE_W,
@@ -89,29 +87,47 @@ function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: num
  *  leaves floor/wall rendering at their "not loaded yet" fallback (flat fill). */
 export async function loadTiledSheets(): Promise<void> {
   try {
-    const base = `${serverHttpOrigin()}/assets/tiled/png`;
+    const origin = serverHttpOrigin();
+    const base = `${origin}/assets/tiled/png`;
+    // Which sets exist comes from the server, which reads it off disk — no list
+    // of filenames in the client bundle, so adding or renaming a tileset needs
+    // no client release (see tiledSheetLayout.ts for what the old constants
+    // cost). A layout names the sets it uses; these names are the keys.
+    const setsRes = await fetch(`${origin}/assets/tiled/sets.json`);
+    if (!setsRes.ok) throw new Error(`sets.json: HTTP ${setsRes.status}`);
+    const sets = (await setsRes.json()) as { floor?: string[]; wall?: string[] };
+    const floorNames = sets.floor ?? [];
+    const wallNames = sets.wall ?? [];
     const [floorBitmaps, wallBitmaps] = await Promise.all([
-      Promise.all(FLOOR_SET_FILES.map((f) => fetchBitmap(`${base}/${f}.png`))),
-      Promise.all(WALL_SET_FILES.map((f) => fetchBitmap(`${base}/${f}.png`))),
+      Promise.all(floorNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
+      Promise.all(wallNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
     ]);
     // Each floor set can have a different pattern (row) count — e.g.
     // floor-warm has one warm-only pattern the base "floor" set doesn't.
     setFloorSheets(
-      floorBitmaps.map((bitmap) => sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H))),
+      Object.fromEntries(
+        floorBitmaps.map((bitmap, i) => [
+          floorNames[i],
+          sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H)),
+        ]),
+      ),
     );
     // Row count per wall set comes from the sheet itself, same as floors above:
     // a set may carry extra hand-painted-only pieces after the 16 adjacency
     // ones (the metro set's north-wall faces — see
     // server/src/core/assets/pngDecoder.ts's parseWallPng).
     setWallSheets(
-      wallBitmaps.map((bitmap) =>
-        sliceSheet(
-          bitmap,
-          WALL_TILE_W,
-          WALL_TILE_H,
-          Math.round((bitmap.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
-          WALL_TILE_SPACING,
-        ),
+      Object.fromEntries(
+        wallBitmaps.map((bitmap, i) => [
+          wallNames[i],
+          sliceSheet(
+            bitmap,
+            WALL_TILE_W,
+            WALL_TILE_H,
+            Math.round((bitmap.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
+            WALL_TILE_SPACING,
+          ),
+        ]),
       ),
     );
   } catch (err) {

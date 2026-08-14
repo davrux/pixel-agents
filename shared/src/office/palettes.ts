@@ -66,20 +66,7 @@ export const ENDESGA_PALETTE_64: PaletteSwatch[] = [
   '#ca52c9', '#c85086', '#f68187', '#f5555d', '#ea323c', '#c42430', '#891e2b', '#571c27',
 ].map(swatch);
 
-/** Which closed palette each floor "set" (OfficeLayout.tileFloorSet, see
- *  tiledSheetLayout.ts's FLOOR_SET_FILES) is baked from — parallel-indexed
- *  with FLOOR_SET_FILES. */
-export const FLOOR_SET_PALETTES: PaletteSwatch[][] = [
-  PALETTE_64,
-  PALETTE_64,
-  ENDESGA_PALETTE_64,
-  ENDESGA_PALETTE_64,
-];
 
-/** Which closed palette each wall "set" (WallEdges.latticeSet, see
- *  tiledSheetLayout.ts's WALL_SET_FILES) is baked from — parallel-indexed
- *  with WALL_SET_FILES. */
-export const WALL_SET_PALETTES: PaletteSwatch[][] = [PALETTE_64, ENDESGA_PALETTE_64];
 
 /** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite —
  *  `b` carries the swatch's own real lightness (derived from its hex) as a

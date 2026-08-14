@@ -4,7 +4,8 @@
  * pack — assets/walls/wall_metro.png (the "metro" wall set) and
  * assets/floors/metro_*.png (the "floor-metro" floor set), which
  * bake-floor-wall-tiled.mts then bakes into Tiled tilesets like any other
- * set (see tiledSheetLayout.ts's WALL_SET_FILES/FLOOR_SET_FILES).
+ * set (one tileset each; nothing enumerates their filenames — see
+ * tiled/tiledRegistry.ts's floorSetNames/wallSetNames).
  *
  * The floors are plain crops — the pack's floor textures are genuinely
  * 16x16-seamless (verified: the artist lays each one out as an identical 2x2

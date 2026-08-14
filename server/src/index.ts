@@ -38,6 +38,7 @@ import { WORLD_ROOM } from '@pixel/shared';
 
 import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.js';
 import { registerZonePushApi } from './tiled/zonePushApi.js';
+import { floorSetNames, loadTiledRegistry, wallSetNames } from './tiled/tiledRegistry.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
@@ -232,6 +233,17 @@ async function main(): Promise<void> {
   if (existsSync(tiledPngDir)) {
     app.use('/assets/tiled/png', express.static(tiledPngDir));
   }
+  // Which floor/wall sets exist, by name. The client needs this to know which
+  // sheets to fetch: nothing enumerates tileset filenames in code any more (see
+  // tiledSheetLayout.ts), they are discovered from the tiles' own Tiled class.
+  // Under /assets/ deliberately — the login gate treats that prefix as public,
+  // which is right, since these are the names of files it already serves openly.
+  // Re-read per request rather than cached: a pushed or re-baked tileset must
+  // show up without a restart, and this is a handful of small JSON files.
+  app.get('/assets/tiled/sets.json', (_req, res) => {
+    const registry = loadTiledRegistry(ASSETS_ROOT);
+    res.json({ floor: floorSetNames(registry), wall: wallSetNames(registry) });
+  });
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));
     console.log(`[server] serving client build from ${clientDist}`);

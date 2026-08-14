@@ -453,8 +453,9 @@ export interface WallEdges {
   vertical: boolean[];
   /** Row-boundary edges, cols × (rows+1), row-major. true = wall. */
   horizontal: boolean[];
-  /** Which wall set each lattice point draws from (see tiledSheetLayout.ts's
-   *  WALL_SET_FILES), (cols+1) × (rows+1), row-major. Missing/0 = set 0. */
+  /** Which wall set each lattice point draws from — an index into this
+   *  layout's own `wallSets` table, (cols+1) × (rows+1), row-major.
+   *  Missing/0 = the first entry. */
   latticeSet?: number[];
   /** Per-lattice-point swatch into that set's palette, or null for "Natural".
    *  Same layout as latticeSet. */
@@ -497,18 +498,34 @@ export interface OfficeLayout {
   tiles: TileType[];
   furniture: PlacedFurniture[];
   /** Per-tile color, parallel to tiles array — an index into whichever
-   *  closed palette this tile's set uses (see palettes.ts's
-   *  FLOOR_SET_PALETTES/WALL_SET_PALETTES), or null for "Natural" (no
+   *  closed palette this tile's set was baked against, or null for "Natural" (no
    *  tint). The closed floor/wall palette made a continuous
    *  ColorValue{h,s,b,c} pointless: there are only 64 real choices, so the
    *  index into that fixed list IS the color — no HSL math needed anywhere
    *  at render time (see docs/design/tiled-editor-integration.md). */
   tileColors?: Array<number | null>;
-  /** Per-tile floor style (which floor-<name>.tsj set, see
-   *  tiledSheetLayout.ts's FLOOR_SET_FILES), parallel to tiles array — only
-   *  meaningful where tiles[i] is a floor pattern (not WALL/VOID).
-   *  Missing/0 = the base "floor" set. */
+  /** Per-tile floor style, parallel to tiles array — an index into THIS
+   *  layout's own `floorSets` table, not a global one. Only meaningful where
+   *  tiles[i] is a floor pattern (not VOID). Missing/0 = the first entry. */
   tileFloorSet?: number[];
+  /**
+   * The floor tilesets this layout uses, by name — `tileFloorSet` indexes this.
+   *
+   * Named here rather than referenced by a global position because that position
+   * used to mean "index into a hardcoded FLOOR_SET_FILES array": renaming a
+   * tileset broke it, and merely reordering that array silently restyled every
+   * floor tile of every saved map. A map that names its own sets survives both,
+   * and stays readable on its own. One entry per set the map uses (typically
+   * one or two), so this costs a couple of strings rather than one per tile.
+   *
+   * Absent means "whatever the client loaded first" — which is what a
+   * code-generated layout (createDefaultLayout and friends) gets, since nothing
+   * in shared/ knows which tilesets exist on disk.
+   */
+  floorSets?: string[];
+  /** The wall tilesets this layout uses, by name — `WallEdges.latticeSet` and
+   *  `WallEdges.faces.set` index this. Same reasoning as floorSets. */
+  wallSets?: string[];
   /** Walls as edges between cells — the model that replaces WALL cells, see
    *  WallEdges. While both exist, a layout uses one or the other: a migrated
    *  layout has `walls` and no WALL entries in `tiles`. */
