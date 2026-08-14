@@ -3358,7 +3358,7 @@
         {
           "name": "canWalkOver",
           "type": "bool",
-          "value": false
+          "value": true
         },
         {
           "name": "backgroundTiles",
@@ -3435,7 +3435,7 @@
         {
           "name": "canWalkOver",
           "type": "bool",
-          "value": false
+          "value": true
         },
         {
           "name": "backgroundTiles",
@@ -3512,7 +3512,7 @@
         {
           "name": "canWalkOver",
           "type": "bool",
-          "value": false
+          "value": true
         },
         {
           "name": "backgroundTiles",
@@ -3589,7 +3589,7 @@
         {
           "name": "canWalkOver",
           "type": "bool",
-          "value": false
+          "value": true
         },
         {
           "name": "backgroundTiles",
@@ -3666,7 +3666,7 @@
         {
           "name": "canWalkOver",
           "type": "bool",
-          "value": false
+          "value": true
         },
         {
           "name": "backgroundTiles",

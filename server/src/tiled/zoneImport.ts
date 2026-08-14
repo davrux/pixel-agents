@@ -172,12 +172,15 @@ export async function importZoneTmj(
   const sanitized = sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(normalized as unknown as Record<string, unknown>)));
   mapStore.put(zoneId, sanitized, Date.now());
 
-  const tileActions = sanitized.tileActions as Array<{ kind: string } | null> | undefined;
+  // Where players arrive: a 'spawnPoint' action anywhere in the map, first one
+  // found. Both carriers count — an ActionArea (a bare marker on the Actions
+  // layer) and a furniture placement whose own action override says spawnPoint,
+  // e.g. "arrive at this pad". Only tile actions used to be scanned, so marking a
+  // placed item was silently ignored: the map looked right in Tiled and players
+  // kept landing wherever the zone's stored arrive tile happened to be.
   const cols = sanitized.cols as number;
-  const spawnIdx = tileActions?.findIndex((a) => a?.kind === 'spawnPoint') ?? -1;
-  if (spawnIdx >= 0) {
-    zones.edit(zoneId, { arrive: { col: spawnIdx % cols, row: Math.floor(spawnIdx / cols) } });
-  }
+  const arrive = spawnPointTile(sanitized, cols);
+  if (arrive) zones.edit(zoneId, { arrive });
 
   const furniture = (sanitized.furniture ?? []) as Array<{ id?: string }>;
   return {
@@ -205,4 +208,32 @@ export function ensureZoneExists(zones: ZoneStore, zoneId: string, cols: number,
   if (createdId !== zoneId) {
     console.warn(`[tiled-import] "${zoneId}" isn't usable as a zone id as-is (got "${createdId}" back) — layout imported, but no zone was created for it.`);
   }
+}
+
+/**
+ * The tile a 'spawnPoint' action marks, or null if the map has none.
+ *
+ * Tile actions (ActionArea) win over furniture, and within each the first one
+ * found wins — a mapper who places two has already made an ambiguous map, and
+ * picking deterministically beats picking randomly.
+ *
+ * Only a placement's OWN action counts, never its catalog default: a spawn point
+ * is a statement about this map ("players arrive here"), not a property of a kind
+ * of furniture, and reading the default would make every copy of such an item a
+ * spawn candidate.
+ *
+ * Worth knowing when authoring: an instance action REPLACES the item's catalog
+ * action (see effectiveAction), so putting spawnPoint on a beam pad stops that pad
+ * being a portal. To keep both, mark the arrival tile with an ActionArea point
+ * beside the pad instead.
+ */
+function spawnPointTile(layout: Record<string, unknown>, cols: number): { col: number; row: number } | null {
+  const tileActions = layout.tileActions as Array<{ kind?: string } | null> | undefined;
+  const idx = tileActions?.findIndex((a) => a?.kind === 'spawnPoint') ?? -1;
+  if (idx >= 0) return { col: idx % cols, row: Math.floor(idx / cols) };
+  const furniture = (layout.furniture ?? []) as Array<{ col?: number; row?: number; action?: { kind?: string } }>;
+  const marked = furniture.find((f) => f.action?.kind === 'spawnPoint');
+  return marked && typeof marked.col === 'number' && typeof marked.row === 'number'
+    ? { col: marked.col, row: marked.row }
+    : null;
 }

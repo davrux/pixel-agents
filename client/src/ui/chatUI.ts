@@ -111,7 +111,13 @@ export class ChatUI {
     };
     host.appendChild(this.openBtn);
 
-    this.bump();
+    // Start minimised, every time. Entering a zone is a full page reload (see
+    // OfficeScene's goToZone), so this covers both "on entry" and "after a
+    // refresh" with one rule and nothing to persist. The panel sits over the
+    // world's lower-left corner, which is exactly where you look when you arrive
+    // somewhere — and Enter opens it from anywhere (focus() unhides), so nothing
+    // is out of reach.
+    this.setHidden(true);
     this.fadeTimer = setInterval(() => this.tickFade(), 250);
     window.addEventListener('keydown', this.onGlobalKey);
   }
@@ -134,6 +140,11 @@ export class ChatUI {
     this.log.appendChild(ln);
     this.trim();
     if (atBottom) this.log.scrollTop = this.log.scrollHeight;
+    // Somebody said something while the panel was closed — mark the opener, or a
+    // minimised-by-default chat would swallow messages silently. Only real chat
+    // lines count: the system ones are mostly "X entered the zone", which would
+    // leave the dot permanently lit and therefore meaningless.
+    if (this.hidden) this.openBtn.classList.add('unread');
     this.bump();
   }
   /** A local italic system line (command feedback / help). */
@@ -162,6 +173,8 @@ export class ChatUI {
   }
 
   // Enter focuses the chat (unless a host guard blocks it or something is being typed).
+  private hidden = false;
+
   private readonly onGlobalKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Enter') return;
     const tag = document.activeElement?.tagName;
@@ -255,9 +268,13 @@ export class ChatUI {
   }
 
   private setHidden(hidden: boolean): void {
+    this.hidden = hidden;
     this.box.style.display = hidden ? 'none' : 'flex';
     this.openBtn.style.display = hidden ? 'block' : 'none';
-    if (!hidden) this.bump();
+    if (!hidden) {
+      this.openBtn.classList.remove('unread');
+      this.bump();
+    }
   }
   private bump(): void {
     this.activeUntil = performance.now() + 8000;
@@ -398,6 +415,8 @@ function injectStyle(): void {
     #pa-chathide:hover{color:#f1efec;}
     #pa-chatopen{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;display:none;background:#262422;
       border:2px solid #0a0908;border-radius:0.35rem;color:#f1efec;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-chatopen.unread::after{content:'';position:absolute;top:-4px;right:-4px;width:0.5rem;height:0.5rem;
+      border:2px solid #0a0908;border-radius:50%;background:#e7da00;}
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#4998c0;}
     #pa-chatlog .ln a{color:#4998c0;text-decoration:underline;overflow-wrap:anywhere;}
