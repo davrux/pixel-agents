@@ -116,7 +116,7 @@ export interface MumbleVoiceState {
   notice?: string;
   /** What to suggest under a refusal, set by whoever asked for the thing that
    *  got refused. PermissionDenied says only *that* we may not — without this,
-   *  a refused move would be advised to go register a certificate. */
+   *  a refused ear would be advised to go register a certificate. */
   noticeHint?: string;
 }
 
@@ -1172,7 +1172,7 @@ export class MumbleVoice {
     void this.api?.joinChannel(id).catch(() => undefined);
   }
 
-  // ── permissions, moving people, and ears ───────────────────────────────────
+  // ── permissions and ears ───────────────────────────────────────────────────
 
   /**
    * Ask the server what we may do in a channel, at most once per answer.
@@ -1210,19 +1210,6 @@ export class MumbleVoice {
     return id !== this.myChannel && this.allowed(id, MUMBLE_PERM.listen);
   }
 
-  /** May we move somebody into this channel? Murmur checks the destination,
-   *  not where they are now. */
-  canMoveInto(id: number): boolean {
-    return this.allowed(id, MUMBLE_PERM.move);
-  }
-
-  /** Whether to offer moving anyone at all — true as soon as there is one
-   *  channel we could move them to. */
-  canMoveAnyone(): boolean {
-    for (const id of this.channels.keys()) if (this.canMoveInto(id)) return true;
-    return false;
-  }
-
   /** Channels we have an ear in. Read from the roster rather than tracked
    *  separately: the server is what decides whether an ear was accepted. */
   isListening(id: number): boolean {
@@ -1241,14 +1228,6 @@ export class MumbleVoice {
 
   private async setListening(id: number, listening: boolean): Promise<void> {
     await this.api?.setListening(id, listening).catch(() => undefined);
-  }
-
-  /** Move somebody else into a channel. Ours is only the affordance — the
-   *  server decides, and says so on the `permission` event. */
-  moveUser(session: number, channelId: number): void {
-    if (!this.connected || session === this.mySession) return;
-    this.clearNotice();
-    void this.api?.moveUser(session, channelId).catch(() => undefined);
   }
 
   /** Drop a stale refusal, and the advice that went with it, before asking for

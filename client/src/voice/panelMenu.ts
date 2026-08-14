@@ -1,16 +1,16 @@
 /**
- * Mumble panel: the small anchored popover its rows open.
+ * Mumble panel: the small anchored popover a channel row opens — its ⋯, or a
+ * right-click on it — offering to join the channel or place an ear in it.
  *
- * Every tree row has one, opened by its ⋯ or by a right-click: a channel's
- * offers to join it or place an ear in it, a user's offers somewhere to move
- * them. One implementation, because two floating menus in the same window that
- * behaved differently would be the odd thing — and for the same reason this is
- * deliberately the same shape as the chat panel's message menu
- * (matrix/messageMenu.ts), down to the placement arithmetic.
+ * Deliberately the same shape as the chat panel's message menu
+ * (matrix/messageMenu.ts), down to the placement arithmetic: two floating menus
+ * in the same window that behaved differently would be the odd thing.
  *
  * It owns nothing but itself: the caller decides what may be offered (see
- * `canListen` / `canMoveInto` in ./MumbleVoice.js) and every entry hands
- * straight back out through its own callback.
+ * `canListen` in ./MumbleVoice.js, and `channelMenuItems` in ./MumbleUI.js,
+ * which is also what decides whether the ⋯ exists at all) and every entry hands
+ * straight back out through its own callback. Nothing here is ever drawn
+ * disabled — an entry that cannot be picked is simply not on the list.
  *
  * It is positioned inside `#pa-mb` rather than the document body, which keeps it
  * inside the docked column and out of the Phaser canvas with no z-index games,
@@ -18,20 +18,10 @@
  * capturing scroll listener below, which re-places rather than closes.
  */
 
-/** One entry. A disabled entry is still drawn, and says why in its title: the
- *  move menu lists channels we may not move anyone into, because a list that
- *  quietly omitted them would read as the server having fewer channels than it
- *  does. */
 export interface PanelMenuItem {
   label: string;
   title?: string;
-  /** Nesting level, for a list that mirrors the shape of the channel tree. */
-  depth?: number;
-  disabled?: boolean;
-  /** Marks the entry describing where something already is — shown, never
-   *  pickable. */
-  current?: boolean;
-  onPick?(): void;
+  onPick(): void;
 }
 
 export interface PanelMenuSpec {
@@ -96,22 +86,17 @@ export function openPanelMenu(spec: PanelMenuSpec): PanelMenuHandle {
   for (const item of spec.items) {
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'mb-menu-row' + (item.current ? ' here' : '');
+    row.className = 'mb-menu-row';
     row.setAttribute('role', 'menuitem');
-    if (item.depth) row.style.setProperty('--mb-depth', String(item.depth));
     row.textContent = item.label;
     if (item.title) row.title = item.title;
-    if (item.disabled || item.current || !item.onPick) {
-      row.disabled = true;
-    } else {
-      const run = item.onPick;
-      row.addEventListener('click', () => {
-        chosen = true;
-        close();
-        run();
-      });
-      pickable.push(row);
-    }
+    const run = item.onPick;
+    row.addEventListener('click', () => {
+      chosen = true;
+      close();
+      run();
+    });
+    pickable.push(row);
     list.appendChild(row);
   }
 
@@ -155,8 +140,8 @@ export function openPanelMenu(spec: PanelMenuSpec): PanelMenuHandle {
    * flipped above when there is no room.
    *
    * Returns false once the row has left the panel — either scrolled out of the
-   * tree, or removed outright because that channel or person is gone — which is
-   * the one situation where following it stops making sense.
+   * tree, or removed outright because that channel is gone — which is the one
+   * situation where following it stops making sense.
    */
   const place = (): boolean => {
     if (!spec.anchor.isConnected) return false;

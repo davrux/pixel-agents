@@ -222,32 +222,34 @@ Add a matching command for any new destination (see AGENTS.md convention).
     per stranger is noise. A sync clears it: anything that happened while we
     were away was never observed, and a log that continued across the gap would
     have silent holes in it.
-  - **Permissions, moving people, and ears.** Murmur answers a `PermissionQuery`
-    with an ACL bitfield per channel (`ChanACL::Perm` — Write 0x1 … Move 0x20 …
-    Listen 0x800; the table is in `MUMBLE_PERM`). Nothing pushes it: you ask, or
-    you get an unsolicited **flush** meaning every cached answer is stale. So
-    `MumbleVoice` caches per channel and the tree asks as it draws each row —
-    once per channel per session, and again by itself after a flush, which beats
-    querying a whole tree up front. **Unknown ≠ denied**: absent from the cache
-    has to stay distinct from a bitfield of 0, and Write counts for every bit
-    because it is Murmur's blanket grant.
-    - Both actions live in a **row popover** (`panelMenu.ts`, one implementation
-      for both callers, deliberately shaped like the chat panel's message menu),
-      opened by the row's ⋯ or by a right-click on it. A channel row's offers
-      Join and **Listen** (place an ear: Mumble 1.4's ChannelListener, hear that
-      channel as well as your own); a user row's offers somewhere to move them.
-      Both go out as a `UserState` — the ear as the
+  - **Permissions and ears.** Murmur answers a `PermissionQuery` with an ACL
+    bitfield per channel (`ChanACL::Perm` — Write 0x1 … Listen 0x800; the whole
+    table is in `MUMBLE_PERM`, deliberately complete even though only Write and
+    Listen are read). Nothing pushes it: you ask, or you get an unsolicited
+    **flush** meaning every cached answer is stale. So `MumbleVoice` caches per
+    channel and the tree asks as it draws each row — once per channel per
+    session, and again by itself after a flush, which beats querying a whole
+    tree up front. **Unknown ≠ denied**: absent from the cache has to stay
+    distinct from a bitfield of 0, and Write counts for every bit because it is
+    Murmur's blanket grant.
+    - A **channel row popover** (`panelMenu.ts`, shaped like the chat panel's
+      message menu), opened by the row's ⋯ or by a right-click on it, offers Join
+      and **Listen** — place an ear: Mumble 1.4's ChannelListener, hear that
+      channel as well as your own. It goes out as a `UserState` carrying the
       `listening_channel_add`/`_remove` **delta** (fields 21/22, which is why
-      `session.ts` keeps the running set), the move as somebody else's session
-      plus a channel id.
-    - The gate is an entry's *presence*, down to **the ⋯ going away when its menu
-      would be empty** — on the channel you are already in (joining it is a no-op
-      and an ear in it is what we take back down on arrival), and on user rows
-      when there is nowhere we may move anyone. The ⋯ is otherwise invisible
-      until its row is hovered or focused, hidden with `opacity` so revealing it
-      never reflows the row; right-click is the discoverable half. Mute and
-      volume stay *on* the user row: they are settings you scan across a channel,
-      not one-shot actions on one person.
+      `session.ts` keeps the running set).
+    - The gate is an entry's *presence* — nothing in the menu is ever drawn
+      disabled — down to **the ⋯ going away when the menu would be empty**, which
+      is the channel you are already in: joining it is a no-op and an ear in it is
+      what we take back down on arrival. The ⋯ is otherwise invisible until its
+      row is hovered or focused, hidden with `opacity` so revealing it never
+      reflows the row; right-click is the discoverable half.
+    - **User rows have no menu.** Everything they offer — mute, per-user volume —
+      is a setting you scan and adjust across a whole channel, so it stays on the
+      row. Moving *other* people was built (Move 0x20, a `UserState` naming
+      somebody else's session) and then removed: the destination list never
+      rendered its text in the real panel, and it was not worth keeping for that.
+      `git log -- client/src/voice/panelMenu.ts` has it if it is ever wanted back.
     - **An ear is a row in the tree**, under the channel being listened to, for
       everyone's ears and not just ours — otherwise listening is invisible,
       since the listener's real row stays where they are standing. Dashed and

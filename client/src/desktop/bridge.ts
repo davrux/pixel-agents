@@ -94,9 +94,6 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
-  /** Move somebody else. Needs the Move permission in the destination; the
-   *  server refuses otherwise, and that arrives as a `permission` event. */
-  moveUser(session: number, channelId: number): Promise<void>;
   /** Place or remove an ear in another channel. Needs Listen there. */
   setListening(channelId: number, listening: boolean): Promise<void>;
   /** Ask what we may do in a channel; answered by a `permissions` event. */

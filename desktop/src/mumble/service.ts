@@ -150,15 +150,10 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
     active?.session.joinChannel(id);
   });
 
-  // Moving somebody else, and placing an ear in another channel, are both
-  // permission-gated — by the *server*, which refuses with PermissionDenied.
-  // Nothing here second-guesses that: the session only checks that the ids name
-  // things the server has told us about (see MumbleSession.moveUser).
-  ipcMain.handle(channels.mumbleMoveUser, (event, session: unknown, id: unknown) => {
-    if (!isOwner(event.sender) || !isId(session) || !isId(id)) return;
-    active?.session.moveUser(session, id);
-  });
-
+  // Placing an ear in another channel is permission-gated — by the *server*,
+  // which refuses with PermissionDenied. Nothing here second-guesses that: the
+  // session only checks that the id names a channel the server has told us
+  // about (see MumbleSession.setListening).
   ipcMain.handle(channels.mumbleSetListening, (event, id: unknown, listening: unknown) => {
     if (!isOwner(event.sender) || !isId(id)) return;
     active?.session.setListening(id, listening === true);

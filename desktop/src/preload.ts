@@ -52,8 +52,6 @@ const api: PixelDesktopApi = {
     connect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleConnect),
     disconnect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleDisconnect),
     joinChannel: (id: number) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleJoinChannel, id),
-    moveUser: (session: number, channelId: number) =>
-      ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleMoveUser, session, channelId),
     setListening: (channelId: number, listening: boolean) =>
       ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleSetListening, channelId, listening),
     queryPermissions: (channelId: number) =>

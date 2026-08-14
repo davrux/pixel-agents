@@ -35,7 +35,6 @@ export const PIXEL_DESKTOP_CHANNELS = {
   mumbleConnect: 'pixelDesktop:mumbleConnect',
   mumbleDisconnect: 'pixelDesktop:mumbleDisconnect',
   mumbleJoinChannel: 'pixelDesktop:mumbleJoinChannel',
-  mumbleMoveUser: 'pixelDesktop:mumbleMoveUser',
   mumbleSetListening: 'pixelDesktop:mumbleSetListening',
   mumbleQueryPermissions: 'pixelDesktop:mumbleQueryPermissions',
   mumbleSelfState: 'pixelDesktop:mumbleSelfState',
@@ -157,9 +156,6 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
-  /** Move somebody else. Needs the Move permission in the destination; the
-   *  server refuses otherwise, which arrives as a `permission` event. */
-  moveUser(session: number, channelId: number): Promise<void>;
   /** Place or remove an ear in another channel — we keep hearing our own and
    *  hear that one too. Needs the Listen permission there. */
   setListening(channelId: number, listening: boolean): Promise<void>;

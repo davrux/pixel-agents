@@ -360,20 +360,14 @@ export class MumbleSession extends EventEmitter {
   }
 
   /**
-   * Move somebody else into a channel.
+   * Place or remove an ear in another channel: we keep hearing our own, and
+   * hear that one too. Needs the Listen permission there (Mumble 1.4+).
    *
    * The server is the authority — it answers PermissionDenied when we may not,
-   * which the renderer already surfaces as a notice. The checks here are not a
-   * permission model, only a bound on what a compromised renderer can make us
-   * send: a session and a channel the server has actually told us about.
+   * which the renderer surfaces as a notice. The check here is not a permission
+   * model, only a bound on what a compromised renderer can make us send: a
+   * channel the server has actually told us about.
    */
-  moveUser(session: number, channelId: number): void {
-    if (!this.synced || !this.users.has(session) || !this.channels.has(channelId)) return;
-    this.send(MSG.USER_STATE, encodeUserState({ session, channelId }));
-  }
-
-  /** Place or remove an ear in another channel: we keep hearing our own, and
-   *  hear that one too. Needs the Listen permission there (Mumble 1.4+). */
   setListening(channelId: number, listening: boolean): void {
     if (!this.synced || !this.channels.has(channelId)) return;
     this.send(
