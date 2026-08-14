@@ -54,6 +54,9 @@ const MAX_OPUS_BYTES = 1024;
 const ALERT_COALESCE_MS = 600;
 /** Above this, the notification counts instead of naming everyone. */
 const ALERT_MAX_NAMES = 4;
+/** How many activity lines to keep. Bounded because it is only ever read by
+ *  eye — a server that churns for an afternoon must not grow this without end. */
+const MAX_ACTIVITY = 200;
 /** Default input gain. Unity is far too quiet next to the official Mumble
  *  client, whose own amplification defaults well above 1x — a browser mic
  *  captured with AGC off simply arrives quieter than Mumble's. */
@@ -79,6 +82,26 @@ export interface MumbleVoiceState {
   host: string;
   error?: string;
   notice?: string;
+}
+
+/**
+ * One line of the activity log: somebody arrived on, or left, the server.
+ *
+ * Server-wide, not channel-scoped — that is what the join/leave *alerts* are
+ * (they only fire for our own channel, because an OS notification for every
+ * stranger on a busy server is noise). The log answers a different question:
+ * who has been around since we connected.
+ */
+export interface MumbleActivity {
+  /** Strictly increasing within one session, restarting at each sync. Lets a
+   *  view say what is new to it without counting calls or diffing the array —
+   *  which neither survives the trim at MAX_ACTIVITY nor a repaint that had
+   *  nothing to do with the log. */
+  seq: number;
+  /** Wall clock, so it can be shown as a time of day. */
+  ts: number;
+  name: string;
+  joined: boolean;
 }
 
 export interface MumbleTree {
@@ -160,6 +183,10 @@ export class MumbleVoice {
   private readonly alerts: { name: string; joined: boolean }[] = [];
   private alertTimer: number | null = null;
 
+  /** Server arrivals/departures since the current sync, oldest first. */
+  private readonly activityLog: MumbleActivity[] = [];
+  private activitySeq = 0;
+
   // Capture: MicGraph → worklet → 20 ms buffers → AudioEncoder → IPC.
   private mic: MicGraph | null = null;
   private capture: AudioWorkletNode | null = null;
@@ -203,6 +230,7 @@ export class MumbleVoice {
     private readonly onTree: (t: MumbleTree) => void,
     private readonly onDevices: (d: MumbleDevices) => void,
     private readonly onMicLevel: (level: number) => void,
+    private readonly onActivity: (entries: readonly MumbleActivity[]) => void,
   ) {
     this.master = clampVol(Number(localStorage.getItem('pa-mb-master') ?? '1'));
     this.micGain = clampMicGain(readMicGain());
@@ -231,6 +259,12 @@ export class MumbleVoice {
 
   get isEnabled(): boolean {
     return this.enabled;
+  }
+
+  /** The activity log as it stands, for a view that is being built after some
+   *  of it has already happened. Oldest first. */
+  get activity(): readonly MumbleActivity[] {
+    return this.activityLog;
   }
 
   get state(): MumbleVoiceState {
@@ -384,6 +418,11 @@ export class MumbleVoice {
         this.reconnectDelay = RECONNECT_MIN_MS;
         this.mySession = e.session;
         this.clearAlerts(); // the whole roster arrives here; that isn't news
+        // Same reasoning for the log, plus one of its own: a sync is the start
+        // of a session on a server, and whatever happened while we were away
+        // was never observed. Carrying entries across would read as a
+        // continuous record with silent holes in it.
+        this.clearActivity();
         this.channels.clear();
         this.users.clear();
         for (const c of e.channels) this.channels.set(c.id, c);
@@ -424,6 +463,10 @@ export class MumbleVoice {
           // that cross our own channel are worth a notification.
           if (e.user.channel === this.myChannel) this.queueAlert(e.user.name, true);
           else if (before && before.channel === this.myChannel) this.queueAlert(e.user.name, false);
+          // No `before` at all is the one that means "arrived on the server" —
+          // every other shape of this event is somebody moving between
+          // channels, which the tree already shows.
+          if (!before) this.logActivity(e.user.name, true);
         }
         this.emitTree();
         return;
@@ -432,8 +475,9 @@ export class MumbleVoice {
         const gone = this.users.get(e.session);
         this.users.delete(e.session);
         this.dropPeer(e.session);
-        if (gone && gone.channel === this.myChannel && e.session !== this.mySession) {
-          this.queueAlert(gone.name, false);
+        if (gone && e.session !== this.mySession) {
+          if (gone.channel === this.myChannel) this.queueAlert(gone.name, false);
+          this.logActivity(gone.name, false);
         }
         this.emitTree();
         return;
@@ -1223,6 +1267,28 @@ export class MumbleVoice {
       clearTimeout(this.alertTimer);
       this.alertTimer = null;
     }
+  }
+
+  // ── server activity log ────────────────────────────────────────────────────
+
+  /** Record one arrival/departure. Gated on `connected` so a stray event before
+   *  sync cannot enter the whole roster as arrivals. */
+  private logActivity(name: string, joined: boolean): void {
+    if (!this.connected) return;
+    this.activityLog.push({ seq: ++this.activitySeq, ts: Date.now(), name: name || 'Someone', joined });
+    if (this.activityLog.length > MAX_ACTIVITY) {
+      this.activityLog.splice(0, this.activityLog.length - MAX_ACTIVITY);
+    }
+    this.onActivity(this.activityLog);
+  }
+
+  private clearActivity(): void {
+    // The counter restarts with the log, which is what lets a view notice a
+    // sync happened: the newest seq it can see went backwards.
+    this.activitySeq = 0;
+    if (this.activityLog.length === 0) return;
+    this.activityLog.length = 0;
+    this.onActivity(this.activityLog);
   }
 
   private async emitDevices(): Promise<void> {

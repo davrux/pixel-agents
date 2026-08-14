@@ -207,6 +207,16 @@ Add a matching command for any new destination (see AGENTS.md convention).
     pages inside the chat window: `#pa-mb` holds a persistent `#pa-mb-master`
     strip plus one `<section>` per view, and only one section is displayed. They
     used to be a block inside the office's Settings panel.
+  - **Two tabs over one well** (`#pa-mb-tabs`, paSkin's `.pa-seg`): the channel
+    tree, and an **activity log** of who joined or left the server since the
+    last sync, newest first with a time of day. The log is `MumbleVoice`'s, not
+    the view's — it is built from the discrete `user`/`userRemove` events, which
+    is what lets it tell a genuine arrival (no prior session) from a channel
+    move, and skip the whole roster that arrives with `sync`. It is **server**
+    scoped, unlike the join/leave *alerts* next to it, which only fire for your
+    own channel because an OS notification per stranger is noise. A sync clears
+    it: anything that happened while we were away was never observed, and a log
+    that continued across the gap would have silent holes in it.
   - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
     both were once broken, which made voices drift low and slow:
     1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on
@@ -306,9 +316,10 @@ Add a matching command for any new destination (see AGENTS.md convention).
   - `fill: true` makes the body a non-scrolling flex column, for a panel that
     pins chrome around its own scroller. Both application windows use it: Matrix
     pins a status strip and composer around its timeline, Mumble pins its header
-    strip and its device controls above the channel tree (`#pa-mb-tree` is that
-    view's one scroller, with a `min-height` floor and `#pa-mb-main` scrolling
-    only as a short-window fallback).
+    strip and its device controls above the tabbed well (`#pa-mb-tree` or
+    `#pa-mb-log`, whichever `#pa-mb-tabs` is showing, is that view's one
+    scroller — with a `min-height` floor and `#pa-mb-main` scrolling only as a
+    short-window fallback).
 
 ## Ops gotchas
 - **Push:** `GIT_SSH_COMMAND="ssh -4" git push …` (Codeberg hangs over IPv6).
