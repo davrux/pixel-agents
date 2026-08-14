@@ -32,6 +32,7 @@ import {
   type TrackPublication,
 } from 'livekit-client';
 import { reactionById, type Reaction } from './reactions.js';
+import { getAudioSettings, onAudioSettingsChange } from '../voice/audioSettings.js';
 import { CameraFilters, type VideoFilterId } from './videoFilters.js';
 
 export interface ConferenceState {
@@ -132,6 +133,8 @@ export class LiveKitConference {
   private micOn = true;
   private screenOn = false;
   private speakerId?: string;
+  /** Unsubscribe from the shared audio settings (set on connect). */
+  private unsubAudio?: () => void;
 
   constructor(
     private stage: HTMLElement,
@@ -163,6 +166,14 @@ export class LiveKitConference {
   async connect(url: string, token: string, opts?: { video?: boolean }): Promise<void> {
     const enableCamera = opts?.video !== false;
     this.camOn = enableCamera;
+    // The viewer's own device choice and volume apply to every call, so they are
+    // read here rather than asked for per meeting (see audioSettings.ts). The
+    // subscription is what makes the audio panel work DURING a call instead of
+    // only before one.
+    const audio = getAudioSettings();
+    if (audio.speakerId) this.speakerId = audio.speakerId;
+    this.unsubAudio?.();
+    this.unsubAudio = onAudioSettingsChange((next) => void this.applyAudioSettings(next));
     const room = new Room({ adaptiveStream: true, dynacast: true });
     this.room = room;
     room
@@ -591,7 +602,12 @@ export class LiveKitConference {
 
   /** Apply effective volume (0 if locally muted) to all of a member's audio elements. */
   private applyVolume(identity: string): void {
-    const v = this.peerMuted.has(identity) ? 0 : (this.peerVolumes.get(identity) ?? 1);
+    // Per-member choice times the viewer's master volume (audioSettings) — the
+    // same master the audio panel shows, so one slider governs every call.
+    // Clamped because master goes to 2 (a boost) while element volume stops at 1;
+    // the extra headroom above unity is the GainNode's job, not this element's.
+    const master = getAudioSettings().master;
+    const v = this.peerMuted.has(identity) ? 0 : Math.min(1, (this.peerVolumes.get(identity) ?? 1) * master);
     for (const a of this.audios.values()) if (a.identity === identity) a.el.volume = v;
   }
 
@@ -703,6 +719,16 @@ export class LiveKitConference {
     }
   }
 
+  /** Re-apply the viewer's audio preferences to this live call. Device switches go
+   *  through the same methods the meeting window's own pickers use, so there is one
+   *  path and no second source of truth. */
+  private async applyAudioSettings(s: { micId: string; speakerId: string; master: number }): Promise<void> {
+    if (!this.room) return;
+    if (s.speakerId && s.speakerId !== this.speakerId) await this.switchSpeaker(s.speakerId);
+    if (s.micId) await this.room.switchActiveDevice('audioinput', s.micId).catch(() => undefined);
+    for (const identity of new Set([...this.audios.values()].map((a) => a.identity))) this.applyVolume(identity);
+  }
+
   async switchCamera(deviceId: string): Promise<void> {
     await this.room?.switchActiveDevice('videoinput', deviceId);
     await this.emitDevices();
@@ -734,6 +760,10 @@ export class LiveKitConference {
   async disconnect(): Promise<void> {
     const r = this.room;
     this.room = null;
+    // Stop listening for setting changes — a disconnected call must not keep
+    // switching devices in the background.
+    this.unsubAudio?.();
+    this.unsubAudio = undefined;
     // Free the segmenter's WASM/WebGL before the track goes away — a leftover
     // processor would keep decoding frames from a camera nobody is watching.
     await this.filters.destroy();

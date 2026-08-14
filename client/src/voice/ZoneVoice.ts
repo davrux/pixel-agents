@@ -9,6 +9,7 @@ import {
   type RemoteTrack,
   type RemoteTrackPublication,
 } from 'livekit-client';
+import { setAudioSettings } from './audioSettings.js';
 
 /**
  * Zone voice chat over LiveKit (WebRTC). One room per zone — entering a zone
@@ -462,7 +463,9 @@ export class ZoneVoice {
   /** Set mic input gain / sensitivity (0..2, 1 = unity). */
   setMicSensitivity(v: number): void {
     this.micGain = clampGain(v);
-    localStorage.setItem('pa-zv-micgain', String(this.micGain));
+    // Through the shared store, not straight to localStorage: that is what makes a
+    // change reach a meeting that is already running (see audioSettings.ts).
+    setAudioSettings({ micGain: this.micGain });
     if (this.micGainNode) this.micGainNode.gain.value = this.micGain;
     this.emitState();
   }
@@ -470,7 +473,7 @@ export class ZoneVoice {
   /** Set the voice-activity threshold (0..1; 0 = always transmit). */
   setMicThreshold(v: number): void {
     this.micThreshold = clamp01(v);
-    localStorage.setItem('pa-zv-micthresh', String(this.micThreshold));
+    setAudioSettings({ micThreshold: this.micThreshold });
     this.emitState();
   }
 
@@ -594,7 +597,7 @@ export class ZoneVoice {
 
   setMaster(v: number): void {
     this.master = clampVol(v);
-    localStorage.setItem('pa-zv-master', String(this.master));
+    setAudioSettings({ master: this.master });
     this.applyAllVolumes();
     this.emitState();
   }
@@ -609,7 +612,7 @@ export class ZoneVoice {
   async switchMic(deviceId: string): Promise<void> {
     if (!this.room) return; // device switching only applies to a live room
     this.micId = deviceId;
-    localStorage.setItem('pa-zv-mic', deviceId);
+    setAudioSettings({ micId: deviceId });
     // If the mic graph is live, swap the source feeding the gain node so the
     // published track (and its gain) stays the same — no republish needed.
     if (this.micCtx && this.micGainNode) {
@@ -632,7 +635,7 @@ export class ZoneVoice {
   async switchSpeaker(deviceId: string): Promise<void> {
     if (!this.room) return;
     this.speakerId = deviceId;
-    localStorage.setItem('pa-zv-speaker', deviceId);
+    setAudioSettings({ speakerId: deviceId });
     // Route each peer's output element to the chosen device (works in Chrome+FF).
     for (const pa of this.peerAudio.values()) void setSinkId(pa.out, deviceId);
     await this.emitDevices();
