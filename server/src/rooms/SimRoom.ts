@@ -125,8 +125,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
   private readonly chatLog: Array<{ from: string; text: string; at: number }> = [];
   private readonly lastChatAt = new Map<string, number>();
-  /** Per-session rate limit for voice-chat announcements (join/mute/deafen). */
-  private readonly lastVoiceEventAt = new Map<string, number>();
   /** Meeting-room membership (Action's 'meetingRoom' kind) — a
    *  "furniture:col,row" or "tile:col,row" key (disambiguates a furniture
    *  item's own anchor tile from a tile-action area's flood-fill anchor, in
@@ -567,7 +565,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
     }
     this.lastChatAt.delete(client.sessionId);
-    this.lastVoiceEventAt.delete(client.sessionId);
   }
 
   /** The effective action (see Action) of the furniture item anchored
@@ -962,50 +959,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
         });
       },
     );
-
-    // Zone voice: one LiveKit room per zone. Any player with a visible avatar can
-    // join; entering a different zone is a different room (the client reconnects
-    // on zone change). Proximity attenuation is applied client-side.
-    this.onMessage('zoneVoiceToken', async (client) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) {
-        client.send('m', { type: 'zoneVoiceToken', error: 'no-avatar' });
-        return;
-      }
-      const url = process.env.LIVEKIT_URL;
-      if (!url || !process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
-        client.send('m', { type: 'zoneVoiceToken', error: 'not-configured' });
-        return;
-      }
-      const room = this.voiceRoom(`zv-${this.zone.id}`);
-      const token = await this.mintVoiceToken(id, room);
-      if (!token) return;
-      client.send('m', { type: 'zoneVoiceToken', url, token, room });
-    });
-
-    // Voice state changes (join/leave/mute/deafen) happen peer-to-peer in
-    // LiveKit, so the client tells us when one is worth announcing in the zone
-    // chat. The allowlist doubles as validation; unknown events are ignored.
-    this.onMessage('voiceEvent', (client, msg: { event?: string }) => {
-      if (this.players.get(client.sessionId) === undefined) return; // must have an avatar
-      const now = Date.now();
-      // Rate-limit announcements per session so rapid join/mute toggling can't
-      // spam the zone chat (mirrors the 'chat' handler's ~1.4/s throttle).
-      if (now - (this.lastVoiceEventAt.get(client.sessionId) ?? 0) < 700) return;
-      const name = this.chatNameFor(client);
-      const texts: Record<string, string> = {
-        join: `${name} joined the voice chat.`,
-        leave: `${name} left the voice chat.`,
-        'mic-off': `${name} muted their mic.`,
-        'mic-on': `${name} unmuted their mic.`,
-        'deaf-on': `${name} muted sound.`,
-        'deaf-off': `${name} unmuted sound.`,
-      };
-      const text = texts[msg?.event ?? ''];
-      if (!text) return;
-      this.lastVoiceEventAt.set(client.sessionId, now);
-      this.broadcast('m', { type: 'system', text });
-    });
 
     // Lightweight user directory for autocomplete (ACL add / invite / owner
     // pickers) — any signed-in user, not just admins (they need to search for

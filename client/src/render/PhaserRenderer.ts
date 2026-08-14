@@ -57,14 +57,13 @@ const FLOOR_DEPTH = -100000;
 const IMAGE_DEPTH = FLOOR_DEPTH + 1;
 const BUBBLE_DEPTH = 1_000_000;
 
-// Head markers (☕ / 💤 afk / crossed mic — see markerIcons.ts). Sizes are WORLD
+// Head markers (☕ / 💤 afk — see markerIcons.ts). Sizes are WORLD
 // pixels; being world-space, they keep that size relative to the avatar. They
 // started out matching the DOM icons they replaced, which read too small next to
 // a character, so the whole row is 1.5× that now.
 const MARKER_DEPTH = BUBBLE_DEPTH + 1;
 const MARKER_SIZE_COFFEE = 7.5;
 const MARKER_SIZE_AFK = 6;
-const MARKER_SIZE_VOICE = 5.25;
 const MARKER_AFK_COLOR = '#ffd98a';
 /** Bottom of the marker row: 34px above the feet of a baseline (32px) character,
  *  scaled for taller sprites — where the old DOM afk/coffee overlays sat. The row
@@ -138,22 +137,11 @@ export class PhaserRenderer {
   /** Player ids currently speaking in voice chat — drives the per-character ring.
    *  Fed each frame by the scene from the voice active-speaker state. */
   private readonly speakingIds = new Set<number>();
-  /** Per-player mic-mute / sound-off flags, fed by the scene from the voice
-   *  state — drives the crossed-mic and crossed-speaker head markers. */
-  private readonly voiceFlags = new Map<number, { muted: boolean; deaf: boolean }>();
 
   /** Replace the set of players shown with a speaking ring (called per frame). */
   setSpeakingIds(ids: Set<number>): void {
     this.speakingIds.clear();
     for (const id of ids) this.speakingIds.add(id);
-  }
-
-  /** Replace the per-player mic/sound flags behind the voice head markers. */
-  setVoiceStatus(status: Map<number, { muted: boolean; deaf: boolean }>): void {
-    this.voiceFlags.clear();
-    for (const [id, st] of status) {
-      if (st.muted || st.deaf) this.voiceFlags.set(id, st);
-    }
   }
 
   constructor(
@@ -417,15 +405,14 @@ export class PhaserRenderer {
     }
   }
 
-  /** The markers a character currently carries, left to right: voice state first,
-   *  then pose/presence. Nothing to show is the common case, hence the shared
-   *  empty list (this runs per character per frame). */
+  /** The markers a character currently carries, left to right. Nothing to show
+   *  is the common case, hence the shared empty list (this runs per character
+   *  per frame). The crossed 🎤/🔊 pair went with zone voice: mic state is a
+   *  property of a call you are in, and a meeting shows it in its own window,
+   *  on the tile of the person it belongs to. */
   private markerSpecs(ch: Character): MarkerSpec[] {
-    const voice = this.voiceFlags.get(ch.id);
-    if (!voice && !ch.afk && ch.pose !== 'coffee') return NO_MARKERS;
+    if (!ch.afk && ch.pose !== 'coffee') return NO_MARKERS;
     const specs: MarkerSpec[] = [];
-    if (voice?.muted) specs.push({ text: '🎤', size: MARKER_SIZE_VOICE, crossed: true });
-    if (voice?.deaf) specs.push({ text: '🔊', size: MARKER_SIZE_VOICE, crossed: true });
     if (ch.pose === 'coffee') specs.push({ text: '☕', size: MARKER_SIZE_COFFEE, sip: true });
     if (ch.afk) specs.push({ text: '💤 afk', size: MARKER_SIZE_AFK, color: MARKER_AFK_COLOR });
     return specs;

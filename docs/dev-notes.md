@@ -38,7 +38,7 @@ Auth/users/sessions/zones/voice/conference/chat are **shared server-side** (sing
 
 ## Rooms portal
 Teams layout (rooms rail / chat / office), integrated chat w/ timestamps, room-wide
-voice on `ZoneVoice` directly (no proximity), presence badges (Pixels/Rooms),
+voice (was `ZoneVoice`, since removed — see below), presence badges (Pixels/Rooms),
 meetings via ConferenceUI+LiveKit, auto-reconnect + connection indicator, password
 prompts for locked rooms/monitors, "Open in Pixels" when allowed. Joins as a
 **spectator** so it doesn't duplicate the user's Pixels avatar.
@@ -188,8 +188,13 @@ Add a matching command for any new destination (see AGENTS.md convention).
   claim what is really published, and `Room.getLocalDevices(kind, false)` so
   enumerating devices never fires a permission request of its own (the default
   `true` re-prompts whenever a label is blank or a list is empty — Firefox's
-  speaker list usually is). **Zone voice** = per-zone WebRTC + proximity, and it
-  defers `getUserMedia` until the first unmute, so joining a zone never prompts.
+  speaker list usually is). **Zone voice** (per-zone WebRTC + proximity) is
+  **gone**: conversation happens in meeting areas, which are content the mapper
+  places, so there is no second, always-on call beside them. What it owned that
+  was never really its own — the mic/speaker choice, volume, sensitivity and
+  voice-activity threshold — lives in `client/src/voice/audioSettings.ts`, is
+  edited in the Audio panel (`AudioSettingsUI`) and is read by meetings and
+  Mumble alike; a change reaches a call that is already running.
 - **Mumble (desktop only)** — a real Mumble client, split across the two processes:
   - `desktop/src/mumble/` is main-process: `varint.ts` (Mumble's own big-endian
     varint — **not** protobuf's LEB128, which is in `protobuf.ts`), `protocol.ts`

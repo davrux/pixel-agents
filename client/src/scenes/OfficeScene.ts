@@ -41,7 +41,7 @@ import {
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
-import { ZoneVoiceUI } from '../voice/ZoneVoiceUI.js';
+import { AudioSettingsUI } from '../voice/AudioSettingsUI.js';
 import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { openActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
@@ -211,8 +211,9 @@ export class OfficeScene extends Phaser.Scene {
   private readonly arcadePendingLoads = new Map<string, (data: Uint8Array | null) => void>();
   /** Active LiveKit connection for the joined monitor, or undefined (C-RTC-2). */
   private conf?: LiveKitConference;
-  /** Zone-wide voice chat (one LiveKit room per zone), with proximity audio. */
-  private zoneVoice?: ZoneVoiceUI;
+  /** The Audio panel: this viewer's mic/speaker settings. Not a call — every
+   *  call reads them from the shared store (see audioSettings.ts). */
+  private audioSettingsUI?: AudioSettingsUI;
   /** Walk-in meeting areas (a 'meetingRoom' tile action, see shared Action) —
    *  standing on the tile auto-connects (mirrors WorkAdventure's proximity
    *  bubble) into a small ambient popup with live camera tiles, reusing
@@ -249,15 +250,11 @@ export class OfficeScene extends Phaser.Scene {
    *  late `viewerIdentity` can notice it was started for the wrong one. */
   private matrixPaUserId: string | null = null;
   private matrixPagehideBound = false;
-  private zoneVoiceStarted = false;
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
   /** Player ids currently talking in a meeting (client-side, from LiveKit). */
   private voiceSpeakers = new Set<number>();
-  /** Per-player zone-voice presence + mic-mute + sound-off (from LiveKit). Fed to
-   *  the renderer, which draws the crossed 🎤 / 🔊 markers over the avatars. */
-  private voiceStatus = new Map<number, { muted: boolean; deaf: boolean }>();
   /** Per-speaker grace deadline (ms) so the talking ring stays on through gaps. */
   private readonly voiceSpeakUntil = new Map<number, number>();
   private charEditor!: CharacterEditor;
@@ -277,9 +274,9 @@ export class OfficeScene extends Phaser.Scene {
   /** Grouped top-bar buttons (design: Audio · Zone · Space · Assets · ☰). */
   private audioBtn?: HTMLButtonElement;
   private audioDot?: HTMLElement;
-  /** Quick-access voice controls in the bar (shown only while connected). */
+  /** Quick-access mic mute in the bar — mutes the call you are in, shown only
+   *  while there is one. */
   private micBarBtn?: HTMLButtonElement;
-  private deafBarBtn?: HTMLButtonElement;
   private micBarEqEl?: HTMLElement;
   private zoneBtn?: HTMLButtonElement;
   private zoneLabelEl?: HTMLElement;
@@ -483,43 +480,18 @@ export class OfficeScene extends Phaser.Scene {
       },
     });
 
-    // Zone voice: its controls render into the Audio panel body; the scene owns
-    // the Audio top-bar button. Positions for proximity come from synced avatars.
+    // The Audio panel is settings only — mic, speaker, levels. There is no call
+    // to join from here: conversations happen in meeting areas, and they read
+    // these settings from the shared store.
     if (this.audioPanel) {
       const audioBody = this.audioPanel.querySelector<HTMLElement>('.pa-body')!;
-      this.zoneVoice = new ZoneVoiceUI(audioBody, {
-        requestToken: () => this.room?.send('zoneVoiceToken'),
-        announceVoice: (event) => this.room?.send('voiceEvent', { event }),
-        myPosition: () => this.playerPosition(this.myPlayerId),
-        positionOf: (id) => this.playerPosition(id),
-        // Both feed in-world indicators (ring / head markers), and a muted-but-
-        // silent scene is otherwise perfectly idle, so these wake the loop like
-        // user input: one active frame to pick the change up.
-        onSpeakers: (ids) => {
-          this.voiceSpeakers = ids;
-          this.wake(true); // talking indicators changed → redraw
-        },
-        onVoiceStatus: (status) => {
-          this.voiceStatus = status;
-          this.wake(true);
-        },
-        // Reflect live voice state on the Audio dot + quick-access bar buttons.
-        onStateChange: (s) => this.updateVoiceBarButtons(s),
-        onMicLevel: (level) => {
-          if (!this.micBarEqEl) return;
-          const st = this.zoneVoice?.voice.state;
-          this.micBarEqEl.style.setProperty('--l', (st?.connected && st.micOn) ? String(level) : '0');
-        },
-      });
+      this.audioSettingsUI = new AudioSettingsUI(audioBody);
     }
     // Mumble owns its own panel. Desktop-only: in the browser MumbleUI renders
     // nothing, so the panel and its bar button simply stay hidden.
     const mumbleBody = this.mumblePanel?.querySelector<HTMLElement>('.pa-body');
     if (mumbleBody) {
-      this.mumble = new MumbleUI(mumbleBody, {
-        onJoin: () => this.zoneVoice?.voice.suspend('mumble'),
-        onLeave: () => this.zoneVoice?.voice.resume('mumble'),
-      });
+      this.mumble = new MumbleUI(mumbleBody, {});
       this.mumble.start();
       // Reopen the window if it was left open — an application window is
       // expected back where you left it.
@@ -608,7 +580,6 @@ export class OfficeScene extends Phaser.Scene {
           if (m.source === 'tile') this.onMeetingAreaToken(m);
           else this.onConferenceToken(m);
         }
-        else if (m.type === 'zoneVoiceToken') this.zoneVoice?.onToken(m);
         else if (m.type === 'meetingRoomCreated') this.onMeetingRoomCreated(m);
         else if (m.type === 'meetingRoomList') this.onMeetingRoomList(m);
         else if (m.type === 'meetingRoomDeleted') this.onMeetingRoomDeleted(m);
@@ -641,12 +612,6 @@ export class OfficeScene extends Phaser.Scene {
           // Show the server version next to the connection status (arrives just
           // after the bare "connected" set at connect time).
           if (typeof m.version === 'string' && m.version) setStatus(`connected · ${m.version}`);
-          // Once we know our avatar + the room is live, (re)join zone voice if the
-          // user left it enabled. Runs once; a zone change reloads the page.
-          if (!this.zoneVoiceStarted) {
-            this.zoneVoiceStarted = true;
-            this.zoneVoice?.start();
-          }
           // The server assigns this viewer's owned avatar (pa:<userId>) — remember
           // its id so "My avatar" edits/preview target the right skin.
           if (typeof m.playerSkin === 'string') this.myAvatarId = m.playerSkin;
@@ -1605,13 +1570,15 @@ export class OfficeScene extends Phaser.Scene {
       const sitting = me?.state === CharacterState.SIT;
       this.room?.send('playerSit', { sit: !sitting });
     });
-    // Mic mute toggle (M) for zone voice — only while voice is on (mirrors the
-    // bar mic button), and never while typing (blocked() covers chat/inputs).
+    // Mic mute toggle (M) for whichever call this viewer is in — only while
+    // there is one (mirrors the bar mic button), and never while typing
+    // (blocked() covers chat/inputs).
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyM' || e.repeat || blocked()) return;
-      if (!this.zoneVoice?.voice.isEnabled) return;
+      const call = this.activeCall();
+      if (!call) return;
       e.preventDefault();
-      this.zoneVoice.voice.toggleMic();
+      void call.toggleMic();
     });
   }
 
@@ -1933,9 +1900,24 @@ export class OfficeScene extends Phaser.Scene {
     if (this.assetsBtn) this.assetsBtn.style.display = this.collapsed || !this.assetsAdmin ? 'none' : '';
   }
 
-  /** Reflect zone-voice state on the bar: the Audio live dot + the quick-access
-   *  mic/silence buttons (visible only while connected). */
-  private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean; deafened: boolean }): void {
+  /** Live mic level (0..1) from the call we're in: the bar's equaliser and the
+   *  Audio panel's meter both show what that call is actually transmitting —
+   *  neither opens the microphone a second time to do it. */
+  private onCallMicLevel(level: number): void {
+    this.micBarEqEl?.style.setProperty('--l', String(level));
+    this.audioSettingsUI?.setMicLevel(level);
+  }
+
+  /** The call this viewer is in, if any — a meeting area's, or a conference
+   *  monitor's. The bar's mic button, the M hotkey and the Audio panel's level
+   *  meter all mean "the call I am in", and this is that one place. */
+  private activeCall(): LiveKitConference | undefined {
+    return this.meetingConf ?? this.conf;
+  }
+
+  /** Reflect call state on the bar: the Audio live dot + the quick-access mic
+   *  button (visible only while there is a call). */
+  private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean }): void {
     this.audioDot?.classList.toggle('live', s.connected);
     if (this.micBarBtn) {
       // Keep the mic glyph; a red ⊘ (CSS) marks the muted state.
@@ -1944,12 +1926,8 @@ export class OfficeScene extends Phaser.Scene {
       this.micBarBtn.title = s.micOn ? 'Mute your mic' : 'Unmute your mic';
       if (this.micBarEqEl && !s.connected) this.micBarEqEl.style.setProperty('--l', '0');
     }
-    if (this.deafBarBtn) {
-      // Keep the speaker glyph; a red slash (CSS) marks the silenced state.
-      this.deafBarBtn.style.display = s.connected ? '' : 'none';
-      this.deafBarBtn.classList.toggle('danger', s.deafened);
-      this.deafBarBtn.title = s.deafened ? 'Un-silence everyone' : 'Silence everyone';
-    }
+    // No call → the meter has no live level to show and Test takes over again.
+    if (!s.connected) this.audioSettingsUI?.setMicLevel(null);
   }
 
   // ── Top bar + shared popover shells ──────────────────────────────
@@ -1975,19 +1953,13 @@ export class OfficeScene extends Phaser.Scene {
     const mic = this.mkBarBtn('🎤', '');
     mic.title = 'Mute / unmute your mic';
     mic.style.display = 'none';
-    mic.onclick = () => this.zoneVoice?.voice.toggleMic();
+    mic.onclick = () => void this.activeCall()?.toggleMic();
     this.micBarBtn = mic;
     const eq = document.createElement('span');
     eq.className = 'pa-eq';
     eq.innerHTML = '<span></span><span></span><span></span><span></span><span></span>';
     mic.appendChild(eq);
     this.micBarEqEl = eq;
-    const deaf = this.mkBarBtn('🔊', '');
-    deaf.title = 'Silence / un-silence everyone';
-    deaf.style.display = 'none';
-    deaf.onclick = () => this.zoneVoice?.voice.toggleDeafen();
-    this.deafBarBtn = deaf;
-
     // Mumble — its own top-level entry, shown only on the desktop build.
     // Toggles the right-hand window rather than a popover.
     const mumbleBtn = this.mkBarBtn('🎧', 'Mumble');
@@ -2046,7 +2018,7 @@ export class OfficeScene extends Phaser.Scene {
       );
     this.moreBtn = more;
 
-    bar.append(audio, mic, deaf, mumbleBtn, matrixBtn, divider, zone, space, assets, spacer, more);
+    bar.append(audio, mic, mumbleBtn, matrixBtn, divider, zone, space, assets, spacer, more);
 
     // Desktop-only window controls. The Electron shell hides the native menu bar
     // and title-bar menus, so the HUD carries its own chrome: a DevTools toggle
@@ -2057,7 +2029,7 @@ export class OfficeScene extends Phaser.Scene {
       devtools.onclick = () => void desktop().toggleDevTools();
 
       // Plain ✕ — no `.danger`, whose red circle-and-slash overlay reads as a
-      // "muted/blocked" state badge (mic, deafen) rather than a close control.
+      // "muted/blocked" state badge (the mic button) rather than a close control.
       const closeApp = this.mkBarBtn('✕', '');
       closeApp.title = 'Close app';
       closeApp.classList.add('pa-close');
@@ -2905,7 +2877,6 @@ export class OfficeScene extends Phaser.Scene {
     this.conf = undefined;
     this.confUI.close();
     // Back out of the meeting → rejoin zone voice if the user had it on.
-    this.zoneVoice?.voice.resume('conference');
     this.mumble?.voice?.resume('conference');
   }
 
@@ -2957,7 +2928,10 @@ export class OfficeScene extends Phaser.Scene {
     // then connect the media into it.
     this.confUI.open(title, this.conferenceHandlers());
     this.conf = new LiveKitConference(this.confUI.stage, this.confUI.stage, {
-      onState: (s) => this.confUI.setState(s),
+      onState: (s) => {
+        this.confUI.setState(s);
+        this.updateVoiceBarButtons(s);
+      },
       onDevices: (d) => this.confUI.setDevices(d),
       onChat: (msg) => this.confUI.addChat(msg),
       onParticipants: (list) => this.confUI.setParticipants(list),
@@ -2965,10 +2939,10 @@ export class OfficeScene extends Phaser.Scene {
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
       onSpeakers: (identities) => this.setVoiceSpeakers(identities),
+      onMicLevel: (level) => this.onCallMicLevel(level),
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveConferenceLocal).
-    this.zoneVoice?.voice.suspend('conference');
     this.mumble?.voice?.suspend('conference');
     void this.conf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {
       /* connect() reports via the state callback */
@@ -3065,7 +3039,6 @@ export class OfficeScene extends Phaser.Scene {
     this.confUI.close();
     this.meetingArea?.setVisible(false);
     this.meetingArea?.setHandlers(null);
-    this.zoneVoice?.voice.resume('meetingArea');
     this.mumble?.voice?.resume('meetingArea');
   }
 
@@ -3107,6 +3080,7 @@ export class OfficeScene extends Phaser.Scene {
       onState: (s) => {
         this.meetingArea?.setState(s);
         this.confUI.setState(s);
+        this.updateVoiceBarButtons(s);
       },
       onDevices: (d) => {
         this.meetingArea?.setDevices(d);
@@ -3118,6 +3092,7 @@ export class OfficeScene extends Phaser.Scene {
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
       onSpeakers: (identities) => this.setVoiceSpeakers(identities),
+      onMicLevel: (level) => this.onCallMicLevel(level),
       onScreens: (n) => {
         // The mini popup has no room for a screen share (meetingArea's own
         // screens container stays hidden) — expand into the full window,
@@ -3127,7 +3102,6 @@ export class OfficeScene extends Phaser.Scene {
     });
     // You can't be in two voice calls at once — pause zone voice while in the
     // meeting (resumed in leaveMeetingAreaLocal).
-    this.zoneVoice?.voice.suspend('meetingArea');
     this.mumble?.voice?.suspend('meetingArea');
     void this.meetingConf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {
       /* connect() reports via the state callback */
@@ -3975,7 +3949,6 @@ export class OfficeScene extends Phaser.Scene {
       if (now >= until) this.voiceSpeakUntil.delete(id);
     }
     this.view.setSpeakingIds(new Set(this.voiceSpeakUntil.keys()));
-    this.view.setVoiceStatus(this.voiceStatus);
   }
 
   // ── Hover / selection tooltip (DOM overlay, fixed readable size) ──

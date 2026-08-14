@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 /**
- * Status markers drawn over a character's head (☕, 💤 afk, a crossed mic …).
+ * Status markers drawn over a character's head (☕, 💤 afk …).
  *
  * These used to be DOM overlays positioned from the scene's ~20 Hz overlay pass,
  * which made them lag and jitter against the canvas while panning or zooming.
@@ -15,7 +15,9 @@ export interface MarkerSpec {
   text: string;
   /** Em-box height in WORLD pixels — the marker scales with the camera. */
   size: number;
-  /** Red ring + slash over the glyph: the "deactivated" mark for mic / sound. */
+  /** Red ring + slash over the glyph — the "deactivated" mark. Nothing uses it
+   *  since zone voice's mic/sound markers went; kept because it is the one
+   *  drawing primitive here that is not tied to a particular glyph. */
   crossed?: boolean;
   /** Fill color; ignored by color emoji, used by the pixel-font labels. */
   color?: string;

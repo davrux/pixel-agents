@@ -18,6 +18,7 @@ import {
   type MumbleUserInfo,
 } from '../desktop/bridge.js';
 import { MicGraph, clampMicGain } from './micGraph.js';
+import { getAudioSettings, setAudioSettings } from './audioSettings.js';
 
 /** Opus frame size we transmit. Mumble sequence numbers count 10 ms units. */
 const FRAME_MS = 20;
@@ -216,9 +217,13 @@ export class MumbleVoice {
     // Join/leave alerts default on — an unattended window is exactly when you
     // want to know someone walked into your channel.
     this.joinAlerts = localStorage.getItem('pa-mb-joinalerts') !== '0';
-    // Device choices are shared with zone voice: one mic, one pair of speakers.
-    this.micId = localStorage.getItem('pa-zv-mic') ?? undefined;
-    this.speakerId = localStorage.getItem('pa-zv-speaker') ?? undefined;
+    // Device choices are the viewer's, not this client's: one mic, one pair of
+    // speakers, shared with meetings through the same store (audioSettings.ts).
+    // Read by key here until zone voice went; going through the store is what
+    // makes a device picked in Mumble reach a running meeting.
+    const audio = getAudioSettings();
+    this.micId = audio.micId || undefined;
+    this.speakerId = audio.speakerId || undefined;
     this.loadUserVolumes();
   }
 
@@ -1108,14 +1113,14 @@ export class MumbleVoice {
 
   async switchMic(deviceId: string): Promise<void> {
     this.micId = deviceId;
-    localStorage.setItem('pa-zv-mic', deviceId);
+    setAudioSettings({ micId: deviceId });
     await this.mic?.switchDevice(deviceId);
     await this.emitDevices();
   }
 
   async switchSpeaker(deviceId: string): Promise<void> {
     this.speakerId = deviceId;
-    localStorage.setItem('pa-zv-speaker', deviceId);
+    setAudioSettings({ speakerId: deviceId });
     // outEl is only set on the fallback path; normally the sink lives on the context.
     if (this.outEl) await setSinkId(this.outEl, deviceId);
     else {
