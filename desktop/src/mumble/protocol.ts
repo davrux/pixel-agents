@@ -82,12 +82,23 @@ export class FrameReader {
 
 // ── outgoing control messages ────────────────────────────────────────────────
 
-/** Announce 1.3.0. Deliberately no `version_v2` (field 5): advertising 1.5
- *  would let Murmur switch to the new protobuf voice format, and we parse the
- *  legacy one. */
+/**
+ * Announce 1.4.0 — the version whose features we actually speak.
+ *
+ * Murmur gates ChannelListener ("place an ear", see UserStatePatch.listenAdd)
+ * on the client reporting at least 1.4.0, and strips the listening fields out
+ * of the UserState it broadcasts to anything older. Below 1.4.0 we would
+ * therefore never learn who is listening where — not even our own ears, since
+ * what confirms one is the echo of our own request.
+ *
+ * Not higher, and still deliberately no `version_v2` (field 5): 1.5 is where
+ * Murmur switches to the new protobuf voice format, and we parse the legacy
+ * one. 1.4.0 is the window where ChannelListener exists and audio still looks
+ * the way this client reads it.
+ */
 export function encodeVersion(release: string, os: string, osVersion: string): Uint8Array {
   return new ProtoWriter()
-    .varint(1, 0x00010300)
+    .varint(1, 0x00010400)
     .string(2, release)
     .string(3, os)
     .string(4, osVersion)

@@ -1,48 +1,54 @@
 /**
- * Mumble panel: the "move this person to…" popover.
+ * Mumble panel: the small anchored popover its rows open.
  *
- * Opened from a user row's ⇄ button and anchored to it. It owns nothing but
- * itself — the caller decides who may be moved where (see `canMoveInto` in
- * ./MumbleVoice.js) and the pick hands straight back out through a callback.
+ * Every tree row has one, opened by its ⋯ or by a right-click: a channel's
+ * offers to join it or place an ear in it, a user's offers somewhere to move
+ * them. One implementation, because two floating menus in the same window that
+ * behaved differently would be the odd thing — and for the same reason this is
+ * deliberately the same shape as the chat panel's message menu
+ * (matrix/messageMenu.ts), down to the placement arithmetic.
  *
- * Deliberately the same shape as the chat panel's message menu
- * (matrix/messageMenu.ts), down to the placement arithmetic: two floating menus
- * in the same window that behaved differently would be the odd thing. It is
- * positioned inside `#pa-mb` rather than the document body, which keeps it
+ * It owns nothing but itself: the caller decides what may be offered (see
+ * `canListen` / `canMoveInto` in ./MumbleVoice.js) and every entry hands
+ * straight back out through its own callback.
+ *
+ * It is positioned inside `#pa-mb` rather than the document body, which keeps it
  * inside the docked column and out of the Phaser canvas with no z-index games,
  * and means it has to follow its row when the tree scrolls under it — hence the
- * capturing scroll listener, which re-places rather than closes.
- *
- * Every channel is listed, including the ones we may not move anyone into:
- * those are disabled and say why. A menu that simply omitted them would read as
- * the server having fewer channels than it does.
+ * capturing scroll listener below, which re-places rather than closes.
  */
 
-/** One destination. `allowed` is the permission answer; `current` marks where
- *  the person already is, which is a destination in name only. */
-export interface MoveMenuChannel {
-  id: number;
-  name: string;
-  /** Nesting level in the tree, so the list keeps the shape of the panel. */
-  depth: number;
-  allowed: boolean;
-  current: boolean;
+/** One entry. A disabled entry is still drawn, and says why in its title: the
+ *  move menu lists channels we may not move anyone into, because a list that
+ *  quietly omitted them would read as the server having fewer channels than it
+ *  does. */
+export interface PanelMenuItem {
+  label: string;
+  title?: string;
+  /** Nesting level, for a list that mirrors the shape of the channel tree. */
+  depth?: number;
+  disabled?: boolean;
+  /** Marks the entry describing where something already is — shown, never
+   *  pickable. */
+  current?: boolean;
+  onPick?(): void;
 }
 
-export interface MoveMenuSpec {
-  /** The ⇄ button the menu belongs to. */
+export interface PanelMenuSpec {
+  /** The button the menu belongs to, and the box it is placed against. */
   anchor: HTMLElement;
   /** The panel root (`#pa-mb`) — positioned, and the bounds to stay inside. */
   container: HTMLElement;
-  /** Whose move this is, for the menu's own heading. */
-  who: string;
-  channels: MoveMenuChannel[];
-  onPick(channelId: number): void;
+  /** Heading above the list: what this menu is about. */
+  head: string;
+  /** Accessible name for the popover itself. */
+  label: string;
+  items: PanelMenuItem[];
   /** Always called exactly once, whether dismissed or chosen. */
   onClose(): void;
 }
 
-export interface MoveMenuHandle {
+export interface PanelMenuHandle {
   close(): void;
 }
 
@@ -51,11 +57,11 @@ export interface MoveMenuHandle {
 const GAP = 4;
 const EDGE = 6;
 
-export function openMoveMenu(spec: MoveMenuSpec): MoveMenuHandle {
+export function openPanelMenu(spec: PanelMenuSpec): PanelMenuHandle {
   const menu = document.createElement('div');
   menu.className = 'mb-menu';
   menu.setAttribute('role', 'menu');
-  menu.setAttribute('aria-label', `Move ${spec.who}`);
+  menu.setAttribute('aria-label', spec.label);
 
   let closed = false;
   /** Set by a pick so `close()` leaves focus where that handler put it. */
@@ -78,36 +84,33 @@ export function openMoveMenu(spec: MoveMenuSpec): MoveMenuHandle {
 
   const head = document.createElement('div');
   head.className = 'hd';
-  head.textContent = `Move ${spec.who} to`;
+  head.textContent = spec.head;
+  head.title = spec.head;
   menu.appendChild(head);
 
   const list = document.createElement('div');
   list.className = 'ls';
   menu.appendChild(list);
 
-  const items: HTMLElement[] = [];
-  for (const channel of spec.channels) {
+  const pickable: HTMLElement[] = [];
+  for (const item of spec.items) {
     const row = document.createElement('button');
     row.type = 'button';
-    row.className = 'mb-menu-row';
+    row.className = 'mb-menu-row' + (item.current ? ' here' : '');
     row.setAttribute('role', 'menuitem');
-    row.style.setProperty('--mb-depth', String(channel.depth));
-    row.textContent = channel.name;
-    if (channel.current) {
-      row.classList.add('here');
+    if (item.depth) row.style.setProperty('--mb-depth', String(item.depth));
+    row.textContent = item.label;
+    if (item.title) row.title = item.title;
+    if (item.disabled || item.current || !item.onPick) {
       row.disabled = true;
-      row.title = `${spec.who} is already in ${channel.name}`;
-    } else if (!channel.allowed) {
-      row.disabled = true;
-      row.title = `You may not move people into ${channel.name}`;
     } else {
-      row.title = `Move ${spec.who} into ${channel.name}`;
+      const run = item.onPick;
       row.addEventListener('click', () => {
         chosen = true;
         close();
-        spec.onPick(channel.id);
+        run();
       });
-      items.push(row);
+      pickable.push(row);
     }
     list.appendChild(row);
   }
@@ -131,18 +134,18 @@ export function openMoveMenu(spec: MoveMenuSpec): MoveMenuHandle {
       return;
     }
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
-    if (items.length === 0) return;
-    const at = items.indexOf(document.activeElement as HTMLElement);
+    if (pickable.length === 0) return;
+    const at = pickable.indexOf(document.activeElement as HTMLElement);
     e.preventDefault();
     const next =
       e.key === 'Home'
         ? 0
         : e.key === 'End'
-          ? items.length - 1
+          ? pickable.length - 1
           : at < 0
             ? 0
-            : (at + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
-    items[next]?.focus();
+            : (at + (e.key === 'ArrowDown' ? 1 : pickable.length - 1)) % pickable.length;
+    pickable[next]?.focus();
   };
 
   spec.container.appendChild(menu);
@@ -152,8 +155,8 @@ export function openMoveMenu(spec: MoveMenuSpec): MoveMenuHandle {
    * flipped above when there is no room.
    *
    * Returns false once the row has left the panel — either scrolled out of the
-   * tree, or removed outright because that person disconnected — which is the
-   * one situation where following it stops making sense.
+   * tree, or removed outright because that channel or person is gone — which is
+   * the one situation where following it stops making sense.
    */
   const place = (): boolean => {
     if (!spec.anchor.isConnected) return false;
@@ -184,7 +187,7 @@ export function openMoveMenu(spec: MoveMenuSpec): MoveMenuHandle {
   spec.container.addEventListener('scroll', onMoved, true);
   window.addEventListener('resize', onMoved);
 
-  items[0]?.focus();
+  pickable[0]?.focus();
 
   return { close };
 }

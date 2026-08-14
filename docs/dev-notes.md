@@ -226,13 +226,35 @@ Add a matching command for any new destination (see AGENTS.md convention).
     querying a whole tree up front. **Unknown ≠ denied**: absent from the cache
     has to stay distinct from a bitfield of 0, and Write counts for every bit
     because it is Murmur's blanket grant.
-    - Two controls are gated by their own *presence*: a channel row's 👂 (place
-      an ear — Mumble 1.4's ChannelListener, hear that channel as well as your
-      own) where Listen is granted, and a user row's ⇄ (move them) once there is
-      any channel we may move people into. Both go out as a `UserState` — the ear
-      as the `listening_channel_add`/`_remove` **delta** (fields 21/22, which is
-      why `session.ts` keeps the running set), the move as somebody else's
-      session plus a channel id.
+    - Both actions live in a **row popover** (`panelMenu.ts`, one implementation
+      for both callers, deliberately shaped like the chat panel's message menu),
+      opened by the row's ⋯ or by a right-click on it. A channel row's offers
+      Join and **Listen** (place an ear: Mumble 1.4's ChannelListener, hear that
+      channel as well as your own); a user row's offers somewhere to move them.
+      Both go out as a `UserState` — the ear as the
+      `listening_channel_add`/`_remove` **delta** (fields 21/22, which is why
+      `session.ts` keeps the running set), the move as somebody else's session
+      plus a channel id.
+    - The gate is an entry's *presence*, down to **the ⋯ going away when its menu
+      would be empty** — on the channel you are already in (joining it is a no-op
+      and an ear in it is what we take back down on arrival), and on user rows
+      when there is nowhere we may move anyone. The ⋯ is otherwise invisible
+      until its row is hovered or focused, hidden with `opacity` so revealing it
+      never reflows the row; right-click is the discoverable half. Mute and
+      volume stay *on* the user row: they are settings you scan across a channel,
+      not one-shot actions on one person.
+    - **An ear is a row in the tree**, under the channel being listened to, for
+      everyone's ears and not just ours — otherwise listening is invisible,
+      since the listener's real row stays where they are standing. Dashed and
+      italic to say "hearing this, not in it", after the members (who are what
+      the channel's count counts), and carrying no mute or volume control
+      because those belong to the person, not to this second row of them. Ours
+      is clickable to take the ear back down.
+    - **We announce 1.4.0**, not 1.3.0. Murmur strips the listening fields from
+      the `UserState` it broadcasts to anything older, so below that we would
+      never see who is listening where — not even our own ears, since what
+      confirms one is the echo of our own request. Still no `version_v2`: 1.5 is
+      where the voice format changes.
     - The client only ever decides what to *offer*. The server refuses with
       `PermissionDenied`, which lands in the panel's note — so that note no longer
       hardcodes the "register your certificate" advice, it carries whatever hint
@@ -270,8 +292,9 @@ Add a matching command for any new destination (see AGENTS.md convention).
     in the renderer, and Opus packets cross IPC opaque. Audio uses `send`, not
     `invoke` (a promise per 20 ms frame is waste); control stays on `invoke`.
   - Voice rides Mumble's `UDPTunnel` over TCP — no UDP, no `CryptSetup`, no OCB2.
-    We announce version 1.3.0 and deliberately **not** `version_v2`, or Murmur
-    switches to the 1.5 protobuf voice format we don't parse.
+    We announce version 1.4.0 (see above — ChannelListener needs it) and
+    deliberately **not** `version_v2`, or Murmur switches to the 1.5 protobuf
+    voice format we don't parse.
   - Node's `tls` does **not** go through Chromium's `setCertificateVerifyProc`, so
     `verifyMumblePeer` checks the shared `certTrust.ts` store itself — and converts
     Node's `AA:BB:` hex to Chromium's `sha256/<base64>` so one trust decision covers
