@@ -31,22 +31,22 @@ export function isPlayerAvatarSkin(id: string): boolean {
 
 export const DEFAULT_ZONE = 'office';
 
+/**
+ * A zone as the registry stores it (see server/src/zoneStore.ts) — id, label and
+ * the settings that are NOT part of its map. There is no builtin table of these
+ * any more: a zone exists because someone pushed a map for it, and this shape is
+ * what the DB row deserializes to.
+ */
 export interface ZoneConfig {
   id: string;
   label: string;
-  /** Named layout to load for this zone. Absent → the room's active/default
-   *  layout (keeps the office zone behaving exactly as before). */
-  layoutName?: string;
   /** Where players arriving via a portal land (a walkable tile away from this
    *  zone's portal furniture, so they don't immediately re-trigger). */
   arrive?: { col: number; row: number };
-  /** Initial blank-field size for generated zones (the read-only Default is
-   *  regenerated from this; the active layout may be resized in the editor). */
+  /** Size the zone renders at while it has no pushed map yet (see emptyZoneMap).
+   *  Once a map arrives, the map's own size is what counts. */
   cols?: number;
   rows?: number;
-  /** Protected zones can't be deleted (currently only the office). Hidden in the
-   *  UI for now; the flag is here so it can be exposed/changed later. */
-  readOnly?: boolean;
   /** Which NPC variants spawn here, as `"<kind>_<variant>"` keys (e.g. `cat_0`).
    *  Absent/null = all active variants (the office default); an array (possibly
    *  empty) = exactly those. New zones default to none. */
@@ -65,19 +65,11 @@ export interface ZoneConfig {
   private?: boolean;
 }
 
-/** Builtin zones, used to seed the persistent zone registry on first run. After
- *  that zones are user-managed (created/edited/deleted at runtime); the office is
- *  read-only so it can never be deleted. Portals are placed furniture (catalog
- *  `portal` flag) — walking up to one offers a picker of the other zones. */
-export const ZONES: Record<string, ZoneConfig> = {
-  office: { id: 'office', label: 'Office', arrive: { col: 9, row: 11 }, readOnly: true },
-  plaza: { id: 'plaza', label: 'Plaza', arrive: { col: 10, row: 7 }, cols: 20, rows: 14, npc: [] },
-};
-
-/** Resolve a zone id to its config, falling back to the default zone. */
-export function resolveZone(id: string | undefined): ZoneConfig {
-  return (id && ZONES[id]) || ZONES[DEFAULT_ZONE];
-}
+// No builtin zone table: zones live only in the registry (server/src/zoneStore.ts)
+// and come into being by pushing a map for a new id. What used to be here — an
+// office with a bundled read-only layout and a code-generated plaza — was the last
+// place content was defined outside Tiled. DEFAULT_ZONE above is all that survives
+// of it: the id a client lands in when it asks for no zone in particular.
 
 // ── Simulation tuning (ported from the original engine constants) ─
 

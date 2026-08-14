@@ -2,7 +2,6 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
 import {
-  resolveZone,
   conferenceKey,
   cleanName,
   playerAvatarSkinId,
@@ -24,13 +23,14 @@ import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/spr
 import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
-import { createBlankZoneLayout, createPlazaLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { emptyZoneMap } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { DEFAULT_COLS, DEFAULT_ROWS } from '@pixel/shared/office/constants.js';
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from '../constants.js';
 import { director, type AgentInfo } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
-import { LayoutStore } from '../layoutStore.js';
+import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { appStore } from '../appStore.js';
 import {
@@ -110,7 +110,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  bundle from assetOverrides.ts, not recomputed per room (see getMergedBundle). */
   private bundle!: AssetBundle;
   private os!: OfficeState;
-  private store!: LayoutStore;
+  private store!: ZoneMapStore;
   private zones!: ZoneStore;
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
@@ -284,7 +284,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  layout and rebroadcast to everyone standing here. */
   private readonly onZoneLayoutChanged = (zoneId: string): void => {
     if (this.zone.id !== zoneId) return;
-    this.applyActiveLayout();
+    this.applyZoneMap();
   };
 
   /** Replay the full current state of one registry agent into this room (used
@@ -377,7 +377,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Resolve which space this room hosts from the persistent registry (user
     // zones included); fall back to the builtin config for safety.
     this.zones = new ZoneStore();
-    this.zone = (options.zone && this.zones.get(options.zone)) || resolveZone(options.zone);
+    // The registry is the only source of zones now (no builtin table to fall back
+    // on), and ZoneStore.seed guarantees the default one exists — so an unknown or
+    // absent id lands there rather than in a synthesised config.
+    this.zone = (options.zone && this.zones.get(options.zone)) || this.zones.get(DEFAULT_ZONE) || { id: DEFAULT_ZONE, label: 'Office' };
     this.setState(new RoomState());
     // Dispose the room when the last client leaves (Colyseus default; VoxelRoom does
     // the same). Frees this zone's per-room heap — the merged asset bundle, OfficeState,
@@ -399,12 +402,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       sprites: this.bundle.raw.furnitureSprites as never,
     });
 
-    // The active layout (persisted per zone, falling back to the zone's builtin
-    // default). The office Default is the bundled layout; generated zones (plaza)
-    // register their builtin as their read-only Default below.
-    this.store = new LayoutStore((this.bundle.raw.layout as Record<string, unknown>) ?? null);
-    const builtin = this.zoneDefaultLayout();
-    if (builtin) this.store.registerZoneDefault(this.zone.id, builtin as unknown as Record<string, unknown>);
+    // The zone's map — one per zone, pushed from Tiled (see zoneLayout).
+    this.store = new ZoneMapStore();
     this.os = new OfficeState(this.zoneLayout()); // portals derive from placed furniture (P5 v2)
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
@@ -443,7 +442,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(ASSET_CHANGED_EVENT, this.onAssetChanged);
     controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
 
-    this.registerLayoutHandlers();
+    this.registerRoomHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
   }
 
@@ -456,7 +455,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.off(ASSET_CHANGED_EVENT, this.onAssetChanged);
     controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
-    this.store?.close();
     this.zones?.close();
   }
 
@@ -467,8 +465,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const m of this.bundle.messages) {
       if (m.type !== 'layoutLoaded') client.send('m', m);
     }
-    client.send('m', this.activeLayoutMessage());
-    client.send('m', this.layoutListMessage());
+    client.send('m', this.zoneMapMessage());
     client.send('m', this.zoneListMessage());
     client.send('m', { type: 'chatHistory', messages: this.chatLog });
     for (const key of this.meetingRooms.keys()) client.send('m', this.meetingRoomMembersMsg(key));
@@ -693,26 +690,23 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return this.clients.some((c) => c.sessionId !== client.sessionId && authOf(c).userId === userId);
   }
 
-  // ── Layout management (server-authoritative) ─────────────────────
+  // ── The zone's map (server-authoritative) ────────────────────────
 
-  private activeLayout(): OfficeLayout | undefined {
-    return (this.store.getActiveLayout(this.zone.id) as OfficeLayout | null) ?? undefined;
-  }
-
-  /** This zone's builtin/read-only Default layout, for generated zones. The
-   *  office's Default is the bundled layout (registered by the store itself), so
-   *  it returns undefined here. The plaza keeps its beam pad; every other
-   *  generated/user zone is a blank wall-bordered field of its size. */
-  private zoneDefaultLayout(): OfficeLayout | undefined {
-    if (this.zone.id === 'office') return undefined;
-    if (this.zone.id === 'plaza') return createPlazaLayout();
-    return createBlankZoneLayout(this.zone.cols ?? 20, this.zone.rows ?? 14);
-  }
-
-  /** Layout this room's zone simulates: its active layout, falling back to the
-   *  zone's read-only builtin Default. Each zone is independent. */
+  /**
+   * The map this room simulates. A zone has exactly one, pushed from Tiled (see
+   * tiled/zonePushApi.ts); zones are independent.
+   *
+   * The empty-field fallback is defensive, not a feature: a zone can exist in the
+   * registry with no map yet (its first push failed, or someone deleted the row),
+   * and OfficeState needs SOMETHING to build a tile grid from. Rendering an empty
+   * field beats refusing to open the room, and one push fixes it. Nothing
+   * generates content any more — the builtin layouts (bundled office, generated
+   * plaza) are gone with the in-game editors that needed a fallback to edit.
+   */
   private zoneLayout(): OfficeLayout | undefined {
-    return this.activeLayout();
+    const stored = this.store.get(this.zone.id) as OfficeLayout | null;
+    if (stored) return stored;
+    return emptyZoneMap(this.zone.cols ?? DEFAULT_COLS, this.zone.rows ?? DEFAULT_ROWS);
   }
 
   /** Apply this zone's NPC spawn set to the engine. null/undefined = all active
@@ -727,22 +721,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
     }
   }
 
-  private activeLayoutMessage(): Record<string, unknown> {
+  private zoneMapMessage(): Record<string, unknown> {
     return {
       type: 'layoutLoaded',
-      // The layout this room actually simulates (the zone's), so the client
-      // renders the right floor/walls — not always the store's active layout.
+      // What this room actually simulates, so the client renders the right
+      // floor/walls even when the zone has no stored map (see zoneLayout).
       layout: this.os.getLayout(),
-      activeLayout: this.store.getActiveName(this.zone.id),
       force: true,
-    };
-  }
-
-  private layoutListMessage(): Record<string, unknown> {
-    return {
-      type: 'layoutList',
-      layouts: this.store.list(this.zone.id),
-      active: this.store.getActiveName(this.zone.id),
     };
   }
 
@@ -756,47 +741,21 @@ export class SimRoom extends Room<{ state: RoomState }> {
     for (const client of this.clients) client.send('m', this.zoneListMessage());
   }
 
-  /** Rebuild the simulation from the (new) active layout and push it to all
+  /** Rebuild the simulation from the zone's (re-pushed) map and push it to all
    *  viewers (floor/walls via layoutLoaded; furniture re-syncs through schema). */
-  private applyActiveLayout(): void {
+  private applyZoneMap(): void {
     const layout = this.zoneLayout();
     if (layout) this.os.rebuildFromLayout(layout);
     this.lastFurnitureRef = null; // force furniture re-sync
-    this.broadcast('m', this.activeLayoutMessage());
-    this.broadcast('m', this.layoutListMessage());
+    this.broadcast('m', this.zoneMapMessage());
   }
 
-  private registerLayoutHandlers(): void {
-    const zone = this.zone.id;
-    this.onMessage('requestLayouts', (client) => client.send('m', this.layoutListMessage()));
-
-    this.onMessage('loadLayout', (client, msg: { name?: string }) => {
-      if (!this.may(client, 'zone.edit', zone)) return;
-      if (typeof msg?.name === 'string' && this.store.setActive(zone, msg.name)) this.applyActiveLayout();
-    });
-
-    this.onMessage('saveLayout', (client, msg: { layout?: Record<string, unknown> }) => {
-      if (!this.may(client, 'zone.edit', zone)) return;
-      // Autosave this zone's active layout (no-op on its read-only Default).
-      if (msg?.layout && this.store.saveActive(zone, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now())) {
-        this.applyActiveLayout();
-      }
-    });
-
-    this.onMessage('saveLayoutAs', (client, msg: { name?: string; layout?: Record<string, unknown> }) => {
-      if (!this.may(client, 'zone.edit', zone)) return;
-      const name = cleanName(msg?.name);
-      if (name && msg?.layout && LayoutStore.isValidUserName(name)) {
-        this.store.saveAs(zone, name, sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(msg.layout))), Date.now());
-        this.applyActiveLayout();
-      }
-    });
-
-    this.onMessage('deleteLayout', (client, msg: { name?: string }) => {
-      if (!this.may(client, 'zone.edit', zone)) return;
-      if (typeof msg?.name === 'string' && this.store.delete(zone, msg.name)) this.applyActiveLayout();
-    });
-
+  /** Everything a viewer may send that isn't asset/zone administration. (Was
+   *  registerLayoutHandlers: the five layout messages it opened with —
+   *  requestLayouts/loadLayout/saveLayout/saveLayoutAs/deleteLayout — went with
+   *  the named-layouts model. A zone has one map and it arrives by being
+   *  pushed.) */
+  private registerRoomHandlers(): void {
     // Zone-local chat: validate + rate-limit, then broadcast (and keep recent
     // history for joiners). `id` lets clients show a bubble over the sender.
     this.onMessage('chat', (client, msg: { text?: string }) => {
@@ -1063,30 +1022,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
       client.send('m', { type: 'userList', users });
     });
 
-    // ── Zone registry (any user may create/own one; edit/delete needs zone-admin
-    // or global-admin; privacy/ACL/invite is owner-only; office is protected) ──
+    // ── Zone registry (edit/delete needs zone-admin or global-admin;
+    // privacy/ACL/invite is owner-only) ──
+    //
+    // No createZone: a zone comes into being by pushing a map for an id that has
+    // none yet (see tiled/zoneImport.ts, which registers it with the defaults),
+    // because a zone without a map is nothing to stand in. What used to be
+    // created here was an empty wall-bordered field waiting for the in-game
+    // editor — and that editor is gone.
     this.onMessage('requestZones', (client) => client.send('m', this.zoneListMessage()));
-
-    this.onMessage('createZone', (client, msg: { label?: string; cols?: number; rows?: number }) => {
-      if (!this.may(client, 'zone.create')) return;
-      if (typeof msg?.label !== 'string') return;
-      const { userId } = authOf(client);
-      // Owned by its creator (absent for an anonymous open-dev viewer, who has no
-      // userId — those zones stay ownerless/public). Capped per owner (see
-      // MAX_ZONES_PER_OWNER) so one account can't flood the registry.
-      const id = this.zones.create(msg.label, Number(msg?.cols), Number(msg?.rows), Date.now(), userId || undefined);
-      if (!id) {
-        client.send('m', { type: 'zoneCreated', error: userId && this.zones.countByOwner(userId) > 0 ? 'too many zones' : 'invalid name' });
-        return;
-      }
-      // The creator becomes the new zone's admin so a regular `user` can edit the
-      // room they just made (global admins can edit any zone regardless).
-      if (userId) this.zones.setZoneAdmin(id, userId, true);
-      // Tell the creator the new id (so the client can offer to jump there) +
-      // refresh everyone here.
-      client.send('m', { type: 'zoneCreated', id });
-      this.broadcastZoneList();
-    });
 
     // Owner-only: toggle a zone private. Private rejects entry for anyone but
     // the owner/zone-admins/ACL/global-admins (see gateEntry) — stronger than a
@@ -1210,9 +1154,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
     this.onMessage('deleteZone', (client, msg: { id?: string }) => {
       if (typeof msg?.id !== 'string' || !this.may(client, 'zone.delete', msg.id)) return;
-      // The office is read-only and can never be deleted (enforced in the store).
+      // The default zone can never be deleted (enforced in the store).
       if (this.zones.delete(msg.id)) {
-        this.store.deleteZoneLayouts(msg.id); // drop the zone's saved layouts too
+        this.store.delete(msg.id); // the zone's map goes with it
         this.broadcastZoneList();
         // The deleted zone might be a DIFFERENT room instance than this one
         // (deleting doesn't require being there) — reach it the same way
@@ -1745,7 +1689,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
           sprites: this.bundle.raw.furnitureSprites as never,
         });
         // Footprints/seats may have changed → rebuild the office from the layout.
-        this.os.rebuildFromLayout(this.activeLayout() ?? this.os.layout);
+        this.os.rebuildFromLayout(this.zoneLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
       // 'image': nothing to re-apply server-side (the client renders them) —

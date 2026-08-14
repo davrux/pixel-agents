@@ -67,7 +67,7 @@ import { loadTiledSheets } from '../net/tiledSheets.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
-import { DEFAULT_ZONE, ZONES, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
+import { DEFAULT_ZONE, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { ChatUI } from '../ui/chatUI.js';
 import { injectPaSkin } from '../ui/paSkin.js';
@@ -150,7 +150,7 @@ function migrateSkin(raw: string | null): string | null {
 
 /** The zone to connect to: the `?zone=` URL param if valid, else the last zone
  *  this browser visited (P4), else the office. User-created zones aren't in the
- *  bundled ZONES, so we accept any slug-shaped id and let the server resolve it. */
+ *  fixed set, so we accept any slug-shaped id and let the server resolve it. */
 function currentZone(): string {
   const z = new URLSearchParams(window.location.search).get('zone') ?? '';
   if (isZoneId(z)) return z;
@@ -292,16 +292,13 @@ export class OfficeScene extends Phaser.Scene {
   private spacePanel?: HTMLDivElement;
   private assetsPanel?: HTMLDivElement;
   private morePanel?: HTMLDivElement;
-  private layoutsPanel!: HTMLDivElement; // Layouts tab body, nested in spacePanel
   private zonesPanel!: HTMLDivElement; // Zones tab body, nested in spacePanel
-  private layoutsSeg?: HTMLElement; // Layouts segment (hidden for non-editors)
   private assetsBody?: HTMLDivElement; // Characters/Furniture list host
   private helpPanel!: HTMLDivElement;
   /** Which top-bar popover is open (null = none). */
   private currentMenu: MenuId = null;
   /** Toolbar collapsed → Space + Assets tuck into the ☰ menu (design). */
   private collapsed = false;
-  private spaceTab: 'layouts' | 'zones' = 'layouts';
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
@@ -314,7 +311,9 @@ export class OfficeScene extends Phaser.Scene {
   /** True while waiting for the server to come back after a dropped connection. */
   private reconnecting = false;
   /** Dynamic zone registry from the server (seeded with the bundled builtins). */
-  private zoneList: ZoneConfig[] = Object.values(ZONES);
+  /** Starts empty and is filled by the server's zoneList — there is no builtin
+   *  table to seed it from any more. */
+  private zoneList: ZoneConfig[] = [];
   // Settings + viewer identity (sounds play only for the viewer's own agents;
   // an empty name means "all agents are mine"). A name set in Settings overrides
   // the login identity and is remembered per browser.
@@ -351,10 +350,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Previous (active,bubble) per agent — to detect transitions for sounds. */
   private readonly prevState = new Map<number, { active: boolean; bubble: string }>();
   private readonly nameLabels = new Map<number, HTMLDivElement>();
-  private layoutListData: { layouts: Array<{ name: string; readOnly: boolean }>; active: string } = {
-    layouts: [],
-    active: 'Default',
-  };
   /** Re-fit zoom/center only on the first layout — later (live-edit) broadcasts
    *  must not yank the camera of the editor or watchers. */
   private cameraInitialized = false;
@@ -560,7 +555,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private async open(): Promise<void> {
-    const assetBridge = createAssetBridge(this.os, (layout, activeLayout) => this.onLayout(layout, activeLayout));
+    const assetBridge = createAssetBridge(this.os, (layout) => this.onLayout(layout));
     try {
       const zone = currentZone();
       try {
@@ -595,9 +590,7 @@ export class OfficeScene extends Phaser.Scene {
       this.room.onStateChange(() => this.wake());
       this.room.onMessage('m', (m: Record<string, unknown>) => {
         this.wake();
-        if (m.type === 'layoutList') this.updateLayoutsPanel(m);
-        else if (m.type === 'zoneList') this.updateZoneList(m);
-        else if (m.type === 'zoneCreated') void this.onZoneCreated(m);
+        if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneMembers') this.onZoneMembers(m);
         else if (m.type === 'userList') this.onUserList(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
@@ -1387,12 +1380,7 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  private onLayout(layout: OfficeLayout, activeLayout: string): void {
-    // The full layout list (for the Space panel) only arrives once the user
-    // opens it (requestLayouts), but the active name is already known right
-    // here — seed it now so the Layouts panel doesn't render a stale/never-
-    // fetched default before the list itself has arrived.
-    this.layoutListData.active = activeLayout;
+  private onLayout(layout: OfficeLayout): void {
     this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
   }
@@ -1888,7 +1876,6 @@ export class OfficeScene extends Phaser.Scene {
 
     if (menu === 'zone') this.renderZoneList();
     if (menu === 'space') {
-      this.room?.send('requestLayouts');
       this.room?.send('requestZones');
       this.renderSpaceTabs();
     }
@@ -2127,33 +2114,14 @@ export class OfficeScene extends Phaser.Scene {
     // Zone travel panel.
     this.zonePanel = this.mkPanel('Travel', 'left').panel;
 
-    // Space panel — Layouts / Zones behind a segmented control.
+    // Space panel — zones only. The Layouts tab beside it is gone: a zone has
+    // exactly one map and it arrives by being pushed from Tiled, so there is
+    // nothing here to name, switch or reset any more.
     const sp = this.mkPanel('Space', 'left');
     this.spacePanel = sp.panel;
-    const seg = document.createElement('div');
-    seg.className = 'pa-seg';
-    const segLayouts = document.createElement('div');
-    segLayouts.className = 'seg';
-    segLayouts.textContent = 'Layouts';
-    segLayouts.onclick = () => {
-      this.spaceTab = 'layouts';
-      this.renderSpaceTabs();
-    };
-    const segZones = document.createElement('div');
-    segZones.className = 'seg';
-    segZones.textContent = 'Zones';
-    segZones.onclick = () => {
-      this.spaceTab = 'zones';
-      this.renderSpaceTabs();
-    };
-    seg.append(segLayouts, segZones);
-    this.layoutsSeg = segLayouts;
-    const lp = document.createElement('div');
-    lp.id = 'pa-layouts';
     const zp = document.createElement('div');
     zp.id = 'pa-zones';
-    sp.body.append(seg, lp, zp);
-    this.layoutsPanel = lp;
+    sp.body.append(zp);
     this.zonesPanel = zp;
 
     // Assets panel — Characters / Furniture browser (rendered on open).
@@ -2208,15 +2176,8 @@ export class OfficeScene extends Phaser.Scene {
     return { panel, body };
   }
 
-  /** Toggle the Space panel's Layouts/Zones tab + render the active one. */
   private renderSpaceTabs(): void {
-    const showLayouts = this.spaceTab === 'layouts';
-    this.layoutsSeg?.classList.toggle('on', showLayouts);
-    (this.layoutsSeg?.nextElementSibling as HTMLElement | null)?.classList.toggle('on', !showLayouts);
-    if (this.layoutsPanel) this.layoutsPanel.style.display = showLayouts ? 'block' : 'none';
-    if (this.zonesPanel) this.zonesPanel.style.display = showLayouts ? 'none' : 'block';
-    if (showLayouts) this.renderLayoutsPanel();
-    else this.renderZonesPanel();
+    this.renderZonesPanel();
   }
 
   /** ☰ menu: Settings / Help, the collapse toggle, and (when collapsed) the
@@ -2558,55 +2519,6 @@ export class OfficeScene extends Phaser.Scene {
     this.renderZonesPanel();
   }
 
-  private updateLayoutsPanel(msg: Record<string, unknown>): void {
-    this.layoutListData = {
-      layouts: (msg.layouts as Array<{ name: string; readOnly: boolean }>) ?? [],
-      active: (msg.active as string) ?? 'Default',
-    };
-    this.renderLayoutsPanel();
-  }
-
-  private renderLayoutsPanel(): void {
-    if (!this.layoutsPanel) return;
-    const { layouts, active } = this.layoutListData;
-    const send = (type: string, payload?: Record<string, unknown>) => this.room?.send(type, payload);
-
-    const rows = layouts
-      .map((l) => {
-        const isActive = l.name === active;
-        const buttons =
-          (isActive ? '<span class="active">● active</span>' : `<button data-load="${esc(l.name)}">Load</button>`) +
-          (l.readOnly ? '' : ` <button data-del="${esc(l.name)}">✕</button>`);
-        return `<div class="item"><span class="nm ${isActive ? 'active' : ''}">${esc(l.name)}</span>${buttons}</div>`;
-      })
-      .join('');
-
-    const cur = currentZone();
-    const zoneLabel = this.zoneList.find((z) => z.id === cur)?.label ?? 'Zone';
-    this.layoutsPanel.innerHTML =
-      `<h4>${esc(zoneLabel)} Layouts</h4>${rows}` +
-      `<div class="foot">
-         <button data-new>New from current…</button>
-         <button data-default>Reset to Default</button>
-       </div>`;
-
-    this.layoutsPanel.querySelectorAll<HTMLButtonElement>('[data-load]').forEach((b) => {
-      b.onclick = () => send('loadLayout', { name: b.dataset.load });
-    });
-    this.layoutsPanel.querySelectorAll<HTMLButtonElement>('[data-del]').forEach((b) => {
-      b.onclick = async () => {
-        if (await confirmDialog(`Delete layout "${b.dataset.del}"?`, { danger: true, confirmLabel: 'Delete' }))
-          send('deleteLayout', { name: b.dataset.del });
-      };
-    });
-    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-new]')!.onclick = async () => {
-      const name = await promptDialog('New layout name (saved from the current office):', '', { maxLength: 32 });
-      if (name) send('saveLayoutAs', { name, layout: this.os.getLayout() });
-    };
-    this.layoutsPanel.querySelector<HTMLButtonElement>('[data-default]')!.onclick = () =>
-      send('loadLayout', { name: 'Default' });
-  }
-
   // ── Zones panel (create / edit / delete) ─────────────────────────
 
   private renderZonesPanel(): void {
@@ -2621,7 +2533,6 @@ export class OfficeScene extends Phaser.Scene {
     // per-row edit beyond the current zone needs global admin. (open dev mode
     // without accounts → everyone edits.)
     const assetsAdmin = this.assetsAdmin;
-    const canCreateZone = assetsAdmin || !!this.myUserId;
 
     const rows = this.zoneList
       .map((z) => {
@@ -2630,12 +2541,13 @@ export class OfficeScene extends Phaser.Scene {
         const rowDelete = assetsAdmin || (here && this.myZoneAdmin);
         const isOwner = !!this.myUserId && z.ownerId === this.myUserId;
         const tag = here ? '<span class="here">● here</span>' : `<button data-go="${esc(z.id)}">Go</button>`;
-        const lock = z.readOnly ? ' 🔒' : z.private ? ' 🔐' : '';
+        const lock = z.private ? ' 🔐' : '';
         const npcN = z.npc == null ? 'all' : String(z.npc.length);
         let ctrls = '';
         if (rowEdit)
           ctrls += `<button data-npc="${esc(z.id)}" title="NPCs in this zone">🐾</button><button data-edit="${esc(z.id)}">✎</button>`;
-        if (rowDelete && !z.readOnly) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
+        // The default zone can't be deleted (the server refuses) — no ✕ for it.
+        if (rowDelete && z.id !== DEFAULT_ZONE) ctrls += `<button data-del="${esc(z.id)}">✕</button>`;
         if (assetsAdmin || isOwner) ctrls += `<button data-admins="${esc(z.id)}" title="Zone admins">👤</button>`;
         if (isOwner) ctrls += `<button data-settings="${esc(z.id)}" title="Privacy &amp; access">⚙</button>`;
         // Global-admin quick action for an ownerless zone (predates ownership,
@@ -2648,7 +2560,6 @@ export class OfficeScene extends Phaser.Scene {
 
     const footParts: string[] = [];
     if (this.zoneEditAdmin) footParts.push(`<button data-arrive>📍 Set arrival point (this zone)</button>`);
-    if (canCreateZone) footParts.push(`<button data-new class="new">＋ Create zone</button>`);
     const foot = footParts.length ? `<div class="foot">${footParts.join('')}</div>` : '';
     // "You are" line — who you're signed in as, and whether that's a global
     // admin (relevant here: admins bypass privacy/passwords and can take
@@ -2700,48 +2611,11 @@ export class OfficeScene extends Phaser.Scene {
         this.setMenu(null);
         setStatus('Click a floor tile to set where players arrive in this zone.');
       };
-    const newBtn = this.zonesPanel.querySelector<HTMLButtonElement>('[data-new]');
-    if (newBtn) newBtn.onclick = () => this.openCreateZoneDialog();
   }
 
-  /** "+ Create zone" — a proper dialog (matching Rename's promptDialog), not
-   *  inputs embedded in the popover: keeps focus/keyboard handling simple and
-   *  gives room for the size fields too. */
-  private openCreateZoneDialog(): void {
-    const body = document.createElement('div');
-    body.innerHTML = `
-      <div class="fld"><label>Zone name</label>
-        <input class="pa-input" type="text" maxlength="32" placeholder="e.g. Design Team">
-      </div>
-      <div class="fld"><label>Size (tiles)</label>
-        <div style="display:flex;gap:.5rem;align-items:center;">
-          <input class="pa-input" type="number" min="6" max="64" value="20" title="Width" style="flex:1;min-width:0;">
-          <span class="muted">×</span>
-          <input class="pa-input" type="number" min="6" max="64" value="14" title="Height" style="flex:1;min-width:0;">
-        </div>
-      </div>`;
-    const nameIn = body.querySelector<HTMLInputElement>('input[type=text]')!;
-    const [colsIn, rowsIn] = body.querySelectorAll<HTMLInputElement>('input[type=number]');
-    openPaDialog({
-      title: 'Create a zone',
-      body,
-      buttons: [
-        {
-          label: 'Create',
-          kind: 'primary',
-          onClick: () => {
-            const label = cleanName(nameIn.value);
-            if (!label) {
-              nameIn.focus();
-              return false;
-            }
-            this.room?.send('createZone', { label, cols: Number(colsIn.value), rows: Number(rowsIn.value) });
-          },
-        },
-      ],
-    });
-    setTimeout(() => nameIn.focus(), 0);
-  }
+  /** A zone is created by pushing a map for a new id (scripts/push-zones.mts),
+   *  not from in here: what this dialog used to make was an empty field waiting
+   *  for the in-game editor. Its "go there now?" follow-up went with it. */
 
   /** Edit a zone's label (and arrival tile via "col,row"). */
   private async editZoneDialog(id: string): Promise<void> {
@@ -2755,18 +2629,6 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
     this.room?.send('editZone', { id, label: name });
-  }
-
-  /** A zone was just created (by this viewer) → offer to jump straight to it, or
-   *  show why it wasn't (invalid name, or the per-owner zone cap was hit). */
-  private async onZoneCreated(m: Record<string, unknown>): Promise<void> {
-    if (typeof m.error === 'string') {
-      void alertDialog(`Could not create the zone: ${m.error}.`);
-      return;
-    }
-    const id = typeof m.id === 'string' ? m.id : '';
-    if (!isZoneId(id)) return;
-    if (await confirmDialog(`Zone created. Go there now?`, { confirmLabel: 'Go' })) this.goToZone(id);
   }
 
   /** Zone owner: open "Zone settings" — privacy toggle, who-has-access (owner +
@@ -3901,11 +3763,8 @@ export class OfficeScene extends Phaser.Scene {
    *  current zone's admin too. Server enforcement is authoritative — this is
    *  just UX. */
   private applyAdminVisibility(): void {
-    // Assets (shared galleries) is admin-only; Space stays for travel. Reflect
-    // both on the bar, and gate the Layouts tab for non-editors of this zone.
+    // Assets (shared galleries) is admin-only; Space stays for travel.
     this.refreshBarButtons();
-    if (this.layoutsSeg) this.layoutsSeg.style.display = this.zoneEditAdmin ? '' : 'none';
-    if (!this.zoneEditAdmin && this.spaceTab === 'layouts') this.spaceTab = 'zones';
     const save = this.settingsPanel?.querySelector<HTMLButtonElement>('#pa-av-save');
     if (save) save.style.display = this.assetsAdmin ? '' : 'none';
     // The zones panel stays available for travel; admin controls reflect the role.

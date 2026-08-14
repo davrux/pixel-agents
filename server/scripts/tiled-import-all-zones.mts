@@ -15,29 +15,22 @@
  * an existing zone would silently create a near-duplicate instead (see
  * resolveZoneId).
  *
- * Usage (from server/): node --import tsx scripts/tiled-import-all-zones.mts [layoutName]
- *   layoutName — defaults to "TiledImport", same as tiled-import-zone.mts
+ * Usage (from server/): node --import tsx scripts/tiled-import-all-zones.mts
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { loadDefaultLayout } from '../src/assetLoader.js';
 import { loadAssetBundle } from '../src/assets.js';
-import { LayoutStore } from '../src/layoutStore.js';
+import { ZoneMapStore } from '../src/zoneMapStore.js';
 import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, isNoImportMap, resolveZoneId, NO_IMPORT_SUFFIX, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, isNoImportMap, resolveZoneId, NO_IMPORT_SUFFIX } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const ZONES_DIR = path.join(ROOT, 'assets', 'tiled', 'zones');
 
 async function main(): Promise<void> {
-  const layoutName = process.argv[2] ?? DEFAULT_TILED_IMPORT_LAYOUT_NAME;
-  if (!LayoutStore.isValidUserName(layoutName)) {
-    console.error(`Invalid layout name "${layoutName}".`);
-    process.exit(1);
-  }
 
   const all = fs.existsSync(ZONES_DIR) ? fs.readdirSync(ZONES_DIR).filter((f) => f.endsWith('.tmj')).sort() : [];
   // Scratch copies are filtered out here rather than left to fail inside
@@ -57,7 +50,7 @@ async function main(): Promise<void> {
   if (furnMsg) buildDynamicCatalog({ catalog: furnMsg.catalog, sprites: furnMsg.sprites });
 
   const registry = loadTiledRegistry(ROOT);
-  const layoutStore = new LayoutStore(loadDefaultLayout(ROOT));
+  const mapStore = new ZoneMapStore();
   const zones = new ZoneStore();
 
   let ok = 0;
@@ -66,9 +59,9 @@ async function main(): Promise<void> {
     const tmjPath = path.join(ZONES_DIR, file);
     const zoneId = resolveZoneId(tmjPath, file);
     try {
-      const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore, zones);
+      const result = await importZoneTmjFile(tmjPath, registry, zoneId, mapStore, zones);
       console.log(
-        `✓ ${file} → zone "${zoneId}" layout "${layoutName}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`,
+        `✓ ${file} → zone "${zoneId}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s))`,
       );
       ok++;
     } catch (err) {

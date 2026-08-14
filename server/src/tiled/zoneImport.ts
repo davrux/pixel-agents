@@ -3,15 +3,14 @@
  * tiled-import-all-zones.mts (every zones/*.tmj file) — factored out so
  * neither script duplicates the actual (read → import → save) sequence, and
  * so the batch script can do the expensive one-time setup (asset bundle,
- * registry, LayoutStore) once instead of per file.
+ * registry, ZoneMapStore) once instead of per file.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PNG } from 'pngjs';
 
 import { appStore } from '../appStore.js';
-import { loadDefaultLayout } from '../assetLoader.js';
-import { LayoutStore } from '../layoutStore.js';
+import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { controlBus, ZONE_LAYOUT_CHANGED_EVENT, ASSET_CHANGED_EVENT } from '../controlBus.js';
 import { invalidateMergedBundle } from '../assetOverrides.js';
@@ -29,7 +28,6 @@ const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || path.resolve(
 /** The layout name every Tiled-import path (the CLI scripts and the push
  *  endpoint) saves under by default — one name so a mapper's repeated saves
  *  keep landing on the same layout instead of piling up a new one per import. */
-export const DEFAULT_TILED_IMPORT_LAYOUT_NAME = 'TiledImport';
 
 /** Filename suffix marking a zones/*.tmj as a scratch copy that must never be
  *  imported: `uponu-noimport.tmj` is a place to try things out while the real
@@ -73,7 +71,7 @@ export function readMapName(tmjPath: string): string | null {
 
 /** The zone id a .tmj resolves to: its own `mapName` (falling back to the
  *  filename), lowercased. Every zone id in this system is already lowercase
- *  ("office", "plaza", ...) and ZoneStore.create's slugify always lowercases
+ *  ("office", "uponu", ...) and ZoneStore.create's slugify always lowercases
  *  whatever label it's given — but a zone LOOKUP (`ZoneStore.has`) is a
  *  plain, case-SENSITIVE string match. Skipping this normalization means a
  *  mapName of "Office" or "UPONU" would fail to match the real "office"/
@@ -84,9 +82,8 @@ export function resolveZoneId(tmjPath: string, filename: string): string {
   return (readMapName(tmjPath) ?? path.basename(filename, '.tmj')).toLowerCase();
 }
 
-/** Import one zones/<file>.tmj into a saved layout for `zoneId`, making it
- *  that zone's active layout (matches LayoutStore.saveAs, the same call the
- *  in-game "Save As" uses). Placed images resolve against assets/tiled
+/** Import one zones/<file>.tmj and make it `zoneId`'s map — a zone has exactly
+ *  one, so this replaces whatever was there. Placed images resolve against assets/tiled
  *  itself, never zone-relative — either the referenced tile's own `image`
  *  path (any file a mapper added directly via Tiled's Tileset editor), or
  *  the png/images/<id>.png convention bake-images-tiled.mts writes, as a
@@ -98,8 +95,7 @@ export async function importZoneTmjFile(
   tmjPath: string,
   registry: TiledRegistry,
   zoneId: string,
-  layoutName: string,
-  layoutStore: LayoutStore,
+  mapStore: ZoneMapStore,
   zones: ZoneStore,
 ): Promise<ZoneImportResult> {
   // Enforced here, in the one place every import path funnels through, so no
@@ -108,7 +104,7 @@ export async function importZoneTmjFile(
     throw new Error(`${path.basename(tmjPath)} carries the ${NO_IMPORT_SUFFIX} suffix and is never imported`);
   }
   const tmj = JSON.parse(fs.readFileSync(tmjPath, 'utf-8'));
-  return importZoneTmj(tmj, registry, zoneId, layoutName, layoutStore, zones);
+  return importZoneTmj(tmj, registry, zoneId, mapStore, zones);
 }
 
 /**
@@ -127,8 +123,7 @@ export async function importZoneTmj(
   tmj: Record<string, unknown>,
   registry: TiledRegistry,
   zoneId: string,
-  layoutName: string,
-  layoutStore: LayoutStore,
+  mapStore: ZoneMapStore,
   zones: ZoneStore,
   extraFiles?: Map<string, Buffer>,
 ): Promise<ZoneImportResult> {
@@ -175,7 +170,7 @@ export async function importZoneTmj(
   // images/actions get the same caps and https://-only enforcement before
   // ever reaching the DB.
   const sanitized = sanitizeLayoutImages(sanitizeLayoutActions(sanitizeLayoutTexts(normalized as unknown as Record<string, unknown>)));
-  layoutStore.saveAs(zoneId, layoutName, sanitized, Date.now());
+  mapStore.put(zoneId, sanitized, Date.now());
 
   const tileActions = sanitized.tileActions as Array<{ kind: string } | null> | undefined;
   const cols = sanitized.cols as number;

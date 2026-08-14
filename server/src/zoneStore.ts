@@ -1,17 +1,20 @@
 /**
  * SQLite-backed persistence for the zone registry (Node's built-in `node:sqlite`).
  *
- * The builtin zones (protocol `ZONES`) seed the registry on first run; after that
- * zones are user-managed — created, edited and deleted at runtime. The office is
- * read-only (can never be deleted) and is kept resilient (re-seeded if missing).
- * Each zone carries its initial blank-field size (cols/rows) so its read-only
- * "Default" layout can be regenerated; the active layout may be resized later in
- * the editor (LayoutStore owns the layouts themselves).
+ * A zone row is everything about a zone that is NOT its map: label, arrival tile,
+ * owner, privacy/ACL, password, NPC set. The map itself lives one-per-zone in
+ * zoneMapStore.ts and arrives by being pushed from Tiled, which is also what
+ * brings a new zone into existence (see tiled/zoneImport.ts) — there is no
+ * builtin table of zones any more, and nothing creates one from in-game.
+ *
+ * The default zone (protocol DEFAULT_ZONE) is ensured on first run and can never
+ * be deleted: it is where a client that names no zone lands. `cols`/`rows` are the
+ * size a zone renders at until its first map arrives.
  */
 import type { DatabaseSync } from 'node:sqlite';
 
 import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
-import { ZONES, DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
+import { DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
 
 import { db } from './db.js';
 import { hashPassword, verifyHash } from './pwhash.js';
@@ -26,7 +29,6 @@ interface ZoneRow {
   arrive_row: number | null;
   cols: number | null;
   rows: number | null;
-  read_only: number;
   created_at: number;
   npc: string | null;
   pw_hash: string | null;
@@ -49,7 +51,6 @@ export class ZoneStore {
         label TEXT NOT NULL,
         arrive_col INTEGER, arrive_row INTEGER,
         cols INTEGER, rows INTEGER,
-        read_only INTEGER NOT NULL DEFAULT 0,
         created_at INTEGER NOT NULL DEFAULT 0,
         npc TEXT
       );
@@ -292,8 +293,8 @@ export class ZoneStore {
     // New zones start with no NPCs (empty set) — you enable variants per zone.
     this.db
       .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc,owner_id)
-         VALUES(?,?,?,?,?,?,0,?,'[]',?)`,
+        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,created_at,npc,owner_id)
+         VALUES(?,?,?,?,?,?,?,'[]',?)`,
       )
       .run(id, clean, arrive.col, arrive.row, c, r, now, ownerId || null);
     return id;
@@ -327,16 +328,14 @@ export class ZoneStore {
     return true;
   }
 
-  /** Delete a zone. Read-only zones (the office) can never be deleted. Also
+  /** Delete a zone. The default zone can never be deleted — it is where a client
+   *  with no zone of its own lands, so there has to be one. Also
    *  clears the zone-keyed rows in zone_admins/zone_acl/arcade_cabinet_games —
    *  these aren't foreign-keyed to zones, so a plain `DELETE FROM zones` would
    *  otherwise leave them orphaned (harmless zombie rows a zone id could
    *  later collide with if reused, and clutter in the tables regardless). */
   delete(id: string): boolean {
-    const r = this.db.prepare('SELECT read_only FROM zones WHERE id = ?').get(id) as
-      | { read_only: number }
-      | undefined;
-    if (!r || r.read_only) return false;
+    if (id === DEFAULT_ZONE || !this.has(id)) return false;
     this.db.prepare('DELETE FROM zone_admins WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM zone_acl WHERE zone_id = ?').run(id);
     this.db.prepare('DELETE FROM arcade_cabinet_games WHERE zone_id = ?').run(id);
@@ -365,7 +364,6 @@ export class ZoneStore {
       arrive: r.arrive_col != null && r.arrive_row != null ? { col: r.arrive_col, row: r.arrive_row } : undefined,
       cols: r.cols ?? undefined,
       rows: r.rows ?? undefined,
-      readOnly: !!r.read_only,
       npc,
       locked: !!r.pw_hash,
       ownerId: r.owner_id ?? undefined,
@@ -385,27 +383,20 @@ export class ZoneStore {
     return id;
   }
 
-  /** Always ensure the office exists (resilient); seed the other builtins once. */
+  /**
+   * Make sure the default zone exists — nothing else is seeded.
+   *
+   * There used to be a builtin table (protocol `ZONES`) whose entries were
+   * upserted here on first run, one of which shipped a bundled layout and one a
+   * code-generated one. Content comes from Tiled now, so the only thing that must
+   * exist unconditionally is the id a client lands in when it names no zone; it
+   * starts out with no map and renders as an empty field until one is pushed.
+   */
   private seed(): void {
-    const office = ZONES[DEFAULT_ZONE];
-    if (office && !this.has(office.id)) this.upsertBuiltin(office);
-
-    if (this.meta('seeded')) return;
-    for (const z of Object.values(ZONES)) {
-      if (z.id !== DEFAULT_ZONE && !this.has(z.id)) this.upsertBuiltin(z);
-    }
-    this.setMeta('seeded', '1');
-  }
-
-  private upsertBuiltin(z: ZoneConfig): void {
-    const npc = z.npc == null ? null : JSON.stringify(z.npc);
+    if (this.has(DEFAULT_ZONE)) return;
     this.db
-      .prepare(
-        `INSERT INTO zones(id,label,arrive_col,arrive_row,cols,rows,read_only,created_at,npc)
-         VALUES(?,?,?,?,?,?,?,0,?)
-         ON CONFLICT(id) DO UPDATE SET label=excluded.label, read_only=excluded.read_only`,
-      )
-      .run(z.id, z.label, z.arrive?.col ?? null, z.arrive?.row ?? null, z.cols ?? null, z.rows ?? null, z.readOnly ? 1 : 0, npc);
+      .prepare("INSERT INTO zones(id,label,created_at,npc) VALUES(?,?,?,'[]')")
+      .run(DEFAULT_ZONE, 'Office', Date.now());
   }
 
   private meta(key: string): string | undefined {

@@ -252,14 +252,17 @@ export function createDefaultLayout(): OfficeLayout {
   };
 }
 
-/** A wall-bordered open field of FLOOR_3 — the starting layout for any generated
- *  zone (the plaza, and every user-created zone). Optional furniture (e.g. a beam
- *  pad) is placed on top. Resizing happens later via the layout editor. */
-export function createBlankZoneLayout(
-  cols: number,
-  rows: number,
-  furniture: OfficeLayout['furniture'] = [],
-): OfficeLayout {
+/**
+ * A wall-bordered empty field — what a zone renders as when it has no map yet.
+ *
+ * This is a fallback, not content: maps come from Tiled now (see
+ * tiled/zonePushApi.ts), and nothing generates a world any more. It exists so a
+ * zone registered without a successful push still opens instead of failing to
+ * build a tile grid. It replaced createBlankZoneLayout, whose job was the
+ * starting point for the in-game editor, and the builtin plaza that was that
+ * same field plus a beam pad.
+ */
+export function emptyZoneMap(cols: number, rows: number): OfficeLayout {
   const tiles: TileTypeVal[] = [];
   const tileColors: Array<number | null> = [];
   for (let r = 0; r < rows; r++) {
@@ -268,14 +271,7 @@ export function createBlankZoneLayout(
       tileColors.push(null);
     }
   }
-  return { version: 1, cols, rows, tiles, tileColors, walls: borderWalls(cols, rows), furniture };
-}
-
-/** The plaza: the second builtin zone, with a beam pad (walk onto it → zone
- *  picker). Deliberately visually distinct from the office. */
-export function createPlazaLayout(): OfficeLayout {
-  // Walkable beam pad via backgroundTiles.
-  return createBlankZoneLayout(20, 14, [{ uid: 'plaza-beam', id: 'BEAM_PAD', col: 3, row: 3 }]);
+  return { version: 1, cols, rows, tiles, tileColors, walls: borderWalls(cols, rows), furniture: [] };
 }
 
 /** Serialize layout to JSON string

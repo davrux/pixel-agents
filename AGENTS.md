@@ -48,13 +48,17 @@ New features must extend these, not grow a parallel mechanism beside them.
   thing. **Players are `Character`s with `isPlayer = true`** — not a separate code
   path. Add capabilities by extending the entity/schema, not by forking it.
 - **Zones = rooms.** Each explorable space is its own instance of the one room
-  type, matchmade by `zone` (`gameServer.define(WORLD_ROOM, SimRoom).filterBy(['zone'])`,
-  `ZONES`/`ZoneConfig`/`resolveZone` in `protocol.ts`). Add a zone by adding a
-  `ZONES` entry + a layout — **do not** add a new room class per zone.
+  type, matchmade by `zone` (`gameServer.define(WORLD_ROOM, SimRoom).filterBy(['zone'])`).
+  A zone is a row in the registry (`zoneStore.ts`, shape `ZoneConfig` in
+  `protocol.ts`) plus **one** map (`zoneMapStore.ts`). **Add a zone by pushing a
+  `.tmj` for a new id** — the import registers it with the defaults. There is no
+  builtin zone table and nothing creates a zone from in-game; `DEFAULT_ZONE` is
+  only the id a client lands in when it names none. **Do not** add a new room
+  class per zone.
 - **Portals are content, not code.** A portal is placed furniture carrying the
   catalog `portal` flag (a door, a beam pad); the server derives trigger tiles
   from where it is placed and offers a destination picker. Add travel by placing
-  furniture and editing `ZONES`, never by hard-coding a coordinate jump.
+  furniture, never by hard-coding a coordinate jump.
 - **Human players.** Spawn/despawn (spectator toggle), click-to-walk (server
   resolves the path), avatar/skin selection, naming (own avatar = player name;
   agents = `<player>-Agent`), and per-`(name, zone)` persistence of position +
@@ -298,9 +302,13 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   authenticate the feed with their own `agent_token` (resolves to the owner);
   the avatar's name is always the player's display name.
 - **One database:** all state lives in `pixel.db` via the shared `db.ts`
-  connection (sessions, users, settings, assets, layouts, zones); a one-time
+  connection (sessions, users, settings, assets, zone maps, zones); a one-time
   migration imports the old split `layouts.db` + `zones.db`.
-- **Default layout is read-only** and must never be overwritten.
+- **A zone has exactly one map, and it comes from Tiled.** The `layouts` table is
+  keyed by zone id — no named layouts, no active-layout pointer, no bundled
+  read-only "Default", no code-generated zone. Variants live where the mapper
+  keeps their `.tmj` files. A zone whose map was never pushed renders as an empty
+  field (`emptyZoneMap`) rather than refusing to open.
 - **Slash-commands for navigation & quick actions.** The chat slash-command
   framework (`shared/src/commands.ts`, `user`/`admin` groups, gated by
   `mayRunCommand`) is the canonical way to reach other views/destinations and

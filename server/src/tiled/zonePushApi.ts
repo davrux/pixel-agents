@@ -28,12 +28,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { reloadFurnitureCatalog } from '../assets.js';
-import { LayoutStore } from '../layoutStore.js';
+import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
 import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
-import { loadDefaultLayout } from '../assetLoader.js';
 import { loadTiledRegistry } from './tiledRegistry.js';
-import { DEFAULT_TILED_IMPORT_LAYOUT_NAME, importZoneTmj, NO_IMPORT_SUFFIX } from './zoneImport.js';
+import { importZoneTmj, NO_IMPORT_SUFFIX } from './zoneImport.js';
 
 /** A .tmj is a few hundred KB of JSON, plus any images it carries — well past
  *  express.json's 100kb default, which would reject a real map outright. */
@@ -49,7 +48,6 @@ interface PushBody {
   /** Zone to import into. Sent explicitly rather than re-derived here, so the
    *  pusher and the server cannot disagree about which zone a file belongs to. */
   zoneId?: unknown;
-  layoutName?: unknown;
   tmj?: unknown;
   /** Files the map references, relative to assets/tiled, base64-encoded —
    *  images a mapper added in Tiled live under a gitignored directory, so the
@@ -63,7 +61,7 @@ export function registerZonePushApi(app: Express, adminToken: string | null, ass
     return;
   }
   const json = express.json({ limit: MAX_PUSH_BYTES });
-  const layoutStore = new LayoutStore(loadDefaultLayout(assetsRoot));
+  const mapStore = new ZoneMapStore();
   const zones = new ZoneStore();
 
   /**
@@ -91,7 +89,7 @@ export function registerZonePushApi(app: Express, adminToken: string | null, ass
 
   app.post('/tiled/zone', json, (req: Request, res: Response) => {
     if (!authorized(req, res, adminToken)) return;
-    void handlePush(req, res, layoutStore, zones, assetsRoot);
+    void handlePush(req, res, mapStore, zones, assetsRoot);
   });
   console.log('[zone-push] POST /tiled/zone + /tiled/assets ready (X-Pixel-Admin-Token)');
 }
@@ -172,7 +170,7 @@ async function handleAssetPush(req: Request, res: Response, assetsRoot: string):
   }
 }
 
-async function handlePush(req: Request, res: Response, layoutStore: LayoutStore, zones: ZoneStore, assetsRoot: string): Promise<void> {
+async function handlePush(req: Request, res: Response, mapStore: ZoneMapStore, zones: ZoneStore, assetsRoot: string): Promise<void> {
   const body = (req.body ?? {}) as PushBody;
   const zoneId = typeof body.zoneId === 'string' ? body.zoneId.trim().toLowerCase() : '';
   if (!zoneId || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(zoneId)) {
@@ -201,12 +199,11 @@ async function handlePush(req: Request, res: Response, layoutStore: LayoutStore,
     }
   }
 
-  const layoutName = typeof body.layoutName === 'string' && body.layoutName ? body.layoutName : DEFAULT_TILED_IMPORT_LAYOUT_NAME;
   try {
     // Reloaded per push, not cached at boot, so a tileset added since the
     // server started still resolves — matches the furniture watcher's reasoning.
     const registry = loadTiledRegistry(assetsRoot);
-    const result = await importZoneTmj(body.tmj as Record<string, unknown>, registry, zoneId, layoutName, layoutStore, zones, files);
+    const result = await importZoneTmj(body.tmj as Record<string, unknown>, registry, zoneId, mapStore, zones, files);
     controlBus.emit(ZONE_LAYOUT_CHANGED_EVENT, zoneId);
     console.log(
       `[zone-push] "${zoneId}" ← ${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s)` +

@@ -24,7 +24,6 @@ export interface Principal {
 /** A privileged action. `zone.edit` is scoped to a specific zone (pass ctx.zoneId). */
 export type Capability =
   | 'gallery.edit' // shared avatar/NPC/furniture galleries
-  | 'zone.create'
   | 'zone.delete'
   | 'zone.grantAdmin' // assign per-zone admins
   | 'zone.edit' // layout / arrival / rename / NPC spawn set of one zone
@@ -51,7 +50,6 @@ export function can(
   if (!env.authRequired) return true; // open dev: no accounts, everyone edits
   if (principal.isAdmin) return true; // global admin: everything
   // A `user` may create their own rooms (they become that zone's admin on creation).
-  if (capability === 'zone.create') return !!principal.userId;
   // A zone admin (e.g. the room's creator) may edit or delete THAT zone.
   if (capability === 'zone.edit' || capability === 'zone.delete') {
     return !!principal.userId && !!ctx.zoneId && env.isZoneAdmin(ctx.zoneId, principal.userId);

@@ -29,7 +29,6 @@ import {
   type CharacterSpec,
 } from '@pixel/shared/office/sprites/characterSpec.js';
 
-import { LAYOUT_REVISION_KEY } from './constants.js';
 
 export type { FurnitureAsset };
 
@@ -111,64 +110,6 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
   }
 }
 
-// ── Default layout loading ───────────────────────────────────
-
-/**
- * Load the bundled default layout with the highest revision.
- * Scans for assets/default-layout-{N}.json files and picks the one
- * with the largest N. Falls back to assets/default-layout.json for
- * backward compatibility.
- */
-export function loadDefaultLayout(assetsRoot: string): Record<string, unknown> | null {
-  const assetsDir = path.join(assetsRoot, 'assets');
-  try {
-    // Scan for versioned default layouts: default-layout-{N}.json
-    let bestRevision = 0;
-    let bestPath: string | null = null;
-
-    if (fs.existsSync(assetsDir)) {
-      for (const file of fs.readdirSync(assetsDir)) {
-        const match = /^default-layout-(\d+)\.json$/.exec(file);
-        if (match) {
-          const rev = parseInt(match[1], 10);
-          if (rev > bestRevision) {
-            bestRevision = rev;
-            bestPath = path.join(assetsDir, file);
-          }
-        }
-      }
-    }
-
-    // Fall back to unversioned default-layout.json
-    if (!bestPath) {
-      const fallback = path.join(assetsDir, 'default-layout.json');
-      if (fs.existsSync(fallback)) {
-        bestPath = fallback;
-      }
-    }
-
-    if (!bestPath) {
-      console.log('[AssetLoader] No default layout found in:', assetsDir);
-      return null;
-    }
-
-    const content = fs.readFileSync(bestPath, 'utf-8');
-    const layout = JSON.parse(content) as Record<string, unknown>;
-    // Ensure layoutRevision matches the file's revision number
-    if (bestRevision > 0 && !layout[LAYOUT_REVISION_KEY]) {
-      layout[LAYOUT_REVISION_KEY] = bestRevision;
-    }
-    console.log(
-      `[AssetLoader] Loaded default layout (${layout.cols}×${layout.rows}, revision ${layout[LAYOUT_REVISION_KEY] ?? 0}) from ${path.basename(bestPath)}`,
-    );
-    return layout;
-  } catch (err) {
-    console.error(
-      `[AssetLoader] Error loading default layout: ${err instanceof Error ? err.message : err}`,
-    );
-    return null;
-  }
-}
 
 // ── Character sprite loading ────────────────────────────────
 

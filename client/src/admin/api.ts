@@ -18,7 +18,6 @@ export interface AdminUser {
 export interface AdminZone {
   id: string;
   label: string;
-  readOnly: boolean;
   locked: boolean;
   ownerId: string | null;
   ownerName: string | null;

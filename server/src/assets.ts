@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import {
   loadCharacterSprites,
-  loadDefaultLayout,
   loadFurnitureTilesets,
   loadPetSprites,
 } from './assetLoader.js';
@@ -33,7 +32,6 @@ export interface AssetBundle {
     /** Uploaded background images (see shared/office/imageAssets.ts) — no
      *  bundled defaults, always starts empty. */
     images: unknown[];
-    layout: Record<string, unknown> | null;
   };
 }
 
@@ -75,7 +73,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
     loadPetSprites(ASSETS_ROOT),
     buildFurnitureCatalogAndSprites(),
   ]);
-  const layout = loadDefaultLayout(ASSETS_ROOT);
 
   const messages: Record<string, unknown>[] = [];
   if (characters) messages.push({ type: 'characterSpritesLoaded', characters: characters.characters });
@@ -86,9 +83,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       catalog: furniture.catalog,
       sprites: furniture.sprites,
     });
-  }
-  if (layout) {
-    messages.push({ type: 'layoutLoaded', layout, activeLayout: 'Default', force: true });
   }
   // No bundled images — always present so assetOverrides.ts's buildMerged()
   // has a message to rebuild once the first one is uploaded.
@@ -109,7 +103,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       furnitureCatalog: furniture.catalog,
       furnitureSprites: furniture.sprites,
       images: [],
-      layout,
     },
   };
 }

@@ -1,26 +1,22 @@
 #!/usr/bin/env -S node --import tsx
 /**
- * Import assets/tiled/zones/<zoneId>.tmj back into a saved layout for that
- * zone. See server/src/tiled/mapBridge.ts and
- * docs/design/tiled-editor-integration.md. Writes a NEW (or updates an
- * existing) named layout — never the read-only "Default" — and makes it the
- * zone's active layout (matching LayoutStore.saveAs, the same call the
- * in-game "Save As" uses).
+ * Import assets/tiled/zones/<zoneId>.tmj and make it that zone's map. See
+ * server/src/tiled/mapBridge.ts and docs/design/tiled-editor-integration.md.
+ * A zone has exactly one map, so this replaces whatever was there — the same
+ * write a push performs (see src/tiled/zonePushApi.ts), just locally.
  *
- * Usage (from server/): node --import tsx scripts/tiled-import-zone.mts <zoneId> [layoutName]
- *   layoutName — defaults to "TiledImport"
+ * Usage (from server/): node --import tsx scripts/tiled-import-zone.mts <zoneId>
  *
  * For importing every zones/*.tmj file at once, see tiled-import-all-zones.mts.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { loadDefaultLayout } from '../src/assetLoader.js';
 import { loadAssetBundle } from '../src/assets.js';
-import { LayoutStore } from '../src/layoutStore.js';
+import { ZoneMapStore } from '../src/zoneMapStore.js';
 import { ZoneStore } from '../src/zoneStore.js';
 import { loadTiledRegistry } from '../src/tiled/tiledRegistry.js';
-import { importZoneTmjFile, isNoImportMap, NO_IMPORT_SUFFIX, DEFAULT_TILED_IMPORT_LAYOUT_NAME } from '../src/tiled/zoneImport.js';
+import { importZoneTmjFile, isNoImportMap, NO_IMPORT_SUFFIX } from '../src/tiled/zoneImport.js';
 import { buildDynamicCatalog } from '../../shared/src/office/layout/furnitureCatalog.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -28,16 +24,10 @@ const ZONES_DIR = path.join(ROOT, 'assets', 'tiled', 'zones');
 
 async function main(): Promise<void> {
   const zoneId = process.argv[2];
-  const layoutName = process.argv[3] ?? DEFAULT_TILED_IMPORT_LAYOUT_NAME;
   if (!zoneId) {
-    console.error('Usage: tiled-import-zone.mts <zoneId> [layoutName]');
+    console.error('Usage: tiled-import-zone.mts <zoneId>');
     process.exit(1);
   }
-  if (!LayoutStore.isValidUserName(layoutName)) {
-    console.error(`Invalid layout name "${layoutName}".`);
-    process.exit(1);
-  }
-
   const tmjPath = path.join(ZONES_DIR, `${zoneId}.tmj`);
   if (isNoImportMap(tmjPath)) {
     console.error(`${path.basename(tmjPath)} carries the ${NO_IMPORT_SUFFIX} suffix — scratch maps are never imported. Copy it to a name without that suffix first.`);
@@ -55,12 +45,12 @@ async function main(): Promise<void> {
   if (furnMsg) buildDynamicCatalog({ catalog: furnMsg.catalog, sprites: furnMsg.sprites });
 
   const registry = loadTiledRegistry(ROOT);
-  const layoutStore = new LayoutStore(loadDefaultLayout(ROOT));
+  const mapStore = new ZoneMapStore();
   const zones = new ZoneStore();
 
-  const result = await importZoneTmjFile(tmjPath, registry, zoneId, layoutName, layoutStore, zones);
+  const result = await importZoneTmjFile(tmjPath, registry, zoneId, mapStore, zones);
   console.log(
-    `✓ Saved zone "${zoneId}" layout "${layoutName}" (${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s)) and made it active.`,
+    `✓ Zone "${zoneId}": ${result.cols}×${result.rows}, ${result.furnitureCount} furniture, ${result.imageCount} image(s).`,
   );
 }
 

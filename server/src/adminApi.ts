@@ -13,7 +13,7 @@ import express, { type Express, type Request, type Response } from 'express';
 import { userIdFromCookie, userIdFromBearer } from './auth.js';
 import { userStore, UserStore, isValidPassword, isRole, normalizeLoginId, type Role } from './userStore.js';
 import { ZoneStore } from './zoneStore.js';
-import { LayoutStore } from './layoutStore.js';
+import { ZoneMapStore } from './zoneMapStore.js';
 import { appStore } from './appStore.js';
 import { meetingRoomStore } from './meetingRoomStore.js';
 import { controlBus, KICK_EVENT } from './controlBus.js';
@@ -27,7 +27,7 @@ import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } fro
 // The layout store only needs DB-backed saved layouts here (where admins place
 // monitors), so no bundled default is registered.
 const zones = new ZoneStore();
-const layouts = new LayoutStore(null);
+const zoneMaps = new ZoneMapStore();
 
 export function registerAdminApi(app: Express): void {
   const json = express.json({ limit: '16kb' });
@@ -197,7 +197,6 @@ export function registerAdminApi(app: Express): void {
       return {
         id: z.id,
         label: z.label,
-        readOnly: !!z.readOnly,
         locked: !!z.locked,
         ownerId: z.ownerId ?? null,
         ownerName: owner ? UserStore.displayName(owner) : (z.ownerId ?? null),
@@ -377,7 +376,7 @@ export function registerAdminApi(app: Express): void {
     if (!admin(req, res)) return;
     const id = req.params.id;
     if (!zones.has(id)) return void res.status(404).json({ error: 'no such zone' });
-    const layout = layouts.getActiveLayout(id) as OfficeLayout | null;
+    const layout = zoneMaps.get(id) as OfficeLayout | null;
     const cabinets = (layout?.furniture ?? [])
       .filter((f) => effectiveAction(f, getCatalogEntry(f.id))?.kind === 'arcade')
       .map((f) => {
