@@ -173,7 +173,12 @@ function request(method: 'GET' | 'POST', route: string, body?: string): Promise<
   });
 }
 
-async function pushOne(file: string): Promise<boolean> {
+async function pushOne(file: string, syncFirst = false): Promise<boolean> {
+  // A map that uses a tile the server does not have imports with that placement
+  // missing, so the assets go first. Cheap enough to repeat: the listing is one
+  // hash per file, a few KB, and nothing is sent when nothing differs — which is
+  // what makes it affordable on every save in --watch.
+  if (syncFirst && !(await syncAssets(true))) return false;
   const full = path.join(ZONES_DIR, file);
   if (!fs.existsSync(full)) {
     console.error(`   ✗ ${file}: not found`);
@@ -227,7 +232,8 @@ function targets(): string[] {
  * deploy is allowed to carry things this checkout has never seen, and deleting
  * them from here would be a mapper's laptop overwriting the release.
  */
-async function syncAssets(): Promise<boolean> {
+async function syncAssets(quiet = false): Promise<boolean> {
+  if (has('no-assets')) return true;
   const { status, json } = await request('GET', '/tiled/assets');
   if (status !== 200 || !json.files) {
     console.error(`   ✗ asset listing: HTTP ${status} ${json.error ?? ''}`);
@@ -246,7 +252,7 @@ async function syncAssets(): Promise<boolean> {
   }
   const n = Object.keys(send).length;
   if (n === 0) {
-    console.log('   · assets already match');
+    if (!quiet) console.log('   · assets already match');
     return true;
   }
   const res = await request('POST', '/tiled/assets', JSON.stringify({ files: send }));
@@ -281,7 +287,7 @@ function localAssets(): string[] {
 
 console.log(`[push] ${server}${insecure ? ' (self-signed ok)' : ''}`);
 let failed = 0;
-if (!has('no-assets') && !(await syncAssets())) failed++;
+if (!(await syncAssets())) failed++;
 for (const file of targets()) if (!(await pushOne(file))) failed++;
 
 if (!watch) process.exit(failed === 0 ? 0 : 1);
@@ -298,7 +304,7 @@ fs.watch(ZONES_DIR, (_event, filename) => {
     filename,
     setTimeout(() => {
       pending.delete(filename);
-      void pushOne(filename);
+      void pushOne(filename, true);
     }, 300),
   );
 });

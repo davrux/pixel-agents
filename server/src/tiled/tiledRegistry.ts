@@ -83,13 +83,22 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
   for (const file of files) {
     const json = JSON.parse(fs.readFileSync(path.join(tiledDir, file), 'utf-8')) as TiledTilesetJson;
     const byId = new Map((json.tiles ?? []).map((t) => [t.id, t]));
+    // Indexed by the tile's OWN id, and sized to reach the highest one — not
+    // just to `tilecount`. Deleting a tile from the middle of an image
+    // collection in Tiled drops the count but does NOT renumber what is left,
+    // so the last tile's id then sits past the count; walking only to the count
+    // would leave it unresolvable, and a placement using it would vanish on the
+    // next import. The gap the deletion left stays an empty slot, which is
+    // exactly right — nothing should resolve there.
+    const maxId = json.tiles?.length ? Math.max(...json.tiles.map((t) => t.id)) : -1;
+    const slots = Math.max(json.tilecount, maxId + 1);
     const tiles: RegistryTile[] = [];
-    for (let id = 0; id < json.tilecount; id++) {
+    for (let id = 0; id < slots; id++) {
       const t = byId.get(id);
       tiles.push({ class: t?.type, props: t ? propsOf(t) : {}, image: t?.image });
     }
-    tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: json.tilecount, tiles });
-    nextGid += json.tilecount;
+    tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: slots, tiles });
+    nextGid += slots;
   }
 
   return { tilesets, bySource: (file) => tilesets.find((t) => t.file === file) };
