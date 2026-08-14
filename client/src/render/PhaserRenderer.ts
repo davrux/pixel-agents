@@ -216,7 +216,8 @@ export class PhaserRenderer {
         .setDisplaySize(pi.width, pi.height)
         .setDepth(IMAGE_DEPTH)
         .setFlipX(!!pi.flippedHorizontally)
-        .setFlipY(!!pi.flippedVertically);
+        .setFlipY(!!pi.flippedVertically)
+        .setAlpha(pi.opacity ?? 1);
       ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
         img.setTexture(key).setDisplaySize(pi.width, pi.height);
       });
@@ -271,7 +272,13 @@ export class PhaserRenderer {
         this.furniturePool[i] = img;
       }
       img.setTexture(spriteTexture(this.scene, f.sprite));
-      img.setPosition(f.x, f.y).setDepth(f.zY).setFlipX(!!f.mirrored).setFlipY(!!f.flippedVertically).setVisible(true);
+      img
+        .setPosition(f.x, f.y)
+        .setDepth(f.zY)
+        .setFlipX(!!f.mirrored)
+        .setFlipY(!!f.flippedVertically)
+        .setAlpha(f.opacity ?? 1)
+        .setVisible(true);
     }
     for (let i = items.length; i < this.furniturePool.length; i++) {
       this.furniturePool[i].setVisible(false);

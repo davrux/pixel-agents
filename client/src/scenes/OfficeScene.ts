@@ -885,6 +885,7 @@ export class OfficeScene extends Phaser.Scene {
         canSitOn: number;
         petCanSitOn: number;
         canWalkOver: number;
+        opacity: number;
         sitFacing: number;
         backgroundTiles: number;
         onState?: string;
@@ -916,6 +917,7 @@ export class OfficeScene extends Phaser.Scene {
         ...(f.canSitOn >= 0 ? { canSitOn: f.canSitOn === 1 } : {}),
         ...(f.petCanSitOn >= 0 ? { petCanSitOn: f.petCanSitOn === 1 } : {}),
         ...(f.canWalkOver >= 0 ? { canWalkOver: f.canWalkOver === 1 } : {}),
+        ...(f.opacity < 255 ? { opacity: f.opacity / 255 } : {}),
         ...(f.sitFacing >= 0 ? { sitFacing: f.sitFacing as Direction } : {}),
         ...(f.backgroundTiles >= 0 ? { backgroundTiles: f.backgroundTiles } : {}),
         ...(f.onState ? { onState: f.onState } : {}),

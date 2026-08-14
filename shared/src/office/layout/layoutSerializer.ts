@@ -96,6 +96,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       zY,
       ...(item.flippedHorizontally ? { mirrored: true } : {}),
       ...(item.flippedVertically ? { flippedVertically: true } : {}),
+      ...(item.opacity !== undefined && item.opacity < 1 ? { opacity: item.opacity } : {}),
     });
   }
   return instances;

@@ -76,6 +76,7 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     imageId: string;
     flippedHorizontally?: boolean;
     flippedVertically?: boolean;
+    opacity?: number;
   }> = [];
   for (const img of images) {
     if (clean.length >= MAX_PLACED_IMAGES) break;
@@ -90,6 +91,11 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     const entry: (typeof clean)[number] = { uid: rec.uid, x: rec.x, y: rec.y, width: w, height: h, imageId: rec.imageId };
     if (rec.flippedHorizontally === true) entry.flippedHorizontally = true;
     if (rec.flippedVertically === true) entry.flippedVertically = true;
+    // Clamped, not just type-checked: this list is a whitelist, so an opacity
+    // outside 0..1 (or NaN) must not reach a renderer that would make the image
+    // invisible or draw it out of range.
+    const op = Number(rec.opacity);
+    if (Number.isFinite(op) && op >= 0 && op < 1) entry.opacity = op;
     clean.push(entry);
   }
   layout.images = clean;

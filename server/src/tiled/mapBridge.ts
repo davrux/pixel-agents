@@ -321,8 +321,13 @@ export function importTmjToLayout(
       }
       if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
     }
-    // The native Tiled object Name, not a custom property — see the export side.
+    // The native Tiled object Name, not a custom property.
     if (typeof obj.name === 'string' && obj.name) item.name = obj.name;
+    // Likewise opacity: Tiled writes it on every object itself, so there is no
+    // property to declare and a mapper just uses the Properties panel's own
+    // field. Only a real reduction is stored — 1 is the absence of an override.
+    const objOpacity = Number(obj.opacity);
+    if (Number.isFinite(objOpacity) && objOpacity >= 0 && objOpacity < 1) item.opacity = objOpacity;
     if (typeof props.approachSides === 'string' && props.approachSides) {
       item.approachSides = props.approachSides.split(',').filter((s): s is 'N' | 'S' | 'E' | 'W' => ['N', 'S', 'E', 'W'].includes(s));
     }
@@ -426,6 +431,8 @@ export function importTmjToLayout(
       height,
       imageId,
     };
+    const imgOpacity = Number(obj.opacity);
+    if (Number.isFinite(imgOpacity) && imgOpacity >= 0 && imgOpacity < 1) image.opacity = imgOpacity;
     // Decode both flip bits independently — strip H first so a lingering H
     // bit can't be mistaken for V (H > V, so any H-flipped gid is already
     // >= TILED_FLIP_V on its own).

@@ -104,6 +104,11 @@ export class FurnitureSync extends Schema {
    *  like an obstacle there. Appended last, same schema-evolution reasoning as
    *  `action` above. */
   @type('int8') canWalkOver = -1;
+  /** Render alpha as 0..255 (255 = opaque), from Tiled's per-object opacity —
+   *  see PlacedFurniture.opacity. A uint8 rather than a float: this is a display
+   *  nudge, and 1/255 steps are finer than anyone can author or see. Appended
+   *  last, same schema-evolution reasoning as `action` above. */
+  @type('uint8') opacity = 255;
   /**
    * Stacking order among OVERLAPPING items — the object's position in Tiled's
    * own Furniture object list (see mapBridge.ts).

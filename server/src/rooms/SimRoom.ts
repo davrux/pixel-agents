@@ -1914,6 +1914,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.canSitOn = p.canSitOn === undefined ? -1 : p.canSitOn ? 1 : 0;
       fs.petCanSitOn = p.petCanSitOn === undefined ? -1 : p.petCanSitOn ? 1 : 0;
       fs.canWalkOver = p.canWalkOver === undefined ? -1 : p.canWalkOver ? 1 : 0;
+      fs.opacity = p.opacity === undefined ? 255 : Math.max(0, Math.min(255, Math.round(p.opacity * 255)));
       fs.sitFacing = p.sitFacing ?? -1;
       fs.backgroundTiles = p.backgroundTiles ?? -1;
       fs.onState = p.onState ?? '';

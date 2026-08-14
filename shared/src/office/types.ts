@@ -178,6 +178,8 @@ export interface FurnitureInstance {
   mirrored?: boolean;
   /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
   flippedVertically?: boolean;
+  /** Render alpha, 0..1 — see PlacedFurniture.opacity. Unset = opaque. */
+  opacity?: number;
 }
 
 export const EditTool = {
@@ -331,6 +333,12 @@ export interface PlacedFurniture {
   canWalkOver?: boolean;
   backgroundTiles?: number;
   onState?: string;
+  /** Render alpha, 0..1 — Tiled's own per-object opacity, which is a native
+   *  field on every object rather than a custom property, so there is nothing to
+   *  declare in Pixels.tiled-project and nothing for the sync script to stamp.
+   *  Unset = 1 = fully opaque. Purely cosmetic: a half-transparent chair is
+   *  still a solid chair to collision and seating. */
+  opacity?: number;
   /** Which side(s) a player may approach this item from, for any Action-
    *  bearing or appliance item (not just wall-mounted ones) — see
    *  computeApproachTiles. Unset or empty = today's automatic behaviour
@@ -436,6 +444,8 @@ export interface PlacedImage {
    *  false. */
   flippedHorizontally?: boolean;
   flippedVertically?: boolean;
+  /** Render alpha, 0..1 — see PlacedFurniture.opacity. Unset = opaque. */
+  opacity?: number;
 }
 
 /**
