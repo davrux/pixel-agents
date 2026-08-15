@@ -112,7 +112,7 @@ const TILESET_FILENAME_RE = /\.tsj$/;
  *  (see SimRoom.ts's ASSET_CHANGED_EVENT handling). Call once at boot, after
  *  initAssetDefaults(). No separate prod/dev flag: harmless to leave running
  *  in any deployment, since a stable one never touches assets/tiled.
- *  See docs/design/tiled-editor-integration.md. */
+ *  See docs/design.md. */
 /** Rebuild the furniture catalog from whatever is on disk now and tell every
  *  zone to re-broadcast. Exported because assets can arrive two ways: a file
  *  saved in Tiled locally (the watcher below) and a push from another machine

@@ -23,16 +23,9 @@ let ctx: AudioContext | null = null;
 export function setSoundEnabled(on: boolean): void {
   soundEnabled = on;
 }
-export function isSoundEnabled(): boolean {
-  return soundEnabled;
-}
 export function setAlertVolume(v: number): void {
   alertVolume = Math.max(0, Math.min(1, v));
 }
-export function getAlertVolume(): number {
-  return alertVolume;
-}
-
 /** Unlock/resume the AudioContext from a user gesture (browsers suspend it). */
 export function unlockAudio(): void {
   try {

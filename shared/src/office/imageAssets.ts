@@ -21,10 +21,6 @@ export function setImageAssets(list: ImageAsset[]): void {
   imageAssets = list;
 }
 
-export function getImageAssetList(): ImageAsset[] {
-  return imageAssets;
-}
-
 export function getImageAsset(id: string): ImageAsset | undefined {
   return imageAssets.find((a) => a.id === id);
 }

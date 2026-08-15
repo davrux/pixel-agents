@@ -11,7 +11,7 @@
  *
  * Floor/wall are NOT overridable assets — they're pre-baked, closed-palette
  * static files from the Tiled pipeline (server/scripts/bake-floor-wall-tiled.mts,
- * served at /assets/tiled/png — see docs/design/tiled-editor-integration.md),
+ * served at /assets/tiled/png — see docs/design.md),
  * not something the live game decodes/colorizes/sends per-connection anymore.
  */
 import { appStore } from './appStore.js';

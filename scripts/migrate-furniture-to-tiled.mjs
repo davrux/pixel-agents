@@ -4,7 +4,7 @@
  * assets/tiled/furniture-<category>.tsj (one Tiled "Collection of Images"
  * tileset per category), with PNGs copied into assets/tiled/png/furniture/.
  *
- * See docs/design/tiled-editor-integration.md. Not part of the runtime —
+ * See docs/design.md. Not part of the runtime —
  * run once (`node scripts/migrate-furniture-to-tiled.mjs`), inspect the
  * result, then the old assets/furniture/ tree can be deleted once the new
  * server-side loader (loadFurnitureTilesets) is verified.

@@ -6,21 +6,15 @@
  * session in SQLite keyed by user_id and sets an opaque HttpOnly cookie. Active
  * only when an admin token is configured (PIXEL_ADMIN_TOKEN / --token).
  */
-import * as crypto from 'node:crypto';
 import type { Express, Request, Response, NextFunction } from 'express';
 import express from 'express';
 
 import { appStore } from './appStore.js';
 import { userStore, normalizeLoginId, isValidPassword, MIN_PASSWORD_LEN } from './userStore.js';
+import { secretEquals } from './secretCompare.js';
 
 const VIEWER_COOKIE = 'pixel_stream_sid';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
-function tokenEquals(provided: string, expected: string): boolean {
-  const a = Buffer.from(String(provided));
-  const b = Buffer.from(String(expected));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
 
 function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -155,7 +149,7 @@ function verifyCredentials(
   if (token) {
     // Admin path: the token must be exact; it grants admin and creates the
     // account if new (a password — min length — is required to create one).
-    if (!tokenEquals(token, adminToken)) {
+    if (!secretEquals(token, adminToken)) {
       noteLoginFail(loginId);
       return { error: 'Invalid admin token.' };
     }

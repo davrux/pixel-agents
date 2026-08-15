@@ -9,6 +9,15 @@ import { director } from '../sim/director.js';
 import { userStore } from '../userStore.js';
 import { newParseState, parseLine, type ParseState } from './transcriptParser.js';
 
+/** Bounds on what one feed connection may send. The feeder is ours, but the
+ *  socket is not: these are the "validate length/format/bounds" rule applied to
+ *  /feed, where the cost of an unbounded value is an entity or a synced string
+ *  every viewer in the zone has to render. */
+const MAX_FEED_FRAME_BYTES = 1 << 20; // 1 MiB per frame
+const MAX_SESSION_KEY_LEN = 128;
+const MAX_LINES_PER_MESSAGE = 500;
+const MAX_AGENTS_PER_FEED = 64;
+
 /** Credentials travel in Sec-WebSocket-Protocol (base64url), never the URL. */
 function decodeProtocols(protocolHeader: string | undefined): { user?: string; token?: string } {
   const out: { user?: string; token?: string } = {};
@@ -82,7 +91,9 @@ export function attachFeedServer(
   httpServer: HttpServer,
   opts: { authRequired: boolean },
 ): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+  // Bounded frames: an agent feed is untrusted input like any other client
+  // payload (see AGENTS.md), and ws' default ceiling is 100 MB per frame.
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FEED_FRAME_BYTES });
 
   // Colyseus' ws-transport has already registered its upgrade listener(s) by
   // the time we get here; capture and replace them with a path dispatcher that
@@ -132,10 +143,14 @@ export function attachFeedServer(
       } catch {
         return;
       }
-      if (!msg.s || !Array.isArray(msg.ls)) return;
+      if (typeof msg.s !== 'string' || !msg.s || msg.s.length > MAX_SESSION_KEY_LEN) return;
+      if (!Array.isArray(msg.ls)) return;
 
       let agentId = conn.sessions.get(msg.s);
       if (agentId === undefined) {
+        // One character per session key, and a feed may not mint them without
+        // end: every new key spawns an entity every viewer in the zone renders.
+        if (conn.sessions.size >= MAX_AGENTS_PER_FEED) return;
         agentId = nextAgentId++;
         conn.sessions.set(msg.s, agentId);
         conn.parsers.set(agentId, newParseState());
@@ -148,7 +163,7 @@ export function attachFeedServer(
       // A sub-agent character is created by the `toolStart` of a Task/Agent tool;
       // the subagent* events only update it — suppress both during replay.
       const replay = msg.r === 1;
-      for (const line of msg.ls) {
+      for (const line of msg.ls.slice(0, MAX_LINES_PER_MESSAGE)) {
         parseLine(agentId, line, st, (ev) => {
           if (replay) {
             if (ev.t === 'subagentStart' || ev.t === 'subagentClear' || ev.t === 'subagentDone') return;

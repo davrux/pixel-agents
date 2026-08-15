@@ -11,7 +11,7 @@ data
 # Keep tmp out of the build context entirely. The licensed Doom WADs live here but
 # must NOT be baked into the image (it may be published). The image builds only the
 # freely-distributable shareware bundles; the licensed doom/doom2/tnt/plutonia .jsdos
-# are provided at RUNTIME via ARCADE_BUNDLE_DIR (bind-mount) — see docs/dev-notes.md
+# are provided at RUNTIME via ARCADE_BUNDLE_DIR (bind-mount) — see docs/design.md
 # + tmp/docker-compose.yml.
 tmp
 

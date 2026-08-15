@@ -35,7 +35,7 @@ RUN pnpm install --frozen-lockfile
 # the client. NO game bundles/ROMs are baked in: all arcade *content* (shareware +
 # licensed WADs + emulator ROMs) is provided at RUNTIME from ARCADE_CONTENT_DIR (a
 # bind-mount), so the image stays free of copyrighted bytes and safe to publish.
-# Build the content once with `pnpm build:arcade` and mount it (see docs/dev-notes.md
+# Build the content once with `pnpm build:arcade` and mount it (see docs/design.md
 # + tmp/docker-compose.yml).
 # vendor:mediapipe joins it for the same reason: the conference background filters
 # (blur / virtual background) run a self-hosted MediaPipe segmenter — free engine

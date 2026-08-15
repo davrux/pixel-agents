@@ -10,25 +10,6 @@ import type { SpriteData } from '@pixel/shared/office/types.js';
 let counter = 0;
 const keys = new WeakMap<SpriteData, string>();
 
-/** Render a SpriteData to a data-URL PNG for DOM thumbnails (editor palette). */
-export function spriteToDataURL(sprite: SpriteData): string {
-  const h = sprite.length;
-  const w = h > 0 ? sprite[0].length : 0;
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, w);
-  canvas.height = Math.max(1, h);
-  const ctx = canvas.getContext('2d')!;
-  for (let r = 0; r < h; r++) {
-    for (let c = 0; c < w; c++) {
-      const col = sprite[r][c];
-      if (!col) continue;
-      ctx.fillStyle = col;
-      ctx.fillRect(c, r, 1, 1);
-    }
-  }
-  return canvas.toDataURL();
-}
-
 export function spriteTexture(scene: Phaser.Scene, sprite: SpriteData): string {
   let key = keys.get(sprite);
   if (key && scene.textures.exists(key)) return key;

@@ -33,16 +33,11 @@ import { ZoneStore } from '../zoneStore.js';
 import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
 import { loadTiledRegistry } from './tiledRegistry.js';
 import { importZoneTmj, NO_IMPORT_SUFFIX } from './zoneImport.js';
+import { secretEquals } from '../secretCompare.js';
 
 /** A .tmj is a few hundred KB of JSON, plus any images it carries — well past
  *  express.json's 100kb default, which would reject a real map outright. */
 const MAX_PUSH_BYTES = 32 * 1024 * 1024;
-
-function tokenEquals(provided: string, expected: string): boolean {
-  const a = Buffer.from(String(provided));
-  const b = Buffer.from(String(expected));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
 
 interface PushBody {
   /** Zone to import into. Sent explicitly rather than re-derived here, so the
@@ -96,7 +91,7 @@ export function registerZonePushApi(app: Express, adminToken: string | null, ass
 
 function authorized(req: Request, res: Response, adminToken: string): boolean {
   const presented = req.header('x-pixel-admin-token') ?? '';
-  if (presented && tokenEquals(presented, adminToken)) return true;
+  if (presented && secretEquals(presented, adminToken)) return true;
   res.status(401).json({ error: 'unauthorized' });
   return false;
 }

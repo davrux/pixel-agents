@@ -47,7 +47,7 @@ const tiles = images.map((img, id) => {
     // grid tile (FloorTile/WallTile) is classified by file+position alone,
     // but a collection-of-images tileset has no grid to derive anything
     // from, so identity has to be an explicit property like FurnitureTile's
-    // `id` (see docs/design/tiled-editor-integration.md).
+    // `id` (see docs/design.md).
     type: 'ImageTile',
     image: `png/images/${img.name}.png`,
     imagewidth: img.data.width,

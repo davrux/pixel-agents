@@ -1,6 +1,6 @@
 /**
  * Homeserver URL handling, login, and the per-pixel-user localStorage
- * credential store (docs/design/matrix-e2ee-design.md §3.1, §8.2).
+ * credential store (docs/design.md.1, §8.2).
  *
  * `/.well-known/matrix/client` discovery is a security control, not a
  * nicety: it is a third-party document fetched from an origin the user only

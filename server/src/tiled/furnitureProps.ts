@@ -54,10 +54,6 @@ export function sitFacingFromLetter(value: unknown): Direction | undefined {
   return typeof value === 'string' && value in SIT_FACING ? SIT_FACING[value] : undefined;
 }
 
-export function sitFacingLetter(dir: Direction | undefined): string {
-  return dir === undefined ? '' : (SIT_FACING_LETTER.get(dir) ?? '');
-}
-
 /**
  * Every behaviour property a FurnitureTile carries, with the value that means
  * "behaves like the plainest possible object". The sync script writes exactly

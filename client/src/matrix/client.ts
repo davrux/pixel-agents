@@ -4,7 +4,7 @@
  * (with its memory-only fallback) and `startClient`. `store.ts` treats the
  * result as an opaque handle — it never re-derives any of this.
  *
- * Boot order here is load-bearing (see docs/design/matrix-e2ee-design.md
+ * Boot order here is load-bearing (see docs/design.md
  * §1.1/§1.5/§1.6/§2.6): the lock must be held before the pending-wipe drain,
  * which must run before a namespace can be reused, which must happen before
  * `createClient`, which must happen before `initRustCrypto` (to-device key

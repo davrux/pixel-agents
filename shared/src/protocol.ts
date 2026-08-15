@@ -75,38 +75,6 @@ export interface ZoneConfig {
 // place content was defined outside Tiled. DEFAULT_ZONE above is all that survives
 // of it: the id a client lands in when it asks for no zone in particular.
 
-// ── Simulation tuning (ported from the original engine constants) ─
-
-export const SIM = {
-  /** Server simulation tick rate. */
-  TICK_HZ: 20,
-  /** Character walk speed. */
-  WALK_SPEED_PX_PER_SEC: 48,
-  /** Sub-agents are spawned with negative ids starting here. */
-  SUBAGENT_ID_BASE: -1,
-
-  // Idle / wander behaviour
-  WANDER_PAUSE_MIN_SEC: 2,
-  WANDER_PAUSE_MAX_SEC: 12,
-  WANDER_MOVES_MIN: 2,
-  WANDER_MOVES_MAX: 5,
-  SEAT_REST_MIN_SEC: 30,
-  SEAT_REST_MAX_SEC: 90,
-
-  // Effects / bubbles
-  SPAWN_EFFECT_SEC: 0.3,
-  DESPAWN_EFFECT_SEC: 0.3,
-  WAITING_BUBBLE_SEC: 2,
-} as const;
-
-// ── Client-side animation timing (matches original) ───────────────
-
-export const ANIM = {
-  WALK_FRAME_SEC: 0.15,
-  WALK_FRAMES: 6, // MetroCity: 6 frames per direction
-  TYPE_FRAME_SEC: 0.3,
-} as const;
-
 /** Context budget for the token fuel gauge. */
 export const MAX_CONTEXT_TOKENS = 200_000;
 
@@ -243,7 +211,3 @@ export function hashString(s: string): number {
   return h >>> 0;
 }
 
-/** Deterministically pick one of the four characters from a stable key. */
-export function pickCharacter(key: string): number {
-  return hashString(key) % CHARACTERS.length;
-}

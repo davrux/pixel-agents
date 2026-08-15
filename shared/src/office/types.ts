@@ -366,7 +366,7 @@ export interface PlacedFurniture {
   action?: Action;
   /** Horizontal/vertical mirror, adopted directly from Tiled's own object-flip
    *  concept (named after Tiled's own `FLIPPED_HORIZONTALLY_FLAG`/
-   *  `FLIPPED_VERTICALLY_FLAG` — see docs/design/tiled-editor-integration.md)
+   *  `FLIPPED_VERTICALLY_FLAG` — see docs/design.md)
    *  rather than an invented term. No catalog-level gate on which types may
    *  use either — there's no equivalent gate in Tiled either, and whether a
    *  vertical flip looks right for a given hand-drawn 2.5D piece is the
@@ -528,7 +528,7 @@ export interface OfficeLayout {
    *  tint). The closed floor/wall palette made a continuous
    *  ColorValue{h,s,b,c} pointless: there are only 64 real choices, so the
    *  index into that fixed list IS the color — no HSL math needed anywhere
-   *  at render time (see docs/design/tiled-editor-integration.md). */
+   *  at render time (see docs/design.md). */
   tileColors?: Array<number | null>;
   /** Per-tile floor style, parallel to tiles array — an index into THIS
    *  layout's own `floorSets` table, not a global one. Only meaningful where

@@ -4,7 +4,7 @@
  * by assetLoader.ts. Named manifestUtils for historical reasons — it used to
  * also hold the pre-Tiled assets/furniture/<TYPE>/manifest.json flattening
  * logic (ManifestAsset/ManifestGroup/flattenManifest etc.), retired once
- * that tree was fully migrated (see docs/design/tiled-editor-integration.md).
+ * that tree was fully migrated (see docs/design.md).
  */
 import type { Action, Direction } from '@pixel/shared/office/types.js';
 

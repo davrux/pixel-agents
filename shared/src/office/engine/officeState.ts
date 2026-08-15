@@ -1193,7 +1193,7 @@ export class OfficeState {
     // manual "bring to front" override, then whichever was placed later (the
     // editor convention — you place the base first, decorations on top
     // after; this is also what a Tiled object layer's own list order
-    // becomes on import, see docs/design/tiled-editor-integration.md).
+    // becomes on import, see docs/design.md).
     // An action-less item on top of an actioned one (e.g. a plain decoration
     // sitting on an actioned desk) does NOT shadow the action underneath —
     // only items that are themselves in the running (have an action) get

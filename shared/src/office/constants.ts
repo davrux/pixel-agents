@@ -106,7 +106,6 @@ export const BUBBLE_SITTING_OFFSET_PX = 10;
 export const BUBBLE_VERTICAL_OFFSET_PX = 24;
 
 export const CANVAS_ERROR_TILE_COLOR = '#FF00FF';
-export const WALL_COLOR = '#3A3A5C';
 
 // ── Zoom ─────────────────────────────────────────────────────
 export const ZOOM_MIN = 1;

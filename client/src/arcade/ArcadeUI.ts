@@ -254,7 +254,7 @@ export class ArcadeUI {
       body.innerHTML = allGames.length
         ? '<div style="opacity:.8">No games are enabled for this cabinet.</div>'
         : '<div style="opacity:.8">No games are installed.<br>' +
-          'Add content to the server\'s ARCADE_CONTENT_DIR (see docs/dev-notes.md).</div>';
+          'Add content to the server\'s ARCADE_CONTENT_DIR (see docs/design.md).</div>';
       openPaDialog({ title: '🕹 Arcade', body, onClose: () => opts.onClose?.(), buttons: [] });
       return;
     }

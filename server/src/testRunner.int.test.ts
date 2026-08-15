@@ -1,6 +1,6 @@
 // Runner + isolation harness — proves the server `node:test` lane works and that
 // each test owns a fresh temp SQLite (no shared rows, no run-order dependency).
-// Design Doc: docs/design/desktop-application-design.md (§ Data Layer Testing
+// Design Doc: docs/design.md (§ Data Layer Testing
 // Strategy — real temp SQLite; § Quality Assurance Mechanisms — minimal Node
 // test runner). Real auth behavior is proven in T1.3–T1.6; this file only proves
 // the runner and the per-test isolation harness.

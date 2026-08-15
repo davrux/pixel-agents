@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node --import tsx
 /**
  * Import assets/tiled/zones/<zoneId>.tmj and make it that zone's map. See
- * server/src/tiled/mapBridge.ts and docs/design/tiled-editor-integration.md.
+ * server/src/tiled/mapBridge.ts and docs/design.md.
  * A zone has exactly one map, so this replaces whatever was there — the same
  * write a push performs (see src/tiled/zonePushApi.ts), just locally.
  *

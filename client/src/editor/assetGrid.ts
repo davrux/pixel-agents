@@ -42,15 +42,6 @@ export function spriteThumbCanvas(sprite: SpriteData | undefined, zoom: Zoom = 1
   return cv;
 }
 
-/** Mark whichever `.seg` child matches `value` (by its `data-value`) as
- *  `.on` — the update half of buildZoomSeg, for callers that change the
- *  underlying state elsewhere (e.g. after a re-render) and need the
- *  already-built control to reflect it without rebuilding the control
- *  itself. */
-export function markSegOn(seg: HTMLElement, value: string): void {
-  seg.querySelectorAll<HTMLElement>('.seg').forEach((el) => el.classList.toggle('on', el.dataset.value === value));
-}
-
 /** A 1×/2×/4× segmented zoom control (`.pa-seg`, shares paSkin's styling). */
 export function buildZoomSeg(current: Zoom, onSet: (z: Zoom) => void): HTMLDivElement {
   const seg = document.createElement('div');

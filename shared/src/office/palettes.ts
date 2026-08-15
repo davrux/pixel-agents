@@ -33,7 +33,7 @@ function swatch(hex: string): PaletteSwatch {
  *  wall's ×16 autotile-bitmask multiplier from also multiplying against a
  *  large color count, but 64 colors × 16 masks × 2 sets = 2080 wall tiles is
  *  still a perfectly reasonable sheet size, so there's no reason left to
- *  keep two different palettes). See docs/design/tiled-editor-integration.md. */
+ *  keep two different palettes). See docs/design.md. */
 export const PALETTE_64: PaletteSwatch[] = [
   '#2e222f', '#3e3546', '#625565', '#966c6c', '#ab947a', '#694f62', '#7f708a', '#9babb2',
   '#c7dcd0', '#ffffff', '#6e2727', '#b33831', '#ea4f36', '#f57d4a', '#ae2334', '#e83b3b',

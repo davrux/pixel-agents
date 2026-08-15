@@ -5,7 +5,7 @@
  * slices them into per-(set, pattern|bitmask, swatch) SpriteData for
  * floorTiles.ts / wallTiles.ts. Replaces the old floorTilesLoaded/
  * wallTilesLoaded Colyseus messages — no more live per-pixel colorize (see
- * docs/design/tiled-editor-integration.md).
+ * docs/design.md).
  */
 import { setFloorSheets } from '@pixel/shared/office/floorTiles.js';
 import { setWallSheets } from '@pixel/shared/office/wallTiles.js';

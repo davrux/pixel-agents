@@ -1,5 +1,5 @@
 /**
- * Element-compatible "MEGOLM SESSION DATA" key-file codec (docs/design/matrix-e2ee-design.md §5.3).
+ * Element-compatible "MEGOLM SESSION DATA" key-file codec (docs/design.md.3).
  *
  * matrix-js-sdk@42.1.0 exports no `encryptMegolmKeyFile`/`decryptMegolmKeyFile`/`MEGOLM_KEY_FILE` —
  * that codec lives in the app layer (matrix-react-sdk), not the SDK — so this is hand-rolled on plain
@@ -9,7 +9,7 @@
  * No SDK import here at all: this module only ever sees the plaintext JSON string that
  * `CryptoApi.exportRoomKeysAsJson()`/`importRoomKeysAsJson()` produce/accept, and never inspects it.
  *
- * Secrets handling (docs/design/matrix-e2ee-design.md §8.1): the passphrase is a JS string and cannot be
+ * Secrets handling (docs/design.md.1): the passphrase is a JS string and cannot be
  * zeroed — that is a platform limit, not an oversight; every derived Uint8Array (PBKDF2 output, the AES
  * and HMAC subkeys) is `.fill(0)`ed as soon as it is no longer needed. Nothing here is ever logged.
  */

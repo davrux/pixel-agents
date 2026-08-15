@@ -6,7 +6,7 @@
  * them a real catalog — assets/tiled/furniture-metro-*.tsj. Nothing else has to
  * change: server/src/core/assets/tiledFurniture.ts reads the catalog straight
  * out of every furniture-*.tsj it finds, so these items show up like any other
- * furniture (see docs/design/tiled-editor-integration.md).
+ * furniture (see docs/design.md).
  *
  * Items are found by 8-connected alpha components rather than by a fixed grid:
  * the pack lays its sheets out on a 16px grid but items are of wildly different

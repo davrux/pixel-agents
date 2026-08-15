@@ -118,13 +118,6 @@ export interface LoadedCharacterSprites {
   characters: CharacterDirectionSprites[];
 }
 
-export function mergeCharacterSprites(
-  a: LoadedCharacterSprites,
-  b: LoadedCharacterSprites,
-): LoadedCharacterSprites {
-  return { characters: [...a.characters, ...b.characters] };
-}
-
 /**
  * Read an optional character manifest (char_N.json) and resolve it into a
  * CharacterSpec. Missing/invalid files fall back to the default 16×32 layout

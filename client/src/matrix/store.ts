@@ -1611,7 +1611,7 @@ export class MatrixStore {
 
   // ---- logout ---------------------------------------------------------------
 
-  /** docs/design/matrix-e2ee-design.md §2.4, steps 4/6-9 (wipeNamespace) plus 5/10 (release/teardown).
+  /** docs/design.md.4, steps 4/6-9 (wipeNamespace) plus 5/10 (release/teardown).
    *  Captures the outcome in `lastWipeFailed_` rather than discarding it — never silently succeed on
    *  the one flow whose entire purpose is destroying key material (requirement F / design §2.4 step 9).
    *  Never rejects to the caller. Assumes `this.stop()` (or an equivalent `client.stopClient()`) has
@@ -1651,7 +1651,7 @@ export class MatrixStore {
     this.setStatus('signedout');
   }
 
-  /** docs/design/matrix-e2ee-design.md §2.4, steps 1-3/5/10. Never rejects to the caller. */
+  /** docs/design.md.4, steps 1-3/5/10. Never rejects to the caller. */
   async logout(): Promise<void> {
     if (this.wiping) return;
     this.wiping = true;

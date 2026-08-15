@@ -1,5 +1,5 @@
 /**
- * Tiled .tmj → OfficeLayout importer (see docs/design/tiled-editor-integration.md).
+ * Tiled .tmj → OfficeLayout importer (see docs/design.md).
  * One-way by design: Tiled is where a zone is authored, OfficeLayout is what the
  * engine runs, and nothing ever travels back. There used to be an exporter here
  * (OfficeLayout → .tmj) so a layout edited in-game could be re-opened in Tiled;
@@ -207,7 +207,7 @@ export function importTmjToLayout(
     const groundResolved = resolveGid(baseGid(ground[i]));
     // Classify by Tiled's own `class` (FloorTile — see Pixels.tiled-project),
     // not by which file a tile lives in — a mapper reorganizing tileset files
-    // must not silently break this (see docs/design/tiled-editor-integration.md).
+    // must not silently break this (see docs/design.md).
     if (groundResolved?.class === 'FloorTile') {
       const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId);
       tiles.push(row + 1);
@@ -317,7 +317,7 @@ export function importTmjToLayout(
     const row = hasGid ? rowFromTileObjectY(Number(obj.y), fh) : Math.round(Number(obj.y) / TILE_SIZE);
     // zOffset comes purely from this object's position in Tiled's own
     // Furniture object list (drag to reorder there) — no stored property,
-    // per docs/design/tiled-editor-integration.md.
+    // per docs/design.md.
     const item: PlacedFurniture = {
       uid: generateUid(),
       id,

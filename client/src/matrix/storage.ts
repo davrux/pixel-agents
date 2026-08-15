@@ -1,5 +1,5 @@
 /**
- * Storage namespacing and the sign-out wipe (docs/design/matrix-e2ee-design.md
+ * Storage namespacing and the sign-out wipe (docs/design.md
  * §2). No DOM here — this module only touches localStorage/sessionStorage/
  * IndexedDB.
  *

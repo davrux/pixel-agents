@@ -225,7 +225,7 @@ async function main(): Promise<void> {
     console.log('[server] arcade: no ARCADE_CONTENT_DIR set — no games available');
   }
   // Pre-baked, closed-palette floor/wall tile sheets (see
-  // server/scripts/bake-floor-wall-tiled.mts and docs/design/tiled-editor-integration.md) —
+  // server/scripts/bake-floor-wall-tiled.mts and docs/design.md) —
   // the SAME files Tiled's own tileset images point at. Served as plain
   // static files (cacheable by the browser) so the client loads them once
   // and slices out tiles itself; no live per-pixel colorize step anymore.

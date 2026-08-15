@@ -1,282 +1,251 @@
 # pixel-agents
 
-A port of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents) onto a
-**game-engine stack**: the original office — **all of its graphics, animations,
-fonts, layout and agent behaviour** — runs **1:1**, with only the plumbing
-swapped: **[Colyseus](https://colyseus.io/)** replaces the WebSocket transport
-and **[Phaser](https://phaser.io/)** replaces the canvas renderer. From that base
-it is growing into a small **MMO-style** world (multiple zones, human players
-alongside the agents, NPCs, portals).
+A multi-agent pixel office you can walk around in. Claude agents stream their
+transcripts to a server, which simulates them as characters that walk to a desk,
+type, read, fetch coffee, spawn sub-agents and idle — and you can join them as a
+player, in a world built with the Tiled map editor.
 
-> 🎮 **This is a fun, hobby project** — built for the joy of it, not as a hardened
-> product. Expect rough edges; no stability, security, or support guarantees. Use
+This is a fork of [pixel-agents](https://github.com/pixel-agents-hq/pixel-agents),
+ported onto a game-engine stack: **[Colyseus](https://colyseus.io/)** runs an
+authoritative server simulation, **[Phaser](https://phaser.io/)** renders it. The
+original's art, animations and agent behaviour came over 1:1; everything since —
+zones, human players, NPCs, portals, meetings, the Tiled pipeline — grew from
+there, aimed at a small MMO-style world.
+
+> 🎮 **A fun, hobby project** — built for the joy of it, not as a hardened
+> product. Expect rough edges; no stability, security or support guarantees. Use
 > it at your own risk and have fun. 🙂
 >
-> 🤖 **It is also a pure AI project** — essentially all of the code in this fork was
-> written by an AI coding agent. Treat it accordingly.
-
-Multiple Claude clients stream their transcripts to the server; each agent
-becomes a pixel character that walks to a desk, types/reads, idles and wanders,
-shows permission/waiting bubbles, spawns sub-agents, and shares the office with
-the occasional pet — exactly like the original.
-
-## How the 1:1 port works
-
-```
-Claude clients ──JSONL──► /feed (WS, shares the viewer port)
-   feeder/…feeder.cjs            │ transcriptParser → AgentEvent
-                                 ▼
-                            AgentDirector (registry + event forwarder)
-                                 │  original wire messages ("m" channel)
-                                 ▼
-Browser (Phaser) ◄── Colyseus :2567 ── RelayRoom
-   │                                     • decodes PNG assets → SpriteData (pngjs)
-   │                                     • serves default-layout-1.json
-   │                                     • replays/streams agentCreated, agentStatus,
-   │                                       agentToolStart, agentTeamInfo, … verbatim
-   ▼
- office engine (ported 1:1 from the original webview)
-   OfficeState FSM · characters · pets · sprites · colorize · layout
-   ▼
- PhaserRenderer  — turns the engine's SpriteData into Phaser textures and draws
-   floor / walls / furniture / characters / pets / bubbles with the same z-sort
-```
-
-- **The office engine is the original code**, copied unchanged into
-  `client/src/office/` (`OfficeState`, `characters`, `pets`, `sprites`,
-  `colorize`, `floorTiles`, `wallTiles`, `layout`). Only the canvas `renderer.ts`
-  and the React/WebSocket glue were dropped.
-- **Colyseus is pure transport.** The room carries the *original* `ServerMessage`
-  protocol on one channel (`m`); the client feeds those straight into a port of
-  the old message handler (`client/src/net/bridge.ts`) which drives `OfficeState`.
-  Room state is empty — there is no server-side simulation.
-- **The server decodes the assets** (reusing the original `assetLoader` +
-  `core/assets` pngjs decoders) and sends the same `characterSpritesLoaded` /
-  `floorTilesLoaded` / `furnitureAssetsLoaded` / … messages on join.
-- **`PhaserRenderer`** converts each `SpriteData` colour-grid into a cached
-  Phaser texture (`render/sprites.ts`) and renders with the original draw order,
-  depth-sort, sitting offsets, colorization and bubble placement.
-
-## Packages (pnpm workspace)
-
-| Package | What |
-|---|---|
-| `shared/` | `WORLD_ROOM` + the internal `AgentEvent` type shared by ingest and the room. |
-| `server/` | Colyseus `RelayRoom`, asset decoding (`assetLoader` + `src/core/assets`), `/feed` ingest + `transcriptParser`, `AgentDirector`, mock driver. |
-| `client/` | Phaser scene, the ported `office/` engine, `PhaserRenderer`, the Colyseus↔engine `bridge`. |
-| `feeder/` | Standalone Node script that streams local `~/.claude/projects/**.jsonl` to `/feed`. |
-| `desktop/` | Electron shell that wraps the built client as a native desktop app (secure `app://` origin, OS-keychain token storage, screen-share source picker, unread-badging system tray icon). |
-| `assets/` | The original pixel-agents art: `characters/`, `floors/`, `walls/`, `furniture/` (+manifests), `pets/`, and `default-layout-1.json`. Decoded by the server. |
-
-Font: **FS Pixel Sans** (`client/public/fonts/`), the original's UI font.
-
-## Run (development)
-
-```bash
-pnpm install
-
-# Terminal 1 — Colyseus server (+ 6 synthetic agents so the office is alive):
-MOCK=6 pnpm dev:server          # http://localhost:2567 (viewer + Colyseus + /feed)
-
-# Terminal 2 — Phaser client (hot-reload dev server only; prod is served by the
-# server itself, see Build below):
-pnpm dev:client                 # http://localhost:5173
-```
-
-Stream a **real** Claude agent into the office (the feed shares the viewer port):
-
-```bash
-scripts/pixel-agents.sh --token <your-agent-token>              # the public server
-scripts/pixel-agents.sh --token <your-agent-token> \
-  --server ws://localhost:2567/feed                             # your own
-```
-
-`--token` is your **per-user agent token** (copy it from in-app Settings); the
-server resolves it to your account and labels your agents accordingly. In open
-dev mode (no `PIXEL_ADMIN_TOKEN`) there are no accounts, so any value is accepted
-and the agents are labelled generically.
-
-### Build & run (single server, single port)
-
-```bash
-pnpm vendor:mediapipe   # once: self-hosted segmenter for the video background
-                        # filters (~19 MB into client/public/mediapipe, gitignored)
-pnpm build          # type-checks + builds the client into client/dist
-pnpm start          # one server: viewer, Colyseus and /feed all on one port
-```
-
-`vendor:mediapipe` is optional but recommended: it is what makes the conference
-**Filter** button (background blur / virtual background) work, self-hosted with no
-CDN. Without it everything else runs and the picker says how to install it. The
-Docker image and the AppImage workflow run it for you.
-
-In production there is **no separate client server** — `pnpm start` (and the
-Docker image) serve the built client from the same origin. A viewer only needs
-a browser pointed at the server URL; an agent only needs Claude + the feeder.
-
-### Desktop client (Electron)
-
-`desktop/` is a thin Electron shell around the same built web client. It exists
-so the office can run as a native window with two things a plain browser tab
-can't give you: a **stable secure origin** (`app://bundle`) so `getUserMedia` /
-WebRTC screen-sharing and persistent settings work reliably, and **OS-keychain
-storage** for your login token (encrypted at rest via Electron `safeStorage`).
-It also adds an in-window screen-source picker and HUD window controls.
-
-The shell only renders the UI — it still talks to a **server you point it at**
-(local or remote). It bundles the client build, not the server.
-
-**Run in development** (builds the client + the Electron main/preload, then
-launches the app):
-
-```bash
-pnpm dev:desktop
-```
-
-Make sure a server is running (`pnpm dev:server`, or a remote one) to connect
-to. On first launch the app shows a **Connection** screen — enter the server URL
-(e.g. `http://localhost:2567`); it probes `/health`, then takes you to sign-in.
-The server URL and token persist across relaunches; you can change the server or
-sign out from within the app.
-
-**A working OS keyring is required to sign in.** The bearer token is stored via
-Electron `safeStorage`, and the app refuses to fall back to writing it in
-plaintext — so if `safeStorage` cannot encrypt, sign-in cannot complete even
-with correct credentials against a reachable server. macOS (Keychain) and
-Windows (DPAPI) always have one. **On Linux you need a running Secret Service
-provider** — `gnome-keyring-daemon`, or KWallet with its
-`org.freedesktop.secrets` shim — unlocked for your session:
-
-```bash
-# Is a Secret Service provider on the session bus?
-busctl --user list | grep org.freedesktop.secrets
-```
-
-No output means no keyring: install and start `gnome-keyring`, and the sign-in
-screen will say so rather than blaming your connection. Note this is about the
-*session* keyring, not the desktop environment: the app forces Chromium's
-`gnome-libsecret` backend precisely so tiling WMs (Hyprland, sway, …) work,
-since Chromium otherwise picks a backend from the desktop-environment *name* and
-silently degrades to its plaintext store.
-
-**Build a distributable** (currently a Linux AppImage, unsigned):
-
-```bash
-pnpm dist:desktop     # → desktop/release/pixel-agents-<version>-<arch>.AppImage
-```
-
-`pnpm build:desktop` just compiles the shell (client build + Electron
-main/preload) without packaging. Both require `electron`'s postinstall to have
-fetched its Chromium binary (allowed in `pnpm-workspace.yaml`).
-
-CI (`.github/workflows/desktop.yml`) builds the AppImage on every push. A `v*`
-tag gets it attached to that release; every `master` commit overwrites the
-rolling `latest` prerelease, so the newest master build is always at a fixed URL:
-
-```bash
-curl -LO https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage
-chmod +x pixel-agents-latest-x86_64.AppImage
-```
-
-#### System tray (desktop only)
-
-The app puts an icon in the system tray / status area, and **badges it red while
-you have unread Matrix messages** — the same count the ✉ button shows in the
-HUD, so a minimised or hidden window still tells you someone is waiting. The
-chat client syncs in the background whether or not its panel was ever opened, so
-the badge is live from launch.
-
-Its menu spells the count out (`3 new messages`), and carries **Show Pixel
-Agents** / **Hide to tray** / **Quit**. On Linux the menu is also what a left
-click opens — StatusNotifier/AppIndicator does not deliver a plain click to the
-app — so "Show Pixel Agents" is the way back to a hidden window there.
-
-**Close-button behaviour** is a setting in that menu: **Close button hides to
-tray**. It is **off by default** — closing the window quits the app, exactly as
-before — and the choice is remembered in `pixel-config.json` next to your server
-URL. Turned on, every route to closing the window parks it in the tray instead
-(the OS titlebar ✕, the HUD's own ✕, Alt/Cmd+F4); **Quit** in the tray menu, and
-an OS logout, still quit properly. If the tray icon fails to appear at all the
-setting is ignored for that run, so it can't hide the window somewhere you can't
-get it back from — and launching the app again always reveals the existing
-window rather than starting a second copy.
-
-The tray needs a status-area host on Linux (a panel implementing
-StatusNotifierItem, e.g. Waybar, Quickshell, the KDE/GNOME trays). Without one
-the icon simply never appears and nothing else changes:
-
-```bash
-# Is a StatusNotifier host running?
-busctl --user list | grep StatusNotifierWatcher
-```
-
-#### Mumble voice (desktop only)
-
-The desktop app is also a **Mumble client**. Open the **🎧 Mumble** panel from
-the top bar, set a server, name and (optionally) a certificate behind its ⚙
-button, then flip its switch: you get the server's channel tree, its
-users, push-to-talk with a threshold gate, and per-user volume — alongside, but
-independent of, the built-in zone voice. The 📌 pin keeps the panel open while
-you play instead of closing when you open another menu. You can only be in one
-call at a time, so turning Mumble on parks zone voice (and a conference parks
-both).
-
-**Join/leave alerts** (on by default, toggled in the same panel) raise a normal
-OS notification when someone enters or leaves *your* channel — so an unattended
-window still tells you a colleague dropped in. Moves that don't touch your
-channel stay silent, your own channel switch never announces the people already
-there, and a burst (a server restart, a group move) is coalesced into one
-notification. Clicking it focuses the app window.
-
-It connects **straight from your machine** to the voice server: the pixel-agents
-server never relays it and holds none of your credentials. Connection details
-live in Electron's `userData`; the server password and certificate passphrase go
-to the OS keychain. On first connect you are asked to trust the voice server's
-certificate by fingerprint, the same prompt the app uses for self-signed servers.
-
-Certificates are Mumble's notion of an account. Point *Identity* at the `.p12`
-your Mumble client exports (Configure → Certificate Wizard → Export) to appear as
-your existing registered user; without one you connect as an unregistered guest.
-Once connected, **Register me** asks the server to register you, if it allows it.
-
-Browsers can't open the raw TLS socket Mumble needs, so this is desktop-only. An
-operator can set `MUMBLE_HOST`/`MUMBLE_PORT`/`MUMBLE_CHANNEL` (see
-`.env.example`) purely so the app can *suggest* the community's address.
-
-### Accounts & login
-
-Set **`PIXEL_ADMIN_TOKEN`** (or `--token`) to enable accounts. Players sign in
-with a **login id + password**; presenting the admin token additionally makes
-that user an **admin** and **creates the account if it doesn't exist yet**
-(a password, min 6 chars, is required to create one). There is no open
-self-registration and no anonymous mode while the token is set — bootstrap the
-first admin by logging in with the token, a new login id, and a password.
-
-- **Login id** (`user_id`) is lowercase-unique and immutable; the **display
-  name** is free and shown on your avatar (empty → the login id).
-- Each user gets a **per-user agent token** (Settings → copy) that their agents
-  pass as `--token`; it identifies the owner, so their agents follow them.
-- **Editing the world/assets** (layouts, zones, the shared character gallery) is
-  **admin-only**. Everyone can edit their own avatar.
-- Change password / display name and view your agent token under **Settings**.
-
-With no admin token set, the server runs in **open dev mode**: no login, an
-anonymous viewer, and editing open to all. All state lives in a single
-`pixel.db` (in `PIXEL_STREAM_DATA_DIR`, default `~/.pixel-agents2`).
-
-## Status
-
-Ported 1:1 and verified: the default office layout, the original character /
-furniture / floor / wall / pet sprites and animations, the FSM behaviour
-(walk-to-seat, typing/reading, idle-only-when-standing, wandering), permission
-and waiting bubbles, sub-agents, team colours, and pets.
-
-Not yet ported: the in-browser layout **editor**, the per-pixel **matrix**
-spawn/despawn effect (currently a fade), and furniture auto-on/animation
-(furniture renders in its default state). These are deferred.
+> 🤖 **A pure AI project** — essentially all of the code in this fork was written
+> by AI coding agents, which is also why the source is commented the way it is:
+> the *why* is written down, because the next contributor has no memory of the
+> last conversation.
 
 ## Credits
 
-The character/world art is based on the amazing work of **JIK-A-4 — Metro City**
-(free top-down character pack):
-<https://jik-a-4.itch.io/metrocity-free-topdown-character-pack>.
+The character and world art builds on the wonderful **MetroCity** pack by
+**[JIK-A-4](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack)** —
+a free top-down character pack. The office's own sprites come from the original
+pixel-agents. UI font: **FS Pixel Sans**.
+
+## Quick start
+
+```bash
+pnpm install
+pnpm dev:server      # server + Colyseus + agent feed on http://localhost:2567
+pnpm dev:client      # http://localhost:5173 (hot reload; production is one port)
+```
+
+`MOCK=6 pnpm dev:server` populates the office with six synthetic agents so it is
+alive without connecting anything.
+
+For production there is **one** process and **one** port — the server also serves
+the built client:
+
+```bash
+pnpm build && pnpm start
+```
+
+Stream a real Claude agent in:
+
+```bash
+scripts/pixel-agents.sh --token <your-agent-token>                 # public server
+scripts/pixel-agents.sh --token <your-agent-token> \
+  --server ws://localhost:2567/feed                                # your own
+```
+
+The token is your per-user agent token (in-app Settings → copy). It identifies
+the owner, so your agents follow you. Set `PIXEL_ADMIN_TOKEN` to enable accounts:
+players then sign in with a login id + password, and presenting the admin token
+at login makes that user an admin, creating the account if it is new — that is
+how you bootstrap the first one. Without the token the server runs in open dev
+mode: no login, editing open to everyone. All state lives in a single `pixel.db`
+under `PIXEL_STREAM_DATA_DIR` (default `~/.pixel-agents2`).
+
+There is also an **Electron desktop app** (`pnpm dev:desktop`, `pnpm
+dist:desktop`) — the same client in a native window, with an OS-keychain-stored
+login, a screen-share source picker, a system tray with an unread badge, and a
+built-in Mumble client. See [docs/design.md](docs/design.md).
+
+---
+
+# Building a world with Tiled
+
+The world is **content, not code**. Every zone is authored in
+[Tiled](https://www.mapeditor.org/) and nothing about it is generated: if you
+want a chair to be sittable, a monitor to light up, or a door to lead somewhere,
+you say so on the tile — the engine never infers it.
+
+Open `assets/tiled/Pixels.tiled-project` in Tiled. Everything below lives in that
+project (**View → Custom Types Editor**), which is why the properties show up on
+your tiles and objects at all.
+
+## A zone is one map
+
+A zone is a room in the game and exactly one `.tmj` file:
+`assets/tiled/zones/<zoneId>.tmj`. Adding one *is* adding a zone — push a map
+for a new id and the server registers it with sensible defaults. There is no
+zone table in the code and nothing creates a zone from inside the game.
+
+Maps are versioned in git so levels are diffable and shareable, but **a map only
+reaches a server by being pushed** — nothing reads those files at runtime, and a
+deploy installs no map:
+
+```bash
+scripts/push-zones.sh                          # every map → 127.0.0.1:2567
+scripts/push-zones.sh uponu --watch            # re-push that one on every save
+scripts/push-zones.sh --server=deploy.host:443 # push everything to production
+```
+
+Authentication is `PIXEL_ADMIN_TOKEN`. The push also sends any tilesets and PNGs
+the server is missing (compared by content hash, so a one-line map edit doesn't
+ship megabytes). `*-noimport.tmj` is never imported — that suffix is your scratch
+copy.
+
+## The four layers
+
+Every map has these, identified by their **class**, not their name:
+
+| Class | Holds | Offset |
+|---|---|---|
+| `GroundLayer` | floor tiles, painted **everywhere a room reaches** — walls no longer cost a cell | none |
+| `WallLatticeLayer` | wall pieces, one per lattice point (the corner shared by four cells) | `offsetx`/`offsety` **−8** |
+| `WallFaceLayer` | north-wall face pieces — the flat surface a room is looked at | none |
+| `CollisionLayer` | the single "blocked" marker tile from `collision.tsj` | none |
+
+Walls are **edges on a half-offset lattice**: a wall piece's N/E/S/W bitmask says
+which of the four edges meeting at that point are wall, so the Wang/Terrain brush
+works as usual — you just paint on the boundaries. Two neighbouring points that
+disagree about a shared edge both get their way, so you cannot paint a half-open
+wall by accident. A faced wall is two things: face pieces on `WallFaceLayer` in
+the rows above the base, and an edge run along that base on `WallLatticeLayer` —
+the face is the picture, the lattice is the barrier. Don't paint Collision over
+faces; a face cell is non-walkable already.
+
+Objects live on object layers: **Furniture**, **Actions**, **Images**, **Text**.
+
+## Furniture: the type and the placement
+
+Furniture is two things, and the difference matters:
+
+- a **`FurnitureTile`** in `assets/tiled/furniture*.tsj` — the *catalog entry* for
+  a kind of thing, carrying its default behaviour;
+- a **`FurnitureObject`** in a map's Furniture layer — one *placement*, carrying
+  only the overrides it actually makes.
+
+Absence on a placement means "whatever the type says". Writing every property
+onto every placement to be thorough is how you turn all chairs in a map
+unsittable on the next import.
+
+Every catalog tile carries **every** property with its default filled in — that
+is what `scripts/sync-furniture-properties.sh` maintains — so a mapper never has
+to know a property exists in order to use it. Run it (`--check` in CI) whenever
+the set of properties changes.
+
+| Property | Type | Meaning |
+|---|---|---|
+| `id` | string | Stable catalog identifier. Required on the tile. |
+| `label` | string | Display name; falls back to `id`. |
+| `canSitOn` | bool | May a character sit here? Every footprint tile below the `backgroundTiles` rows becomes a seat, so a two-tile couch seats two. |
+| `sitFacing` | `N`/`E`/`S`/`W` | Which way a sitter looks; blank = `N`. Also decides z-order: an `N`-facing seat draws *in front of* the character. |
+| `petCanSitOn` | bool | May a pet perch on top? |
+| `canWalkOver` | bool | A floor decal — rug, doormat, marking. Blocks nothing and draws just above the floor, below everyone. |
+| `backgroundTiles` | int | How many rows from the top of the footprint stay walkable *and* buildable-over (a wall painting's row, a portal pad's tile). |
+| `onState` | string | The catalog `id` this tile turns *into* when switched on — see below. |
+| `actionKind` | enum | What it does when approached — see below. |
+| `actionVideo` | bool | `meetingRoom` only: camera offered, or audio/chat only. |
+| `actionUrl` | string | `iframe` only, must be `https://`. |
+| `actionPose` | enum | `appliance` only, e.g. `coffee`. |
+| `meetingRoomName` | string | `meetingRoom` only: what the room is called. |
+
+Placements additionally take `name`, `approachSides` (a flags enum — **empty
+means "every open side", not "none"**) and `approachThrough` (this item may be
+searched *past* when another item looks for its approach tiles, e.g. an appliance
+behind a kitchen counter).
+
+There is deliberately **no category and no taxonomy**. Behaviour used to be
+inferred from one — chairs were sittable because their category said `chairs` —
+which meant a correctly drawn, correctly categorised chair could still be
+unsittable with nothing in Tiled to point at.
+
+Native Tiled features do the rest: **tile animation** (right-click → Tile
+Animation Editor) for a flickering lamp or a spinning fan, and object **flip**
+for mirroring a placement.
+
+## Actions — what happens when you get there
+
+`actionKind` is a discriminated union: it decides which of the other `action*`
+properties is read at all. It can sit on a catalog tile (the type's default), on
+a placement (an override), or on an **`ActionArea`** — a Point or Rectangle on
+the Actions layer, for a trigger with no furniture behind it. The area's
+position *is* the data; a 10×10 meeting room and a single tile use the same
+class.
+
+| `actionKind` | What it does | Reads |
+|---|---|---|
+| *(empty)* | nothing — scenery | — |
+| `meetingRoom` | walking in joins a video/audio call for that area | `actionVideo`, `meetingRoomName` |
+| `meetingManager` | opens the meeting-room manager | — |
+| `iframe` | opens a web page in-game | `actionUrl` |
+| `appliance` | walk up, use it, adopt a pose — `coffee` is the coffee machine | `actionPose` |
+| `arcade` | opens the arcade cabinet | — |
+| `portal` | walking onto its footprint offers a destination picker | — |
+| `toggle` | a light switch: click flips this tile's own on/off pair | — |
+| `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
+
+**Travel is content.** A portal is just furniture whose action is `portal` — a
+door, a beam pad. Never hard-code a coordinate jump.
+
+## On/off state — the off tile names the on tile
+
+A monitor or a lamp is **two catalog entries**, not one tile with a boolean. Set
+`onState` on the *off* tile to the `id` of the *on* tile; the on tile needs
+nothing. What flips it follows from the action:
+
+| The tile has | Behaviour |
+|---|---|
+| `actionKind: toggle` | a light switch — clicking flips it, and nothing else does |
+| `onState` and no toggle action | it lights up on its own while an active agent sits facing it |
+
+If `onState` names an id that doesn't exist, the tile simply never toggles.
+
+## Images and text
+
+**Images** are GID-backed tile objects placed from the generated `images.tsj`
+(Insert Tile, `T`) — Tiled has no standalone image object, so an image is
+structurally a furniture placement under a different name, carrying an
+`imageId`. Add tiles to `images.tsj` with Tiled's own Tileset editor (they may
+point at any PNG on disk) or re-bake it. **Text** is Tiled's native text object;
+nothing custom about it.
+
+## Enums, in one place
+
+| Enum | Values |
+|---|---|
+| `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
+| `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `portal`, `toggle`, `spawnPoint` |
+| `ApplianceKind` | *(empty)*, `coffee` |
+
+## Two things that will bite you
+
+**A placement dragged from the Tilesets panel has no class**, so Tiled offers it
+no properties — it still imports correctly (the tile's own values apply), you
+just cannot edit its overrides until it has one. Pick `FurnitureObject` in its
+Class field, or run `scripts/sync-furniture-properties.sh`, which stamps the
+class onto every class-less furniture placement.
+
+**`sitFacing` on a tile describes the unflipped art.** A flipped placement
+mirrors it, so an `E`-facing chair flipped horizontally seats you facing `W`. A
+value set on the *placement* is taken literally instead — you already know which
+way you flipped that one.
+
+---
+
+## Where to read more
+
+- **[AGENTS.md](AGENTS.md)** — the working agreements: architecture invariants,
+  security rules, conventions. Read this before changing code.
+- **[docs/design.md](docs/design.md)** — how the system is built and why: the
+  authoritative simulation, zones, the Tiled pipeline, auth, the desktop shell
+  and the voice/chat integrations.

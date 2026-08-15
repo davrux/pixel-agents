@@ -1,5 +1,5 @@
-// Desktop cross-origin auth — integration Test - Design Doc: docs/design/desktop-application-design.md
-// PRD AC source: docs/prd/desktop-application-prd.md (AC-005..AC-012)
+// Desktop cross-origin auth — integration Test - Design Doc: docs/design.md
+// PRD AC source: docs/design.md (AC-005..AC-012)
 // Generated: 2026-07-01 | Budget Used: integration 3/3, fixture-e2e 0/3, service-integration-e2e 0/2
 //
 // ============================================================================

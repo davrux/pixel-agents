@@ -1,5 +1,5 @@
 /**
- * Facade over matrix-js-sdk's `CryptoApi` (docs/design/matrix-e2ee-design.md §4.3, §5.2-§5.7, §8.1).
+ * Facade over matrix-js-sdk's `CryptoApi` (docs/design.md.3, §5.2-§5.7, §8.1).
  *
  * `createMatrixCrypto()` is called BEFORE `createClient` — its `callbacks` (the Secret Storage / "4S"
  * broker) are handed to `createClient({ cryptoCallbacks })`, and `attach()` is called after

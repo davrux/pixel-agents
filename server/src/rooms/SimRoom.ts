@@ -733,7 +733,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return { type: 'zoneList', zones: this.zones.list(), current: this.zone.id };
   }
 
-  /** Re-read + push the (per-viewer filtered) zone registry to everyone here. */
+  /** Re-read + push the zone registry to everyone here. Deliberately unfiltered:
+   *  a private zone stays visible so its name isn't a secret, and entry — not
+   *  listing — is what gateEntry refuses (see ZoneConfig.private). */
   private broadcastZoneList(): void {
     for (const client of this.clients) client.send('m', this.zoneListMessage());
   }

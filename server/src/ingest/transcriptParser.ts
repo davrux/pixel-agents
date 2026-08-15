@@ -72,15 +72,18 @@ export function parseLine(
     return;
   }
 
-  // Team metadata (Claude: teamName / agentName at the record root).
-  const teamName = typeof rec.teamName === 'string' ? rec.teamName : undefined;
+  // Team metadata (Claude: teamName / agentName at the record root). Capped like
+  // every other string that reaches the wire: these two land in the synced schema
+  // and are drawn over an avatar, so an unbounded value would be broadcast to
+  // every viewer in the zone.
+  const teamName = typeof rec.teamName === 'string' ? trunc(rec.teamName, MAX_TEAM_NAME) : undefined;
   if (teamName && teamName !== st.teamName) {
     st.teamName = teamName;
     emit({
       t: 'team',
       id: agentId,
       teamName,
-      agentName: typeof rec.agentName === 'string' ? rec.agentName : undefined,
+      agentName: typeof rec.agentName === 'string' ? trunc(rec.agentName, MAX_TEAM_NAME) : undefined,
     });
   }
 
@@ -164,6 +167,9 @@ function base(p?: string): string {
   const parts = p.split('/');
   return parts[parts.length - 1] || p;
 }
+
+/** Cap for the team/agent labels drawn over an avatar. */
+const MAX_TEAM_NAME = 32;
 
 function trunc(s: string, n = 40): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;

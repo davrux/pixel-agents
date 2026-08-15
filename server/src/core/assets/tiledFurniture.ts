@@ -2,7 +2,7 @@
  * Reads the furniture catalog straight from Tiled tileset JSON files
  * (assets/tiled/furniture-*.tsj) — the source of truth this migrated to from
  * the old assets/furniture/<TYPE>/manifest.json tree (see
- * scripts/migrate-furniture-to-tiled.mjs and docs/design/tiled-editor-integration.md).
+ * scripts/migrate-furniture-to-tiled.mjs and docs/design.md).
  * No export/import round-trip: the .tsj on disk IS the catalog data.
  *
  * Custom per-tile properties (all optional besides `id`):
