@@ -1915,19 +1915,32 @@ export class OfficeScene extends Phaser.Scene {
     return this.meetingConf ?? this.conf;
   }
 
-  /** Reflect call state on the bar: the Audio live dot + the quick-access mic
-   *  button (visible only while there is a call). */
-  private updateVoiceBarButtons(s: { connected: boolean; micOn: boolean }): void {
-    this.audioDot?.classList.toggle('live', s.connected);
+  /**
+   * Reflect the call we are in on the top bar: the Audio live dot and the
+   * quick-access mic button (shown only while there is a call).
+   *
+   * Derived from {@link activeCall}, never from a state object handed in: the
+   * call that ends is not always the one that reports last (leaving an area
+   * disconnects asynchronously, and walking into the next one starts a new call
+   * meanwhile), and the bar showed a green dot over a call that had already hung
+   * up. Asking "what am I in right now" cannot go stale that way.
+   */
+  private refreshCallBar(): void {
+    const call = this.activeCall();
+    const state = call?.isConnected() ? call.currentState() : null;
+    this.audioDot?.classList.toggle('live', !!state);
     if (this.micBarBtn) {
       // Keep the mic glyph; a red ⊘ (CSS) marks the muted state.
-      this.micBarBtn.style.display = s.connected ? '' : 'none';
-      this.micBarBtn.classList.toggle('danger', !s.micOn);
-      this.micBarBtn.title = s.micOn ? 'Mute your mic' : 'Unmute your mic';
-      if (this.micBarEqEl && !s.connected) this.micBarEqEl.style.setProperty('--l', '0');
+      this.micBarBtn.style.display = state ? '' : 'none';
+      this.micBarBtn.classList.toggle('danger', !state?.micOn);
+      this.micBarBtn.title = state?.micOn ? 'Mute your mic' : 'Unmute your mic';
     }
-    // No call → the meter has no live level to show and Test takes over again.
-    if (!s.connected) this.audioSettingsUI?.setMicLevel(null);
+    // No call → no live level: park the equaliser and hand the Audio panel's
+    // meter back to its own Test button.
+    if (!state) {
+      this.micBarEqEl?.style.setProperty('--l', '0');
+      this.audioSettingsUI?.setMicLevel(null);
+    }
   }
 
   // ── Top bar + shared popover shells ──────────────────────────────
@@ -2876,8 +2889,8 @@ export class OfficeScene extends Phaser.Scene {
     void this.conf?.disconnect();
     this.conf = undefined;
     this.confUI.close();
-    // Back out of the meeting → rejoin zone voice if the user had it on.
     this.mumble?.voice?.resume('conference');
+    this.refreshCallBar();
   }
 
   private onConferenceMembers(m: Record<string, unknown>): void {
@@ -2927,10 +2940,14 @@ export class OfficeScene extends Phaser.Scene {
     // Open the window first (it owns the stage element the tiles render into),
     // then connect the media into it.
     this.confUI.open(title, this.conferenceHandlers());
-    this.conf = new LiveKitConference(this.confUI.stage, this.confUI.stage, {
+    // Captured so its callbacks can tell "my call" from "a call that has since
+    // been replaced": walking straight from one call into the next leaves the old
+    // instance's teardown state in flight, and it must not blank the new one's.
+    const conf: LiveKitConference = new LiveKitConference(this.confUI.stage, this.confUI.stage, {
       onState: (s) => {
+        if (this.conf !== conf) return;
         this.confUI.setState(s);
-        this.updateVoiceBarButtons(s);
+        this.refreshCallBar();
       },
       onDevices: (d) => this.confUI.setDevices(d),
       onChat: (msg) => this.confUI.addChat(msg),
@@ -2939,9 +2956,10 @@ export class OfficeScene extends Phaser.Scene {
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
       onSpeakers: (identities) => this.setVoiceSpeakers(identities),
-      onMicLevel: (level) => this.onCallMicLevel(level),
+      onMicLevel: (level) => this.conf === conf && this.onCallMicLevel(level),
     });
-    // You can't be in two voice calls at once — pause zone voice while in the
+    this.conf = conf;
+    // You can't be in two voice calls at once — pause Mumble while in the
     // meeting (resumed in leaveConferenceLocal).
     this.mumble?.voice?.suspend('conference');
     void this.conf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {
@@ -3039,7 +3057,12 @@ export class OfficeScene extends Phaser.Scene {
     this.confUI.close();
     this.meetingArea?.setVisible(false);
     this.meetingArea?.setHandlers(null);
+    // Back to "not in a call": the call's own teardown state is addressed to an
+    // instance we have already dropped, so without this the hidden popup keeps
+    // its last "● live" and shows it for a moment the next time it opens.
+    this.meetingArea?.setState({ connected: false, micOn: true, camOn: true });
     this.mumble?.voice?.resume('meetingArea');
+    this.refreshCallBar();
   }
 
   /** Retarget the live call from the small ambient popup into the full
@@ -3076,11 +3099,12 @@ export class OfficeScene extends Phaser.Scene {
       this.meetingArea?.setState({ connected: false, micOn: true, camOn: true, error: 'Video not configured on the server.' });
       return;
     }
-    this.meetingConf = new LiveKitConference(this.meetingArea!.stage, this.meetingArea!.screens, {
+    const conf: LiveKitConference = new LiveKitConference(this.meetingArea!.stage, this.meetingArea!.screens, {
       onState: (s) => {
+        if (this.meetingConf !== conf) return; // stale instance, see onConferenceToken
         this.meetingArea?.setState(s);
         this.confUI.setState(s);
-        this.updateVoiceBarButtons(s);
+        this.refreshCallBar();
       },
       onDevices: (d) => {
         this.meetingArea?.setDevices(d);
@@ -3092,7 +3116,7 @@ export class OfficeScene extends Phaser.Scene {
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
       onSpeakers: (identities) => this.setVoiceSpeakers(identities),
-      onMicLevel: (level) => this.onCallMicLevel(level),
+      onMicLevel: (level) => this.meetingConf === conf && this.onCallMicLevel(level),
       onScreens: (n) => {
         // The mini popup has no room for a screen share (meetingArea's own
         // screens container stays hidden) — expand into the full window,
@@ -3100,7 +3124,8 @@ export class OfficeScene extends Phaser.Scene {
         if (n > 0 && !this.meetingAreaExpanded) this.expandMeetingArea();
       },
     });
-    // You can't be in two voice calls at once — pause zone voice while in the
+    this.meetingConf = conf;
+    // You can't be in two voice calls at once — pause Mumble while in the
     // meeting (resumed in leaveMeetingAreaLocal).
     this.mumble?.voice?.suspend('meetingArea');
     void this.meetingConf.connect(m.url as string, m.token as string, { video: m.video !== false }).catch(() => {

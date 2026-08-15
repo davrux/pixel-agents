@@ -891,6 +891,13 @@ export class LiveKitConference {
     return this.room?.state === 'connected';
   }
 
+  /** What this call would report right now — for anything that has to ask
+   *  instead of remembering the last onState it happened to receive (see the
+   *  top bar's refreshCallBar). */
+  currentState(): ConferenceState {
+    return { connected: this.isConnected(), camOn: this.camOn, micOn: this.micOn, screenOn: this.screenOn };
+  }
+
   async disconnect(): Promise<void> {
     const r = this.room;
     this.room = null;
@@ -907,6 +914,13 @@ export class LiveKitConference {
 
   private cleanup(): void {
     void this.filters.destroy(); // also covers a drop we didn't initiate (idempotent)
+    // A call that has ended has to SAY so: whoever shows its state (the meeting
+    // window, the top bar's live dot and mic button) otherwise keeps showing the
+    // last thing it heard, which was "connected". Reset the published flags first
+    // so the notify at the end reports the truth and not a lit mic on a dead call.
+    this.camOn = false;
+    this.micOn = false;
+    this.screenOn = false;
     // Here rather than in disconnect(), so a call the server or the network ends
     // also releases the microphone — otherwise the device light stays on.
     this.micGraph?.stop();
@@ -922,6 +936,7 @@ export class LiveKitConference {
     this.peerVolumes.clear();
     this.peerMuted.clear();
     this.lastReaction.clear();
+    this.notify();
   }
 
   private notify(error?: string): void {
