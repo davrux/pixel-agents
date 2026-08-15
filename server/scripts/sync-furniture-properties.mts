@@ -29,8 +29,8 @@
  * catalog readers, the map bridge and these files have to agree, and a tile
  * missing a property silently behaves as if someone had chosen its default.
  *
- * Usage (from server/):
- *   node --import tsx scripts/sync-furniture-properties.mts [--check] [--fix-gids]
+ * Usage:
+ *   scripts/sync-furniture-properties.sh [--check] [--fix-gids]
  *     --check      report what would change and exit 1 instead of writing (CI)
  *     --fix-gids   also renumber any map whose tileset table went stale (see
  *                  staleGidTable) — reported but never repaired without this

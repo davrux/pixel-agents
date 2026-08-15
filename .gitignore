@@ -45,11 +45,12 @@ client/public/emulatorjs/
 # WASM + the selfie-segmenter model, vendored via scripts/vendor-mediapipe.mjs.
 client/public/mediapipe/
 
-# Zone maps, authored by hand in Tiled. Deliberately unversioned: a map reaches a
-# server by being pushed (server/scripts/push-zones.mts), so a level edit ships
-# without a release — see the zone-map convention in AGENTS.md.
-assets/tiled/zones/*.tmj
-assets/tiled/zones/images/
+# Zone maps ARE versioned (assets/tiled/zones/*.tmj) — levels are diffable, have
+# a history and can be handed to someone else. That is orthogonal to how a map
+# reaches a server: only a push does that (scripts/push-zones.sh); nothing reads
+# these files at runtime. Only the scratch copies stay out — a *-noimport.tmj is
+# somebody's experiment, never imported by anything.
+assets/tiled/zones/*-noimport.tmj
 
 # Tiled's own per-user editor state (open files, scroll position, zoom) —
 # like a .vscode/settings.json, not project content.

@@ -110,9 +110,9 @@ export async function importZoneTmjFile(
 /**
  * Import an already-parsed .tmj. Split out from importZoneTmjFile so a map can
  * also arrive over the wire (see zonePushApi.ts) rather than only off this
- * machine's disk — the deploy server has no `assets/tiled/zones` of its own to
- * watch, and a mapper's zone edits never reach it any other way, since those
- * files are gitignored and so ride along with no deploy.
+ * machine's disk — a deploy server never imports from its own
+ * `assets/tiled/zones` (the files are shipped, but nothing reads them), so a
+ * mapper's zone edits reach it no other way.
  *
  * `extraFiles` is how a pushed map carries the images it references: the
  * importer resolves a relative path to bytes, and on a server that never saw

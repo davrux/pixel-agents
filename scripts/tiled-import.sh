@@ -11,9 +11,9 @@
 # To get a map onto a server (including the local dev one), use
 # scripts/push-zones.sh instead; nothing imports zone files automatically.
 #
-# Usage: scripts/tiled-import.sh [layoutName]
-#   layoutName — the saved layout name each zone gets, defaults to
-#                "TiledImport" (see tiled-import-all-zones.mts)
+# Usage: scripts/tiled-import.sh
+#   Takes no arguments: a zone has exactly one map, so each file simply becomes
+#   its zone's map (there are no named layouts any more).
 set -e
 
 cd "$(dirname "$0")/../server"

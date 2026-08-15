@@ -369,7 +369,7 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   **When you add, rename or retire a furniture property, do it in the same
   commit as `FURNITURE_TILE_PROPS` and then distribute it:**
   ```bash
-  cd server && node --import tsx scripts/sync-furniture-properties.mts
+  scripts/sync-furniture-properties.sh
   ```
   That stamps the property onto all ~350 tiles across every
   `assets/tiled/furniture*.tsj`, clears retired ones out of the zone maps, and
@@ -381,11 +381,13 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   offers a class's own members, so a property missing from `FurnitureObject` is
   settable on the type and invisible on every placement. Keep the object class a
   superset of the tile class, `label`/`name` aside.
-- **Zone maps reach a server by being pushed, never by being deployed.**
-  `assets/tiled/zones/*.tmj` is gitignored, so a level edit rides along with no
-  release. Push it:
+- **Zone maps are versioned, but reach a server only by being pushed.**
+  `assets/tiled/zones/*.tmj` is committed — a level is diffable, has a history
+  and can be handed to a colleague. Nothing reads those files at runtime, so a
+  deploy still installs no map; the DB stays authoritative and a push is the
+  only way in. (Scratch copies, `*-noimport.tmj`, stay out of git.) Push it:
   ```bash
-  cd server && node --import tsx scripts/push-zones.mts --server=<host:port> [--watch]
+  scripts/push-zones.sh --server=<host:port> [--watch]
   ```
   Auth is `PIXEL_ADMIN_TOKEN` in `X-Pixel-Admin-Token` (see
   `src/tiled/zonePushApi.ts` for why that and not a session; the routes are
@@ -401,6 +403,14 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
   not proxies like triangle count (greedy meshing once measured *slower* despite
   −20 % tris). The Pixels client has a perf overlay — **F8** or `?perf=1` (FPS +
   update() self-time) — and idles/sleeps its render loop when nothing moves.
+- **Shell scripts are the front door.** Anything a human runs is a `.sh` in
+  `scripts/`, and *what* it starts — node, tsx,
+  anything else — is the wrapper's business, not the caller's. Document and
+  invoke the wrapper; never `node --import tsx scripts/….mts` in docs, a README
+  or a CI step. A new human-facing script gets its wrapper in the same change,
+  with its usage in the header comment (see `scripts/push-zones.sh` for the
+  house style). Files that are *data* — configs, fixtures — do not belong in
+  `scripts/`: they live under `assets/` (e.g. the DOS bundles' `assets/cfg`).
 - **Commits:** imperative, no `Co-Authored-By`/AI trailer. Don't commit or push
   without being asked. Prefer a few meaningful commits over micro-commits, and
   never leave debug scaffolding (e.g. temporary URL hooks) in the code.
@@ -421,9 +431,10 @@ pnpm start               # serves client/dist + Colyseus + /feed on one port
 
 There is **no separate client server in production** — `pnpm start` (and the
 multi-stage `Dockerfile`) serve the built client from the same origin. A viewer
-needs only a browser; an agent needs only Claude + `feeder/pixel-agents-feeder.cjs`
-(`--server ws://host:PORT/feed --token <your-agent-token>` — the per-user token
-identifies the owner; copy it from in-app Settings).
+needs only a browser; an agent needs only Claude + `scripts/pixel-agents.sh --token
+<your-agent-token>` (add `--server ws://host:PORT/feed` for anything but the
+public server — the per-user token identifies the owner; copy it from in-app
+Settings).
 
 ## Before you ship
 
@@ -435,7 +446,7 @@ identifies the owner; copy it from in-app Settings).
 - `pnpm -r run check-types` (or `tsc --noEmit` per package) must be clean.
 - `pnpm build` must succeed.
 - If you touched furniture properties:
-  `cd server && node --import tsx scripts/sync-furniture-properties.mts --check`
+  `scripts/sync-furniture-properties.sh --check`
   must report zero changes (see the furniture-behaviour convention above).
 - For engine changes, prefer a small headless test driving `OfficeState`
   directly (see how stations/poses were verified) plus a quick run with `MOCK=N`.

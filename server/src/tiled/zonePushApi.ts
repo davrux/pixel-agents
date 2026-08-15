@@ -1,7 +1,7 @@
 /**
  * Receive a zone map pushed from a mapper's machine.
  *
- * `assets/tiled/zones/*.tmj` is gitignored, so zone edits ride along with no
+ * Nothing reads `assets/tiled/zones/*.tmj` at runtime, so zone edits ride along with no
  * deploy — the deploy server has the tilesets (committed) but never the maps.
  * This is the one way a map gets there. The dev server no longer watches its
  * own zones directory either: pushing to 127.0.0.1 is the same command, so

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Push zone maps to a running server — the only way a zone edit reaches one.
-# assets/tiled/zones/*.tmj is gitignored, so a level never rides along with a
-# deploy; this sends it over HTTP and the server imports it as that zone's
-# active layout. Works the same locally and against the deploy host, and sends
+# The .tmj files are committed (so levels are shareable and diffable), but no
+# deploy installs one: nothing reads them at runtime. This sends the file over
+# HTTP and the server imports it as that zone's map. Works the same locally and against the deploy host, and sends
 # any tilesets/PNGs the server is missing along with it.
 #
 # Usage: scripts/push-zones.sh [zone…] [options]

@@ -99,7 +99,7 @@ assets/tiled/
 ├── furniture-{chairs,decor,desks,electronics,kitchens,misc}.tsj
 ├── furniture-metro-{home,hospital,vehicles}.tsj   # generated, then hand-maintained
 ├── png/                              # every sheet above, baked
-└── zones/<zoneId>.tmj                # per-zone working file (gitignored; the DB
+└── zones/<zoneId>.tmj                # per-zone working file (versioned; the DB
                                       # stays authoritative either way)
 ```
 
@@ -120,11 +120,12 @@ with the script.
 
 - The **furniture catalog** still only reloads on a dev-server file watch; only
   zones can be pushed. A tileset change therefore still needs a deploy.
-- `zones/*.tmj` are gitignored, i.e. treated as scratch — which is exactly why
-  they have to be pushed: no deploy carries them. Committing them would make
-  levels diffable and hand-offable without DB access; the argument against is
-  that the DB is authoritative and two copies drift. Undecided, and worth noting
-  the cost of the status quo: a zone file lost or corrupted has no history.
+- ~~`zones/*.tmj` are gitignored~~ **Settled: they are versioned now.** Levels
+  are diffable and can be handed to a colleague, and a file lost or corrupted has
+  a history to come back from — the cost the status quo used to carry. The
+  drift argument (two copies, DB authoritative) is answered by nothing reading
+  those files at runtime: a deploy ships them and installs none, so a map still
+  only reaches a server through `scripts/push-zones.sh`.
 - A push is rejected wholesale if its zone id is malformed, but a map authored
   against different tilesets than the server has is accepted with a warning and
   a count of placements that did not resolve. Refusing outright would be the

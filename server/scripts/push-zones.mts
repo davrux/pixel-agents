@@ -2,7 +2,8 @@
 /**
  * Push zone maps to a running server — the only way a `.tmj` reaches one.
  *
- * `assets/tiled/zones/*.tmj` is gitignored, so a zone edit rides along with no
+ * The .tmj files are committed, but nothing reads them at runtime, so a zone
+ * edit rides along with no
  * deploy. This sends the file (plus the images it references) to
  * `POST /tiled/zone`, which imports it and makes it that zone's active layout,
  * exactly as the old on-disk import did.
@@ -15,8 +16,8 @@
  * Auth: PIXEL_ADMIN_TOKEN, sent as X-Pixel-Admin-Token — see zonePushApi.ts for
  * why that token and not a session.
  *
- * Usage (from server/):
- *   node --import tsx scripts/push-zones.mts [zone…] [options]
+ * Usage:
+ *   scripts/push-zones.sh [zone…] [options]        (from the repo root)
  *
  *     --server=<host:port>  default 127.0.0.1:2567
  *     --token=<t>           default $PIXEL_ADMIN_TOKEN (or read from ../.env)
@@ -50,7 +51,6 @@ const names = argv.filter((a) => !a.startsWith('--'));
 
 const USAGE = `push-zones — send zone maps to a running server
 
-  node --import tsx scripts/push-zones.mts [zone…] [options]
   scripts/push-zones.sh [zone…] [options]            (from the repo root)
 
   --server=<host:port>  default 127.0.0.1:2567

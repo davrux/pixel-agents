@@ -86,8 +86,9 @@ pnpm dev:client                 # http://localhost:5173
 Stream a **real** Claude agent into the office (the feed shares the viewer port):
 
 ```bash
-node feeder/pixel-agents-feeder.cjs \
-  --server ws://localhost:2567/feed --token <your-agent-token>
+scripts/pixel-agents.sh --token <your-agent-token>              # the public server
+scripts/pixel-agents.sh --token <your-agent-token> \
+  --server ws://localhost:2567/feed                             # your own
 ```
 
 `--token` is your **per-user agent token** (copy it from in-app Settings); the

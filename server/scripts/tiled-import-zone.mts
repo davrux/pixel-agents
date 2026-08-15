@@ -6,6 +6,7 @@
  * write a push performs (see src/tiled/zonePushApi.ts), just locally.
  *
  * Usage (from server/): node --import tsx scripts/tiled-import-zone.mts <zoneId>
+ * For every zone at once — the usual case — use scripts/tiled-import.sh.
  *
  * For importing every zones/*.tmj file at once, see tiled-import-all-zones.mts.
  */

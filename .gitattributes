@@ -7,4 +7,4 @@
 *.ttf binary
 
 # DOS game config files — keep original CRLF line endings for the emulator.
-scripts/assets/*.cfg -text
+assets/cfg/*.cfg -text

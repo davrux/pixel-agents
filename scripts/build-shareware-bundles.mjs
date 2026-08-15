@@ -62,7 +62,7 @@ const GAMES = [
   { id: 'keen', title: 'Commander Keen', blurb: 'Marooned on Mars — shareware', zip: '1keen.zip', data: 'KEEN.1', exe: 'KEEN1.EXE' },
   { id: 'duke', title: 'Duke Nukem', blurb: 'Episode 1 — shareware', zip: '1duke.zip', data: 'DUKE.1', exe: 'DN1.EXE' },
   // Duke3D refuses to launch without a DUKE3D.CFG ("run setup.exe"); ship a default
-  // one (from scripts/assets, screen forced to fast 320x200) so it boots straight in.
+  // one (from assets/cfg, screen forced to fast 320x200) so it boots straight in.
   { id: 'duke3d', title: 'Duke Nukem 3D', blurb: 'L.A. Meltdown — shareware', zip: '3dduke13.zip', data: ['DUKE3DS._1', 'DUKE3DS._2', 'DUKE3DS._3', 'DUKE3DS._4', 'DUKE3DS._5'], exe: 'DUKE3D.EXE', extras: [{ file: 'duke3d.cfg', as: 'DUKE3D.CFG' }] },
 ];
 
@@ -230,9 +230,9 @@ async function main() {
         continue;
       }
       const entries = await Promise.all(items.map(async (f) => ({ name: f.as.toUpperCase(), data: await readFile(resolve(DOOM_SRC, f.from)) })));
-      // Shipped extras from scripts/assets (e.g. the WASD DEFAULT.CFG) — committable.
+      // Shipped extras from assets/cfg (e.g. the WASD DEFAULT.CFG) — committable.
       for (const ex of g.extras ?? []) {
-        entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'scripts/assets', ex.file)) });
+        entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'assets/cfg', ex.file)) });
       }
       // net games: default single-player NET.BAT (multiplayer overlays it at launch).
       if (g.net) entries.push({ name: 'NET.BAT', data: Buffer.from(`@echo off\r\n${g.exe}\r\n`, 'ascii') });
@@ -290,10 +290,10 @@ async function main() {
       throw new Error(`${g.exe} missing after extract for ${g.id} (got: ${files.join(', ')}) — bad download?`);
     }
     const entries = await Promise.all(files.map(async (f) => ({ name: f.toUpperCase(), data: await readFile(resolve(dir, f)) })));
-    // Inject shipped extras from scripts/assets/ ({file} → bundled as {as}), e.g. a
+    // Inject shipped extras from assets/cfg/ ({file} → bundled as {as}), e.g. a
     // default DUKE3D.CFG or Doom's DEFAULT.CFG (so sound/controls are preconfigured).
     for (const ex of g.extras ?? []) {
-      entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'scripts/assets', ex.file)) });
+      entries.push({ name: ex.as, data: await readFile(resolve(REPO, 'assets/cfg', ex.file)) });
     }
     entries.push({ name: '.jsdos/dosbox.conf', data: Buffer.from(dosboxConf(g.exe), 'utf8') });
     entries.push({ name: '.jsdos/jsdos.json', data: Buffer.from(JSON.stringify({ version: 8 }), 'utf8') });
