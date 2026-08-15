@@ -7,10 +7,15 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, renameSync } from 'node:fs';
 
 import { dataPath } from './paths.js';
+import { maybeResetWorld } from './worldReset.js';
 
 export const db = new DatabaseSync(dataPath('pixel.db'));
 
 migrateFromSplitDbs();
+// Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
+// accounts, once per token (see worldReset.ts). The stores then find an empty
+// database and rebuild what they own.
+maybeResetWorld(db);
 
 /**
  * One-time import of the old two-file layout (layouts.db + zones.db) into the

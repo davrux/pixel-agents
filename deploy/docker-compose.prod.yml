@@ -20,6 +20,14 @@
 #                         coturn identisch sein)
 #   TURN_EXTERNAL_IP      öffentliche IP des Servers (auch als coturn --realm)
 #
+# Optional, für einen Weltneustart: PIXEL_RESET_WORLD=<token> leert beim nächsten
+# Start ALLES außer den Accounts (users) und ihren persönlichen Avataren — alte
+# Karten, Asset-Overrides, Zonen samt Rechten, Sitzungen, Spielstände. Vorher legt
+# der Server eine Kopie der pixel.db im Volume ab (pixel-before-reset-*.db); ohne
+# Backup kein Wipe. Der Token wird gemerkt, die Variable darf also in der .env
+# stehen bleiben — sie feuert nur, wenn sich ihr WERT ändert. Danach die Karten
+# mit server/scripts/push-zones.mts wieder hochschieben.
+#
 # pixel-agents bekommt hier absichtlich kein cert.pem/key.pem in /data — der
 # Server erkennt das (siehe server/src/index.ts) und serviert automatisch
 # plain HTTP, genau der Fall "behind a TLS-terminating reverse proxy". Caddy
@@ -62,6 +70,8 @@ services:
       ARCADE_TURN_SECRET: ${ARCADE_TURN_SECRET}
       # ALL arcade content is provided here at runtime (nothing is in the image).
       ARCADE_CONTENT_DIR: /games
+      # Leer = kein Wipe. Siehe Kopf dieser Datei, bevor du hier etwas einträgst.
+      PIXEL_RESET_WORLD: ${PIXEL_RESET_WORLD:-}
     ports:
       # Nur noch lokal erreichbar — die einzige öffentliche Tür ist jetzt Caddy
       # auf 443 (siehe oben). Direkter Zugriff auf :6161 von außen ist zu.

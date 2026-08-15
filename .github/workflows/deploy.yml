@@ -109,11 +109,16 @@ jobs:
           LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
           ARCADE_TURN_SECRET: ${{ secrets.ARCADE_TURN_SECRET }}
           TURN_EXTERNAL_IP: ${{ secrets.SERVER_HOST }}
+          # Repository-VARIABLE (kein Secret, nichts Vertrauliches): leer = nichts
+          # tun. Ein Wert leert beim nächsten Start alles außer den Accounts und
+          # ihren Avataren — genau EINMAL pro Wert, der Server merkt ihn sich.
+          # Siehe worldReset.ts / AGENTS.md. Danach Karten neu pushen.
+          PIXEL_RESET_WORLD: ${{ vars.PIXEL_RESET_WORLD }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: GHCR_IMAGE,PIXEL_ADMIN_TOKEN,LIVEKIT_API_KEY,LIVEKIT_API_SECRET,ARCADE_TURN_SECRET,TURN_EXTERNAL_IP
+          envs: GHCR_IMAGE,PIXEL_ADMIN_TOKEN,LIVEKIT_API_KEY,LIVEKIT_API_SECRET,ARCADE_TURN_SECRET,TURN_EXTERNAL_IP,PIXEL_RESET_WORLD
           script: |
             set -e
             cd ~/pixel-agents
@@ -125,6 +130,7 @@ jobs:
             LIVEKIT_API_SECRET=$LIVEKIT_API_SECRET
             ARCADE_TURN_SECRET=$ARCADE_TURN_SECRET
             TURN_EXTERNAL_IP=$TURN_EXTERNAL_IP
+            PIXEL_RESET_WORLD=$PIXEL_RESET_WORLD
             EOF
             chmod 600 .env
             docker compose -f docker-compose.prod.yml pull

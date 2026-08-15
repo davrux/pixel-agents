@@ -299,7 +299,21 @@ Phaser renderer. If a feature seems to need another tool, raise it first.
     (`#14161c` is fine only as the Phaser *canvas* background, not UI chrome.)
 - **Config via env:** `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`,
   `PIXEL_ADMIN_TOKEN` (admin login token; also `--token`), `PIXEL_STREAM_DATA_DIR`
-  (holds the single `pixel.db`).
+  (holds the single `pixel.db`), `PIXEL_RESET_WORLD` (see below).
+- **Keeping only the accounts:** a deployment collects state that is no longer
+  authored where it is stored — maps that come from Tiled pushes now, the
+  editor-era `assets` override rows, zones and their rights, saved positions into
+  rooms that are gone. `PIXEL_RESET_WORLD=<token>` empties **everything except
+  the `users` table and the personal `playerAvatar` assets**, once, at the next
+  start — before any store reads or seeds, so the stores rebuild what they own
+  (the default zone is re-created and renders as an empty field until a map is
+  pushed). A `VACUUM INTO` snapshot is written to the data dir first, and no
+  backup means no wipe. The token is remembered in `_migrations`, so the
+  variable can stay in a deploy's `.env`: the same value never fires twice, and
+  a **new** value is the only way to arm it again. Survivors are an allow-list
+  (`server/src/worldReset.ts`) — a table added later is wiped by default, which
+  is the right way round; if you add one holding *account* data, add it to
+  `KEEP_TABLES` in the same change.
 - **Accounts & auth:** users live in the `users` table (`UserStore`), keyed by a
   lowercase `user_id` (login id, also the agent owner key) with a free display
   `username`, a scrypt password (`pw_algo` records the scheme), an `is_admin`
