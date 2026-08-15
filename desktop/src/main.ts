@@ -17,6 +17,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
+import { createTray, destroyTray, setTrayUnread } from './tray.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -104,12 +105,21 @@ function isAppOrigin(targetUrl: string): boolean {
 // Durable persistence for the typed IPC contract, rooted at userData:
 // - the bearer token is written as safeStorage ciphertext (OS keychain-backed;
 //   AC-020) so it is never plaintext on disk and survives relaunch (AC-007);
-// - the server URL is a plaintext JSON config (not a secret; Field Propagation Map).
+// - everything else is a plaintext JSON config (no secrets; Field Propagation Map).
 // Files are resolved lazily (after app is ready) since app.getPath('userData')
 // is only valid then. Unreadable/corrupt/undecryptable values are treated as
 // absent so the boot flow falls through to Connection/SignIn, never a blank state.
 const TOKEN_FILE = 'pixel-token.bin';
 const CONFIG_FILE = 'pixel-config.json';
+
+/** Shape of pixel-config.json. Every field is optional: an absent one means
+ *  "not configured yet", which each reader turns into its own default. */
+interface DesktopConfig {
+  serverUrl?: string;
+  /** Closing the window hides it to the tray instead of quitting the app.
+   *  Off unless the user turns it on — see CLOSE_TO_TRAY_DEFAULT. */
+  closeToTray?: boolean;
+}
 
 function tokenPath(): string {
   return join(app.getPath('userData'), TOKEN_FILE);
@@ -119,32 +129,104 @@ function configPath(): string {
   return join(app.getPath('userData'), CONFIG_FILE);
 }
 
-async function readServerUrl(): Promise<string | null> {
+/** The whole config, or {} when the file is missing, unreadable or corrupt.
+ *  Each field is validated on its own so one bad value cannot hide the rest. */
+async function readConfig(): Promise<DesktopConfig> {
   let raw: string;
   try {
     raw = await readFile(configPath(), 'utf8');
   } catch {
-    return null;
+    return {};
   }
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === 'object' && typeof (parsed as { serverUrl?: unknown }).serverUrl === 'string') {
-      return (parsed as { serverUrl: string }).serverUrl;
-    }
-    return null;
+    parsed = JSON.parse(raw);
   } catch {
-    return null;
+    return {};
   }
+  if (!parsed || typeof parsed !== 'object') return {};
+  const record = parsed as Record<string, unknown>;
+  const config: DesktopConfig = {};
+  if (typeof record.serverUrl === 'string') config.serverUrl = record.serverUrl;
+  if (typeof record.closeToTray === 'boolean') config.closeToTray = record.closeToTray;
+  return config;
+}
+
+/** Serialises config writes. Each one is a read-modify-write, so two overlapping
+ *  calls could otherwise both read the old file and the second would drop the
+ *  first's field. Chaining them costs nothing at this frequency (a handful of
+ *  writes per session, all from explicit user actions) and makes the merge below
+ *  actually mean what it says. */
+let configWrites: Promise<void> = Promise.resolve();
+
+/**
+ * Merge a patch into the config file. Read-modify-write rather than a plain
+ * overwrite: the file holds several independent preferences now, and writing
+ * one of them must not drop the others. `undefined` in the patch removes a key
+ * (that is how "change server" forgets the URL without touching the rest).
+ */
+function writeConfig(patch: DesktopConfig): Promise<void> {
+  // Swallow a prior failure before chaining, so one failed write does not reject
+  // every write after it.
+  configWrites = configWrites.then(
+    () => mergeConfig(patch),
+    () => mergeConfig(patch),
+  );
+  return configWrites;
+}
+
+async function mergeConfig(patch: DesktopConfig): Promise<void> {
+  const next: DesktopConfig = { ...(await readConfig()), ...patch };
+  for (const key of Object.keys(next) as Array<keyof DesktopConfig>) {
+    if (next[key] === undefined) delete next[key];
+  }
+  await writeFile(configPath(), JSON.stringify(next), 'utf8');
+}
+
+async function readServerUrl(): Promise<string | null> {
+  return (await readConfig()).serverUrl ?? null;
 }
 
 async function writeServerUrl(url: string): Promise<void> {
-  await writeFile(configPath(), JSON.stringify({ serverUrl: url }), 'utf8');
+  await writeConfig({ serverUrl: url });
 }
 
 // Forgets the saved server URL. The next boot then finds no URL and falls
 // through to the Connection screen (mirrors clearStoredToken; "Change server").
+// Drops only that key: "change server" is not "reset my preferences".
 async function clearStoredServerUrl(): Promise<void> {
-  await rm(configPath(), { force: true });
+  await writeConfig({ serverUrl: undefined });
+}
+
+// --- Close-to-tray -------------------------------------------------------------
+// Whether the close button quits the app or parks it in the tray. Held in memory
+// because the window's `close` handler has to answer synchronously, and mirrored
+// to the config file on every change.
+//
+// The default is "quit": it is what the app has always done, and it is the only
+// choice that cannot strand a user. Hiding a window is only safe if there is
+// visibly somewhere for it to go, and on Linux we cannot actually verify that —
+// Electron reports no error when a tray icon is published to a session with no
+// StatusNotifier host to draw it. So the honest position is that the user opts
+// in from the tray menu, which they can only find if their tray works.
+const CLOSE_TO_TRAY_DEFAULT = false;
+
+let closeToTray = CLOSE_TO_TRAY_DEFAULT;
+
+/** True once the app is genuinely shutting down, so the `close` handler stops
+ *  intercepting. Without it, close-to-tray would swallow the Quit menu item and
+ *  an OS session logout, leaving a process nothing can kill politely. */
+let quitting = false;
+
+async function loadCloseToTray(): Promise<void> {
+  closeToTray = (await readConfig()).closeToTray ?? CLOSE_TO_TRAY_DEFAULT;
+}
+
+function setCloseToTray(enabled: boolean): void {
+  closeToTray = enabled;
+  // Fire-and-forget: the in-memory value is already authoritative for this run,
+  // and a failed write costs the preference at next launch, nothing more.
+  void writeConfig({ closeToTray: enabled }).catch(() => undefined);
 }
 
 // --- TLS certificate trust (trust-on-first-use) --------------------------------
@@ -359,6 +441,9 @@ function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle(channels.notify, (event, options: DesktopNotification): void => {
     showNotification(BrowserWindow.fromWebContents(event.sender) ?? getWindow(), options);
   });
+  ipcMain.handle(channels.setUnreadCount, (_event, count: number): void => {
+    setTrayUnread(count);
+  });
 }
 
 function createWindow(): BrowserWindow {
@@ -375,6 +460,22 @@ function createWindow(): BrowserWindow {
       // stated explicitly so the menu's Toggle DevTools item always works).
       devTools: true,
     },
+  });
+
+  // Close-to-tray. Intercepts every route to closing this window — the OS
+  // titlebar ✕, the HUD's own ✕ (the closeWindow IPC channel), Cmd/Alt+F4 — so
+  // the preference means "the close button" rather than "one particular close
+  // button". Skipped once `quitting` is set, so Quit and an OS logout still work.
+  //
+  // `hide()` and not `minimize()`: the point of the setting is to get the window
+  // out of the taskbar/dock as well as off the screen. The tray's "Show" item,
+  // the tray click and a second launch (the single-instance handler) all bring
+  // it back — that last one is also the way out if the tray turns out to be
+  // invisible on this desktop.
+  window.on('close', (event) => {
+    if (quitting || !closeToTray) return;
+    event.preventDefault();
+    window.hide();
   });
 
   // Origin allowlisting: the renderer may only navigate within the app:// bundle
@@ -433,11 +534,21 @@ if (!gotLock) {
 } else {
   let mainWindow: BrowserWindow | null = null;
 
-  app.on('second-instance', () => {
-    if (!mainWindow) return;
+  // The one way back to the window, shared by the tray's "Show" item, the tray
+  // click and a second launch. It has to cover `hide()` as well as minimise
+  // (the tray can send the window away entirely) and the macOS case where the
+  // last window was closed but the app is still running.
+  const revealWindow = (): void => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      mainWindow = createWindow();
+      return;
+    }
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
-  });
+  };
+
+  app.on('second-instance', revealWindow);
 
   void app.whenReady().then(async () => {
     // Drop the default application menu bar (File/Edit/View/Window/Help). The
@@ -460,16 +571,44 @@ if (!gotLock) {
     // loads, so the first connection attempt is already intercepted.
     await loadTrustedCerts();
     registerCertificateTrust(() => mainWindow);
+    // Before the window exists, so its `close` handler can never consult an
+    // unloaded (and therefore wrongly default) preference.
+    await loadCloseToTray();
     mainWindow = createWindow();
 
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
+    // Accessory, never a prerequisite: a desktop with no StatusNotifier host
+    // (or a missing asset) just means no icon, and the app is unaffected.
+    const trayShown = createTray({
+      reveal: revealWindow,
+      hide: () => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
+      },
+      closeToTray: () => closeToTray,
+      setCloseToTray,
     });
+    // No tray icon means no way back from a hidden window and no way to switch
+    // the preference off again, so the setting is forced off for this run. The
+    // stored value is left alone: the asset (or the user's panel) may be back
+    // next launch, and silently rewriting a preference the user did set would be
+    // worse than ignoring it while it cannot be honoured.
+    if (!trayShown) closeToTray = false;
+
+    // Also the dock-icon / launcher route back to a hidden window on macOS,
+    // where `activate` fires instead of `second-instance`.
+    app.on('activate', revealWindow);
   });
 
   // Close the Mumble socket before quitting so the voice server sees a clean
   // leave rather than a half-open connection lingering until its ping timeout.
-  app.on('before-quit', () => shutdownMumble());
+  app.on('before-quit', () => {
+    // Let the window's `close` handler stop intercepting; from here a close is
+    // part of shutting down, not a request to hide.
+    quitting = true;
+    shutdownMumble();
+    // Release the tray explicitly: an undestroyed Tray keeps a stale icon in
+    // the status area on some Linux panels after the process is gone.
+    destroyTray();
+  });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

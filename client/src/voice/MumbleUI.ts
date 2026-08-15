@@ -1,9 +1,14 @@
 /**
- * Mumble panel: the server's channel tree with its users, the usual mic /
- * deafen / volume controls, and a self-register button. Rendered into whatever
- * container the host gives it — in the office that is the right-hand docked
- * application window (see ui/dockWindow.ts), which is why nothing here sizes
- * or positions itself.
+ * Mumble panel: the usual mic / deafen / volume controls and a self-register
+ * button, over a tabbed well holding the two views of the server — its channel
+ * tree with the users in each, and a log of who has arrived, left or changed
+ * channel since we connected. Rendered into whatever container the host gives
+ * it — in the office that is the right-hand docked application window (see
+ * ui/dockWindow.ts), which is why nothing here sizes or positions itself.
+ *
+ * The tabs are a swap, not a second scroller: both panels are built and only
+ * one is displayed, so the window keeps exactly one scrolling region either way
+ * and switching never shows a stale list for a frame.
  *
  * The connection settings are a second view of this same window (⚙ in the
  * header strip, MumbleSettingsUI), not a section of the office's Settings
@@ -13,11 +18,24 @@
  * Rows are deliberately one line per user (volume is a dropdown, not a slider):
  * a busy channel has to stay readable without scrolling.
  *
+ * A channel row carries a menu, opened by its ⋯ or by a right-click on it,
+ * offering Join and Listen (place an ear there and hear it as well as your own).
+ * Listen is permission-gated, and the gate is the entry's *presence*, down to the
+ * ⋯ itself going away when the menu would be empty. The server remains the
+ * authority — see `MumbleVoice.allowed` — so a refusal still arrives as the note
+ * at the bottom of the panel. User rows have no menu: everything they offer
+ * (mute, volume) is a setting you scan across a channel, so it stays on the row.
+ *
+ * An ear shows up in the tree as a row of its own, in the channel being listened
+ * to, for everyone's ears and not just ours: it is the only place the listening
+ * is visible, since the listener's real row stays where they actually are.
+ *
  * Desktop only: the constructor renders nothing at all when there is no Mumble
  * client behind it, so the browser build is untouched.
  */
 import {
   MumbleVoice,
+  type MumbleActivity,
   type MumbleDevices,
   type MumbleTree,
   type MumbleVoiceState,
@@ -25,6 +43,7 @@ import {
 import type { MumbleChannelInfo, MumbleUserInfo } from '../desktop/bridge.js';
 import { MAX_MIC_GAIN } from './micGraph.js';
 import { MumbleSettingsUI } from './MumbleSettingsUI.js';
+import { openPanelMenu, type PanelMenuHandle, type PanelMenuItem } from './panelMenu.js';
 
 export interface MumbleUIHooks {
   /** Called when the user joins/leaves, so the scene can park zone voice. */
@@ -48,6 +67,16 @@ interface UserRow {
   el: HTMLElement;
   update(user: MumbleUserInfo, depth: number, t: MumbleTree): void;
 }
+/** Somebody who has an ear in this channel while standing somewhere else. One
+ *  per (channel, listener) pair, so the same person can appear under several. */
+interface ListenerRow {
+  el: HTMLElement;
+  update(user: MumbleUserInfo, depth: number, t: MumbleTree): void;
+}
+
+/** The two panels the tab strip switches between: the server's channel tree,
+ *  and what has happened on it since we connected. */
+type MumbleTab = 'channels' | 'activity';
 
 export class MumbleUI {
   readonly voice: MumbleVoice | null;
@@ -68,16 +97,32 @@ export class MumbleUI {
   private micSel?: HTMLSelectElement;
   private spkSel?: HTMLSelectElement;
   private treeEl?: HTMLElement;
+  private logEl?: HTMLElement;
+  private treeTabBtn?: HTMLButtonElement;
+  private logTabBtn?: HTMLButtonElement;
   private alertsEl?: HTMLInputElement;
   private mainEl?: HTMLElement;
+  private rootEl?: HTMLElement;
   private cfgBtn?: HTMLButtonElement;
   private settings?: MumbleSettingsUI;
   private settingsOpen = false;
+  /** Which of the two panels below the tab strip is showing. */
+  private tab: MumbleTab = 'channels';
+  /** Newest activity seq the reader has actually had on screen. Anything above
+   *  it is what the Activity tab's count reports. */
+  private seenActivitySeq = 0;
   /** Rows already in the tree, by channel id and by user session, so a re-render
    *  can update them instead of replacing them — see renderTree. */
   private readonly channelRows = new Map<number, ChannelRow>();
   private readonly userRows = new Map<number, UserRow>();
+  /** Keyed `channel:session` — one person can hold ears in several channels. */
+  private readonly listenerRows = new Map<string, ListenerRow>();
   private lastState?: MumbleVoiceState;
+  /** Channel names by id, for the "listening here from …" line on an ear row. */
+  private channelNames = new Map<number, string>();
+  /** At most one row menu is open at a time — a channel's or a user's. */
+  private menu: PanelMenuHandle | null = null;
+  private menuAnchor: HTMLElement | null = null;
 
   constructor(mount: HTMLElement, private readonly hooks: MumbleUIHooks = {}) {
     if (!MumbleVoice.supported) {
@@ -89,11 +134,13 @@ export class MumbleUI {
       (t) => this.renderTree(t),
       (d) => this.renderDevices(d),
       (l) => this.renderMicLevel(l),
+      (a) => this.renderActivity(a),
     );
     this.injectStyles();
     this.build(mount);
     this.renderState(this.voice.state);
     this.renderTree({ channels: [], users: [], talking: new Set(), me: 0 });
+    this.renderActivity(this.voice.activity);
   }
 
   /** Connect now if Mumble was left on last session. */
@@ -106,11 +153,51 @@ export class MumbleUI {
   private showSettings(open: boolean): void {
     const settings = this.settings;
     if (!settings || !this.mainEl) return;
+    // The menu is anchored to a row in the view we are about to hide, and a
+    // popover left floating over the settings would have nothing under it.
+    this.closeMenu();
     this.settingsOpen = open;
     this.mainEl.style.display = open ? 'none' : '';
     settings.el.style.display = open ? '' : 'none';
     this.cfgBtn?.classList.toggle('on', open);
     if (open) void settings.refresh();
+  }
+
+  /** Swap the panel under the tab strip. Both panels stay rendered and only one
+   *  is displayed: the log is small, and keeping it live means switching to it
+   *  never shows a stale list for a frame. */
+  private showTab(tab: MumbleTab): void {
+    if (!this.treeEl || !this.logEl || !this.treeTabBtn || !this.logTabBtn) return;
+    this.closeMenu(); // its anchor is a tree row, which is about to be hidden
+    this.tab = tab;
+    const onChannels = tab === 'channels';
+    this.treeEl.hidden = !onChannels;
+    this.logEl.hidden = onChannels;
+    this.treeTabBtn.classList.toggle('on', onChannels);
+    this.logTabBtn.classList.toggle('on', !onChannels);
+    this.treeTabBtn.setAttribute('aria-selected', String(onChannels));
+    this.logTabBtn.setAttribute('aria-selected', String(!onChannels));
+    this.renderActivityTab();
+  }
+
+  /**
+   * The Activity tab's own label: how much has arrived that the reader has not
+   * had on screen, so the tree can stay up without anything being missed.
+   *
+   * Also the one place `seenActivitySeq` advances — being on the Activity tab
+   * means seeing whatever the last repaint put there.
+   */
+  private renderActivityTab(): void {
+    if (!this.logTabBtn) return;
+    const entries = this.voice?.activity ?? [];
+    const newest = entries.length > 0 ? entries[entries.length - 1]!.seq : 0;
+    // A sync restarts the sequence, so a newest that went backwards means the
+    // log was replaced, not read.
+    if (newest < this.seenActivitySeq) this.seenActivitySeq = 0;
+    if (this.tab === 'activity') this.seenActivitySeq = newest;
+    const unseen = entries.reduce((n, e) => (e.seq > this.seenActivitySeq ? n + 1 : n), 0);
+    this.logTabBtn.textContent = unseen > 0 ? `Activity (${unseen})` : 'Activity';
+    this.logTabBtn.classList.toggle('new', unseen > 0);
   }
 
   private injectStyles(): void {
@@ -121,18 +208,21 @@ export class MumbleUI {
       /* Fills its window's body, which does NOT scroll (DockWindow's fill
          option — see ui/dockWindow.ts). Each view is a <section> that takes the
          whole body and manages its own scrolling; only one is displayed. */
-      #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;}
+      /* position:relative anchors the row popovers (panelMenu.ts), which are
+         placed against this box rather than the document so it stays inside
+         the docked column and off the Phaser canvas. */
+      #pa-mb{display:flex;flex-direction:column;flex:1;min-height:0;position:relative;}
       #pa-mb > section{display:flex;flex-direction:column;flex:1;min-height:0;}
-      /* Main view: the controls above and the two lines below are fixed; the
+      /* Main view: the controls above and the lines below are fixed; the
          channel tree is the only thing that moves, so reading the roster never
          pushes the mic/volume/device settings you are adjusting off the top of
          the panel.
          The overflow-y here is the short-window fallback, not the normal case:
          the tree absorbs all the slack, so it only ever engages once the tree
-         has been squeezed down to its min-height and the last two lines would
-         otherwise be unreachable. */
+         has been squeezed down to its min-height and the alerts checkbox (or a
+         note below it) would otherwise be unreachable. */
       #pa-mb-main{overflow-y:auto;overscroll-behavior:contain;}
-      #pa-mb-master,#pa-mb-sub,#pa-mb .chk,#pa-mb-note,#pa-mb-cfg{flex:0 0 auto;}
+      #pa-mb-master,#pa-mb-sub,#pa-mb-tabs,#pa-mb .chk,#pa-mb-note{flex:0 0 auto;}
       #pa-mb-master{display:flex;align-items:center;gap:0.75rem;padding:0.7rem 0.8rem;
         background:#141312;border:2px solid #0a0908;border-radius:0.5rem;}
       /* The header strip is where ⚙ lives, so the title block gives up the slack
@@ -155,6 +245,9 @@ export class MumbleUI {
          inside #pa-mb-sub, and moving it out to be the panel's scroller must not
          quietly make a dead channel list look live. */
       #pa-mb-sub.off,#pa-mb-tree.off{opacity:.4;pointer-events:none;filter:grayscale(.4);}
+      /* The log is deliberately NOT dimmed with the tree: the tree is a live
+         picture of a server we are no longer talking to, but the log is a
+         record of what happened, and stays worth reading after the drop. */
       #pa-mb-sub .row{display:flex;align-items:center;gap:0.55rem;margin:0.45rem 0;font-size:0.9rem;}
       #pa-mb-sub .row label{flex:0 0 auto;min-width:4rem;color:#adb0b2;}
       #pa-mb-sub input[type=range]{flex:1;accent-color:#c51a1b;}
@@ -177,13 +270,29 @@ export class MumbleUI {
       #pa-mb-meter .lvl{position:absolute;left:0;top:0;bottom:0;width:0;background:#6b7280;transition:width .05s linear;}
       #pa-mb-meter .lvl.on{background:#5aa348;}
       #pa-mb-meter .thr{position:absolute;top:0;bottom:0;width:2px;background:#e7da00;}
-      /* The panel's one scrolling region: every channel from the root down, plus
-         the users in each. It takes all the height the settings above and the
-         lines below don't want, and scrolls inside its own bevelled well, so the
-         edge of the scroller is where scrolling visibly starts. The min-height is
-         what stops a short window from collapsing it to nothing — below that,
-         #pa-mb scrolls as a whole instead. */
-      #pa-mb-tree{margin-top:0.7rem;flex:1 1 auto;min-height:7rem;
+      /* The tab strip over the well. The segmented look is paSkin's .pa-seg,
+         but the "#pa-mb button" rule above outranks ".pa-seg .seg" on
+         specificity (an id beats two classes) and would give these the panel's
+         chunky button chrome — and .on its muted-mic red. So the seg look is
+         restored here at a specificity that wins: "#pa-mb-tabs .seg.on" (1 id,
+         2 classes) over "#pa-mb button.on" (1 id, 1 class, 1 element). Sized a
+         little tighter than paSkin's default, which is meant for a form. */
+      #pa-mb-tabs{margin:0.7rem 0 0.4rem;}
+      #pa-mb-tabs .seg{flex:1;text-align:center;padding:0.35rem 0.3rem;cursor:pointer;border:0;
+        border-radius:0.35rem;background:transparent;color:#adb0b2;
+        font:0.88rem 'FS Pixel Sans',monospace;box-shadow:none;}
+      #pa-mb-tabs .seg.on{color:#fff;background:#37342f;
+        box-shadow:inset 0 2px 0 rgba(255,255,255,.14),inset 0 -2px 0 rgba(0,0,0,.35);}
+      /* Something arrived while the tree was the tab on screen. Same yellow the
+         threshold marker and the "you are here" channel use for "look here". */
+      #pa-mb-tabs .seg.new{color:#e7da00;}
+      /* The panel's one scrolling region — whichever of the two panels the tab
+         strip is showing. It takes all the height the settings above and the
+         lines below don't want, and scrolls inside its own bevelled well, so
+         the edge of the scroller is where scrolling visibly starts. The
+         min-height is what stops a short window from collapsing it to nothing —
+         below that, #pa-mb scrolls as a whole instead. */
+      #pa-mb-tree,#pa-mb-log{flex:1 1 auto;min-height:7rem;
         overflow-y:auto;overscroll-behavior:contain;
         border:2px solid #0a0908;border-radius:0.4rem;padding:0.3rem;
         box-shadow:inset 0 2px 0 #2c2a28,inset 0 -3px 0 #050505;
@@ -197,6 +306,18 @@ export class MumbleUI {
       #pa-mb-tree .ch.here{background:#262422;color:#f1efec;}
       #pa-mb-tree .ch .n{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
       #pa-mb-tree .ch .c{font-size:0.75rem;color:#818586;}
+      /* A channel row's menu button (join, listen). Kept out of sight until the
+         row is under the pointer or holds keyboard focus, the same idiom the chat
+         panel's ⋯ uses, so thirty channels are not thirty buttons. Hidden with
+         opacity rather than display, so its space is always reserved and
+         revealing it never reflows the row; pointer-events go with it so an
+         invisible button cannot be clicked. Right-clicking the row opens the same
+         menu, which is the discoverable half of this. User rows have no menu —
+         mute and volume are on the row itself. */
+      #pa-mb-tree .ch .mn{flex:none;padding:0.02rem 0.3rem;font-size:0.78rem;line-height:1.3;
+        opacity:0;pointer-events:none;}
+      #pa-mb-tree .ch:hover .mn,#pa-mb-tree .ch:focus-within .mn,
+      #pa-mb-tree .ch.menu-open .mn{opacity:1;pointer-events:auto;}
       #pa-mb-tree .us{display:flex;align-items:center;gap:0.4rem;padding:0.22rem 0.4rem;margin:0.15rem 0;
         background:#141312;border:2px solid #0a0908;border-radius:0.4rem;}
       /* Tree indentation. Depth arrives as a custom property on the row (see
@@ -210,9 +331,29 @@ export class MumbleUI {
       #pa-mb-tree .us .tk.on{background:#5aa348;box-shadow:0 0 5px #5aa348;}
       #pa-mb-tree .us .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.86rem;color:#f0eeea;}
       #pa-mb-tree .us .nm.me{color:#9fd2ff;}
+      /* An ear: somebody hearing this channel from another one. The same row as
+         a member, dashed and quieter, because they are not in the channel —
+         their real row is still where they actually are, and the channel's
+         count counts members only. Carries no mute or volume control: it is the
+         same person as that other row, and those settings are theirs, not this
+         row's. */
+      #pa-mb-tree .us.ln{background:#181716;border-style:dashed;border-color:#2c2a26;}
+      #pa-mb-tree .us.ln .nm{color:#adb0b2;font-style:italic;}
+      #pa-mb-tree .us.ln .nm.me{color:#9fd2ff;}
+      #pa-mb-tree .us.ln .ec{flex:none;font-size:0.78rem;line-height:1;opacity:.85;}
+      /* Our own ear comes off where you are looking at it. */
+      #pa-mb-tree .us.ln.own{cursor:pointer;}
+      #pa-mb-tree .us.ln.own:hover{background:#221f1d;border-color:#4a4744;}
       /* Per-user mic / speaker state. Same red-slash idiom as the zone-voice
          mute buttons, so "off" reads identically across both panels. */
       #pa-mb-tree .us .st{flex:none;position:relative;display:inline-block;line-height:1;font-size:0.8rem;opacity:.75;}
+      /* Air between the name and the state icons, on top of the row's own gap.
+         The name is the one thing here that elides, so a long one used to run
+         right up against the mic — and the pair reads as a group describing the
+         person, which it cannot do while it is as close to the name as the two
+         icons are to each other. Structural rather than a class, because
+         applyStateIcon rewrites className from scratch on every repaint. */
+      #pa-mb-tree .us .nm + .st{margin-left:0.4rem;}
       #pa-mb-tree .us .st.off{opacity:1;}
       #pa-mb-tree .us .st.off::after{content:'';position:absolute;left:-12%;top:44%;width:124%;height:0.16em;
         background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
@@ -224,10 +365,48 @@ export class MumbleUI {
         background:#ff5b6b;border-radius:1px;transform:rotate(-24deg);box-shadow:0 0 0 1px rgba(0,0,0,.55);}
       #pa-mb-tree .us .vol{flex:none;width:4.4rem;background:#262422;border:2px solid #0a0908;color:#d7d5d1;
         border-radius:0.3rem;padding:0.1rem 0.15rem;font:0.78rem 'FS Pixel Sans',monospace;cursor:pointer;}
-      #pa-mb-tree .empty{color:#818586;font-size:0.85rem;}
+      #pa-mb-tree .empty,#pa-mb-log .empty{color:#818586;font-size:0.85rem;}
+      /* One line per arrival/departure, same one-line-per-person discipline as
+         the user rows next door: time, who, and which way they went. */
+      #pa-mb-log .ev{display:flex;align-items:baseline;gap:0.45rem;padding:0.22rem 0.4rem;
+        font-size:0.85rem;color:#cac8c3;}
+      #pa-mb-log .ev .t{flex:0 0 auto;color:#818586;font-size:0.78rem;font-variant-numeric:tabular-nums;}
+      #pa-mb-log .ev .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      /* Allowed to shrink and elide, unlike the fixed "joined"/"left" it used to
+         only ever hold: a move puts a channel name here, and a long one must
+         not squeeze the person's name out of the row beside it. */
+      #pa-mb-log .ev .a{flex:0 1 auto;min-width:0;max-width:55%;font-size:0.78rem;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #pa-mb-log .ev.in .a{color:#5aa348;}
+      #pa-mb-log .ev.out .a{color:#818586;}
+      /* A channel move. Its own colour because it is neither an arrival nor a
+         departure — the person was already here and still is. */
+      #pa-mb-log .ev.mv .a{color:#7ea9c4;}
       #pa-mb-note{font-size:0.78rem;color:#e0b062;margin-top:0.4rem;line-height:1.45;}
-      #pa-mb-cfg{font-size:0.78rem;color:#818586;margin-top:0.5rem;}
-      #pa-mb-cfg a{color:#4998c0;cursor:pointer;text-decoration:underline;}
+      /* ---- channel row popover (panelMenu.ts) -------------------------------
+         The floating-surface look every other popover in the app uses (deeper
+         bevel + drop shadow), and the same chrome the chat panel's message menu
+         has. The button rules are scoped under .mb-menu so they outrank
+         "#pa-mb button" (1 id + 1 element) and the entries do not come out with
+         the panel's chunky control chrome. */
+      #pa-mb .mb-menu{position:absolute;z-index:6;min-width:10rem;max-width:calc(100% - 0.75rem);
+        display:flex;flex-direction:column;gap:0.25rem;padding:0.35rem;
+        background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+        box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+      #pa-mb .mb-menu .hd{padding:0.1rem 0.25rem;font-size:0.76rem;color:#818586;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      /* The list scrolls rather than the popover, so the heading stays put — a
+         safety net at this size (the menu holds two entries), not the normal case. */
+      #pa-mb .mb-menu .ls{display:flex;flex-direction:column;gap:0.25rem;
+        max-height:14rem;overflow-y:auto;overscroll-behavior:contain;}
+      #pa-mb .mb-menu button{display:block;width:100%;text-align:left;cursor:pointer;
+        padding:0.32rem 0.5rem;
+        color:#f1efec;background:#242220;border:2px solid #0a0908;border-radius:0.45rem;
+        font:0.88rem/1.3 'FS Pixel Sans',monospace;
+        box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+      #pa-mb .mb-menu button:hover{background:#37342f;}
+      #pa-mb .mb-menu button:focus-visible{outline:2px solid #4998c0;outline-offset:1px;}
 
       /* ---- compact column ----------------------------------------------------
          ui/dockWindow.ts sets .pa-compact on the window below ~21rem. Nothing
@@ -242,9 +421,16 @@ export class MumbleUI {
       /* Three buttons no longer fit on one line, so let them take two rather
          than shrink the hit targets. */
       .pa-compact #pa-mb-btns{flex-wrap:wrap;}
-      .pa-compact #pa-mb-tree{margin-top:0.5rem;padding:0.25rem;}
+      .pa-compact #pa-mb-tabs{margin:0.5rem 0 0.3rem;}
+      .pa-compact #pa-mb-tabs .seg{padding:0.3rem 0.2rem;font-size:0.82rem;}
+      .pa-compact #pa-mb-tree,.pa-compact #pa-mb-log{padding:0.25rem;}
+      .pa-compact #pa-mb-log .ev{gap:0.35rem;padding:0.2rem 0.3rem;}
       .pa-compact #pa-mb-tree .us{gap:0.3rem;padding:0.2rem 0.3rem;}
       .pa-compact #pa-mb-tree .us .vol{width:3.5rem;}
+      .pa-compact #pa-mb-tree .us .mu{padding:0.1rem 0.2rem;}
+      /* Still separated from the name, but not at the cost of the name itself —
+         this column is the one where the row runs out of width first. */
+      .pa-compact #pa-mb-tree .us .nm + .st{margin-left:0.25rem;}
       .pa-compact #pa-mb-tree .ch{padding:0.25rem 0.3rem;}
       /* A narrow column can't spend 0.8rem a level; nesting still has to be
          legible at depth 3 or 4 without pushing every name into an ellipsis. */
@@ -257,6 +443,7 @@ export class MumbleUI {
   private build(mount: HTMLElement): void {
     const root = document.createElement('div');
     root.id = 'pa-mb';
+    this.rootEl = root;
     // The header strip belongs to the window, not to either view: it is where
     // the connection lives, and reading its state while you edit the server you
     // are connecting to is the whole point of putting the settings in here.
@@ -288,10 +475,14 @@ export class MumbleUI {
         <div class="row"><label>Threshold</label><input id="pa-mb-thresh" type="range" min="0" max="100"></div>
         <div class="row"><label>Level</label><div id="pa-mb-meter"><div class="lvl"></div><div class="thr"></div></div></div>
       </div>
-      <div id="pa-mb-tree"></div>
+      <div id="pa-mb-tabs" class="pa-seg" role="tablist">
+        <button class="seg on" id="pa-mb-tab-channels" role="tab" aria-selected="true" aria-controls="pa-mb-tree">Channels</button>
+        <button class="seg" id="pa-mb-tab-activity" role="tab" aria-selected="false" aria-controls="pa-mb-log">Activity</button>
+      </div>
+      <div id="pa-mb-tree" role="tabpanel" aria-labelledby="pa-mb-tab-channels"></div>
+      <div id="pa-mb-log" role="tabpanel" aria-labelledby="pa-mb-tab-activity" hidden></div>
       <label class="chk" title="System notification when someone joins or leaves your channel"><input id="pa-mb-alerts" type="checkbox"> Join/leave alerts</label>
-      <div id="pa-mb-note" hidden></div>
-      <div id="pa-mb-cfg">Server and identity live in <a>⚙ settings</a>.</div>`;
+      <div id="pa-mb-note" hidden></div>`;
     root.appendChild(main);
     this.mainEl = main;
 
@@ -312,6 +503,9 @@ export class MumbleUI {
     this.meterLvl = main.querySelector('#pa-mb-meter .lvl')!;
     this.meterThr = main.querySelector('#pa-mb-meter .thr')!;
     this.treeEl = main.querySelector('#pa-mb-tree')!;
+    this.logEl = main.querySelector('#pa-mb-log')!;
+    this.treeTabBtn = main.querySelector('#pa-mb-tab-channels')!;
+    this.logTabBtn = main.querySelector('#pa-mb-tab-activity')!;
     this.alertsEl = main.querySelector('#pa-mb-alerts')!;
 
     // The settings view. Saving reconnects with the new details — the panel used
@@ -342,7 +536,8 @@ export class MumbleUI {
     this.alertsEl.addEventListener('change', () => voice.setJoinAlerts(this.alertsEl!.checked));
     this.micSel.addEventListener('change', () => void voice.switchMic(this.micSel!.value));
     this.spkSel.addEventListener('change', () => void voice.switchSpeaker(this.spkSel!.value));
-    main.querySelector('#pa-mb-cfg a')!.addEventListener('click', () => this.showSettings(true));
+    this.treeTabBtn.onclick = () => this.showTab('channels');
+    this.logTabBtn.onclick = () => this.showTab('activity');
     // Toggle, not push: the ⚙ is on screen in both views, so pressing it again
     // has to be the way back rather than a no-op (same as Matrix's 🔐 / 🔔).
     this.cfgBtn.onclick = () => this.showSettings(!this.settingsOpen);
@@ -374,6 +569,11 @@ export class MumbleUI {
     // The tree is a sibling of the settings block now (it is the panel's
     // scroller), so it no longer inherits the dimming and has to be told.
     this.treeEl?.classList.toggle('off', !s.connected);
+    // An empty log's line names the connection state ("Not connected."), so it
+    // has to be repainted when that changes. Only when empty: once there are
+    // entries it says nothing about the connection, and rebuilding it on every
+    // state tick would be waste.
+    if (this.voice && this.voice.activity.length === 0) this.renderActivity(this.voice.activity);
     this.micBtn!.classList.toggle('on', !s.micOn);
     // Mumble ties self-deaf to self-mute, so say so on both buttons rather than
     // letting the mic appear to switch the sound back on out of nowhere.
@@ -395,12 +595,14 @@ export class MumbleUI {
     this.masterEl!.value = String(Math.round(s.master * 100));
     this.alertsEl!.checked = s.joinAlerts;
 
+    // The server's own words for a refusal, plus whatever advice the thing we
+    // asked for carries — the panel can no longer assume every PermissionDenied
+    // is about registering, now that moving people and placing ears can be
+    // refused too.
     const note = document.getElementById('pa-mb-note');
     if (note) {
       note.hidden = !s.notice;
-      note.textContent = s.notice
-        ? `${s.notice} — ask a server admin to register your certificate.`
-        : '';
+      note.textContent = s.notice ? `${s.notice}${s.noticeHint ? ` — ${s.noticeHint}.` : ''}` : '';
     }
   }
 
@@ -447,9 +649,13 @@ export class MumbleUI {
     if (t.channels.length === 0) {
       this.channelRows.clear();
       this.userRows.clear();
+      this.listenerRows.clear();
+      this.channelNames.clear();
+      this.closeMenu();
       el.replaceChildren(mkEmpty(this.lastState?.connected ? 'No channels.' : 'Not connected.'));
       return;
     }
+    this.channelNames = new Map(t.channels.map((c) => [c.id, c.name]));
 
     const byParent = new Map<number, MumbleChannelInfo[]>();
     const roots: MumbleChannelInfo[] = [];
@@ -469,10 +675,23 @@ export class MumbleUI {
       if (list) list.push(u);
       else usersByChannel.set(u.channel, [u]);
     }
+    // Ears, by the channel being listened to. An ear in the channel you are
+    // standing in is skipped: you already have a row there, and a second one
+    // saying you can also hear it would be noise.
+    const earsByChannel = new Map<number, MumbleUserInfo[]>();
+    for (const u of t.users) {
+      for (const id of u.listening) {
+        if (id === u.channel) continue;
+        const list = earsByChannel.get(id);
+        if (list) list.push(u);
+        else earsByChannel.set(id, [u]);
+      }
+    }
 
     const order: HTMLElement[] = [];
     const liveChannels = new Set<number>();
     const liveUsers = new Set<number>();
+    const liveListeners = new Set<string>();
     const walk = (channel: MumbleChannelInfo, depth: number): void => {
       const users = (usersByChannel.get(channel.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
       let ch = this.channelRows.get(channel.id);
@@ -493,6 +712,20 @@ export class MumbleUI {
         liveUsers.add(u.session);
         order.push(ur.el);
       }
+      // Listeners after the people actually in the channel: they are hearing
+      // it, not standing in it, and the members are what the count counts.
+      const ears = (earsByChannel.get(channel.id) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+      for (const u of ears) {
+        const key = `${channel.id}:${u.session}`;
+        let lr = this.listenerRows.get(key);
+        if (!lr) {
+          lr = this.mkListenerRow(u, channel.id, t);
+          this.listenerRows.set(key, lr);
+        }
+        lr.update(u, depth + 1, t);
+        liveListeners.add(key);
+        order.push(lr.el);
+      }
       const kids = (byParent.get(channel.id) ?? []).sort(
         (a, b) => (a.position ?? 0) - (b.position ?? 0) || a.name.localeCompare(b.name),
       );
@@ -503,34 +736,207 @@ export class MumbleUI {
     }
     for (const id of this.channelRows.keys()) if (!liveChannels.has(id)) this.channelRows.delete(id);
     for (const session of this.userRows.keys()) if (!liveUsers.has(session)) this.userRows.delete(session);
+    for (const key of this.listenerRows.keys()) if (!liveListeners.has(key)) this.listenerRows.delete(key);
     applyOrder(el, order);
   }
 
-  /** A channel row. Its id is fixed — the map is keyed by it — so only the name,
-   *  count, depth and "you are here" highlight are refreshed. */
+  private closeMenu(): void {
+    this.menu?.close();
+    this.menu = null;
+    this.menuAnchor = null;
+  }
+
+  /**
+   * Repaint the activity log.
+   *
+   * **Newest first.** A log that grew downwards would need its own
+   * stick-to-bottom rule to be readable, and would move under anyone reading it
+   * the moment somebody connected; putting new lines at the top means the thing
+   * worth seeing is already where the panel opens, and the scroll position of a
+   * reader looking further back never has to be corrected.
+   *
+   * Rebuilt wholesale rather than diffed, unlike the tree next door: entries are
+   * immutable and carry no controls, so there is no <select> popup or focus to
+   * lose, and this runs when somebody connects rather than five times a second.
+   */
+  private renderActivity(entries: readonly MumbleActivity[]): void {
+    const el = this.logEl;
+    if (!el) return;
+    this.renderActivityTab();
+
+    if (entries.length === 0) {
+      el.replaceChildren(
+        mkEmpty(this.lastState?.connected ? 'Nothing has happened yet.' : 'Not connected.'),
+      );
+      return;
+    }
+    const rows = entries.map((e) => mkActivityRow(e)).reverse();
+    el.replaceChildren(...rows);
+  }
+
+  /**
+   * A channel row. Its id is fixed — the map is keyed by it — so only the name,
+   * count, depth and "you are here" highlight are refreshed.
+   *
+   * Clicking the row still joins; listening is in the row's menu, opened by the
+   * ⋯ or by a right-click anywhere on it. That is what keeps a tree of thirty
+   * channels from being a tree of thirty buttons, and the ⋯ stays out of sight
+   * (see the CSS) until the row is under the pointer or holds focus.
+   */
   private mkChannelRow(id: number): ChannelRow {
+    const voice = this.voice!;
     const row = document.createElement('div');
     row.className = 'ch';
     const name = document.createElement('span');
     name.className = 'n';
     const count = document.createElement('span');
     count.className = 'c';
-    row.append(name, count);
-    row.onclick = () => this.voice?.joinChannel(id);
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'mn';
+    menuBtn.textContent = '⋯';
+    menuBtn.setAttribute('aria-haspopup', 'menu');
+    row.append(name, count, menuBtn);
+    // The row joins, so the button that does something else has to keep its
+    // click to itself.
+    let label = '';
+    menuBtn.onclick = (e) => {
+      e.stopPropagation();
+      this.openChannelMenu(id, label, menuBtn, row);
+    };
+    row.oncontextmenu = (e) => {
+      e.preventDefault();
+      // Anchored to the ⋯ either way, so the menu lands in the same place
+      // however it was asked for.
+      this.openChannelMenu(id, label, menuBtn, row);
+    };
+    row.onclick = () => voice.joinChannel(id);
     return {
       el: row,
       update: (channel, userCount, depth) => {
-        row.classList.toggle('here', channel.id === this.lastState?.channel);
+        // Asked once per channel per session (and again after an ACL change);
+        // the answer decides what the menu below may offer.
+        voice.requestPermissions(channel.id);
+        label = channel.name;
+        const here = channel.id === this.lastState?.channel;
+        row.classList.toggle('here', here);
         row.style.setProperty('--mb-depth', String(depth));
         name.textContent = channel.name;
         count.textContent = userCount > 0 ? String(userCount) : '';
         row.title = channel.description ? `${channel.name} — ${channel.description}` : `Join ${channel.name}`;
+        // Nothing to offer for the channel we are already in — joining it is a
+        // no-op and an ear in it is what we take back down on arrival — so the
+        // ⋯ goes away rather than opening an empty menu.
+        menuBtn.hidden = !this.channelMenuItems(channel.id, channel.name).length;
+        menuBtn.title = `${channel.name} — more`;
+        menuBtn.setAttribute('aria-label', `${channel.name} actions`);
+      },
+    };
+  }
+
+  /**
+   * What a channel row's menu may offer, which is also whether it has anything
+   * to offer at all — the ⋯ is drawn from the same answer, so a menu is never
+   * opened empty.
+   *
+   * An ear we already hold stays removable even if the Listen permission goes
+   * away under us, or there would be no way to take it back down.
+   */
+  private channelMenuItems(id: number, name: string): PanelMenuItem[] {
+    const voice = this.voice;
+    if (!voice) return [];
+    const items: PanelMenuItem[] = [];
+    if (id !== this.lastState?.channel) {
+      items.push({ label: '→ Join', title: `Join ${name}`, onPick: () => voice.joinChannel(id) });
+    }
+    if (voice.isListening(id)) {
+      items.push({
+        label: '👂 Stop listening',
+        title: `Stop listening to ${name}`,
+        onPick: () => voice.toggleListen(id),
+      });
+    } else if (voice.canListen(id)) {
+      items.push({
+        label: '👂 Listen',
+        title: `Hear ${name} as well as your own channel, without leaving it`,
+        onPick: () => voice.toggleListen(id),
+      });
+    }
+    return items;
+  }
+
+  private openChannelMenu(id: number, name: string, anchor: HTMLElement, row: HTMLElement): void {
+    const root = this.rootEl;
+    if (!root) return;
+    // Asking again on the same row closes it; asking on another moves it there.
+    if (this.menu) {
+      const sameButton = this.menuAnchor === anchor;
+      this.closeMenu();
+      if (sameButton) return;
+    }
+    const items = this.channelMenuItems(id, name);
+    if (items.length === 0) return;
+    // Keeps the ⋯ visible while the pointer is over the menu rather than the row.
+    row.classList.add('menu-open');
+    this.menuAnchor = anchor;
+    this.menu = openPanelMenu({
+      anchor,
+      container: root,
+      head: name,
+      label: `${name} actions`,
+      items,
+      onClose: () => {
+        row.classList.remove('menu-open');
+        this.menu = null;
+        this.menuAnchor = null;
+      },
+    });
+  }
+
+  /**
+   * One line for an ear: somebody hearing this channel from another one.
+   *
+   * Drawn for everybody's ears, not just ours — it is the only place a listener
+   * is visible at all, since their real row stays in the channel they are
+   * standing in. Ours is clickable, because the row is where you are looking
+   * when you want the ear gone.
+   */
+  private mkListenerRow(user: MumbleUserInfo, channelId: number, t: MumbleTree): ListenerRow {
+    const voice = this.voice!;
+    const row = document.createElement('div');
+    row.className = 'us ln';
+    const talk = document.createElement('span');
+    const ear = document.createElement('span');
+    ear.className = 'ec';
+    ear.textContent = '👂';
+    const name = document.createElement('span');
+    const self = user.session === t.me;
+    name.className = `nm${self ? ' me' : ''}`;
+    row.append(talk, ear, name);
+    if (self) {
+      row.classList.add('own');
+      row.onclick = () => voice.toggleListen(channelId);
+    }
+    return {
+      el: row,
+      update: (u, depth, tree) => {
+        row.style.setProperty('--mb-depth', String(depth));
+        talk.className = `tk${tree.talking.has(u.session) ? ' on' : ''}`;
+        name.textContent = u.name;
+        const from = this.channelNames.get(u.channel);
+        const where = from ? ` from ${from}` : '';
+        row.title = self
+          ? `You are listening in here${where} — click to stop`
+          : `${u.name} is listening in here${where}`;
       },
     };
   }
 
   /**
    * One line per user: talk dot, name, state flags, mute, volume dropdown.
+   *
+   * Mute and volume are on the row rather than behind a menu because they are
+   * settings you scan and adjust across a whole channel, not one-shot actions on
+   * one person — which is why a user row has no menu at all.
    *
    * Built once per session and updated in place. Whether this is our own row is
    * fixed for the life of the row, since a new session id means a new row, so the
@@ -672,6 +1078,40 @@ function applyStateIcon(el: HTMLElement, kind: 'mic' | 'speaker', user: MumbleUs
   } else {
     el.title = 'Microphone live';
   }
+}
+
+/**
+ * One activity line: time, who, and what they did.
+ *
+ * The time is shown as a time of day (the log is reset on every sync, so it
+ * never spans much) with the full date in the tooltip for the case where it
+ * does. A move shows only where they went — the destination is the part worth
+ * scanning a column of, and the panel is narrow — with the channel they came
+ * from in the row's tooltip.
+ */
+function mkActivityRow(e: MumbleActivity): HTMLElement {
+  const row = document.createElement('div');
+  row.className = `ev ${e.kind === 'joined' ? 'in' : e.kind === 'left' ? 'out' : 'mv'}`;
+  const when = document.createElement('span');
+  when.className = 't';
+  const at = new Date(e.ts);
+  when.textContent = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  when.title = at.toLocaleString();
+  const who = document.createElement('span');
+  who.className = 'n';
+  // Remote text: a display name from the server, so property assignment only.
+  who.textContent = e.name;
+  who.title = e.name;
+  const what = document.createElement('span');
+  what.className = 'a';
+  if (e.kind === 'moved') {
+    what.textContent = `→ ${e.to ?? ''}`;
+    row.title = `${e.name}: ${e.from ?? '?'} → ${e.to ?? '?'}`;
+  } else {
+    what.textContent = e.kind === 'joined' ? 'joined' : 'left';
+  }
+  row.append(when, who, what);
+  return row;
 }
 
 function mkEmpty(text: string): HTMLElement {

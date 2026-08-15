@@ -28,12 +28,15 @@ export const PIXEL_DESKTOP_CHANNELS = {
   toggleDevTools: 'pixelDesktop:toggleDevTools',
   reload: 'pixelDesktop:reload',
   notify: 'pixelDesktop:notify',
+  setUnreadCount: 'pixelDesktop:setUnreadCount',
   // Mumble voice. Control is invoke/handle like everything above; audio is
   // fire-and-forget in both directions because a promise per 20 ms frame would
   // be pure overhead at 50 packets/s.
   mumbleConnect: 'pixelDesktop:mumbleConnect',
   mumbleDisconnect: 'pixelDesktop:mumbleDisconnect',
   mumbleJoinChannel: 'pixelDesktop:mumbleJoinChannel',
+  mumbleSetListening: 'pixelDesktop:mumbleSetListening',
+  mumbleQueryPermissions: 'pixelDesktop:mumbleQueryPermissions',
   mumbleSelfState: 'pixelDesktop:mumbleSelfState',
   mumbleSendText: 'pixelDesktop:mumbleSendText',
   mumbleSelfRegister: 'pixelDesktop:mumbleSelfRegister',
@@ -78,6 +81,9 @@ export interface MumbleUserInfo {
   suppress: boolean;
   /** Present once the server reports a registered account for this user. */
   userId?: number;
+  /** Channels this user has an ear in (Mumble 1.4 ChannelListener): they hear
+   *  those as well as their own, without leaving it. */
+  listening: number[];
 }
 
 /** Pushed from main on the `mumbleEvent` channel. */
@@ -95,7 +101,13 @@ export type MumbleEvent =
   | { t: 'user'; user: MumbleUserInfo }
   | { t: 'userRemove'; session: number }
   | { t: 'text'; actor: number; message: string }
-  | { t: 'permission'; reason: string };
+  | { t: 'permission'; reason: string }
+  /** What we are allowed to do in one channel: Murmur's ACL bitfield (see
+   *  `PermissionQueryMsg` in mumble/protocol.ts for the bits, and `MUMBLE_PERM`
+   *  in the renderer for the names). `flush` means every cached answer is stale
+   *  — it arrives unsolicited when an admin edits an ACL, and then carries no
+   *  channel of its own. */
+  | { t: 'permissions'; channel?: number; permissions?: number; flush: boolean };
 
 /** Pushed from main on the `mumbleAudio` channel: one Opus packet. */
 export interface MumbleAudioIn {
@@ -135,6 +147,11 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
+  /** Place or remove an ear in another channel — we keep hearing our own and
+   *  hear that one too. Needs the Listen permission there. */
+  setListening(channelId: number, listening: boolean): Promise<void>;
+  /** Ask what we may do in a channel; answered by a `permissions` event. */
+  queryPermissions(channelId: number): Promise<void>;
   selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
   sendText(message: string): Promise<void>;
   selfRegister(): Promise<void>;
@@ -174,7 +191,10 @@ export interface PixelDesktopApi {
   keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021; implemented in T4.4). */
   pickScreenSource(): Promise<{ id: string } | null>;
-  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  /** Closes the window that made the call. Quits the app on Linux/Windows —
+   *  unless the user turned on the tray's "Close button hides to tray", which
+   *  this path deliberately honours too, so the HUD's ✕ and the OS titlebar's
+   *  behave alike. */
   closeWindow(): Promise<void>;
   /** Opens/closes DevTools for the calling window's web contents. */
   toggleDevTools(): Promise<void>;
@@ -184,6 +204,12 @@ export interface PixelDesktopApi {
   /** Shows an OS notification. Resolves whether or not the platform showed one
    *  — a notification is an aside, never something the caller must handle. */
   notify(notification: DesktopNotification): Promise<void>;
+  /** Reports the number of unread chat messages, for the system tray icon and
+   *  the dock/launcher badge. The renderer owns the Matrix session, so it is the
+   *  only side that can know this; main only decides how to display it. Safe to
+   *  call with the same value repeatedly — main ignores a count that has not
+   *  changed. */
+  setUnreadCount(count: number): Promise<void>;
   /** Mumble voice client (protocol + TLS live in main; audio lives here). */
   mumble: MumbleApi;
 }

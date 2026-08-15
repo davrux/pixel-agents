@@ -43,10 +43,16 @@ const api: PixelDesktopApi = {
   reload: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.reload),
   notify: (notification: DesktopNotification) =>
     ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.notify, notification),
+  setUnreadCount: (count: number) =>
+    ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.setUnreadCount, count),
   mumble: {
     connect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleConnect),
     disconnect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleDisconnect),
     joinChannel: (id: number) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleJoinChannel, id),
+    setListening: (channelId: number, listening: boolean) =>
+      ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleSetListening, channelId, listening),
+    queryPermissions: (channelId: number) =>
+      ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleQueryPermissions, channelId),
     selfState: (state: { selfMute: boolean; selfDeaf: boolean }) =>
       ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleSelfState, state),
     sendText: (message: string) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleSendText, message),

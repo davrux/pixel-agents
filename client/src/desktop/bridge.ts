@@ -34,6 +34,9 @@ export interface MumbleUserInfo {
   suppress: boolean;
   /** Present once the server reports a registered account for this user. */
   userId?: number;
+  /** Channels this user has an ear in (Mumble 1.4 ChannelListener): they hear
+   *  those as well as their own, without leaving it. */
+  listening: number[];
 }
 
 export type MumbleEvent =
@@ -50,7 +53,11 @@ export type MumbleEvent =
   | { t: 'user'; user: MumbleUserInfo }
   | { t: 'userRemove'; session: number }
   | { t: 'text'; actor: number; message: string }
-  | { t: 'permission'; reason: string };
+  | { t: 'permission'; reason: string }
+  /** Murmur's ACL bitfield for one channel — `MUMBLE_PERM` in
+   *  voice/MumbleVoice.ts names the bits. `flush` means every cached answer is
+   *  stale (an admin edited an ACL) and carries no channel of its own. */
+  | { t: 'permissions'; channel?: number; permissions?: number; flush: boolean };
 
 export interface MumbleAudioIn {
   session: number;
@@ -87,6 +94,10 @@ export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
   disconnect(): Promise<void>;
   joinChannel(id: number): Promise<void>;
+  /** Place or remove an ear in another channel. Needs Listen there. */
+  setListening(channelId: number, listening: boolean): Promise<void>;
+  /** Ask what we may do in a channel; answered by a `permissions` event. */
+  queryPermissions(channelId: number): Promise<void>;
   selfState(state: { selfMute: boolean; selfDeaf: boolean }): Promise<void>;
   sendText(message: string): Promise<void>;
   selfRegister(): Promise<void>;
@@ -126,7 +137,8 @@ export interface PixelDesktopApi {
   keychainAvailable(): Promise<boolean>;
   /** Optional explicit screen-source picker (see AC-021). */
   pickScreenSource(): Promise<{ id: string } | null>;
-  /** Closes the window that made the call (quits the app on Linux/Windows). */
+  /** Closes the window that made the call. Quits the app on Linux/Windows,
+   *  unless the user enabled the tray's "Close button hides to tray". */
   closeWindow(): Promise<void>;
   /** Opens/closes DevTools for the calling window's web contents. */
   toggleDevTools(): Promise<void>;
@@ -134,6 +146,9 @@ export interface PixelDesktopApi {
   reload(): Promise<void>;
   /** Shows an OS notification via the main process. */
   notify(notification: DesktopNotification): Promise<void>;
+  /** Reports the unread chat count for the system tray icon and the
+   *  dock/launcher badge. */
+  setUnreadCount(count: number): Promise<void>;
   /** Mumble voice client (desktop only). */
   mumble: MumbleApi;
 }
@@ -187,6 +202,21 @@ export function notifyDesktop(title: string, body: string, silent = false): void
   if (!isDesktop()) return;
   void desktop()
     .notify({ title, body, silent })
+    .catch(() => undefined);
+}
+
+/**
+ * Publish the unread chat count to the desktop shell, which shows it on the
+ * system tray icon and the dock/launcher badge. A no-op in the browser, where
+ * the tab title is the only equivalent surface and the app does not own it.
+ *
+ * Never throws and never needs awaiting: like a notification, the badge is a
+ * report about state the caller has already applied to its own UI.
+ */
+export function setDesktopUnreadCount(count: number): void {
+  if (!isDesktop()) return;
+  void desktop()
+    .setUnreadCount(count)
     .catch(() => undefined);
 }
 

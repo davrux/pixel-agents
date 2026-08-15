@@ -417,6 +417,54 @@ export function injectMatrixSkin(): void {
 .mx-lightbox-bar .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.85rem}
 .mx-lightbox-bar .pa-b{text-decoration:none}
 
+/* A file row (timeline.ts's file path): a name, a size and a download. Sized
+   like .mx-img so a timeline of both doesn't look like two different clients,
+   but a raised control rather than an inset well — there is nothing to preview
+   in it, it is a thing you press. */
+.mx-file{
+  display:flex;align-items:center;gap:0.5rem;width:100%;max-width:18rem;margin-top:0.3rem;
+  padding:0.4rem 0.5rem;text-align:left;cursor:pointer;
+  background:#242220;border:2px solid #0a0908;border-radius:0.45rem;color:#f1efec;
+  font:0.85rem 'FS Pixel Sans',ui-monospace,monospace;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+/* Same reason as .mx-img[hidden] — an author display rule beats the UA sheet. */
+.mx-file[hidden]{display:none}
+.mx-file .i{flex:0 0 auto;font-size:1rem;line-height:1}
+.mx-file-main{display:flex;flex-direction:column;flex:1;min-width:0}
+/* Both lines clamp: a filename is remote text and may be 120 characters, and
+   the panel column must never widen. */
+.mx-file .nm,.mx-file .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mx-file .sub{color:#818586;font-size:0.75rem}
+.mx-file.loading{cursor:progress}
+.mx-file.failed{border-color:#7c2634}
+.mx-file.failed .sub{color:#f6cdd4}
+
+/* The "send this file?" gate (MatrixUI.confirmAttachment). A native <dialog>
+   wrapping a .pa-panel, so it needs the same position/display reset that
+   ui/paDialog.ts applies to the panel it puts in one. */
+.mx-confirm{
+  position:fixed;inset:0;margin:auto;padding:0;border:0;background:transparent;color:inherit;
+  max-width:calc(100vw - 2rem);max-height:calc(100vh - 2rem);
+}
+.mx-confirm::backdrop{background:rgba(0,0,0,.55)}
+.mx-confirm .pa-panel{position:static;display:block;width:22rem}
+.mx-confirm .pa-foot{display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.8rem}
+.mx-confirm-row{display:flex;gap:0.7rem;align-items:flex-start}
+/* A fixed square: the preview is there to confirm *which* picture, so a tall
+   screenshot and a wide one should both land in the same box. */
+.mx-confirm-prev{
+  flex:0 0 auto;width:5.5rem;height:5.5rem;display:flex;align-items:center;justify-content:center;
+  background:#141312;border:2px solid #0a0908;border-radius:0.45rem;overflow:hidden;
+  box-shadow:inset 0 2px 0 #2c2a28, inset 0 -3px 0 #050505;
+}
+.mx-confirm-prev.generic{font-size:2rem}
+.mx-confirm-prev img{display:block;max-width:100%;max-height:100%;object-fit:contain}
+.mx-confirm-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:0.15rem}
+.mx-confirm-meta .nm{overflow-wrap:anywhere;font-size:0.95rem}
+.mx-confirm-meta .sub{color:#818586;font-size:0.78rem;overflow-wrap:anywhere}
+.mx-confirm-meta .sub.warn{color:#a86a2e}
+
 /* An undecryptable ("Unable to Decrypt") row: still-arriving or genuinely
    unreadable, but never blank and never the SDK's raw error string (design
    doc §4.3/§4.7). .working (mid-decryption) reads subtler than a settled

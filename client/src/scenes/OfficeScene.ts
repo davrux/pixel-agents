@@ -65,7 +65,7 @@ import {
 import { createAssetBridge } from '../net/bridge.js';
 import { loadTiledSheets } from '../net/tiledSheets.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
-import { isDesktop, desktop, reloadApp } from '../desktop/bridge.js';
+import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
@@ -1058,8 +1058,14 @@ export class OfficeScene extends Phaser.Scene {
     this.setMatrixOpen(this.matrixWin?.isOpen !== true);
   }
 
-  /** Unread-count badge on the ✉ bar button. */
+  /** Unread-count badge on the ✉ bar button, and — on desktop — the same count
+   *  on the system tray icon, so unread chat is visible while the window is
+   *  minimised or hidden. Reported before the button lookup below: the tray
+   *  must still be told about a count that arrives before the HUD exists (the
+   *  Matrix store syncs in the background whether or not the panel was ever
+   *  opened), and about the reset to 0 on an identity change. */
   private setMatrixUnread(n: number): void {
+    setDesktopUnreadCount(n);
     if (!this.matrixBtn) return;
     let badge = this.matrixBtn.querySelector<HTMLSpanElement>('.mx-badge');
     if (!badge) {
@@ -1499,6 +1505,38 @@ export class OfficeScene extends Phaser.Scene {
       }
     });
     this.setupKeyboardMovement();
+    this.setupWorldClickFocusRelease();
+  }
+
+  /**
+   * Clicking the world gives the keyboard back to the world.
+   *
+   * Without this the app can be left with no way to walk at all. Every panel
+   * that takes text — the Matrix composer (focused deliberately when a room
+   * opens, so the first keystroke types instead of walking the avatar), zone
+   * chat, any editor field — is a DOM element layered over the canvas, and
+   * `blocked()` in setupKeyboardMovement stands down for exactly that. The
+   * escape hatch a browser normally provides is "click somewhere else", but
+   * Phaser's input manager calls preventDefault on the canvas' pointerdown,
+   * which is what suppresses the focus change — so the field kept focus, WASD
+   * kept typing into it, and clicking the office did nothing about it.
+   *
+   * Capture phase on the canvas: a click that reaches the canvas at all was not
+   * over a panel (an overlay would be the event's target instead), so this can
+   * never steal focus from a field the user is actually pointing at.
+   */
+  private setupWorldClickFocusRelease(): void {
+    this.game.canvas?.addEventListener(
+      'pointerdown',
+      () => {
+        const el = document.activeElement;
+        // <body> means nothing holds it, and the canvas itself is not a text
+        // sink — anything else (input, textarea, a panel's button) is what
+        // would keep swallowing WASD.
+        if (el instanceof HTMLElement && el !== document.body && el !== this.game.canvas) el.blur();
+      },
+      { capture: true },
+    );
   }
 
   /**

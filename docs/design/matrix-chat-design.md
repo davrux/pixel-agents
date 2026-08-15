@@ -481,6 +481,14 @@ The word "chat" is never used unqualified in the Matrix panel; rooms are "rooms"
    panel, WASD/arrows/C/M do not move the avatar; clicking the canvas (or `Escape` out of the panel)
    restores them. `input.keyboard.enabled` is never touched — the arcade overlay remains the only
    thing that toggles it.
+   *"Clicking the canvas restores them" was aspirational until 2026-08-14:* Phaser's input manager
+   calls `preventDefault` on the canvas' `pointerdown`, which suppresses the browser's own focus
+   change, so the composer kept focus and every W/A/S/D went on being typed into it — with a room
+   open (which focuses the composer deliberately, see `openRoom`) the world became unreachable by
+   keyboard for the rest of the session. `OfficeScene.setupWorldClickFocusRelease()` now blurs
+   whatever holds focus on a canvas `pointerdown`, in the capture phase; a click that reaches the
+   canvas was by definition not over a panel, so it can never steal focus from a field being
+   pointed at.
 
 ---
 
@@ -868,20 +876,79 @@ Per-surface states:
   only** — the homeserver is the authority, and a refusal surfaces as a toast.
 - **`formatted_body` HTML is ignored** — the plain `body` is escaped then linkified
   (http/https only, escape-per-segment).
-- **Non-text msgtypes:** `m.image`/`m.file`/`m.audio`/`m.video` render as
-  *"📎 `<filename>` (not supported in this client)"* — labelled, not blank.
-- **DOM cap: a hard 400 message elements, always enforced.** Trim from the *far* end relative to the
-  user's position: when at the bottom, drop from the top; when scrolled up (i.e. after
-  back-pagination), drop from the bottom, keeping the read position stable. An earlier draft only
-  trimmed "when the user is scrolled to the bottom", which means a user who scrolls up in a busy
-  room and walks away grows the DOM without bound. Trimming adjusts `scrollTop` by the removed
-  height in the same frame so the viewport never yanks.
-- **Scroll anchoring:** append sticks to the bottom only if already within 24 px of the bottom.
-- **Back-pagination scroll restore, synchronously, in one frame:** read `scrollHeight` → insert the
-  prepended nodes → set `scrollTop += (newScrollHeight - oldScrollHeight)`. **Not** from a
-  `requestAnimationFrame` callback, and with `overflow-anchor:none` on the container and its
-  children (§5.4) so the browser's own scroll anchoring does not add a second, engine-specific
-  correction on top of ours.
+- **Non-text msgtypes:** `m.image` is a picture row (loaded eagerly, click to open full size).
+  `m.file`/`m.audio`/`m.video` are one **file row** — 📎, the filename, and *size · type · click to
+  save* — whose bytes are fetched **only on that click** (`loadFile`/`onSaveFile`, and see the
+  download rule below); we play no audio or video, so all three are the same "named download". An
+  attachment carrying neither `url` nor `file` is the one case still labelled in text
+  (*"📎 `<filename>` (this attachment has no address)"*) — labelled, not blank.
+- **A file's blob is always `application/octet-stream`.** A picture's blob type comes from the
+  event's claimed `info.mimetype` passed through an allowlist (never the server's `Content-Type` —
+  see `media.ts`); a file's is not derived from anything, because its only destination is an
+  `<a download>` and a type is what would let the browser render it in place instead. `info.mimetype`
+  on a file row is *shown* to the reader and used for nothing else.
+- **Sending any file.** The 📎 button (an `<input type="file">` with no `accept`), a paste and a drop
+  all reach one entry point. PNG/JPEG/GIF go out as `m.image` (sniffed from the bytes, ≤16 MB —
+  the picture cap, because a picture row downloads itself); anything else as `m.file` (≤50 MB, the
+  file cap). What an `m.file` *claims* to be comes from `File.type`, downgraded to
+  `application/octet-stream` when it is malformed or a markup/scriptable type — we never volunteer
+  "this is a document you should execute" on the user's behalf, though the bytes go out unchanged.
+- **Nothing uploads without a confirmation.** A preview + name + size + destination room + whether it
+  will be encrypted, with Send/Cancel (`MatrixUI.confirmAttachment`, a native `<dialog>` in the
+  `.pa-panel` skin). This is the difference between paste-to-send and paste-then-look: a redaction
+  removes the row, not the fact that everyone in the room saw it.
+- **DOM cap: a hard 400 message elements, always enforced.** The window **slides with the reader**
+  rather than sticking to either end of the loaded events: at the bottom it is the newest 400;
+  scrolled up it is the 400 centred on the row the reader is looking at (200 above, the rest below,
+  `TRIM_KEEP_ABOVE`). An earlier draft only trimmed "when the user is scrolled to the bottom", which
+  grows the DOM without bound for a user who scrolls up in a busy room and walks away; the draft
+  after it trimmed from the far end (top when at the bottom, bottom when scrolled up), which is
+  stable right up until the reader crosses the cap and then **flips the whole window between "oldest
+  400" and "newest 400"** depending on where they are standing — one arriving message while reading
+  history jumped them ~60 messages backwards (measured). Anchoring on the reader also leaves a
+  backward page somewhere to land, which an end-pinned window does not.
+- **Scroll anchoring: one rule, not a set of special cases.** Before the render, remember the topmost
+  row still on screen and its offset from the top of the viewport; after it, put that row back at
+  that offset. This holds for a prepended backward page, an appended message, a slid window, or all
+  three at once — which a before/after `scrollHeight` delta cannot express. It runs **synchronously,
+  in one frame** (not from a `requestAnimationFrame` callback), with `overflow-anchor:none` on the
+  container and its children (§5.4) so the browser's own scroll anchoring does not add a second,
+  engine-specific correction on top of ours. Two things override it: the reader being within 24 px of
+  the bottom (stick to the newest message), and an explicit pin (below).
+- **The scroller's own height is watched, not just its content.** A `ResizeObserver` on `#pa-mx-tl`
+  re-pins a stuck-to-bottom reader whenever the box shrinks — which it does *while you type*, because
+  the composer beside it auto-grows to 5 rows and the reply/edit bar appears above that. Without it,
+  writing a four-line reply pushed the message being replied to 68 px below the fold (measured), and
+  opening the reply bar cost another 51 px. Same reasoning as the per-picture `onMediaResize` hook,
+  and like it, this reads the *remembered* stickiness: by the time the box has shrunk, "am I at the
+  bottom" is already false for exactly the reader being kept put.
+- **A pin is an intent with a lifetime.** `pinToBottom()` ("show me what I just sent") arms the next
+  render, because the message is usually not in the DOM yet. It is cleared by that render, by
+  `reset()`, **and by the reader scrolling away** — otherwise a send that never produces a render (a
+  picture whose upload fails) leaves it armed, and an unrelated message minutes later yanks the
+  timeline to the bottom. A pin also decides *which* messages get built, not only where to scroll:
+  consumed before the trim, so a send while scrolled up past the cap cannot drop the very message it
+  is about to scroll to.
+- **Opening a room resets the view (`TimelineView.reset()`, called from `openRoomView`).** One
+  TimelineView draws every room, so without this the first render of the new room decides where to
+  land from the *previous* room's scroll offset: leaving a room mid-history and opening another
+  landed 4.7 k px up in that one's history with nothing to say so, and — since a room is only marked
+  read while `isAtBottom()` — its unread badge never cleared either. Unconditional, including
+  re-opening the room just left: "open a chat" means its newest message.
+- **Infinite scrollback is an `IntersectionObserver` on `.mx-more`** (the "Load earlier messages"
+  slot doubles as the sentinel), rooted on the scroller with a 300 px top margin so the fetch starts
+  before the reader reaches it. An observer rather than a `scrollTop` threshold because it also fires
+  when the loaded history is simply shorter than the panel — the case a scroll handler never sees,
+  since there is nothing to scroll, and what fills a tall window on open. It never auto-fires during
+  a load, at the start of the room, or on an error (a failed page stays a deliberate click rather
+  than hammering a homeserver that is already refusing).
+  **An observer reports crossings, not states**, so the sentinel being pushed back out of view is
+  what re-arms it — and a page does not always manage that: 80 events that are all reactions,
+  redactions or membership changes render nothing at all, and a short page can leave a tall panel
+  still unfilled. In both cases the sentinel stays continuously intersecting and never fires again,
+  killing scrollback silently (measured: one page, then nothing). Every render therefore re-observes
+  the sentinel to ask for one fresh report; when it really is off screen that report is "not
+  intersecting" and costs a returned-immediately callback. Termination is unchanged — `atStart`.
 - **Incremental diff:** rows live in a `Map`, updated in place, and are ordered with an
   `applyOrder`-style helper ported from `MumbleUI.ts:545-559` — nodes already in the right place are
   never removed and re-inserted, so selection and focus survive updates.
@@ -976,7 +1043,7 @@ The three isolation guards in §4 are what make row 6 true. Nothing in this pane
 | `session.ts` | `normaliseHomeserverUrl` (applied to typed *and* discovered URLs), well-known discovery, login-flow probe, login/logout, and the per-pixel-user `localStorage` credential store (§3) including restore and involuntary-logout clearing. | 170 |
 | `sync.ts` | The `/sync` long-poll loop (filter, `since`, backoff, offline handling) and `MatrixStore` — rooms, `summary` ingest + `roomDisplayName`, DM classification, invites, unread counts, capped per-room timeline windows with gap markers, `applySync()`, back-pagination, optimistic send + `transaction_id` reconciliation, read-modify-write `m.direct`, and a tiny typed emitter. **No DOM.** | 520 |
 | `matrixSkin.ts` | The single idempotent `<style id="pa-mx-style">` injection (§5.4 table). | 150 |
-| `timeline.ts` | Keyed, diffing timeline renderer: grouping, day separators, relative time, the copied `esc`/`linkify`, encrypted/redacted/unsupported placeholders, gap markers, scroll anchoring + synchronous prepend restore, hard DOM cap, pagination trigger. | 340 |
+| `timeline.ts` | Keyed, diffing timeline renderer: grouping, day separators, relative time, the copied `esc`/`linkify`, encrypted/redacted/unsupported placeholders, gap markers, synchronous row-anchored scroll restore, the reader-centred DOM cap, viewport-size re-pinning, and the self-re-arming pagination sentinel. | 340 |
 | `MatrixUI.ts` | The panel root and view router: `login`, `rooms`, `room`, `members`, `newdm`, `newgroup`, `join`; status strip; pin button; composer; `toast()`; keyboard rules; `sessionStorage` view/draft restore; exposes `isPinned`, `ownsFocus()`, `openDm(mxid)`, `destroy()`. | 680 |
 | `index.ts` | `createMatrixClient(mount, hooks): MatrixClientHandle` — the one and only dynamic-import entry point; wires skin + session + sync + UI. | 60 |
 
@@ -1133,9 +1200,11 @@ the reason they are shaped the way they are.
   `getEventReadUpTo` already means "the newest event this member has read" and each reader's picture
   lands on exactly one row with no per-message bookkeeping. Our own marker is excluded (we send it
   ourselves, so it would put our face on everything we write). Still **no typing notifications**.
-- ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, over
+- ~~**No file/image upload and no media display**~~ **[shipped]** — PNG/JPEG/GIF send and view, plus
+  **any file from disk** as `m.file` (and `m.audio`/`m.video` from other clients as a download), over
   Matrix 1.11 authenticated media with a token-bearing fetch and a per-session blob lifecycle
-  (`media.ts`). Other attachment types are still labelled placeholders.
+  (`media.ts`). Every send goes through a confirmation dialog first. Still **no inline audio/video
+  player** and **no thumbnails for a file**: a non-picture attachment is a name, a size and a save.
 - ~~**No avatars from `mxc://`**~~ **[shipped]** — real profile pictures, layered over the
   deterministic initials square so a slow or missing one degrades to what v1 drew.
 - **No Spaces** (`m.space` hierarchy), no room directory browsing, no public-room search.
@@ -1262,3 +1331,4 @@ the reason they are shaped the way they are.
 | 2026-08-07 | **§1 (Transport) and §2 (E2EE Position) marked SUPERSEDED** by `docs/design/matrix-e2ee-design.md`, at the repo owner's explicit request to use the official `matrix-js-sdk` with E2EE. No other section changed. |
 | 2026-08-07 | Adversarial review folded in. **Protocol corrections:** room display-name algorithm added (`summary.m.heroes`); DM classification no longer claims `m.room.create` carries `is_direct`; `unsigned.transaction_id` made the primary echo key; `account_data` filter switched from `{"limit":10}` to a `m.direct` type allowlist and a mandatory `GET` added before every write; accepting a DM invite now writes `m.direct`; members read via `/members?membership=join&membership=invite`; invite acceptance uses `/rooms/{roomId}/join`; raw room-id joins carry `server_name`; `presence` uses `not_types`. **Host corrections:** the Matrix panel bypasses `setMenu`'s `display:'block'` and uses `flex`; `--pa-dock-w` corrected to panel width + 1.5 rem (27.5 rem); `blocked()` extended for WASD/arrows; the bar button is gated on `viewerIdentity` and `destroy()` given a lifecycle owner; zone travel's full reload documented with `sessionStorage` restore. **Security:** the discovered `m.homeserver.base_url` is re-validated; the remote-content rule promoted to a hard rule covering `title`/`aria-label`/`href`/`style`; `esc()` extended with `'`. **Rendering:** gappy sync no longer wipes a back-paginated window; store and DOM caps made hard and bounded; `overflow-anchor:none` + synchronous scroll restore; `aria-live` scoped. **Scope:** `/matrix` moved into `shared/src/commands.ts` (the `/admin-site`-is-unregistered claim was false); `pa-mx-autostart`, the per-homeserver key dimension, `pa-mx-active`, `GET /profile`, `.pa-chip` and `.pa-select` removed; `.mx-av` tints drawn from existing accents; `.mx-toast` and `.mx-gap` given owners. |
 | 2026-08-10 | **§5.1 placement SUPERSEDED.** Matrix and Mumble became docked application windows either side of the game (Matrix left, Mumble right) instead of pinnable right-hand popovers. Pin state, `MatrixClientHandle.isPinned`/`unpin()`, `MumbleUI.isPinned`/`unpin()`, `onPinChange`, `applyDock()`, `--pa-dock-w`, `body.pa-dock-pinned`, `.pa-docked` and the `pa-mx-pinned`/`pa-mb-pinned` keys are all gone; `client/src/ui/dockWindow.ts` owns `--pa-dock-l`/`--pa-dock-r` (which inset `#game` alongside `--pa-side-panel-w`), a drag-to-resize grip, and the `pa-mx-win-*`/`pa-mb-win-*` width + open-state keys. `MatrixClientHandle` gains `setDocked(open)`, which replaces the pin as the timeline-poll gate. |
+| 2026-08-14 | **Attachments generalised from pictures to any file.** `media.ts` gains `MxFileContent`/`fileContentOf`, `uploadAttachment` (picture when the bytes sniff as one, `m.file` otherwise), `attachmentUrl` (an always-`application/octet-stream` blob) and `MAX_FILE_BYTES` (50 MB, beside the 16 MB picture cap); its three cache paths collapsed into one keyed `cached()` helper (`img|`/`file|`/`avatar|`, so a picture blob and a file blob for one mxc can never be confused). `store.sendImage` → `sendAttachment`. `timeline.ts` renders `m.file`/`m.audio`/`m.video` as a click-to-download file row, replacing the *"not supported in this client"* placeholder. **No upload starts without a confirmation dialog** (`MatrixUI.confirmAttachment`) — the 📎 button, paste and drop all pass through it. |

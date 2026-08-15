@@ -31,7 +31,7 @@
  * it is handed are remote and hostile; see `clean()`.
  */
 
-export type NotifyKind = 'message' | 'picture';
+export type NotifyKind = 'message' | 'picture' | 'file';
 
 export interface NotifyPrefs {
   /** Master switch. */
@@ -268,6 +268,7 @@ function bodyFor(p: Pending, showBody: boolean): string {
     }
     if (p.anyHighlight) return p.isDm ? 'Mentioned you' : `${who} mentioned you`;
     if (p.lastKind === 'picture') return p.isDm ? 'Sent a picture' : `${who} sent a picture`;
+    if (p.lastKind === 'file') return p.isDm ? 'Sent a file' : `${who} sent a file`;
     return p.isDm ? 'New message' : `${who} sent a message`;
   }
 

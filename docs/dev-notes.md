@@ -212,6 +212,67 @@ Add a matching command for any new destination (see AGENTS.md convention).
     pages inside the chat window: `#pa-mb` holds a persistent `#pa-mb-master`
     strip plus one `<section>` per view, and only one section is displayed. They
     used to be a block inside the office's Settings panel.
+  - **Two tabs over one well** (`#pa-mb-tabs`, paSkin's `.pa-seg`): the channel
+    tree, and an **activity log** of who joined, left or changed channel since
+    the last sync, newest first with a time of day. The log is `MumbleVoice`'s,
+    not the view's — it is built from the discrete `user`/`userRemove` events,
+    which is what lets it tell an arrival (no prior session) from a move (a
+    prior session in another channel), and skip the whole roster that arrives
+    with `sync`. Those are three separate kinds, not a leave plus a join: a
+    mover never went anywhere. Our **own** moves are logged too — they are the
+    only record there is of having been moved by somebody else. Moves keep the
+    channel *names* rather than ids, because by the time the line is read the
+    tree has moved on. It is **server** scoped, unlike the join/leave *alerts*
+    next to it, which only fire for your own channel because an OS notification
+    per stranger is noise. A sync clears it: anything that happened while we
+    were away was never observed, and a log that continued across the gap would
+    have silent holes in it.
+  - **Permissions and ears.** Murmur answers a `PermissionQuery` with an ACL
+    bitfield per channel (`ChanACL::Perm` — Write 0x1 … Listen 0x800; the whole
+    table is in `MUMBLE_PERM`, deliberately complete even though only Write and
+    Listen are read). Nothing pushes it: you ask, or you get an unsolicited
+    **flush** meaning every cached answer is stale. So `MumbleVoice` caches per
+    channel and the tree asks as it draws each row — once per channel per
+    session, and again by itself after a flush, which beats querying a whole
+    tree up front. **Unknown ≠ denied**: absent from the cache has to stay
+    distinct from a bitfield of 0, and Write counts for every bit because it is
+    Murmur's blanket grant.
+    - A **channel row popover** (`panelMenu.ts`, shaped like the chat panel's
+      message menu), opened by the row's ⋯ or by a right-click on it, offers Join
+      and **Listen** — place an ear: Mumble 1.4's ChannelListener, hear that
+      channel as well as your own. It goes out as a `UserState` carrying the
+      `listening_channel_add`/`_remove` **delta** (fields 21/22, which is why
+      `session.ts` keeps the running set).
+    - The gate is an entry's *presence* — nothing in the menu is ever drawn
+      disabled — down to **the ⋯ going away when the menu would be empty**, which
+      is the channel you are already in: joining it is a no-op and an ear in it is
+      what we take back down on arrival. The ⋯ is otherwise invisible until its
+      row is hovered or focused, hidden with `opacity` so revealing it never
+      reflows the row; right-click is the discoverable half.
+    - **User rows have no menu.** Everything they offer — mute, per-user volume —
+      is a setting you scan and adjust across a whole channel, so it stays on the
+      row. Moving *other* people was built (Move 0x20, a `UserState` naming
+      somebody else's session) and then removed: the destination list never
+      rendered its text in the real panel, and it was not worth keeping for that.
+      `git log -- client/src/voice/panelMenu.ts` has it if it is ever wanted back.
+    - **An ear is a row in the tree**, under the channel being listened to, for
+      everyone's ears and not just ours — otherwise listening is invisible,
+      since the listener's real row stays where they are standing. Dashed and
+      italic to say "hearing this, not in it", after the members (who are what
+      the channel's count counts), and carrying no mute or volume control
+      because those belong to the person, not to this second row of them. Ours
+      is clickable to take the ear back down.
+    - **We announce 1.4.0**, not 1.3.0. Murmur strips the listening fields from
+      the `UserState` it broadcasts to anything older, so below that we would
+      never see who is listening where — not even our own ears, since what
+      confirms one is the echo of our own request. Still no `version_v2`: 1.5 is
+      where the voice format changes.
+    - The client only ever decides what to *offer*. The server refuses with
+      `PermissionDenied`, which lands in the panel's note — so that note no longer
+      hardcodes the "register your certificate" advice, it carries whatever hint
+      the thing you asked for supplied (`noticeHint`).
+    - An ear in the channel you then walk into is taken back down: Murmur would
+      otherwise have two reasons to route you that audio.
   - **Playback must stay in one clock domain.** Two rules keep pitch correct, and
     both were once broken, which made voices drift low and slow:
     1. `masterGain → ctx.destination`, with the speaker chosen via `setSinkId` **on
@@ -243,8 +304,9 @@ Add a matching command for any new destination (see AGENTS.md convention).
     in the renderer, and Opus packets cross IPC opaque. Audio uses `send`, not
     `invoke` (a promise per 20 ms frame is waste); control stays on `invoke`.
   - Voice rides Mumble's `UDPTunnel` over TCP — no UDP, no `CryptSetup`, no OCB2.
-    We announce version 1.3.0 and deliberately **not** `version_v2`, or Murmur
-    switches to the 1.5 protobuf voice format we don't parse.
+    We announce version 1.4.0 (see above — ChannelListener needs it) and
+    deliberately **not** `version_v2`, or Murmur switches to the 1.5 protobuf
+    voice format we don't parse.
   - Node's `tls` does **not** go through Chromium's `setCertificateVerifyProc`, so
     `verifyMumblePeer` checks the shared `certTrust.ts` store itself — and converts
     Node's `AA:BB:` hex to Chromium's `sha256/<base64>` so one trust decision covers
@@ -312,9 +374,10 @@ Add a matching command for any new destination (see AGENTS.md convention).
   - `fill: true` makes the body a non-scrolling flex column, for a panel that
     pins chrome around its own scroller. Both application windows use it: Matrix
     pins a status strip and composer around its timeline, Mumble pins its header
-    strip and its device controls above the channel tree (`#pa-mb-tree` is that
-    view's one scroller, with a `min-height` floor and `#pa-mb-main` scrolling
-    only as a short-window fallback).
+    strip and its device controls above the tabbed well (`#pa-mb-tree` or
+    `#pa-mb-log`, whichever `#pa-mb-tabs` is showing, is that view's one
+    scroller — with a `min-height` floor and `#pa-mb-main` scrolling only as a
+    short-window fallback).
 
 ## Ops gotchas
 - **Push:** `GIT_SSH_COMMAND="ssh -4" git push …` (Codeberg hangs over IPv6).

@@ -57,7 +57,7 @@ import { cryptoDbPrefix, drainPendingWipes, readNotifyPrefs, startFresh, wipeNam
 import { MatrixNotifier, type NotifyKind } from './notify.js';
 import { notifyDesktop } from '../desktop/bridge.js';
 import { createMatrixCrypto, type MatrixCrypto } from './crypto.js';
-import { MatrixMedia, type MxImageContent } from './media.js';
+import { MatrixMedia, type MxAttachmentContent, type MxFileContent, type MxImageContent } from './media.js';
 import { toHtml } from './markdown.js';
 
 const READ_DEBOUNCE_MS = 1000;
@@ -136,6 +136,15 @@ function toMxMembership(m: string): MxMembership {
   if (m === 'invite') return 'invite';
   if (m === 'join') return 'join';
   return 'leave';
+}
+
+/** Which "Alice sent a …" line an incoming message earns, from its msgtype
+ *  alone — the notification never carries the body unless the user asked for it
+ *  (see notify.ts), so this is usually all the reader gets. */
+function notifyKindOf(msgtype: unknown): NotifyKind {
+  if (msgtype === 'm.image') return 'picture';
+  if (msgtype === 'm.file' || msgtype === 'm.audio' || msgtype === 'm.video') return 'file';
+  return 'message';
 }
 
 /** Message kinds an edit is offered for. A picture is deliberately not one:
@@ -727,7 +736,7 @@ export class MatrixStore {
     if (actions?.notify !== true) return;
 
     const content = ev.getContent() as { msgtype?: unknown; body?: unknown };
-    const kind: NotifyKind = content.msgtype === 'm.image' ? 'picture' : 'message';
+    const kind: NotifyKind = notifyKindOf(content.msgtype);
     const ownEvent = room.currentState.getStateEvents(sdk.EventType.RoomMember, this.userId);
     const ownContent = (ownEvent?.getContent() as { is_direct?: boolean } | undefined) ?? undefined;
 
@@ -837,9 +846,13 @@ export class MatrixStore {
     if (ev.redacted) return '(message deleted)';
     if (ev.decrypting || ev.decryptError) return '🔒 Encrypted message';
     const body = ev.content?.body;
-    // An m.image's body is its filename, which on its own reads like someone
+    // An attachment's body is its filename, which on its own reads like someone
     // sent the word "screenshot.png".
-    if (ev.content?.msgtype === 'm.image') return typeof body === 'string' && body ? `🖼 ${body}` : '🖼 Picture';
+    const msgtype = ev.content?.msgtype;
+    if (msgtype === 'm.image') return typeof body === 'string' && body ? `🖼 ${body}` : '🖼 Picture';
+    if (msgtype === 'm.file' || msgtype === 'm.audio' || msgtype === 'm.video') {
+      return typeof body === 'string' && body ? `📎 ${body}` : '📎 File';
+    }
     if (typeof body !== 'string' || !body) return '';
     const oneLine = body.replace(/\s+/g, ' ').trim();
     return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
@@ -1384,12 +1397,13 @@ export class MatrixStore {
     }
   }
 
-  /** Upload a PNG and send it as `m.image`. Unlike `send()`, the upload half
+  /** Upload a file and send it — `m.image` when the bytes are a picture,
+   *  `m.file` otherwise (media.ts decides). Unlike `send()`, the upload half
    *  has no local echo to fail into — nothing exists in the timeline until the
    *  bytes are on the server — so this one *rejects* and the caller shows the
    *  message. Once the event itself is sent, failure goes back to being a
    *  `.failed` echo row like any other message. */
-  async sendImage(roomId: string, file: File, onProgress?: (fraction: number) => void): Promise<void> {
+  async sendAttachment(roomId: string, file: File, onProgress?: (fraction: number) => void): Promise<void> {
     const client = this.client;
     const media = this.media_;
     if (!client || !media) throw new MatrixError(0, '', 'Not connected.');
@@ -1398,7 +1412,7 @@ export class MatrixStore {
     // MxRoom.encrypted, so the padlock in the room header and the decision to
     // encrypt these bytes can never disagree.
     const encrypt = room?.hasEncryptionStateEvent() ?? false;
-    const content: MxImageContent = await media.uploadImage({ file, encrypt, onProgress });
+    const content: MxAttachmentContent = await media.uploadAttachment({ file, encrypt, onProgress });
     try {
       await client.sendMessage(roomId, content as unknown as RoomMessageEventContent);
     } catch {
@@ -1412,6 +1426,15 @@ export class MatrixStore {
     const media = this.media_;
     if (!media) return Promise.reject(new MatrixError(0, '', 'Not connected.'));
     return media.objectUrl(content);
+  }
+
+  /** The same for a plain attachment: an opaque blob: URL the caller hands to a
+   *  `download` link. Only ever called from a click — a file row shows a name
+   *  and a size until the reader asks for the bytes. */
+  attachmentUrl(content: MxFileContent): Promise<string> {
+    const media = this.media_;
+    if (!media) return Promise.reject(new MatrixError(0, '', 'Not connected.'));
+    return media.attachmentUrl(content);
   }
 
   async retrySend(roomId: string, txnId: string): Promise<void> {

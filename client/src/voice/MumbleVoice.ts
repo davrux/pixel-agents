@@ -55,6 +55,12 @@ const MAX_OPUS_BYTES = 1024;
 const ALERT_COALESCE_MS = 600;
 /** Above this, the notification counts instead of naming everyone. */
 const ALERT_MAX_NAMES = 4;
+/** How many activity lines to keep. Bounded because it is only ever read by
+ *  eye — a server that churns for an afternoon must not grow this without end.
+ *  Roomier than it looks it needs to be because channel moves are logged too,
+ *  and people move far more often than they connect: a tight cap would push the
+ *  arrivals out behind a handful of restless afternoons. */
+const MAX_ACTIVITY = 300;
 /** Default input gain. Unity is far too quiet next to the official Mumble
  *  client, whose own amplification defaults well above 1x — a browser mic
  *  captured with AGC off simply arrives quieter than Mumble's. */
@@ -62,6 +68,35 @@ const DEFAULT_MIC_GAIN = 4;
 
 /** Opus identification header. Chrome tolerates omitting it; some engines don't. */
 const OPUS_HEAD = buildOpusHead();
+
+/**
+ * Murmur's per-channel ACL bits (`ChanACL::Perm`), as they arrive in a
+ * `permissions` event.
+ *
+ * The whole table is here even though only three of the bits are read: a
+ * bitfield checked against a partial list is a trap for whoever adds the next
+ * check. The ones below `kick` are per-channel; the rest are only ever granted
+ * on the root channel.
+ */
+export const MUMBLE_PERM = {
+  write: 0x1,
+  traverse: 0x2,
+  enter: 0x4,
+  speak: 0x8,
+  muteDeafen: 0x10,
+  move: 0x20,
+  makeChannel: 0x40,
+  linkChannel: 0x80,
+  whisper: 0x100,
+  textMessage: 0x200,
+  makeTempChannel: 0x400,
+  listen: 0x800,
+  kick: 0x10000,
+  ban: 0x20000,
+  register: 0x40000,
+  selfRegister: 0x80000,
+  resetUserContent: 0x100000,
+} as const;
 
 export interface MumbleVoiceState {
   connected: boolean;
@@ -80,6 +115,39 @@ export interface MumbleVoiceState {
   host: string;
   error?: string;
   notice?: string;
+  /** What to suggest under a refusal, set by whoever asked for the thing that
+   *  got refused. PermissionDenied says only *that* we may not — without this,
+   *  a refused ear would be advised to go register a certificate. */
+  noticeHint?: string;
+}
+
+/** What one activity line records. A move is deliberately its own kind rather
+ *  than a leave plus a join: the person never went anywhere. */
+export type MumbleActivityKind = 'joined' | 'left' | 'moved';
+
+/**
+ * One line of the activity log: somebody arrived on, left, or changed channel.
+ *
+ * Server-wide, not channel-scoped — that is what the join/leave *alerts* are
+ * (they only fire for our own channel, because an OS notification for every
+ * stranger on a busy server is noise). The log answers a different question:
+ * who has been around since we connected, and where they went.
+ */
+export interface MumbleActivity {
+  /** Strictly increasing within one session, restarting at each sync. Lets a
+   *  view say what is new to it without counting calls or diffing the array —
+   *  which neither survives the trim at MAX_ACTIVITY nor a repaint that had
+   *  nothing to do with the log. */
+  seq: number;
+  /** Wall clock, so it can be shown as a time of day. */
+  ts: number;
+  name: string;
+  kind: MumbleActivityKind;
+  /** For a move: the channels involved, by the *name they had at the time*.
+   *  This is a record of something that happened, and the tree it will be read
+   *  against has moved on — a channel can be renamed, or cease to exist. */
+  from?: string;
+  to?: string;
 }
 
 export interface MumbleTree {
@@ -141,6 +209,7 @@ export class MumbleVoice {
   private host = '';
   private error: string | undefined;
   private notice: string | undefined;
+  private noticeHint: string | undefined;
 
   private mySession = 0;
   private myChannel = 0;
@@ -150,6 +219,13 @@ export class MumbleVoice {
   /** Per-user volume + mute, keyed by display name so it survives reconnects. */
   private readonly userVolumes = new Map<string, number>();
   private readonly userMuted = new Set<string>();
+  /** What the server says we may do in each channel, once it has been asked.
+   *  Absent means unknown, which is not the same as "nothing allowed" — the two
+   *  have to stay apart or an unanswered channel looks forbidden. */
+  private readonly channelPerms = new Map<number, number>();
+  /** Channels a query is already out for, so the tree's five-times-a-second
+   *  repaint asks once rather than for ever. */
+  private readonly permsAsked = new Set<number>();
 
   private unsubEvent: (() => void) | null = null;
   private unsubAudio: (() => void) | null = null;
@@ -160,6 +236,10 @@ export class MumbleVoice {
   /** Pending channel join/leave moves, flushed as one OS notification. */
   private readonly alerts: { name: string; joined: boolean }[] = [];
   private alertTimer: number | null = null;
+
+  /** Server arrivals/departures since the current sync, oldest first. */
+  private readonly activityLog: MumbleActivity[] = [];
+  private activitySeq = 0;
 
   // Capture: MicGraph → worklet → 20 ms buffers → AudioEncoder → IPC.
   private mic: MicGraph | null = null;
@@ -204,6 +284,7 @@ export class MumbleVoice {
     private readonly onTree: (t: MumbleTree) => void,
     private readonly onDevices: (d: MumbleDevices) => void,
     private readonly onMicLevel: (level: number) => void,
+    private readonly onActivity: (entries: readonly MumbleActivity[]) => void,
   ) {
     this.master = clampVol(Number(localStorage.getItem('pa-mb-master') ?? '1'));
     this.micGain = clampMicGain(readMicGain());
@@ -238,6 +319,12 @@ export class MumbleVoice {
     return this.enabled;
   }
 
+  /** The activity log as it stands, for a view that is being built after some
+   *  of it has already happened. Oldest first. */
+  get activity(): readonly MumbleActivity[] {
+    return this.activityLog;
+  }
+
   get state(): MumbleVoiceState {
     return {
       connected: this.connected,
@@ -253,6 +340,7 @@ export class MumbleVoice {
       host: this.host,
       error: this.error,
       notice: this.notice,
+      noticeHint: this.noticeHint,
     };
   }
 
@@ -334,6 +422,7 @@ export class MumbleVoice {
     this.registered = false;
     this.channels.clear();
     this.users.clear();
+    this.clearPermissions();
     this.emitState();
     this.emitTree();
     this.onDevices({ mics: [], speakers: [] });
@@ -389,6 +478,14 @@ export class MumbleVoice {
         this.reconnectDelay = RECONNECT_MIN_MS;
         this.mySession = e.session;
         this.clearAlerts(); // the whole roster arrives here; that isn't news
+        // Same reasoning for the log, plus one of its own: a sync is the start
+        // of a session on a server, and whatever happened while we were away
+        // was never observed. Carrying entries across would read as a
+        // continuous record with silent holes in it.
+        this.clearActivity();
+        // ACLs are per server and per account, so nothing learned before this
+        // sync can be trusted after it.
+        this.clearPermissions();
         this.channels.clear();
         this.users.clear();
         for (const c of e.channels) this.channels.set(c.id, c);
@@ -416,20 +513,33 @@ export class MumbleVoice {
       case 'user': {
         const before = this.users.get(e.user.session);
         this.users.set(e.user.session, e.user);
+        // A prior session in another channel is a move; no prior session at all
+        // is an arrival. Both go in the log, as different things — including our
+        // own moves, which is the only record there is of having been moved by
+        // somebody else.
+        const switched = before !== undefined && before.channel !== e.user.channel;
         if (e.user.session === this.mySession) {
           // We moved: everyone around us changed at once, and we already know
           // where we went — announcing that as arrivals would be noise.
           const moved = this.myChannel !== e.user.channel;
           this.myChannel = e.user.channel;
           this.registered = e.user.userId !== undefined;
-          if (moved) this.clearAlerts();
+          if (moved) {
+            this.clearAlerts();
+            // An ear in the channel we just walked into is now our own ears.
+            // Leaving it would have the server route that channel's audio to us
+            // twice, so take it back down.
+            if (this.isListening(e.user.channel)) void this.setListening(e.user.channel, false);
+          }
           this.emitState();
         } else if (before?.channel !== e.user.channel) {
           // A new session (no `before`) or a channel move. Only the two edges
           // that cross our own channel are worth a notification.
           if (e.user.channel === this.myChannel) this.queueAlert(e.user.name, true);
           else if (before && before.channel === this.myChannel) this.queueAlert(e.user.name, false);
+          if (!before) this.logActivity(e.user.name, 'joined');
         }
+        if (switched) this.logMove(e.user.name, before.channel, e.user.channel);
         this.emitTree();
         return;
       }
@@ -437,8 +547,9 @@ export class MumbleVoice {
         const gone = this.users.get(e.session);
         this.users.delete(e.session);
         this.dropPeer(e.session);
-        if (gone && gone.channel === this.myChannel && e.session !== this.mySession) {
-          this.queueAlert(gone.name, false);
+        if (gone && e.session !== this.mySession) {
+          if (gone.channel === this.myChannel) this.queueAlert(gone.name, false);
+          this.logActivity(gone.name, 'left');
         }
         this.emitTree();
         return;
@@ -448,6 +559,15 @@ export class MumbleVoice {
       case 'permission':
         this.notice = e.reason;
         this.emitState();
+        return;
+      case 'permissions':
+        // Order matters: a flush and an answer can arrive in the same message,
+        // and clearing after storing would drop the answer we were given.
+        if (e.flush) this.clearPermissions();
+        if (e.channel !== undefined && e.permissions !== undefined) {
+          this.channelPerms.set(e.channel, e.permissions);
+          this.permsAsked.add(e.channel);
+        }
         return;
     }
   }
@@ -471,6 +591,7 @@ export class MumbleVoice {
       this.connecting = false;
       this.teardownAudio();
       this.clearAlerts(); // nothing to announce about a channel we just left
+      this.clearPermissions();
       this.mySession = 0;
       this.channels.clear();
       this.users.clear();
@@ -1056,8 +1177,82 @@ export class MumbleVoice {
     void this.api?.joinChannel(id).catch(() => undefined);
   }
 
-  selfRegister(): void {
+  // ── permissions and ears ───────────────────────────────────────────────────
+
+  /**
+   * Ask the server what we may do in a channel, at most once per answer.
+   *
+   * There is no push for this in the protocol: permissions arrive only when
+   * asked for, or as a blanket "everything you know is stale" flush. The tree
+   * calls this as it draws each channel row, which asks once per channel per
+   * session and re-asks by itself after a flush — cheap next to querying the
+   * whole tree up front on a server with hundreds of channels.
+   */
+  requestPermissions(id: number): void {
+    if (!this.connected || this.permsAsked.has(id)) return;
+    this.permsAsked.add(id);
+    void this.api?.queryPermissions(id).catch(() => undefined);
+  }
+
+  /**
+   * Whether one ACL bit is granted in a channel.
+   *
+   * Write is Murmur's blanket grant — an admin who holds it holds everything —
+   * so it counts for any bit, mirroring the server's own check. Unknown is
+   * false: better a control that appears a round-trip late than one that is
+   * there and refused. The server stays the authority either way; a refusal
+   * comes back as a PermissionDenied and lands in `notice`.
+   */
+  private allowed(id: number, bit: number): boolean {
+    const perms = this.channelPerms.get(id);
+    return perms !== undefined && (perms & (bit | MUMBLE_PERM.write)) !== 0;
+  }
+
+  /** May we place an ear in this channel? Never in our own — we are already
+   *  listening to that one, and a second copy of its audio is all it would
+   *  buy. */
+  canListen(id: number): boolean {
+    return id !== this.myChannel && this.allowed(id, MUMBLE_PERM.listen);
+  }
+
+  /** Channels we have an ear in. Read from the roster rather than tracked
+   *  separately: the server is what decides whether an ear was accepted. */
+  isListening(id: number): boolean {
+    return this.users.get(this.mySession)?.listening.includes(id) === true;
+  }
+
+  /** Place or take back an ear. A no-op where we may not listen, so a stale
+   *  view cannot ask for something the server would refuse. */
+  toggleListen(id: number): void {
+    if (!this.connected) return;
+    const on = this.isListening(id);
+    if (!on && !this.canListen(id)) return;
+    this.clearNotice();
+    void this.setListening(id, !on);
+  }
+
+  private async setListening(id: number, listening: boolean): Promise<void> {
+    await this.api?.setListening(id, listening).catch(() => undefined);
+  }
+
+  /** Drop a stale refusal, and the advice that went with it, before asking for
+   *  something new — so the note under the panel always belongs to the last
+   *  thing that was tried. */
+  private clearNotice(): void {
+    if (this.notice === undefined && this.noticeHint === undefined) return;
     this.notice = undefined;
+    this.noticeHint = undefined;
+    this.emitState();
+  }
+
+  private clearPermissions(): void {
+    this.channelPerms.clear();
+    this.permsAsked.clear();
+  }
+
+  selfRegister(): void {
+    this.clearNotice();
+    this.noticeHint = 'ask a server admin to register your certificate';
     void this.api?.selfRegister().catch(() => undefined);
   }
 
@@ -1228,6 +1423,46 @@ export class MumbleVoice {
       clearTimeout(this.alertTimer);
       this.alertTimer = null;
     }
+  }
+
+  // ── server activity log ────────────────────────────────────────────────────
+
+  /** Record one arrival/departure/move. Gated on `connected` so a stray event
+   *  before sync cannot enter the whole roster as arrivals. */
+  private logActivity(name: string, kind: MumbleActivityKind, from?: string, to?: string): void {
+    if (!this.connected) return;
+    this.activityLog.push({
+      seq: ++this.activitySeq,
+      ts: Date.now(),
+      name: name || 'Someone',
+      kind,
+      from,
+      to,
+    });
+    if (this.activityLog.length > MAX_ACTIVITY) {
+      this.activityLog.splice(0, this.activityLog.length - MAX_ACTIVITY);
+    }
+    this.onActivity(this.activityLog);
+  }
+
+  /** A channel move, resolved to channel *names* here rather than kept as ids:
+   *  see MumbleActivity.from — by the time anyone reads this line, the ids may
+   *  name something else or nothing. */
+  private logMove(name: string, from: number, to: number): void {
+    this.logActivity(name, 'moved', this.channelName(from), this.channelName(to));
+  }
+
+  private channelName(id: number): string {
+    return this.channels.get(id)?.name ?? `channel ${id}`;
+  }
+
+  private clearActivity(): void {
+    // The counter restarts with the log, which is what lets a view notice a
+    // sync happened: the newest seq it can see went backwards.
+    this.activitySeq = 0;
+    if (this.activityLog.length === 0) return;
+    this.activityLog.length = 0;
+    this.onActivity(this.activityLog);
   }
 
   private async emitDevices(): Promise<void> {

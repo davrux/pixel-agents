@@ -65,7 +65,7 @@ Browser (Phaser) ◄── Colyseus :2567 ── RelayRoom
 | `server/` | Colyseus `RelayRoom`, asset decoding (`assetLoader` + `src/core/assets`), `/feed` ingest + `transcriptParser`, `AgentDirector`, mock driver. |
 | `client/` | Phaser scene, the ported `office/` engine, `PhaserRenderer`, the Colyseus↔engine `bridge`. |
 | `feeder/` | Standalone Node script that streams local `~/.claude/projects/**.jsonl` to `/feed`. |
-| `desktop/` | Electron shell that wraps the built client as a native desktop app (secure `app://` origin, OS-keychain token storage, screen-share source picker). |
+| `desktop/` | Electron shell that wraps the built client as a native desktop app (secure `app://` origin, OS-keychain token storage, screen-share source picker, unread-badging system tray icon). |
 | `assets/` | The original pixel-agents art: `characters/`, `floors/`, `walls/`, `furniture/` (+manifests), `pets/`, and `default-layout-1.json`. Decoded by the server. |
 
 Font: **FS Pixel Sans** (`client/public/fonts/`), the original's UI font.
@@ -175,6 +175,38 @@ rolling `latest` prerelease, so the newest master build is always at a fixed URL
 ```bash
 curl -LO https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage
 chmod +x pixel-agents-latest-x86_64.AppImage
+```
+
+#### System tray (desktop only)
+
+The app puts an icon in the system tray / status area, and **badges it red while
+you have unread Matrix messages** — the same count the ✉ button shows in the
+HUD, so a minimised or hidden window still tells you someone is waiting. The
+chat client syncs in the background whether or not its panel was ever opened, so
+the badge is live from launch.
+
+Its menu spells the count out (`3 new messages`), and carries **Show Pixel
+Agents** / **Hide to tray** / **Quit**. On Linux the menu is also what a left
+click opens — StatusNotifier/AppIndicator does not deliver a plain click to the
+app — so "Show Pixel Agents" is the way back to a hidden window there.
+
+**Close-button behaviour** is a setting in that menu: **Close button hides to
+tray**. It is **off by default** — closing the window quits the app, exactly as
+before — and the choice is remembered in `pixel-config.json` next to your server
+URL. Turned on, every route to closing the window parks it in the tray instead
+(the OS titlebar ✕, the HUD's own ✕, Alt/Cmd+F4); **Quit** in the tray menu, and
+an OS logout, still quit properly. If the tray icon fails to appear at all the
+setting is ignored for that run, so it can't hide the window somewhere you can't
+get it back from — and launching the app again always reveals the existing
+window rather than starting a second copy.
+
+The tray needs a status-area host on Linux (a panel implementing
+StatusNotifierItem, e.g. Waybar, Quickshell, the KDE/GNOME trays). Without one
+the icon simply never appears and nothing else changes:
+
+```bash
+# Is a StatusNotifier host running?
+busctl --user list | grep StatusNotifierWatcher
 ```
 
 #### Mumble voice (desktop only)

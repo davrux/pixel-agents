@@ -53,6 +53,13 @@ files:
       # `pnpm test` compiles the suite (tests included) to dist/test-build so it
       # can run as plain JS; that output must never reach the packaged app.
       - '!test-build/**'
+  # Tray icons, read at runtime by desktop/src/tray.ts as ../assets relative to
+  # the compiled main — so this mapping has to mirror the dist -> desktop/dist
+  # one above, or the tray silently finds no icon in a packaged build.
+  - from: assets
+    to: desktop/assets
+    filter:
+      - '**/*'
   - from: ../client/dist
     to: client/dist
     filter:
