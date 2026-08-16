@@ -123,8 +123,14 @@ carries only its overrides.
 
 ### Getting a map onto a server
 
-Maps are versioned, but nothing reads them at runtime — a deploy ships the files
-and installs none. A map reaches a server only through `scripts/push-zones.sh`,
+Maps are versioned, and a bundled one **seeds a zone that has no map yet** when
+the server starts, so a fresh deployment (or one whose world was just wiped)
+comes up with the world that is in the image rather than an empty field.
+
+Seeding stops there. A zone that already has a map keeps it — a push is an
+authored act against *that* deployment, and a release does not get to revert one;
+that is also why this is not a sync on every start. Changing a live map is
+`scripts/push-zones.sh`,
 which authenticates with `PIXEL_ADMIN_TOKEN` in a header rather than a session
 (the push routes are registered before the login gate, which would 401 a
 session-less request). The push compares content hashes first and sends only the

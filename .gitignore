@@ -47,9 +47,9 @@ client/public/mediapipe/
 
 # Zone maps ARE versioned (assets/tiled/zones/*.tmj) — levels are diffable, have
 # a history and can be handed to someone else. That is orthogonal to how a map
-# reaches a server: only a push does that (scripts/push-zones.sh); nothing reads
-# these files at runtime. Only the scratch copies stay out — a *-noimport.tmj is
-# somebody's experiment, never imported by anything.
+# reaches a server: a bundled map seeds a zone that has none at startup, and only
+# a push (scripts/push-zones.sh) ever replaces one. Only the scratch copies stay
+# out — a *-noimport.tmj is somebody's experiment, never imported by anything.
 assets/tiled/zones/*-noimport.tmj
 
 # Tiled's own per-user editor state (open files, scroll position, zoom) —

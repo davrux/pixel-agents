@@ -166,9 +166,12 @@ background only.)
   exporter and no in-game world editor.
 - **Zone maps are versioned but pushed, never deployed.**
   `assets/tiled/zones/*.tmj` is committed so levels are diffable and shareable,
-  and nothing reads those files at runtime — a map reaches a server only through
-  `scripts/push-zones.sh` (auth: `PIXEL_ADMIN_TOKEN` in `X-Pixel-Admin-Token`).
-  Scratch copies (`*-noimport.tmj`) stay out of git.
+  and a bundled map **seeds a zone that has none** at startup
+  (`tiled/seedBundledZones.ts`), so a fresh deployment has a world. Seeding never
+  overwrites: a zone that already has a map keeps it, because a push is authored
+  against *that* deployment and a release must not undo one. Changing a live map
+  is always `scripts/push-zones.sh` (auth: `PIXEL_ADMIN_TOKEN` in
+  `X-Pixel-Admin-Token`). Scratch copies (`*-noimport.tmj`) stay out of git.
 - **Slash-commands for navigation and quick actions.** The framework in
   `shared/src/commands.ts` (`user`/`admin` groups, gated by `mayRunCommand`) is the
   canonical way to reach another view or trigger a quick action — client-side via

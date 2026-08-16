@@ -2,8 +2,8 @@
 /**
  * Push zone maps to a running server — the only way a `.tmj` reaches one.
  *
- * The .tmj files are committed, but nothing reads them at runtime, so a zone
- * edit rides along with no
+ * The .tmj files are committed and seed a zone that has no map yet, but an
+ * existing map is never overwritten by a release, so a zone edit rides along with no
  * deploy. This sends the file (plus the images it references) to
  * `POST /tiled/zone`, which imports it and makes it that zone's active layout,
  * exactly as the old on-disk import did.

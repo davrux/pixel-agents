@@ -38,6 +38,7 @@ import { WORLD_ROOM } from '@pixel/shared';
 
 import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.js';
 import { registerZonePushApi } from './tiled/zonePushApi.js';
+import { seedBundledZoneMaps } from './tiled/seedBundledZones.js';
 import { floorSetNames, loadTiledRegistry, wallSetNames } from './tiled/tiledRegistry.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
@@ -48,6 +49,7 @@ import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
 import { resolveAllowedGames } from './arcadeDefaults.js';
 import { ZoneStore } from './zoneStore.js';
+import { ZoneMapStore } from './zoneMapStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -141,6 +143,14 @@ async function main(): Promise<void> {
   initAssetDefaults(bundle); // process-wide merged-bundle cache (see assetOverrides.ts)
   watchFurnitureTilesets(); // live-reload assets/tiled/furniture-*.tsj on save (see assets.ts)
   console.log(`[server] assets ready (${bundle.messages.length} asset messages)`);
+
+  // The maps that ship in the image fill in any zone that has none — a fresh
+  // deployment comes up with a world instead of an empty field. A zone that
+  // already has a map keeps it: a push is authored against that deployment and
+  // a release does not get to undo one (see tiled/seedBundledZones.ts).
+  const seeded = await seedBundledZoneMaps(ASSETS_ROOT, new ZoneMapStore(), new ZoneStore());
+  if (seeded.seeded.length) console.log(`[zones] seeded from the image: ${seeded.seeded.join(', ')}`);
+  if (seeded.kept.length) console.log(`[zones] kept the pushed map: ${seeded.kept.join(', ')}`);
 
   const app = express();
   // Trust only a reverse proxy connecting from loopback (our deploy topology: Caddy

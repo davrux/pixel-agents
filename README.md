@@ -88,8 +88,9 @@ for a new id and the server registers it with sensible defaults. There is no
 zone table in the code and nothing creates a zone from inside the game.
 
 Maps are versioned in git so levels are diffable and shareable, but **a map only
-reaches a server by being pushed** — nothing reads those files at runtime, and a
-deploy installs no map:
+seeds a zone that has none** — a fresh server comes up with the world in the
+image — while **an existing map is never overwritten**. Changing a live map is
+therefore always a push:
 
 ```bash
 scripts/push-zones.sh                          # every map → 127.0.0.1:2567
