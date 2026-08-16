@@ -55,12 +55,15 @@ scripts/pixel-agents.sh --token <your-agent-token> \
 ```
 
 The token is your per-user agent token (in-app Settings → copy). It identifies
-the owner, so your agents follow you. Set `PIXEL_ADMIN_TOKEN` to enable accounts:
-players then sign in with a login id + password, and presenting the admin token
-at login makes that user an admin, creating the account if it is new — that is
-how you bootstrap the first one. Without the token the server runs in open dev
-mode: no login, editing open to everyone. All state lives in a single `pixel.db`
-under `PIXEL_STREAM_DATA_DIR` (default `~/.pixel-agents2`).
+the owner, so your agents follow you.
+
+**`PIXEL_ADMIN_TOKEN` is required to run the thing at all.** Players sign in with
+a login id + password, and presenting the admin token at login makes that user an
+admin, creating the account if it is new — that is how you bootstrap the first
+one. There is no anonymous mode: without the token there is no login, nobody can
+join, and the server deliberately binds to loopback rather than serving an
+ungated app to the network. All state lives in a single `pixel.db` under
+`PIXEL_STREAM_DATA_DIR` (default `~/.pixel-agents2`).
 
 There is also an **Electron desktop app** (`pnpm dev:desktop`, `pnpm
 dist:desktop`) — the same client in a native window, with an OS-keychain-stored

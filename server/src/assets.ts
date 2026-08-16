@@ -35,10 +35,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  *  the repo root; override with PIXEL_STREAM_ASSETS_DIR for custom deployments. */
 export const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolve(__dirname, '..', '..');
 
-/** Furniture catalog + sprites: whatever assets/tiled/furniture-*.tsj yields,
- *  plus the generated, non-tileset furniture (portals + conference monitor +
- *  arcade cabinet + meeting-room kiosk + uponu wall logo) — real, editable
- *  catalog entries built in code rather than authored in Tiled. Split out
+/** Furniture catalog + sprites: whatever assets/tiled/furniture-*.tsj yields —
+ *  the tilesets are the only source (the code-drawn fixtures that used to be
+ *  appended here are ordinary tiles now; see below). Split out
  *  from loadAssetBundle so watchFurnitureTilesets can re-run just this half
  *  when a .tsj file changes on disk, without reloading characters/pets/floor/wall. */
 export async function buildFurnitureCatalogAndSprites(): Promise<{

@@ -24,7 +24,7 @@ interacting?"
 ## Architecture invariants
 
 1. **The server simulates.** Movement, seating, stations, the FSM, poses — all of
-   it runs in `shared/office` on the server's tick loop (`SimRoom` →
+   it runs in `shared/src/office` on the server's tick loop (`SimRoom` →
    `OfficeState.update`). Every viewer sees one identical world.
 2. **The client renders and forwards input; it may present.** It draws synced
    `@pixel/shared/schema` state and interpolates. It must not run the FSM, pick
@@ -196,8 +196,10 @@ background only.)
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting
   `PIXEL_ADMIN_TOKEN` at login makes that user an admin and creates the account if
-  new — the only way to create users. No admin token set = open dev mode
-  (anonymous, no login). Agents authenticate the feed with their owner's token.
+  new — the only way to create users. **There is no anonymous mode**: every room
+  and the feed require an account, so without a token nobody can join at all, and
+  the server binds to loopback rather than serving an ungated app to the network.
+  Agents authenticate the feed with their owner's token.
 - **Shell scripts are the front door.** Anything a human runs is a `.sh` in
   `scripts/`, and *what* it starts — node, tsx, anything — is the wrapper's
   business, not the caller's. Never put `node --import tsx scripts/….mts` in docs,

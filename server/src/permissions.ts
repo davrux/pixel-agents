@@ -32,7 +32,9 @@ export type Capability =
   | 'zone.setOwner'; // take/transfer/clear ownership — GLOBAL ADMIN only, not even the current owner
 
 export interface PolicyEnv {
-  /** Whether login is enforced. False = open dev mode (no accounts → full access). */
+  /** Whether login is enforced. False would mean no accounts and full access —
+   *  unreachable in the running server (rooms require an account, so nobody
+   *  joins without one), kept because the policy must stay decidable in tests. */
   authRequired: boolean;
   /** Whether `userId` is a designated admin of `zoneId`. */
   isZoneAdmin: (zoneId: string, userId: string) => boolean;

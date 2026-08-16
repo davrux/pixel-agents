@@ -9,14 +9,30 @@ import { director } from '../sim/director.js';
 import { userStore } from '../userStore.js';
 import { newParseState, parseLine, type ParseState } from './transcriptParser.js';
 
-/** Bounds on what one feed connection may send. The feeder is ours, but the
- *  socket is not: these are the "validate length/format/bounds" rule applied to
- *  /feed, where the cost of an unbounded value is an entity or a synced string
- *  every viewer in the zone has to render. */
-const MAX_FEED_FRAME_BYTES = 1 << 20; // 1 MiB per frame
+/**
+ * Bounds on what one feed connection may send. The feeder is ours, but the socket
+ * is not: this is the "validate length/format/bounds" rule applied to /feed,
+ * where the cost of an unbounded value is an entity or a synced string every
+ * viewer in the zone has to render.
+ *
+ * Sized against what the feeder actually does, not against a round number: on
+ * first sight of a fresh session it sends that transcript **whole, in one
+ * message** (see feeder/pixel-agents-feeder.cjs), which for a long Claude
+ * session is megabytes. Exceeding `maxPayload` makes ws close the connection
+ * (1009), so a cap that looks tidy here is an agent that cannot connect there —
+ * hence 16 MiB, still 6× under ws's own default and bounded.
+ *
+ * There is deliberately no cap on the *number* of lines in a message: the frame
+ * size already bounds the work, and dropping lines would silently corrupt the
+ * agent's state — a truncated backlog keeps the oldest lines and loses what the
+ * agent is doing right now, which is worse than the memory it saves.
+ */
+const MAX_FEED_FRAME_BYTES = 16 << 20; // 16 MiB per frame
 const MAX_SESSION_KEY_LEN = 128;
-const MAX_LINES_PER_MESSAGE = 500;
-const MAX_AGENTS_PER_FEED = 64;
+/** Characters one connection may have in the world at once. Generous: a busy
+ *  machine legitimately has many live transcripts, and the cost of being wrong
+ *  is an agent that never appears — so it is logged, not silently dropped. */
+const MAX_AGENTS_PER_FEED = 128;
 
 /** Credentials travel in Sec-WebSocket-Protocol (base64url), never the URL. */
 function decodeProtocols(protocolHeader: string | undefined): { user?: string; token?: string } {
@@ -71,6 +87,8 @@ interface FeedConn {
   lastActivity: Map<number, number>;
   /** agent ids already marked idle by the inactivity timer */
   idled: Set<number>;
+  /** the agent cap has been reported once for this connection */
+  capWarned?: boolean;
 }
 
 /** Live connections, scanned by the inactivity timer. */
@@ -150,7 +168,13 @@ export function attachFeedServer(
       if (agentId === undefined) {
         // One character per session key, and a feed may not mint them without
         // end: every new key spawns an entity every viewer in the zone renders.
-        if (conn.sessions.size >= MAX_AGENTS_PER_FEED) return;
+        if (conn.sessions.size >= MAX_AGENTS_PER_FEED) {
+          if (!conn.capWarned) {
+            conn.capWarned = true;
+            console.warn(`[feed] ${conn.user}: at ${MAX_AGENTS_PER_FEED} agents, ignoring further sessions`);
+          }
+          return;
+        }
         agentId = nextAgentId++;
         conn.sessions.set(msg.s, agentId);
         conn.parsers.set(agentId, newParseState());
@@ -163,7 +187,7 @@ export function attachFeedServer(
       // A sub-agent character is created by the `toolStart` of a Task/Agent tool;
       // the subagent* events only update it — suppress both during replay.
       const replay = msg.r === 1;
-      for (const line of msg.ls.slice(0, MAX_LINES_PER_MESSAGE)) {
+      for (const line of msg.ls) {
         parseLine(agentId, line, st, (ev) => {
           if (replay) {
             if (ev.t === 'subagentStart' || ev.t === 'subagentClear' || ev.t === 'subagentDone') return;

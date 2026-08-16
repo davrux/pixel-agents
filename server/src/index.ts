@@ -74,9 +74,10 @@ const PORT = Number(process.env.PIXEL_STREAM_PORT ?? process.env.PORT ?? 2567);
 const HOST = process.env.PIXEL_STREAM_HOST?.trim() || '0.0.0.0';
 // Admin login token — pass --token <T> at start, or set PIXEL_ADMIN_TOKEN.
 // Presenting it at login makes that user an admin (and creates them if new).
-// When set, login (user id + password) is required and there is no anonymous
-// mode; empty → open dev mode (no login, anonymous viewer). Agents authenticate
-// the feed with their own per-user token, not this one.
+// It is what makes login possible at all: rooms and the feed require an account
+// either way (no anonymous mode), so without this token there is no login and
+// therefore no way in — the server says so and binds to loopback (see below).
+// Agents authenticate the feed with their own per-user token, not this one.
 const ADMIN_TOKEN = arg('--token', process.env.PIXEL_ADMIN_TOKEN ?? '').trim() || null;
 const MOCK = Number(process.env.MOCK ?? 0);
 

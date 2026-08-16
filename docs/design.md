@@ -32,7 +32,7 @@ connection (`server/src/db.ts`), no native dependencies.
 
 ## The server simulates; the client draws
 
-All decisions happen in `shared/office` on the server's tick loop (`SimRoom` →
+All decisions happen in `shared/src/office` on the server's tick loop (`SimRoom` →
 `OfficeState.update`), and the result is synced through `@pixel/schema`. The
 client renders that state and forwards input. It does not run the FSM, resolve
 collisions, or decide where anything is — so every viewer sees one identical
@@ -53,7 +53,7 @@ floating-point contact resolution enters the loop.
 `EntitySync` (id, transform, coarse state) is the base schema; `CharacterSync`
 and `PetSync` extend it, and a new kind of thing — a monster, an NPC, an item —
 extends it too rather than redeclaring a transform. Movement and pose primitives
-live in `shared/office/engine/entity.ts` and are shared by everything that moves.
+live in `shared/src/office/engine/entity.ts` and are shared by everything that moves.
 
 **A player is a `Character` with `isPlayer = true`**, not a parallel code path.
 That is what keeps player and agent behaviour from drifting apart.
@@ -172,8 +172,10 @@ login id, and the agent owner key) with a free display name, a scrypt password, 
 admin flag and a per-user agent token. There is no open self-registration:
 presenting `PIXEL_ADMIN_TOKEN` at login makes that user an admin and creates the
 account if it is new, which is how the first one is bootstrapped. With no admin
-token configured the server runs open — anonymous, no login — which is a
-development convenience, not a deployment mode.
+token configured there is no login at all, and therefore **no way in**: rooms
+and the feed both require an account. The server says so at startup and binds to
+loopback instead of serving an ungated app to the network — a forgotten token in
+production must not silently open the door.
 
 Agents authenticate the feed with their owner's agent token; an agent's avatar is
 always named after the player it belongs to.
