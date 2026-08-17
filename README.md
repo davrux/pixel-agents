@@ -75,15 +75,16 @@ is found. A deployment sets the variable and gets none of that.
 | | |
 |---|---|
 | **W A S D** / arrows | walk |
-| **click** | use what you pointed at — a coffee machine, an arcade cabinet, a meeting monitor |
-| **double click** | go there: walk to that tile, or sit down on that chair |
+| **click** | use what you pointed at — a chair, a coffee machine, an arcade cabinet, a meeting monitor |
+| **double click** | go there: walk to that tile |
 | **right click** | warp to that tile (instant, no walking) |
 | **C** | sit down where you are |
 | **M** | mute/unmute your microphone in the call you are in |
 | **F8** | frame-time overlay |
 
-Two gestures, two jobs: **acting** on a thing is one click, because pointing at
-it was already deliberate; **going somewhere** takes two. A single click on plain
+Two gestures, two jobs: **using** a thing is one click, because pointing at it
+was already deliberate — a chair counts, sitting down being the most common thing
+anyone does in an office; **walking to a tile** takes two. A single click on plain
 floor does nothing, which is the point — it has too many other jobs (dismissing a
 panel, handing the keyboard back to the game, picking a character to look at) and
 each of them used to send the avatar across the office as a side effect.
