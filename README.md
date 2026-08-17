@@ -197,6 +197,14 @@ class.
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
 
+**Where one meeting room ends and the next begins.** Meeting tiles that touch
+form one room only if they agree on `meetingRoomName` (and on `actionVideo`).
+Four rooms side by side with a shared wall stay four rooms — the engine used to
+flood-fill them into one call labelled with whichever name it met first. Two
+abutting or overlapping rectangles carrying the *same* name still merge, which is
+how you draw an L-shaped room. Unnamed meeting tiles have nothing to tell them
+apart, so there adjacency alone still decides.
+
 **Travel is content.** A portal is just furniture whose action is `portal` — a
 door, a beam pad. Never hard-code a coordinate jump.
 

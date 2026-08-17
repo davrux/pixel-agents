@@ -185,6 +185,14 @@ always named after the player it belongs to.
 **Meetings** are LiveKit calls tied to content: a `meetingRoom` action on an area
 or a piece of furniture. Walking in *is* joining — membership is derived from the
 tile you stand on, server-side, and the server mints the token only for a member.
+
+Which tiles form one room is a flood fill over neighbouring meeting tiles that
+**agree about the room** — same name, same video setting (`meetingIdentity` in
+`layout/actionAreas.ts`). Adjacency alone was the earlier rule and it merged
+rooms that only shared a wall into a single call, named after whichever tile the
+raster scan reached first. Comparing the identity keeps them apart while still
+merging the two rectangles a mapper draws to make one L-shaped room, and an
+unnamed area behaves as before, there being nothing to distinguish.
 The identity in that token is `p<playerId>`, which is how the client maps a
 speaking participant back to an avatar (that is what puts the ring under it).
 
