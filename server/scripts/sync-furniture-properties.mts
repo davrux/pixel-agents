@@ -219,15 +219,22 @@ function repairGidTable(
   json: { tilesets?: Array<{ firstgid: number; source?: string }>; layers?: Array<Record<string, unknown>> },
   fixed: Array<{ source: string; from: number; to: number }>,
 ): number {
-  const FLAG_BITS = ~GID_FLAGS & 0xffffffff;
+  // `>>> 0` on every step, and it is not decoration: JS bitwise operators work on
+  // SIGNED 32-bit values, and a flipped tile object has the top bit set
+  // (0x80000000). Without the coercion, `flags | base` came back negative, so
+  // every flipped placement in the map was rewritten as a negative gid — bit
+  // for bit the right number, and unreadable to Tiled and to our own importer,
+  // which masks it and lands on some other tile. Repairing a stale table broke
+  // exactly the objects a mapper had flipped, and nothing else.
+  const FLAG_BITS = (~GID_FLAGS & 0xffffffff) >>> 0;
   const byOld = [...fixed].sort((a, b) => a.from - b.from);
   const remap = (gid: number): number => {
     if (!gid) return 0;
-    const flags = gid & FLAG_BITS;
+    const flags = (gid & FLAG_BITS) >>> 0;
     const base = gid & GID_FLAGS;
     let hit: { from: number; to: number } | undefined;
     for (const f of byOld) if (f.from <= base) hit = f;
-    return hit ? flags | (hit.to + base - hit.from) : gid;
+    return hit ? ((flags | (hit.to + base - hit.from)) >>> 0) : gid;
   };
   let n = 0;
   for (const layer of json.layers ?? []) {
