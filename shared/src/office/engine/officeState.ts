@@ -1021,6 +1021,11 @@ export class OfficeState {
     ch.afk = false;
     ch.path = [];
     ch.bubbleType = null;
+    // You arrive on your feet. Releasing the point above frees the chair but says
+    // nothing about the pose, so a player who warped while seated stayed in the
+    // SIT state and materialised sitting on thin air at the far end — chair-less,
+    // still drawn with the seated offset.
+    ch.state = CharacterState.IDLE;
     ch.pendingWarp = { col, row };
     if (ch.matrixEffect !== 'despawn') {
       ch.matrixEffect = 'despawn';

@@ -77,7 +77,7 @@ is found. A deployment sets the variable and gets none of that.
 | **W A S D** / arrows | walk |
 | **click** | use what you pointed at — a chair, a coffee machine, an arcade cabinet, a meeting monitor |
 | **double click** | go there: walk to that tile |
-| **right click** | warp to that tile (instant, no walking) |
+| **right click** | warp to that tile (instant, no walking — you arrive standing) |
 | **C** | sit down where you are |
 | **M** | mute/unmute your microphone in the call you are in |
 | **F8** | frame-time overlay |
