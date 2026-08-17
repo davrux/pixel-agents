@@ -8368,7 +8368,7 @@
         {
           "name": "backgroundTiles",
           "type": "int",
-          "value": 0
+          "value": 1
         },
         {
           "name": "onState",
@@ -12834,7 +12834,7 @@
         {
           "name": "backgroundTiles",
           "type": "int",
-          "value": 0
+          "value": 1
         },
         {
           "name": "onState",
@@ -12911,7 +12911,7 @@
         {
           "name": "backgroundTiles",
           "type": "int",
-          "value": 0
+          "value": 1
         },
         {
           "name": "onState",
