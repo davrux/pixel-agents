@@ -14,6 +14,7 @@ export interface LoadedAssetData {
     canSitOn?: boolean;
     sitFacing?: DirectionVal;
     petCanSitOn?: boolean;
+    canWalkOver?: boolean;
     backgroundTiles?: number;
     /** Catalog id this item becomes when switched on — see
      *  FurnitureCatalogEntry.onState. */
@@ -78,6 +79,13 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         // `asset.sitFacing ? …` would silently drop every south-facing seat.
         ...(asset.sitFacing !== undefined ? { sitFacing: asset.sitFacing } : {}),
         ...(asset.petCanSitOn ? { petCanSitOn: true } : {}),
+        // Missing here for two days, which is what made a rug dragged straight
+        // from the Tilesets panel block movement: the tile said canWalkOver, the
+        // tileset reader passed it on, and this mapping dropped it — so only a
+        // placement that spelled the override out worked, and toggling the
+        // checkbox off and on "fixed" a rug by writing exactly that. The asset
+        // type was missing the field too, so nothing failed to compile.
+        ...(asset.canWalkOver ? { canWalkOver: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.onState ? { onState: asset.onState } : {}),
         ...(asset.action ? { action: asset.action } : {}),
