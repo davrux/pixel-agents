@@ -3926,9 +3926,13 @@ export class OfficeScene extends Phaser.Scene {
     const host = document.getElementById('game') ?? document.body;
     const live = new Set<number>();
     for (const ch of this.characters.values()) {
-      // Agents always wear their "<owner>-Agent" tag — that is how you tell
-      // whose agent it is at a glance. The setting only governs player names.
-      if (ch.isPlayer && !this.alwaysShowLabels) continue;
+      // Only players get a label over their head, and only when asked for.
+      // An agent's "<owner>-Agent" tag used to hang over every one of them
+      // permanently, which in a room with a dozen agents is a wall of text over
+      // the world rather than a way to read it. The tag itself did not go away
+      // — hovering an agent still names it (see showTip, same characterLabel),
+      // which is where a name you look up on demand belongs.
+      if (!ch.isPlayer || !this.alwaysShowLabels) continue;
       const name = this.characterLabel(ch);
       if (!name) continue;
       live.add(ch.id);
