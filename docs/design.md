@@ -259,7 +259,11 @@ That split is where client bugs come from, so:
 ## Data and its lifecycle
 
 One database, `pixel.db`: users and sessions, zones and their maps, asset
-overrides, per-user preferences and positions, meeting rooms, arcade saves.
+overrides, per-user preferences and positions, meeting rooms, arcade saves. It
+lives in the data directory — `tmp/data` in the checkout by default, a mounted
+volume in a deployment — which the server creates on first start, generating a
+development certificate beside it and adopting a database from a former default
+location if it finds one (`dataBootstrap.ts`, development only).
 
 Assets are a **merge layer**: bundled files are the read-only defaults, and rows
 in the `assets` table override or add individual entries. That is how a character

@@ -225,7 +225,7 @@
 // The server DB is a process-wide singleton keyed off PIXEL_STREAM_DATA_DIR at
 // module load (server/src/db.ts). We point it at a fresh temp dir BEFORE the
 // dynamic imports so tests exercise the real sessions/users schema without
-// touching a developer's ~/.pixel-agents2. Each test seeds a uniquely-named
+// touching a developer's own data directory. Each test seeds a uniquely-named
 // user + cleans up so there is no order dependency (per skeleton isolation
 // contract).
 // ============================================================================

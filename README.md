@@ -63,7 +63,12 @@ admin, creating the account if it is new — that is how you bootstrap the first
 one. There is no anonymous mode: without the token there is no login, nobody can
 join, and the server deliberately binds to loopback rather than serving an
 ungated app to the network. All state lives in a single `pixel.db` under
-`PIXEL_STREAM_DATA_DIR` (default `~/.pixel-agents2`).
+`PIXEL_STREAM_DATA_DIR` — by default `tmp/data` inside the repo, so a
+development world belongs to the checkout it was made in. On first start that
+directory is created, a self-signed certificate is generated for it (camera,
+microphone and screen sharing need a secure context, so `https://localhost:2567`
+is the default), and a database from a former default location is adopted if one
+is found. A deployment sets the variable and gets none of that.
 
 There is also an **Electron desktop app** (`pnpm dev:desktop`, `pnpm
 dist:desktop`) — the same client in a native window, with an OS-keychain-stored

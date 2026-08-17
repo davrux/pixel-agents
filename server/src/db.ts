@@ -6,8 +6,15 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, renameSync } from 'node:fs';
 
+import { bootstrapDataDir } from './dataBootstrap.js';
 import { dataPath } from './paths.js';
 import { maybeResetWorld } from './worldReset.js';
+
+// Before the connection exists: creates the data directory and, on a first run,
+// copies in a database from a former default location (see dataBootstrap.ts).
+// Opening the connection would otherwise create an empty file first and there
+// would be nothing left to adopt.
+bootstrapDataDir();
 
 export const db = new DatabaseSync(dataPath('pixel.db'));
 

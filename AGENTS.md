@@ -182,8 +182,16 @@ background only.)
 ### Operations
 
 - **Config via env:** `PIXEL_STREAM_PORT`, `PIXEL_STREAM_HOST`,
-  `PIXEL_ADMIN_TOKEN` (also `--token`), `PIXEL_STREAM_DATA_DIR` (holds the single
-  `pixel.db`), `PIXEL_RESET_WORLD`.
+  `PIXEL_ADMIN_TOKEN` (also `--token`), `PIXEL_STREAM_DATA_DIR` (holds
+  `pixel.db` plus `cert.pem`/`key.pem`; **defaults to `tmp/data` in the repo** so
+  a dev world belongs to its checkout — a deployment always sets it, the image to
+  `/data` with a volume mounted there), `PIXEL_RESET_WORLD`.
+- **First-start conveniences are development-only** (`dataBootstrap.ts`): the data
+  directory is created, a self-signed certificate generated, and a database
+  adopted from a former default path. All three are gated on nobody having set
+  `PIXEL_STREAM_DATA_DIR`, and that gate is load-bearing — generating a
+  certificate in a container's `/data` would flip the server to HTTPS, and the
+  deploy topology needs it plain behind Caddy, which terminates TLS itself.
 - **`PIXEL_RESET_WORLD=<token>`** empties everything except the `users` table and
   the personal `playerAvatar` assets, once per token, at the next start — before
   any store reads or seeds. A `VACUUM INTO` backup is written first, and no backup

@@ -37,6 +37,7 @@ import express, { type Request, type Response, type NextFunction, type RequestHa
 import { WORLD_ROOM } from '@pixel/shared';
 
 import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.js';
+import { ensureDevTls } from './dataBootstrap.js';
 import { registerZonePushApi } from './tiled/zonePushApi.js';
 import { seedBundledZoneMaps } from './tiled/seedBundledZones.js';
 import { floorSetNames, loadTiledRegistry, wallSetNames } from './tiled/tiledRegistry.js';
@@ -281,6 +282,10 @@ async function main(): Promise<void> {
   // PIXEL_TLS_CERT / PIXEL_TLS_KEY (e.g. later for Let's Encrypt).
   const certPath = process.env.PIXEL_TLS_CERT || dataPath('cert.pem');
   const keyPath = process.env.PIXEL_TLS_KEY || dataPath('key.pem');
+  // A development run with no certificate gets one made for it, so a fresh
+  // checkout has the secure context camera/mic/screen-share require. Never in a
+  // deployment — see dataBootstrap.ts.
+  ensureDevTls(certPath, keyPath);
   const useTls = existsSync(certPath) && existsSync(keyPath);
   const httpServer = useTls
     ? createHttpsServer({ cert: readFileSync(certPath), key: readFileSync(keyPath) }, app)

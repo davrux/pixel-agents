@@ -1,7 +1,6 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
 
 // Resolve @pixel/shared straight to its TypeScript source (outside node_modules)
 // so Vite transpiles it and never pulls @colyseus/schema into the browser bundle
@@ -12,7 +11,11 @@ const shared = (p: string) => resolve(import.meta.dirname,'../shared/src', p);
 // one the server uses), so the page origin is https → the client derives wss://
 // and matches the TLS Colyseus server. Falls back to HTTP when no cert is present.
 function devHttps(): { cert: Buffer; key: Buffer } | undefined {
-  const dataDir = process.env.PIXEL_STREAM_DATA_DIR?.trim() || resolve(homedir(), '.pixel-agents2');
+  // Same default as the server's own dataDir() (server/src/paths.ts is the
+  // source of truth): tmp/data in the repo. Duplicated rather than imported
+  // because this config belongs to another package — so if that default moves
+  // again, it moves in both places or the HMR page silently drops to HTTP.
+  const dataDir = process.env.PIXEL_STREAM_DATA_DIR?.trim() || resolve(import.meta.dirname, '..', 'tmp', 'data');
   const cert = process.env.PIXEL_TLS_CERT || resolve(dataDir, 'cert.pem');
   const key = process.env.PIXEL_TLS_KEY || resolve(dataDir, 'key.pem');
   return existsSync(cert) && existsSync(key) ? { cert: readFileSync(cert), key: readFileSync(key) } : undefined;
@@ -22,7 +25,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@pixel/shared/office': shared('office'),
-      '@pixel/shared/worldConfig': shared('worldConfig.ts'),
       '@pixel/shared/protocol': shared('protocol.ts'),
       '@pixel/shared/commands': shared('commands.ts'),
       '@pixel/shared/timetracking': shared('timetracking.ts'),
