@@ -73,6 +73,22 @@ microphone and screen sharing need a secure context, so `https://localhost:2567`
 is the default), and a database from a former default location is adopted if one
 is found. A deployment sets the variable and gets none of that.
 
+## Controls
+
+| | |
+|---|---|
+| **W A S D** / arrows | walk |
+| **double click** | walk there — or sit, use an appliance, join a meeting monitor |
+| **right click** | warp to that tile (instant, no walking) |
+| **C** | sit down where you are |
+| **M** | mute/unmute your microphone in the call you are in |
+| **F8** | frame-time overlay |
+
+A *single* click deliberately does nothing in the world. It has too many other
+jobs — dismissing a panel, handing the keyboard back to the game, picking a
+character to look at — and each of them used to send the avatar across the office
+as a side effect.
+
 There is also an **Electron desktop app** (`pnpm dev:desktop`, `pnpm
 dist:desktop`) — the same client in a native window, with an OS-keychain-stored
 login, a screen-share source picker, a system tray with an unread badge, and a

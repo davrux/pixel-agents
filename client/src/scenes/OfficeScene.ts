@@ -1454,6 +1454,31 @@ export class OfficeScene extends Phaser.Scene {
     const CLICK_DRIFT_PX = 10;
     let downX = 0;
     let downY = 0;
+    /** Second click of a double click, for {@link isDoubleClick}. */
+    let lastClickAt = 0;
+    let lastClickX = 0;
+    let lastClickY = 0;
+    /**
+     * Walking and interacting need a DOUBLE click; a single one does neither.
+     *
+     * A single click has too many other jobs in this app — dismissing a panel,
+     * giving the canvas the keyboard back, picking a character to look at — and
+     * every one of them used to send the avatar sprinting across the office as a
+     * side effect. Requiring the second click makes "go there" something you
+     * say on purpose.
+     *
+     * The browser's own `detail` counter is preferred, so the OS double-click
+     * speed is what applies; the timing fallback exists for pointers that don't
+     * set it (a touch double-tap sends no `detail`).
+     */
+    const isDoubleClick = (p: Phaser.Input.Pointer): boolean => {
+      const native = p.event as Partial<MouseEvent> | undefined;
+      if (typeof native?.detail === 'number' && native.detail >= 2) return true;
+      const now = performance.now();
+      return (
+        now - lastClickAt < 350 && Math.abs(p.x - lastClickX) + Math.abs(p.y - lastClickY) <= CLICK_DRIFT_PX * 2
+      );
+    };
     // While a paint tool (floor/wall) is active, left-drag paints and right-drag
     // erases (v1 behaviour) — the camera pans with the middle mouse instead.
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
@@ -1479,13 +1504,20 @@ export class OfficeScene extends Phaser.Scene {
         return;
       }
       const hit = this.hitTest(p.worldX, p.worldY);
+      // Selecting someone to look at stays a single click: it changes nothing in
+      // the world, which is exactly why it was never the annoying half.
       if (hit !== null) {
         this.selectedId = hit === this.selectedId ? null : hit;
       } else {
         this.selectedId = null;
-        // Click a chair/bench → sit there; click empty floor → walk there (P2).
-        // Spectators have no avatar (myPlayerId null) → no-op. Server validates.
-        if (this.myPlayerId !== null && p.leftButtonReleased()) {
+        const doubled = isDoubleClick(p);
+        lastClickAt = performance.now();
+        lastClickX = p.x;
+        lastClickY = p.y;
+        // Double-click a chair/bench → sit there; double-click empty floor →
+        // walk there. Spectators have no avatar (myPlayerId null) → no-op.
+        // Server validates either way.
+        if (this.myPlayerId !== null && p.leftButtonReleased() && doubled) {
           const col = Math.floor(p.worldX / TILE_SIZE);
           const row = Math.floor(p.worldY / TILE_SIZE);
           const action = this.actionAt(col, row);

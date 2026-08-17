@@ -38,7 +38,7 @@ import {
   layoutToSitPoints,
   layoutToTileMap,
 } from '../layout/layoutSerializer.js';
-import { findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
+import { canStep, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
 import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
 import {
@@ -1126,7 +1126,14 @@ export class OfficeState {
   }
 
   /** If a held direction is set, queue a single step to the adjacent tile that
-   *  way (when walkable); otherwise just face it. */
+   *  way (when the step is allowed); otherwise just face it.
+   *
+   *  `canStep`, not `isWalkable`: a wall is an **edge between** two cells, not a
+   *  blocked cell (see wallEdges.ts), so both cells either side of it are
+   *  perfectly standable and only the crossing is refused. Asking whether the
+   *  target tile is walkable therefore let WASD walk straight through every wall
+   *  in the game, while click-to-walk — which goes through the same `canStep` in
+   *  findPath — respected them. */
   private tryStepHeldDir(ch: Character): void {
     const d = ch.heldDir;
     if (d === null || d === undefined) return;
@@ -1134,7 +1141,7 @@ export class OfficeState {
     const dr = d === Direction.UP ? -1 : d === Direction.DOWN ? 1 : 0;
     const col = ch.tileCol + dc;
     const row = ch.tileRow + dr;
-    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) {
+    if (!canStep(ch.tileCol, ch.tileRow, col, row, this.tileMap, this.blockedTiles, this.walls)) {
       ch.dir = d; // face the wall, don't move
       return;
     }
