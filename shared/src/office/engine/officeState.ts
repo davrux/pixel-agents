@@ -1516,6 +1516,9 @@ export class OfficeState {
     if (parentCh) ch.dir = parentCh.dir;
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
+    // A sub-agent belongs to whoever owns its parent, so it carries the same
+    // owner name and is labelled like every other agent avatar.
+    if (parentCh?.folderName) ch.folderName = parentCh.folderName;
     ch.matrixEffect = 'spawn';
     ch.matrixEffectTimer = 0;
     ch.matrixEffectSeeds = matrixEffectSeeds();

@@ -3312,7 +3312,7 @@ export class OfficeScene extends Phaser.Scene {
     setSoundEnabled(this.soundOn);
     setAlertVolume(this.volume);
     this.syncSettingsInputs();
-    if (!this.alwaysShowLabels) this.clearNameLabels();
+    this.refreshNameLabels();
   }
 
   private createSettingsPanel(): void {
@@ -3387,7 +3387,7 @@ export class OfficeScene extends Phaser.Scene {
       </div>
       <div class="row"><input id="pa-snd" type="checkbox"><label for="pa-snd">Sound notifications</label></div>
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
-      <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Always show labels</label></div>
+      <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Show player names</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
       <button id="pa-change-server">Change server</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
@@ -3504,7 +3504,7 @@ export class OfficeScene extends Phaser.Scene {
     vol.onchange = () => this.room?.send('setAlertVolume', { volume: this.volume });
     lbl.onchange = () => {
       this.alwaysShowLabels = lbl.checked;
-      if (!this.alwaysShowLabels) this.clearNameLabels();
+      this.refreshNameLabels();
       this.room?.send('setAlwaysShowLabels', { enabled: this.alwaysShowLabels });
     };
     camFollow.onchange = () => {
@@ -3834,30 +3834,42 @@ export class OfficeScene extends Phaser.Scene {
     this.renderZonesPanel?.();
   }
 
-  // ── Always-on name labels ────────────────────────────────────────
+  // ── Name labels ──────────────────────────────────────────────────
+
+  /** How a character is named everywhere it is named: a player shows their own
+   *  name, every agent — top-level or sub-agent — is tagged "<owner>-Agent".
+   *  Pure presentation over synced state; the owner itself comes from the
+   *  server (`folderName`, the feed's user). */
+  private characterLabel(ch: RenderChar): string {
+    if (ch.isPlayer) return ch.folderName || ch.agentName || '';
+    const owner = ch.folderName || ch.agentName || '';
+    return owner ? `${owner}-Agent` : '';
+  }
 
   private clearNameLabels(): void {
     for (const el of this.nameLabels.values()) el.remove();
     this.nameLabels.clear();
   }
 
+  /** Drop and rebuild the labels now: toggling the player-name setting has to
+   *  show up even while the render loop sleeps (it only ticks on movement). */
+  private refreshNameLabels(): void {
+    this.clearNameLabels();
+    this.updateNameLabels();
+  }
+
   private updateNameLabels(): void {
-    if (!this.alwaysShowLabels) return;
-    const cam = this.cameras.main;
+    const cam = this.cameras?.main;
+    if (!cam) return; // settings can arrive before the scene has a camera
+
     const wv = cam.worldView;
     const host = document.getElementById('game') ?? document.body;
     const live = new Set<number>();
     for (const ch of this.characters.values()) {
-      // Players show their own name; agents are tagged "<owner>-Agent".
-      let name: string;
-      if (ch.isPlayer) {
-        name = ch.folderName || ch.agentName || '';
-      } else if (ch.isSubagent) {
-        name = ch.agentName || ch.folderName || '';
-      } else {
-        const owner = ch.folderName || ch.agentName || '';
-        name = owner ? `${owner}-Agent` : '';
-      }
+      // Agents always wear their "<owner>-Agent" tag — that is how you tell
+      // whose agent it is at a glance. The setting only governs player names.
+      if (ch.isPlayer && !this.alwaysShowLabels) continue;
+      const name = this.characterLabel(ch);
       if (!name) continue;
       live.add(ch.id);
       let el = this.nameLabels.get(ch.id);
@@ -4064,9 +4076,8 @@ export class OfficeScene extends Phaser.Scene {
       : ch.bubbleType === 'permission'
         ? 'Needs approval'
         : ch.activity || (ch.isActive ? 'Working…' : ch.isSubagent ? 'Subtask' : 'Idle');
-    const name = ch.isPlayer
-      ? ch.folderName || 'Player'
-      : ch.agentName || ch.folderName || `agent ${id}`;
+    const name =
+      this.characterLabel(ch) || (ch.isPlayer ? 'Player' : `agent ${id}`);
     const dot = ch.bubbleType === 'permission' ? '#ffcc00' : ch.isActive ? '#4caf3f' : '';
     const total = (ch.inputTokens ?? 0) + (ch.outputTokens ?? 0);
     const ratio = total / MAX_CONTEXT_TOKENS;
