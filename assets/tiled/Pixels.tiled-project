@@ -110,6 +110,7 @@
                 "iframe",
                 "appliance",
                 "arcade",
+                "timeClock",
                 "portal",
                 "toggle",
                 "spawnPoint"

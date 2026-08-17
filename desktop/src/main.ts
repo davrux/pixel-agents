@@ -17,6 +17,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
+import { registerTimeTrackingIpc, shutdownTimeTracking } from './timetracking/service.js';
 import { createTray, destroyTray, setTrayUnread } from './tray.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
@@ -417,6 +418,7 @@ function showNotification(window: BrowserWindow | null, options: DesktopNotifica
 function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   registerMumbleIpc(getWindow);
+  registerTimeTrackingIpc();
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
   ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
   ipcMain.handle(channels.clearServerUrl, (): Promise<void> => clearStoredServerUrl());
@@ -605,6 +607,8 @@ if (!gotLock) {
     // part of shutting down, not a request to hide.
     quitting = true;
     shutdownMumble();
+    shutdownTimeTracking(); // stop the status poller
+
     // Release the tray explicitly: an undestroyed Tray keeps a stale icon in
     // the status area on some Linux panels after the process is gone.
     destroyTray();

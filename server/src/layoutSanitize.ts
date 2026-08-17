@@ -132,6 +132,8 @@ export function sanitizeAction(raw: unknown): Action | null {
       return rec.pose === 'coffee' ? { kind: 'appliance', pose: 'coffee' } : null;
     case 'arcade':
       return { kind: 'arcade' };
+    case 'timeClock':
+      return { kind: 'timeClock' };
     case 'portal':
       return { kind: 'portal' };
     case 'toggle':

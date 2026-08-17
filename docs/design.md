@@ -215,6 +215,27 @@ holds none of its credentials.
 directly, on the same footing as Mumble: started before the pixel-agents
 connection, so an outage here does not take chat with it.
 
+**TimeTracking** (desktop only) is the third of these, and desktop-only for the
+sharpest of the three reasons. Booking working time means replaying a login —
+the vendor's access tokens live 300 seconds — so the password has to be stored
+*reversibly*. An earlier cut kept it encrypted in the server's database; storing
+a corporate credential that way is the wrong trade for a convenience feature,
+and the blast radius is everyone's work account rather than a game login. So the
+credential lives in the OS keychain on the user's own machine, the main process
+is the only code that ever talks to the vendor, and the server holds nothing but
+an optional suggested address in an env var.
+
+What crosses back into the world is one word: the player's desktop app reports a
+coarse status ("working", "break", …) over the room's `workStatus` message, and
+the server syncs it onto `CharacterSync` so every viewer sees the same glyph.
+That report is *self-reported and unverifiable* — the server has no access to
+anyone's TimeTracking and could not check it even in principle. Accepted
+deliberately: it grants nothing and unlocks nothing, it is validated to a closed
+set and keyed to the sender's own avatar, so the worst a patched client achieves
+is a status that isn't true of it. The realistic failure is not malice but
+silence, so a report expires after five minutes — a closed laptop stops showing
+its owner as hard at work instead of leaving a stale glyph over an empty chair.
+
 ## The desktop shell
 
 The same client bundle runs in two environments: served by the server, and loaded

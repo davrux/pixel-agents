@@ -11,7 +11,8 @@ import {
   DEFAULT_ZONE,
   type CommandSpec,
 } from '@pixel/shared';
-import type { AgentEvent, ZoneConfig } from '@pixel/shared';
+import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
+import { isWorkStatus } from '@pixel/shared';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions, sanitizeAction } from '../layoutSanitize.js';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
@@ -61,6 +62,12 @@ import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
 const TICK_HZ = 20;
+
+/** How long a self-reported working status is trusted without a fresh report.
+ *  The desktop app re-reports every 60 s, so this is several missed beats — long
+ *  enough to ride out a slow poll, short enough that a closed laptop stops
+ *  showing its owner as hard at work. */
+const WORK_STATUS_TTL_MS = 5 * 60_000;
 
 /**
  * Authoritative office room: the original OfficeState simulation runs here, in
@@ -115,6 +122,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private zone!: ZoneConfig;
   /** Player avatar id per connected client session. */
   private readonly players = new Map<string, number>();
+  /**
+   * Self-reported TimeTracking status per player avatar id, with the epoch ms it
+   * arrived. Only the desktop app can produce one — it holds the credential and
+   * does the talking — so the server neither knows nor can verify what it means;
+   * it stores a glyph value and syncs it. See the 'workStatus' handler.
+   *
+   * The timestamp is what makes it self-healing: the desktop app re-reports on
+   * every poll, so a status that stops arriving (app quit, laptop asleep, the
+   * TimeTracking server gone) ages out instead of leaving a stale glyph over an
+   * empty chair.
+   */
+  private readonly workStatuses = new Map<number, { status: WorkStatus; at: number }>();
   /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
   private arcadeLobby?: { onLeave: (sessionId: string) => void };
   /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
@@ -550,6 +569,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.leaveAllMeetingRooms(playerId);
       this.os.removePlayer(playerId);
       this.players.delete(client.sessionId);
+      this.workStatuses.delete(playerId);
     }
     // Release this user's owned avatar from the zone once their last session
     // here is gone, so other clients can drop the no-longer-needed sprite data.
@@ -1146,6 +1166,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
     });
 
+    // A player's desktop app reporting its TimeTracking status. Purely
+    // cosmetic — it grants nothing and unlocks nothing — which is what makes it
+    // safe to accept unverified: the server has no access to anyone's
+    // TimeTracking and could not check it even in principle. Validated to the
+    // closed WorkStatus set so the only thing a patched client can do is show a
+    // glyph that isn't true of it, and keyed by the sender's OWN avatar so it
+    // can never set anyone else's.
+    this.onMessage('workStatus', (client, msg: { status?: unknown }) => {
+      const id = this.players.get(client.sessionId);
+      if (id === undefined) return;
+      if (!isWorkStatus(msg?.status)) return;
+      this.workStatuses.set(id, { status: msg.status, at: Date.now() });
+    });
+
     // Personal viewer prefs — keyed per user (never global). Anonymous viewers
     // (open dev) keep them client-side only. The client applies them locally on
     // toggle regardless; the server write is just cross-device persistence.
@@ -1326,6 +1360,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.leaveAllMeetingRooms(id);
       this.os.removePlayer(id);
       this.players.delete(client.sessionId);
+      this.workStatuses.delete(id);
       client.send('m', { type: 'zoneTransition', zone: target.id });
     });
 
@@ -1730,6 +1765,19 @@ export class SimRoom extends Room<{ state: RoomState }> {
     return undefined;
   }
 
+  /** A player's reported working status, or '' once it has gone stale. The
+   *  desktop app re-reports every poll interval, so silence for several of them
+   *  means it is no longer speaking for this player and the glyph should go. */
+  private freshWorkStatus(id: number): WorkStatus {
+    const entry = this.workStatuses.get(id);
+    if (!entry) return '';
+    if (Date.now() - entry.at > WORK_STATUS_TTL_MS) {
+      this.workStatuses.delete(id);
+      return '';
+    }
+    return entry.status;
+  }
+
   private syncCharacters(): void {
     const live = new Set<string>();
     for (const ch of this.os.getCharacters()) {
@@ -1755,6 +1803,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.isSubagent = ch.isSubagent;
       cs.isPlayer = ch.isPlayer;
       cs.afk = ch.afk ?? false;
+      // Working status, as last reported by this player's own desktop app
+      // (agents and NPCs have none, hence the isPlayer guard). Synced from here
+      // rather than fetched per client so the hover overlay shows everyone the
+      // same thing, and so nobody's client learns anything about anyone else's
+      // TimeTracking beyond the glyph.
+      cs.workStatus = ch.isPlayer ? this.freshWorkStatus(ch.id) : '';
       cs.folderName = ch.folderName ?? '';
       cs.teamName = ch.teamName ?? '';
       cs.agentName = ch.agentName ?? '';

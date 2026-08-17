@@ -7,5 +7,6 @@
 // engine's own findPath (office/layout/tileMap.ts) is the one that runs.
 export * from './protocol.js';
 export * from './commands.js';
+export * from './timetracking.js';
 export * from './arcade/games.js';
 export * as Schema from './schema/index.js';

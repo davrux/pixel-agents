@@ -6,6 +6,9 @@ import {
   type MumbleEvent,
   type MumbleSettingsPatch,
   type PixelDesktopApi,
+  type TimeTrackingSettingsPatch,
+  type WorkAction,
+  type WorkSnapshot,
 } from './ipc.js';
 
 /**
@@ -64,6 +67,14 @@ const api: PixelDesktopApi = {
     sendAudio: (frame: Uint8Array) => ipcRenderer.send(PIXEL_DESKTOP_CHANNELS.mumbleSendAudio, frame),
     onEvent: (cb: (event: MumbleEvent) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.mumbleEvent, cb),
     onAudio: (cb: (audio: MumbleAudioIn) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.mumbleAudio, cb),
+  },
+  timeTracking: {
+    getSettings: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttGetSettings),
+    setSettings: (patch: TimeTrackingSettingsPatch) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttSetSettings, patch),
+    disconnect: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttDisconnect),
+    getStatus: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttGetStatus),
+    book: (action: WorkAction) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttBook, action),
+    onStatus: (cb: (snapshot: WorkSnapshot) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.ttStatusEvent, cb),
   },
 };
 

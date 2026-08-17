@@ -202,6 +202,20 @@ async function main(): Promise<void> {
     });
   });
 
+  // Suggested TimeTracking address, so the desktop app can offer the company's
+  // server instead of making everyone type it. Suggestion only, and the entire
+  // extent of this server's involvement: the desktop app holds the credential
+  // and does the booking (see desktop/src/timetracking/), and the server only
+  // ever receives the resulting one-word status over the room's 'workStatus'
+  // message. Same shape and same reasoning as /mumble/config above, including
+  // checking the session itself since it is registered before the gate.
+  app.get('/timetracking/config', (req, res) => {
+    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+      return void res.status(401).json({ error: 'unauthorized' });
+    }
+    res.json({ baseUrl: process.env.TIMETRACKING_URL?.trim() || null });
+  });
+
   // Ad-hoc meeting rooms (/meet/<slug>) are reachable by anyone with the link —
   // no pixel-agents account required — so they're registered here, before the
   // login gate, same as /arcade/catalog above.

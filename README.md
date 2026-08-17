@@ -196,6 +196,7 @@ class.
 | `iframe` | opens a web page in-game | `actionUrl` |
 | `appliance` | walk up, use it, adopt a pose — `coffee` is the coffee machine | `actionPose` |
 | `arcade` | opens the arcade cabinet | — |
+| `timeClock` | punch in/out at the time clock — desktop app only | — |
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
@@ -239,7 +240,7 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `portal`, `toggle`, `spawnPoint` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint` |
 | `ApplianceKind` | *(empty)*, `coffee` |
 
 ## Two things that will bite you

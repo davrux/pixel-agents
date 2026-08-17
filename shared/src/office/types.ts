@@ -234,6 +234,13 @@ export type Action =
   /** js-dos emulator overlay with per-player saves + an optional
    *  multiplayer lobby — today's arcade cabinet. */
   | { kind: 'arcade' }
+  /** Opens the TimeTracking panel — today's working time and the punch
+   *  buttons — for the player who walked up. Today's time clock. Which
+   *  account it books against is the player's own (held by their desktop app),
+   *  not the machine's: the furniture is the terminal, not the identity, so
+   *  any clock in any zone works and two people at one clock each punch their
+   *  own card. */
+  | { kind: 'timeClock' }
   /** Zone travel — walking onto this furniture's own footprint (or a tile
    *  carrying this action directly) offers a destination picker, same as
    *  today's door/beam-pad. Triggers on arrival/rest, like every other

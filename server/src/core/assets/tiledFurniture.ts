@@ -17,7 +17,8 @@
  *                            FurnitureCatalogEntry.onState
  *   actionKind      (string) this type's default Action (see FurnitureCatalogEntry.action)
  *                            — 'meetingRoom' | 'meetingManager' | 'iframe' | 'appliance' |
- *                            'arcade' | 'portal' | 'toggle' | 'spawnPoint'; empty = none
+ *                            'arcade' | 'timeClock' | 'portal' | 'toggle' | 'spawnPoint';
+ *                            empty = none
  *   actionVideo     (bool)   only with actionKind 'meetingRoom'
  *   actionUrl       (string) only with actionKind 'iframe' — https:// only
  *   actionPose      (string) only with actionKind 'appliance', e.g. 'coffee'

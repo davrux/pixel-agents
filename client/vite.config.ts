@@ -25,6 +25,7 @@ export default defineConfig({
       '@pixel/shared/worldConfig': shared('worldConfig.ts'),
       '@pixel/shared/protocol': shared('protocol.ts'),
       '@pixel/shared/commands': shared('commands.ts'),
+      '@pixel/shared/timetracking': shared('timetracking.ts'),
       '@pixel/shared/schema': shared('schema/index.ts'),
       '@pixel/shared': shared('index.ts'),
     },

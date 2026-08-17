@@ -32,6 +32,7 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     }
     case 'meetingManager':
     case 'arcade':
+    case 'timeClock':
     case 'portal':
     case 'toggle':
     case 'spawnPoint':
