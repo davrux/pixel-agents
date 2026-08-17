@@ -1514,15 +1514,23 @@ export class OfficeScene extends Phaser.Scene {
         lastClickAt = performance.now();
         lastClickX = p.x;
         lastClickY = p.y;
-        // Double-click a chair/bench → sit there; double-click empty floor →
-        // walk there. Spectators have no avatar (myPlayerId null) → no-op.
-        // Server validates either way.
-        if (this.myPlayerId !== null && p.leftButtonReleased() && doubled) {
+        // Two gestures, two jobs. **Acting** on something — a monitor, a coffee
+        // machine, an arcade cabinet — is one click: you pointed at a thing, so
+        // there is nothing accidental about it. **Navigating** (walk there, go
+        // sit on that chair) takes two, because that is the one a stray click
+        // used to trigger by sending the avatar across the office.
+        //
+        // The second click of a double click is swallowed on an action tile: the
+        // first one already acted, and repeating it would toggle a meeting join
+        // straight back off again.
+        if (this.myPlayerId !== null && p.leftButtonReleased()) {
           const col = Math.floor(p.worldX / TILE_SIZE);
           const row = Math.floor(p.worldY / TILE_SIZE);
           const action = this.actionAt(col, row);
           const appliance = this.applianceAt(col, row);
-          if (action && action.action.kind === 'meetingRoom') {
+          if (doubled && (action || appliance)) {
+            // second click on something we already acted on — see above
+          } else if (action && action.action.kind === 'meetingRoom') {
             // Click a monitor (or any other 'meetingRoom'-action sprite) →
             // toggle join/leave, same as before (see toggleConference).
             // The action's own meetingRoomName wins over the placement's Tiled
@@ -1545,8 +1553,8 @@ export class OfficeScene extends Phaser.Scene {
           } else if (appliance) {
             // Same server-authoritative walk-then-use (see officeState's useAppliance).
             this.room?.send('applianceApproach', { col: appliance.col, row: appliance.row });
-          } else {
-            this.pendingConference = null; // clicking elsewhere abandons a walk-to-monitor
+          } else if (doubled) {
+            this.pendingConference = null; // navigating away abandons a walk-to-monitor
             this.room?.send(this.isSeatTile(col, row) ? 'playerSitAt' : 'playerMove', { col, row });
           }
         } else if (this.myPlayerId !== null && p.rightButtonReleased()) {
