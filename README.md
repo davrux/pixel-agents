@@ -25,8 +25,11 @@ there, aimed at a small MMO-style world.
 
 The character and world art builds on the wonderful **MetroCity** pack by
 **[JIK-A-4](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack)** —
-a free top-down character pack. The office's own sprites come from the original
-pixel-agents. UI font: **FS Pixel Sans**.
+a free top-down character pack. The outdoor tilesets and their furniture come
+from **[Sprout Lands](https://cupnooble.itch.io/sprout-lands-asset-pack)** by
+**Cup Nooble** (non-commercial use, credit required — see
+[assets/CREDITS.md](assets/CREDITS.md) for the full terms). The office's own
+sprites come from the original pixel-agents. UI font: **FS Pixel Sans**.
 
 ## Quick start
 

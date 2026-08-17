@@ -134,6 +134,13 @@ const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p
  *  order). */
 const METRO_FLOOR_PATTERN_FILES = Array.from({ length: 7 }, (_, p) => `metro_${p}.png`);
 
+/** The sprout floor set's patterns — grass, soil, water and a stairway, taken
+ *  from the Sprout Lands Basic pack by
+ *  server/scripts/gen-sprout-source-art.mts, which writes them and owns both
+ *  their order and the rule deciding which of that pack's ground tiles a
+ *  single ground layer can use at all. */
+const SPROUT_FLOOR_PATTERN_FILES = Array.from({ length: 24 }, (_, p) => `sprout_${p}.png`);
+
 function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: PaletteSwatch[]): void {
   const pal = checkPaletteSize(palette, `floor set "${outputName}"`);
   const tiles: SpriteData[] = [];
@@ -262,6 +269,13 @@ fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
 bakeFloorSheet('floor-resurrect64', BASE_FLOOR_PATTERN_FILES, PALETTE_64);
 bakeFloorSheet('floor-metro-resurrect64', METRO_FLOOR_PATTERN_FILES, PALETTE_64);
 bakeWallSheet('wall-metro-resurrect64', 'wall_metro.png', PALETTE_64);
+// One palette only, unlike the sets above: this art arrives already coloured
+// and its own hues are the point, so column 0 (Natural) is what a mapper
+// reaches for. A second 64-swatch bake of it would double the committed sheet
+// and the sprites the client slices at load, to restate the same tiles in
+// colours nobody asked this pack for.
+bakeFloorSheet('floor-sprout-resurrect64', SPROUT_FLOOR_PATTERN_FILES, PALETTE_64);
+bakeWallSheet('wall-sprout-resurrect64', 'wall_sprout.png', PALETTE_64);
 bakeFloorSheet('floor-endesga', BASE_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
 bakeFloorSheet('floor-metro-endesga', METRO_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
 bakeWallSheet('wall-metro-endesga', 'wall_metro.png', ENDESGA_PALETTE_64);

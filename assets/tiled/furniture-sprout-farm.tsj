@@ -1,0 +1,2173 @@
+{
+  "columns": 0,
+  "grid": {
+    "height": 16,
+    "orientation": "orthogonal",
+    "width": 16
+  },
+  "name": "furniture-sprout-farm",
+  "tilecount": 28,
+  "tiledversion": "1.11.0",
+  "tileheight": 48,
+  "tilewidth": 48,
+  "tiles": [
+    {
+      "id": 0,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_CORN.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_CORN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Corn"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_CORN_YOUNG.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_CORN_YOUNG"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Corn (growing)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_PARSNIP.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_PARSNIP"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Parsnip"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_SEEDS_PARSNIP.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_SEEDS_PARSNIP"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Parsnip seeds"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_SEEDLINGS.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_SEEDLINGS"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Seedlings"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_SPROUTS.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_SPROUTS"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Sprouts"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGGPLANT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGGPLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_SEEDS_EGGPLANT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_SEEDS_EGGPLANT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant seeds"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGGPLANT_RIPE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGGPLANT_RIPE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant plant (ripe)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGGPLANT_FLOWERING.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGGPLANT_FLOWERING"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant plant (flowering)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGGPLANT_YOUNG.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGGPLANT_YOUNG"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant seedling"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGGPLANT_SPROUT.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGGPLANT_SPROUT"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Eggplant sprout"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_AXE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_AXE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Axe"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_HAMMER.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_HAMMER"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hammer"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_WATERING_CAN.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_WATERING_CAN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Watering can"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_HOE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_HOE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hoe"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_WOOD.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_WOOD"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Wood"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_STONE.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_STONE"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Stone"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_HAY.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_HAY"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Hay"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_MILK.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_MILK"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Milk"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_MILK_HALF.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_MILK_HALF"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Milk (half)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_MILK_EMPTY.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_MILK_EMPTY"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Milk (empty)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_EGG.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_EGG"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Egg"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_CHICKEN_COOP.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_CHICKEN_COOP"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Chicken coop"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 2
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_BRIDGE_H.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_BRIDGE_H"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bridge (horizontal)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_BRIDGE_V.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_BRIDGE_V"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bridge (vertical)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_BRIDGE_V_PLAIN.png",
+      "imagewidth": 16,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_BRIDGE_V_PLAIN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bridge, plain (vertical)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "FurnitureTile",
+      "image": "png/furniture/sprout/SPROUT_BRIDGE_H_PLAIN.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "SPROUT_BRIDGE_H_PLAIN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Bridge, plain (horizontal)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": true
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    }
+  ],
+  "type": "tileset",
+  "version": "1.10"
+}
