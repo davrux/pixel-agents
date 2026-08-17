@@ -12,12 +12,13 @@
  * importer is free to derive (zOffset from object list order, uid freshly per
  * import) and to ignore what our renderer cannot show (rotation, diagonal flip).
  */
-import type { Action, OfficeLayout, PlacedFurniture, PlacedImage, PlacedText } from '@pixel/shared/office/types.js';
+import type { Action, OfficeLayout, PlacedDecal, PlacedFurniture, PlacedImage, PlacedText } from '@pixel/shared/office/types.js';
 import { TileType } from '@pixel/shared/office/types.js';
 import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
-import { resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { DECAL_LAYER_OCCLUDES } from './decalProps.js';
+import { DECAL_TILE_CLASS, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
 import { actionFromProps, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject } from './furnitureProps.js';
 import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
@@ -35,6 +36,12 @@ const TILED_FLIP_V = 0x40000000;
 /** Tiled's third flip bit. We render nothing rotated, but a gid carrying it still
  *  has to RESOLVE — see baseGid. */
 const TILED_FLIP_D = 0x20000000;
+
+/** Tile properties that mean "this item does something", checked when a tile is
+ *  painted onto a decal layer — where doing something is exactly what it stops
+ *  being able to do. Walkability and backgroundTiles are deliberately not here:
+ *  a decal is walkable and occupies nothing anyway, so neither is lost. */
+const DECLARED_BEHAVIOUR = ['canSitOn', 'petCanSitOn', 'onState', 'actionKind'];
 
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
  *  corner of the tile's image, not top-left like every other object type. */
@@ -353,6 +360,80 @@ export function importTmjToLayout(
     return item;
   });
 
+  /**
+   * Painted map art — every DecalLayer of the map, cell by cell (see PlacedDecal).
+   *
+   * `filter`, not `find`: a tile-layer cell holds ONE tile, so stacking a flower
+   * onto a grass patch needs a second layer, which is ordinary practice in Tiled.
+   * Layers are read in the order the map lists them and the result keeps that
+   * order, which is the stacking order for flat decals (see DECAL_DEPTH).
+   *
+   * Each layer's own `occludes` property decides how everything painted on it
+   * sorts, and is copied onto every cell here — the layer does not survive the
+   * import, and the same art on a flat and a standing layer has to be able to
+   * disagree. Read off the LAYER and never off the tile, so that whether a thing
+   * is background or an obstacle stays a decision about the place rather than
+   * about the picture (see tiled/decalProps.ts).
+   *
+   * Position: Tiled anchors an oversized tile at its cell's BOTTOM edge, growing
+   * upwards, while PlacedDecal/PlacedFurniture store the top-left cell — so the
+   * sprite's own height converts one into the other. Getting this wrong would
+   * make a map render differently in the game than it looks in the editor, which
+   * is the one thing the whole Tiled path exists to prevent.
+   */
+  const decals: PlacedDecal[] = [];
+  for (const layer of layers.filter((l) => l.class === 'DecalLayer')) {
+    const data = layer.data as number[] | undefined;
+    if (!Array.isArray(data)) continue; // an empty or non-tile layer carrying the class
+    const layerProps: PropBag = Object.fromEntries(
+      ((layer.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]),
+    );
+    const occludes = layerProps[DECAL_LAYER_OCCLUDES] === true;
+    for (let i = 0; i < Math.min(data.length, cols * rows); i++) {
+      const rawGid = Number(data[i]) || 0;
+      if (rawGid === 0) continue;
+      const resolved = resolveGid(baseGid(rawGid));
+      const id = typeof resolved?.props.id === 'string' ? resolved.props.id : '';
+      if (!id) continue;
+      if (resolved?.class !== DECAL_TILE_CLASS) {
+        // Painting furniture art onto a decal layer is allowed — that IS how a
+        // purely decorative item stops being a synced object — but anything the
+        // tile declared about behaviour is gone, and silently losing a sittable
+        // chair or a working portal would be baffling. Loud, not fatal.
+        const declares = DECLARED_BEHAVIOUR.filter((k) => {
+          const v = resolved?.props[k];
+          return v === true || (typeof v === 'string' && v !== '') || (typeof v === 'number' && v !== 0);
+        });
+        if (declares.length > 0) {
+          console.warn(
+            `[tiled] "${id}" is painted on decal layer "${String(layer.name ?? '')}" but declares ${declares.join(', ')} — ` +
+              'a decal is art only: no behaviour, no collision (paint the CollisionLayer for that). ' +
+              'Place it as a Furniture object if you want the behaviour.',
+          );
+        }
+      }
+      const entry = getCatalogEntry(id);
+      // From the sprite's real height, NOT footprintH: that one is clamped to 16
+      // tiles (footprintOf), and Tiled anchors by the image's actual height, so a
+      // taller decal would land in the wrong row. The rounding is safe because a
+      // sliced item is always padded to whole tiles (see scripts/lib/sheetSlice.mts).
+      const spriteRows = entry ? Math.max(1, Math.round(entry.sprite.length / TILE_SIZE)) : 1;
+      const decal: PlacedDecal = {
+        id,
+        col: i % cols,
+        row: Math.floor(i / cols) - (spriteRows - 1),
+        ...(occludes ? { occludes: true } : {}),
+      };
+      let flipBits = rawGid;
+      if (flipBits >= TILED_FLIP_H) {
+        decal.flippedHorizontally = true;
+        flipBits -= TILED_FLIP_H;
+      }
+      if (flipBits >= TILED_FLIP_V) decal.flippedVertically = true;
+      decals.push(decal);
+    }
+  }
+
   const tileActions: Array<Action | null> = new Array(cols * rows).fill(null);
   for (const obj of actionObjects) {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
@@ -472,6 +553,9 @@ export function importTmjToLayout(
     tileActions,
     texts,
     images,
+    // Left out entirely when the map paints none, so a layout only carries what
+    // its map actually has (same as the optional fields above).
+    ...(decals.length > 0 ? { decals } : {}),
   };
   return { layout, images: importedImages, mapName };
 }

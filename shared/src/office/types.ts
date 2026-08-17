@@ -5,6 +5,7 @@ export {
   MAX_COLS,
   MAX_ROWS,
   TILE_SIZE,
+  DECAL_DEPTH,
   WALK_OVER_DEPTH,
 } from './constants.js';
 
@@ -324,6 +325,14 @@ export interface FurnitureCatalogEntry {
    *  `state: off|on` values, which paired items by convention; naming the
    *  partner outright says the same thing without the guesswork. */
   onState?: string;
+  /**
+   * This entry is map art, not furniture: a tile painted on a DecalLayer (see
+   * PlacedDecal). It shares the catalog because a decal needs exactly what the
+   * catalog provides — a sprite under a stable id — and nothing else. It is
+   * never in OfficeState.furniture, never blocks, never sits anybody, and no
+   * behaviour is read off it.
+   */
+  decal?: boolean;
 }
 
 export interface PlacedFurniture {
@@ -393,6 +402,61 @@ export interface PlacedFurniture {
    *  Editable via LayoutEditor's Select tool ("Reach-through" toggle). Unset
    *  = false (today's behaviour: a blocked neighbor tile is never usable). */
   approachThrough?: boolean;
+}
+
+/**
+ * One painted cell of a DecalLayer: a picture on the map, and nothing else.
+ *
+ * ── Why this exists next to PlacedFurniture ──
+ *
+ * Furniture is a live object. It is a FurnitureSync in OfficeState with fifteen
+ * synced fields, it can be switched on and off, sat on, claimed, blocked
+ * against, and every one of them is walked by the linear scans that answer "what
+ * is on this tile". That is the right price for a chair and an absurd one for a
+ * patch of grass — and a map of a street or a park is mostly patches of grass.
+ * A decal instead rides along in the layout (one `layoutLoaded`, like the floor
+ * and the walls), never changes, and no scan ever looks at it. So the hundredth
+ * decal costs what the first did, while the hundredth chair does not.
+ *
+ * What it therefore cannot do: block (paint the cell into the CollisionLayer if
+ * it should — that layer already exists and is read for exactly this), carry an
+ * Action, be sat on, animate, or be overridden per placement. A tile-layer cell
+ * holds a gid and nothing else, so there is nowhere to write an override even if
+ * we wanted one: what the DecalTile says is what every painted cell of it does.
+ *
+ * `col`/`row` are the sprite's TOP-LEFT cell, the same convention as
+ * PlacedFurniture, so both render through one code path. Note that this is NOT
+ * where Tiled puts the cell: Tiled anchors an oversized tile at its cell's
+ * BOTTOM edge, so the import converts (see mapBridge.ts) — and it must, or a map
+ * would render differently in the game than it looks in the editor.
+ */
+export interface PlacedDecal {
+  /** Which catalog entry this is — a decal one, see FurnitureCatalogEntry.decal.
+   *  May equally be a furniture entry: painting furniture art on a decal layer is
+   *  how a purely decorative object stops being a synced object. */
+  id: string;
+  col: number;
+  row: number;
+  /**
+   * How this cell sorts against characters — resolved at import time from the
+   * `occludes` property of the DecalLayer it was painted on, never from the tile
+   * (see server/src/tiled/decalProps.ts for why the layer owns this).
+   *
+   * Absent/false — lies FLAT: DECAL_DEPTH, just above the floor, so characters
+   * walk over it wherever they stand. Paving, grass, a shadow, flowers.
+   *
+   * true — STANDS: depth from this cell's own bottom edge, exactly as furniture,
+   * so a character behind it is hidden and one in front of it is not. A tree, a
+   * fence, a lamp post.
+   *
+   * Stored per cell rather than left for the client to look up, because the layer
+   * it came from is not part of the layout — the same art on two layers must be
+   * able to disagree, and after the import the cell is all that is left of it.
+   */
+  occludes?: boolean;
+  /** Tiled's own tile-flip bits, same meaning as PlacedFurniture's. */
+  flippedHorizontally?: boolean;
+  flippedVertically?: boolean;
 }
 
 /** A free-text label placed on one tile — purely decorative (no footprint,
@@ -580,6 +644,12 @@ export interface OfficeLayout {
    *  join/leave click. Every other action kind fires once when a player's
    *  tile matches it (edge-triggered, like a portal). */
   tileActions?: Array<Action | null>;
+  /** Painted map art — see PlacedDecal. Sparse (only cells that carry one), in
+   *  paint order: every DecalLayer of the map in the order Tiled lists them,
+   *  cell by cell. That order is the stacking order for flat decals, which all
+   *  share one depth, so two DecalLayers stack the way the Layers panel shows
+   *  them. */
+  decals?: PlacedDecal[];
   /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
   texts?: PlacedText[];
   /** Background decoration images — see PlacedImage. Placed with the editor's

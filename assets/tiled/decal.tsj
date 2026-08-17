@@ -1,0 +1,430 @@
+{
+  "columns": 0,
+  "name": "decal",
+  "tilecount": 22,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.10",
+  "tiles": [
+    {
+      "id": 0,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_01.png",
+      "imagewidth": 80,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 1"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_02.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 2"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_03.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 3"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_04.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 4"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_06.png",
+      "imagewidth": 80,
+      "imageheight": 80,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 6"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_07.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 7"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_08.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 8"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_10.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 10"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_11.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 11"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_12.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 12"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_13.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 13"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_14.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 14"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_15.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 15"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_16.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 16"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_17.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 17"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_18.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 18"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_19.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 19"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_20.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_20"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 20"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_21.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_21"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 21"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_22.png",
+      "imagewidth": 48,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_22"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 22"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_23.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_23"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 23"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "DecalTile",
+      "image": "png/decal/METRO_OUT_24.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_24"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 24"
+        }
+      ]
+    }
+  ]
+}

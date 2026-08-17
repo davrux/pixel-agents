@@ -691,7 +691,17 @@ export class OfficeScene extends Phaser.Scene {
           // initial race AND any later catalog rebuild (e.g. task #155's
           // Tiled tileset hot-reload) that should refresh already-placed
           // furniture too.
-          if (m.type === 'furnitureAssetsLoaded') this.furnitureDirty = true;
+          if (m.type === 'furnitureAssetsLoaded') {
+            this.furnitureDirty = true;
+            // Decals resolve their sprite through this same catalog but are drawn
+            // as statics (they never change, see PlacedDecal), so they meet the
+            // very same race one layer up — and with no dirty flag of their own
+            // they would simply stay invisible forever, since only a new layout
+            // rebuilds statics. Guarded on the map actually having decals, so a
+            // map without any pays nothing; also makes a decal tileset saved in
+            // Tiled show up live, like furniture already does.
+            if ((this.os.getLayout().decals?.length ?? 0) > 0) this.view.buildStatic();
+          }
           // Keep the Settings avatar preview honest after a live avatar change.
           if (m.type === 'playerAvatar' && m.id === this.myAvatarId) this.renderAvatarPreview();
         }

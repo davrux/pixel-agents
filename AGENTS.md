@@ -160,6 +160,26 @@ background only.)
   `Pixels.tiled-project` — Tiled only offers a class's own members, so a property
   missing from `FurnitureObject` is settable on the type and invisible on every
   placement. Keep the object class a superset of the tile class.
+- **Decoration is a decal, not an object.** A `DecalTile` painted on a
+  `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
+  `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no
+  synced fields and no scan walks it. That is what lets a map paint hundreds of
+  ground patches; a furniture placement costs fifteen synced fields and eleven
+  linear scans, which is right for a chair and wrong for grass. Consequences to
+  keep: a decal never blocks (the `CollisionLayer` does that), carries no Action,
+  and states no behaviour of its own. Anything that must be *interacted with*
+  stays furniture. Add a decal property the same way as a furniture one: in
+  `DECAL_TILE_PROPS`, in the `DecalTile` class, then distribute with
+  `scripts/sync-furniture-properties.sh` (it dispatches per tile class).
+- **Flat-or-standing belongs to the layer, not the tile.** A `DecalLayer`'s own
+  `occludes` property decides whether everything painted on it lies under the
+  characters or sorts against them, and the import copies that answer onto each
+  cell (`PlacedDecal.occludes`). Deliberately not a tile property: whether a
+  picture is background or an obstacle is a fact about the *place* — the same tree
+  is scenery on a hillside and an obstacle beside a path — and a tile-layer cell
+  has nowhere to carry an override, so a tile-level answer would force one for the
+  whole map. It is also what lets furniture art be painted as a decal, since
+  nothing is then read off the tile that a `FurnitureTile` could not answer.
 - **A zone has exactly one map, and it comes from Tiled.** The `layouts` table is
   keyed by zone id: no named layouts, no active-layout pointer, no bundled
   read-only default, no code-generated zone. The import is one-way; there is no

@@ -131,7 +131,7 @@ the server is missing (compared by content hash, so a one-line map edit doesn't
 ship megabytes). `*-noimport.tmj` is never imported — that suffix is your scratch
 copy.
 
-## The four layers
+## The tile layers
 
 Every map has these, identified by their **class**, not their name:
 
@@ -141,6 +141,7 @@ Every map has these, identified by their **class**, not their name:
 | `WallLatticeLayer` | wall pieces, one per lattice point (the corner shared by four cells) | `offsetx`/`offsety` **−8** |
 | `WallFaceLayer` | north-wall face pieces — the flat surface a room is looked at | none |
 | `CollisionLayer` | the single "blocked" marker tile from `collision.tsj` | none |
+| `DecalLayer` | painted map art — see below. **Several are allowed**, drawn in the order the Layers panel lists them; its `occludes` property decides whether everything on it lies flat or stands | none |
 
 Walls are **edges on a half-offset lattice**: a wall piece's N/E/S/W bitmask says
 which of the four edges meeting at that point are wall, so the Wang/Terrain brush
@@ -152,6 +153,56 @@ the face is the picture, the lattice is the barrier. Don't paint Collision over
 faces; a face cell is non-walkable already.
 
 Objects live on object layers: **Furniture**, **Actions**, **Images**, **Text**.
+
+## Decals: art that is not an object
+
+A **decal** is a picture on the map and nothing else. You paint it with the stamp
+on a `DecalLayer`, from `decal.tsj` or from any furniture tileset — a tile layer
+takes tiles from any set, and Tiled anchors an oversized one at its cell's bottom
+edge, exactly as the game then draws it.
+
+Why bother, when a furniture object shows the same picture: **a furniture
+placement is a live object.** It has fifteen synced fields, it can be switched,
+sat on, claimed and blocked against, and every scan that answers "what is on this
+tile" walks past it. That is the right price for a chair and an absurd one for a
+patch of grass — and an outdoor map is mostly patches of grass. A decal instead
+travels with the map (one message, like the floor), never changes, and no scan
+ever looks at it. The thousandth decal costs what the first did.
+
+What you give up, in exchange: a decal cannot be switched on or off, carry an
+Action, be sat on, animate, or be overridden per placement — a tile-layer cell
+holds a tile and has nowhere to put an override. And it does not block. If it
+should, paint the same cell on the `CollisionLayer`.
+
+A `DecalTile` therefore has two properties, not thirteen: `id` (catalog identity,
+like a furniture tile's) and `label`. It says nothing about how it draws.
+
+### Flat or standing is a property of the LAYER
+
+Whether you walk **over** a thing or **behind** it is decided by the layer, via
+the `occludes` property of the `DecalLayer` class — select the layer, tick the
+box:
+
+| Layer `occludes` | Everything painted on it |
+|---|---|
+| unset / `false` | lies **flat** — drawn just above the floor, characters walk over it wherever they stand. Paving, grass, a shadow, flowers. |
+| `true` | **stands** — sorts by its own cell's bottom edge, exactly like furniture, so a character behind it is hidden and one in front of it is not. A tree, a fence, a lamp post. |
+
+On the layer and not on the tile, because whether a picture is background or an
+obstacle belongs to the **place**, not to the art: the same tree is scenery on a
+far hillside and an obstacle beside the path. So keep at least two decal layers —
+say `Ground` and `Standing` — and move a cell between them to change its mind. A
+cell also holds only one tile, so a flower on top of a grass patch needs a second
+layer anyway; they stack in the order the Layers panel shows.
+
+This is also why furniture art works on a decal layer at all: nothing is read off
+the tile that a `FurnitureTile` could not answer.
+
+Rule of thumb: if it only needs to be *seen*, it is a decal. If it needs to be
+interacted with, sat on, switched, blocked or moved by the server, it is
+furniture. Painting a behaviour-carrying tile on a decal layer is allowed — that
+is how a decorative chair stops being an object — and the import says loudly which
+behaviour you just gave up.
 
 ## Furniture: the type and the placement
 

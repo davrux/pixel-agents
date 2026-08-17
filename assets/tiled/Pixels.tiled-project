@@ -56,6 +56,20 @@
             ]
         },
         {
+            "id": 21,
+            "name": "DecalTile",
+            "type": "class",
+            "useAs": [
+                "tile"
+            ],
+            "color": "#ffc8a0ff",
+            "drawFill": true,
+            "members": [
+                { "name": "id", "type": "string", "value": "" },
+                { "name": "label", "type": "string", "value": "" }
+            ]
+        },
+        {
             "id": 4,
             "name": "FurnitureObject",
             "type": "class",
@@ -210,6 +224,19 @@
             "color": "#ffe0342a",
             "drawFill": false,
             "members": []
+        },
+        {
+            "id": 22,
+            "name": "DecalLayer",
+            "type": "class",
+            "useAs": [
+                "layer"
+            ],
+            "color": "#ffc8a0ff",
+            "drawFill": false,
+            "members": [
+                { "name": "occludes", "type": "bool", "value": false }
+            ]
         },
         {
             "id": 16,

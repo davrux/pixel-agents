@@ -15,6 +15,8 @@ export interface LoadedAssetData {
     sitFacing?: DirectionVal;
     petCanSitOn?: boolean;
     canWalkOver?: boolean;
+    /** Map art rather than furniture — see FurnitureCatalogEntry.decal. */
+    decal?: boolean;
     backgroundTiles?: number;
     /** Catalog id this item becomes when switched on — see
      *  FurnitureCatalogEntry.onState. */
@@ -86,6 +88,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
         // checkbox off and on "fixed" a rug by writing exactly that. The asset
         // type was missing the field too, so nothing failed to compile.
         ...(asset.canWalkOver ? { canWalkOver: true } : {}),
+        ...(asset.decal ? { decal: true } : {}),
         ...(asset.backgroundTiles ? { backgroundTiles: asset.backgroundTiles } : {}),
         ...(asset.onState ? { onState: asset.onState } : {}),
         ...(asset.action ? { action: asset.action } : {}),

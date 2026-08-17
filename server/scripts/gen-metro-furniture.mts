@@ -50,15 +50,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
+import { components, cropToTiles, TILE } from './lib/sheetSlice.mjs';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const PACK = path.join(ROOT, 'tmp', 'metro');
 const OUT_PNG_DIR = path.join(ROOT, 'assets', 'tiled', 'png', 'furniture', 'metro');
 const OUT_TSJ_DIR = path.join(ROOT, 'assets', 'tiled');
-const TILE = 16;
-/** Components smaller than this are sheet dust (stray antialiasing pixels,
- *  a lone highlight left outside an item's own silhouette), not items. */
-const MIN_PIXELS = 12;
 
 /** `wallMounted` marks sheets whose items hang ON a wall rather than stand on
  *  the floor; those get backgroundTiles = their full height so the tiles they
@@ -106,84 +103,6 @@ function tilesetFor(sheet: Sheet): string {
   if (sheet.file.startsWith('MetroCity/')) return 'furniture-metro-vehicles';
   if (sheet.file.includes('/Hospital/')) return 'furniture-metro-hospital';
   return 'furniture-metro-home';
-}
-
-interface Box {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
-/** 8-connected components of non-transparent pixels, in reading order. */
-function components(png: PNG): Box[] {
-  const { width: W, height: H } = png;
-  const alphaAt = (x: number, y: number) => png.data[(y * W + x) * 4 + 3];
-  const seen = new Uint8Array(W * H);
-  const boxes: Array<Box & { n: number }> = [];
-  const stack: number[] = [];
-  for (let start = 0; start < W * H; start++) {
-    if (seen[start] || alphaAt(start % W, Math.floor(start / W)) === 0) continue;
-    seen[start] = 1;
-    stack.length = 0;
-    stack.push(start);
-    let x0 = start % W;
-    let x1 = x0;
-    let y0 = Math.floor(start / W);
-    let y1 = y0;
-    let n = 0;
-    while (stack.length > 0) {
-      const p = stack.pop()!;
-      const px = p % W;
-      const py = Math.floor(p / W);
-      n++;
-      if (px < x0) x0 = px;
-      if (px > x1) x1 = px;
-      if (py < y0) y0 = py;
-      if (py > y1) y1 = py;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = px + dx;
-          const ny = py + dy;
-          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-          const q = ny * W + nx;
-          if (seen[q] || alphaAt(nx, ny) === 0) continue;
-          seen[q] = 1;
-          stack.push(q);
-        }
-      }
-    }
-    boxes.push({ x0, y0, x1, y1, n });
-  }
-  return boxes
-    .filter((b) => b.n >= MIN_PIXELS)
-    .sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
-    .map(({ x0, y0, x1, y1 }) => ({ x0, y0, x1, y1 }));
-}
-
-/** Crop `box` out of `src` into a PNG padded to whole tiles, the art
- *  bottom-aligned and horizontally centered in it. */
-function cropToTiles(src: PNG, box: Box): PNG {
-  const w = box.x1 - box.x0 + 1;
-  const h = box.y1 - box.y0 + 1;
-  const outW = Math.ceil(w / TILE) * TILE;
-  const outH = Math.ceil(h / TILE) * TILE;
-  const offX = Math.floor((outW - w) / 2);
-  const offY = outH - h;
-  const out = new PNG({ width: outW, height: outH });
-  out.data.fill(0);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const si = ((box.y0 + y) * src.width + (box.x0 + x)) * 4;
-      if (src.data[si + 3] === 0) continue;
-      const di = ((offY + y) * outW + (offX + x)) * 4;
-      out.data[di] = src.data[si];
-      out.data[di + 1] = src.data[si + 1];
-      out.data[di + 2] = src.data[si + 2];
-      out.data[di + 3] = src.data[si + 3];
-    }
-  }
-  return out;
 }
 
 interface TileEntry {

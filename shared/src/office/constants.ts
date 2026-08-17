@@ -145,7 +145,23 @@ export const FUEL_COLOR_CRITICAL = '#ff2222';
  * ANY position-derived depth would put a multi-row rug over the feet of someone
  * standing on its upper row. The two bands directly below this one live in
  * client/src/render/PhaserRenderer.ts — FLOOR_DEPTH (-100000) and, one above it,
- * IMAGE_DEPTH for placed images. Keep that order: floor < image < walk-over <
- * everything positional.
+ * IMAGE_DEPTH for placed images. Keep that order: floor < image < decal <
+ * walk-over < everything positional.
  */
 export const WALK_OVER_DEPTH = -99998;
+
+/**
+ * Render depth of a flat decal (see PlacedDecal, FurnitureCatalogEntry.occludes)
+ * — ground detail: paving, grass, a shadow, flowers.
+ *
+ * Fixed for the same reason WALK_OVER_DEPTH is, and placed just under it: a
+ * decal is the ground itself, so a rug lies ON a patch of paving rather than
+ * under it. Above IMAGE_DEPTH, because a placed image is a backdrop and ground
+ * detail belongs on top of a backdrop.
+ *
+ * Every flat decal shares this one value, so ties are broken by draw order,
+ * which is paint order (see OfficeLayout.decals) — that is what makes a second
+ * DecalLayer stack over the first. A decal whose tile sets `occludes` does not
+ * come here at all; it sorts positionally with the furniture.
+ */
+export const DECAL_DEPTH = -99998.5;

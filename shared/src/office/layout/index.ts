@@ -12,6 +12,7 @@ export {
   getBlockedFloorTiles,
   getBlockedTiles,
   getPointTiles,
+  layoutToDecalInstances,
   layoutToFurnitureInstances,
   layoutToSitPoints,
   layoutToTileMap,

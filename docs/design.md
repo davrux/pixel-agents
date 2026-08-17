@@ -121,6 +121,41 @@ What the import derives rather than reads is deliberate:
 Furniture behaviour resolves **instance first, then catalog**: a placement
 carries only its overrides.
 
+### Two homes for a picture: object or decal
+
+The same art can enter a map two ways, and which one it is decides what it costs.
+
+A **furniture placement** is a live object: a `FurnitureSync` with fifteen synced
+fields, switchable, sittable, claimable, blocking, and visited by every linear
+scan that answers "what is on this tile". A **decal** is a tile painted on a
+`DecalLayer` that lives in the layout instead — it travels once with the map, like
+the floor and the walls, never changes, and no scan looks at it.
+
+So the cost curves differ in kind, not degree: the thousandth decal costs what the
+first did, while the thousandth object is a thousand synced entries in every
+joining client's initial state and a thousand steps in eleven scans. An outdoor
+map is mostly ground: paving, grass, shadows, and (once a road set exists) street
+surface. Making each of those an object would be paying a chair's price for a
+picture, which is why the decal layer exists at all.
+
+The trade is stated where it can't be missed: a decal has no behaviour, no
+Action, no occupancy, no animation, no per-placement override — a tile-layer cell
+holds a gid and offers nowhere to write one — and it does not block, so a decal
+that should stop movement is painted onto the `CollisionLayer` too.
+
+The one remaining question — does a character walk over this or behind it? — is
+answered by the **layer**, through the `occludes` property of the `DecalLayer`
+class, and the import copies that answer onto every cell. Not by the tile,
+although that was the first design: whether a picture is background or an obstacle
+is a fact about the place rather than about the art, so a tile-level answer forces
+one verdict for every cell of it in the whole map, and a cell has nowhere to
+overrule it. On the layer it becomes per-placement, visible in the Layers panel,
+and changed by moving a cell from one layer to another. It also removes the reason
+furniture art could not be used this way: with nothing read off the tile, a
+`FurnitureTile` painted on a decal layer works exactly like one from `decal.tsj`,
+which is the intended way to demote a purely decorative object. The import warns
+about behaviour that is dropped in the process rather than dropping it silently.
+
 ### Getting a map onto a server
 
 Maps are versioned, and a bundled one **seeds a zone that has no map yet** when

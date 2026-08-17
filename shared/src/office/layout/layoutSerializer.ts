@@ -1,5 +1,12 @@
-import type { FurnitureInstance, InteractionPoint, OfficeLayout, PlacedFurniture, TileType as TileTypeVal } from '../types.js';
-import { DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
+import type {
+  FurnitureInstance,
+  InteractionPoint,
+  OfficeLayout,
+  PlacedDecal,
+  PlacedFurniture,
+  TileType as TileTypeVal,
+} from '../types.js';
+import { DECAL_DEPTH, DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
 import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing } from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
@@ -97,6 +104,45 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       ...(item.flippedHorizontally ? { mirrored: true } : {}),
       ...(item.flippedVertically ? { flippedVertically: true } : {}),
       ...(item.opacity !== undefined && item.opacity < 1 ? { opacity: item.opacity } : {}),
+    });
+  }
+  return instances;
+}
+
+/**
+ * Convert painted decals into renderable FurnitureInstance[] — see PlacedDecal.
+ *
+ * Same output shape as furniture on purpose: a decal is a sprite at a position
+ * with a depth, which is exactly what a FurnitureInstance is, so the renderer
+ * needs no second concept and no second code path. What differs is only where
+ * the depth comes from — and that was decided by the layer the cell was painted
+ * on, before this ever runs (see PlacedDecal.occludes):
+ *
+ *   - flat (the default): DECAL_DEPTH, a fixed band just above the floor, so a
+ *     character walks over it wherever they stand. Ties resolve by draw order,
+ *     which is paint order — that is how two DecalLayers stack.
+ *   - `occludes`: the bottom edge of the sprite, exactly like furniture, so a
+ *     character north of it is drawn behind it.
+ *
+ * None of furniture's stacking machinery applies. There is no overlap lifting
+ * (`topByTile`) because a decal is never "standing on" anything, and no seat
+ * special case because nobody sits on a decal. A decal whose id is not in the
+ * catalog — a tileset removed since the map was saved — is skipped silently,
+ * the same way a placed image with a deleted asset is.
+ */
+export function layoutToDecalInstances(decals: PlacedDecal[] | undefined): FurnitureInstance[] {
+  const instances: FurnitureInstance[] = [];
+  for (const decal of decals ?? []) {
+    const entry = getCatalogEntry(decal.id);
+    if (!entry) continue;
+    const y = decal.row * TILE_SIZE;
+    instances.push({
+      sprite: entry.sprite,
+      x: decal.col * TILE_SIZE,
+      y,
+      zY: decal.occludes ? y + entry.sprite.length : DECAL_DEPTH,
+      ...(decal.flippedHorizontally ? { mirrored: true } : {}),
+      ...(decal.flippedVertically ? { flippedVertically: true } : {}),
     });
   }
   return instances;

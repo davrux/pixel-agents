@@ -38,6 +38,7 @@
 import type { FurnitureAsset } from './manifestUtils.js';
 import { actionFromProps } from '../../tiled/actionProps.js';
 import { furnitureBehaviourFromTile } from '../../tiled/furnitureProps.js';
+import { DECAL_TILE_CLASS } from '../../tiled/tiledRegistry.js';
 
 interface TiledProperty {
   name: string;
@@ -147,6 +148,14 @@ function buildAsset(
   // or not it says anything (see sync-furniture-properties.mts), so an empty one
   // has to fall back to the id the same way a missing one always did.
   const label = typeof props.label === 'string' && props.label ? props.label : id;
+  // A decal shares the catalog with furniture — same sprite table, same
+  // transport to the client (furnitureAssetsLoaded), same id lookup — but none
+  // of the behaviour: it is a picture on a tile layer, so reading canSitOn or an
+  // action off it would invent something the mapper cannot have meant. Nor does
+  // it state how it sorts against characters; that is the decal LAYER's business
+  // (see tiled/decalProps.ts), which is what lets furniture art be painted as a
+  // decal without needing a property furniture tiles do not have.
+  const isDecal = tile.type === DECAL_TILE_CLASS;
   return {
     id,
     name: label,
@@ -156,7 +165,7 @@ function buildAsset(
     height: tile.imageheight,
     footprintW: footprintOf(tile.imagewidth),
     footprintH: footprintOf(tile.imageheight),
-    ...furnitureBehaviourFromTile(props),
+    ...(isDecal ? { decal: true as const } : furnitureBehaviourFromTile(props)),
     ...(anim ? { animationGroup: `${anim.groupId}__anim`, frame: anim.frame, durationMs: anim.durationMs } : {}),
     ...(() => {
       const action = actionFromProps(props);

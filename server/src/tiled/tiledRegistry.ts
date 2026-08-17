@@ -58,12 +58,21 @@ export interface RegistryTileset {
 export const FURNITURE_TILE_CLASS = 'FurnitureTile';
 export const FLOOR_TILE_CLASS = 'FloorTile';
 export const WALL_TILE_CLASS = 'WallTile';
+/** Map art painted on a DecalLayer and nothing more — no synced object, no
+ *  behaviour (see tiled/decalProps.ts). Same discriminator rule as the three
+ *  above: the tiles say it, the filename never does. */
+export const DECAL_TILE_CLASS = 'DecalTile';
 
 /** Does this tileset hold furniture? Asked of the file's own tiles, so a
  *  tileset may be named anything — as may a floor or wall one, now that a layout
  *  names the sets it uses instead of storing a position in a hardcoded list. */
 export function isFurnitureTileset(json: { tiles?: Array<{ type?: string }> }): boolean {
   return tilesetHolds(json, FURNITURE_TILE_CLASS);
+}
+
+/** Does this tileset hold decals? */
+export function isDecalTileset(json: { tiles?: Array<{ type?: string }> }): boolean {
+  return tilesetHolds(json, DECAL_TILE_CLASS);
 }
 
 /** Does this tileset hold tiles of `cls`? The one question that decides what a

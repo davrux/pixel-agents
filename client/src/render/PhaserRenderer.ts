@@ -38,6 +38,7 @@ export interface RenderSource {
   tileMap: TileTypeVal[][];
 }
 import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getWallEdgeInstances, getWallFaceInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
@@ -188,6 +189,21 @@ export class PhaserRenderer {
         const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], setName));
         this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
+    }
+
+    // Painted map art (OfficeLayout.decals) — a static, because a decal never
+    // changes: it is not a synced object, so unlike furniture there is nothing to
+    // re-sync and no pool to keep. Added in paint order, which is what makes flat
+    // decals (all sharing DECAL_DEPTH) stack the way the Layers panel shows them.
+    for (const d of layoutToDecalInstances(layout.decals)) {
+      this.statics.push(
+        this.scene.add
+          .image(d.x, d.y, spriteTexture(this.scene, d.sprite))
+          .setOrigin(0, 0)
+          .setDepth(d.zY)
+          .setFlipX(!!d.mirrored)
+          .setFlipY(!!d.flippedVertically),
+      );
     }
 
     // Placed background images (OfficeLayout.images) — fixed depth, free

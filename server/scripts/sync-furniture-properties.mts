@@ -11,9 +11,12 @@
  * nothing in Tiled to point at. Now the full set is always present, defaults
  * included, and behaviour is whatever the tile visibly says.
  *
- * What it does, over assets/tiled/furniture*.tsj:
- *   - adds every property from FURNITURE_TILE_PROPS that a tile is missing,
- *     at its documented default
+ * What it does, over every assets/tiled/*.tsj holding furniture or decals — and
+ * per TILE, dispatching on the tile's own class, so a FurnitureTile gets
+ * FURNITURE_TILE_PROPS and a DecalTile gets DECAL_TILE_PROPS (see decalProps.ts)
+ * and neither is ever stamped with the other's set:
+ *   - adds every property of that set that a tile is missing, at its documented
+ *     default
  *   - removes properties that are no longer part of the set (a retired one
  *     lingering in a file is worse than absent — it reads as meaningful)
  *   - leaves every existing VALUE alone, and puts them in a fixed order so
@@ -38,8 +41,14 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+import { DECAL_TILE_PROPS } from '../src/tiled/decalProps.js';
 import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
-import { isFurnitureTileset } from '../src/tiled/tiledRegistry.js';
+import {
+  DECAL_TILE_CLASS,
+  FURNITURE_TILE_CLASS,
+  isDecalTileset,
+  isFurnitureTileset,
+} from '../src/tiled/tiledRegistry.js';
 
 const TILED_DIR = path.resolve(import.meta.dirname, '..', '..', 'assets', 'tiled');
 
@@ -109,8 +118,14 @@ function makeProp(name: string, value: string | number | boolean, propertyType?:
 
 const changes: string[] = [];
 
-/** Bring one tile's property list up to the full set, preserving values. */
-function syncTile(tile: { id: number; properties?: TiledProperty[] }, file: string): boolean {
+/** Bring one tile's property list up to the full set for its kind, preserving
+ *  values. `specs` is the set that applies — FURNITURE_TILE_PROPS for a
+ *  FurnitureTile, DECAL_TILE_PROPS for a DecalTile (see syncTilesets). */
+function syncTile(
+  tile: { id: number; properties?: TiledProperty[] },
+  file: string,
+  specs: ReadonlyArray<{ name: string; default: string | number | boolean; propertyType?: string }>,
+): boolean {
   const existing = new Map((tile.properties ?? []).map((p) => [p.name, p]));
   const kept: TiledProperty[] = [];
 
@@ -124,7 +139,7 @@ function syncTile(tile: { id: number; properties?: TiledProperty[] }, file: stri
   kept.push(idProp);
   if (existing.has('generated')) kept.push(existing.get('generated')!);
 
-  for (const spec of FURNITURE_TILE_PROPS) {
+  for (const spec of specs) {
     const found = existing.get(spec.name);
     if (found) {
       // Keep the value; adopt the declared propertytype so a property that
@@ -139,7 +154,7 @@ function syncTile(tile: { id: number; properties?: TiledProperty[] }, file: stri
   }
 
   for (const [name] of existing) {
-    if (!EXTRA_TILE_PROPS.has(name) && !FURNITURE_TILE_PROPS.some((s) => s.name === name)) {
+    if (!EXTRA_TILE_PROPS.has(name) && !specs.some((s) => s.name === name)) {
       changes.push(`${file} ${idProp.value}: − ${name}`);
     }
   }
@@ -149,14 +164,31 @@ function syncTile(tile: { id: number; properties?: TiledProperty[] }, file: stri
   return JSON.stringify(kept) !== before;
 }
 
+/** Which property set a tile's own class calls for. Dispatching on the tile
+ *  rather than on the file keeps the house rule intact — a tileset is what its
+ *  tiles say it is — and lets one file hold both kinds without either being
+ *  stamped with the other's properties. A tile of any other class (or none) is
+ *  left completely alone: floor, wall, collision and image tiles have no
+ *  property set to sync. */
+const PROPS_BY_CLASS: Record<string, ReadonlyArray<{ name: string; default: string | number | boolean; propertyType?: string }>> = {
+  [FURNITURE_TILE_CLASS]: FURNITURE_TILE_PROPS,
+  [DECAL_TILE_CLASS]: DECAL_TILE_PROPS,
+};
+
 function syncTilesets(): string[] {
   const touched: string[] = [];
   for (const file of fs.readdirSync(TILED_DIR).sort()) {
-    if (!file.endsWith('.tsj') || !isFurnitureTileset(JSON.parse(fs.readFileSync(path.join(TILED_DIR, file), 'utf-8')))) continue;
+    if (!file.endsWith('.tsj')) continue;
     const full = path.join(TILED_DIR, file);
-    const json = JSON.parse(fs.readFileSync(full, 'utf-8')) as { tiles?: Array<{ id: number; properties?: TiledProperty[] }> };
+    const json = JSON.parse(fs.readFileSync(full, 'utf-8')) as {
+      tiles?: Array<{ id: number; type?: string; properties?: TiledProperty[] }>;
+    };
+    if (!isFurnitureTileset(json) && !isDecalTileset(json)) continue;
     let dirty = false;
-    for (const tile of json.tiles ?? []) if (syncTile(tile, file)) dirty = true;
+    for (const tile of json.tiles ?? []) {
+      const specs = PROPS_BY_CLASS[tile.type ?? ''];
+      if (specs && syncTile(tile, file, specs)) dirty = true;
+    }
     if (!dirty) continue;
     touched.push(file);
     if (!CHECK_ONLY) fs.writeFileSync(full, `${JSON.stringify(json, null, 2)}\n`);

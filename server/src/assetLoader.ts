@@ -13,7 +13,7 @@ import * as path from 'path';
 import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
-import { isFurnitureTileset } from './tiled/tiledRegistry.js';
+import { isDecalTileset, isFurnitureTileset } from './tiled/tiledRegistry.js';
 import {
   decodeCharacterPng,
   decodePetPng,
@@ -71,7 +71,12 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
         console.warn(`  ⚠️  Could not parse ${tilesetPath}: ${err instanceof Error ? err.message : err}`);
         continue;
       }
-      if (!isFurnitureTileset(tiled)) continue;
+      // Decal tilesets come in through the same door: a decal needs a sprite
+      // under an id and nothing else, which is precisely what this catalog is,
+      // and it then reaches the client over the existing furnitureAssetsLoaded
+      // message. What a decal is NOT is decided where it matters — no synced
+      // object, no behaviour read off it (see tiledFurniture.ts's buildAsset).
+      if (!isFurnitureTileset(tiled) && !isDecalTileset(tiled)) continue;
 
       const tilesetDir = path.dirname(tilesetPath);
       const entries = parseFurnitureTileset(tiled);

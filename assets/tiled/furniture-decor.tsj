@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "furniture-decor",
-  "tilecount": 32,
+  "tilecount": 46,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -2423,6 +2423,1084 @@
           "name": "label",
           "type": "string",
           "value": "Uponu Logo (Dark)"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TREE_01.png",
+      "imagewidth": 32,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TREE_01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Tree 1"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TREE_02.png",
+      "imagewidth": 32,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TREE_02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Tree 2"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 34,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TREE_03.png",
+      "imagewidth": 32,
+      "imageheight": 48,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TREE_03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Tree 3"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_TREE_04.png",
+      "imagewidth": 32,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_TREE_04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Tree 4"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_05.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 5"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_09.png",
+      "imagewidth": 48,
+      "imageheight": 96,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 9"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_25.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_25"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 25"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_26.png",
+      "imagewidth": 48,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_26"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 26"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_27.png",
+      "imagewidth": 48,
+      "imageheight": 64,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_27"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 27"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_28.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_28"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 28"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_29.png",
+      "imagewidth": 48,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_29"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 29"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_30.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_30"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 30"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_31.png",
+      "imagewidth": 32,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_31"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 31"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "FurnitureTile",
+      "image": "png/furniture/metro/METRO_OUT_32.png",
+      "imagewidth": 112,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "METRO_OUT_32"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Outdoor 32"
         },
         {
           "name": "canSitOn",

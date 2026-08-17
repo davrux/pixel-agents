@@ -23,8 +23,19 @@ export interface FurnitureAsset {
   canSitOn?: boolean;
   sitFacing?: Direction;
   petCanSitOn?: boolean;
+  /** Listed for the same reason as the rest: a behaviour missing from this
+   *  interface is a behaviour that can be dropped on the way to the catalog
+   *  without failing to compile, because a spread carries excess properties
+   *  silently. That is exactly how walkable rugs stayed unwalkable for two days
+   *  — see furnitureCatalog.int.test.ts. */
+  canWalkOver?: boolean;
   backgroundTiles?: number;
   onState?: string;
+  /** Map art, not furniture: painted on a DecalLayer, never a synced object —
+   *  see server/src/tiled/decalProps.ts. Decals share the catalog because they
+   *  need exactly what it provides (a sprite under an id) and nothing else —
+   *  including no say in how they sort, which is the decal layer's business. */
+  decal?: boolean;
   animationGroup?: string;
   frame?: number;
   durationMs?: number;
