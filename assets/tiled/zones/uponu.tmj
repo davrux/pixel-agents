@@ -1189,58 +1189,6 @@
                 },
             
                 {
-                 "gid":7029,
-                 "height":16,
-                 "id":219,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"FurnitureObject",
-                 "visible":true,
-                 "width":32,
-                 "x":576,
-                 "y":480
-                }, 
-                {
-                 "gid":7028,
-                 "height":16,
-                 "id":220,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"FurnitureObject",
-                 "visible":true,
-                 "width":32,
-                 "x":576,
-                 "y":528
-                }, 
-                {
-                 "gid":7030,
-                 "height":32,
-                 "id":221,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"FurnitureObject",
-                 "visible":true,
-                 "width":16,
-                 "x":560,
-                 "y":512
-                }, 
-                {
-                 "gid":2147490678,
-                 "height":32,
-                 "id":222,
-                 "name":"",
-                 "opacity":1,
-                 "rotation":0,
-                 "type":"FurnitureObject",
-                 "visible":true,
-                 "width":16,
-                 "x":608,
-                 "y":512
-                }, 
-                {
                  "gid":7067,
                  "height":32,
                  "id":223,
@@ -1954,8 +1902,7 @@
                  "width":32,
                  "x":192,
                  "y":704
-                },
-            
+                }, 
                 {
                  "gid":7051,
                  "height":48,
@@ -2007,7 +1954,8 @@
                  "width":32,
                  "x":496,
                  "y":896
-                }, 
+                },
+            
                 {
                  "gid":7051,
                  "height":48,
@@ -2982,8 +2930,7 @@
                  "width":16,
                  "x":800,
                  "y":448
-                },
-            
+                }, 
                 {
                  "gid":7026,
                  "height":16,
@@ -3035,7 +2982,8 @@
                  "width":16,
                  "x":784,
                  "y":480
-                }, 
+                },
+            
                 {
                  "gid":7085,
                  "height":16,
@@ -3074,6 +3022,58 @@
                  "width":16,
                  "x":736,
                  "y":592
+                }, 
+                {
+                 "gid":7030,
+                 "height":32,
+                 "id":221,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"FurnitureObject",
+                 "visible":true,
+                 "width":16,
+                 "x":560,
+                 "y":512
+                }, 
+                {
+                 "gid":7029,
+                 "height":16,
+                 "id":219,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"FurnitureObject",
+                 "visible":true,
+                 "width":32,
+                 "x":576,
+                 "y":480
+                }, 
+                {
+                 "gid":2147490678,
+                 "height":32,
+                 "id":222,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"FurnitureObject",
+                 "visible":true,
+                 "width":16,
+                 "x":608,
+                 "y":512
+                }, 
+                {
+                 "gid":7028,
+                 "height":16,
+                 "id":220,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"FurnitureObject",
+                 "visible":true,
+                 "width":32,
+                 "x":576,
+                 "y":528
                 }],
          "opacity":1,
          "type":"objectgroup",

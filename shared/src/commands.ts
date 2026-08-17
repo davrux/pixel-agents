@@ -90,6 +90,12 @@ export const COMMANDS: CommandSpec[] = [
     usage: '/matrix [@user:server]',
     summary: 'Open the Matrix chat panel (optionally start a direct chat).',
   },
+  {
+    name: 'reload',
+    group: 'user',
+    usage: '/reload',
+    summary: 'Reload the app, exactly like the browser\'s reload — also works in the desktop app.',
+  },
 ];
 
 /** Look up a command by name (case-insensitive, leading slash tolerated). */

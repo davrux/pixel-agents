@@ -81,6 +81,7 @@ is found. A deployment sets the variable and gets none of that.
 | **C** | sit down where you are |
 | **M** | mute/unmute your microphone in the call you are in |
 | **F8** | frame-time overlay |
+| **/** in chat | slash commands — `/help` lists them, `/reload` restarts the app |
 
 Two gestures, two jobs: **using** a thing is one click, because pointing at it
 was already deliberate — a chair counts, sitting down being the most common thing

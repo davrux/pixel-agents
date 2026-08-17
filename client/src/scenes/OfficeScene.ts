@@ -4041,6 +4041,15 @@ export class OfficeScene extends Phaser.Scene {
           else void this.openAdminSite();
           return true;
         }
+        if (name === "reload") {
+          // reloadApp, never window.location.reload(): the desktop shell serves
+          // the page from app:// and silently drops that call (see AGENTS.md's
+          // Electron rule), so the browser one-liner would look like a command
+          // that does nothing at all there.
+          sys("Reloading…");
+          reloadApp();
+          return true;
+        }
         if (name === "matrix") {
           if (!this.identityResolved) {
             sys("Still connecting — try again in a moment.");
