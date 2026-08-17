@@ -67,7 +67,7 @@
          "name":"Ground",
          "opacity":1,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":56,
          "x":0,
          "y":0
@@ -207,7 +207,7 @@
          "name":"WallFace",
          "opacity":1,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":56,
          "x":0,
          "y":0
@@ -276,7 +276,7 @@
          "name":"Collision",
          "opacity":0.5,
          "type":"tilelayer",
-         "visible":false,
+         "visible":true,
          "width":56,
          "x":0,
          "y":0
@@ -3038,7 +3038,7 @@
                 }],
          "opacity":1,
          "type":"objectgroup",
-         "visible":false,
+         "visible":true,
          "x":0,
          "y":0
         }, 
@@ -3048,7 +3048,7 @@
          "name":"Actions",
          "objects":[
                 {
-                 "height":128,
+                 "height":160,
                  "id":304,
                  "name":"m1",
                  "opacity":1,
@@ -3072,12 +3072,12 @@
                  "rotation":0,
                  "type":"ActionArea",
                  "visible":true,
-                 "width":112,
-                 "x":224,
-                 "y":48
+                 "width":144,
+                 "x":208,
+                 "y":32
                 }, 
                 {
-                 "height":128,
+                 "height":160,
                  "id":305,
                  "name":"m2",
                  "opacity":1,
@@ -3101,12 +3101,12 @@
                  "rotation":0,
                  "type":"ActionArea",
                  "visible":true,
-                 "width":112,
-                 "x":368,
-                 "y":48
+                 "width":144,
+                 "x":352,
+                 "y":32
                 }, 
                 {
-                 "height":128,
+                 "height":160,
                  "id":306,
                  "name":"m3",
                  "opacity":1,
@@ -3130,12 +3130,12 @@
                  "rotation":0,
                  "type":"ActionArea",
                  "visible":true,
-                 "width":112,
-                 "x":512,
-                 "y":48
+                 "width":144,
+                 "x":496,
+                 "y":32
                 }, 
                 {
-                 "height":128,
+                 "height":160,
                  "id":307,
                  "name":"m4",
                  "opacity":1,
@@ -3159,9 +3159,9 @@
                  "rotation":0,
                  "type":"ActionArea",
                  "visible":true,
-                 "width":112,
-                 "x":656,
-                 "y":48
+                 "width":144,
+                 "x":640,
+                 "y":32
                 }, 
                 {
                  "height":320,
@@ -3280,7 +3280,7 @@
                 }],
          "opacity":1,
          "type":"objectgroup",
-         "visible":false,
+         "visible":true,
          "x":0,
          "y":0
         }, 
@@ -3291,7 +3291,7 @@
          "objects":[],
          "opacity":1,
          "type":"objectgroup",
-         "visible":false,
+         "visible":true,
          "x":0,
          "y":0
         }],
