@@ -655,10 +655,15 @@ export class OfficeState {
       // occupantId now, which is the whole reason this merge happened — the old
       // boolean only ever knew about agents.
       if (point.occupantId !== null || this.petSeatClaims.has(uid)) continue;
-      // Same "never auto-land someone in an active meeting" guarantee as
-      // findFreeSpawnTile/spawnableTiles — a desk that happens to sit inside
-      // a walk-in meeting area must not silently pull agents into calls.
-      if (this.areaIdAt(point.col, point.row) !== null) continue;
+      // A desk inside a walk-in meeting area is a perfectly good desk. This used
+      // to skip them, guarding against "silently pulling agents into calls" — a
+      // consequence that cannot occur: membership in a meeting area is derived
+      // for PLAYERS only (see SimRoom.syncCharacters), so an agent standing in
+      // one joins nothing, is in no participant list, and mints no token. The
+      // guard did have a cost: once a mapper drew a meeting area over the open-
+      // plan office, most desks stopped being used at all. Spawning is a
+      // different matter and still avoids areas (spawnableTiles) — that one
+      // protects players, for whom landing inside an area IS joining a call.
 
       // Check if this seat faces electronics (same logic as auto-state detection)
       let facesPC = false;

@@ -186,6 +186,11 @@ always named after the player it belongs to.
 or a piece of furniture. Walking in *is* joining — membership is derived from the
 tile you stand on, server-side, and the server mints the token only for a member.
 
+An agent standing in a meeting area joins nothing: membership is derived for
+**players** only, which is why agents may use the desks inside one like any
+other. Spawning still avoids areas — landing inside one *is* joining a call, and
+that is a thing to choose, not to wake up in.
+
 Which tiles form one room is a flood fill over neighbouring meeting tiles that
 **agree about the room** — same name, same video setting (`meetingIdentity` in
 `layout/actionAreas.ts`). Adjacency alone was the earlier rule and it merged
