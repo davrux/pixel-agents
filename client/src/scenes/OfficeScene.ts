@@ -111,13 +111,13 @@ const POSE_FRAME_MS: Record<string, number> = {
 };
 
 // Default camera zoom: a character sprite is CHARACTER_BASELINE_HEIGHT (32)
-// world px tall, so at zoom 2 it renders ~64 CSS px tall — ~1.7cm at the
-// standard 96-CSS-px-per-inch reference (96/2.54 ≈ 37.8 px/cm). Was 2.5, which
-// framed roughly 35x20 tiles on a 1400x813 canvas; 2 shows 44x25, enough to see
-// the room you are in and who is at the far desks without hunting. Manual zoom
-// (mouse wheel) still overrides this per session — nothing persists it, so this
-// is what every start and reload begins at.
-const DEFAULT_ZOOM = 2;
+// world px tall, so at zoom 1.5 it renders ~48 CSS px tall — ~1.3cm at the
+// standard 96-CSS-px-per-inch reference (96/2.54 ≈ 37.8 px/cm). It frames
+// roughly 58x34 tiles on a 1400x813 canvas (2.5 framed 35x20), which puts a
+// whole wing of the office on screen. Manual zoom (mouse wheel) still overrides
+// this per session — nothing persists it, so this is what every start and reload
+// begins at, and 1 is the floor the wheel clamps to.
+const DEFAULT_ZOOM = 1.5;
 
 // Idle-throttle tuning (see update()): DOM overlays run at ~20 Hz; after a short
 // grace with a fully static scene the per-frame work is skipped, and after ~2 s
