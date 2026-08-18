@@ -1,8 +1,8 @@
 #!/usr/bin/env -S node --import tsx
 /**
  * One-time generator: derives our own source art from the MetroCity Interior
- * pack — assets/walls/wall_metro.png (the "metro" wall set) and
- * assets/floors/metro_*.png (the "floor-metro" floor set), which
+ * pack — assets/tiled/png/src/walls/wall_metro.png (the "metro" wall set) and
+ * assets/tiled/png/src/floors/metro_*.png (the "floor-metro" floor set), which
  * bake-floor-wall-tiled.mts then bakes into Tiled tilesets like any other
  * set (one tileset each; nothing enumerates their filenames — see
  * tiled/tiledRegistry.ts's floorSetNames/wallSetNames).
@@ -63,8 +63,8 @@ const PACK = path.join(ROOT, 'tmp', 'metro', 'Interior');
  *  the pack's wall art, and the only variant drawn with real corner pieces. */
 const HOUSE = path.join(PACK, 'Home', 'TilesHouse.png');
 const HOSPITAL = path.join(PACK, 'Hospital', 'TilesHospital.png');
-const WALL_OUT = path.join(ROOT, 'assets', 'walls', 'wall_metro.png');
-const FLOOR_DIR = path.join(ROOT, 'assets', 'floors');
+const WALL_OUT = path.join(ROOT, 'assets', 'tiled', 'png', 'src', 'walls', 'wall_metro.png');
+const FLOOR_DIR = path.join(ROOT, 'assets', 'tiled', 'png', 'src', 'floors');
 
 /** Where in HOUSE the two wall cross-sections are measured (tile coords, 16px
  *  grid). Both come from the same white wall run so the set is one material:

@@ -174,7 +174,7 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
   const pal = checkPaletteSize(palette, `floor set "${outputName}"`);
   const tiles: SpriteData[] = [];
   for (const sourceFile of sourceFiles) {
-    const raw = decodeFloorPng(fs.readFileSync(path.join(ROOT, 'assets', 'floors', sourceFile)));
+    const raw = decodeFloorPng(fs.readFileSync(path.join(ROOT, 'assets', 'tiled', 'png', 'src', 'floors', sourceFile)));
     // Column 0: Natural (raw, uncolorized) — matches a null tileColors entry.
     tiles.push(raw);
     for (const sw of pal) {
@@ -188,7 +188,7 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
   const imageH = sourceFiles.length * FLOOR_H + (sourceFiles.length - 1) * FLOOR_TILE_SPACING;
   const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, 'FloorTile', outputName, FLOOR_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
-  console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
+  console.log(`✓ ${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
 }
 
 /** Tiled wangid order (JSON format): [top, topright, right, bottomright,
@@ -218,7 +218,7 @@ function wangIdForMask(mask: number): number[] {
  *  do) share the same source, baked with a different palette, e.g.
  *  "wall-0-resurrect64" and "wall-0-warm" both read wall_0.png. */
 function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteSwatch[]): void {
-  const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'walls', sourceFile)));
+  const raw = parseWallPng(fs.readFileSync(path.join(ROOT, 'assets', 'tiled', 'png', 'src', 'walls', sourceFile)));
   // One shared brightness baseline across all 16 pieces (not per piece) —
   // see wallTiles.ts's wallSetReferenceLightness for why: pieces vary a lot
   // in how much of their area is "cap" vs "face", so recentering each
@@ -292,7 +292,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   const extra = raw.length - WALL_BITMASK_COUNT;
   console.log(
-    `✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${WALL_BITMASK_COUNT} bitmasks${extra > 0 ? ` + ${extra} face` : ''} × ${columns} colors)`,
+    `✓ ${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${WALL_BITMASK_COUNT} bitmasks${extra > 0 ? ` + ${extra} face` : ''} × ${columns} colors)`,
   );
 }
 

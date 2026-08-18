@@ -165,12 +165,20 @@ background only.)
   sheet or collection, palette or natural-only — and the mechanics that have each
   cost a bug: the 2 px gap plus 1 px extrusion on every sheet, ids as identity,
   deterministic output, and appends that leave existing gids alone.
-- **`png/src` is yours, `png/baked` belongs to a script.** Source art — the
-  per-tile PNGs a collection tileset points at, uploaded background images — lives
-  under `assets/tiled/png/src/` and is never written by the pipeline. Everything a
-  generator produces (the floor and wall sheets, the copied grid sheets, the
-  furniture atlas) lives under `png/baked/`. The split exists so nobody has to
-  find out by losing work which files a re-run overwrites.
+- **`png/src` is art, `png/baked` is a build product.** ALL art lives under
+  `assets/tiled/png/src/` — whether it was drawn by hand (`floors/`, `walls/`) or
+  cut from a pack by an import (`furniture/`, `decal/`, `sheets/`, `images/`). A
+  map designer only ever puts files there. `png/baked/` holds exactly what can be
+  reproduced from `png/src/` alone — the palette-baked floor and wall sheets and the
+  furniture atlas — and **nobody places anything in it**. The atlas restores itself
+  on the next start; the sheets need `bake-floor-wall-tiled.mts`, deliberately by
+  hand, because that bake also writes the floor/wall TILESETS and a changed tile
+  count would move every gid in every map.
+  That property is the point, and it is what decides where a file goes: the two
+  imported grid sheets (`decal-overworld`, `decal-roads`) are cut from packs that
+  live outside the repo, so a checkout cannot regenerate them — they are source,
+  not build output, however script-written they look. Get that wrong and "clean out
+  baked/" silently destroys art.
 - **Authoring format follows what a TILE has to say; the browser gets one image
   per kind.** A furniture piece is one object with its own size and its own
   behaviour, so it is one tile → a collection of images. Ground and decoration cut

@@ -51,7 +51,7 @@ const ROOT = new URL('../..', import.meta.url).pathname;
 const SHEET = path.join(ROOT, 'tmp', 'gfx', 'Overworld.png');
 const TILED = path.join(ROOT, 'assets', 'tiled');
 const DECAL_TSJ = path.join(TILED, 'decal-overworld.tsj');
-const SHEET_COPY = 'png/baked/decal-overworld.png';
+const SHEET_COPY = 'png/src/sheets/decal-overworld.png';
 const T = 16;
 
 // ── read the sheet ──

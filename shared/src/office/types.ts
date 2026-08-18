@@ -23,8 +23,8 @@ export const TileType = {
   FLOOR_7: 7,
   FLOOR_8: 8,
   FLOOR_9: 9,
-  FLOOR_10: 10, // grass (garden/outside zones) — floors/floor_9.png
-  FLOOR_11: 11, // water (ponds) — floors/floor_10.png
+  FLOOR_10: 10, // grass (garden/outside zones) — png/src/floors/floor_9.png
+  FLOOR_11: 11, // water (ponds) — png/src/floors/floor_10.png
   VOID: 255,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];

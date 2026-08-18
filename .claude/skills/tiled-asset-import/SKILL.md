@@ -93,10 +93,24 @@ rubber-band a 3×3 junction or a whole house and stamp it as one block.
 > collage. Slicing a collage needs a long table of hand-judged rectangles and
 > destroys the very arrangement you paint from.
 
-Where the files go, whichever you pick: your art — a collection's per-tile PNGs, a
-sheet's source pack — belongs under `assets/tiled/png/src/`. Anything a generator
-writes goes to `assets/tiled/png/baked/`, and a re-run may overwrite it without
-asking. Never put authored art in `baked/`.
+**Where an import writes — this is not a preference, it is the rule:**
+
+| Goes to | What | Why there |
+|---|---|---|
+| `png/src/furniture/…` | a collection's per-tile PNGs | art, even though a script cut it |
+| `png/src/decal/…` | per-tile decal PNGs | same |
+| `png/src/sheets/…` | a grid tileset's own PNG | art: the pack it came from is outside the repo, so a checkout can never regenerate it |
+| `png/src/floors/`, `png/src/walls/` | patterns and wall geometry the sheet bake reads | art, hand-drawn or cut |
+| `png/src/images/…` | background images | art |
+| `png/baked/…` | **nothing you write** | only what a build reproduces from `png/src` alone: the palette-baked floor/wall sheets and the furniture atlas |
+
+An import NEVER writes to `png/baked/`. The test for a new file is one question:
+*could a fresh checkout rebuild this from `png/src` alone?* If no — and that is true
+of everything cut from a pack in `tmp/` — it is source, however generated it looks.
+Getting this backwards means "clean out baked/ and re-bake" deletes art for good.
+
+You also do not bake the atlas: the server does that itself whenever the source art
+changed (`ensureFurnitureAtlas`).
 
 Consequences either way, so nothing surprises you later:
 

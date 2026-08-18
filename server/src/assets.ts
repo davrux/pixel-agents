@@ -34,7 +34,7 @@ export interface AssetBundle {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-/** Holds the `assets/` directory (assets/tiled, /floors, ...). Defaults to
+/** Holds the `assets/` directory (assets/tiled, /characters, ...). Defaults to
  *  the repo root; override with PIXEL_STREAM_ASSETS_DIR for custom deployments. */
 export const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolve(__dirname, '..', '..');
 

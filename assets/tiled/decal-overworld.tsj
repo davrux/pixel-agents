@@ -1,6 +1,6 @@
 {
   "columns": 40,
-  "image": "png/baked/decal-overworld.png",
+  "image": "png/src/sheets/decal-overworld.png",
   "imagewidth": 718,
   "imageheight": 646,
   "margin": 0,

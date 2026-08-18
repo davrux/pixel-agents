@@ -111,6 +111,15 @@ Open `assets/tiled/Pixels.tiled-project` in Tiled. Everything below lives in tha
 project (**View → Custom Types Editor**), which is why the properties show up on
 your tiles and objects at all.
 
+**Where the art lives.** All of it is under `assets/tiled/png/src/` — per-tile
+furniture and decal PNGs, the grid sheets, the floor patterns and wall geometry,
+background images. That is the only place you ever put a file. Beside it,
+`png/baked/` is a build product: the palette-baked floor and wall sheets and the
+furniture atlas, all reproducible from `png/src` and none of it yours to edit — the
+atlas is re-baked by the server itself whenever the art changes. Bringing in a new
+art pack follows the `tiled-asset-import` skill, which decides for each piece what
+it is and where it goes.
+
 ## A zone is one map
 
 A zone is a room in the game and exactly one `.tmj` file:
