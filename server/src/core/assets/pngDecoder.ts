@@ -68,6 +68,44 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
 }
 
 /**
+ * Slice a uniform tile SHEET into one sprite per cell, row-major — indexed
+ * exactly the way Tiled numbers the tiles of a grid tileset, so a local tile id
+ * IS the index here.
+ *
+ * The generic sibling of parseWallPng below, which is this operation with the
+ * wall grid's dimensions baked in. A grid tileset is how a *sheet* of art enters
+ * the catalog (the road set, see server/scripts/gen-decal-roads.mts): one PNG on
+ * disk and in git rather than several hundred loose files, and a palette in Tiled
+ * that keeps the artist's own arrangement — which is what makes a junction
+ * stampable as one 3×3 block instead of assembled tile by tile.
+ */
+export function parseTileSheetPng(
+  pngBuffer: Buffer,
+  tileW: number,
+  tileH: number,
+): { sprites: string[][][]; columns: number; rows: number } {
+  const png = PNG.sync.read(pngBuffer);
+  const columns = Math.floor(png.width / tileW);
+  const rows = Math.floor(png.height / tileH);
+  const sprites: string[][][] = [];
+  for (let index = 0; index < columns * rows; index++) {
+    const ox = (index % columns) * tileW;
+    const oy = Math.floor(index / columns) * tileH;
+    const sprite: string[][] = [];
+    for (let r = 0; r < tileH; r++) {
+      const row: string[] = [];
+      for (let c = 0; c < tileW; c++) {
+        const i = ((oy + r) * png.width + (ox + c)) * 4;
+        row.push(rgbaToHex(png.data[i], png.data[i + 1], png.data[i + 2], png.data[i + 3]));
+      }
+      sprite.push(row);
+    }
+    sprites.push(sprite);
+  }
+  return { sprites, columns, rows };
+}
+
+/**
  * Parse a wall PNG (a 4-wide grid of 16×32 pieces) into its wall sprites.
  * Piece at index I: col = I % 4, row = floor(I / 4).
  *

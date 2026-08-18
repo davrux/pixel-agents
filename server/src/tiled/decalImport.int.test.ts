@@ -230,6 +230,75 @@ test('a decal tile states no depth of its own — that is the layer\'s job', () 
   assert.deepEqual(offenders, [], `these decal tiles carry occludes: ${offenders.join(', ')}`);
 });
 
+test('a grid decal tileset loads: every named cell gets the sprite that sheet cell holds', async () => {
+  const built = await buildFurnitureCatalogAndSprites();
+  buildDynamicCatalog(built as never);
+
+  const roads = (built.catalog as Array<{ id: string; width: number; height: number; decal?: boolean }>).filter((a) =>
+    a.id.startsWith('ROAD_'),
+  );
+  assert.ok(roads.length > 100, `expected the road sheet in the catalog, got ${roads.length} tiles`);
+  assert.ok(
+    roads.every((r) => r.decal === true && r.width === TILE_SIZE && r.height === TILE_SIZE),
+    'a road tile is a 16×16 decal',
+  );
+  const spriteless = roads.filter((r) => !(built.sprites as Record<string, unknown>)[r.id]);
+  assert.deepEqual(spriteless.map((r) => r.id), [], 'named cells without a sprite — the sheet was not sliced');
+
+  // The mapping from tile id to sheet cell is the part that cannot be eyeballed:
+  // an off-by-one column shows every road piece as its neighbour, which still
+  // looks like a road. So compare one cell against the PNG's own pixels.
+  const { PNG } = await import('pngjs');
+  const fs = await import('node:fs');
+  const sheet = PNG.sync.read(fs.readFileSync(path.join(ASSETS_ROOT, 'assets/tiled/png/decal-roads.png')));
+  const probe = roads.find((r) => r.id === 'ROAD_R05C07') ?? roads[roads.length - 1];
+  const row = Number(probe.id.slice(6, 8));
+  const col = Number(probe.id.slice(9, 11));
+  const sprite = (built.sprites as Record<string, string[][]>)[probe.id];
+  let mismatches = 0;
+  for (let y = 0; y < TILE_SIZE; y++) {
+    for (let x = 0; x < TILE_SIZE; x++) {
+      const i = ((row * TILE_SIZE + y) * sheet.width + (col * TILE_SIZE + x)) * 4;
+      const opaque = sheet.data[i + 3] !== 0;
+      if (opaque !== !!sprite[y][x]) mismatches++;
+    }
+  }
+  assert.equal(mismatches, 0, `${probe.id} does not match sheet cell (row ${row}, col ${col})`);
+});
+
+test('a road painted on a decal layer imports as one flat cell', async () => {
+  const built = await buildFurnitureCatalogAndSprites();
+  buildDynamicCatalog(built as never);
+  const roadSet = registry.bySource('decal-roads.tsj');
+  assert.ok(roadSet, 'decal-roads.tsj is not on disk');
+  const localId = roadSet.tiles.findIndex((t) => t?.class === 'DecalTile' && t.props.id);
+  assert.ok(localId >= 0, 'the road set names no tile');
+
+  const data = new Array(COLS * ROWS).fill(0);
+  data[7 * COLS + 5] = 1 + localId;
+  const { layout } = importTmjToLayout(
+    {
+      width: COLS,
+      height: ROWS,
+      tilesets: [{ firstgid: 1, source: 'decal-roads.tsj' }],
+      layers: [{ class: 'DecalLayer', name: 'Roads', type: 'tilelayer', data }],
+    },
+    registry,
+    noImages,
+  );
+
+  assert.equal(layout.decals?.length, 1);
+  // 16×16 art, so no bottom-anchor shift: the cell painted IS the cell occupied.
+  assert.deepEqual(
+    { col: layout.decals![0].col, row: layout.decals![0].row },
+    { col: 5, row: 7 },
+    'a one-cell decal must land exactly where it was painted',
+  );
+  assert.equal(layout.furniture.length, 0, 'a road must not become an object');
+  assert.equal(getBlockedTiles(layout.furniture).size, 0, 'a road must not block by itself');
+  assert.equal(layoutToDecalInstances(layout.decals)[0].zY, DECAL_DEPTH, 'a road is ground, so it lies flat');
+});
+
 test('a behaviour-carrying tile painted as a decal warns but still imports', async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
   // A sittable chair from the real furniture tilesets: painting it on a decal

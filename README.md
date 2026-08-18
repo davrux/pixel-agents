@@ -198,6 +198,21 @@ layer anyway; they stack in the order the Layers panel shows.
 This is also why furniture art works on a decal layer at all: nothing is read off
 the tile that a `FurnitureTile` could not answer.
 
+### Two shapes of decal tileset
+
+- `decal.tsj` is a **collection of images** — each tile names its own PNG. Right
+  for standalone pieces: a grass patch, a shadow, a puddle.
+- `decal-roads.tsj` is a **grid tileset** — one sheet, a tile's id being its
+  position in it. Right when the *arrangement* is the content: road pieces only
+  make sense next to each other, so Tiled shows them exactly as the artist laid
+  them out and you mark a junction and stamp it as one block. 305 named cells out
+  of a 20×20 grid; the 95 blanks are deliberately unnamed, so nothing resolves
+  there. Regenerate with `server/scripts/gen-decal-roads.mts`, which copies the
+  sheet through untouched and keeps any labels you have already written.
+
+Roads are ground, so paint them on a flat layer. Where a road should stop movement
+— a central barrier, a wall of parked cars — paint the `CollisionLayer` over it.
+
 Rule of thumb: if it only needs to be *seen*, it is a decal. If it needs to be
 interacted with, sat on, switched, blocked or moved by the server, it is
 furniture. Painting a behaviour-carrying tile on a decal layer is allowed — that

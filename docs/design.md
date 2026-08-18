@@ -336,6 +336,13 @@ These are intended, not designed around:
   move authority to the client to make it cheaper.
 - **No reconnection grace.** `onLeave` despawns immediately; a dropped socket
   loses the entity until rejoin. `allowReconnection` is the fix when it matters.
+- **The asset catalog is sent whole, as pixels.** `furnitureAssetsLoaded` carries
+  every sprite as SpriteData, which is 5.3 MB per join today and grows with the
+  art: the road sheet alone added 760 KB, because 305 cells travel as 305 arrays
+  of hex strings while the PNG they came from is 4 KB. The floor and wall sheets
+  already avoid this — they are served as PNGs and sliced in the client — so the
+  fix is to give sheet-backed decals the same route rather than to trim the art.
+  Compression on the wire hides much of it, which is why it has not bitten yet.
 - **Single process.** Matchmaking and state are in-process. Horizontal scale
   needs a Colyseus presence driver; keep rooms shared-nothing so that stays
   possible.

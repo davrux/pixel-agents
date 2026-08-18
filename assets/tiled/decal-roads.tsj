@@ -1,0 +1,4897 @@
+{
+  "columns": 20,
+  "image": "png/decal-roads.png",
+  "imagewidth": 320,
+  "imageheight": 320,
+  "margin": 0,
+  "name": "decal-roads",
+  "spacing": 0,
+  "tilecount": 400,
+  "tiledversion": "1.11.0",
+  "tileheight": 16,
+  "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.10",
+  "tiles": [
+    {
+      "id": 0,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R00C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 29,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R01C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R02C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 62,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 63,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 64,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 66,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 67,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 68,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 69,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 70,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R03C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 80,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 81,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 82,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 83,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 84,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 85,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 86,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 87,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 88,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 89,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 90,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 91,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 92,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 93,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 94,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 95,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 96,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 97,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 98,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 99,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R04C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 100,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 101,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 105,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 107,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 109,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 110,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 111,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 112,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 113,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 114,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 115,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 116,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 117,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 118,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 119,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R05C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 120,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 121,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 122,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 123,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 124,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 125,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 126,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 127,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 128,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 129,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 130,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 131,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 132,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 133,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 134,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 135,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 136,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 137,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 138,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 139,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R06C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 140,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 141,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 142,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 143,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 144,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 145,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 146,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 147,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 148,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 149,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 150,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 151,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 152,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 153,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 154,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 155,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 156,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 157,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 158,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 159,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R07C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 161,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 162,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 163,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 164,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 165,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 167,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 168,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 169,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 170,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 171,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 172,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 173,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 175,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 176,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 177,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 178,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 179,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R08C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 180,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 181,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 182,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 183,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 184,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 185,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 186,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 187,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 188,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 189,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 190,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 191,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 192,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 193,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 194,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 195,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 196,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 197,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 198,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 199,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R09C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 201,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 202,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 203,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 204,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 205,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 206,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 207,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 208,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 209,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 210,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 211,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 212,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 213,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 214,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 215,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 216,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 217,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 218,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 219,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R10C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 220,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 221,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 222,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 223,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 224,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 225,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 226,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 227,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 228,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 229,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 230,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 231,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 232,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 233,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 234,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 235,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 236,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 237,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 238,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 239,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R11C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 240,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C00"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 241,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 242,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 243,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 244,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 245,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C05"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 246,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 247,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 248,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 249,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 250,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 251,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 252,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 253,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 254,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 255,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 256,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 257,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 258,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 259,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R12C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 266,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 267,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 268,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 269,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 270,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 271,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 272,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 273,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 274,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 275,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 276,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 277,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 278,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 279,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R13C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 286,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 287,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 288,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 289,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 290,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 291,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 292,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 293,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 294,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 295,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 296,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 297,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 298,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 299,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R14C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 301,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 302,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 303,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 304,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 306,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 307,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 308,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 309,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 310,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 311,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 312,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 313,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 314,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 315,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 316,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 317,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C17"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 318,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C18"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 319,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R15C19"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 321,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 322,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 323,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 324,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 326,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 327,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 328,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 329,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 330,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 331,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 332,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 333,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R16C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 341,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 342,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 343,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 344,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 347,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 348,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C08"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 349,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C09"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 350,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C10"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 351,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C11"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 352,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C12"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 353,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C13"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 354,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 355,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 356,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R17C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 361,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 362,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 363,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 364,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 366,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C06"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 367,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C07"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 374,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 375,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 376,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R18C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 381,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C01"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 382,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C02"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 383,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C03"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 384,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C04"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 394,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C14"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 395,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C15"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 396,
+      "type": "DecalTile",
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "ROAD_R19C16"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    }
+  ]
+}

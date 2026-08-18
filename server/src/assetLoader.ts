@@ -17,6 +17,7 @@ import { isDecalTileset, isFurnitureTileset } from './tiled/tiledRegistry.js';
 import {
   decodeCharacterPng,
   decodePetPng,
+  parseTileSheetPng,
   pngToSpriteData,
 } from './core/assets/pngDecoder.js';
 import type {
@@ -80,7 +81,11 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
 
       const tilesetDir = path.dirname(tilesetPath);
       const entries = parseFurnitureTileset(tiled);
-      for (const { asset, imagePath } of entries) {
+      /** Sliced sheets, by image path: a grid tileset's tiles all come out of one
+       *  PNG, so it is read and cut ONCE rather than per tile — 400 cells would
+       *  otherwise mean 400 decodes of the same 320×320 image. */
+      const sheets = new Map<string, string[][][]>();
+      for (const { asset, imagePath, sheetCell } of entries) {
         try {
           const assetPath = path.join(tilesetDir, imagePath);
           const resolvedAsset = path.resolve(assetPath);
@@ -93,8 +98,21 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
             console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
             continue;
           }
-          const pngBuffer = fs.readFileSync(assetPath);
-          sprites.set(asset.id, pngToSpriteData(pngBuffer, asset.width, asset.height));
+          if (sheetCell === undefined) {
+            sprites.set(asset.id, pngToSpriteData(fs.readFileSync(assetPath), asset.width, asset.height));
+            continue;
+          }
+          let sheet = sheets.get(assetPath);
+          if (!sheet) {
+            sheet = parseTileSheetPng(fs.readFileSync(assetPath), asset.width, asset.height).sprites;
+            sheets.set(assetPath, sheet);
+          }
+          const sprite = sheet[sheetCell];
+          if (!sprite) {
+            console.warn(`  ⚠️  ${asset.id}: cell ${sheetCell} is outside ${imagePath}`);
+            continue;
+          }
+          sprites.set(asset.id, sprite);
         } catch (err) {
           console.warn(`  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`);
         }
