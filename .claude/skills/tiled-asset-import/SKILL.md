@@ -54,10 +54,21 @@ it. There are four possible answers, and they differ in what they cost:
 
 | It is | Becomes | Costs | Can it |
 |---|---|---|---|
-| **Ground you walk on** — grass, paving, water, dirt | a **floor set** (baked sheet, painted on `GroundLayer`) | two numbers per cell in the layout | never block, never be an obstacle |
+| **Ground you walk on** — grass, paving, water, dirt | any **grid tileset**, painted on `GroundLayer` | two numbers per cell in the layout | never block, never be an obstacle |
 | **Flat art lying on the ground** — a puddle, a shadow, tufts, road markings | a **decal** on a flat `DecalLayer` | one gid per cell, travels with the map | not block (paint `CollisionLayer` if it must) |
 | **Standing art you can walk behind** — a tree, a fence, a lamp post | a **decal** on a layer with `occludes` | the same | not block, not be interacted with |
 | **A thing with behaviour** — a chair, a coffee machine, a portal, anything switchable | **furniture** (`FurnitureTile` + an object placement) | a `FurnitureSync` with fifteen synced fields, visited by eleven linear scans | everything |
+
+Ground needs no bake and no floor set of its own: a cell painted on `GroundLayer`
+stores the tile's local id plus its set, so a sheet straight from the pack is ground.
+Baking a palette floor set (`bake-floor-wall-tiled.mts`) is now only for art you want
+in 64 recolours — and it rewrites the floor/wall TILESETS, so a changed tile count
+renumbers gids in every map. Two things follow, and both have cost us a map:
+
+- **Only ground makes a cell walkable.** A decal is a picture; art painted over an
+  unpainted cell looks finished and cannot be entered.
+- **A ground tile must be 16×16**, because a ground cell is one map cell. Bigger
+  tiles are refused with a message — put them on a `DecalLayer`.
 
 The rule of thumb: **if it only needs to be seen, it is not furniture.** A map of a
 street is mostly ground and decoration, and paying a chair's price for a patch of

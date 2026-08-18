@@ -215,6 +215,20 @@ background only.)
   `Pixels.tiled-project` — Tiled only offers a class's own members, so a property
   missing from `FurnitureObject` is settable on the type and invisible on every
   placement. Keep the object class a superset of the tile class.
+- **The GroundLayer decides what is ground — not the tile.** A cell painted on
+  `GroundLayer` becomes ground whatever tileset it came from: the layout stores the
+  tile's LOCAL ID plus which set it belongs to (`OfficeLayout.tiles` +
+  `tileFloorSet`/`floorSets`), so an imported art sheet is ground exactly like a
+  palette-baked floor set, and no bake is needed for either. This replaced a
+  `class === 'FloorTile'` test in the importer that turned every other ground tile
+  into VOID — silently, and VOID is neither drawn nor walkable, so a region painted
+  with pack art was both invisible and closed. The one restriction left is physical:
+  a ground cell is one map cell, so a tileset with bigger tiles is refused with a
+  message (`groundFits`).
+  Ground and decal are now the same shape (a cell of a sheet) and differ only in
+  what the layer means: ground is underneath and makes the cell standable, a decal
+  is a picture and never affects walkability. **Only the ground makes a cell
+  walkable** — art alone never does.
 - **Decoration is a decal, not an object.** A `DecalTile` painted on a
   `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
   `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no
@@ -306,6 +320,10 @@ background only.)
 - If you added, removed or repainted collection art:
   `scripts/bake-atlas.sh --check` must pass (the server would bake it anyway, but
   the committed artifact is what a deployment starts from).
+- If you changed the layout format: bump `OfficeLayout.version`, migrate in
+  `migrateLayout`, and make sure a migration that cannot be completed is **not
+  persisted** — an incomplete one replaced a real map with 3192 holes once, and the
+  only reason it was recoverable is that maps live in git as `.tmj`.
 - If you touched the server: `cd server && pnpm test`. If you touched the desktop
   Mumble protocol: `cd desktop && pnpm test`.
 - For engine changes, drive `OfficeState` directly in a small headless test, plus

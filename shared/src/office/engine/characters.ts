@@ -13,7 +13,7 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
-import type { WallEdges } from '../types.js';
+import type { WallEdges, GroundMap } from '../types.js';
 import type { CharacterSprites } from '../sprites/spriteData.js';
 import { spriteForPose } from '../sprites/spriteData.js';
 import { isReadingToolName } from '../toolUtils.js';
@@ -89,7 +89,7 @@ export function updateCharacter(
    *  alike (see InteractionPoint). One map, because "somebody is here" is one
    *  question; `posture` says which kind of here. */
   points: Map<string, InteractionPoint>,
-  tileMap: TileTypeVal[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
   /** Wall edges, so wandering respects walls — see wallEdges.ts. */
   walls?: WallEdges,

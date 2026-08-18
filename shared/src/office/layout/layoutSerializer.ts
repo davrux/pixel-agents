@@ -5,16 +5,64 @@ import type {
   PlacedDecal,
   PlacedFurniture,
   TileType as TileTypeVal,
+  GroundMap,
 } from '../types.js';
 import { DECAL_DEPTH, DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
+import { localIdFromPatternAndSwatch } from '../floorTiles.js';
 import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing } from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
 /** Convert flat tile array from layout into 2D grid */
-export function layoutToTileMap(layout: OfficeLayout): TileTypeVal[][] {
-  const map: TileTypeVal[][] = [];
+/**
+ * Bring a stored layout up to version 2 — ground cells holding a sheet's local
+ * tile id instead of a floor pattern plus a separate colour.
+ *
+ * A v1 cell said "pattern P, swatch S" where P was the sheet ROW (1-based) and S
+ * the column with null meaning column 0, so the id is just that arithmetic put
+ * back together: `(P - 1) * columns + (S == null ? 0 : S + 1)`. The column count
+ * is per SET, which is why the caller passes a lookup rather than a constant — a
+ * palette bake has 65, a natural-only set 1.
+ *
+ * A set the caller cannot resolve is REPORTED, not guessed at: the cell becomes
+ * VOID so it is visibly missing rather than confidently wrong, and `unresolved`
+ * names the sets it happened for. Callers must not persist a result with anything
+ * unresolved — that is not a converted map, it is a lost one, and it has already
+ * happened here: an early boot without a resolver turned all 3192 cells of a real
+ * map into holes and wrote them back. Idempotent — a v2 layout is returned as is.
+ */
+export function migrateLayout(
+  layout: OfficeLayout,
+  columnsOf: (setName: string) => number | undefined,
+): { layout: OfficeLayout; unresolved: string[] } {
+  if (layout.version === 2) return { layout, unresolved: [] };
+  const unresolved = new Set<string>();
+  const tiles: number[] = [];
+  for (let i = 0; i < layout.tiles.length; i++) {
+    const pattern = layout.tiles[i];
+    // 255 was VOID in v1; it is an ordinary tile id now, which is exactly why the
+    // sentinel moved (see TileType.VOID).
+    if (pattern === 255 || pattern <= 0) {
+      tiles.push(TileType.VOID);
+      continue;
+    }
+    const setName = layout.floorSets?.[layout.tileFloorSet?.[i] ?? 0];
+    const columns = setName === undefined ? undefined : columnsOf(setName);
+    if (columns === undefined || columns <= 0) {
+      unresolved.add(setName ?? '(no set named)');
+      tiles.push(TileType.VOID);
+      continue;
+    }
+    tiles.push(localIdFromPatternAndSwatch(pattern, layout.tileColors?.[i], columns));
+  }
+  const migrated: OfficeLayout = { ...layout, version: 2, tiles };
+  delete migrated.tileColors;
+  return { layout: migrated, unresolved: [...unresolved] };
+}
+
+export function layoutToTileMap(layout: OfficeLayout): GroundMap {
+  const map: GroundMap = [];
   for (let r = 0; r < layout.rows; r++) {
-    const row: TileTypeVal[] = [];
+    const row: number[] = [];
     for (let c = 0; c < layout.cols; c++) {
       row.push(layout.tiles[r * layout.cols + c]);
     }
@@ -278,21 +326,16 @@ function borderWalls(cols: number, rows: number): NonNullable<OfficeLayout['wall
 
 /** Create a minimal fallback layout (used only when no default-layout.json exists) */
 export function createDefaultLayout(): OfficeLayout {
-  const tiles: TileTypeVal[] = [];
-  const tileColors: Array<number | null> = [];
-  for (let r = 0; r < DEFAULT_ROWS; r++) {
-    for (let c = 0; c < DEFAULT_COLS; c++) {
-      tiles.push(c < 10 ? TileType.FLOOR_1 : TileType.FLOOR_2);
-      tileColors.push(null); // Natural — this fallback is cosmetically irrelevant; default-layout.json provides the real default
-    }
-  }
-  // Minimal fallback with no furniture — the default-layout.json provides the real default
+  // Cell 0 of no set at all: walkable (not VOID) and drawn as the renderer's flat
+  // fill, because nothing in shared/ knows which tilesets a deployment has. This
+  // used to name floor patterns 1 and 2, which was equally arbitrary and merely
+  // looked deliberate.
+  const tiles = new Array<number>(DEFAULT_COLS * DEFAULT_ROWS).fill(0);
   return {
-    version: 1,
+    version: 2,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     tiles,
-    tileColors,
     walls: borderWalls(DEFAULT_COLS, DEFAULT_ROWS),
     furniture: [],
   };
@@ -309,15 +352,8 @@ export function createDefaultLayout(): OfficeLayout {
  * same field plus a beam pad.
  */
 export function emptyZoneMap(cols: number, rows: number): OfficeLayout {
-  const tiles: TileTypeVal[] = [];
-  const tileColors: Array<number | null> = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      tiles.push(TileType.FLOOR_3);
-      tileColors.push(null);
-    }
-  }
-  return { version: 1, cols, rows, tiles, tileColors, walls: borderWalls(cols, rows), furniture: [] };
+  const tiles = new Array<number>(cols * rows).fill(0);
+  return { version: 2, cols, rows, tiles, walls: borderWalls(cols, rows), furniture: [] };
 }
 
 /** Serialize layout to JSON string
@@ -326,15 +362,16 @@ export function serializeLayout(layout: OfficeLayout): string {
   return JSON.stringify(layout);
 }
 
-/** Deserialize layout from JSON string — no legacy-data migration (see
- *  git history if a very old layout ever needs resurrecting): a saved
- *  layout is only ever produced by this session's own serializeLayout or a
- *  fresh Tiled import, both of which already write the current shape.
+/** Deserialize layout from JSON string. Accepts both versions — a v1 blob is what
+ *  a database written before ground cells held tile ids contains, and it is
+ *  converted by migrateLayout, which needs the tilesets and therefore cannot
+ *  happen here. Anything else is rejected: this is the shape check that stands
+ *  between a hand-edited .tmj (or a patched client) and the database.
  * @internal */
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
-    if (obj && obj.version === 1 && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
+    if (obj && (obj.version === 1 || obj.version === 2) && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
       return obj as OfficeLayout;
     }
   } catch {

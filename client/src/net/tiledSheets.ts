@@ -6,7 +6,7 @@
  * floorTilesLoaded/wallTilesLoaded Colyseus messages — no more live per-pixel
  * colorize (see docs/design.md).
  */
-import { setFloorSheetInfo } from '@pixel/shared/office/floorTiles.js';
+import { setSheetGrids } from '@pixel/shared/office/floorTiles.js';
 import { setWallSheetInfo } from '@pixel/shared/office/wallTiles.js';
 import {
   FLOOR_TILE_H,
@@ -72,11 +72,15 @@ interface SheetInfo {
    *  `image`, passed through by the server. Not built from `name` here: that
    *  turned a file move into a client release. */
   img?: string;
+  /** What the set's tiles say it is. Only 'wall' needs special handling here (its
+   *  cells are taller and the wall renderer wants the piece count); ground can be
+   *  drawn from any of them. */
+  kind?: 'floor' | 'wall' | 'other';
 }
 
 interface SetsJson {
-  floor?: SheetInfo[];
-  wall?: SheetInfo[];
+  /** Every grid tileset the server has — ground may come from any of them. */
+  sheets?: SheetInfo[];
   /** Where the furniture atlas's manifest is, relative to assets/tiled. */
   atlas?: string;
 }
@@ -141,42 +145,41 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 export async function loadTiledSheets(): Promise<LoadedSheet[]> {
   try {
     const origin = serverHttpOrigin();
-    // Which sets exist comes from the server, which reads it off disk — no list
-    // of filenames in the client bundle, so adding or renaming a tileset needs
-    // no client release (see tiledSheetLayout.ts for what the old constants
-    // cost). A layout names the sets it uses; these names are the keys.
-
-    // Each set arrives with its own grid geometry, not just a name: the column
-    // count and the baked gap are PER SET (a natural-only set like
-    // floor-overworld has one column, a palette bake 65), and reading them off
-    // the .tsj — which is what the server does here — is what keeps a re-baked
-    // sheet and this reader from ever disagreeing.
+    // Which sheets exist comes from the server, which reads it off disk — no list
+    // of filenames in the client bundle, so adding or renaming a tileset needs no
+    // client release (see tiledSheetLayout.ts for what the old constants cost).
+    // ALL grid sets, not just floor and wall: a map's ground may name any of them
+    // (see OfficeLayout.tiles), so fetching a subset would leave those cells blank.
     const sets = await sheetPaths(origin);
-    const floors = sets.floor ?? [];
-    const walls = sets.wall ?? [];
-    const sheetUrl = (f: SheetInfo) => `${origin}/assets/tiled/${f.img || `png/baked/${f.name}.png`}`;
-    const [floorBitmaps, wallBitmaps] = await Promise.all([
-      Promise.all(floors.map((f) => fetchBitmap(sheetUrl(f)))),
-      Promise.all(walls.map((f) => fetchBitmap(sheetUrl(f)))),
-    ]);
+    const sheets = sets.sheets ?? [];
+    const bitmaps = await Promise.all(
+      sheets.map((f) => fetchBitmap(`${origin}/assets/tiled/${f.img || `png/baked/${f.name}.png`}`)),
+    );
     // Row count per set comes from the sheet's own height, so adding a floor
     // pattern or an extra hand-painted wall piece needs no code change. A wall set
     // may carry pieces past the 16 adjacency ones (the metro sets' north-wall
     // faces — see server/src/core/assets/pngDecoder.ts's parseWallPng).
     const rowsOf = (bitmap: ImageBitmap, tileH: number, spacing: number) =>
       Math.round((bitmap.height + spacing) / (tileH + spacing));
-    setFloorSheetInfo(
-      Object.fromEntries(floors.map((f, i) => [f.name, rowsOf(floorBitmaps[i], FLOOR_TILE_H, f.spacing)])),
+    setSheetGrids(
+      Object.fromEntries(
+        sheets.map((f, i) => [
+          f.name,
+          { columns: f.columns, rows: rowsOf(bitmaps[i], f.kind === 'wall' ? WALL_TILE_H : FLOOR_TILE_H, f.spacing) },
+        ]),
+      ),
     );
     setWallSheetInfo(
-      Object.fromEntries(walls.map((f, i) => [f.name, rowsOf(wallBitmaps[i], WALL_TILE_H, f.spacing)])),
+      Object.fromEntries(
+        sheets
+          .map((f, i) => [f, i] as const)
+          .filter(([f]) => f.kind === 'wall')
+          .map(([f, i]) => [f.name, rowsOf(bitmaps[i], WALL_TILE_H, f.spacing)]),
+      ),
     );
-    return [
-      ...floors.map((f, i) => ({ name: f.name, bitmap: floorBitmaps[i], spacing: f.spacing })),
-      ...walls.map((f, i) => ({ name: f.name, bitmap: wallBitmaps[i], spacing: f.spacing })),
-    ];
+    return sheets.map((f, i) => ({ name: f.name, bitmap: bitmaps[i], spacing: f.spacing }));
   } catch (err) {
-    console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);
+    console.warn('[tiledSheets] failed to load the tileset sheets:', err instanceof Error ? err.message : err);
     return [];
   }
 }

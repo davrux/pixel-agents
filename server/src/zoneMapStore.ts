@@ -20,9 +20,27 @@
  */
 import type { DatabaseSync } from 'node:sqlite';
 
+import type { OfficeLayout } from '@pixel/shared/office/types.js';
+import { migrateLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
+
 import { db } from './db.js';
 
 type Layout = Record<string, unknown>;
+
+/**
+ * How many columns a ground set's sheet has — what a version-1 layout needs to be
+ * read at all, since its cells stored a (pattern, swatch) pair that only becomes a
+ * tile id once the column count is known (see migrateLayout).
+ *
+ * Injected at boot rather than imported, so this store stays free of the Tiled
+ * reader: it is a table of JSON blobs, and it should not need assets on disk to
+ * answer a query. Unset (the default) means every v1 cell migrates to VOID, which
+ * is visible instead of silently wrong.
+ */
+let groundColumnsOf: (setName: string) => number | undefined = () => undefined;
+export function setGroundColumnsResolver(resolve: (setName: string) => number | undefined): void {
+  groundColumnsOf = resolve;
+}
 
 export class ZoneMapStore {
   private readonly db: DatabaseSync;
@@ -40,13 +58,35 @@ export class ZoneMapStore {
 
   /** The zone's map, or null if none has been pushed yet. */
   get(zone: string): Layout | null {
-    const row = this.db.prepare('SELECT data FROM layouts WHERE name = ?').get(zone) as { data: string } | undefined;
+    const row = this.db.prepare('SELECT data, updated_at FROM layouts WHERE name = ?').get(zone) as
+      | { data: string; updated_at: number }
+      | undefined;
     if (!row) return null;
+    let parsed: Layout;
     try {
-      return JSON.parse(row.data) as Layout;
+      parsed = JSON.parse(row.data) as Layout;
     } catch {
       return null;
     }
+    // Migrate on first read, keeping the original timestamp: a map's updated_at is
+    // when a HUMAN last pushed it, and a format bump is not an edit.
+    const { layout: migrated, unresolved } = migrateLayout(parsed as unknown as OfficeLayout, groundColumnsOf);
+    if (migrated === (parsed as unknown as OfficeLayout)) return parsed;
+    if (unresolved.length > 0) {
+      // NOT persisted. Every cell of an unresolved set became a hole, and writing
+      // that back replaces the map with an empty one — which is exactly what
+      // happened once, when this ran before the resolver was wired up. A map is
+      // recoverable from its .tmj; a silently emptied database row is not obviously
+      // broken until someone opens the zone.
+      console.error(
+        `[zone-maps] ${zone}: NOT migrating — no column count for ${unresolved.join(', ')}. ` +
+          `Those tilesets are missing or the resolver is not wired yet; the stored map is left untouched. Re-push the zone once they are there.`,
+      );
+      return parsed;
+    }
+    this.db.prepare('UPDATE layouts SET data = ? WHERE name = ?').run(JSON.stringify(migrated), zone);
+    console.log(`[zone-maps] ${zone}: layout migrated to version 2 (ground cells now hold tile ids)`);
+    return migrated as unknown as Layout;
   }
 
   has(zone: string): boolean {

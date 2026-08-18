@@ -27,7 +27,7 @@ import {
 } from '../constants.js';
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
-import type { WallEdges } from '../types.js';
+import type { WallEdges, GroundMap } from '../types.js';
 import { getNpcSprites, spriteForPose } from '../sprites/spriteData.js';
 import type { Pet, PetKind, SpriteData, TileType as TileTypeVal } from '../types.js';
 import { Direction, PetState } from '../types.js';
@@ -86,7 +86,7 @@ export interface PetTarget {
 
 export interface PetUpdateContext {
   walkableTiles: Array<{ col: number; row: number }>;
-  tileMap: TileTypeVal[][];
+  tileMap: GroundMap;
   blockedTiles: Set<string>;
   /** Wall edges, so a pet can't wander through a wall — see wallEdges.ts. */
   walls?: WallEdges;

@@ -59,6 +59,7 @@ import type {
   PetKind,
   PlacedFurniture,
   TileType as TileTypeVal,
+  GroundMap,
 } from '../types.js';
 import {
   CharacterState,
@@ -106,7 +107,7 @@ function computeActionTileKeys(layout: OfficeLayout): Set<string> {
 
 export class OfficeState {
   layout: OfficeLayout;
-  tileMap: TileTypeVal[][];
+  tileMap: GroundMap;
   /** Every place a character can occupy: chairs (posture 'sit') and appliance
    *  stand tiles (posture 'stand') in one map, one occupant each. Absorbed the
    *  separate `seats`/`stations` pair — see InteractionPoint. */

@@ -18,7 +18,7 @@ import { TILE_SIZE } from '@pixel/shared/office/constants.js';
 import { getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
 
 import { DECAL_LAYER_OCCLUDES } from './decalProps.js';
-import { DECAL_TILE_CLASS, resolveFromTmjTilesets, type TiledRegistry } from './tiledRegistry.js';
+import { DECAL_TILE_CLASS, resolveFromTmjTilesets, type TiledRegistry, type RegistryTileset } from './tiledRegistry.js';
 import { actionFromProps, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject } from './furnitureProps.js';
 import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
@@ -91,6 +91,32 @@ function rowAndSwatchFromLocalId(localId: number, tilesetColumns: number): { row
  *  is the first tile from it. That is how a map ends up naming its own sets (see
  *  OfficeLayout.floorSets): the table is whatever the map actually uses, in the
  *  order first encountered, rather than a slice of a global list. */
+/** Warn once per distinct message — an import walks thousands of cells and a
+ *  mistake is usually made once and repeated everywhere. */
+function warnOnce(seen: Set<string>, message: string): void {
+  if (seen.has(message)) return;
+  seen.add(message);
+  console.warn(`[tiled] ${message}`);
+}
+
+/**
+ * May this tileset's tiles be ground?
+ *
+ * A ground cell is drawn into exactly one map cell, so a sheet with bigger tiles
+ * would overflow into its neighbours — the one restriction the old FloorTile test
+ * happened to imply, and the only one worth keeping. Refused with a message rather
+ * than drawn wrongly.
+ */
+function groundFits(tileset: RegistryTileset, seen: Set<string>): boolean {
+  // 0 means the tileset did not say; taking that as "fits" keeps a hand-written
+  // tileset working rather than refusing every cell of it.
+  const w = tileset.tileWidth || TILE_SIZE;
+  const h = tileset.tileHeight || TILE_SIZE;
+  if (w === TILE_SIZE && h === TILE_SIZE) return true;
+  warnOnce(seen, `ground tile from "${tileset.file}": tiles are ${w}×${h}, but a ground cell is ${TILE_SIZE}×${TILE_SIZE} — paint it on a DecalLayer instead`);
+  return false;
+}
+
 function setIndexInto(table: string[], file: string): number {
   const name = file.replace(/\.tsj$/, '');
   const idx = table.indexOf(name);
@@ -206,32 +232,37 @@ export function importTmjToLayout(
   const imageObjects = allObjects.filter((o) => !isTextObject(o) && (o.type === 'Image' || isImageTileObject(o)));
 
   const tiles: number[] = [];
-  const tileColors: OfficeLayout['tileColors'] = [];
   const tileFloorSet: number[] = [];
   const tileBlocked: boolean[] = [];
   // Filled as tiles are met, so the layout ends up naming exactly the sets it
   // uses — see setIndexInto.
   const floorSets: string[] = [];
   const wallSets: string[] = [];
+  /** Ground tiles a map paints that cannot be ground — reported once each. */
+  const groundWarnings = new Set<string>();
   for (let i = 0; i < cols * rows; i++) {
     // Through baseGid like every other gid read: a flipped tile is still that
     // tile. Without this a mirrored floor tile resolved to nothing and the cell
     // silently became VOID — the same trap that swallowed painted wall pieces.
     const groundResolved = resolveGid(baseGid(ground[i]));
-    // Classify by Tiled's own `class` (FloorTile — see Pixels.tiled-project),
-    // not by which file a tile lives in — a mapper reorganizing tileset files
-    // must not silently break this (see docs/design.md).
-    if (groundResolved?.class === 'FloorTile') {
-      const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId, groundResolved.tileset.columns);
-      tiles.push(row + 1);
-      tileColors.push(swatchIndex);
-      // Which set this came from — unlike the floor/void classification above,
-      // this one legitimately IS about the file, since "which set" has no other
-      // identity (see setIndexFromFile).
+    // ANY grid tileset can be ground: the cell keeps the tile's own local id and
+    // the set it came from, which is exactly what Tiled paints with. There used to
+    // be a `class === 'FloorTile'` test here, and it was the reason a piece of an
+    // imported art sheet painted on the GroundLayer silently became a hole — the
+    // ground you could walk on was restricted to the baked palette sets, for no
+    // reason the model needed. What a tile IS still decides everything else (a
+    // WallTile belongs on the lattice layer, a decal on a DecalLayer); ground is
+    // the one case where the LAYER is the whole statement.
+    if (groundResolved && groundResolved.tileset.columns > 0 && groundFits(groundResolved.tileset, groundWarnings)) {
+      tiles.push(groundResolved.localId);
+      // Which set this came from — "which set" has no identity other than the
+      // file (see setIndexInto).
       tileFloorSet.push(setIndexInto(floorSets, groundResolved.tileset.file));
     } else {
+      if (groundResolved && groundResolved.tileset.columns === 0) {
+        warnOnce(groundWarnings, `ground tile from "${groundResolved.tileset.file}": a collection-of-images tileset cannot be ground (it has no grid) — paint it on a DecalLayer instead`);
+      }
       tiles.push(TileType.VOID);
-      tileColors.push(null);
       tileFloorSet.push(0);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
@@ -545,12 +576,11 @@ export function importTmjToLayout(
   }
 
   const layout: OfficeLayout = {
-    version: 1,
+    version: 2,
     cols,
     rows,
-    tiles: tiles as OfficeLayout['tiles'],
+    tiles,
     furniture,
-    tileColors,
     tileFloorSet,
     floorSets,
     wallSets,

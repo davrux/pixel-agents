@@ -23,6 +23,8 @@ interface TiledTileJson {
 interface TiledTilesetJson {
   name: string;
   tilecount: number;
+  tilewidth?: number;
+  tileheight?: number;
   columns?: number;
   spacing?: number;
   /** Present on a grid tileset (one sheet for the whole set), absent on a
@@ -63,6 +65,11 @@ export interface RegistryTileset {
    *  what lets a re-baked sheet and its reader disagree. See FLOOR_TILE_SPACING /
    *  WALL_TILE_SPACING for why the gap exists at all. */
   spacing: number;
+  /** One tile's size in px. Read because a GROUND cell is exactly one map cell:
+   *  a sheet with bigger tiles cannot be ground without overflowing its
+   *  neighbours, and the import refuses it with a message (see groundFits). */
+  tileWidth: number;
+  tileHeight: number;
   /** A grid tileset's own image, relative to assets/tiled — '' for a
    *  collection-of-images set, which has one image per tile instead. Carried
    *  through so nothing has to guess where a sheet's PNG lives (sets.json passes
@@ -114,6 +121,40 @@ export function floorSetNames(registry: TiledRegistry): string[] {
 export function wallSetNames(registry: TiledRegistry): string[] {
   return setNames(registry, WALL_TILE_CLASS);
 }
+/**
+ * Every GRID tileset (one sheet for the whole set), with its name, grid geometry
+ * and image path — what the client needs to register each sheet as a texture and
+ * draw cells out of it.
+ *
+ * All of them, not just the baked floor/wall sets: a map's ground may name any
+ * grid tileset (see OfficeLayout.tiles), so restricting this list would restore
+ * exactly the limit that made painting imported art on the GroundLayer produce a
+ * hole. `kind` is what the tiles SAY they are, which is what decides whether the
+ * wall renderer needs to know about a set — never the filename.
+ */
+export function gridSheets(registry: TiledRegistry): Array<{
+  name: string;
+  columns: number;
+  spacing: number;
+  img: string;
+  kind: 'floor' | 'wall' | 'other';
+}> {
+  return registry.tilesets
+    .filter((ts) => ts.image !== '' && ts.columns > 0)
+    .map((ts) => ({
+      name: ts.file.replace(/\.tsj$/, ''),
+      columns: ts.columns,
+      spacing: ts.spacing,
+      img: ts.image,
+      kind: ts.tiles.some((t) => t.class === WALL_TILE_CLASS)
+        ? ('wall' as const)
+        : ts.tiles.some((t) => t.class === FLOOR_TILE_CLASS)
+          ? ('floor' as const)
+          : ('other' as const),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function setNames(registry: TiledRegistry, cls: string): string[] {
   return registry.tilesets
     .filter((ts) => ts.tiles.some((t) => t.class === cls))
@@ -171,6 +212,8 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
       columns: json.columns ?? 0,
       spacing: json.spacing ?? 0,
       image: json.image ?? '',
+      tileWidth: json.tilewidth ?? 0,
+      tileHeight: json.tileheight ?? 0,
       tiles,
     });
     nextGid += slots;

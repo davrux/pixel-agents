@@ -21,8 +21,9 @@ import * as path from 'node:path';
 import test from 'node:test';
 
 import { buildDynamicCatalog, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog';
-import { getBlockedTiles, layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer';
+import { getBlockedTiles, layoutToDecalInstances, layoutToTileMap, migrateLayout } from '@pixel/shared/office/layout/layoutSerializer';
 import { DECAL_DEPTH, TILE_SIZE } from '@pixel/shared/office/constants';
+import { isWalkable } from '@pixel/shared/office/layout/tileMap';
 
 import { ASSETS_ROOT, buildFurnitureCatalogAndSprites } from '../assets.js';
 import { importTmjToLayout } from './mapBridge.js';
@@ -349,4 +350,104 @@ test('a behaviour-carrying tile painted as a decal warns but still imports', asy
     warnings.some((w) => w.includes('canSitOn')),
     `expected a warning naming the lost behaviour, got: ${warnings.join(' | ')}`,
   );
+});
+
+// ── Ground from any grid tileset ────────────────────────────────
+//
+// The point of these two: what makes a cell GROUND is the layer it is painted on,
+// not the Tiled class of the tile. It used to be the class — only a `FloorTile`
+// counted — and every other tile painted on the GroundLayer silently became a hole
+// you could not walk on, which is exactly what happened to an overworld region.
+
+test('a tile from an imported art sheet painted on the ground layer is walkable ground', async () => {
+  const owSet = registry.bySource('decal-overworld.tsj');
+  assert.ok(owSet, 'decal-overworld.tsj is not on disk');
+  // A named cell, so we know the sheet actually holds art there.
+  const localId = owSet.tiles.findIndex((t) => t?.class === 'DecalTile' && t.props.id);
+  assert.ok(localId >= 0, 'the overworld set names no tile');
+
+  const ground = new Array(COLS * ROWS).fill(0);
+  ground[3 * COLS + 4] = 1 + localId;
+  const { layout } = importTmjToLayout(
+    {
+      width: COLS,
+      height: ROWS,
+      tilesets: [{ firstgid: 1, source: 'decal-overworld.tsj' }],
+      layers: [{ class: 'GroundLayer', name: 'Ground', type: 'tilelayer', data: ground }],
+    },
+    registry,
+    noImages,
+  );
+
+  const idx = 3 * COLS + 4;
+  assert.equal(layout.version, 2, 'the importer writes the current layout version');
+  assert.equal(layout.tiles[idx], localId, 'the cell keeps the tile id it was painted with');
+  assert.deepEqual(layout.floorSets, ['decal-overworld'], 'the set the map used names itself');
+  assert.equal(layout.tileFloorSet?.[idx], 0);
+  // The whole reason this matters: not VOID means a character may stand there.
+  const map = layoutToTileMap(layout);
+  assert.equal(isWalkable(4, 3, map, getBlockedTiles(layout.furniture)), true, 'painted ground must be walkable');
+  assert.equal(isWalkable(0, 0, map, getBlockedTiles(layout.furniture)), false, 'an unpainted cell stays a hole');
+  assert.equal(layout.decals?.length ?? 0, 0, 'ground is not a decal');
+  assert.equal(layout.furniture.length, 0, 'ground is not an object');
+});
+
+test('a baked floor set still resolves to the same cell it always did', async () => {
+  const floorSet = registry.bySource('floor-endesga.tsj');
+  assert.ok(floorSet, 'floor-endesga.tsj is not on disk');
+  // Pattern 2, swatch 7 in the old model — row 1, column 8 of the sheet, which is
+  // the cell a version-1 layout stored as tiles=2 / tileColors=7.
+  const columns = floorSet.columns;
+  const localId = 1 * columns + 8;
+
+  const ground = new Array(COLS * ROWS).fill(0);
+  ground[0] = 1 + localId;
+  const { layout } = importTmjToLayout(
+    {
+      width: COLS,
+      height: ROWS,
+      tilesets: [{ firstgid: 1, source: 'floor-endesga.tsj' }],
+      layers: [{ class: 'GroundLayer', name: 'Ground', type: 'tilelayer', data: ground }],
+    },
+    registry,
+    noImages,
+  );
+  assert.equal(layout.tiles[0], localId);
+
+  // And the migration of a v1 layout lands on exactly that id.
+  const v1 = {
+    version: 1 as const,
+    cols: 1,
+    rows: 1,
+    tiles: [2],
+    tileColors: [7],
+    tileFloorSet: [0],
+    floorSets: ['floor-endesga'],
+    furniture: [],
+    walls: { horizontal: [], vertical: [] },
+  };
+  const { layout: migrated, unresolved } = migrateLayout(v1 as never, (name) => (name === 'floor-endesga' ? columns : undefined));
+  assert.deepEqual(unresolved, [], 'every set in this layout resolves');
+  assert.equal(migrated.version, 2);
+  assert.equal(migrated.tiles[0], localId, 'a migrated v1 cell must draw the same art as before');
+  assert.equal(migrated.tileColors, undefined, 'the swatch is folded into the tile id');
+});
+
+test('a migration that cannot resolve a set is reported and changes nothing', () => {
+  const v1 = {
+    version: 1 as const,
+    cols: 2,
+    rows: 1,
+    tiles: [4, 255],
+    tileColors: [3, null],
+    tileFloorSet: [0, 0],
+    floorSets: ['a-set-nobody-has'],
+    furniture: [],
+    walls: { horizontal: [], vertical: [] },
+  };
+  // This is the shape of the accident: no resolver, so nothing can be converted.
+  const { layout, unresolved } = migrateLayout(v1 as never, () => undefined);
+  assert.deepEqual(unresolved, ['a-set-nobody-has'], 'the caller must learn which set was missing');
+  assert.deepEqual(layout.tiles, [-1, -1], 'unresolved cells are holes, not guesses');
+  // The contract the store relies on: a non-empty `unresolved` means "do not save".
 });

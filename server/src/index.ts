@@ -42,7 +42,7 @@ import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.j
 import { ensureDevTls } from './dataBootstrap.js';
 import { registerZonePushApi } from './tiled/zonePushApi.js';
 import { seedBundledZoneMaps } from './tiled/seedBundledZones.js';
-import { floorSetNames, loadTiledRegistry, wallSetNames } from './tiled/tiledRegistry.js';
+import { gridSheets, loadTiledRegistry } from './tiled/tiledRegistry.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
@@ -52,7 +52,7 @@ import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
 import { resolveAllowedGames } from './arcadeDefaults.js';
 import { ZoneStore } from './zoneStore.js';
-import { ZoneMapStore } from './zoneMapStore.js';
+import { setGroundColumnsResolver, ZoneMapStore } from './zoneMapStore.js';
 
 // Load the repo-root .env (LIVEKIT_* for conferencing, etc.) if present — uses
 // Node's built-in loader (no dependency). Missing file is fine.
@@ -152,6 +152,13 @@ async function main(): Promise<void> {
   // deployment comes up with a world instead of an empty field. A zone that
   // already has a map keeps it: a push is authored against that deployment and
   // a release does not get to undo one (see tiled/seedBundledZones.ts).
+  // Version-1 layouts store a floor PATTERN plus a colour; turning that into a
+  // tile id needs the set's column count, which only the tilesets know. Resolved
+  // once here and handed to the store, which must not read assets itself.
+  {
+    const sheets = new Map(gridSheets(loadTiledRegistry(ASSETS_ROOT)).map((sh) => [sh.name, sh.columns]));
+    setGroundColumnsResolver((name) => sheets.get(name));
+  }
   const seeded = await seedBundledZoneMaps(ASSETS_ROOT, new ZoneMapStore(), new ZoneStore());
   if (seeded.seeded.length) console.log(`[zones] seeded from the image: ${seeded.seeded.join(', ')}`);
   if (seeded.kept.length) console.log(`[zones] kept the pushed map: ${seeded.kept.join(', ')}`);
@@ -261,33 +268,28 @@ async function main(): Promise<void> {
   if (existsSync(tiledPngDir)) {
     app.use('/assets/tiled/png', express.static(tiledPngDir));
   }
-  // Which floor/wall sets exist, by name. The client needs this to know which
-  // sheets to fetch: nothing enumerates tileset filenames in code any more (see
-  // tiledSheetLayout.ts), they are discovered from the tiles' own Tiled class.
-  // Under /assets/ deliberately — the login gate treats that prefix as public,
+  // Which sheets exist and how to read them. Nothing enumerates tileset filenames
+  // in code any more (see tiledSheetLayout.ts) — they are discovered from disk.
+  // Under /assets/ deliberately: the login gate treats that prefix as public,
   // which is right, since these are the names of files it already serves openly.
-  // Re-read per request rather than cached: a pushed or re-baked tileset must
-  // show up without a restart, and this is a handful of small JSON files.
   app.get('/assets/tiled/sets.json', (_req, res) => {
     const registry = loadTiledRegistry(ASSETS_ROOT);
-    // Name plus the sheet's own grid geometry. The client draws a cell as a frame
-    // of the sheet, so it needs to know where cells start — and reading that off
-    // the .tsj, like the map bridge does, is what keeps a re-baked sheet and its
-    // reader from disagreeing. A constant in the client could not: the gap and the
-    // column count are per set (a natural-only set has 1 column, a palette bake
-    // 65).
-    // `img` too: where a sheet's PNG lives is the TILESET's answer (its own
-    // `image`), not a path the client assembles from a set name. It used to
-    // assemble one, and moving the baked sheets into png/baked/ would then have
-    // needed a client release to find art that had not changed at all.
-    const geom = (name: string) => {
-      const ts = registry.bySource(`${name}.tsj`);
-      return { name, columns: ts?.columns ?? 0, spacing: ts?.spacing ?? 0, img: ts?.image ?? '' };
-    };
+    // Every GRID tileset: name, the sheet's own grid geometry, where its PNG is,
+    // and what its tiles say it is. All of them, not just the baked floor/wall
+    // sets — a map's ground may name any grid tileset (see OfficeLayout.tiles),
+    // and the client needs each one as a texture to draw cells from.
+    //
+    // Read off the .tsj rather than assumed, because both halves have bitten us:
+    // the column count and the baked gap are PER SET (a natural-only set has 1
+    // column, a palette bake 65), and the image PATH belongs to the tileset — the
+    // client used to assemble png/<set>.png itself, so moving the baked sheets
+    // would have needed a client release to find art that had not changed.
+    //
+    // Re-read per request rather than cached: a pushed or re-baked tileset must
+    // show up without a restart, and this is a handful of small JSON files.
     res.json({
-      floor: floorSetNames(registry).map(geom),
-      wall: wallSetNames(registry).map(geom),
-      // Same reasoning for the furniture atlas: the server owns where it bakes it.
+      sheets: gridSheets(registry),
+      // The furniture atlas, same reasoning: the server owns where it bakes it.
       atlas: ATLAS_MANIFEST_REL,
     });
   });

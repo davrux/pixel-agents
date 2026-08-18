@@ -27,6 +27,7 @@ import type {
   OfficeLayout,
   SpriteData,
   TileType as TileTypeVal,
+  GroundMap,
 } from '@pixel/shared/office/types.js';
 
 /** Everything the renderer reads — backed by synced state on the client and by
@@ -36,9 +37,9 @@ export interface RenderSource {
   getPets(): Pet[];
   furniture: FurnitureInstance[];
   getLayout(): OfficeLayout;
-  tileMap: TileTypeVal[][];
+  tileMap: GroundMap;
 }
-import { getFloorCellRef, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { groundCellRef, hasGroundSheets } from '@pixel/shared/office/floorTiles.js';
 import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getWallEdgeInstances, getWallFaceInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
 import {
@@ -186,10 +187,9 @@ export class PhaserRenderer {
 
     const layout = this.state.getLayout();
     const tileMap = this.state.tileMap;
-    const tileColors = layout.tileColors;
     const tileFloorSet = layout.tileFloorSet;
     const cols = layout.cols;
-    const useFloors = hasFloorSprites();
+    const useFloors = hasGroundSheets();
 
     // Floor, under every non-void cell. Every cell is floor now — a wall is an
     // edge between cells (see OfficeLayout.walls), drawn later as a z-sorted
@@ -209,7 +209,9 @@ export class PhaserRenderer {
         // The number is a position in THIS layout's own set table, not a global
         // one — see OfficeLayout.floorSets.
         const setName = layout.floorSets?.[tileFloorSet?.[idx] ?? 0];
-        const ref = getFloorCellRef(tile, tileColors?.[idx], setName);
+        // `tile` IS the local tile id in that set — no pattern/colour decomposition
+        // any more, which is what lets ground come from any grid tileset.
+        const ref = groundCellRef(setName, tile);
         const tex = ref ? sheetFrame(ref) : null;
         if (!tex) {
           // No cell for this pattern (a set that lost a pattern, or a sheet that

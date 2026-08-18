@@ -111,6 +111,12 @@ Open `assets/tiled/Pixels.tiled-project` in Tiled. Everything below lives in tha
 project (**View → Custom Types Editor**), which is why the properties show up on
 your tiles and objects at all.
 
+**Ground is whatever you paint on the GroundLayer.** Any tileset works — a
+palette-baked floor set or a sheet straight from an art pack — and only the ground
+makes a cell walkable: a decal is a picture and nothing else, so art painted on a
+decal layer over an unpainted cell looks fine and cannot be entered. The one limit
+is that a ground tile must be 16×16, since a ground cell is one map cell.
+
 **Where the art lives.** All of it is under `assets/tiled/png/src/` — per-tile
 furniture and decal PNGs, the grid sheets, the floor patterns and wall geometry,
 background images. That is the only place you ever put a file. Beside it,

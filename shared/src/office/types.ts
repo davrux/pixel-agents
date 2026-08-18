@@ -9,25 +9,26 @@ export {
   WALK_OVER_DEPTH,
 } from './constants.js';
 
-/** A ground cell is a floor pattern (1-based, matching a row of the floor set —
- *  see tiledSheetLayout.ts) or VOID. There is no WALL member: a wall is an EDGE
- *  between two cells now (see WallEdges), not a cell of its own, so 0 is simply
- *  an unused value rather than a meaning. */
+/**
+ * The only special ground value there is.
+ *
+ * A ground cell holds a LOCAL TILE ID in its set's sheet (see
+ * OfficeLayout.tiles), so there is nothing to enumerate: FLOOR_1…FLOOR_11 used to
+ * live here as if the engine knew what a floor was, when they were only row
+ * numbers in a baked sheet — no rule ever read them, and keeping them would invite
+ * someone to believe pattern 10 means grass. There is no WALL member either: a
+ * wall is an EDGE between two cells (see WallEdges), not a cell.
+ */
 export const TileType = {
-  FLOOR_1: 1,
-  FLOOR_2: 2,
-  FLOOR_3: 3,
-  FLOOR_4: 4,
-  FLOOR_5: 5,
-  FLOOR_6: 6,
-  FLOOR_7: 7,
-  FLOOR_8: 8,
-  FLOOR_9: 9,
-  FLOOR_10: 10, // grass (garden/outside zones) — png/src/floors/floor_9.png
-  FLOOR_11: 11, // water (ponds) — png/src/floors/floor_10.png
-  VOID: 255,
+  VOID: -1,
 } as const;
 export type TileType = (typeof TileType)[keyof typeof TileType];
+
+/** The ground, cell by cell, row-major rows of columns: each value is a local
+ *  tile id in that cell's ground set, or VOID. Deliberately plain numbers — the
+ *  only thing any logic asks is "is this VOID", and the rest is a sheet
+ *  coordinate the renderer resolves (see OfficeLayout.tiles). */
+export type GroundMap = number[][];
 
 /** Re-export ColorValue for consumers that import color types from office/types */
 export type { ColorValue } from './colorTypes.js';
@@ -648,24 +649,36 @@ export interface WallEdges {
 }
 
 export interface OfficeLayout {
-  version: 1;
+  /** 2 since ground cells hold a sheet's local tile id (see `tiles`); 1 stored a
+   *  floor PATTERN plus a separate colour, and is migrated on read. */
+  version: 1 | 2;
   cols: number;
   rows: number;
-  tiles: TileType[];
+  /**
+   * Per cell: the local tile id inside `floorSets[tileFloorSet[i]]`, or VOID.
+   *
+   * That is the whole ground model — a cell is a cell of some sheet, exactly like
+   * a decal is. It used to be a floor PATTERN (1-based row) with the colour in
+   * `tileColors`, which is the same information split in two, and it carried a
+   * hidden restriction: only a tile of Tiled class `FloorTile` could be ground,
+   * so painting a piece of an imported art sheet on the GroundLayer silently
+   * produced a hole. Now any grid tileset can be ground, and the palette-baked
+   * floor sets still work unchanged — a swatch is just a column in the sheet.
+   */
+  tiles: number[];
   furniture: PlacedFurniture[];
-  /** Per-tile color, parallel to tiles array — an index into whichever
-   *  closed palette this tile's set was baked against, or null for "Natural" (no
-   *  tint). The closed floor/wall palette made a continuous
-   *  ColorValue{h,s,b,c} pointless: there are only 64 real choices, so the
-   *  index into that fixed list IS the color — no HSL math needed anywhere
-   *  at render time (see docs/design.md). */
+  /** LEGACY (version 1 only): per-tile palette swatch, or null for "Natural".
+   *  Folded into `tiles` by the v1→v2 migration — a swatch was always just the
+   *  column of the cell — and never written again. Walls still carry their own
+   *  per-face colour; only the ground merged the two. */
   tileColors?: Array<number | null>;
-  /** Per-tile floor style, parallel to tiles array — an index into THIS
+  /** Per-tile ground set, parallel to tiles array — an index into THIS
    *  layout's own `floorSets` table, not a global one. Only meaningful where
-   *  tiles[i] is a floor pattern (not VOID). Missing/0 = the first entry. */
+   *  tiles[i] is not VOID. Missing/0 = the first entry. */
   tileFloorSet?: number[];
   /**
-   * The floor tilesets this layout uses, by name — `tileFloorSet` indexes this.
+   * The tilesets this layout's ground uses, by name — `tileFloorSet` indexes this.
+   * Any grid tileset may appear here, not only a baked floor set.
    *
    * Named here rather than referenced by a global position because that position
    * used to mean "index into a hardcoded FLOOR_SET_FILES array": renaming a

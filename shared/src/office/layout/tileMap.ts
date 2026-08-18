@@ -1,5 +1,5 @@
 import { TileType } from '../types.js';
-import type { WallEdges } from '../types.js';
+import type { WallEdges, GroundMap } from '../types.js';
 import { crossingBlocked } from '../wallEdges.js';
 
 /**
@@ -14,7 +14,7 @@ export function canStep(
   fromRow: number,
   toCol: number,
   toRow: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
   walls?: WallEdges,
 ): boolean {
@@ -29,7 +29,7 @@ export function canStep(
 export function isWalkable(
   col: number,
   row: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
 ): boolean {
   // Not-a-tile first, and not as belt-and-braces: `undefined < 0` and
@@ -51,7 +51,7 @@ export function isWalkable(
 
 /** Get walkable tile positions (grid coords) for wandering */
 export function getWalkableTiles(
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
 ): Array<{ col: number; row: number }> {
   const rows = tileMap.length;
@@ -75,7 +75,7 @@ export function getWalkableTiles(
 export function nearestWalkableTile(
   col: number,
   row: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
 ): { col: number; row: number } | null {
   if (isWalkable(col, row, tileMap, blockedTiles)) return { col, row };
@@ -110,7 +110,7 @@ function bfsPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
   walls?: WallEdges,
 ): Array<{ col: number; row: number }> {
@@ -169,7 +169,7 @@ function dijkstraPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
   avoidTiles: Set<string>,
   walls?: WallEdges,
@@ -256,7 +256,7 @@ export function findPath(
   startRow: number,
   endCol: number,
   endRow: number,
-  tileMap: TileType[][],
+  tileMap: GroundMap,
   blockedTiles: Set<string>,
   avoidTiles?: Set<string>,
   walls?: WallEdges,

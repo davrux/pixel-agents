@@ -66,10 +66,17 @@ export function createAssetBridge(
         break;
       case 'layoutLoaded': {
         const raw = msg.layout as OfficeLayout | null;
-        const layout = raw && raw.version === 1 ? raw : null;
+        // Version 2 only, and deliberately not "1 or 2": a v1 ground cell holds a
+        // floor pattern where a v2 cell holds a tile id, so accepting both would
+        // draw one as the other. The server migrates before sending, and refuses
+        // to when it cannot (see ZoneMapStore.get) — in that case nothing is drawn
+        // and the reason is on the server's console, which beats a wrong map.
+        const layout = raw && raw.version === 2 ? raw : null;
         if (layout) {
           os.rebuildFromLayout(layout);
           onLayout(os.getLayout());
+        } else if (raw) {
+          console.error(`[bridge] ignoring a layout of version ${raw.version} — this client draws version 2`);
         }
         break;
       }
