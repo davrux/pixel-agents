@@ -45,6 +45,9 @@ import type { PaletteSwatch } from '../../shared/src/office/palettes.js';
 import type { SpriteData } from '../../shared/src/office/types.js';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
+/** Report the tile counts and write nothing — the number that matters before a
+ *  real run, since a changed count moves every gid in every map. */
+const DRY = process.argv.includes('--dry-run');
 const OUT_DIR = path.join(ROOT, 'assets', 'tiled');
 const OUT_PNG_DIR = path.join(OUT_DIR, 'png', 'baked');
 const TILE_W = FLOOR_TILE_W;
@@ -185,12 +188,12 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
   }
   const columns = pal.length + 1; // Natural + the set's swatches (none for a natural-only set)
   const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns, FLOOR_TILE_SPACING);
-  fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
+  if (!DRY) fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * FLOOR_TILE_SPACING;
   const imageH = sourceFiles.length * FLOOR_H + (sourceFiles.length - 1) * FLOOR_TILE_SPACING;
   const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, null, outputName, FLOOR_TILE_SPACING);
-  fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
-  console.log(`✓ ${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
+  if (!DRY) fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
+  console.log(`${DRY ? '(dry run) ' : '✓ '}${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
 }
 
 /** Tiled wangid order (JSON format): [top, topright, right, bottomright,
@@ -242,7 +245,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   });
   const columns = pal.length + 1; // Natural + the set's swatches
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns, WALL_TILE_SPACING);
-  fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
+  if (!DRY) fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
   const imageH = raw.length * WALL_H + (raw.length - 1) * WALL_TILE_SPACING;
   const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, null, outputName, WALL_TILE_SPACING) as Record<
@@ -291,10 +294,10 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
       wangid: wangIdForMask(mask),
     })),
   }));
-  fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
+  if (!DRY) fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   const extra = raw.length - WALL_BITMASK_COUNT;
   console.log(
-    `✓ ${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${WALL_BITMASK_COUNT} bitmasks${extra > 0 ? ` + ${extra} face` : ''} × ${columns} colors)`,
+    `${DRY ? '(dry run) ' : '✓ '}${outputName}.tsj + png/baked/${outputName}.png (${tiles.length} tiles, ${WALL_BITMASK_COUNT} bitmasks${extra > 0 ? ` + ${extra} face` : ''} × ${columns} colors)`,
   );
 }
 

@@ -117,6 +117,8 @@ interface TileEntry {
 // Checked before any work: the PNGs get rewritten too, and a script that does
 // its job and only then refuses to save it is just confusing.
 const FORCE = process.argv.includes('--force');
+/** Report without writing — safe even where --force would be needed. */
+const DRY = process.argv.includes('--dry-run');
 const clobber = [...new Set(SHEETS.map(tilesetFor))].filter((n) => fs.existsSync(path.join(OUT_TSJ_DIR, `${n}.tsj`)));
 if (clobber.length > 0 && !FORCE) {
   console.error(`✗ these tilesets already exist and are hand-maintained: ${clobber.join(', ')}`);
@@ -124,7 +126,7 @@ if (clobber.length > 0 && !FORCE) {
   process.exit(1);
 }
 
-fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
+if (!DRY) fs.mkdirSync(OUT_PNG_DIR, { recursive: true });
 const bySet = new Map<string, TileEntry[]>();
 let written = 0;
 for (const sheet of SHEETS) {
@@ -136,7 +138,7 @@ for (const sheet of SHEETS) {
   boxes.forEach((box, i) => {
     const out = cropToTiles(src, box);
     const itemId = `METRO_${sheet.id}_${String(i + 1).padStart(2, '0')}`;
-    fs.writeFileSync(path.join(OUT_PNG_DIR, `${itemId}.png`), PNG.sync.write(out));
+    if (!DRY) fs.writeFileSync(path.join(OUT_PNG_DIR, `${itemId}.png`), PNG.sync.write(out));
     written++;
     // The whole behaviour set, defaults included, so these arrive in the same
     // shape sync-furniture-properties.mts keeps every other tile in — a mapper
@@ -188,7 +190,7 @@ for (const [name, tiles] of [...bySet.entries()].sort()) {
     type: 'tileset',
     version: '1.10',
   };
-  fs.writeFileSync(path.join(OUT_TSJ_DIR, `${name}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
+  if (!DRY) fs.writeFileSync(path.join(OUT_TSJ_DIR, `${name}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ ${name}.tsj (${tiles.length} items)`);
 }
 console.log(`✓ ${written} PNGs in ${path.relative(ROOT, OUT_PNG_DIR)}`);

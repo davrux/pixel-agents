@@ -56,6 +56,9 @@ import {
 } from '../../shared/src/office/tiledSheetLayout.js';
 import { WALL_GRID_COLS, WALL_PIECE_HEIGHT, WALL_PIECE_WIDTH } from '../src/core/assets/constants.js';
 
+/** Report what would be written and touch nothing — every importer here takes it,
+ *  so looking is never a side effect. */
+const DRY = process.argv.includes('--dry-run');
 const ROOT = new URL('../..', import.meta.url).pathname;
 const PACK = path.join(ROOT, 'tmp', 'metro', 'Interior');
 /** The pack's two interior tilesets. HOUSE's white/gray thin walls (the
@@ -300,8 +303,8 @@ function writeFloors(): void {
       }
     }
     const out = path.join(FLOOR_DIR, pick.file);
-    fs.writeFileSync(out, PNG.sync.write(png));
-    console.log(`✓ ${path.relative(ROOT, out)} — ${pick.note}`);
+    if (!DRY) fs.writeFileSync(out, PNG.sync.write(png));
+    console.log(`${DRY ? '(dry run) would write' : '✓'} ${path.relative(ROOT, out)} — ${pick.note}`);
   }
 }
 
@@ -337,7 +340,7 @@ pieces.forEach((cell, index) => {
     }
   }
 });
-fs.writeFileSync(WALL_OUT, PNG.sync.write(sheet));
+if (!DRY) fs.writeFileSync(WALL_OUT, PNG.sync.write(sheet));
 console.log(
   `✓ ${path.relative(ROOT, WALL_OUT)} (${WALL_BITMASK_COUNT} bitmask + ${pieces.length - WALL_BITMASK_COUNT} face pieces, ${sheet.width}x${sheet.height})`,
 );

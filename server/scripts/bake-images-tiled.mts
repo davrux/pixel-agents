@@ -23,6 +23,10 @@ import * as path from 'node:path';
 import { appStore } from '../src/appStore.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
+/** Look without writing. This one reads the DATABASE, so a stray run rewrites
+ *  images.tsj from whatever that machine happens to hold — and tile ids in a
+ *  collection are identity, so that can move a map's background image. */
+const DRY = process.argv.includes('--dry-run');
 const TILED_DIR = path.join(ROOT, 'assets', 'tiled');
 const PNG_DIR = path.join(TILED_DIR, 'png', 'src', 'images');
 
@@ -40,7 +44,7 @@ images.sort((a, b) => a.name.localeCompare(b.name)); // stable tile order across
 
 const tiles = images.map((img, id) => {
   const base64 = img.data.data.replace(/^data:image\/\w+;base64,/, '');
-  fs.writeFileSync(path.join(PNG_DIR, `${img.name}.png`), Buffer.from(base64, 'base64'));
+  if (!DRY) fs.writeFileSync(path.join(PNG_DIR, `${img.name}.png`), Buffer.from(base64, 'base64'));
   return {
     id,
     // Assigns this tile to Pixels.tiled-project's ImageTile class — a plain
@@ -72,5 +76,5 @@ const tsj = {
   version: '1.10',
 };
 
-fs.writeFileSync(path.join(TILED_DIR, 'images.tsj'), JSON.stringify(tsj, null, 2) + '\n');
-console.log(`✓ images.tsj + png/src/images/*.png (${tiles.length} image${tiles.length === 1 ? '' : 's'})`);
+if (!DRY) fs.writeFileSync(path.join(TILED_DIR, 'images.tsj'), JSON.stringify(tsj, null, 2) + '\n');
+console.log(`${DRY ? '(dry run) would write' : '✓'} images.tsj + png/src/images/*.png (${tiles.length} image${tiles.length === 1 ? '' : 's'})`);
