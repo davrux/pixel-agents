@@ -9,17 +9,6 @@
     "properties": [],
     "propertyTypes": [
         {
-            "id": 1,
-            "name": "FloorTile",
-            "type": "class",
-            "useAs": [
-                "tile"
-            ],
-            "color": "#ffa0a0a4",
-            "drawFill": true,
-            "members": []
-        },
-        {
             "id": 2,
             "name": "WallTile",
             "type": "class",

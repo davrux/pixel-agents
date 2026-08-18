@@ -34,7 +34,7 @@ interface TiledTilesetJson {
 }
 
 export interface RegistryTile {
-  /** Tiled's class assignment for this tile (e.g. "FloorTile", "WallTile") —
+  /** Tiled's class assignment for this tile (e.g. "WallTile", "DecalTile") —
    *  see Pixels.tiled-project's propertyTypes. Undefined for an unclassed
    *  tile (e.g. collision.tsj's parameterless marker). */
   class?: string;
@@ -85,7 +85,6 @@ export interface RegistryTileset {
  *  the same thing, exactly the duplication that a `category` property on floor
  *  and wall tiles was removed for. */
 export const FURNITURE_TILE_CLASS = 'FurnitureTile';
-export const FLOOR_TILE_CLASS = 'FloorTile';
 export const WALL_TILE_CLASS = 'WallTile';
 /** Map art painted on a DecalLayer and nothing more — no synced object, no
  *  behaviour (see tiled/decalProps.ts). Same discriminator rule as the three
@@ -115,12 +114,6 @@ export function tilesetHolds(json: { tiles?: Array<{ type?: string }> }, cls: st
  *  filenames: adding, renaming or removing a tileset needs no code change. A
  *  layout stores these names (OfficeLayout.floorSets / wallSets), so the order
  *  here is only a stable presentation order, never an identity. */
-export function floorSetNames(registry: TiledRegistry): string[] {
-  return setNames(registry, FLOOR_TILE_CLASS);
-}
-export function wallSetNames(registry: TiledRegistry): string[] {
-  return setNames(registry, WALL_TILE_CLASS);
-}
 /**
  * Every GRID tileset (one sheet for the whole set), with its name, grid geometry
  * and image path — what the client needs to register each sheet as a texture and
@@ -129,15 +122,15 @@ export function wallSetNames(registry: TiledRegistry): string[] {
  * All of them, not just the baked floor/wall sets: a map's ground may name any
  * grid tileset (see OfficeLayout.tiles), so restricting this list would restore
  * exactly the limit that made painting imported art on the GroundLayer produce a
- * hole. `kind` is what the tiles SAY they are, which is what decides whether the
- * wall renderer needs to know about a set — never the filename.
+ * hole. `kind` only separates wall sets, whose cells are taller than a map cell —
+ * asked of the tiles themselves, never of the filename.
  */
 export function gridSheets(registry: TiledRegistry): Array<{
   name: string;
   columns: number;
   spacing: number;
   img: string;
-  kind: 'floor' | 'wall' | 'other';
+  kind: 'wall' | 'other';
 }> {
   return registry.tilesets
     .filter((ts) => ts.image !== '' && ts.columns > 0)
@@ -146,11 +139,11 @@ export function gridSheets(registry: TiledRegistry): Array<{
       columns: ts.columns,
       spacing: ts.spacing,
       img: ts.image,
-      kind: ts.tiles.some((t) => t.class === WALL_TILE_CLASS)
-        ? ('wall' as const)
-        : ts.tiles.some((t) => t.class === FLOOR_TILE_CLASS)
-          ? ('floor' as const)
-          : ('other' as const),
+        // Only 'wall' means anything: those cells are taller than a map cell, so the
+      // client reads their rows differently. There used to be a 'floor' answer as
+      // well, from a FloorTile class that decided nothing once ground became
+      // "whatever is painted on the GroundLayer" — and nothing ever read it.
+      kind: ts.tiles.some((t) => t.class === WALL_TILE_CLASS) ? ('wall' as const) : ('other' as const),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -177,7 +170,7 @@ function propsOf(tile: TiledTileJson): Record<string, string | number | boolean>
 export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
   const tiledDir = path.join(assetsRoot, 'assets', 'tiled');
   // Alphabetical, no fixed head: with nothing storing a position any more (see
-  // floorSetNames), the only requirement is that repeated runs agree — which
+  // gridSheets), the only requirement is that repeated runs agree — which
   // matters because an EXPORT writes these firstgids into a map, and the map's
   // own copy is what a later import trusts (resolveFromTmjTilesets).
   const files = fs

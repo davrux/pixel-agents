@@ -229,6 +229,10 @@ background only.)
   what the layer means: ground is underneath and makes the cell standable, a decal
   is a picture and never affects walkability. **Only the ground makes a cell
   walkable** — art alone never does.
+  The `FloorTile` class is gone with that test. It carried no properties and decided
+  nothing once the layer became the statement, and leaving it would have kept
+  suggesting the rule it used to enforce. `WallTile` remains, for one reason only:
+  those cells are taller than a map cell, so their rows are counted differently.
 - **Decoration is a decal, not an object.** A `DecalTile` painted on a
   `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
   `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no

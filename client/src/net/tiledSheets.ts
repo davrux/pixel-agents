@@ -72,10 +72,10 @@ interface SheetInfo {
    *  `image`, passed through by the server. Not built from `name` here: that
    *  turned a file move into a client release. */
   img?: string;
-  /** What the set's tiles say it is. Only 'wall' needs special handling here (its
-   *  cells are taller and the wall renderer wants the piece count); ground can be
-   *  drawn from any of them. */
-  kind?: 'floor' | 'wall' | 'other';
+  /** 'wall' means the set's cells are taller than a map cell, so its rows are
+   *  counted differently and the wall renderer wants its piece count. Everything
+   *  else is 'other' — ground can be drawn from any of them. */
+  kind?: 'wall' | 'other';
 }
 
 interface SetsJson {
