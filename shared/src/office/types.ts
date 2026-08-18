@@ -197,6 +197,12 @@ export interface SheetInstance {
 
 export interface FurnitureInstance {
   sprite: SpriteData;
+  /** Which catalog entry this draws — the id, so a renderer can take the pixels
+   *  from a baked atlas instead of from `sprite` (see
+   *  client/src/render/sprites.ts's spriteTextureFor). Purely a rendering
+   *  shortcut: the engine never reads it, and `sprite` stays the answer for
+   *  anything the atlas does not carry. */
+  spriteId?: string;
   /** Pixel x (top-left) */
   x: number;
   /** Pixel y (top-left) */

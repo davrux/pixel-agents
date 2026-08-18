@@ -64,7 +64,7 @@ import {
   type AutocompleteUser,
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
-import { loadTiledSheets } from '../net/tiledSheets.js';
+import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
@@ -396,9 +396,16 @@ export class OfficeScene extends Phaser.Scene {
     // Independent of the Colyseus connection — races against layoutLoaded;
     // whichever finishes last triggers the buildStatic() that actually
     // shows real floor/wall art (see net/tiledSheets.ts).
-    void loadTiledSheets().then((sheets) => {
+    // Sheets and the baked atlas together: both are static art over HTTP, and
+    // buildStatic() should run once, after whichever finishes last.
+    void Promise.all([loadTiledSheets(), loadFurnitureAtlas()]).then(([sheets, atlas]) => {
       this.view.registerSheets(sheets);
+      if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
       this.view.buildStatic();
+      // Furniture is pooled and only re-synced when its instances change, so a
+      // catalog already drawn from message pixels has to be told to look again —
+      // otherwise the atlas only takes effect at the next layout change.
+      this.furnitureDirty = true;
     });
     this.setupIdleWaking();
     // A name/character chosen in Settings (remembered per browser).

@@ -17,6 +17,49 @@ import {
 
 import { serverHttpOrigin } from './room.js';
 
+/** The furniture/decal atlas manifest — see server/scripts/bake-furniture-atlas.mts.
+ *  Rects, not a grid: the art has mixed sizes, so a cell formula cannot describe
+ *  it and the packer writes down where each id landed. */
+export interface AtlasManifest {
+  image: string;
+  width: number;
+  height: number;
+  gap: number;
+  extrude: number;
+  frames: Record<string, { x: number; y: number; w: number; h: number }>;
+}
+
+/**
+ * Fetch the baked collection-art atlas: one PNG plus the manifest saying where
+ * each catalog id sits in it.
+ *
+ * Over HTTP, cached and revalidated with an ETag, because this art never changes
+ * — unlike the catalog MESSAGE it will replace, which re-sends the same pixels on
+ * every join and is what put that message at 7.6 MB. Returns null when either
+ * half is missing or unreadable, and the caller then simply keeps using the
+ * sprites the message carries: this is a faster path, never the only one.
+ */
+export async function loadFurnitureAtlas(): Promise<{ bitmap: ImageBitmap; manifest: AtlasManifest } | null> {
+  try {
+    const base = `${serverHttpOrigin()}/assets/tiled/png`;
+    const res = await fetch(`${base}/atlas-furniture.json`);
+    if (!res.ok) throw new Error(`atlas-furniture.json: HTTP ${res.status}`);
+    const manifest = (await res.json()) as AtlasManifest;
+    if (!manifest?.frames || Object.keys(manifest.frames).length === 0) throw new Error('manifest has no frames');
+    const bitmap = await fetchBitmap(`${base}/${manifest.image.replace(/^png\//, '')}`);
+    if (bitmap.width !== manifest.width || bitmap.height !== manifest.height) {
+      // A manifest and an atlas from different bakes would draw the wrong art with
+      // complete confidence, so they are checked against each other rather than
+      // trusted to match.
+      throw new Error(`atlas is ${bitmap.width}×${bitmap.height}, manifest says ${manifest.width}×${manifest.height}`);
+    }
+    return { bitmap, manifest };
+  } catch (err) {
+    console.warn('[tiledSheets] no furniture atlas, using the sprites from the catalog message:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /** One entry of sets.json: a sheet's name plus its own grid geometry. */
 interface SheetInfo {
   name: string;

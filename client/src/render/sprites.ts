@@ -376,3 +376,91 @@ export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
   }
   return { key: sheet.key, frame };
 }
+
+
+// ── The baked collection-art atlas ───────────────────────────
+//
+// Same idea as a sheet above, but the cells are not on a grid: furniture and decal
+// art has mixed sizes, so the bake writes down where each id landed
+// (server/scripts/bake-furniture-atlas.mts) and this draws from those rects.
+//
+// It is a FASTER PATH, never the only one. An id the atlas does not carry — art
+// added since the bake, an avatar, a pose frame — still goes through
+// spriteTexture() and gets packed at runtime, which is what makes it safe to ship
+// the atlas before the catalog message stops carrying pixels.
+
+interface AtlasFrames {
+  key: string;
+  tex: Phaser.Textures.CanvasTexture;
+  rects: Record<string, { x: number; y: number; w: number; h: number }>;
+}
+
+let furnitureAtlas: AtlasFrames | null = null;
+
+/** Keep the fetched atlas as one texture. Frames are defined on first use, since
+ *  a map draws a fraction of the catalog. */
+export function registerFurnitureAtlas(
+  scene: Phaser.Scene,
+  bitmap: ImageBitmap,
+  rects: Record<string, { x: number; y: number; w: number; h: number }>,
+): void {
+  const key = 'atlas_furniture';
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+  const tex = scene.textures.createCanvas(key, bitmap.width, bitmap.height);
+  if (!tex) {
+    console.warn('[sprites] could not create the furniture atlas texture');
+    return;
+  }
+  const ctx = tex.getContext();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bitmap, 0, 0);
+  tex.refresh();
+  furnitureAtlas = { key, tex, rects };
+}
+
+/** Where a catalog id is drawn from in the atlas, or null if it is not in it. */
+export function atlasFrame(id: string | undefined): SpriteTex | null {
+  if (!id || !furnitureAtlas) return null;
+  const rect = furnitureAtlas.rects[id];
+  if (!rect) return null;
+  if (!furnitureAtlas.tex.has(id)) furnitureAtlas.tex.add(id, 0, rect.x, rect.y, rect.w, rect.h);
+  return { key: furnitureAtlas.key, frame: id };
+}
+
+/** Ids whose atlas rect does not match the art the catalog has, so the atlas is
+ *  stale for them — warned once each, then permanently ignored. */
+const staleInAtlas = new Set<string>();
+
+/**
+ * The frame to draw a catalog item from: the baked atlas if it has this id and
+ * agrees with it, else the runtime-packed SpriteData.
+ *
+ * One place decides that, so no caller has to remember the order — and once the
+ * catalog message stops carrying pixels, the fallback is what keeps everything
+ * that is not baked (avatars, live-edited art) working.
+ *
+ * The size comparison is the interesting part. A stale atlas whose OVERALL
+ * dimensions still match the manifest (checked at load) would otherwise draw
+ * yesterday's art with complete confidence — the failure this whole path is most
+ * likely to produce and least likely to be noticed, since old furniture still
+ * looks like furniture. While the message still carries the real pixels we can
+ * simply ask them: a mismatch in size means this id was re-drawn since the bake,
+ * so it goes through the runtime packer instead and says so once.
+ */
+export function spriteTextureFor(scene: Phaser.Scene, id: string | undefined, sprite: SpriteData): SpriteTex {
+  if (id && furnitureAtlas && !staleInAtlas.has(id)) {
+    const rect = furnitureAtlas.rects[id];
+    const h = sprite.length;
+    const w = h > 0 ? sprite[0].length : 0;
+    if (rect && (rect.w !== w || rect.h !== h)) {
+      staleInAtlas.add(id);
+      console.warn(
+        `[sprites] "${id}" is ${w}×${h} but the atlas has ${rect.w}×${rect.h} — re-run bake-furniture-atlas.mts; ` +
+          'drawing it from the catalog for now',
+      );
+    } else if (rect) {
+      return atlasFrame(id)!;
+    }
+  }
+  return spriteTexture(scene, sprite);
+}

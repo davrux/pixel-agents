@@ -98,6 +98,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
 
     instances.push({
       sprite,
+      spriteId: item.id,
       x,
       y,
       zY,
@@ -138,6 +139,7 @@ export function layoutToDecalInstances(decals: PlacedDecal[] | undefined): Furni
     const y = decal.row * TILE_SIZE;
     instances.push({
       sprite: entry.sprite,
+      spriteId: decal.id,
       x: decal.col * TILE_SIZE,
       y,
       zY: decal.occludes ? y + entry.sprite.length : DECAL_DEPTH,

@@ -48,7 +48,15 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
 import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
-import { spriteTexture, ensureImageTexture, registerSheetTexture, sheetFrame, type SpriteTex } from './sprites.js';
+import {
+  spriteTexture,
+  spriteTextureFor,
+  ensureImageTexture,
+  registerFurnitureAtlas,
+  registerSheetTexture,
+  sheetFrame,
+  type SpriteTex,
+} from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
 
 const FLOOR_DEPTH = -100000;
@@ -147,6 +155,13 @@ export class PhaserRenderer {
     for (const { name, bitmap, spacing } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing);
   }
 
+  /** Keep the baked collection-art atlas as one texture, so furniture and decals
+   *  draw from it instead of from per-sprite pixels. Optional by design: without
+   *  it they fall back to the sprites the catalog message carries. */
+  registerAtlas(bitmap: ImageBitmap, frames: Record<string, { x: number; y: number; w: number; h: number }>): void {
+    registerFurnitureAtlas(this.scene, bitmap, frames);
+  }
+
   /** Replace the set of players shown with a speaking ring (called per frame). */
   setSpeakingIds(ids: Set<number>): void {
     this.speakingIds.clear();
@@ -211,7 +226,7 @@ export class PhaserRenderer {
     // re-sync and no pool to keep. Added in paint order, which is what makes flat
     // decals (all sharing DECAL_DEPTH) stack the way the Layers panel shows them.
     for (const d of layoutToDecalInstances(layout.decals)) {
-      const tex = spriteTexture(this.scene, d.sprite);
+      const tex = spriteTextureFor(this.scene, d.spriteId, d.sprite);
       this.statics.push(
         this.scene.add
           .image(d.x, d.y, tex.key, tex.frame)
@@ -292,7 +307,7 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0, 0);
         this.furniturePool[i] = img;
       }
-      const ftex = spriteTexture(this.scene, f.sprite);
+      const ftex = spriteTextureFor(this.scene, f.spriteId, f.sprite);
       img.setTexture(ftex.key, ftex.frame);
       img
         .setPosition(f.x, f.y)
