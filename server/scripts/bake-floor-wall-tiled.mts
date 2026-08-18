@@ -9,7 +9,7 @@
  * the same closed palette (see palettes.ts) as real, paintable tiles.
  *
  * Each tile carries NO custom properties at all — only its Tiled class
- * (`type: 'WallTile'` where a class is still needed, see Pixels.tiled-project). Which
+ * (no per-tile class any more — see the `grid` helper). Which
  * pattern/bitmask a tile is, and which palette swatch (or "Natural", column
  * 0), is derived purely from its position in this grid — row = pattern-1 or
  * bitmask, column = swatch+1 (see mapBridge.ts's rowAndSwatchFromLocalId/
@@ -135,11 +135,10 @@ function grid(tileW: number, tileH: number, columns: number, tileCount: number, 
     tiledversion: '1.11.0',
     tileheight: tileH,
     tilewidth: tileW,
-    // `type` assigns each tile to its project-level class (Pixels.tiled-project's
-    // WallTile) where one is still needed. Floor sets pass null: their class
-    // decided nothing once ground became "whatever is painted on the GroundLayer"
-    // (see mapBridge), carried no properties, and reading it as "ground must be a
-    // FloorTile" is exactly the wrong conclusion. The entries stay so `tilecount`
+    // No `type`: the FloorTile and WallTile classes are gone. Neither carried a
+    // property or decided anything — ground is whatever is painted on the
+    // GroundLayer (see mapBridge), and a wall cell's height is read off the
+    // tileset's own `tileheight` (see gridSheets). The entries stay, so `tilecount`
     // and every saved gid are untouched.
     tiles: Array.from({ length: tileCount }, (_, id) => (tileClass === null ? { id } : { id, type: tileClass })),
     type: 'tileset',
@@ -246,7 +245,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
   const imageH = raw.length * WALL_H + (raw.length - 1) * WALL_TILE_SPACING;
-  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, 'WallTile', outputName, WALL_TILE_SPACING) as Record<
+  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, null, outputName, WALL_TILE_SPACING) as Record<
     string,
     unknown
   >;

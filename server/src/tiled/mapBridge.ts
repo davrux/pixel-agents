@@ -78,8 +78,8 @@ function tiledColorToRgbHex(color: string): string | null {
  *  is the tileset's OWN (RegistryTileset.columns): sets differ — 65 for a
  *  palette bake, 1 for a natural-only set like floor-overworld. The fallback
  *  cannot trigger for a tile resolved out of a baked grid (those always carry
- *  columns ≥ 1); it only keeps the math finite if a FloorTile/WallTile ever
- *  appears in a collection-of-images set (columns 0). */
+ *  columns ≥ 1); it only keeps the math finite if a tile from a
+ *  collection-of-images set (columns 0) is ever painted on a wall layer. */
 function rowAndSwatchFromLocalId(localId: number, tilesetColumns: number): { row: number; swatchIndex: number | null } {
   const columns = tilesetColumns > 0 ? tilesetColumns : TILED_SHEET_COLUMNS;
   const row = Math.floor(localId / columns);
@@ -169,7 +169,7 @@ export function importTmjToLayout(
   const ground = (layers.find((l) => l.class === 'GroundLayer')?.data as number[]) ?? [];
   const collision = (layers.find((l) => l.class === 'CollisionLayer')?.data as number[]) ?? [];
   // Walls are edges, painted on their own half-offset lattice layer (see
-  // OfficeLayout.walls). Ground is floor only — a WallTile painted there is not
+  // OfficeLayout.walls). Which layer a tile is on is the whole statement — a
   // a wall.
   const wallLatticeLayer = (layers.find((l) => l.class === 'WallLatticeLayer')?.data as number[]) ?? [];
   // North-wall face surface, cell-aligned on its own layer (see WallEdges.faces).
@@ -293,7 +293,12 @@ export function importTmjToLayout(
         // while the editor showed it perfectly. Costly to diagnose from a
         // screenshot; cheap to prevent here.
         const resolved = resolveGid(baseGid(wallLatticeLayer[r * cols + c]));
-        if (resolved?.class !== 'WallTile') continue;
+        // The LAYER is the statement, exactly as for ground: whatever is painted on
+        // the lattice layer is a wall piece. This tested `class === 'WallTile'`
+        // until that class was removed, and the test then silently dropped every
+        // wall in the map — 262 edges gone, and only a re-import plus a count
+        // caught it. A grid is still required: a piece is a ROW of a sheet.
+        if (!resolved || resolved.tileset.columns <= 0) continue;
         const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId, resolved.tileset.columns);
         const li = latticeIndex(cols, c, r);
         latticeSet[li] = setIndexInto(wallSets, resolved.tileset.file);
@@ -321,7 +326,7 @@ export function importTmjToLayout(
     let anyFace = false;
     for (let i = 0; i < cols * rows; i++) {
       const resolved = resolveGid(baseGid(wallFaceLayer[i]));
-      if (resolved?.class !== 'WallTile') continue;
+      if (!resolved || resolved.tileset.columns <= 0) continue; // the layer says it is a face
       const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId, resolved.tileset.columns);
       facePiece[i] = piece;
       faceSet[i] = setIndexInto(wallSets, resolved.tileset.file);

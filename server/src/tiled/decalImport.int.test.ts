@@ -451,3 +451,39 @@ test('a migration that cannot resolve a set is reported and changes nothing', ()
   assert.deepEqual(layout.tiles, [-1, -1], 'unresolved cells are holes, not guesses');
   // The contract the store relies on: a non-empty `unresolved` means "do not save".
 });
+
+// ── Walls come from the layer too ───────────────────────────────
+//
+// This exists because removing the WallTile class silently dropped every wall in a
+// real map: the import still tested `class === 'WallTile'`, so a lattice layer full
+// of painted pieces produced zero edges, and nothing failed. Counting the edges of
+// a re-imported map is what caught it, which is not a thing that happens by itself.
+
+test('a piece painted on the wall lattice layer becomes wall edges', () => {
+  const wallSet = registry.bySource('wall-metro-endesga.tsj');
+  assert.ok(wallSet, 'wall-metro-endesga.tsj is not on disk');
+  // Piece 15 is the all-four-edges adjacency tile (N|E|S|W), so one painted cell
+  // must produce four edges — see wallEdges.ts's latticeMask.
+  const localId = 15 * wallSet.columns;
+
+  const lattice = new Array(COLS * ROWS).fill(0);
+  lattice[4 * COLS + 4] = 1 + localId;
+  const { layout } = importTmjToLayout(
+    {
+      width: COLS,
+      height: ROWS,
+      tilesets: [{ firstgid: 1, source: 'wall-metro-endesga.tsj' }],
+      layers: [{ class: 'WallLatticeLayer', name: 'Walls', type: 'tilelayer', data: lattice }],
+    },
+    registry,
+    noImages,
+  );
+
+  assert.deepEqual(layout.wallSets, ['wall-metro-endesga'], 'the wall set names itself');
+  const painted = (layout.walls?.latticePiece ?? []).filter((p) => p != null);
+  assert.equal(painted.length, 1, 'exactly the painted lattice point carries a piece');
+  assert.equal(painted[0], 15, 'the piece index is the row of the sheet');
+  const edges =
+    (layout.walls?.horizontal ?? []).filter(Boolean).length + (layout.walls?.vertical ?? []).filter(Boolean).length;
+  assert.equal(edges, 4, 'an N|E|S|W piece sets all four edges meeting at that point');
+});

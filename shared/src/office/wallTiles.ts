@@ -13,55 +13,30 @@
 
 import type { SheetCellRef, SheetInstance, WallEdges } from './types.js';
 import { TILE_SIZE } from './types.js';
-import { WALL_TILE_H } from './tiledSheetLayout.js';
+import { hasSheets, sheetGrid } from './tiledSheetLayout.js';
 import { latticeIndex, latticeMask } from './wallEdges.js';
 
-/**
- * Piece (row) count per wall set, keyed by the set's NAME — no pixels.
- *
- * This held the sliced sheets until the client stopped exploding them: two wall
- * sets are 6230 cells and 3.19 million pixels, which as hex strings was the bulk
- * of ~34 MB of heap re-encoding 269 KB of PNG. A baked sheet is already an atlas,
- * so the renderer keeps it as one texture and draws rectangles (see
- * client/src/render/sprites.ts); what belongs here is which sets exist and how
- * many pieces each carries.
- *
- * Keyed by name rather than by a position in a list — see floorTiles.ts for what
- * that positional index cost.
- */
-let wallPieceCounts: Record<string, number> = {};
-
-/** Register the wall sets that loaded, with each set's piece count (read off the
- *  sheet's own height — see client/src/net/tiledSheets.ts). */
-export function setWallSheetInfo(pieceCounts: Record<string, number>): void {
-  wallPieceCounts = pieceCounts;
-}
-
-/** Check if wall sheets have been loaded */
-export function hasWallSprites(): boolean {
-  return Object.keys(wallPieceCounts).length > 0;
-}
-
-/** The named set, else whichever loaded first — a map naming a set this build
- *  does not have (renamed or removed tileset) still draws walls. Warned once. */
 const warnedWallSets = new Set<string>();
-function wallSet(name: string | undefined): string | undefined {
-  if (name !== undefined) {
-    if (wallPieceCounts[name] !== undefined) return name;
-    if (!warnedWallSets.has(name)) {
-      warnedWallSets.add(name);
-      console.warn(`[wallTiles] unknown wall set "${name}" — falling back`);
-    }
-  }
-  const names = Object.keys(wallPieceCounts);
-  return names.length > 0 ? names[0] : undefined;
-}
 
-/** The cell a piece + swatch is in, or null when the set has no such piece —
- *  which is how a face piece past a set's own range stays undrawn. */
+/** The cell a piece + swatch is in, or null when the set is not loaded or has no
+ *  such piece — which is how a face piece past a set's own range stays undrawn.
+ *
+ *  An unknown set is NOT swapped for another sheet. It used to fall back to
+ *  whichever wall set had loaded first, which made a map naming a removed tileset
+ *  draw *some* wall; with a piece index that is a row of a specific sheet, that is
+ *  confident nonsense rather than a near miss. Warned once per name. */
 function wallCell(sheet: string | undefined, piece: number, swatch: number | null): SheetCellRef | null {
-  if (sheet === undefined || piece < 0 || piece >= wallPieceCounts[sheet]) return null;
-  return { sheet, kind: 'wall', row: piece, col: swatch === null ? 0 : swatch + 1 };
+  if (sheet === undefined) return null;
+  const grid = sheetGrid(sheet);
+  if (grid === undefined) {
+    if (!warnedWallSets.has(sheet)) {
+      warnedWallSets.add(sheet);
+      console.warn(`[wallTiles] wall set "${sheet}" is not loaded — those walls stay blank`);
+    }
+    return null;
+  }
+  if (piece < 0 || piece >= grid.rows) return null;
+  return { sheet, row: piece, col: swatch === null ? 0 : swatch + 1 };
 }
 
 /**
@@ -79,7 +54,7 @@ function wallCell(sheet: string | undefined, piece: number, swatch: number | nul
  * occluded by anything in row r, which is what r * TILE_SIZE gives.
  */
 export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number, setNames: string[] = []): SheetInstance[] {
-  if (!hasWallSprites()) return [];
+  if (!hasSheets()) return [];
   const instances: SheetInstance[] = [];
   // Was anything painted at all? If so the lattice layer is the truth and only
   // painted points draw — anything else invents wall the editor does not show
@@ -93,15 +68,16 @@ export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: numbe
       const derived = latticeMask(walls, cols, rows, c, r);
       if (authored ? painted == null : derived === 0) continue;
       const piece = painted ?? derived;
-      const ref = wallCell(wallSet(setNames[walls.latticeSet?.[li] ?? 0]), piece, walls.latticeColor?.[li] ?? null);
+      const ref = wallCell(setNames[walls.latticeSet?.[li] ?? 0], piece, walls.latticeColor?.[li] ?? null);
       if (!ref) continue;
+      // Bottom-anchored like every wall sprite, then shifted onto the lattice. The
+      // height comes from the SHEET (its tileheight), not from a constant: that is
+      // the same measurement the WallTile class used to stand for.
+      const tileH = sheetGrid(ref.sheet)?.tileH ?? TILE_SIZE;
       instances.push({
         ref,
-        // Bottom-anchored like every wall sprite, then shifted onto the lattice.
-        // Every wall cell is WALL_TILE_H tall by construction (the sheet is cut
-        // that way), which is what the sprite's own height used to say here.
         x: c * TILE_SIZE - TILE_SIZE / 2,
-        y: r * TILE_SIZE - TILE_SIZE / 2 + (TILE_SIZE - WALL_TILE_H),
+        y: r * TILE_SIZE - TILE_SIZE / 2 + (TILE_SIZE - tileH),
         zY: r * TILE_SIZE,
       });
     }
@@ -124,21 +100,21 @@ export function getWallFaceInstances(
   rows: number,
   setNames: string[] = [],
 ): SheetInstance[] {
-  if (!hasWallSprites()) return [];
+  if (!hasSheets()) return [];
   const instances: SheetInstance[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
       const piece = faces.piece[i];
       if (piece == null) continue;
-      const ref = wallCell(wallSet(setNames[faces.set?.[i] ?? 0]), piece, faces.color?.[i] ?? null);
+      const ref = wallCell(setNames[faces.set?.[i] ?? 0], piece, faces.color?.[i] ?? null);
       if (!ref) continue;
       instances.push({
         ref,
         x: c * TILE_SIZE,
         // Bottom-anchored, like every wall sprite (the art sits in the bottom
         // 16 rows of a 32-tall slot).
-        y: r * TILE_SIZE + (TILE_SIZE - WALL_TILE_H),
+        y: r * TILE_SIZE + (TILE_SIZE - (sheetGrid(ref.sheet)?.tileH ?? TILE_SIZE)),
         zY: (r + 1) * TILE_SIZE,
       });
     }

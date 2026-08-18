@@ -39,9 +39,10 @@ export interface RenderSource {
   getLayout(): OfficeLayout;
   tileMap: GroundMap;
 }
-import { groundCellRef, hasGroundSheets } from '@pixel/shared/office/floorTiles.js';
+import { groundCellRef } from '@pixel/shared/office/floorTiles.js';
+import { hasSheets } from '@pixel/shared/office/tiledSheetLayout.js';
 import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
-import { getWallEdgeInstances, getWallFaceInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
+import { getWallEdgeInstances, getWallFaceInstances } from '@pixel/shared/office/wallTiles.js';
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
@@ -152,8 +153,8 @@ export class PhaserRenderer {
   /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
    *  by frame (see sprites.ts). Call once the sheets have loaded, before
    *  buildStatic(); without them floor and walls fall back to a flat fill. */
-  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap; spacing: number }>): void {
-    for (const { name, bitmap, spacing } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing);
+  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap; spacing: number; tileW: number; tileH: number }>): void {
+    for (const { name, bitmap, spacing, tileW, tileH } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing, tileW, tileH);
   }
 
   /** Keep the baked collection-art atlas as one texture, so furniture and decals
@@ -189,7 +190,7 @@ export class PhaserRenderer {
     const tileMap = this.state.tileMap;
     const tileFloorSet = layout.tileFloorSet;
     const cols = layout.cols;
-    const useFloors = hasGroundSheets();
+    const useFloors = hasSheets();
 
     // Floor, under every non-void cell. Every cell is floor now — a wall is an
     // edge between cells (see OfficeLayout.walls), drawn later as a z-sorted
@@ -263,7 +264,7 @@ export class PhaserRenderer {
 
     // Wall sprite instances — participate in depth sort. One per lattice point
     // any wall edge touches (see OfficeLayout.walls).
-    if (hasWallSprites() && layout.walls) {
+    if (hasSheets() && layout.walls) {
       const wallParts = [
         ...getWallEdgeInstances(layout.walls, cols, layout.rows, layout.wallSets ?? []),
         ...(layout.walls.faces ? getWallFaceInstances(layout.walls.faces, cols, layout.rows, layout.wallSets ?? []) : []),

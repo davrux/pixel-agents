@@ -229,10 +229,14 @@ background only.)
   what the layer means: ground is underneath and makes the cell standable, a decal
   is a picture and never affects walkability. **Only the ground makes a cell
   walkable** — art alone never does.
-  The `FloorTile` class is gone with that test. It carried no properties and decided
-  nothing once the layer became the statement, and leaving it would have kept
-  suggesting the rule it used to enforce. `WallTile` remains, for one reason only:
-  those cells are taller than a map cell, so their rows are counted differently.
+  **No tile class decides anything any more.** `FloorTile` and `WallTile` are both
+  gone: neither carried a property, and the one fact they encoded — how tall a cell
+  is — is stated by the tileset itself (`tilewidth`/`tileheight`, passed to the
+  client in `sets.json` and kept in one `SheetGrid` table). A `SheetCellRef` is now
+  just (sheet, row, col), and a sheet cell is a sheet cell whether it draws ground or
+  a wall piece. What still classifies is the LAYER (`GroundLayer`,
+  `WallLatticeLayer`, `DecalLayer`, `CollisionLayer`) and, for things with
+  behaviour, `FurnitureTile`/`DecalTile` — those carry real properties.
 - **Decoration is a decal, not an object.** A `DecalTile` painted on a
   `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
   `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no

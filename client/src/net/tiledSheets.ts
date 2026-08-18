@@ -6,12 +6,11 @@
  * floorTilesLoaded/wallTilesLoaded Colyseus messages — no more live per-pixel
  * colorize (see docs/design.md).
  */
-import { setSheetGrids } from '@pixel/shared/office/floorTiles.js';
-import { setWallSheetInfo } from '@pixel/shared/office/wallTiles.js';
 import {
   FLOOR_TILE_H,
+  FLOOR_TILE_W,
+  setSheetGrids,
   FLOOR_TILE_SPACING,
-  WALL_TILE_H,
   WALL_TILE_SPACING,
 } from '@pixel/shared/office/tiledSheetLayout.js';
 
@@ -72,10 +71,11 @@ interface SheetInfo {
    *  `image`, passed through by the server. Not built from `name` here: that
    *  turned a file move into a client release. */
   img?: string;
-  /** 'wall' means the set's cells are taller than a map cell, so its rows are
-   *  counted differently and the wall renderer wants its piece count. Everything
-   *  else is 'other' — ground can be drawn from any of them. */
-  kind?: 'wall' | 'other';
+  /** One cell's size, from the tileset's own tilewidth/tileheight. This replaced a
+   *  'floor' | 'wall' kind: how tall a cell is was never a classification, it is a
+   *  measurement the artifact states. */
+  tileWidth?: number;
+  tileHeight?: number;
 }
 
 interface SetsJson {
@@ -108,6 +108,10 @@ export interface LoadedSheet {
   name: string;
   bitmap: ImageBitmap;
   spacing: number;
+  /** One cell's size, so the renderer can cut frames without knowing what kind of
+   *  sheet this is (see SheetCellRef). */
+  tileW: number;
+  tileH: number;
 }
 
 function hex2(n: number): string {
@@ -148,8 +152,9 @@ export async function loadTiledSheets(): Promise<LoadedSheet[]> {
     // Which sheets exist comes from the server, which reads it off disk — no list
     // of filenames in the client bundle, so adding or renaming a tileset needs no
     // client release (see tiledSheetLayout.ts for what the old constants cost).
-    // ALL grid sets, not just floor and wall: a map's ground may name any of them
-    // (see OfficeLayout.tiles), so fetching a subset would leave those cells blank.
+    // ALL grid sets: ground may name any of them (see OfficeLayout.tiles), and the
+    // wall sets are in the same list because nothing distinguishes them any more
+    // beyond their cell height.
     const sets = await sheetPaths(origin);
     const sheets = sets.sheets ?? [];
     const bitmaps = await Promise.all(
@@ -159,25 +164,22 @@ export async function loadTiledSheets(): Promise<LoadedSheet[]> {
     // pattern or an extra hand-painted wall piece needs no code change. A wall set
     // may carry pieces past the 16 adjacency ones (the metro sets' north-wall
     // faces — see server/src/core/assets/pngDecoder.ts's parseWallPng).
-    const rowsOf = (bitmap: ImageBitmap, tileH: number, spacing: number) =>
-      Math.round((bitmap.height + spacing) / (tileH + spacing));
     setSheetGrids(
       Object.fromEntries(
-        sheets.map((f, i) => [
-          f.name,
-          { columns: f.columns, rows: rowsOf(bitmaps[i], f.kind === 'wall' ? WALL_TILE_H : FLOOR_TILE_H, f.spacing) },
-        ]),
+        sheets.map((f, i) => {
+          const tileW = f.tileWidth || FLOOR_TILE_W;
+          const tileH = f.tileHeight || FLOOR_TILE_H;
+          return [f.name, { columns: f.columns, rows: Math.round((bitmaps[i].height + f.spacing) / (tileH + f.spacing)), tileW, tileH }];
+        }),
       ),
     );
-    setWallSheetInfo(
-      Object.fromEntries(
-        sheets
-          .map((f, i) => [f, i] as const)
-          .filter(([f]) => f.kind === 'wall')
-          .map(([f, i]) => [f.name, rowsOf(bitmaps[i], WALL_TILE_H, f.spacing)]),
-      ),
-    );
-    return sheets.map((f, i) => ({ name: f.name, bitmap: bitmaps[i], spacing: f.spacing }));
+    return sheets.map((f, i) => ({
+      name: f.name,
+      bitmap: bitmaps[i],
+      spacing: f.spacing,
+      tileW: f.tileWidth || FLOOR_TILE_W,
+      tileH: f.tileHeight || FLOOR_TILE_H,
+    }));
   } catch (err) {
     console.warn('[tiledSheets] failed to load the tileset sheets:', err instanceof Error ? err.message : err);
     return [];

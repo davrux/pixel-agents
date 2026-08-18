@@ -19,28 +19,8 @@
  * column of the cell.
  */
 
+import { sheetGrid } from './tiledSheetLayout.js';
 import type { SheetCellRef } from './types.js';
-
-/** A registered sheet's grid, keyed by the sheet's NAME.
- *
- *  Keyed by name, not by a position in a list: it used to be an array indexed by
- *  "position in FLOOR_SET_FILES", which made a hardcoded list of filenames the
- *  identity of a floor set — renaming one broke it, and merely REORDERING the list
- *  silently restyled every floor tile of every saved map. A layout names the sets
- *  it uses (OfficeLayout.floorSets) and nothing in the code enumerates them. */
-let sheetGrids: Record<string, { columns: number; rows: number }> = {};
-
-/** Register the sheets that loaded, with each one's grid (read off the sheet's own
- *  size — see client/src/net/tiledSheets.ts). Every GRID tileset belongs here, not
- *  just the baked floor sets: a map may use any of them as ground. */
-export function setSheetGrids(grids: Record<string, { columns: number; rows: number }>): void {
-  sheetGrids = grids;
-}
-
-/** Have any sheets loaded yet? */
-export function hasGroundSheets(): boolean {
-  return Object.keys(sheetGrids).length > 0;
-}
 
 /**
  * Which sheet cell draws ground tile `localId` of set `setName`.
@@ -58,7 +38,7 @@ export function hasGroundSheets(): boolean {
  */
 export function groundCellRef(setName: string | undefined, localId: number): SheetCellRef | null {
   if (localId < 0 || setName === undefined) return null;
-  const grid = sheetGrids[setName];
+  const grid = sheetGrid(setName);
   if (grid === undefined) {
     if (!warnedSets.has(setName)) {
       warnedSets.add(setName);
@@ -70,7 +50,7 @@ export function groundCellRef(setName: string | undefined, localId: number): She
   const row = Math.floor(localId / grid.columns);
   const col = localId % grid.columns;
   if (row >= grid.rows) return null;
-  return { sheet: setName, kind: 'floor', row, col };
+  return { sheet: setName, row, col };
 }
 
 const warnedSets = new Set<string>();

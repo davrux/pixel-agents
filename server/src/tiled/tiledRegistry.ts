@@ -85,7 +85,6 @@ export interface RegistryTileset {
  *  the same thing, exactly the duplication that a `category` property on floor
  *  and wall tiles was removed for. */
 export const FURNITURE_TILE_CLASS = 'FurnitureTile';
-export const WALL_TILE_CLASS = 'WallTile';
 /** Map art painted on a DecalLayer and nothing more — no synced object, no
  *  behaviour (see tiled/decalProps.ts). Same discriminator rule as the three
  *  above: the tiles say it, the filename never does. */
@@ -122,15 +121,16 @@ export function tilesetHolds(json: { tiles?: Array<{ type?: string }> }, cls: st
  * All of them, not just the baked floor/wall sets: a map's ground may name any
  * grid tileset (see OfficeLayout.tiles), so restricting this list would restore
  * exactly the limit that made painting imported art on the GroundLayer produce a
- * hole. `kind` only separates wall sets, whose cells are taller than a map cell —
- * asked of the tiles themselves, never of the filename.
+ * hole. The cell size travels with each sheet, which is what a wall set's taller
+ * cells need — read off the tileset, never guessed from a filename.
  */
 export function gridSheets(registry: TiledRegistry): Array<{
   name: string;
   columns: number;
   spacing: number;
   img: string;
-  kind: 'wall' | 'other';
+  tileWidth: number;
+  tileHeight: number;
 }> {
   return registry.tilesets
     .filter((ts) => ts.image !== '' && ts.columns > 0)
@@ -139,11 +139,12 @@ export function gridSheets(registry: TiledRegistry): Array<{
       columns: ts.columns,
       spacing: ts.spacing,
       img: ts.image,
-        // Only 'wall' means anything: those cells are taller than a map cell, so the
-      // client reads their rows differently. There used to be a 'floor' answer as
-      // well, from a FloorTile class that decided nothing once ground became
-      // "whatever is painted on the GroundLayer" — and nothing ever read it.
-      kind: ts.tiles.some((t) => t.class === WALL_TILE_CLASS) ? ('wall' as const) : ('other' as const),
+      // The cell size — the only thing that ever differed between a floor sheet and
+      // a wall sheet. It used to travel as a `kind` derived from the
+      // FloorTile/WallTile classes; a measurement the tileset already states belongs
+      // in the tileset, so both classes are gone and this is read instead.
+      tileWidth: ts.tileWidth,
+      tileHeight: ts.tileHeight,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

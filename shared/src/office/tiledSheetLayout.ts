@@ -22,7 +22,49 @@
 import { TILE_SIZE } from './constants.js';
 import { PALETTE_64 } from './palettes.js';
 
+/**
+ * The grid of every sheet that loaded, keyed by the sheet's NAME.
+ *
+ * One table for ground and walls alike, because a sheet cell is a sheet cell: the
+ * cell size comes from the TILESET (its `tilewidth`/`tileheight`, passed through
+ * sets.json), which is what let the FloorTile and WallTile classes go. They only
+ * ever answered "how tall is a cell here", and a class is a poor place to keep a
+ * measurement the artifact already states.
+ *
+ * Keyed by name rather than by a position in a list — see floorTiles.ts for what
+ * that positional index cost when a tileset was renamed or merely reordered.
+ */
+export interface SheetGrid {
+  columns: number;
+  rows: number;
+  /** One cell's size in px — 16×16 for ground art, taller for wall pieces. */
+  tileW: number;
+  tileH: number;
+}
+let grids: Record<string, SheetGrid> = {};
+
+/** Register the sheets that loaded (client/src/net/tiledSheets.ts does this once). */
+export function setSheetGrids(next: Record<string, SheetGrid>): void {
+  grids = next;
+}
+
+/** A sheet's grid, or undefined if this build never loaded it — a map naming a
+ *  tileset that is gone. Callers answer that with "cannot draw", never with a
+ *  substitute sheet: the same id in another sheet is unrelated art. */
+export function sheetGrid(name: string | undefined): SheetGrid | undefined {
+  return name === undefined ? undefined : grids[name];
+}
+
+/** Have any sheets loaded yet? Before that the renderer has nothing to draw
+ *  ground or walls from and falls back to its flat fill. */
+export function hasSheets(): boolean {
+  return Object.keys(grids).length > 0;
+}
+
 export const TILED_SHEET_COLUMNS = PALETTE_64.length + 1;
+/** The sizes the BAKE cuts its sheets to. Read at render time from the sheet's own
+ *  grid instead (see SheetGrid) — these stay because the bake has to choose a
+ *  height for a wall piece, and 32 is that choice. */
 export const FLOOR_TILE_W = TILE_SIZE;
 export const FLOOR_TILE_H = TILE_SIZE;
 export const WALL_TILE_W = TILE_SIZE;

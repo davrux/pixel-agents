@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import type { SheetCellRef, SpriteData } from '@pixel/shared/office/types.js';
 import { serverHttpOrigin } from '../net/room.js';
-import { FLOOR_TILE_H, FLOOR_TILE_W, WALL_TILE_H, WALL_TILE_W } from '@pixel/shared/office/tiledSheetLayout.js';
+
 
 /**
  * SpriteData → something Phaser can draw, via a **runtime texture atlas**.
@@ -326,17 +326,27 @@ export function ensureImageTexture(scene: Phaser.Scene, assetId: string, dataUrl
 interface Sheet {
   key: string;
   tex: Phaser.Textures.CanvasTexture;
-  /** The gap this sheet was baked with, as read off its .tsj (see sets.json).
-   *  Taken from the artifact rather than a constant, so a re-baked sheet and this
-   *  reader cannot drift apart. */
+  /** The gap this sheet was baked with, and one cell's size — all three read off
+   *  its .tsj (see sets.json) rather than from constants, so a re-baked sheet and
+   *  this reader cannot drift apart. The size being per sheet is what removed the
+   *  floor/wall distinction from SheetCellRef. */
   spacing: number;
+  tileW: number;
+  tileH: number;
 }
 
 const sheets = new Map<string, Sheet>();
 
 /** Register a fetched sheet bitmap as one texture. Called once per set, after
  *  client/src/net/tiledSheets.ts has fetched it. */
-export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: ImageBitmap, spacing: number): void {
+export function registerSheetTexture(
+  scene: Phaser.Scene,
+  name: string,
+  bitmap: ImageBitmap,
+  spacing: number,
+  tileW: number,
+  tileH: number,
+): void {
   const existing = sheets.get(name);
   if (existing && scene.textures.exists(existing.key)) return;
   const key = `sheet_${name}`;
@@ -350,7 +360,7 @@ export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: 
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(bitmap, 0, 0);
   tex.refresh();
-  sheets.set(name, { key, tex, spacing });
+  sheets.set(name, { key, tex, spacing, tileW, tileH });
 }
 
 /**
@@ -364,9 +374,11 @@ export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: 
 export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
   const sheet = sheets.get(ref.sheet);
   if (!sheet) return null;
-  const isWall = ref.kind === 'wall';
-  const w = isWall ? WALL_TILE_W : FLOOR_TILE_W;
-  const h = isWall ? WALL_TILE_H : FLOOR_TILE_H;
+  // The cell size is the SHEET's, from its tileset — no 'floor' or 'wall' kind to
+  // branch on, and therefore no class to keep in Tiled just to say how tall a wall
+  // piece is.
+  const w = sheet.tileW;
+  const h = sheet.tileH;
   const gap = sheet.spacing;
   const frame = `${ref.row}_${ref.col}`;
   if (!sheet.tex.has(frame)) {

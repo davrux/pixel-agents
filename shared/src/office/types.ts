@@ -180,10 +180,13 @@ export interface Pet {
 export interface SheetCellRef {
   /** Set name — the sheet's identity, see OfficeLayout.floorSets / wallSets. */
   sheet: string;
-  kind: 'floor' | 'wall';
   row: number;
   col: number;
 }
+// There used to be a `kind: 'floor' | 'wall'` here, so the renderer knew how big a
+// cell was. It reads that off the SHEET now (SheetGrid.tileW/tileH, from the
+// tileset's own tilewidth/tileheight), which is what made both the FloorTile and
+// WallTile classes unnecessary: a cell of a sheet is a cell of a sheet.
 
 /** A sheet cell placed in the world: the wall pieces and faces a layout draws.
  *  Same fields as FurnitureInstance minus the pixels, which is the whole point. */
