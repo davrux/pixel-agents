@@ -130,3 +130,54 @@ export function cropToTiles(src: PNG, box: Box, mask?: Uint8Array): PNG {
   }
   return out;
 }
+
+/**
+ * Re-compose a uniform sheet with `gap` px between cells and each cell's border
+ * extruded 1 px into that gap.
+ *
+ * Every grid tileset needs this, and for a reason that is invisible until it is
+ * not: the client draws a cell as a FRAME of the sheet's texture, and at a
+ * fractional camera zoom the GPU can sample one texel outside the frame. With cells
+ * touching, that samples the neighbour and paints a stripe between every tile. A gap
+ * alone is not enough — it only makes the stripe transparent, which on ground still
+ * reads as a groove — so the edge pixel is repeated into it and a stray sample lands
+ * on the cell's own colour.
+ *
+ * The cell COUNT is unchanged, so a saved map's gids still point where they did;
+ * only the pixel layout moves, and the .tsj has to record it (`spacing`) for every
+ * reader to take from there rather than assume.
+ */
+export function composeWithGaps(src: PNG, tile: number, gap: number): PNG {
+  const cols = Math.floor(src.width / tile);
+  const rows = Math.floor(src.height / tile);
+  const out = new PNG({ width: cols * (tile + gap) - gap, height: rows * (tile + gap) - gap });
+  out.data.fill(0);
+  const cell = new PNG({ width: tile, height: tile });
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      cell.data.fill(0);
+      PNG.bitblt(src, cell, c * tile, r * tile, tile, tile, 0, 0);
+      const ox = c * (tile + gap);
+      const oy = r * (tile + gap);
+      PNG.bitblt(cell, out, 0, 0, tile, tile, ox, oy);
+      const fits = (x: number, y: number) => x >= 0 && y >= 0 && x < out.width && y < out.height;
+      if (fits(ox - 1, oy)) PNG.bitblt(cell, out, 0, 0, 1, tile, ox - 1, oy);
+      if (fits(ox + tile, oy)) PNG.bitblt(cell, out, tile - 1, 0, 1, tile, ox + tile, oy);
+      if (fits(ox, oy - 1)) PNG.bitblt(cell, out, 0, 0, tile, 1, ox, oy - 1);
+      if (fits(ox, oy + tile)) PNG.bitblt(cell, out, 0, tile - 1, tile, 1, ox, oy + tile);
+      for (const [sx, sy, dx, dy] of [
+        [0, 0, ox - 1, oy - 1],
+        [tile - 1, 0, ox + tile, oy - 1],
+        [0, tile - 1, ox - 1, oy + tile],
+        [tile - 1, tile - 1, ox + tile, oy + tile],
+      ] as Array<[number, number, number, number]>) {
+        if (fits(dx, dy)) PNG.bitblt(cell, out, sx, sy, 1, 1, dx, dy);
+      }
+    }
+  }
+  return out;
+}
+
+/** The gap every grid sheet is baked with — see composeWithGaps and
+ *  FLOOR_TILE_SPACING, which is the same number for the same reason. */
+export const SHEET_GAP = 2;

@@ -76,6 +76,10 @@ export interface TiledTilesetJson {
   columns?: number;
   tilewidth?: number;
   tileheight?: number;
+  /** Gap between cells and border around the grid, as the bake wrote them. Read,
+   *  never assumed — see sourceOf. */
+  spacing?: number;
+  margin?: number;
 }
 
 /** Where in the shared sheet a grid tile's pixels live. Absent for a
@@ -183,9 +187,21 @@ function sourceOf(
   if (!json.image || columns <= 0) return null;
   const w = json.tilewidth ?? TILE_SIZE;
   const h = json.tileheight ?? TILE_SIZE;
+  // Spacing and margin come from the tileset, because a baked sheet HAS them: cells
+  // are separated by a gap with their borders extruded into it, so that a frame of
+  // the sheet cannot be sampled into its neighbour (see FLOOR_TILE_SPACING). Reading
+  // them as zero puts every crop progressively further off toward the bottom-right —
+  // art that is present and wrong, which is the hardest kind to notice.
+  const gap = json.spacing ?? 0;
+  const margin = json.margin ?? 0;
   return {
     imagePath: json.image,
-    crop: { x: (tile.id % columns) * w, y: Math.floor(tile.id / columns) * h, w, h },
+    crop: {
+      x: margin + (tile.id % columns) * (w + gap),
+      y: margin + Math.floor(tile.id / columns) * (h + gap),
+      w,
+      h,
+    },
     type: tile.type,
     width: w,
     height: h,

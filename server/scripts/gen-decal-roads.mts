@@ -39,7 +39,7 @@ import * as path from 'node:path';
 
 import { DECAL_TILE_PROPS } from '../src/tiled/decalProps.js';
 import { DECAL_TILE_CLASS } from '../src/tiled/tiledRegistry.js';
-import { TILE } from './lib/sheetSlice.mjs';
+import { composeWithGaps, SHEET_GAP, TILE } from './lib/sheetSlice.mjs';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const SRC = path.join(ROOT, 'tmp', 'metro', 'MetroCity Outdoor 2.0', 'MetroCity 2.0', 'Road.png');
@@ -110,14 +110,19 @@ for (let index = 0; index < columns * rows; index++) {
   });
 }
 
+// With a gap between cells and their borders extruded into it — a cell is drawn as a
+// frame of this sheet, and touching cells bleed into each other at fractional zoom
+// (see composeWithGaps). The cell count is unchanged, so saved gids still hold.
+const spaced = composeWithGaps(png, TILE, SHEET_GAP);
+
 const tileset = {
   columns,
   image: PNG_REL,
-  imagewidth: png.width,
-  imageheight: png.height,
+  imagewidth: spaced.width,
+  imageheight: spaced.height,
   margin: 0,
   name: path.basename(TARGET_TSJ, '.tsj'),
-  spacing: 0,
+  spacing: SHEET_GAP,
   // The FULL grid, blanks included: Tiled numbers cells by position, so shrinking
   // the count to the used ones would renumber every tile after the first gap.
   tilecount: columns * rows,
@@ -139,9 +144,9 @@ if (DRY) {
 }
 
 fs.mkdirSync(path.join(TILED, path.dirname(PNG_REL)), { recursive: true });
-fs.writeFileSync(path.join(TILED, PNG_REL), buf);
+fs.writeFileSync(path.join(TILED, PNG_REL), PNG.sync.write(spaced));
 fs.writeFileSync(TARGET_TSJ, `${JSON.stringify(tileset, null, 2)}\n`);
-console.log(`✓ ${PNG_REL} copied (${png.width}×${png.height}), ${path.basename(TARGET_TSJ)} written`);
+console.log(`✓ ${PNG_REL} written (${spaced.width}×${spaced.height}, ${SHEET_GAP}px gaps), ${path.basename(TARGET_TSJ)}`);
 console.log(`  ${columns}×${rows} cells, ${tiles.length} named, ${blanks} blank (left unnamed on purpose)`);
 console.log(`  ${existingLabels.size} existing label(s) kept`);
 console.log('  Now in Tiled: add decal-roads.tsj to the map, paint on a DecalLayer.');
