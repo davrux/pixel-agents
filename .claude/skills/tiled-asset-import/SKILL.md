@@ -254,4 +254,9 @@ So verify mechanically, and say what you verified:
 - **Ids are identity.** A set's `--id-prefix`, `--id-style` and tile size are fixed
   once anything is placed from it: they decide the ids, the ids decide the gids, and
   the gids are what every map stored.
+- **Appending is safe, everything else is not.** A map's own tileset table caps each
+  set's gid range at the next set's start, so tiles added at the END are invisible to
+  older maps instead of displacing their art (see AGENTS.md). Inserting, reordering,
+  renaming or deleting breaks maps that no cap can rescue — retire a tile (keep it,
+  stop offering it) rather than remove it.
 - Credit the artist in the README. It is their work.

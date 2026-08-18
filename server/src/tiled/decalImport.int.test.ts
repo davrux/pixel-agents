@@ -27,7 +27,7 @@ import { isWalkable } from '@pixel/shared/office/layout/tileMap';
 
 import { ASSETS_ROOT, buildFurnitureCatalogAndSprites } from '../assets.js';
 import { importTmjToLayout } from './mapBridge.js';
-import { loadTiledRegistry } from './tiledRegistry.js';
+import { loadTiledRegistry, resolveFromTmjTilesets } from './tiledRegistry.js';
 
 const COLS = 10;
 const ROWS = 10;
@@ -486,4 +486,65 @@ test('a piece painted on the wall lattice layer becomes wall edges', () => {
   const edges =
     (layout.walls?.horizontal ?? []).filter(Boolean).length + (layout.walls?.vertical ?? []).filter(Boolean).length;
   assert.equal(edges, 4, 'an N|E|S|W piece sets all four edges meeting at that point');
+});
+
+// ── The map's table decides where a tileset ends ────────────────
+//
+// Appending art to a tileset used to reach into the next one's numbers: a decal
+// painted in an older map came back as a fountain frame, because tile 6 of
+// furniture-misc now sits where decal's tile 0 was. The map records where the next
+// tileset starts, so it also records where this one stopped — see
+// resolveFromTmjTilesets.
+
+function gidOwner(table: Array<{ firstgid: number; source: string }>, gid: number) {
+  const resolve = resolveFromTmjTilesets(registry, table);
+  const hit = resolve(gid);
+  return hit ? { set: hit.tileset.file, localId: hit.localId, id: hit.props.id } : null;
+}
+
+test('a map older than the tileset resolves to what its author painted', () => {
+  const misc = registry.bySource('furniture-misc.tsj');
+  assert.ok(misc && misc.tileCount > 6, 'furniture-misc must have grown past 6 tiles for this test to mean anything');
+  // Table as Tiled wrote it when furniture-misc still had 6 tiles: the next set
+  // starts at 7, so this one cannot have reached past 6.
+  const stale = [
+    { firstgid: 1, source: '../furniture-misc.tsj' },
+    { firstgid: 7, source: '../decal.tsj' },
+  ];
+  assert.deepEqual(gidOwner(stale, 7), { set: 'decal.tsj', localId: 0, id: 'METRO_OUT_01' });
+  // …and the tiles that did exist back then are untouched.
+  assert.equal(gidOwner(stale, 1)?.id, 'BIN');
+  assert.equal(gidOwner(stale, 6)?.id, 'TIME_CLOCK');
+});
+
+test('a map saved against the current tilesets reaches the new tiles', () => {
+  const current = [
+    { firstgid: 1, source: '../furniture-misc.tsj' },
+    { firstgid: 10, source: '../decal.tsj' },
+  ];
+  assert.equal(gidOwner(current, 7)?.id, 'FOUNTAIN_1');
+  assert.deepEqual(gidOwner(current, 10), { set: 'decal.tsj', localId: 0, id: 'METRO_OUT_01' });
+});
+
+test('a map newer than the tilesets leaves a hole instead of wrong art', () => {
+  // Claims a 1000-wide slice for a tileset that has far fewer tiles: the cells past
+  // its real end must resolve to nothing, never to the next set's art.
+  const ahead = [
+    { firstgid: 1, source: '../furniture-misc.tsj' },
+    { firstgid: 1000, source: '../decal.tsj' },
+  ];
+  assert.equal(gidOwner(ahead, 500), null, 'a tile this build does not have must not become another tile');
+  assert.equal(gidOwner(ahead, 1000)?.id, 'METRO_OUT_01', 'the next set still resolves at its own start');
+});
+
+test('a tileset this build lacks keeps its slice of the numbers', () => {
+  // The unknown set owns 7…9 in this map. Its predecessor must not spill into it,
+  // even though the predecessor has enough tiles on disk to cover them now.
+  const withUnknown = [
+    { firstgid: 1, source: '../furniture-misc.tsj' },
+    { firstgid: 7, source: '../a-tileset-nobody-has.tsj' },
+    { firstgid: 10, source: '../decal.tsj' },
+  ];
+  assert.equal(gidOwner(withUnknown, 7), null, 'a missing tileset resolves to nothing, not to its neighbour');
+  assert.equal(gidOwner(withUnknown, 10)?.id, 'METRO_OUT_01');
 });

@@ -257,6 +257,22 @@ background only.)
   has nowhere to carry an override, so a tile-level answer would force one for the
   whole map. It is also what lets furniture art be painted as a decal, since
   nothing is then read off the tile that a `FurnitureTile` could not answer.
+- **A map's tileset table says where each tileset ENDS, not just where it starts.**
+  The gid ranges come from the `.tmj`'s own `tilesets` array, and each entry is
+  capped at the next entry's `firstgid` (`resolveFromTmjTilesets`) — never at the
+  tileset's current tile count on disk. That is what makes **appending** art to a
+  tileset harmless for maps saved before it: an older map keeps resolving to what its
+  author painted, and simply cannot reach the new tiles until it is saved in Tiled
+  again. Taking the count from disk instead let a grown tileset swallow the first
+  cells of the next one — a decal in an older map came back as a fountain frame,
+  silently. The cap is the smaller of the two answers, so a map NEWER than the
+  tilesets leaves a visible hole rather than drawing the wrong art.
+  What this does NOT cover, and no cap can: inserting or reordering tiles inside a
+  tileset (local ids move), renaming or deleting an id (placements refer to names),
+  and re-baking a grid sheet with a different column count (a ground cell's number
+  means another cell). Hence: **append only, never insert, never renumber, retire
+  instead of delete** — and if art really is removed, the maps that used it must be
+  re-authored.
 - **A zone has exactly one map, and it comes from Tiled.** The `layouts` table is
   keyed by zone id: no named layouts, no active-layout pointer, no bundled
   read-only default, no code-generated zone. The import is one-way; there is no

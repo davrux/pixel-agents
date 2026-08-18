@@ -249,22 +249,59 @@ export function gidAt(registry: TiledRegistry, file: string, localId: number): n
  *  is free to do at any time, with Tiled updating `firstgid`s to match but
  *  our own registry having no way to know. Per-file tile class/props are
  *  still read from `registry` (order-independent — keyed by filename), only
- *  the GID→file/localId mapping itself comes from the .tmj. */
+ *  the GID→file/localId mapping itself comes from the .tmj.
+ *
+ *  The map's table decides where each tileset ENDS as well, not just where it
+ *  starts — see the cap in the loop, which is what makes appending art to a
+ *  tileset harmless for maps that were saved before it. */
 export function resolveFromTmjTilesets(
   registry: TiledRegistry,
   tmjTilesets: Array<{ firstgid: number; source: string }>,
 ): (gid: number) => { tileset: RegistryTileset; localId: number; class?: string; props: Record<string, string | number | boolean>; image?: string } | null {
-  const entries = tmjTilesets
-    .map((t) => {
-      const ts = registry.bySource(path.basename(String(t.source)));
-      return ts ? { firstgid: Number(t.firstgid), tileset: ts } : null;
+  // Sorted by firstgid, because the NEXT entry's start is where this one ends —
+  // see the cap below. Tiled writes them in ascending order; sorting a copy means
+  // we do not depend on that.
+  const raw = [...tmjTilesets]
+    .map((t) => ({ firstgid: Number(t.firstgid), source: path.basename(String(t.source)) }))
+    .filter((t) => Number.isFinite(t.firstgid) && t.firstgid > 0)
+    .sort((a, b) => a.firstgid - b.firstgid);
+
+  interface Entry {
+    firstgid: number;
+    tileset: RegistryTileset;
+    /** Where the NEXT tileset starts in this map, if there is one. */
+    nextFirstgid: number | undefined;
+  }
+  const entries = raw
+    .map((t, i): Entry | null => {
+      const ts = registry.bySource(t.source);
+      // The cap comes from the RAW table, including entries whose tileset this
+      // build does not have: an unknown tileset still owns its slice of the number
+      // space in THIS map, and letting its predecessor spill into it would resolve
+      // its cells to the wrong art rather than to nothing.
+      return ts ? { firstgid: t.firstgid, tileset: ts, nextFirstgid: raw[i + 1]?.firstgid } : null;
     })
-    .filter((e): e is { firstgid: number; tileset: RegistryTileset } => e !== null);
+    .filter((e): e is Entry => e !== null);
 
   return (gid: number) => {
     if (gid <= 0) return null;
-    for (const { firstgid, tileset } of entries) {
-      if (gid >= firstgid && gid < firstgid + tileset.tileCount) {
+    for (const { firstgid, tileset, nextFirstgid } of entries) {
+      // Where this tileset ENDS is the map's answer, not the file's.
+      //
+      // The file says "I have N tiles"; the map says "the next set starts here".
+      // They agree in a freshly saved map, and disagree exactly when the map is
+      // older than the tileset — someone appended art since. Taking the file's
+      // answer then lets the grown tileset swallow the first cells of the next one:
+      // a decal painted in an older map came back as a fountain frame, silently,
+      // because tile 6 of furniture-misc now sits where decal's tile 0 used to.
+      //
+      // The smaller of the two is right in both directions. Capped by the map, an
+      // old map keeps resolving to what its author painted (the new tiles are
+      // simply out of its reach until it is saved in Tiled again). Capped by the
+      // file, a map NEWER than the tilesets resolves its unknown cells to nothing
+      // — a visible hole, rather than confident nonsense.
+      const end = Math.min(firstgid + tileset.tileCount, nextFirstgid ?? Number.MAX_SAFE_INTEGER);
+      if (gid >= firstgid && gid < end) {
         const localId = gid - firstgid;
         const tile = tileset.tiles[localId];
         return { tileset, localId, class: tile?.class, props: tile?.props ?? {}, image: tile?.image };

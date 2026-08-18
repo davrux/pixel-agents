@@ -42,6 +42,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { DECAL_TILE_PROPS } from '../src/tiled/decalProps.js';
+import { isNoImportMap } from '../src/tiled/zoneImport.js';
 import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
 import {
   DECAL_TILE_CLASS,
@@ -356,6 +357,10 @@ function syncZones(): string[] {
   const touched: string[] = [];
   for (const file of fs.readdirSync(zonesDir).sort()) {
     if (!file.endsWith('.tmj')) continue;
+    // Scratch copies are nobody's map: no importer, no push and no seed reads them
+    // (see .gitignore and push-zones), so reporting their state is noise — and one of
+    // them is deliberately stale, as the fixture for the gid-range cap.
+    if (isNoImportMap(file)) continue;
     const full = path.join(zonesDir, file);
     const json = JSON.parse(fs.readFileSync(full, 'utf-8')) as {
       tilesets?: Array<{ firstgid: number; source?: string }>;
@@ -374,11 +379,12 @@ function syncZones(): string[] {
       } else {
         const worst = stale.filter((f) => f.from !== f.to);
         console.error(
-          `[sync] ${file}: tileset table is stale — ${worst.length} tileset(s) have moved (e.g. ${worst[0].source}: ${worst[0].from} → ${worst[0].to}). ` +
-            `Every gid in the file points at the wrong tile. Fix by opening and saving the map in Tiled, or run this script with --fix-gids.`,
+          `[sync] ${file}: tileset table predates the tilesets — ${worst.length} moved (e.g. ${worst[0].source}: ${worst[0].from} → ${worst[0].to}). ` +
+            `The map still resolves to the art it was painted with (the import caps each range at the next tileset's start), ` +
+            `but it cannot reach tiles added since. Open and save it in Tiled, or run this script with --fix-gids.`,
         );
         staleMaps++;
-        continue; // don't touch properties while the gids are meaningless
+        continue; // leave the properties alone until the table is brought forward
       }
     }
     const classOf = tileClassByGid(full, json.tilesets ?? []);
