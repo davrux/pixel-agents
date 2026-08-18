@@ -29,11 +29,15 @@ export interface MessageMenuSpec {
   container: HTMLElement;
   /** Which entries to draw. An all-false spec would draw an empty menu, so
    *  callers must not open one (the ⋯ button is hidden in that case). */
-  can: { react: boolean; reply: boolean; edit: boolean; remove: boolean };
+  can: { react: boolean; copy: boolean; copyImage: boolean; reply: boolean; edit: boolean; remove: boolean };
   /** A quick reaction was picked. */
   onReact(key: string): void;
   /** "Any emoji…" was picked — the caller asks for one and reacts with it. */
   onReactOther(): void;
+  /** Copy the message's text to the clipboard. */
+  onCopy(): void;
+  /** Copy the message's picture to the clipboard. */
+  onCopyImage(): void;
   onReply(): void;
   onEdit(): void;
   onDelete(): void;
@@ -124,6 +128,8 @@ export function openMessageMenu(spec: MessageMenuSpec): MessageMenuHandle {
     items.push(row);
   };
 
+  if (spec.can.copy) addRow('⧉', 'Copy text', () => spec.onCopy());
+  if (spec.can.copyImage) addRow('⧉', 'Copy image', () => spec.onCopyImage());
   if (spec.can.reply) addRow('↩', 'Reply', () => spec.onReply());
   if (spec.can.edit) addRow('✎', 'Edit', () => spec.onEdit());
   if (spec.can.remove) addRow('🗑', 'Delete', () => spec.onDelete(), true);

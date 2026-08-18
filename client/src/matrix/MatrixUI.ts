@@ -43,11 +43,13 @@ import {
   saveSession,
 } from './session.js';
 import { MatrixStore } from './store.js';
-import { MAX_FILE_BYTES } from './media.js';
+import { imageContentOf, MAX_FILE_BYTES } from './media.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
 import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
-import { confirmDialog, passwordPromptDialog, promptDialog } from '../ui/dialog.js';
+import { openEmojiPicker, type EmojiPickerHandle } from './emojiPicker.js';
+import { copyImage, copyText } from './clipboard.js';
+import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { readNotifyPrefs, writeNotifyPrefs } from './storage.js';
 import { isDesktop } from '../desktop/bridge.js';
 import { createEncryptionView, type EncryptionViewHandle, type EncryptionViewHooks } from './EncryptionUI.js';
@@ -181,6 +183,10 @@ export class MatrixUI {
    *  than stacking a second menu. */
   private msgMenu: MessageMenuHandle | null = null;
   private msgMenuAnchor: HTMLElement | null = null;
+  /** The open emoji picker (composer insert or react-with-any) — one at a
+   *  time, same rule as the message menu. */
+  private emojiPicker: EmojiPickerHandle | null = null;
+  private emojiBtn!: HTMLButtonElement;
   private attachBtn!: HTMLButtonElement;
   private attachInput!: HTMLInputElement;
   private uploadStatusEl!: HTMLDivElement;
@@ -1415,6 +1421,13 @@ export class MatrixUI {
     this.attachBtn.title = 'Send a file — or paste/drop one into the message box';
     this.attachBtn.addEventListener('click', () => this.attachInput.click());
 
+    this.emojiBtn = document.createElement('button');
+    this.emojiBtn.className = 'pa-b';
+    this.emojiBtn.textContent = '😊';
+    this.emojiBtn.setAttribute('aria-label', 'Insert an emoji');
+    this.emojiBtn.title = 'Insert an emoji';
+    this.emojiBtn.addEventListener('click', () => this.toggleComposerEmoji());
+
     this.composerSendBtn = document.createElement('button');
     this.composerSendBtn.className = 'pa-b primary';
     this.composerSendBtn.textContent = '➤';
@@ -1453,6 +1466,7 @@ export class MatrixUI {
     composer.append(
       this.composerCtxEl,
       this.composerTextarea,
+      this.emojiBtn,
       this.attachBtn,
       this.composerSendBtn,
       this.attachInput,
@@ -1558,6 +1572,8 @@ export class MatrixUI {
     // message it must not be able to send a file either — otherwise the
     // 📎 button is a live control sitting next to "sending is unavailable".
     this.attachBtn.style.display = composerDisabled ? 'none' : '';
+    // Same for 😊 — it only writes into a composer that isn't there.
+    this.emojiBtn.style.display = composerDisabled ? 'none' : '';
     this.composerDisabledEl.style.display = composerDisabled ? '' : 'none';
 
     const events = this.store.timeline(roomId);
@@ -1672,11 +1688,13 @@ export class MatrixUI {
     const composerUsable = this.store.cryptoState !== 'unavailable';
     const spec = {
       react: can.react,
+      copy: can.copy,
+      copyImage: can.copyImage,
       reply: can.reply && composerUsable,
       edit: can.edit && composerUsable,
       remove: can.remove,
     };
-    if (!spec.react && !spec.reply && !spec.edit && !spec.remove) return;
+    if (!spec.react && !spec.copy && !spec.copyImage && !spec.reply && !spec.edit && !spec.remove) return;
     this.timelineView.setMenuOpenRow(ev.event_id);
     this.msgMenuAnchor = anchor;
     this.msgMenu = openMessageMenu({
@@ -1690,7 +1708,9 @@ export class MatrixUI {
         // path keeps focus among the chips instead (timeline.ts).
         this.refocusComposer();
       },
-      onReactOther: () => void this.handleReactOther(ev.event_id),
+      onReactOther: () => this.openReactionPicker(ev.event_id, anchor),
+      onCopy: () => void this.handleCopyText(ev),
+      onCopyImage: () => void this.handleCopyImage(ev),
       onReply: () => this.startReply(ev),
       onEdit: () => this.startEdit(ev),
       onDelete: () => void this.handleDelete(ev.event_id),
@@ -1706,6 +1726,9 @@ export class MatrixUI {
     this.msgMenu?.close();
     this.msgMenu = null;
     this.msgMenuAnchor = null;
+    // The emoji picker lives and dies with the same view changes (leaving the
+    // room, destroy) that close the message menu, so it rides along here.
+    this.closeEmojiPicker();
   }
 
   private async handleToggleReaction(eventId: string, key: string): Promise<void> {
@@ -1718,16 +1741,87 @@ export class MatrixUI {
     }
   }
 
-  /** The ＋ entry: any emoji, not just the quick eight. A prompt rather than a
-   *  picker — a full emoji keyboard is the OS's job (and every desktop has one),
-   *  and this way the field also takes a pasted one. */
-  private async handleReactOther(eventId: string): Promise<void> {
-    const raw = await promptDialog('React with which emoji?', '', { confirmLabel: 'React', maxLength: 32 });
+  /** The ＋ entry: any emoji, not just the quick eight. The picker's search
+   *  field still takes a pasted one, so the OS emoji keyboard keeps working
+   *  as the escape hatch for anything outside the curated set. */
+  private openReactionPicker(eventId: string, anchor: HTMLElement): void {
+    this.closeEmojiPicker();
+    // The message menu just closed and cleared the row marker — put it back so
+    // the row's ⋯ button (our anchor) stays revealed under the picker.
+    this.timelineView.setMenuOpenRow(eventId);
+    this.emojiPicker = openEmojiPicker({
+      anchor,
+      container: this.root,
+      onPick: (key) => {
+        void this.handleToggleReaction(eventId, key);
+        this.refocusComposer();
+      },
+      onClose: () => {
+        this.emojiPicker = null;
+        this.timelineView.setMenuOpenRow(null);
+      },
+    });
+  }
+
+  /** The composer's 😊 button: pick an emoji, insert it at the caret. */
+  private toggleComposerEmoji(): void {
+    if (this.emojiPicker) {
+      this.closeEmojiPicker();
+      return;
+    }
+    this.emojiPicker = openEmojiPicker({
+      anchor: this.emojiBtn,
+      container: this.root,
+      onPick: (emoji) => this.insertIntoComposer(emoji),
+      onClose: () => {
+        this.emojiPicker = null;
+      },
+    });
+  }
+
+  private closeEmojiPicker(): void {
+    this.emojiPicker?.close();
+    this.emojiPicker = null;
+  }
+
+  private insertIntoComposer(text: string): void {
+    const ta = this.composerTextarea;
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? start;
+    ta.setRangeText(text, start, end, 'end');
+    this.autoGrow(ta);
+    this.saveDraft();
+    ta.focus();
+  }
+
+  private async handleCopyText(ev: MxEvent): Promise<void> {
+    const body = typeof ev.content.body === 'string' ? ev.content.body : '';
+    try {
+      await copyText(body);
+      this.toast('Copied to clipboard.');
+    } catch (e) {
+      this.toast(e instanceof Error ? e.message : "Couldn't copy.");
+    }
     this.refocusComposer();
-    if (raw === null) return;
-    const key = raw.trim();
-    if (!key) return;
-    await this.handleToggleReaction(eventId, key);
+  }
+
+  private async handleCopyImage(ev: MxEvent): Promise<void> {
+    const content = imageContentOf(ev.content);
+    const store = this.store;
+    if (!content || !store) return;
+    try {
+      // The loader resolves through the store's per-mxc cache — for a picture
+      // that is on screen (the only place this menu entry appears) the bytes
+      // are already local, so this is a re-encode, not a download.
+      await copyImage(async () => {
+        const url = await store.imageUrl(content);
+        return (await fetch(url)).blob();
+      });
+      this.toast('Picture copied to clipboard.');
+    } catch (e) {
+      this.toast(e instanceof Error ? e.message : "Couldn't copy the picture.");
+    }
+    this.refocusComposer();
   }
 
   /** Take focus back after a modal dialog. Those live in `document.body`, so
@@ -2836,6 +2930,31 @@ function openImageViewer(name: string, url: string): void {
   const label = document.createElement('span');
   label.className = 'nm';
   label.textContent = name;
+  // Feedback lives in the button itself: the panel's toast is below the
+  // dialog's top layer, so it would be invisible from in here.
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'pa-b';
+  copy.textContent = 'Copy';
+  let copyReset: number | undefined;
+  copy.addEventListener('click', () => {
+    if (copyReset !== undefined) clearTimeout(copyReset);
+    copyImage(async () => (await fetch(url)).blob())
+      .then(() => {
+        copy.textContent = '✓ Copied';
+        copy.removeAttribute('title');
+      })
+      .catch((e: unknown) => {
+        copy.textContent = "Couldn't copy";
+        copy.title = e instanceof Error ? e.message : '';
+      })
+      .finally(() => {
+        copyReset = window.setTimeout(() => {
+          copy.textContent = 'Copy';
+          copy.removeAttribute('title');
+        }, 1500);
+      });
+  });
   const save = document.createElement('a');
   save.className = 'pa-b';
   save.textContent = 'Save';
@@ -2846,7 +2965,7 @@ function openImageViewer(name: string, url: string): void {
   close.className = 'pa-b';
   close.textContent = 'Close';
   close.addEventListener('click', () => dialog.close());
-  bar.append(label, save, close);
+  bar.append(label, copy, save, close);
 
   dialog.append(bar, img);
   // Backdrop click (target is the <dialog> itself, not its contents) closes,

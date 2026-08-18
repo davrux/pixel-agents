@@ -25,6 +25,7 @@ import { type MxDecryptAction, type MxEvent, type MxReader } from './types.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
 import { fileContentOf, imageContentOf, type MxFileContent, type MxImageContent } from './media.js';
 import { hasFormattedBody, renderFormattedBody } from './richHtml.js';
+import { copyText } from './clipboard.js';
 
 /** Escape text to HTML. Copied verbatim from `client/src/ui/chatUI.ts` (module-
  *  private there) plus `'` -> `&#39;`, so the helper is also safe inside a
@@ -206,6 +207,8 @@ export interface TimelineHooks {
  *  opens an empty menu is worse than no button. */
 export interface MsgActions {
   react: boolean;
+  copy: boolean;
+  copyImage: boolean;
   reply: boolean;
   edit: boolean;
   remove: boolean;
@@ -217,14 +220,21 @@ export function messageActionsFor(ev: MxEvent): MsgActions {
   // is nothing to delete server-side either. A deleted message is done.
   const settled = ev.event_id !== '' && ev.echo === undefined && !ev.redacted;
   const readable = settled && !ev.decrypting && !ev.decryptError;
+  const msgtype = typeof ev.content.msgtype === 'string' ? ev.content.msgtype : 'm.text';
+  const body = typeof ev.content.body === 'string' ? ev.content.body : '';
   const actions = {
     react: settled,
+    // "Copy text" copies the plain `body` — for an attachment that is just the
+    // filename, so those offer "Copy image" (or nothing, for a file) instead.
+    copy: readable && !ATTACHMENT_TYPES.has(msgtype) && body.trim() !== '',
+    copyImage: readable && imageContentOf(ev.content) !== null,
     reply: readable,
     edit: ev.canEdit === true,
     remove: ev.canRedact === true,
     any: false,
   };
-  actions.any = actions.react || actions.reply || actions.edit || actions.remove;
+  actions.any =
+    actions.react || actions.copy || actions.copyImage || actions.reply || actions.edit || actions.remove;
   return actions;
 }
 
@@ -351,6 +361,48 @@ function linkifyToNodes(text: string): DocumentFragment {
   return frag;
 }
 
+/** Put a hover-revealed "copy" button on every code block in a sanitised
+ *  fragment. The button sits *beside* the `<pre>` in a positioned wrapper, not
+ *  inside it, so `pre.textContent` (what gets copied, and what a drag-select
+ *  picks up) stays exactly the snippet. Called on the fragment before it is
+ *  attached, so a repaint (every sync tick) rebuilds buttons along with the
+ *  body it decorates. */
+function addCodeCopyButtons(root: DocumentFragment): void {
+  for (const pre of Array.from(root.querySelectorAll('pre'))) {
+    const wrap = document.createElement('div');
+    wrap.className = 'mx-codewrap';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'mx-codecopy';
+    btn.textContent = '⧉';
+    btn.title = 'Copy code';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.addEventListener('click', () => {
+      // Markdown fences always leave one trailing newline on the block; a
+      // paste target rarely wants it.
+      copyText((pre.textContent ?? '').replace(/\n$/, '')).then(
+        () => flashCopy(btn, true),
+        () => flashCopy(btn, false),
+      );
+    });
+    pre.replaceWith(wrap);
+    wrap.append(pre, btn);
+  }
+}
+
+function flashCopy(btn: HTMLButtonElement, ok: boolean): void {
+  btn.classList.toggle('ok', ok);
+  btn.classList.toggle('failed', !ok);
+  btn.textContent = ok ? '✓' : '✕';
+  btn.title = ok ? 'Copied' : "Couldn't copy";
+  window.setTimeout(() => {
+    if (!btn.isConnected) return;
+    btn.classList.remove('ok', 'failed');
+    btn.textContent = '⧉';
+    btn.title = 'Copy code';
+  }, 1500);
+}
+
 /** Render an `org.matrix.custom.html` body into `txt`, returning false when
  *  there is nothing to render that way (so the caller falls back to plain
  *  text). The sanitised result is attached as nodes via `replaceChildren` —
@@ -359,6 +411,7 @@ function paintRichBody(txt: HTMLElement, ev: MxEvent, msgtype: string): boolean 
   if (!hasFormattedBody(ev.content)) return false;
   const result = renderFormattedBody(ev.content.formatted_body as string, linkifyToNodes);
   if (!result) return false;
+  addCodeCopyButtons(result.fragment);
 
   const nodes: Node[] = [];
   // An emote is "* alice waves", including when it is formatted.
