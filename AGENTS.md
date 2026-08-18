@@ -311,6 +311,15 @@ background only.)
   means no wipe. Survivors are an allow-list (`server/src/worldReset.ts`): a table
   added later is wiped by default, so **if you add one holding account data, add
   it to `KEEP_TABLES` in the same change.**
+- **A stored asset whose id no tileset carries is dead weight, and it travels.**
+  Furniture used to be uploaded into the database as pixels; art then moved into Tiled
+  tilesets, and the rows of retired packages stayed behind — ids nobody can place,
+  since a mapper only paints what a tileset offers. They are not inert: a row without
+  a file has no image to point at, so it is sent as SpriteData in
+  `furnitureAssetsLoaded` on every join. 695 of them were 1.33 MB of a 1.79 MB
+  message. `scripts/prune-orphan-assets.sh` reports them and, with `--apply`, deletes
+  them after a `VACUUM INTO` backup — never an id that is placed in any zone or map,
+  which it reports instead. Run it on a deployment too; the ids differ per database.
 - **One database.** All state lives in `pixel.db` through the shared `db.ts`
   connection.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
