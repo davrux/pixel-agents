@@ -10,6 +10,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { PNG } from 'pngjs';
+
 import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
@@ -80,7 +82,11 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
 
       const tilesetDir = path.dirname(tilesetPath);
       const entries = parseFurnitureTileset(tiled);
-      for (const { asset, imagePath } of entries) {
+      // One read+decode per FILE, not per tile: a grid tileset's tiles all
+      // crop the same sheet (decal-overworld has ~a thousand), and re-decoding
+      // it for each would turn the catalog load quadratic for no reason.
+      const decoded = new Map<string, PNG>();
+      for (const { asset, imagePath, crop } of entries) {
         try {
           const assetPath = path.join(tilesetDir, imagePath);
           const resolvedAsset = path.resolve(assetPath);
@@ -89,12 +95,16 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
             console.warn(`  [AssetLoader] Skipping tile with image path outside tileset directory: ${imagePath}`);
             continue;
           }
-          if (!fs.existsSync(assetPath)) {
-            console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
-            continue;
+          let png = decoded.get(assetPath);
+          if (!png) {
+            if (!fs.existsSync(assetPath)) {
+              console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
+              continue;
+            }
+            png = PNG.sync.read(fs.readFileSync(assetPath));
+            decoded.set(assetPath, png);
           }
-          const pngBuffer = fs.readFileSync(assetPath);
-          sprites.set(asset.id, pngToSpriteData(pngBuffer, asset.width, asset.height));
+          sprites.set(asset.id, pngToSpriteData(png, asset.width, asset.height, crop));
         } catch (err) {
           console.warn(`  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`);
         }

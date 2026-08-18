@@ -30,15 +30,28 @@ import type { CharacterDirectionSprites, PetDirectionSprites } from './types.js'
  * Convert a PNG buffer to SpriteData (2D array of hex color strings).
  * '' = transparent, '#RRGGBB' = opaque, '#RRGGBBAA' = semi-transparent.
  */
-export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number): string[][] {
+export function pngToSpriteData(
+  pngBuffer: Buffer | PNG,
+  width: number,
+  height: number,
+  /** Read the width×height region at this offset instead of the top-left —
+   *  how a grid tileset's shared sheet yields one tile's sprite (see
+   *  assetLoader.ts). Without it the PNG is expected to BE the sprite, and a
+   *  size mismatch is worth a warning; a crop reads a region by design.
+   *  Accepting an already-decoded PNG is for the same caller: a grid sheet is
+   *  cropped once per tile, and re-decoding it every time would be quadratic. */
+  crop?: { x: number; y: number },
+): string[][] {
   try {
-    const png = PNG.sync.read(pngBuffer);
+    const png = Buffer.isBuffer(pngBuffer) ? PNG.sync.read(pngBuffer) : pngBuffer;
 
-    if (png.width !== width || png.height !== height) {
+    if (!crop && (png.width !== width || png.height !== height)) {
       console.warn(
         `PNG dimensions mismatch: expected ${width}×${height}, got ${png.width}×${png.height}`,
       );
     }
+    const offX = crop?.x ?? 0;
+    const offY = crop?.y ?? 0;
 
     const sprite: string[][] = [];
     const data = png.data;
@@ -46,7 +59,7 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
     for (let y = 0; y < height; y++) {
       const row: string[] = [];
       for (let x = 0; x < width; x++) {
-        const pixelIndex = (y * png.width + x) * 4;
+        const pixelIndex = ((offY + y) * png.width + (offX + x)) * 4;
         const r = data[pixelIndex];
         const g = data[pixelIndex + 1];
         const b = data[pixelIndex + 2];

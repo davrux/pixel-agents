@@ -57,9 +57,12 @@ interface TiledTile {
    *  not the filename, is what marks a tileset as holding furniture (see
    *  isFurnitureTileset). */
   type?: string;
-  image: string;
-  imagewidth: number;
-  imageheight: number;
+  /** The tile's own PNG — present in a collection-of-images tileset, absent in
+   *  a grid tileset, where the shared sheet + the tile's position say the same
+   *  thing (see cropOf). */
+  image?: string;
+  imagewidth?: number;
+  imageheight?: number;
   properties?: TiledProperty[];
   animation?: TiledAnimationFrame[];
 }
@@ -67,6 +70,21 @@ interface TiledTile {
 export interface TiledTilesetJson {
   name?: string;
   tiles: TiledTile[];
+  /** Grid-tileset geometry — one shared sheet image, tiles addressed by
+   *  position. A collection-of-images tileset has columns 0 and no image. */
+  image?: string;
+  columns?: number;
+  tilewidth?: number;
+  tileheight?: number;
+}
+
+/** Where in the shared sheet a grid tile's pixels live. Absent for a
+ *  collection tile, whose own PNG is the whole answer. */
+export interface TileCrop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 const TILE_SIZE = 16;
@@ -88,8 +106,14 @@ function propsOf(tile: TiledTile): Record<string, string | number | boolean> {
 /** One tileset file's tiles → FurnitureAsset[] + which PNG (relative to the
  *  tileset's own directory) each id needs. Which FILE a tile lives in carries no
  *  meaning at all — assetLoader.ts globs every furniture-*.tsj and each tile
- *  states its own behaviour, so the split is organisational convenience only. */
-export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: FurnitureAsset; imagePath: string }> {
+ *  states its own behaviour, so the split is organisational convenience only.
+ *
+ *  Both tileset shapes come through here: a collection-of-images tileset names
+ *  a PNG per tile, a GRID tileset (decal-overworld) names one shared sheet and
+ *  each entry then carries a `crop` — the caller slices that region out. What
+ *  makes a tile an item is the same either way: its class plus its own `id`
+ *  property; a grid cell without a tiles[] entry is not in the catalog. */
+export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: FurnitureAsset; imagePath: string; crop?: TileCrop }> {
   const byId = new Map(json.tiles.map((t) => [t.id, t]));
   // A tile referenced ONLY as a later frame of another tile's <animation> is
   // a component, not a placeable item of its own — the anchor tile's own
@@ -102,7 +126,7 @@ export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: Fu
     for (const f of t.animation ?? []) frameComponentIds.add(f.tileid);
   }
 
-  const out: Array<{ asset: FurnitureAsset; imagePath: string }> = [];
+  const out: Array<{ asset: FurnitureAsset; imagePath: string; crop?: TileCrop }> = [];
   for (const tile of json.tiles) {
     const anim = tile.animation;
     if (!anim && frameComponentIds.has(tile.id)) continue;
@@ -126,20 +150,50 @@ export function parseFurnitureTileset(json: TiledTilesetJson): Array<{ asset: Fu
         const frameProps = propsOf(frameTile);
         const frameId = typeof frameProps.id === 'string' ? frameProps.id : undefined;
         if (!frameId) continue;
+        const src = sourceOf(json, frameTile);
+        if (!src) continue;
         out.push({
-          asset: buildAsset(frameTile, frameProps, frameId, { groupId: id, frame, durationMs: fr.duration }),
-          imagePath: frameTile.image,
+          asset: buildAsset(src, frameProps, frameId, { groupId: id, frame, durationMs: fr.duration }),
+          imagePath: src.imagePath,
+          ...(src.crop ? { crop: src.crop } : {}),
         });
       }
       continue;
     }
-    out.push({ asset: buildAsset(tile, props, id, undefined), imagePath: tile.image });
+    const src = sourceOf(json, tile);
+    if (!src) {
+      console.warn(`[tiledFurniture] Skipping tile ${tile.id} in "${json.name}" — no own image and no grid sheet`);
+      continue;
+    }
+    out.push({ asset: buildAsset(src, props, id, undefined), imagePath: src.imagePath, ...(src.crop ? { crop: src.crop } : {}) });
   }
   return out;
 }
 
-function buildAsset(
+/** A tile's pixels: its own PNG (collection tileset) or a region of the shared
+ *  sheet (grid tileset — position decomposed against the tileset's columns,
+ *  the same way the floor/wall bake is read back). Null only for a tile with
+ *  neither, which is a malformed tileset. */
+function sourceOf(
+  json: TiledTilesetJson,
   tile: TiledTile,
+): { imagePath: string; crop?: TileCrop; type?: string; width: number; height: number } | null {
+  if (tile.image) return { imagePath: tile.image, type: tile.type, width: tile.imagewidth ?? 0, height: tile.imageheight ?? 0 };
+  const columns = json.columns ?? 0;
+  if (!json.image || columns <= 0) return null;
+  const w = json.tilewidth ?? TILE_SIZE;
+  const h = json.tileheight ?? TILE_SIZE;
+  return {
+    imagePath: json.image,
+    crop: { x: (tile.id % columns) * w, y: Math.floor(tile.id / columns) * h, w, h },
+    type: tile.type,
+    width: w,
+    height: h,
+  };
+}
+
+function buildAsset(
+  src: { imagePath: string; type?: string; width: number; height: number },
   props: Record<string, string | number | boolean>,
   id: string,
   anim: { groupId: string; frame: number; durationMs: number } | undefined,
@@ -155,16 +209,16 @@ function buildAsset(
   // it state how it sorts against characters; that is the decal LAYER's business
   // (see tiled/decalProps.ts), which is what lets furniture art be painted as a
   // decal without needing a property furniture tiles do not have.
-  const isDecal = tile.type === DECAL_TILE_CLASS;
+  const isDecal = src.type === DECAL_TILE_CLASS;
   return {
     id,
     name: label,
     label,
-    file: tile.image,
-    width: tile.imagewidth,
-    height: tile.imageheight,
-    footprintW: footprintOf(tile.imagewidth),
-    footprintH: footprintOf(tile.imageheight),
+    file: src.imagePath,
+    width: src.width,
+    height: src.height,
+    footprintW: footprintOf(src.width),
+    footprintH: footprintOf(src.height),
     ...(isDecal ? { decal: true as const } : furnitureBehaviourFromTile(props)),
     ...(anim ? { animationGroup: `${anim.groupId}__anim`, frame: anim.frame, durationMs: anim.durationMs } : {}),
     ...(() => {
