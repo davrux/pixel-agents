@@ -370,6 +370,27 @@ export function injectMatrixSkin(): void {
   display:block;background:none;border:0;border-radius:0;padding:0;
   white-space:pre;overflow-wrap:normal;font-size:0.85rem;line-height:1.45;color:#f1efec;
 }
+/* The copy-button wrapper timeline.ts puts around every <pre>: it takes over
+   the pre's own block margin so the wrapped block sits exactly where a bare
+   one did, and it is the positioning context for the button. */
+.mx-codewrap{position:relative;margin:0.35rem 0}
+.mx-codewrap pre{margin:0}
+/* Hidden by opacity, not display, for the same reason as .mx-actions: the
+   button keeps its place in the tab order, and :focus-within reveals it for
+   anyone arriving by keyboard. user-select:none keeps its glyph out of a
+   drag-select across the snippet. */
+.mx-codecopy{
+  position:absolute;top:0.25rem;right:0.25rem;opacity:0;pointer-events:none;
+  transition:opacity .08s linear;user-select:none;
+  padding:0 0.3rem;line-height:1.2;font-size:0.85rem;font-family:inherit;cursor:pointer;
+  color:#adb0b2;background:#242220;border:2px solid #0a0908;border-radius:0.35rem;
+  box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
+}
+.mx-codewrap:hover .mx-codecopy,.mx-codewrap:focus-within .mx-codecopy{opacity:1;pointer-events:auto}
+.mx-codecopy:hover{color:#f1efec}
+.mx-codecopy:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+.mx-codecopy.ok{color:#7fbf6a}
+.mx-codecopy.failed{color:#f6cdd4}
 /* Tables are rare in chat but must not be the thing that breaks the column. */
 .mx-rich table{display:block;overflow-x:auto;max-width:100%;border-collapse:collapse;margin:0.35rem 0}
 .mx-rich th,.mx-rich td{border:2px solid #0a0908;padding:0.15rem 0.35rem;text-align:left}
@@ -535,6 +556,30 @@ export function injectMatrixSkin(): void {
 }
 .mx-menu-row:hover{background:#37342f}
 .mx-menu-row.danger{background:#7c2634;color:#f1d0d6;box-shadow:inset 0 2px 0 #b34a5a, inset 0 -3px 0 #45111a}
+
+/* ---- emoji picker (emojiPicker.ts) -------------------------------------------
+   Same panel-shaped popover as .mx-menu, sized for a grid: 8 columns
+   (emojiPicker.ts's COLS must match) and its own scrolling body, so the
+   popover itself never outgrows the panel. */
+.mx-emoji{
+  position:absolute;z-index:6;width:min(19rem,calc(100% - 0.75rem));
+  display:flex;flex-direction:column;gap:0.35rem;padding:0.4rem;
+  background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+  box-shadow:inset 0 2px 0 #292725, inset 0 -3px 0 #030303, 0 12px 28px rgba(0,0,0,.55);
+}
+#pa-mx .mx-emoji-q{width:100%;font-size:0.85rem}
+.mx-emoji-body{max-height:13rem;overflow-y:auto;overscroll-behavior:contain}
+.mx-emoji-h{color:#818586;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.04em;margin:0.35rem 0 0.15rem}
+.mx-emoji-h:first-child{margin-top:0}
+.mx-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:0.15rem}
+.mx-emoji-b{
+  padding:0.15rem 0;cursor:pointer;font:1.05rem/1.3 'FS Pixel Sans',ui-monospace,monospace;
+  color:#f1efec;background:none;border:2px solid transparent;border-radius:0.35rem;
+  overflow:hidden;
+}
+.mx-emoji-b:hover{background:#37342f;border-color:#0a0908}
+.mx-emoji-b:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
+.mx-emoji-none{color:#818586;font-size:0.8rem;padding:0.3rem 0.1rem}
 
 /* ---- composer context bar (MatrixUI: replying to / editing) -----------------
    Its own line above the composer controls (which is why it takes the full
