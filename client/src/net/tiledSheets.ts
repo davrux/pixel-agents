@@ -12,8 +12,6 @@ import { setWallSheets } from '@pixel/shared/office/wallTiles.js';
 import {
   FLOOR_TILE_H,
   FLOOR_TILE_W,
-  TILED_SHEET_COLUMNS,
-  WALL_BITMASK_COUNT,
   WALL_TILE_H,
   WALL_TILE_SPACING,
   WALL_TILE_W,
@@ -43,12 +41,15 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
   return createImageBitmap(await res.blob());
 }
 
-/** Slice one baked sheet into `rows` groups of TILED_SHEET_COLUMNS tiles
- *  each, tileW×tileH — mirrors bake-floor-wall-tiled.mts's composeSheet
- *  layout exactly (flat index i → col = i % columns, row = floor(i / columns)),
+/** Slice one baked sheet into `rows` groups of `columns` tiles each,
+ *  tileW×tileH — mirrors bake-floor-wall-tiled.mts's composeSheet layout
+ *  exactly (flat index i → col = i % columns, row = floor(i / columns)),
  *  including its `spacing` transparent px between tiles (0 for floor sheets,
- *  WALL_TILE_SPACING for wall sheets — see tiledSheetLayout.ts). */
-function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: number, spacing = 0): SpriteData[][] {
+ *  WALL_TILE_SPACING for wall sheets — see tiledSheetLayout.ts). Column count
+ *  comes from the sheet's own width, same as the row count comes from its
+ *  height: sets differ (65 columns for a palette bake, 1 for a natural-only
+ *  set like floor-overworld), so the sheet is the one source of truth. */
+function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: number, columns: number, spacing = 0): SpriteData[][] {
   const canvas = document.createElement('canvas');
   canvas.width = bitmap.width;
   canvas.height = bitmap.height;
@@ -59,7 +60,7 @@ function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: num
   const out: SpriteData[][] = [];
   for (let row = 0; row < rows; row++) {
     const group: SpriteData[] = [];
-    for (let col = 0; col < TILED_SHEET_COLUMNS; col++) {
+    for (let col = 0; col < columns; col++) {
       const { data } = ctx.getImageData(col * (tileW + spacing), row * (tileH + spacing), tileW, tileH);
       const sprite: SpriteData = [];
       for (let y = 0; y < tileH; y++) {
@@ -103,12 +104,13 @@ export async function loadTiledSheets(): Promise<void> {
       Promise.all(wallNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
     ]);
     // Each floor set can have a different pattern (row) count — e.g.
-    // floor-warm has one warm-only pattern the base "floor" set doesn't.
+    // floor-warm has one warm-only pattern the base "floor" set doesn't —
+    // and a different swatch (column) count, both read off the sheet itself.
     setFloorSheets(
       Object.fromEntries(
         floorBitmaps.map((bitmap, i) => [
           floorNames[i],
-          sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H)),
+          sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H), Math.round(bitmap.width / FLOOR_TILE_W)),
         ]),
       ),
     );
@@ -125,6 +127,7 @@ export async function loadTiledSheets(): Promise<void> {
             WALL_TILE_W,
             WALL_TILE_H,
             Math.round((bitmap.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
+            Math.round((bitmap.width + WALL_TILE_SPACING) / (WALL_TILE_W + WALL_TILE_SPACING)),
             WALL_TILE_SPACING,
           ),
         ]),

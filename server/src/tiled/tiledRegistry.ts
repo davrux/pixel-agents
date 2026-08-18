@@ -23,6 +23,7 @@ interface TiledTileJson {
 interface TiledTilesetJson {
   name: string;
   tilecount: number;
+  columns?: number;
   tiles?: TiledTileJson[];
 }
 
@@ -46,6 +47,12 @@ export interface RegistryTileset {
   name: string;
   firstgid: number;
   tileCount: number;
+  /** The tileset's own grid width in tiles (Tiled's `columns`) — 0 for a
+   *  collection-of-images set. For the baked floor/wall grids this is what a
+   *  localId is decomposed against (row = pattern/bitmask, column = swatch);
+   *  it is per set because sets differ: a palette-baked sheet has 65 columns
+   *  (Natural + 64 swatches), a natural-only one (floor-overworld) has 1. */
+  columns: number;
   tiles: RegistryTile[]; // index = local tile id
 }
 
@@ -141,7 +148,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
       const t = byId.get(id);
       tiles.push({ class: t?.type, props: t ? propsOf(t) : {}, image: t?.image });
     }
-    tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: slots, tiles });
+    tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: slots, columns: json.columns ?? 0, tiles });
     nextGid += slots;
   }
 

@@ -25,12 +25,30 @@ export interface Box {
   y1: number;
 }
 
+/** A component together with exactly which pixels are its own — see
+ *  componentsMasked. `mask` is box-local, row-major, 1 = this component's. */
+export interface MaskedBox {
+  box: Box;
+  mask: Uint8Array;
+}
+
 /** 8-connected components of non-transparent pixels, in reading order. */
 export function components(png: PNG, minPixels = MIN_PIXELS): Box[] {
+  return componentsMasked(png, minPixels).map((c) => c.box);
+}
+
+/**
+ * Like components(), but each result also carries a pixel mask. On a sparse
+ * sheet the box IS the item and the mask changes nothing — but on a packed
+ * collage two components' boxes can overlap, and a plain box crop then copies
+ * the neighbour's pixels into both items. Cropping with the mask keeps every
+ * sliced item to exactly its own pixels.
+ */
+export function componentsMasked(png: PNG, minPixels = MIN_PIXELS): MaskedBox[] {
   const { width: W, height: H } = png;
   const alphaAt = (x: number, y: number) => png.data[(y * W + x) * 4 + 3];
   const seen = new Uint8Array(W * H);
-  const boxes: Array<Box & { n: number }> = [];
+  const found: Array<Box & { n: number; pixels: number[] }> = [];
   const stack: number[] = [];
   for (let start = 0; start < W * H; start++) {
     if (seen[start] || alphaAt(start % W, Math.floor(start / W)) === 0) continue;
@@ -42,11 +60,13 @@ export function components(png: PNG, minPixels = MIN_PIXELS): Box[] {
     let y0 = Math.floor(start / W);
     let y1 = y0;
     let n = 0;
+    const pixels: number[] = [];
     while (stack.length > 0) {
       const p = stack.pop()!;
       const px = p % W;
       const py = Math.floor(p / W);
       n++;
+      pixels.push(p);
       if (px < x0) x0 = px;
       if (px > x1) x1 = px;
       if (py < y0) y0 = py;
@@ -63,12 +83,17 @@ export function components(png: PNG, minPixels = MIN_PIXELS): Box[] {
         }
       }
     }
-    boxes.push({ x0, y0, x1, y1, n });
+    found.push({ x0, y0, x1, y1, n, pixels });
   }
-  return boxes
+  return found
     .filter((b) => b.n >= minPixels)
     .sort((a, b) => a.y0 - b.y0 || a.x0 - b.x0)
-    .map(({ x0, y0, x1, y1 }) => ({ x0, y0, x1, y1 }));
+    .map(({ x0, y0, x1, y1, pixels }) => {
+      const bw = x1 - x0 + 1;
+      const mask = new Uint8Array(bw * (y1 - y0 + 1));
+      for (const p of pixels) mask[(Math.floor(p / W) - y0) * bw + (p % W) - x0] = 1;
+      return { box: { x0, y0, x1, y1 }, mask };
+    });
 }
 
 /**
@@ -78,8 +103,11 @@ export function components(png: PNG, minPixels = MIN_PIXELS): Box[] {
  * Furniture art is bottom-anchored, and the catalog derives an item's footprint
  * from its PNG size (tiledFurniture.ts's footprintOf), so an exact multiple of 16
  * is what makes that footprint unambiguous.
+ *
+ * With a `mask` (from componentsMasked), only the component's own pixels are
+ * copied; without one, every non-transparent pixel in the box comes along.
  */
-export function cropToTiles(src: PNG, box: Box): PNG {
+export function cropToTiles(src: PNG, box: Box, mask?: Uint8Array): PNG {
   const w = box.x1 - box.x0 + 1;
   const h = box.y1 - box.y0 + 1;
   const outW = Math.ceil(w / TILE) * TILE;
@@ -90,6 +118,7 @@ export function cropToTiles(src: PNG, box: Box): PNG {
   out.data.fill(0);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
+      if (mask && mask[y * w + x] === 0) continue;
       const si = ((box.y0 + y) * src.width + (box.x0 + x)) * 4;
       if (src.data[si + 3] === 0) continue;
       const di = ((offY + y) * outW + (offX + x)) * 4;

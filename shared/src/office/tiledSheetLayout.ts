@@ -6,10 +6,12 @@
  * never disagree on how a flat tile index maps to (pattern|bitmask, swatch).
  *
  * Columns: index 0 = "Natural" (raw, uncolorized), 1+i = the set's own
- * palette[i] colorized (which palette that is per set: see palettes.ts's
- * every set's palette — all of them are 64 colors, so the
- * column count is the same for all of them). Rows: one per floor pattern, or
- * one per wall piece.
+ * palette[i] colorized. The column count is PER SET — the palette sets have
+ * TILED_SHEET_COLUMNS (Natural + 64 swatches), a natural-only set (imported
+ * art keeping its own colors, e.g. floor-overworld) has exactly 1 — and each
+ * consumer reads it off the artifact itself: the client from the sheet's
+ * pixel width, the map bridge from the .tsj's own `columns`. Rows: one per
+ * floor pattern, or one per wall piece.
  *
  * A wall set's row count is NOT fixed: rows 0-15 are always the adjacency
  * bitmask pieces, but a set may carry extra hand-painted-only pieces after
