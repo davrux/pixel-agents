@@ -159,6 +159,12 @@ background only.)
 
 ### Content pipeline
 
+- **Importing an art pack follows the `tiled-asset-import` skill**
+  (`.claude/skills/tiled-asset-import/`). It carries the three decisions every
+  import faces — what each piece IS (floor, flat decal, standing decal, furniture),
+  sheet or collection, palette or natural-only — and the mechanics that have each
+  cost a bug: the 2 px gap plus 1 px extrusion on every sheet, ids as identity,
+  deterministic output, and appends that leave existing gids alone.
 - **A tileset is what its tiles say it is, not what it is called.** A furniture
   tileset is one whose tiles carry the `FurnitureTile` class
   (`isFurnitureTileset`) — no filename prefix decides anything. A layout *names*
