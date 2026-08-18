@@ -47,7 +47,7 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
 import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
-import { spriteTexture, ensureImageTexture } from './sprites.js';
+import { spriteTexture, ensureImageTexture, type SpriteTex } from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
 
 const FLOOR_DEPTH = -100000;
@@ -187,7 +187,7 @@ export class PhaserRenderer {
         // one — see OfficeLayout.floorSets.
         const setName = layout.floorSets?.[tileFloorSet?.[idx] ?? 0];
         const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], setName));
-        this.statics.push(this.scene.add.image(px, py, tex).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
+        this.statics.push(this.scene.add.image(px, py, tex.key, tex.frame).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
     }
 
@@ -196,9 +196,10 @@ export class PhaserRenderer {
     // re-sync and no pool to keep. Added in paint order, which is what makes flat
     // decals (all sharing DECAL_DEPTH) stack the way the Layers panel shows them.
     for (const d of layoutToDecalInstances(layout.decals)) {
+      const tex = spriteTexture(this.scene, d.sprite);
       this.statics.push(
         this.scene.add
-          .image(d.x, d.y, spriteTexture(this.scene, d.sprite))
+          .image(d.x, d.y, tex.key, tex.frame)
           .setOrigin(0, 0)
           .setDepth(d.zY)
           .setFlipX(!!d.mirrored)
@@ -239,7 +240,7 @@ export class PhaserRenderer {
         const tex = spriteTexture(this.scene, w.sprite);
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.
-        this.statics.push(this.scene.add.image(w.x, w.y, tex).setOrigin(0, 0).setDepth(w.zY - 0.5));
+        this.statics.push(this.scene.add.image(w.x, w.y, tex.key, tex.frame).setOrigin(0, 0).setDepth(w.zY - 0.5));
       }
     }
 
@@ -275,7 +276,8 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0, 0);
         this.furniturePool[i] = img;
       }
-      img.setTexture(spriteTexture(this.scene, f.sprite));
+      const ftex = spriteTexture(this.scene, f.sprite);
+      img.setTexture(ftex.key, ftex.frame);
       img
         .setPosition(f.x, f.y)
         .setDepth(f.zY)
@@ -369,7 +371,7 @@ export class PhaserRenderer {
     // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer):
     // draw the effect into a per-character canvas texture instead of the sprite.
     const tex = ch.matrixEffect ? this.matrixTexture(ch, sd) : spriteTexture(this.scene, sd);
-    g.body.setTexture(tex);
+    g.body.setTexture(tex.key, tex.frame);
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
     g.body.setAlpha(1);
@@ -405,7 +407,8 @@ export class PhaserRenderer {
     // Bubble.
     if (ch.bubbleType) {
       const bsd = ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE;
-      g.bubble.setTexture(spriteTexture(this.scene, bsd)).setVisible(true);
+      const btex = spriteTexture(this.scene, bsd);
+      g.bubble.setTexture(btex.key, btex.frame).setVisible(true);
       const bsit = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
       // Lift the bubble proportionally to the sprite height so it clears the head
       // of taller characters (baseline 32px → the original 24px offset).
@@ -475,7 +478,11 @@ export class PhaserRenderer {
 
   /** Render the Matrix effect for a character into its own canvas texture
    *  (created once per character, refreshed each frame while active). */
-  private matrixTexture(ch: Character, sd: SpriteData): string {
+  /** The Matrix materialise/dissolve effect draws fresh pixels every frame, so it
+   *  keeps its own per-character canvas: packing it would fill the atlas with one
+   *  dead frame per frame. Returns the same shape as spriteTexture so the caller
+   *  needs no branch — a bare key, no frame. */
+  private matrixTexture(ch: Character, sd: SpriteData): SpriteTex {
     const h = sd.length;
     const w = h > 0 ? sd[0].length : 0;
     let key = this.matrixKeys.get(ch.id);
@@ -490,7 +497,7 @@ export class PhaserRenderer {
     ctx.clearRect(0, 0, w, h);
     renderMatrixEffect(ctx, ch, sd, 0, 0, 1);
     canvasTex.refresh();
-    return key;
+    return { key };
   }
 
   private removeMatrixTexture(id: number): void {
@@ -509,7 +516,7 @@ export class PhaserRenderer {
         this.pets.set(pet.id, img);
       }
       const tex = spriteTexture(this.scene, getPetSprite(pet));
-      img.setTexture(tex);
+      img.setTexture(tex.key, tex.frame);
       // Resting on a desk: lift the sprite onto the surface, but keep depth from
       // the (un-lifted) bottom-row anchor so the pet sorts in front of the desk.
       img.setPosition(pet.x, pet.y - (pet.restLift ?? 0));

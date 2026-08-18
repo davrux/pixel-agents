@@ -112,8 +112,16 @@ Security is a first-class requirement, not a later pass.
   means a new `CharacterPose` + a `spriteForPose` branch + a track name.
 - **Measuring performance:** judge by **frame/CPU time**, not proxies like
   triangle count (greedy meshing once measured *slower* despite −20 % tris). The
-  client has a perf overlay — **F8** or `?perf=1` — and sleeps its render loop
-  when nothing moves.
+  client has a perf overlay — **F8** or `?perf=1` — showing fps, frame time,
+  character count and `tex/p/f` (live textures / atlas pages / packed frames), and sleeps its render
+  loop when nothing moves.
+- **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
+  `spriteTexture()` packs each SpriteData into shared canvas pages and returns
+  `{key, frame}`. A texture per sprite is what breaks batching — a painted decal
+  field is hundreds of distinct 16×16 pieces, i.e. hundreds of binds per frame —
+  so anything that draws a sprite goes through that function, never
+  `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
+  (fresh pixels every frame) and uploaded background images (real PNGs).
 
 ### UI — one look for all chrome
 

@@ -32,6 +32,7 @@ import {
   type SpriteData,
 } from '@pixel/shared/office/types.js';
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
+import { spriteAtlasFrameCount, spriteAtlasPageCount } from '../render/sprites.js';
 import {
   getCatalogEntry,
   effectiveAction,
@@ -1944,7 +1945,17 @@ export class OfficeScene extends Phaser.Scene {
     const ms = this.updateMsAvg.toFixed(2).padStart(5);
     const chars = String(this.characters.size).padStart(2);
     const stateTxt = (this.loopAsleep ? 'asleep' : this.idleFrames > IDLE_GRACE_FRAMES ? 'idle' : 'active').padEnd(6);
-    el.textContent = `${fps} fps · ${ms} ms · ${chars} chars · ${stateTxt}`;
+    // Texture count and atlas pages: the number that says whether sprite batching
+    // is actually happening. Before the runtime atlas (see render/sprites.ts) this
+    // grew by one per distinct sprite, and every one of them is a texture bind the
+    // GPU cannot batch away.
+    const tex = String(Object.keys(this.game.textures.list).length).padStart(3);
+    const pages = String(spriteAtlasPageCount()).padStart(2);
+    // Frames = distinct pictures packed. It has to stay FLAT when the same art
+    // arrives again (a tileset saved in Tiled, an avatar re-broadcast); a number
+    // that climbs on every save is the atlas leaking page space.
+    const frames = String(spriteAtlasFrameCount()).padStart(4);
+    el.textContent = `${fps} fps · ${ms} ms · ${chars} chars · ${tex} tex/${pages}p/${frames}f · ${stateTxt}`;
   }
 
   private togglePerf(): void {
@@ -2429,7 +2440,7 @@ export class OfficeScene extends Phaser.Scene {
           ['Click an avatar', 'Select it (tooltip) — hover works too'],
           ['Mouse wheel', 'Zoom'],
           ['Drag (empty space)', 'Pan the camera'],
-          ['F8', 'Toggle the performance overlay (FPS / frame time)'],
+          ['F8', 'Toggle the performance overlay (FPS, frame time, textures)'],
         ],
       },
       {
