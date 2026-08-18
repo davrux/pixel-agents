@@ -17,6 +17,21 @@ import {
 
 import { serverHttpOrigin } from './room.js';
 
+/** One entry of sets.json: a sheet's name plus its own grid geometry. */
+interface SheetInfo {
+  name: string;
+  columns: number;
+  spacing: number;
+}
+
+/** A fetched sheet, ready for the renderer to keep as a texture. `spacing` travels
+ *  with it because a frame's rect depends on it (see render/sprites.ts). */
+export interface LoadedSheet {
+  name: string;
+  bitmap: ImageBitmap;
+  spacing: number;
+}
+
 function hex2(n: number): string {
   return n.toString(16).padStart(2, '0');
 }
@@ -49,7 +64,7 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
  * Safe to call once at scene start; a failure is logged and leaves floor/wall
  * rendering at their "not loaded yet" fallback (a flat fill).
  */
-export async function loadTiledSheets(): Promise<Array<{ name: string; bitmap: ImageBitmap }>> {
+export async function loadTiledSheets(): Promise<LoadedSheet[]> {
   try {
     const origin = serverHttpOrigin();
     const base = `${origin}/assets/tiled/png`;
@@ -59,38 +74,33 @@ export async function loadTiledSheets(): Promise<Array<{ name: string; bitmap: I
     // cost). A layout names the sets it uses; these names are the keys.
     const setsRes = await fetch(`${origin}/assets/tiled/sets.json`);
     if (!setsRes.ok) throw new Error(`sets.json: HTTP ${setsRes.status}`);
-    const sets = (await setsRes.json()) as { floor?: string[]; wall?: string[] };
-    const floorNames = sets.floor ?? [];
-    const wallNames = sets.wall ?? [];
+    // Each set arrives with its own grid geometry, not just a name: the column
+    // count and the baked gap are PER SET (a natural-only set like
+    // floor-overworld has one column, a palette bake 65), and reading them off
+    // the .tsj — which is what the server does here — is what keeps a re-baked
+    // sheet and this reader from ever disagreeing.
+    const sets = (await setsRes.json()) as { floor?: SheetInfo[]; wall?: SheetInfo[] };
+    const floors = sets.floor ?? [];
+    const walls = sets.wall ?? [];
     const [floorBitmaps, wallBitmaps] = await Promise.all([
-      Promise.all(floorNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
-      Promise.all(wallNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
+      Promise.all(floors.map((f) => fetchBitmap(`${base}/${f.name}.png`))),
+      Promise.all(walls.map((f) => fetchBitmap(`${base}/${f.name}.png`))),
     ]);
-    // Each floor set can have a different pattern (row) count — e.g. a set with
-    // one extra pattern the base "floor" set doesn't have. Read off the sheet's
-    // own height, so adding a pattern needs no code change.
+    // Row count per set comes from the sheet's own height, so adding a floor
+    // pattern or an extra hand-painted wall piece needs no code change. A wall set
+    // may carry pieces past the 16 adjacency ones (the metro sets' north-wall
+    // faces — see server/src/core/assets/pngDecoder.ts's parseWallPng).
+    const rowsOf = (bitmap: ImageBitmap, tileH: number, spacing: number) =>
+      Math.round((bitmap.height + spacing) / (tileH + spacing));
     setFloorSheetInfo(
-      Object.fromEntries(
-        floorBitmaps.map((b, i) => [
-          floorNames[i],
-          Math.round((b.height + FLOOR_TILE_SPACING) / (FLOOR_TILE_H + FLOOR_TILE_SPACING)),
-        ]),
-      ),
+      Object.fromEntries(floors.map((f, i) => [f.name, rowsOf(floorBitmaps[i], FLOOR_TILE_H, f.spacing)])),
     );
-    // Piece count per wall set likewise: a set may carry extra hand-painted-only
-    // pieces after the 16 adjacency ones (the metro sets' north-wall faces — see
-    // server/src/core/assets/pngDecoder.ts's parseWallPng).
     setWallSheetInfo(
-      Object.fromEntries(
-        wallBitmaps.map((b, i) => [
-          wallNames[i],
-          Math.round((b.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
-        ]),
-      ),
+      Object.fromEntries(walls.map((f, i) => [f.name, rowsOf(wallBitmaps[i], WALL_TILE_H, f.spacing)])),
     );
     return [
-      ...floorNames.map((name, i) => ({ name, bitmap: floorBitmaps[i] })),
-      ...wallNames.map((name, i) => ({ name, bitmap: wallBitmaps[i] })),
+      ...floors.map((f, i) => ({ name: f.name, bitmap: floorBitmaps[i], spacing: f.spacing })),
+      ...walls.map((f, i) => ({ name: f.name, bitmap: wallBitmaps[i], spacing: f.spacing })),
     ];
   } catch (err) {
     console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);

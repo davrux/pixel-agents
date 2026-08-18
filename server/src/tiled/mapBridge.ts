@@ -70,14 +70,20 @@ function tiledColorToRgbHex(color: string): string | null {
 
 /** Derive (row, swatch index) from a resolved tile's position within its
  *  tileset, undoing the sheet layout bake-floor-wall-tiled.mts writes out.
- *  Column 0 = Natural (null), column 1+i = PALETTE_64[i]; row = pattern-1
- *  (floor) or bitmask (wall). Positional, not property-based: floor.tsj/
- *  wall-*.tsj are entirely machine-generated (bake-floor-wall-tiled.mts), so
- *  their tile order is exactly as reliable as a stored property would be,
- *  with nothing to keep in sync. */
-function rowAndSwatchFromLocalId(localId: number): { row: number; swatchIndex: number | null } {
-  const row = Math.floor(localId / TILED_SHEET_COLUMNS);
-  const col = localId % TILED_SHEET_COLUMNS;
+ *  Column 0 = Natural (null), column 1+i = the set's palette[i]; row =
+ *  pattern-1 (floor) or bitmask (wall). Positional, not property-based:
+ *  floor.tsj/wall-*.tsj are entirely machine-generated
+ *  (bake-floor-wall-tiled.mts), so their tile order is exactly as reliable as
+ *  a stored property would be, with nothing to keep in sync. The column count
+ *  is the tileset's OWN (RegistryTileset.columns): sets differ — 65 for a
+ *  palette bake, 1 for a natural-only set like floor-overworld. The fallback
+ *  cannot trigger for a tile resolved out of a baked grid (those always carry
+ *  columns ≥ 1); it only keeps the math finite if a FloorTile/WallTile ever
+ *  appears in a collection-of-images set (columns 0). */
+function rowAndSwatchFromLocalId(localId: number, tilesetColumns: number): { row: number; swatchIndex: number | null } {
+  const columns = tilesetColumns > 0 ? tilesetColumns : TILED_SHEET_COLUMNS;
+  const row = Math.floor(localId / columns);
+  const col = localId % columns;
   return { row, swatchIndex: col === 0 ? null : col - 1 };
 }
 
@@ -216,7 +222,7 @@ export function importTmjToLayout(
     // not by which file a tile lives in — a mapper reorganizing tileset files
     // must not silently break this (see docs/design.md).
     if (groundResolved?.class === 'FloorTile') {
-      const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId);
+      const { row, swatchIndex } = rowAndSwatchFromLocalId(groundResolved.localId, groundResolved.tileset.columns);
       tiles.push(row + 1);
       tileColors.push(swatchIndex);
       // Which set this came from — unlike the floor/void classification above,
@@ -257,7 +263,7 @@ export function importTmjToLayout(
         // screenshot; cheap to prevent here.
         const resolved = resolveGid(baseGid(wallLatticeLayer[r * cols + c]));
         if (resolved?.class !== 'WallTile') continue;
-        const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+        const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId, resolved.tileset.columns);
         const li = latticeIndex(cols, c, r);
         latticeSet[li] = setIndexInto(wallSets, resolved.tileset.file);
         latticeColor[li] = swatchIndex;
@@ -285,7 +291,7 @@ export function importTmjToLayout(
     for (let i = 0; i < cols * rows; i++) {
       const resolved = resolveGid(baseGid(wallFaceLayer[i]));
       if (resolved?.class !== 'WallTile') continue;
-      const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId);
+      const { row: piece, swatchIndex } = rowAndSwatchFromLocalId(resolved.localId, resolved.tileset.columns);
       facePiece[i] = piece;
       faceSet[i] = setIndexInto(wallSets, resolved.tileset.file);
       faceColor[i] = swatchIndex;

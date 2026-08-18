@@ -143,8 +143,8 @@ export class PhaserRenderer {
   /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
    *  by frame (see sprites.ts). Call once the sheets have loaded, before
    *  buildStatic(); without them floor and walls fall back to a flat fill. */
-  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap }>): void {
-    for (const { name, bitmap } of sheets) registerSheetTexture(this.scene, name, bitmap);
+  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap; spacing: number }>): void {
+    for (const { name, bitmap, spacing } of sheets) registerSheetTexture(this.scene, name, bitmap, spacing);
   }
 
   /** Replace the set of players shown with a speaking ring (called per frame). */

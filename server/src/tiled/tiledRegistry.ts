@@ -23,6 +23,8 @@ interface TiledTileJson {
 interface TiledTilesetJson {
   name: string;
   tilecount: number;
+  columns?: number;
+  spacing?: number;
   tiles?: TiledTileJson[];
 }
 
@@ -46,6 +48,18 @@ export interface RegistryTileset {
   name: string;
   firstgid: number;
   tileCount: number;
+  /** The tileset's own grid width in tiles (Tiled's `columns`) — 0 for a
+   *  collection-of-images set. For the baked floor/wall grids this is what a
+   *  localId is decomposed against (row = pattern/bitmask, column = swatch);
+   *  it is per set because sets differ: a palette-baked sheet has 65 columns
+   *  (Natural + 64 swatches), a natural-only one (floor-overworld) has 1. */
+  columns: number;
+  /** Transparent px baked between cells (Tiled's `spacing`). Read for the same
+   *  reason as `columns`: the client draws a cell as a frame of the sheet and has
+   *  to know where the cell actually starts, and taking that from a constant is
+   *  what lets a re-baked sheet and its reader disagree. See FLOOR_TILE_SPACING /
+   *  WALL_TILE_SPACING for why the gap exists at all. */
+  spacing: number;
   tiles: RegistryTile[]; // index = local tile id
 }
 
@@ -141,7 +155,15 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
       const t = byId.get(id);
       tiles.push({ class: t?.type, props: t ? propsOf(t) : {}, image: t?.image });
     }
-    tilesets.push({ file, name: json.name, firstgid: nextGid, tileCount: slots, tiles });
+    tilesets.push({
+      file,
+      name: json.name,
+      firstgid: nextGid,
+      tileCount: slots,
+      columns: json.columns ?? 0,
+      spacing: json.spacing ?? 0,
+      tiles,
+    });
     nextGid += slots;
   }
 

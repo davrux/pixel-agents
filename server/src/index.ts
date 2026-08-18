@@ -268,7 +268,20 @@ async function main(): Promise<void> {
   // show up without a restart, and this is a handful of small JSON files.
   app.get('/assets/tiled/sets.json', (_req, res) => {
     const registry = loadTiledRegistry(ASSETS_ROOT);
-    res.json({ floor: floorSetNames(registry), wall: wallSetNames(registry) });
+    // Name plus the sheet's own grid geometry. The client draws a cell as a frame
+    // of the sheet, so it needs to know where cells start — and reading that off
+    // the .tsj, like the map bridge does, is what keeps a re-baked sheet and its
+    // reader from disagreeing. A constant in the client could not: the gap and the
+    // column count are per set (a natural-only set has 1 column, a palette bake
+    // 65).
+    const geom = (name: string) => {
+      const ts = registry.bySource(`${name}.tsj`);
+      return { name, columns: ts?.columns ?? 0, spacing: ts?.spacing ?? 0 };
+    };
+    res.json({
+      floor: floorSetNames(registry).map(geom),
+      wall: wallSetNames(registry).map(geom),
+    });
   });
   if (existsSync(clientDist)) {
     app.use(express.static(clientDist));

@@ -144,12 +144,16 @@ function grid(tileW: number, tileH: number, columns: number, tileCount: number, 
   };
 }
 
-/** Every row's palette must be exactly TILED_SHEET_COLUMNS-1 colors — the
- *  sheet is one fixed-width grid, so a differently-sized palette would
- *  silently misalign every row after it. */
+/** A set's palette is either one of the full 64-swatch ones or EMPTY (a
+ *  natural-only bake — imported art that keeps its own colors, e.g.
+ *  floor-overworld, gets a single Natural column and no recolors). The sheet's
+ *  column count is per set (palette + 1) and both consumers read it off the
+ *  artifact itself — the client from the sheet's width, the map bridge from
+ *  the .tsj's own `columns` — so an in-between size would work too; this
+ *  check only catches an accidentally truncated palette constant. */
 function checkPaletteSize(palette: PaletteSwatch[], label: string): PaletteSwatch[] {
-  if (palette.length !== TILED_SHEET_COLUMNS - 1) {
-    throw new Error(`${label}: palette has ${palette.length} colors, expected ${TILED_SHEET_COLUMNS - 1}`);
+  if (palette.length !== 0 && palette.length !== TILED_SHEET_COLUMNS - 1) {
+    throw new Error(`${label}: palette has ${palette.length} colors, expected 0 or ${TILED_SHEET_COLUMNS - 1}`);
   }
   return palette;
 }
@@ -165,6 +169,16 @@ const BASE_FLOOR_PATTERN_FILES = Array.from({ length: 11 }, (_, p) => `floor_${p
  *  order). */
 const METRO_FLOOR_PATTERN_FILES = Array.from({ length: 7 }, (_, p) => `metro_${p}.png`);
 
+/** The overworld floor set's patterns — whatever gen-overworld.mts last wrote,
+ *  discovered from disk rather than counted here: that script owns the list
+ *  (it deletes stale overworld_*.png before writing), so a hardcoded count
+ *  would only be one more thing to forget. Numeric sort, because row order IS
+ *  a pattern's identity in a saved map. */
+const OVERWORLD_FLOOR_PATTERN_FILES = fs
+  .readdirSync(path.join(ROOT, 'assets', 'floors'))
+  .filter((f) => /^overworld_\d+\.png$/.test(f))
+  .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
+
 function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: PaletteSwatch[]): void {
   const pal = checkPaletteSize(palette, `floor set "${outputName}"`);
   const tiles: SpriteData[] = [];
@@ -176,7 +190,7 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
       tiles.push(getColorizedSprite(`bake-${outputName}-${sourceFile}-${sw.h}-${sw.s}`, raw, swatchColor(sw)));
     }
   }
-  const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
+  const columns = pal.length + 1; // Natural + the set's swatches (none for a natural-only set)
   const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns, FLOOR_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * FLOOR_TILE_SPACING;
@@ -233,7 +247,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
       tiles.push(getColorizedSprite(`bake-${outputName}-${index}-${sw.h}-${sw.s}`, piece, swatchColor(sw), referenceLightness));
     }
   });
-  const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
+  const columns = pal.length + 1; // Natural + the set's swatches
   const buf = composeSheet(tiles, TILE_W, WALL_H, columns, WALL_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
@@ -298,3 +312,11 @@ bakeWallSheet('wall-metro-resurrect64', 'wall_metro.png', PALETTE_64);
 bakeFloorSheet('floor-endesga', BASE_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
 bakeFloorSheet('floor-metro-endesga', METRO_FLOOR_PATTERN_FILES, ENDESGA_PALETTE_64);
 bakeWallSheet('wall-metro-endesga', 'wall_metro.png', ENDESGA_PALETTE_64);
+// Natural-only (one column, no swatch recolors): the Overworld pack's terrain
+// keeps its own colors — recoloring grass-meets-water art through 64 hue
+// swatches produces nothing paintable, and skipping them keeps the set at
+// ~1/65th the sliced-sprite cost. Baked only once its patterns exist, so a
+// checkout that never ran gen-overworld.mts still bakes everything else.
+if (OVERWORLD_FLOOR_PATTERN_FILES.length > 0) {
+  bakeFloorSheet('floor-overworld', OVERWORLD_FLOOR_PATTERN_FILES, []);
+}

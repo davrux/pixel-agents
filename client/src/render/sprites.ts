@@ -1,13 +1,6 @@
 import Phaser from 'phaser';
 import type { SheetCellRef, SpriteData } from '@pixel/shared/office/types.js';
-import {
-  FLOOR_TILE_H,
-  FLOOR_TILE_SPACING,
-  FLOOR_TILE_W,
-  WALL_TILE_H,
-  WALL_TILE_SPACING,
-  WALL_TILE_W,
-} from '@pixel/shared/office/tiledSheetLayout.js';
+import { FLOOR_TILE_H, FLOOR_TILE_W, WALL_TILE_H, WALL_TILE_W } from '@pixel/shared/office/tiledSheetLayout.js';
 
 /**
  * SpriteData → something Phaser can draw, via a **runtime texture atlas**.
@@ -332,13 +325,17 @@ export function ensureImageTexture(scene: Phaser.Scene, assetId: string, dataUrl
 interface Sheet {
   key: string;
   tex: Phaser.Textures.CanvasTexture;
+  /** The gap this sheet was baked with, as read off its .tsj (see sets.json).
+   *  Taken from the artifact rather than a constant, so a re-baked sheet and this
+   *  reader cannot drift apart. */
+  spacing: number;
 }
 
 const sheets = new Map<string, Sheet>();
 
 /** Register a fetched sheet bitmap as one texture. Called once per set, after
  *  client/src/net/tiledSheets.ts has fetched it. */
-export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: ImageBitmap): void {
+export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: ImageBitmap, spacing: number): void {
   const existing = sheets.get(name);
   if (existing && scene.textures.exists(existing.key)) return;
   const key = `sheet_${name}`;
@@ -352,7 +349,7 @@ export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: 
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(bitmap, 0, 0);
   tex.refresh();
-  sheets.set(name, { key, tex });
+  sheets.set(name, { key, tex, spacing });
 }
 
 /**
@@ -369,7 +366,7 @@ export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
   const isWall = ref.kind === 'wall';
   const w = isWall ? WALL_TILE_W : FLOOR_TILE_W;
   const h = isWall ? WALL_TILE_H : FLOOR_TILE_H;
-  const gap = isWall ? WALL_TILE_SPACING : FLOOR_TILE_SPACING;
+  const gap = sheet.spacing;
   const frame = `${ref.row}_${ref.col}`;
   if (!sheet.tex.has(frame)) {
     const x = ref.col * (w + gap);

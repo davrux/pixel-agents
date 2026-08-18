@@ -25,8 +25,11 @@ there, aimed at a small MMO-style world.
 
 The character and world art builds on the wonderful **MetroCity** pack by
 **[JIK-A-4](https://jik-a-4.itch.io/metrocity-free-topdown-character-pack)** —
-a free top-down character pack. The office's own sprites come from the original
-pixel-agents. UI font: **FS Pixel Sans**.
+a free top-down character pack. The overworld terrain, buildings and outdoor
+props come from **[Zelda-like tilesets and sprites](https://opengameart.org/content/zelda-like-tilesets-and-sprites)**
+by **ArMM1998** (public domain / CC0), imported by
+`scripts/import-overworld-pack.sh`. The office's own sprites come from the
+original pixel-agents. UI font: **FS Pixel Sans**.
 
 ## Quick start
 
