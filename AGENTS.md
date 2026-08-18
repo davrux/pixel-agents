@@ -340,7 +340,11 @@ background only.)
   invariants. Treat its failures as blockers.
 - `pnpm -r run check-types` and `pnpm build` must be clean.
 - If you touched furniture properties:
-  `scripts/sync-furniture-properties.sh --check` must report zero changes.
+  `scripts/sync-furniture-properties.sh --check` must report zero changes. It edits a
+  MAP in place (`scripts/lib/jsonEdit.mts`) rather than re-serializing it: a `.tmj` is
+  written by Tiled, so rewriting one turned a single added field into a 25 000-line
+  diff and the next save in Tiled produced the reverse. Tilesets are ours and are
+  re-serialized normally.
 - If you added, removed or repainted collection art:
   `scripts/bake-atlas.sh --check` must pass (the server would bake it anyway, but
   the committed artifact is what a deployment starts from).
