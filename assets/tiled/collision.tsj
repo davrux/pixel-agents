@@ -1,6 +1,6 @@
 {
   "columns": 1,
-  "image": "png/collision.png",
+  "image": "png/src/collision.png",
   "imagewidth": 16,
   "imageheight": 16,
   "margin": 0,

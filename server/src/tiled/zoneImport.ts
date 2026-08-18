@@ -86,7 +86,7 @@ export function resolveZoneId(tmjPath: string, filename: string): string {
  *  one, so this replaces whatever was there. Placed images resolve against assets/tiled
  *  itself, never zone-relative — either the referenced tile's own `image`
  *  path (any file a mapper added directly via Tiled's Tileset editor), or
- *  the png/images/<id>.png convention bake-images-tiled.mts writes, as a
+ *  the png/src/images/<id>.png convention bake-images-tiled.mts writes, as a
  *  fallback for a bare (non-tile) Image object (see mapBridge.ts). A
  *  'spawnPoint' tile action (see Action) sets the zone's own arrival point
  *  the same way the in-game "Arrival point" click flow does — the FIRST one

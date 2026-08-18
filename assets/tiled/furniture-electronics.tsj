@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_BACK.png",
+      "image": "png/src/furniture/electronics/LAPTOP_BACK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_FRONT_OFF.png",
+      "image": "png/src/furniture/electronics/LAPTOP_FRONT_OFF.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_1.png",
+      "image": "png/src/furniture/electronics/LAPTOP_FRONT_ON_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -254,7 +254,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_2.png",
+      "image": "png/src/furniture/electronics/LAPTOP_FRONT_ON_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -331,7 +331,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_FRONT_ON_3.png",
+      "image": "png/src/furniture/electronics/LAPTOP_FRONT_ON_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -408,7 +408,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/LAPTOP_SIDE.png",
+      "image": "png/src/furniture/electronics/LAPTOP_SIDE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -485,7 +485,7 @@
     {
       "id": 6,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_BACK.png",
+      "image": "png/src/furniture/electronics/PC_BACK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -562,7 +562,7 @@
     {
       "id": 7,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_FRONT_OFF.png",
+      "image": "png/src/furniture/electronics/PC_FRONT_OFF.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -639,7 +639,7 @@
     {
       "id": 8,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_FRONT_ON_1.png",
+      "image": "png/src/furniture/electronics/PC_FRONT_ON_1.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -730,7 +730,7 @@
     {
       "id": 9,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_FRONT_ON_2.png",
+      "image": "png/src/furniture/electronics/PC_FRONT_ON_2.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -807,7 +807,7 @@
     {
       "id": 10,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_FRONT_ON_3.png",
+      "image": "png/src/furniture/electronics/PC_FRONT_ON_3.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -884,7 +884,7 @@
     {
       "id": 11,
       "type": "FurnitureTile",
-      "image": "png/furniture/electronics/PC_SIDE.png",
+      "image": "png/src/furniture/electronics/PC_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [

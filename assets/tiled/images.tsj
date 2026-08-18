@@ -14,7 +14,7 @@
  "tiles":[
         {
          "id":0,
-         "image":"png\/images\/space_invaders.png",
+         "image":"png\/src\/images\/space_invaders.png",
          "imageheight":900,
          "imagewidth":1440,
          "properties":[

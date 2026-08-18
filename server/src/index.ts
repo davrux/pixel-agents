@@ -31,6 +31,7 @@ function serverVersion(): string {
 
 import { Server } from '@colyseus/core';
 import { Encoder } from '@colyseus/schema';
+import { ATLAS_MANIFEST_REL } from './tiled/furnitureAtlas.js';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
@@ -275,13 +276,19 @@ async function main(): Promise<void> {
     // reader from disagreeing. A constant in the client could not: the gap and the
     // column count are per set (a natural-only set has 1 column, a palette bake
     // 65).
+    // `img` too: where a sheet's PNG lives is the TILESET's answer (its own
+    // `image`), not a path the client assembles from a set name. It used to
+    // assemble one, and moving the baked sheets into png/baked/ would then have
+    // needed a client release to find art that had not changed at all.
     const geom = (name: string) => {
       const ts = registry.bySource(`${name}.tsj`);
-      return { name, columns: ts?.columns ?? 0, spacing: ts?.spacing ?? 0 };
+      return { name, columns: ts?.columns ?? 0, spacing: ts?.spacing ?? 0, img: ts?.image ?? '' };
     };
     res.json({
       floor: floorSetNames(registry).map(geom),
       wall: wallSetNames(registry).map(geom),
+      // Same reasoning for the furniture atlas: the server owns where it bakes it.
+      atlas: ATLAS_MANIFEST_REL,
     });
   });
   if (existsSync(clientDist)) {

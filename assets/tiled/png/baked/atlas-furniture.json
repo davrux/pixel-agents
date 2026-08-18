@@ -1,9 +1,10 @@
 {
-  "image": "png/atlas-furniture.png",
+  "image": "png/baked/atlas-furniture.png",
   "width": 1024,
   "height": 766,
   "gap": 2,
   "extrude": 1,
+  "sourceKey": "0e8a4836e454375943461bf2d3c3871a",
   "frames": {
     "ARCADE": {
       "x": 137,

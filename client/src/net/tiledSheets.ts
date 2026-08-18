@@ -1,6 +1,6 @@
 /**
  * Loads the pre-baked, closed-palette floor/wall sprite sheets Tiled itself
- * paints from (assets/tiled/png/<set>.png, the sets listed by sets.json
+ * paints from (assets/tiled/png/baked/<set>.png, the sets listed by sets.json
  * — see server/scripts/bake-floor-wall-tiled.mts), once via plain HTTP, and
  * registers them as textures the renderer draws frames out of. Replaces the old
  * floorTilesLoaded/wallTilesLoaded Colyseus messages — no more live per-pixel
@@ -41,12 +41,15 @@ export interface AtlasManifest {
  */
 export async function loadFurnitureAtlas(): Promise<{ bitmap: ImageBitmap; manifest: AtlasManifest } | null> {
   try {
-    const base = `${serverHttpOrigin()}/assets/tiled/png`;
-    const res = await fetch(`${base}/atlas-furniture.json`);
-    if (!res.ok) throw new Error(`atlas-furniture.json: HTTP ${res.status}`);
+    const origin = serverHttpOrigin();
+    // Where the atlas is comes from the server (sets.json), and the image it
+    // points at comes from the manifest — no path spelled out here.
+    const manifestRel = (await sheetPaths(origin)).atlas || 'png/baked/atlas-furniture.json';
+    const res = await fetch(`${origin}/assets/tiled/${manifestRel}`);
+    if (!res.ok) throw new Error(`${manifestRel}: HTTP ${res.status}`);
     const manifest = (await res.json()) as AtlasManifest;
     if (!manifest?.frames || Object.keys(manifest.frames).length === 0) throw new Error('manifest has no frames');
-    const bitmap = await fetchBitmap(`${base}/${manifest.image.replace(/^png\//, '')}`);
+    const bitmap = await fetchBitmap(`${origin}/assets/tiled/${manifest.image}`);
     if (bitmap.width !== manifest.width || bitmap.height !== manifest.height) {
       // A manifest and an atlas from different bakes would draw the wrong art with
       // complete confidence, so they are checked against each other rather than
@@ -65,6 +68,34 @@ interface SheetInfo {
   name: string;
   columns: number;
   spacing: number;
+  /** Where the sheet's PNG is, relative to assets/tiled — the tileset's own
+   *  `image`, passed through by the server. Not built from `name` here: that
+   *  turned a file move into a client release. */
+  img?: string;
+}
+
+interface SetsJson {
+  floor?: SheetInfo[];
+  wall?: SheetInfo[];
+  /** Where the furniture atlas's manifest is, relative to assets/tiled. */
+  atlas?: string;
+}
+
+/** sets.json, fetched once and shared: both loaders here need it, and it is the
+ *  one place that says where any of this art lives. A failed fetch is not cached,
+ *  so a later call may try again. */
+let setsPromise: Promise<SetsJson> | null = null;
+function sheetPaths(origin: string): Promise<SetsJson> {
+  setsPromise ??= fetch(`${origin}/assets/tiled/sets.json`)
+    .then((r) => {
+      if (!r.ok) throw new Error(`sets.json: HTTP ${r.status}`);
+      return r.json() as Promise<SetsJson>;
+    })
+    .catch((err) => {
+      setsPromise = null;
+      throw err;
+    });
+  return setsPromise;
 }
 
 /** A fetched sheet, ready for the renderer to keep as a texture. `spacing` travels
@@ -110,24 +141,23 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
 export async function loadTiledSheets(): Promise<LoadedSheet[]> {
   try {
     const origin = serverHttpOrigin();
-    const base = `${origin}/assets/tiled/png`;
     // Which sets exist comes from the server, which reads it off disk — no list
     // of filenames in the client bundle, so adding or renaming a tileset needs
     // no client release (see tiledSheetLayout.ts for what the old constants
     // cost). A layout names the sets it uses; these names are the keys.
-    const setsRes = await fetch(`${origin}/assets/tiled/sets.json`);
-    if (!setsRes.ok) throw new Error(`sets.json: HTTP ${setsRes.status}`);
+
     // Each set arrives with its own grid geometry, not just a name: the column
     // count and the baked gap are PER SET (a natural-only set like
     // floor-overworld has one column, a palette bake 65), and reading them off
     // the .tsj — which is what the server does here — is what keeps a re-baked
     // sheet and this reader from ever disagreeing.
-    const sets = (await setsRes.json()) as { floor?: SheetInfo[]; wall?: SheetInfo[] };
+    const sets = await sheetPaths(origin);
     const floors = sets.floor ?? [];
     const walls = sets.wall ?? [];
+    const sheetUrl = (f: SheetInfo) => `${origin}/assets/tiled/${f.img || `png/baked/${f.name}.png`}`;
     const [floorBitmaps, wallBitmaps] = await Promise.all([
-      Promise.all(floors.map((f) => fetchBitmap(`${base}/${f.name}.png`))),
-      Promise.all(walls.map((f) => fetchBitmap(`${base}/${f.name}.png`))),
+      Promise.all(floors.map((f) => fetchBitmap(sheetUrl(f)))),
+      Promise.all(walls.map((f) => fetchBitmap(sheetUrl(f)))),
     ]);
     // Row count per set comes from the sheet's own height, so adding a floor
     // pattern or an extra hand-painted wall piece needs no code change. A wall set

@@ -250,7 +250,10 @@ test('a grid decal tileset loads: every named cell gets the sprite that sheet ce
   // looks like a road. So compare one cell against the PNG's own pixels.
   const { PNG } = await import('pngjs');
   const fs = await import('node:fs');
-  const sheet = PNG.sync.read(fs.readFileSync(path.join(ASSETS_ROOT, 'assets/tiled/png/decal-roads.png')));
+  // Where the sheet is comes from the tileset, not from a path spelled out here:
+  // this test broke on a file move that changed no behaviour at all.
+  const roadTsj = JSON.parse(fs.readFileSync(path.join(ASSETS_ROOT, 'assets/tiled/decal-roads.tsj'), 'utf-8')) as { image: string };
+  const sheet = PNG.sync.read(fs.readFileSync(path.join(ASSETS_ROOT, 'assets/tiled', roadTsj.image)));
   const probe = roads.find((r) => r.id === 'ROAD_R05C07') ?? roads[roads.length - 1];
   const row = Number(probe.id.slice(6, 8));
   const col = Number(probe.id.slice(9, 11));

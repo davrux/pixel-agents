@@ -5,7 +5,7 @@
  * a "collection of images" tileset (no shared grid — each tile is its own
  * independently-sized PNG, see the JSON tileset format's per-tile `image`/
  * `imagewidth`/`imageheight` fields), plus the PNG files themselves under
- * assets/tiled/png/images/.
+ * assets/tiled/png/src/images/.
  *
  * Without this, there is no way to place an image in Tiled at all: Tiled's
  * object format has no field for "a standalone image file" independent of a
@@ -24,7 +24,7 @@ import { appStore } from '../src/appStore.js';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const TILED_DIR = path.join(ROOT, 'assets', 'tiled');
-const PNG_DIR = path.join(TILED_DIR, 'png', 'images');
+const PNG_DIR = path.join(TILED_DIR, 'png', 'src', 'images');
 
 interface ImageAssetData {
   data: string; // data:image/png;base64,...
@@ -49,7 +49,7 @@ const tiles = images.map((img, id) => {
     // from, so identity has to be an explicit property like FurnitureTile's
     // `id` (see docs/design.md).
     type: 'ImageTile',
-    image: `png/images/${img.name}.png`,
+    image: `png/src/images/${img.name}.png`,
     imagewidth: img.data.width,
     imageheight: img.data.height,
     properties: [{ name: 'imageId', type: 'string', value: img.name }],
@@ -73,4 +73,4 @@ const tsj = {
 };
 
 fs.writeFileSync(path.join(TILED_DIR, 'images.tsj'), JSON.stringify(tsj, null, 2) + '\n');
-console.log(`✓ images.tsj + png/images/*.png (${tiles.length} image${tiles.length === 1 ? '' : 's'})`);
+console.log(`✓ images.tsj + png/src/images/*.png (${tiles.length} image${tiles.length === 1 ? '' : 's'})`);

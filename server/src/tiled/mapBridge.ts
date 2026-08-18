@@ -99,7 +99,7 @@ function setIndexInto(table: string[], file: string): number {
   return table.length - 1;
 }
 
-/** `png/images/foo.png` → `foo`. Sanitised to the same shape an authored
+/** `png/src/images/foo.png` → `foo`. Sanitised to the same shape an authored
  *  imageId has, since it becomes an asset key. */
 function imageIdFromPath(image: string | undefined): string {
   if (!image) return '';
@@ -513,11 +513,11 @@ export function importTmjToLayout(
     // Prefer the tile's own declared `image` path — a mapper can add a tile
     // straight in Tiled's Tileset editor (Edit Tileset → Add Tiles) pointing
     // at whatever file they picked, entirely bypassing bake-images-tiled.mts
-    // and its png/images/<imageId>.png convention; that convention is only a
+    // and its png/src/images/<imageId>.png convention; that convention is only a
     // fallback for the cases with no such tile at all (a bare `type: 'Image'`
     // object with no gid). readImageFile resolves both against assets/tiled
     // itself, never zone-relative (see zoneImport.ts).
-    const buffer = readImageFile(resolvedTile?.image ?? `png/images/${imageId}.png`);
+    const buffer = readImageFile(resolvedTile?.image ?? `png/src/images/${imageId}.png`);
     if (buffer) importedImages.push({ imageId, label: imageId, buffer });
     const image: PlacedImage = {
       uid: generateUid(),

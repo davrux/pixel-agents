@@ -115,14 +115,14 @@ interface Target {
 
 const FURNITURE_TARGET: Target = {
   tsj: path.join(TILED, 'furniture-decor.tsj'),
-  pngDir: 'png/furniture/metro',
+  pngDir: 'png/src/furniture/metro',
   tileClass: FURNITURE_TILE_CLASS,
   props: FURNITURE_TILE_PROPS,
 };
 
 const DECAL_TARGET: Target = {
   tsj: path.join(TILED, 'decal.tsj'),
-  pngDir: 'png/decal',
+  pngDir: 'png/src/decal',
   tileClass: DECAL_TILE_CLASS,
   props: DECAL_TILE_PROPS,
 };

@@ -165,6 +165,32 @@ background only.)
   sheet or collection, palette or natural-only — and the mechanics that have each
   cost a bug: the 2 px gap plus 1 px extrusion on every sheet, ids as identity,
   deterministic output, and appends that leave existing gids alone.
+- **`png/src` is yours, `png/baked` belongs to a script.** Source art — the
+  per-tile PNGs a collection tileset points at, uploaded background images — lives
+  under `assets/tiled/png/src/` and is never written by the pipeline. Everything a
+  generator produces (the floor and wall sheets, the copied grid sheets, the
+  furniture atlas) lives under `png/baked/`. The split exists so nobody has to
+  find out by losing work which files a re-run overwrites.
+- **Authoring format follows what a TILE has to say; the browser gets one image
+  per kind.** A furniture piece is one object with its own size and its own
+  behaviour, so it is one tile → a collection of images. Ground and decoration cut
+  from an art sheet are pictures per cell whose arrangement IS the content → a grid
+  sheet. Those two are the only choices, and Tiled cannot open the atlas anyway (it
+  is shelf-packed with 28 frame sizes). Delivery is then uniform: a grid sheet is
+  already one image, and collections are packed into the atlas.
+- **The atlas is baked by the server, not by remembering to run a script.**
+  `ensureFurnitureAtlas` (`server/src/tiled/furnitureAtlas.ts`) re-bakes at startup
+  and on a tileset save when the source art has changed, fingerprinted by CONTENT
+  so a fresh clone does not rewrite the artifact. `scripts/bake-atlas.sh` stays for
+  baking without a server and for `--check`. Why it matters: a stale atlas silently
+  changes the delivery format — ids it lacks travel as single files instead — so
+  "one image or many" would depend on whether somebody ran a script. It is still
+  committed, because two of the baked sheets are cut from packs that live outside
+  the repo and cannot be regenerated from a checkout.
+- **Nothing outside the tileset says where art lives.** A `.tsj` names its own
+  image; `sets.json` passes that path (and the atlas manifest's) to the client. The
+  client used to assemble `png/<set>.png` itself, and moving the baked sheets would
+  then have needed a client release to find art that had not changed.
 - **A tileset is what its tiles say it is, not what it is called.** A furniture
   tileset is one whose tiles carry the `FurnitureTile` class
   (`isFurnitureTileset`) — no filename prefix decides anything. A layout *names*
@@ -269,6 +295,9 @@ background only.)
 - `pnpm -r run check-types` and `pnpm build` must be clean.
 - If you touched furniture properties:
   `scripts/sync-furniture-properties.sh --check` must report zero changes.
+- If you added, removed or repainted collection art:
+  `scripts/bake-atlas.sh --check` must pass (the server would bake it anyway, but
+  the committed artifact is what a deployment starts from).
 - If you touched the server: `cd server && pnpm test`. If you touched the desktop
   Mumble protocol: `cd desktop && pnpm test`.
 - For engine changes, drive `OfficeState` directly in a small headless test, plus

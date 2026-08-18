@@ -46,7 +46,7 @@ import type { SpriteData } from '../../shared/src/office/types.js';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const OUT_DIR = path.join(ROOT, 'assets', 'tiled');
-const OUT_PNG_DIR = path.join(OUT_DIR, 'png');
+const OUT_PNG_DIR = path.join(OUT_DIR, 'png', 'baked');
 const TILE_W = FLOOR_TILE_W;
 const FLOOR_H = FLOOR_TILE_H;
 const WALL_H = WALL_TILE_H;
@@ -186,7 +186,7 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * FLOOR_TILE_SPACING;
   const imageH = sourceFiles.length * FLOOR_H + (sourceFiles.length - 1) * FLOOR_TILE_SPACING;
-  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/${outputName}.png`, imageW, imageH, 'FloorTile', outputName, FLOOR_TILE_SPACING);
+  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, 'FloorTile', outputName, FLOOR_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
 }
@@ -243,7 +243,7 @@ function bakeWallSheet(outputName: string, sourceFile: string, palette: PaletteS
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
   const imageW = columns * TILE_W + (columns - 1) * WALL_TILE_SPACING;
   const imageH = raw.length * WALL_H + (raw.length - 1) * WALL_TILE_SPACING;
-  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/${outputName}.png`, imageW, imageH, 'WallTile', outputName, WALL_TILE_SPACING) as Record<
+  const tsj = grid(TILE_W, WALL_H, columns, tiles.length, `png/baked/${outputName}.png`, imageW, imageH, 'WallTile', outputName, WALL_TILE_SPACING) as Record<
     string,
     unknown
   >;

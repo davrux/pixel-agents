@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/BIN.png",
+      "image": "png/src/furniture/misc/BIN.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/COFFEE.png",
+      "image": "png/src/furniture/misc/COFFEE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/GOLDFISH_BOWL_1.png",
+      "image": "png/src/furniture/misc/GOLDFISH_BOWL_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -254,7 +254,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/GOLDFISH_BOWL_2.png",
+      "image": "png/src/furniture/misc/GOLDFISH_BOWL_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -331,7 +331,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/GOLDFISH_BOWL_3.png",
+      "image": "png/src/furniture/misc/GOLDFISH_BOWL_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -408,7 +408,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/misc/TIME_CLOCK.png",
+      "image": "png/src/furniture/misc/TIME_CLOCK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [

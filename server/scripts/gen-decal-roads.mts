@@ -46,7 +46,7 @@ const SRC = path.join(ROOT, 'tmp', 'metro', 'MetroCity Outdoor 2.0', 'MetroCity 
 const TILED = path.join(ROOT, 'assets', 'tiled');
 /** Relative to the tileset's own directory — what the loader resolves against
  *  (and refuses to escape). */
-const PNG_REL = 'png/decal-roads.png';
+const PNG_REL = 'png/baked/decal-roads.png';
 const TARGET_TSJ = path.join(TILED, 'decal-roads.tsj');
 const DRY = process.argv.includes('--dry-run');
 

@@ -8,6 +8,7 @@ import {
   loadPetSprites,
 } from './assetLoader.js';
 import { READING_TOOLS, SUBAGENT_TOOL_NAMES } from './constants.js';
+import { ATLAS_MANIFEST_REL, ensureFurnitureAtlas } from './tiled/furnitureAtlas.js';
 import { updateFurnitureDefaults } from './assetOverrides.js';
 import { controlBus, ASSET_CHANGED_EVENT } from './controlBus.js';
 
@@ -52,7 +53,7 @@ export const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolv
  */
 function atlasRefs(): Record<string, { img: string; x: number; y: number; w: number; h: number }> {
   try {
-    const file = join(ASSETS_ROOT, 'assets', 'tiled', 'png', 'atlas-furniture.json');
+    const file = join(ASSETS_ROOT, 'assets', 'tiled', ATLAS_MANIFEST_REL);
     if (!fs.existsSync(file)) return {};
     const manifest = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
       image?: string;
@@ -74,6 +75,15 @@ export async function buildFurnitureCatalogAndSprites(): Promise<{
   refs: Record<string, unknown>;
   loaded: boolean;
 }> {
+  // Keep the derived artifact current before anything reads it. The atlas is
+  // packed FROM these tilesets, so a stale one silently changes the delivery
+  // format: ids it lacks travel as their own file instead, and whether that
+  // happens depended on somebody remembering to run a script. Baking here covers
+  // both callers — startup and the tileset watcher. A source PNG edited without
+  // touching its tileset is picked up at the next start, since the watcher
+  // watches tilesets.
+  const atlas = ensureFurnitureAtlas(ASSETS_ROOT);
+  console.log(`[assets] furniture atlas ${atlas.baked ? 're-baked' : ''}${atlas.baked ? ': ' : ''}${atlas.reason}`);
   const furniture = await loadFurnitureTilesets(ASSETS_ROOT);
   // Everything comes from the tilesets. There used to be a second source here —
   // portals, conference monitor, arcade cabinet, meeting kiosk and the wall logos

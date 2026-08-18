@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/COFFEE_MACHINE.png",
+      "image": "png/src/furniture/kitchens/COFFEE_MACHINE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/FRIDGE.png",
+      "image": "png/src/furniture/kitchens/FRIDGE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/KITCHEN_COUNTER_FRONT.png",
+      "image": "png/src/furniture/kitchens/KITCHEN_COUNTER_FRONT.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -240,7 +240,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/KITCHEN_COUNTER_SIDE.png",
+      "image": "png/src/furniture/kitchens/KITCHEN_COUNTER_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -317,7 +317,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/KITCHEN_SINK.png",
+      "image": "png/src/furniture/kitchens/KITCHEN_SINK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -394,7 +394,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/MICROWAVE.png",
+      "image": "png/src/furniture/kitchens/MICROWAVE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -471,7 +471,7 @@
     {
       "id": 6,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/STOVE.png",
+      "image": "png/src/furniture/kitchens/STOVE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -548,7 +548,7 @@
     {
       "id": 7,
       "type": "FurnitureTile",
-      "image": "png/furniture/kitchens/TOASTER.png",
+      "image": "png/src/furniture/kitchens/TOASTER.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [

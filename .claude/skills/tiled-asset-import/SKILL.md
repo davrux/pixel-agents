@@ -93,10 +93,17 @@ rubber-band a 3×3 junction or a whole house and stamp it as one block.
 > collage. Slicing a collage needs a long table of hand-judged rectangles and
 > destroys the very arrangement you paint from.
 
+Where the files go, whichever you pick: your art — a collection's per-tile PNGs, a
+sheet's source pack — belongs under `assets/tiled/png/src/`. Anything a generator
+writes goes to `assets/tiled/png/baked/`, and a re-run may overwrite it without
+asking. Never put authored art in `baked/`.
+
 Consequences either way, so nothing surprises you later:
 
-- A collection's tiles get packed into the furniture atlas
-  (`bake-furniture-atlas.mts`) and travel to the client as one image.
+- A collection's tiles get packed into the furniture atlas and travel to the client
+  as one image. You do not bake it: the server does, at startup and on a tileset
+  save, whenever the source art has changed
+  (`ensureFurnitureAtlas`). `scripts/bake-atlas.sh --check` is the CI question.
 - **A sheet already IS an atlas.** It is served as its own PNG and drawn from by
   frame — which is why Step 3's gap is mandatory for it.
 - A sheet loses no expressiveness: its cells can carry `tiles[]` entries with

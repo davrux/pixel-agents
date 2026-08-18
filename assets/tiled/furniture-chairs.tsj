@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/CUSHIONED_BENCH.png",
+      "image": "png/src/furniture/chairs/CUSHIONED_BENCH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/CUSHIONED_CHAIR_BACK.png",
+      "image": "png/src/furniture/chairs/CUSHIONED_CHAIR_BACK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/CUSHIONED_CHAIR_FRONT.png",
+      "image": "png/src/furniture/chairs/CUSHIONED_CHAIR_FRONT.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -240,7 +240,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/CUSHIONED_CHAIR_SIDE.png",
+      "image": "png/src/furniture/chairs/CUSHIONED_CHAIR_SIDE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -317,7 +317,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/SOFA_BACK.png",
+      "image": "png/src/furniture/chairs/SOFA_BACK.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -394,7 +394,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/SOFA_FRONT.png",
+      "image": "png/src/furniture/chairs/SOFA_FRONT.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -471,7 +471,7 @@
     {
       "id": 6,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/SOFA_SIDE.png",
+      "image": "png/src/furniture/chairs/SOFA_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -548,7 +548,7 @@
     {
       "id": 7,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/WOODEN_BENCH.png",
+      "image": "png/src/furniture/chairs/WOODEN_BENCH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -625,7 +625,7 @@
     {
       "id": 8,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/WOODEN_CHAIR_BACK.png",
+      "image": "png/src/furniture/chairs/WOODEN_CHAIR_BACK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -702,7 +702,7 @@
     {
       "id": 9,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/WOODEN_CHAIR_FRONT.png",
+      "image": "png/src/furniture/chairs/WOODEN_CHAIR_FRONT.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -779,7 +779,7 @@
     {
       "id": 10,
       "type": "FurnitureTile",
-      "image": "png/furniture/chairs/WOODEN_CHAIR_SIDE.png",
+      "image": "png/src/furniture/chairs/WOODEN_CHAIR_SIDE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [

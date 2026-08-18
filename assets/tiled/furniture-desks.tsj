@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/COFFEE_TABLE.png",
+      "image": "png/src/furniture/desks/COFFEE_TABLE.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/DESK_FRONT.png",
+      "image": "png/src/furniture/desks/DESK_FRONT.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/DESK_SIDE.png",
+      "image": "png/src/furniture/desks/DESK_SIDE.png",
       "imagewidth": 16,
       "imageheight": 64,
       "properties": [
@@ -240,7 +240,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/SMALL_TABLE_FRONT.png",
+      "image": "png/src/furniture/desks/SMALL_TABLE_FRONT.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -317,7 +317,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/SMALL_TABLE_SIDE.png",
+      "image": "png/src/furniture/desks/SMALL_TABLE_SIDE.png",
       "imagewidth": 16,
       "imageheight": 48,
       "properties": [
@@ -394,7 +394,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/desks/TABLE_FRONT.png",
+      "image": "png/src/furniture/desks/TABLE_FRONT.png",
       "imagewidth": 48,
       "imageheight": 64,
       "properties": [

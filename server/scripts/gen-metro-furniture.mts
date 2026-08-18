@@ -2,7 +2,7 @@
 /**
  * One-time importer: slices the MetroCity Interior item sheets (plus
  * MetroCity's Cars sheet) into individual furniture PNGs under
- * assets/tiled/png/furniture/metro/ and writes the Tiled tilesets that make
+ * assets/tiled/png/src/furniture/metro/ and writes the Tiled tilesets that make
  * them a real catalog — assets/tiled/furniture-metro-*.tsj. Nothing else has to
  * change: server/src/core/assets/tiledFurniture.ts reads the catalog straight
  * out of every furniture-*.tsj it finds, so these items show up like any other
@@ -54,7 +54,7 @@ import { components, cropToTiles, TILE } from './lib/sheetSlice.mjs';
 
 const ROOT = new URL('../..', import.meta.url).pathname;
 const PACK = path.join(ROOT, 'tmp', 'metro');
-const OUT_PNG_DIR = path.join(ROOT, 'assets', 'tiled', 'png', 'furniture', 'metro');
+const OUT_PNG_DIR = path.join(ROOT, 'assets', 'tiled', 'png', 'src', 'furniture', 'metro');
 const OUT_TSJ_DIR = path.join(ROOT, 'assets', 'tiled');
 
 /** `wallMounted` marks sheets whose items hang ON a wall rather than stand on
@@ -163,7 +163,7 @@ for (const sheet of SHEETS) {
     entries.push({
       id: entries.length,
       type: 'FurnitureTile',
-      image: `png/furniture/metro/${itemId}.png`,
+      image: `png/src/furniture/metro/${itemId}.png`,
       imagewidth: out.width,
       imageheight: out.height,
       properties: props,

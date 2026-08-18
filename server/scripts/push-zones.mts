@@ -121,7 +121,7 @@ function referencedFiles(tmj: Record<string, unknown>): Record<string, string> {
     for (const obj of (layer.objects as Array<Record<string, unknown>>) ?? []) {
       const props = (obj.properties as Array<{ name: string; value: unknown }>) ?? [];
       const imageId = props.find((p) => p.name === 'imageId')?.value;
-      if (typeof imageId === 'string' && imageId) add(`png/images/${imageId}.png`);
+      if (typeof imageId === 'string' && imageId) add(`png/src/images/${imageId}.png`);
     }
   }
   return out;

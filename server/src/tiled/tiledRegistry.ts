@@ -25,6 +25,9 @@ interface TiledTilesetJson {
   tilecount: number;
   columns?: number;
   spacing?: number;
+  /** Present on a grid tileset (one sheet for the whole set), absent on a
+   *  collection of images. */
+  image?: string;
   tiles?: TiledTileJson[];
 }
 
@@ -60,6 +63,11 @@ export interface RegistryTileset {
    *  what lets a re-baked sheet and its reader disagree. See FLOOR_TILE_SPACING /
    *  WALL_TILE_SPACING for why the gap exists at all. */
   spacing: number;
+  /** A grid tileset's own image, relative to assets/tiled — '' for a
+   *  collection-of-images set, which has one image per tile instead. Carried
+   *  through so nothing has to guess where a sheet's PNG lives (sets.json passes
+   *  it to the client for exactly that reason). */
+  image: string;
   tiles: RegistryTile[]; // index = local tile id
 }
 
@@ -162,6 +170,7 @@ export function loadTiledRegistry(assetsRoot: string): TiledRegistry {
       tileCount: slots,
       columns: json.columns ?? 0,
       spacing: json.spacing ?? 0,
+      image: json.image ?? '',
       tiles,
     });
     nextGid += slots;

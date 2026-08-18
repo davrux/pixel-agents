@@ -9,7 +9,7 @@
     {
       "id": 0,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/BUSH.png",
+      "image": "png/src/furniture/decor/BUSH.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -86,7 +86,7 @@
     {
       "id": 1,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/CACTUS.png",
+      "image": "png/src/furniture/decor/CACTUS.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -163,7 +163,7 @@
     {
       "id": 2,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_PATCH.png",
+      "image": "png/src/furniture/decor/FLOWER_PATCH.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -240,7 +240,7 @@
     {
       "id": 3,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_PINK.png",
+      "image": "png/src/furniture/decor/FLOWER_PINK.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -317,7 +317,7 @@
     {
       "id": 4,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_PURPLE.png",
+      "image": "png/src/furniture/decor/FLOWER_PURPLE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -394,7 +394,7 @@
     {
       "id": 5,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_RED.png",
+      "image": "png/src/furniture/decor/FLOWER_RED.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -471,7 +471,7 @@
     {
       "id": 6,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_WHITE.png",
+      "image": "png/src/furniture/decor/FLOWER_WHITE.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -548,7 +548,7 @@
     {
       "id": 7,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/FLOWER_YELLOW.png",
+      "image": "png/src/furniture/decor/FLOWER_YELLOW.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -625,7 +625,7 @@
     {
       "id": 8,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/GOLDFISH_1.png",
+      "image": "png/src/furniture/decor/GOLDFISH_1.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -716,7 +716,7 @@
     {
       "id": 9,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/GOLDFISH_2.png",
+      "image": "png/src/furniture/decor/GOLDFISH_2.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -793,7 +793,7 @@
     {
       "id": 10,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/GOLDFISH_3.png",
+      "image": "png/src/furniture/decor/GOLDFISH_3.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -870,7 +870,7 @@
     {
       "id": 11,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/LARGE_PLANT.png",
+      "image": "png/src/furniture/decor/LARGE_PLANT.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
@@ -947,7 +947,7 @@
     {
       "id": 12,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/PINE_TREE.png",
+      "image": "png/src/furniture/decor/PINE_TREE.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
@@ -1024,7 +1024,7 @@
     {
       "id": 13,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/PLANT.png",
+      "image": "png/src/furniture/decor/PLANT.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1101,7 +1101,7 @@
     {
       "id": 14,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/PLANT_2.png",
+      "image": "png/src/furniture/decor/PLANT_2.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1178,7 +1178,7 @@
     {
       "id": 15,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/POT.png",
+      "image": "png/src/furniture/decor/POT.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -1255,7 +1255,7 @@
     {
       "id": 16,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/TREE.png",
+      "image": "png/src/furniture/decor/TREE.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
@@ -1332,7 +1332,7 @@
     {
       "id": 17,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/BOOKSHELF.png",
+      "image": "png/src/furniture/decor/BOOKSHELF.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -1409,7 +1409,7 @@
     {
       "id": 18,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/CLOCK.png",
+      "image": "png/src/furniture/decor/CLOCK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1486,7 +1486,7 @@
     {
       "id": 19,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/DOUBLE_BOOKSHELF.png",
+      "image": "png/src/furniture/decor/DOUBLE_BOOKSHELF.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -1563,7 +1563,7 @@
     {
       "id": 20,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/HANGING_PLANT.png",
+      "image": "png/src/furniture/decor/HANGING_PLANT.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1640,7 +1640,7 @@
     {
       "id": 21,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/LARGE_PAINTING.png",
+      "image": "png/src/furniture/decor/LARGE_PAINTING.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -1717,7 +1717,7 @@
     {
       "id": 22,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/SMALL_PAINTING.png",
+      "image": "png/src/furniture/decor/SMALL_PAINTING.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1794,7 +1794,7 @@
     {
       "id": 23,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/SMALL_PAINTING_2.png",
+      "image": "png/src/furniture/decor/SMALL_PAINTING_2.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -1871,7 +1871,7 @@
     {
       "id": 24,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/WHITEBOARD.png",
+      "image": "png/src/furniture/decor/WHITEBOARD.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -1948,7 +1948,7 @@
     {
       "id": 25,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/DOOR.png",
+      "image": "png/src/furniture/decor/DOOR.png",
       "imagewidth": 16,
       "imageheight": 24,
       "properties": [
@@ -2025,7 +2025,7 @@
     {
       "id": 26,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/BEAM_PAD.png",
+      "image": "png/src/furniture/decor/BEAM_PAD.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -2102,7 +2102,7 @@
     {
       "id": 27,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/MONITOR.png",
+      "image": "png/src/furniture/decor/MONITOR.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -2179,7 +2179,7 @@
     {
       "id": 28,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/ARCADE.png",
+      "image": "png/src/furniture/decor/ARCADE.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -2256,7 +2256,7 @@
     {
       "id": 29,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/MEETING_KIOSK.png",
+      "image": "png/src/furniture/decor/MEETING_KIOSK.png",
       "imagewidth": 16,
       "imageheight": 32,
       "properties": [
@@ -2333,7 +2333,7 @@
     {
       "id": 30,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/UPONU_LOGO.png",
+      "image": "png/src/furniture/decor/UPONU_LOGO.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
@@ -2410,7 +2410,7 @@
     {
       "id": 31,
       "type": "FurnitureTile",
-      "image": "png/furniture/decor/UPONU_LOGO_DARK.png",
+      "image": "png/src/furniture/decor/UPONU_LOGO_DARK.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -2487,7 +2487,7 @@
     {
       "id": 32,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_TREE_01.png",
+      "image": "png/src/furniture/metro/METRO_TREE_01.png",
       "imagewidth": 32,
       "imageheight": 64,
       "properties": [
@@ -2564,7 +2564,7 @@
     {
       "id": 33,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_TREE_02.png",
+      "image": "png/src/furniture/metro/METRO_TREE_02.png",
       "imagewidth": 32,
       "imageheight": 64,
       "properties": [
@@ -2641,7 +2641,7 @@
     {
       "id": 34,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_TREE_03.png",
+      "image": "png/src/furniture/metro/METRO_TREE_03.png",
       "imagewidth": 32,
       "imageheight": 48,
       "properties": [
@@ -2718,7 +2718,7 @@
     {
       "id": 35,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_TREE_04.png",
+      "image": "png/src/furniture/metro/METRO_TREE_04.png",
       "imagewidth": 32,
       "imageheight": 32,
       "properties": [
@@ -2795,7 +2795,7 @@
     {
       "id": 36,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_05.png",
+      "image": "png/src/furniture/metro/METRO_OUT_05.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
@@ -2872,7 +2872,7 @@
     {
       "id": 37,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_09.png",
+      "image": "png/src/furniture/metro/METRO_OUT_09.png",
       "imagewidth": 48,
       "imageheight": 96,
       "properties": [
@@ -2949,7 +2949,7 @@
     {
       "id": 38,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_25.png",
+      "image": "png/src/furniture/metro/METRO_OUT_25.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
@@ -3026,7 +3026,7 @@
     {
       "id": 39,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_26.png",
+      "image": "png/src/furniture/metro/METRO_OUT_26.png",
       "imagewidth": 48,
       "imageheight": 16,
       "properties": [
@@ -3103,7 +3103,7 @@
     {
       "id": 40,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_27.png",
+      "image": "png/src/furniture/metro/METRO_OUT_27.png",
       "imagewidth": 48,
       "imageheight": 64,
       "properties": [
@@ -3180,7 +3180,7 @@
     {
       "id": 41,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_28.png",
+      "image": "png/src/furniture/metro/METRO_OUT_28.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -3257,7 +3257,7 @@
     {
       "id": 42,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_29.png",
+      "image": "png/src/furniture/metro/METRO_OUT_29.png",
       "imagewidth": 48,
       "imageheight": 32,
       "properties": [
@@ -3334,7 +3334,7 @@
     {
       "id": 43,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_30.png",
+      "image": "png/src/furniture/metro/METRO_OUT_30.png",
       "imagewidth": 16,
       "imageheight": 16,
       "properties": [
@@ -3411,7 +3411,7 @@
     {
       "id": 44,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_31.png",
+      "image": "png/src/furniture/metro/METRO_OUT_31.png",
       "imagewidth": 32,
       "imageheight": 16,
       "properties": [
@@ -3488,7 +3488,7 @@
     {
       "id": 45,
       "type": "FurnitureTile",
-      "image": "png/furniture/metro/METRO_OUT_32.png",
+      "image": "png/src/furniture/metro/METRO_OUT_32.png",
       "imagewidth": 112,
       "imageheight": 16,
       "properties": [
