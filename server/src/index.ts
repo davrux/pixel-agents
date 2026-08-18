@@ -308,7 +308,17 @@ async function main(): Promise<void> {
   // character is ~100 KB of SpriteData). Editor ops are authenticated, so allow
   // up to 8 MB.
   const gameServer = new Server({
-    transport: new WebSocketTransport({ server: httpServer, maxPayload: 8 * 1024 * 1024 }),
+    transport: new WebSocketTransport({
+      server: httpServer,
+      maxPayload: 8 * 1024 * 1024,
+      // Compress messages. `ws` defaults this OFF, and our biggest message is the
+      // asset catalog: 5.3 MB of SpriteData that deflates to ~120 KB, because a
+      // grid of hex-colour strings is about as redundant as data gets. It was
+      // therefore going over the wire raw, at 66 % of the maxPayload ceiling above
+      // — a ceiling on how much art a world may contain. Threshold so the many
+      // tiny state messages are not run through deflate for nothing.
+      perMessageDeflate: { threshold: 4096 },
+    }),
   });
   // Resolve the version once: logged at startup and handed to each room so the
   // client can show it next to the connection status.
