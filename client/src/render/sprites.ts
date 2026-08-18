@@ -408,8 +408,17 @@ let furnitureAtlas: AtlasFrames | null = null;
  * nobody needs.
  */
 const refs = new Map<string, { img: string; x: number; y: number; w: number; h: number }>();
-/** img path → texture key once fetched; null while in flight or failed. */
+/** img path → texture key once fetched, or null while a fetch is in flight.
+ *
+ *  A FAILED fetch is deleted rather than left as null, and that distinction is the
+ *  whole point: a page that navigates while an image is in flight aborts it
+ *  (net::ERR_ABORTED), and a marker that cannot tell "in flight" from "failed" means
+ *  nothing ever tries again — the art stays missing for the rest of the session,
+ *  which is exactly how it behaved. Attempts are counted so a genuinely broken path
+ *  cannot turn every repaint into a new request. */
 const refTextures = new Map<string, string | null>();
+const refAttempts = new Map<string, number>();
+const MAX_REF_ATTEMPTS = 3;
 /**
  * Told when a ref image has arrived, so whoever draws can draw again.
  *
@@ -440,6 +449,9 @@ function refFrame(scene: Phaser.Scene, id: string): SpriteTex | null {
   if (!ref) return null;
   const known = refTextures.get(ref.img);
   if (known === undefined) {
+    const attempts = refAttempts.get(ref.img) ?? 0;
+    if (attempts >= MAX_REF_ATTEMPTS) return null;
+    refAttempts.set(ref.img, attempts + 1);
     refTextures.set(ref.img, null);
     void (async () => {
       try {
@@ -459,8 +471,16 @@ function refFrame(scene: Phaser.Scene, id: string): SpriteTex | null {
         refTextures.set(ref.img, key);
         refImageListener?.();
       } catch (err) {
-        console.warn(`[sprites] could not load ${ref.img}: ${err instanceof Error ? err.message : err}`);
-        refTextures.set(ref.img, null);
+        // Deleted, not marked: the next draw may retry (up to MAX_REF_ATTEMPTS).
+        refTextures.delete(ref.img);
+        const left = MAX_REF_ATTEMPTS - (refAttempts.get(ref.img) ?? 0);
+        console.warn(
+          `[sprites] could not load ${ref.img}: ${err instanceof Error ? err.message : err}` +
+            (left > 0 ? ` — ${left} attempt(s) left` : ' — giving up on it'),
+        );
+        // Nudge a redraw so the retry actually happens rather than waiting for the
+        // next unrelated repaint.
+        refImageListener?.();
       }
     })();
     return null;

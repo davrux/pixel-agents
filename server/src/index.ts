@@ -30,6 +30,7 @@ function serverVersion(): string {
 }
 
 import { Server } from '@colyseus/core';
+import { Encoder } from '@colyseus/schema';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import cors from 'cors';
 import express, { type Request, type Response, type NextFunction, type RequestHandler } from 'express';
@@ -307,6 +308,19 @@ async function main(): Promise<void> {
   // (an expanded office with per-tile colours) and asset-editor saves (a single
   // character is ~100 KB of SpriteData). Editor ops are authenticated, so allow
   // up to 8 MB.
+  // The schema encoder writes a room's whole state into one reusable buffer, and its
+  // default is 8 KB — which this world exceeds. A zone with 154 placed furniture
+  // items carries fifteen synced fields each (see FurnitureSync), and the encode then
+  // overflows: the server logs "buffer overflow", the state arrives truncated, and the
+  // client reports a schema definition mismatch and shows no characters at all. It is
+  // intermittent, because it depends on how much else is in the room at that moment,
+  // which is what made it look like a rendering bug for a while.
+  //
+  // Generous on purpose. The buffer is one allocation, so the cost is nothing next to
+  // being the thing that silently limits how much a mapper may place — the number of
+  // items in a zone is content, and content is not supposed to have a code ceiling.
+  Encoder.BUFFER_SIZE = 256 * 1024;
+
   const gameServer = new Server({
     transport: new WebSocketTransport({
       server: httpServer,

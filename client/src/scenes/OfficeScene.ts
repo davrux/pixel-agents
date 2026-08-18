@@ -884,9 +884,18 @@ export class OfficeScene extends Phaser.Scene {
     rp.restLift = ps.restLift as number;
   }
 
-  private rebuildFurniture(): void {
-    const arr = (this.room!.state as {
-      furniture: Array<{
+  /** Rebuild the local furniture list from synced state. Returns false when
+   *  there is no synced state yet, so the caller keeps its dirty flag and tries
+   *  again next frame.
+   *
+   *  Not defensive padding: the furniture CATALOG can arrive before the first
+   *  state patch — it does in Firefox, where that order is the other way round
+   *  than in Chrome — and the catalog is one of the things that marks furniture
+   *  dirty. This read then threw on `undefined.map`, and since the throw came
+   *  before the flag was cleared, every following frame threw again. */
+  private rebuildFurniture(): boolean {
+    const state = this.room?.state as {
+      furniture?: Array<{
         id: string;
         col: number;
         row: number;
@@ -904,7 +913,9 @@ export class OfficeScene extends Phaser.Scene {
         onState?: string;
         zOffset: number;
       }>;
-    }).furniture;
+    } | undefined;
+    const arr = state?.furniture;
+    if (!arr) return false;
     this.furniturePlacements = arr.map((f, i) => {
       let action: Action | undefined;
       if (f.action) {
@@ -939,6 +950,7 @@ export class OfficeScene extends Phaser.Scene {
       };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
+    return true;
   }
 
   /** True if the tile is a sittable seat (a `canSitOn` item's tile, below any
@@ -1821,11 +1833,11 @@ export class OfficeScene extends Phaser.Scene {
     // updates furnitureArr and then returns at the idle throttle below before
     // syncFurniture() ever draws it — and the loop goes to sleep with the
     // furniture never rendered, until some unrelated input wakes it.
-    const furnitureRebuilt = this.furnitureDirty;
-    if (furnitureRebuilt) {
-      this.rebuildFurniture();
-      this.furnitureDirty = false;
-    }
+    // Only clear the flag when the rebuild actually happened (see
+    // rebuildFurniture): on a fresh join the catalog can beat the first state
+    // patch, and then there is nothing to rebuild from yet.
+    const furnitureRebuilt = this.furnitureDirty && this.rebuildFurniture();
+    if (furnitureRebuilt) this.furnitureDirty = false;
     // Idle throttle: when nothing is moving/animating, skip the per-frame entity
     // sync + DOM overlays (the bulk of the CPU) and, after a short grace, sleep the
     // whole render loop — woken again by input, state patches, voice or tab focus.
