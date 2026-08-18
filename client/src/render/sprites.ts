@@ -1,5 +1,13 @@
 import Phaser from 'phaser';
-import type { SpriteData } from '@pixel/shared/office/types.js';
+import type { SheetCellRef, SpriteData } from '@pixel/shared/office/types.js';
+import {
+  FLOOR_TILE_H,
+  FLOOR_TILE_SPACING,
+  FLOOR_TILE_W,
+  WALL_TILE_H,
+  WALL_TILE_SPACING,
+  WALL_TILE_W,
+} from '@pixel/shared/office/tiledSheetLayout.js';
 
 /**
  * SpriteData → something Phaser can draw, via a **runtime texture atlas**.
@@ -307,4 +315,67 @@ export function ensureImageTexture(scene: Phaser.Scene, assetId: string, dataUrl
     scene.textures.addBase64(key, dataUrl);
   }
   return key;
+}
+
+
+// ── Pre-baked sheets ─────────────────────────────────────────
+//
+// A baked floor or wall sheet is already an atlas: one PNG whose cells are laid
+// out on a fixed grid (see tiledSheetLayout.ts). So it is registered as ONE
+// texture and drawn from by frame, instead of being sliced into SpriteData and
+// packed cell by cell — which is what the client used to do, turning 533 KB of
+// PNG into 3.79 million hex-string entries (~34 MB) on the way to the GPU.
+//
+// Frames are defined on first use rather than up front: the two wall sets alone
+// hold 6230 cells, of which a map draws a handful.
+
+interface Sheet {
+  key: string;
+  tex: Phaser.Textures.CanvasTexture;
+}
+
+const sheets = new Map<string, Sheet>();
+
+/** Register a fetched sheet bitmap as one texture. Called once per set, after
+ *  client/src/net/tiledSheets.ts has fetched it. */
+export function registerSheetTexture(scene: Phaser.Scene, name: string, bitmap: ImageBitmap): void {
+  const existing = sheets.get(name);
+  if (existing && scene.textures.exists(existing.key)) return;
+  const key = `sheet_${name}`;
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+  const tex = scene.textures.createCanvas(key, bitmap.width, bitmap.height);
+  if (!tex) {
+    console.warn(`[sprites] could not create a texture for sheet "${name}"`);
+    return;
+  }
+  const ctx = tex.getContext();
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(bitmap, 0, 0);
+  tex.refresh();
+  sheets.set(name, { key, tex });
+}
+
+/**
+ * The texture frame for a sheet cell, defined on demand.
+ *
+ * The rect mirrors bake-floor-wall-tiled.mts's own layout exactly — cell
+ * (row, col) at `col * (w + spacing)`, `row * (h + spacing)` — which is the one
+ * thing that must not drift: an off-by-one here paints every wall as its
+ * neighbouring piece, and it still looks like a wall.
+ */
+export function sheetFrame(ref: SheetCellRef): SpriteTex | null {
+  const sheet = sheets.get(ref.sheet);
+  if (!sheet) return null;
+  const isWall = ref.kind === 'wall';
+  const w = isWall ? WALL_TILE_W : FLOOR_TILE_W;
+  const h = isWall ? WALL_TILE_H : FLOOR_TILE_H;
+  const gap = isWall ? WALL_TILE_SPACING : FLOOR_TILE_SPACING;
+  const frame = `${ref.row}_${ref.col}`;
+  if (!sheet.tex.has(frame)) {
+    const x = ref.col * (w + gap);
+    const y = ref.row * (h + gap);
+    if (x + w > sheet.tex.width || y + h > sheet.tex.height) return null;
+    sheet.tex.add(frame, 0, x, y, w, h);
+  }
+  return { key: sheet.key, frame };
 }

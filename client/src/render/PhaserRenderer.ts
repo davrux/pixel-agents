@@ -10,6 +10,7 @@ import {
 } from '@pixel/shared/office/types.js';
 import {
   BUBBLE_FADE_DURATION_SEC,
+  CANVAS_ERROR_TILE_COLOR,
   BUBBLE_SITTING_OFFSET_PX,
   BUBBLE_VERTICAL_OFFSET_PX,
   CHARACTER_BASELINE_HEIGHT,
@@ -37,7 +38,7 @@ export interface RenderSource {
   getLayout(): OfficeLayout;
   tileMap: TileTypeVal[][];
 }
-import { getColorizedFloorSprite, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
+import { getFloorCellRef, hasFloorSprites } from '@pixel/shared/office/floorTiles.js';
 import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getWallEdgeInstances, getWallFaceInstances, hasWallSprites } from '@pixel/shared/office/wallTiles.js';
 import {
@@ -47,7 +48,7 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
 import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
-import { spriteTexture, ensureImageTexture, type SpriteTex } from './sprites.js';
+import { spriteTexture, ensureImageTexture, registerSheetTexture, sheetFrame, type SpriteTex } from './sprites.js';
 import { markerResolution, markerTexture, type MarkerSpec } from './markerIcons.js';
 
 const FLOOR_DEPTH = -100000;
@@ -139,6 +140,13 @@ export class PhaserRenderer {
    *  Fed each frame by the scene from the voice active-speaker state. */
   private readonly speakingIds = new Set<number>();
 
+  /** Keep the fetched floor/wall sheets as textures — one per sheet, drawn from
+   *  by frame (see sprites.ts). Call once the sheets have loaded, before
+   *  buildStatic(); without them floor and walls fall back to a flat fill. */
+  registerSheets(sheets: Array<{ name: string; bitmap: ImageBitmap }>): void {
+    for (const { name, bitmap } of sheets) registerSheetTexture(this.scene, name, bitmap);
+  }
+
   /** Replace the set of players shown with a speaking ring (called per frame). */
   setSpeakingIds(ids: Set<number>): void {
     this.speakingIds.clear();
@@ -186,7 +194,14 @@ export class PhaserRenderer {
         // The number is a position in THIS layout's own set table, not a global
         // one — see OfficeLayout.floorSets.
         const setName = layout.floorSets?.[tileFloorSet?.[idx] ?? 0];
-        const tex = spriteTexture(this.scene, getColorizedFloorSprite(tile, tileColors?.[idx], setName));
+        const ref = getFloorCellRef(tile, tileColors?.[idx], setName);
+        const tex = ref ? sheetFrame(ref) : null;
+        if (!tex) {
+          // No cell for this pattern (a set that lost a pattern, or a sheet that
+          // failed to register): the error tile, same signal the magenta grid was.
+          this.statics.push(this.solid(px, py, CANVAS_ERROR_TILE_COLOR, FLOOR_DEPTH));
+          continue;
+        }
         this.statics.push(this.scene.add.image(px, py, tex.key, tex.frame).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
       }
     }
@@ -237,7 +252,8 @@ export class PhaserRenderer {
         ...(layout.walls.faces ? getWallFaceInstances(layout.walls.faces, cols, layout.rows, layout.wallSets ?? []) : []),
       ];
       for (const w of wallParts) {
-        const tex = spriteTexture(this.scene, w.sprite);
+        const tex = sheetFrame(w.ref);
+        if (!tex) continue;
         // −0.5 so a wall tile always sorts just BEHIND furniture sharing its zY
         // (e.g. a painting hung on it), independent of GameObject creation order.
         this.statics.push(this.scene.add.image(w.x, w.y, tex.key, tex.frame).setOrigin(0, 0).setDepth(w.zY - 0.5));

@@ -11,41 +11,57 @@
  * baked art needed no changes when walls moved onto the boundaries.
  */
 
-import type { FurnitureInstance, SpriteData, WallEdges } from './types.js';
+import type { SheetCellRef, SheetInstance, WallEdges } from './types.js';
 import { TILE_SIZE } from './types.js';
+import { WALL_TILE_H } from './tiledSheetLayout.js';
 import { latticeIndex, latticeMask } from './wallEdges.js';
 
-/** wallSheets[setName][bitmask][0] = Natural (raw, uncolorized); [1+i] = the
- *  set's palette colorized. Populated once by the client's tiledSheets loader.
- *  Keyed by NAME rather than by a position in a list — see floorTiles.ts for
- *  what that positional index cost. */
-let wallSheets: Record<string, SpriteData[][]> = {};
+/**
+ * Piece (row) count per wall set, keyed by the set's NAME — no pixels.
+ *
+ * This held the sliced sheets until the client stopped exploding them: two wall
+ * sets are 6230 cells and 3.19 million pixels, which as hex strings was the bulk
+ * of ~34 MB of heap re-encoding 269 KB of PNG. A baked sheet is already an atlas,
+ * so the renderer keeps it as one texture and draws rectangles (see
+ * client/src/render/sprites.ts); what belongs here is which sets exist and how
+ * many pieces each carries.
+ *
+ * Keyed by name rather than by a position in a list — see floorTiles.ts for what
+ * that positional index cost.
+ */
+let wallPieceCounts: Record<string, number> = {};
 
-/** Set wall tile sets (called once the baked sheets are fetched + sliced —
- *  see client/src/net/tiledSheets.ts). */
-export function setWallSheets(sheets: Record<string, SpriteData[][]>): void {
-  wallSheets = sheets;
+/** Register the wall sets that loaded, with each set's piece count (read off the
+ *  sheet's own height — see client/src/net/tiledSheets.ts). */
+export function setWallSheetInfo(pieceCounts: Record<string, number>): void {
+  wallPieceCounts = pieceCounts;
 }
 
-/** Check if wall sprites have been loaded */
+/** Check if wall sheets have been loaded */
 export function hasWallSprites(): boolean {
-  return Object.keys(wallSheets).length > 0;
+  return Object.keys(wallPieceCounts).length > 0;
 }
 
 /** The named set, else whichever loaded first — a map naming a set this build
  *  does not have (renamed or removed tileset) still draws walls. Warned once. */
 const warnedWallSets = new Set<string>();
-function wallSet(name: string | undefined): SpriteData[][] | undefined {
+function wallSet(name: string | undefined): string | undefined {
   if (name !== undefined) {
-    const hit = wallSheets[name];
-    if (hit) return hit;
+    if (wallPieceCounts[name] !== undefined) return name;
     if (!warnedWallSets.has(name)) {
       warnedWallSets.add(name);
       console.warn(`[wallTiles] unknown wall set "${name}" — falling back`);
     }
   }
-  const names = Object.keys(wallSheets);
-  return names.length > 0 ? wallSheets[names[0]] : undefined;
+  const names = Object.keys(wallPieceCounts);
+  return names.length > 0 ? names[0] : undefined;
+}
+
+/** The cell a piece + swatch is in, or null when the set has no such piece —
+ *  which is how a face piece past a set's own range stays undrawn. */
+function wallCell(sheet: string | undefined, piece: number, swatch: number | null): SheetCellRef | null {
+  if (sheet === undefined || piece < 0 || piece >= wallPieceCounts[sheet]) return null;
+  return { sheet, kind: 'wall', row: piece, col: swatch === null ? 0 : swatch + 1 };
 }
 
 /**
@@ -62,9 +78,9 @@ function wallSet(name: string | undefined): SpriteData[][] | undefined {
  * between rows r-1 and r should occlude anything standing in row r-1 and be
  * occluded by anything in row r, which is what r * TILE_SIZE gives.
  */
-export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number, setNames: string[] = []): FurnitureInstance[] {
-  if (Object.keys(wallSheets).length === 0) return [];
-  const instances: FurnitureInstance[] = [];
+export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: number, setNames: string[] = []): SheetInstance[] {
+  if (!hasWallSprites()) return [];
+  const instances: SheetInstance[] = [];
   // Was anything painted at all? If so the lattice layer is the truth and only
   // painted points draw — anything else invents wall the editor does not show
   // (see mapBridge.ts's import). A layout built in code paints nothing and has
@@ -77,15 +93,15 @@ export function getWallEdgeInstances(walls: WallEdges, cols: number, rows: numbe
       const derived = latticeMask(walls, cols, rows, c, r);
       if (authored ? painted == null : derived === 0) continue;
       const piece = painted ?? derived;
-      const set = wallSet(setNames[walls.latticeSet?.[li] ?? 0]);
-      const sprite = set?.[piece]?.[(walls.latticeColor?.[li] ?? null) === null ? 0 : (walls.latticeColor![li] as number) + 1];
-      if (!sprite) continue;
+      const ref = wallCell(wallSet(setNames[walls.latticeSet?.[li] ?? 0]), piece, walls.latticeColor?.[li] ?? null);
+      if (!ref) continue;
       instances.push({
-        sprite,
-        // Bottom-anchored like every wall sprite (see getWallSprite), then
-        // shifted onto the lattice.
+        ref,
+        // Bottom-anchored like every wall sprite, then shifted onto the lattice.
+        // Every wall cell is WALL_TILE_H tall by construction (the sheet is cut
+        // that way), which is what the sprite's own height used to say here.
         x: c * TILE_SIZE - TILE_SIZE / 2,
-        y: r * TILE_SIZE - TILE_SIZE / 2 + (TILE_SIZE - sprite.length),
+        y: r * TILE_SIZE - TILE_SIZE / 2 + (TILE_SIZE - WALL_TILE_H),
         zY: r * TILE_SIZE,
       });
     }
@@ -107,24 +123,22 @@ export function getWallFaceInstances(
   cols: number,
   rows: number,
   setNames: string[] = [],
-): FurnitureInstance[] {
-  if (Object.keys(wallSheets).length === 0) return [];
-  const instances: FurnitureInstance[] = [];
+): SheetInstance[] {
+  if (!hasWallSprites()) return [];
+  const instances: SheetInstance[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const i = r * cols + c;
       const piece = faces.piece[i];
       if (piece == null) continue;
-      const set = wallSet(setNames[faces.set?.[i] ?? 0]);
-      const swatch = faces.color?.[i] ?? null;
-      const sprite = set?.[piece]?.[swatch === null ? 0 : swatch + 1];
-      if (!sprite) continue;
+      const ref = wallCell(wallSet(setNames[faces.set?.[i] ?? 0]), piece, faces.color?.[i] ?? null);
+      if (!ref) continue;
       instances.push({
-        sprite,
+        ref,
         x: c * TILE_SIZE,
         // Bottom-anchored, like every wall sprite (the art sits in the bottom
         // 16 rows of a 32-tall slot).
-        y: r * TILE_SIZE + (TILE_SIZE - sprite.length),
+        y: r * TILE_SIZE + (TILE_SIZE - WALL_TILE_H),
         zY: (r + 1) * TILE_SIZE,
       });
     }

@@ -396,7 +396,10 @@ export class OfficeScene extends Phaser.Scene {
     // Independent of the Colyseus connection — races against layoutLoaded;
     // whichever finishes last triggers the buildStatic() that actually
     // shows real floor/wall art (see net/tiledSheets.ts).
-    void loadTiledSheets().then(() => this.view.buildStatic());
+    void loadTiledSheets().then((sheets) => {
+      this.view.registerSheets(sheets);
+      this.view.buildStatic();
+    });
     this.setupIdleWaking();
     // A name/character chosen in Settings (remembered per browser).
     try {

@@ -2,23 +2,18 @@
  * Loads the pre-baked, closed-palette floor/wall sprite sheets Tiled itself
  * paints from (assets/tiled/png/<set>.png, the sets listed by sets.json
  * — see server/scripts/bake-floor-wall-tiled.mts), once via plain HTTP, and
- * slices them into per-(set, pattern|bitmask, swatch) SpriteData for
- * floorTiles.ts / wallTiles.ts. Replaces the old floorTilesLoaded/
- * wallTilesLoaded Colyseus messages — no more live per-pixel colorize (see
- * docs/design.md).
+ * registers them as textures the renderer draws frames out of. Replaces the old
+ * floorTilesLoaded/wallTilesLoaded Colyseus messages — no more live per-pixel
+ * colorize (see docs/design.md).
  */
-import { setFloorSheets } from '@pixel/shared/office/floorTiles.js';
-import { setWallSheets } from '@pixel/shared/office/wallTiles.js';
+import { setFloorSheetInfo } from '@pixel/shared/office/floorTiles.js';
+import { setWallSheetInfo } from '@pixel/shared/office/wallTiles.js';
 import {
   FLOOR_TILE_H,
-  FLOOR_TILE_W,
-  TILED_SHEET_COLUMNS,
-  WALL_BITMASK_COUNT,
+  FLOOR_TILE_SPACING,
   WALL_TILE_H,
   WALL_TILE_SPACING,
-  WALL_TILE_W,
 } from '@pixel/shared/office/tiledSheetLayout.js';
-import type { SpriteData } from '@pixel/shared/office/types.js';
 
 import { serverHttpOrigin } from './room.js';
 
@@ -43,49 +38,18 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
   return createImageBitmap(await res.blob());
 }
 
-/** Slice one baked sheet into `rows` groups of TILED_SHEET_COLUMNS tiles
- *  each, tileW×tileH — mirrors bake-floor-wall-tiled.mts's composeSheet
- *  layout exactly (flat index i → col = i % columns, row = floor(i / columns)),
- *  including its `spacing` transparent px between tiles (0 for floor sheets,
- *  WALL_TILE_SPACING for wall sheets — see tiledSheetLayout.ts). */
-function sliceSheet(bitmap: ImageBitmap, tileW: number, tileH: number, rows: number, spacing = 0): SpriteData[][] {
-  const canvas = document.createElement('canvas');
-  canvas.width = bitmap.width;
-  canvas.height = bitmap.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(bitmap, 0, 0);
-
-  const out: SpriteData[][] = [];
-  for (let row = 0; row < rows; row++) {
-    const group: SpriteData[] = [];
-    for (let col = 0; col < TILED_SHEET_COLUMNS; col++) {
-      const { data } = ctx.getImageData(col * (tileW + spacing), row * (tileH + spacing), tileW, tileH);
-      const sprite: SpriteData = [];
-      for (let y = 0; y < tileH; y++) {
-        const line: string[] = [];
-        for (let x = 0; x < tileW; x++) {
-          const i = (y * tileW + x) * 4;
-          const a = data[i + 3];
-          if (a === 0) line.push('');
-          else {
-            const base = `#${hex2(data[i])}${hex2(data[i + 1])}${hex2(data[i + 2])}`;
-            line.push(a === 255 ? base : base + hex2(a));
-          }
-        }
-        sprite.push(line);
-      }
-      group.push(sprite);
-    }
-    out.push(group);
-  }
-  return out;
-}
-
-/** Fetch + slice the baked floor/wall sheets and populate floorTiles.ts /
- *  wallTiles.ts. Safe to call once at scene start; a failure is logged and
- *  leaves floor/wall rendering at their "not loaded yet" fallback (flat fill). */
-export async function loadTiledSheets(): Promise<void> {
+/**
+ * Fetch the baked floor/wall sheets and register which sets exist.
+ *
+ * Returns the decoded bitmaps for the renderer to keep as textures — one per
+ * sheet, drawn from by frame (see render/sprites.ts's registerSheetTexture).
+ * They used to be sliced here into SpriteData, which re-encoded 533 KB of
+ * already-decoded PNG into ~34 MB of hex strings only to upload it cell by cell.
+ *
+ * Safe to call once at scene start; a failure is logged and leaves floor/wall
+ * rendering at their "not loaded yet" fallback (a flat fill).
+ */
+export async function loadTiledSheets(): Promise<Array<{ name: string; bitmap: ImageBitmap }>> {
   try {
     const origin = serverHttpOrigin();
     const base = `${origin}/assets/tiled/png`;
@@ -102,35 +66,34 @@ export async function loadTiledSheets(): Promise<void> {
       Promise.all(floorNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
       Promise.all(wallNames.map((f) => fetchBitmap(`${base}/${f}.png`))),
     ]);
-    // Each floor set can have a different pattern (row) count — e.g.
-    // floor-warm has one warm-only pattern the base "floor" set doesn't.
-    setFloorSheets(
+    // Each floor set can have a different pattern (row) count — e.g. a set with
+    // one extra pattern the base "floor" set doesn't have. Read off the sheet's
+    // own height, so adding a pattern needs no code change.
+    setFloorSheetInfo(
       Object.fromEntries(
-        floorBitmaps.map((bitmap, i) => [
+        floorBitmaps.map((b, i) => [
           floorNames[i],
-          sliceSheet(bitmap, FLOOR_TILE_W, FLOOR_TILE_H, Math.round(bitmap.height / FLOOR_TILE_H)),
+          Math.round((b.height + FLOOR_TILE_SPACING) / (FLOOR_TILE_H + FLOOR_TILE_SPACING)),
         ]),
       ),
     );
-    // Row count per wall set comes from the sheet itself, same as floors above:
-    // a set may carry extra hand-painted-only pieces after the 16 adjacency
-    // ones (the metro set's north-wall faces — see
+    // Piece count per wall set likewise: a set may carry extra hand-painted-only
+    // pieces after the 16 adjacency ones (the metro sets' north-wall faces — see
     // server/src/core/assets/pngDecoder.ts's parseWallPng).
-    setWallSheets(
+    setWallSheetInfo(
       Object.fromEntries(
-        wallBitmaps.map((bitmap, i) => [
+        wallBitmaps.map((b, i) => [
           wallNames[i],
-          sliceSheet(
-            bitmap,
-            WALL_TILE_W,
-            WALL_TILE_H,
-            Math.round((bitmap.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
-            WALL_TILE_SPACING,
-          ),
+          Math.round((b.height + WALL_TILE_SPACING) / (WALL_TILE_H + WALL_TILE_SPACING)),
         ]),
       ),
     );
+    return [
+      ...floorNames.map((name, i) => ({ name, bitmap: floorBitmaps[i] })),
+      ...wallNames.map((name, i) => ({ name, bitmap: wallBitmaps[i] })),
+    ];
   } catch (err) {
     console.warn('[tiledSheets] failed to load baked floor/wall sheets:', err instanceof Error ? err.message : err);
+    return [];
   }
 }

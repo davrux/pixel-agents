@@ -29,6 +29,23 @@ export const WALL_TILE_H = 32;
  *  S=4, W=8 — see wallEdges.ts's latticeMask). Always the FIRST 16 rows of
  *  every set; a set's total row count can be larger, see the header comment. */
 export const WALL_BITMASK_COUNT = 16;
+/**
+ * Transparent gap (px) baked between adjacent FLOOR tiles in the sheet image.
+ *
+ * Not cosmetic, unlike the wall gap below: the client draws a sheet cell as a
+ * frame of one shared texture (see client/src/render/sprites.ts's sheetFrame), and
+ * a frame whose neighbour touches it can be sampled across that boundary — at a
+ * fractional camera zoom the GPU reaches one texel into the cell next door and
+ * paints a seam between every floor tile. A separate texture per tile could not do
+ * that (it clamps at its own edge), which is why this only became necessary when
+ * the sheets stopped being sliced into pixels. One px would do with NEAREST
+ * filtering; two costs 130 px of sheet width and leaves no doubt.
+ *
+ * Changing it means re-running the bake: the .tsj records it, so Tiled and the
+ * client both read the same number rather than assuming one.
+ */
+export const FLOOR_TILE_SPACING = 2;
+
 /** Transparent gap (px) baked between adjacent wall tiles in the sheet image
  *  — wall art often runs edge-to-edge to its own tile boundary, so with zero
  *  gap neighboring bitmask variants visually blend together in Tiled's
@@ -36,7 +53,8 @@ export const WALL_BITMASK_COUNT = 16;
  *  maps to which (bitmask, swatch) — see rowAndSwatchFromLocalId — only
  *  where that tile sits in pixels, which both the bake script and the
  *  client's sheet slicer must agree on. Floor tiles don't have this
- *  ambiguity (no directional edges to confuse), so they stay at 0 gap. */
+ *  ambiguity (no directional edges to confuse), which is why they had no gap at
+ *  all until frame bleeding made one necessary — see FLOOR_TILE_SPACING. */
 export const WALL_TILE_SPACING = 6;
 
 /**

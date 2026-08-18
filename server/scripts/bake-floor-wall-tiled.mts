@@ -35,6 +35,7 @@ import { ENDESGA_PALETTE_64, PALETTE_64, swatchColor } from '../../shared/src/of
 import {
   FLOOR_TILE_W,
   FLOOR_TILE_H,
+  FLOOR_TILE_SPACING,
   TILED_SHEET_COLUMNS,
   WALL_TILE_H,
   WALL_BITMASK_COUNT,
@@ -72,9 +73,20 @@ function spriteToPng(sprite: SpriteData, w: number, h: number): PNG {
   return png;
 }
 
-/** Lay out `tiles` (each `tileW`×`tileH`) into one sheet PNG, `columns` wide,
- *  with `spacing` transparent px between every tile (see WALL_TILE_SPACING;
- *  0 for floor sheets — no directional-edge ambiguity to separate there). */
+/**
+ * Lay out `tiles` (each `tileW`×`tileH`) into one sheet PNG, `columns` wide, with
+ * `spacing` px between every tile — and each tile's border EXTRUDED one pixel
+ * into that gap.
+ *
+ * Why extrude, and not merely separate: the client draws a cell as a frame of one
+ * texture (client/src/render/sprites.ts), and at a fractional camera zoom the GPU
+ * can sample one texel outside the frame. Touching cells then bleed a stripe of
+ * the neighbour's art between every tile; a transparent gap alone only changes
+ * that stripe's colour to "background", which on a floor still reads as a groove.
+ * Repeating the edge pixel makes the out-of-frame sample land on the tile's own
+ * colour, so the seam has nothing to show. It is what tilemap tooling calls an
+ * extruded tileset, and it is why the gap is 2 px: one for each neighbour.
+ */
 function composeSheet(tiles: SpriteData[], tileW: number, tileH: number, columns: number, spacing = 0): Buffer {
   const rows = Math.ceil(tiles.length / columns);
   const sheet = new PNG({
@@ -86,7 +98,26 @@ function composeSheet(tiles: SpriteData[], tileW: number, tileH: number, columns
     const col = i % columns;
     const row = Math.floor(i / columns);
     const tilePng = spriteToPng(sprite, tileW, tileH);
-    PNG.bitblt(tilePng, sheet, 0, 0, tileW, tileH, col * (tileW + spacing), row * (tileH + spacing));
+    const ox = col * (tileW + spacing);
+    const oy = row * (tileH + spacing);
+    PNG.bitblt(tilePng, sheet, 0, 0, tileW, tileH, ox, oy);
+    if (spacing <= 0) return;
+    // One-pixel skirt around the cell: edges first, then the four corner pixels.
+    // Clipped by the sheet's own bounds, so the outermost cells extrude only
+    // inwards — nothing samples past the image edge anyway.
+    const inSheet = (x: number, y: number) => x >= 0 && y >= 0 && x < sheet.width && y < sheet.height;
+    if (inSheet(ox - 1, oy)) PNG.bitblt(tilePng, sheet, 0, 0, 1, tileH, ox - 1, oy);
+    if (inSheet(ox + tileW, oy)) PNG.bitblt(tilePng, sheet, tileW - 1, 0, 1, tileH, ox + tileW, oy);
+    if (inSheet(ox, oy - 1)) PNG.bitblt(tilePng, sheet, 0, 0, tileW, 1, ox, oy - 1);
+    if (inSheet(ox, oy + tileH)) PNG.bitblt(tilePng, sheet, 0, tileH - 1, tileW, 1, ox, oy + tileH);
+    for (const [sx, sy, dx, dy] of [
+      [0, 0, ox - 1, oy - 1],
+      [tileW - 1, 0, ox + tileW, oy - 1],
+      [0, tileH - 1, ox - 1, oy + tileH],
+      [tileW - 1, tileH - 1, ox + tileW, oy + tileH],
+    ] as Array<[number, number, number, number]>) {
+      if (inSheet(dx, dy)) PNG.bitblt(tilePng, sheet, sx, sy, 1, 1, dx, dy);
+    }
   });
   return PNG.sync.write(sheet);
 }
@@ -146,9 +177,11 @@ function bakeFloorSheet(outputName: string, sourceFiles: string[], palette: Pale
     }
   }
   const columns = TILED_SHEET_COLUMNS; // Natural + 64 swatches
-  const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns);
+  const buf = composeSheet(tiles, TILE_W, FLOOR_H, columns, FLOOR_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_PNG_DIR, `${outputName}.png`), buf);
-  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/${outputName}.png`, columns * TILE_W, sourceFiles.length * FLOOR_H, 'FloorTile', outputName);
+  const imageW = columns * TILE_W + (columns - 1) * FLOOR_TILE_SPACING;
+  const imageH = sourceFiles.length * FLOOR_H + (sourceFiles.length - 1) * FLOOR_TILE_SPACING;
+  const tsj = grid(TILE_W, FLOOR_H, columns, tiles.length, `png/${outputName}.png`, imageW, imageH, 'FloorTile', outputName, FLOOR_TILE_SPACING);
   fs.writeFileSync(path.join(OUT_DIR, `${outputName}.tsj`), JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ ${outputName}.tsj + png/${outputName}.png (${tiles.length} tiles, ${sourceFiles.length} patterns × ${columns} colors)`);
 }

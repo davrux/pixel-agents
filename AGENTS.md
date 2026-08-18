@@ -122,6 +122,13 @@ Security is a first-class requirement, not a later pass.
   so anything that draws a sprite goes through that function, never
   `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
   (fresh pixels every frame) and uploaded background images (real PNGs).
+- **A baked sheet is already an atlas — never slice one into pixels.** Floor and
+  wall sheets are registered as one texture per set and drawn by frame
+  (`registerSheetTexture`/`sheetFrame`); `shared` names a cell (`SheetCellRef`)
+  and stays free of graphics concepts. Slicing them into `SpriteData` is what the
+  client used to do, and it turned 533 KB of PNG into ~34 MB of hex strings
+  (measured 88.6 → 58.9 MB of heap when it stopped). The same applies to any art
+  that arrives as an image: keep it an image.
 
 ### UI — one look for all chrome
 

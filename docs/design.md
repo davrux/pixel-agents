@@ -339,10 +339,16 @@ These are intended, not designed around:
 - **The asset catalog is sent whole, as pixels.** `furnitureAssetsLoaded` carries
   every sprite as SpriteData, which is 5.3 MB per join today and grows with the
   art: the road sheet alone added 760 KB, because 305 cells travel as 305 arrays
-  of hex strings while the PNG they came from is 4 KB. The floor and wall sheets
-  already avoid this — they are served as PNGs and sliced in the client — so the
-  fix is to give sheet-backed decals the same route rather than to trim the art.
-  Compression on the wire hides much of it, which is why it has not bitten yet.
+  of hex strings while the PNG they came from is 4 KB. Two things make it survivable
+  and neither is a fix: hex strings compress ~44× (to ~120 KB) — except
+  `perMessageDeflate` is off on the transport, so today they do not — and the
+  8 MB `maxPayload` is 66 % used, so the art a world may hold is bounded by a
+  socket frame. The route out is the one floors and walls already take: served as
+  PNG over HTTP, cached with an ETag, and — since a baked sheet is an atlas —
+  registered as a texture rather than exploded into pixels, which is what took the
+  client from 88.6 MB of heap to 58.9 MB. Furniture and decal art needs a baked
+  atlas plus a manifest to go the same way, and that is a bigger change: the
+  catalog's `sprite` is where several call sites read a piece's height.
 - **Single process.** Matchmaking and state are in-process. Horizontal scale
   needs a Colyseus presence driver; keep rooms shared-nothing so that stays
   possible.

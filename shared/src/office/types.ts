@@ -160,6 +160,41 @@ export interface Pet {
   effectTimer: number;
 }
 
+/**
+ * One cell of a pre-baked sheet — which sheet, and where in its grid.
+ *
+ * The point of it: a baked floor or wall sheet already IS an atlas, so the client
+ * has no business exploding it into pixels. It used to: the sheets arrive as
+ * ~533 KB of PNG and were sliced into 3.79 million hex-string entries, roughly
+ * 34 MB of heap, to hand the renderer a grid it then uploaded to the GPU tile by
+ * tile. Now the sheet is one texture and this says which rectangle of it to draw,
+ * which keeps `shared` free of graphics concepts: it names a cell, the renderer
+ * turns that into a texture frame (client/src/render/sprites.ts's sheetFrame).
+ *
+ * `row`/`col` are the sheet's own grid, exactly as baked (see tiledSheetLayout.ts):
+ * a row is a floor pattern or a wall piece, column 0 is Natural and column 1+i is
+ * the set's palette entry i. `kind` decides the cell geometry, since wall cells
+ * are 16×32 with a baked gap between them and floor cells are 16×16 without.
+ */
+export interface SheetCellRef {
+  /** Set name — the sheet's identity, see OfficeLayout.floorSets / wallSets. */
+  sheet: string;
+  kind: 'floor' | 'wall';
+  row: number;
+  col: number;
+}
+
+/** A sheet cell placed in the world: the wall pieces and faces a layout draws.
+ *  Same fields as FurnitureInstance minus the pixels, which is the whole point. */
+export interface SheetInstance {
+  ref: SheetCellRef;
+  /** Pixel x/y of the top-left corner. */
+  x: number;
+  y: number;
+  /** Y used for depth sorting — see FurnitureInstance.zY. */
+  zY: number;
+}
+
 export interface FurnitureInstance {
   sprite: SpriteData;
   /** Pixel x (top-left) */
