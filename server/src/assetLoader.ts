@@ -10,6 +10,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { PNG } from 'pngjs';
+
 import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
@@ -17,7 +19,6 @@ import { isDecalTileset, isFurnitureTileset } from './tiled/tiledRegistry.js';
 import {
   decodeCharacterPng,
   decodePetPng,
-  parseTileSheetPng,
   pngToSpriteData,
 } from './core/assets/pngDecoder.js';
 import type {
@@ -81,11 +82,11 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
 
       const tilesetDir = path.dirname(tilesetPath);
       const entries = parseFurnitureTileset(tiled);
-      /** Sliced sheets, by image path: a grid tileset's tiles all come out of one
-       *  PNG, so it is read and cut ONCE rather than per tile — 400 cells would
-       *  otherwise mean 400 decodes of the same 320×320 image. */
-      const sheets = new Map<string, string[][][]>();
-      for (const { asset, imagePath, sheetCell } of entries) {
+      // One read+decode per FILE, not per tile: a grid tileset's tiles all
+      // crop the same sheet (decal-overworld has ~a thousand), and re-decoding
+      // it for each would turn the catalog load quadratic for no reason.
+      const decoded = new Map<string, PNG>();
+      for (const { asset, imagePath, crop } of entries) {
         try {
           const assetPath = path.join(tilesetDir, imagePath);
           const resolvedAsset = path.resolve(assetPath);
@@ -94,25 +95,16 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
             console.warn(`  [AssetLoader] Skipping tile with image path outside tileset directory: ${imagePath}`);
             continue;
           }
-          if (!fs.existsSync(assetPath)) {
-            console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
-            continue;
+          let png = decoded.get(assetPath);
+          if (!png) {
+            if (!fs.existsSync(assetPath)) {
+              console.warn(`  ⚠️  Image not found: ${imagePath} (${asset.id})`);
+              continue;
+            }
+            png = PNG.sync.read(fs.readFileSync(assetPath));
+            decoded.set(assetPath, png);
           }
-          if (sheetCell === undefined) {
-            sprites.set(asset.id, pngToSpriteData(fs.readFileSync(assetPath), asset.width, asset.height));
-            continue;
-          }
-          let sheet = sheets.get(assetPath);
-          if (!sheet) {
-            sheet = parseTileSheetPng(fs.readFileSync(assetPath), asset.width, asset.height).sprites;
-            sheets.set(assetPath, sheet);
-          }
-          const sprite = sheet[sheetCell];
-          if (!sprite) {
-            console.warn(`  ⚠️  ${asset.id}: cell ${sheetCell} is outside ${imagePath}`);
-            continue;
-          }
-          sprites.set(asset.id, sprite);
+          sprites.set(asset.id, pngToSpriteData(png, asset.width, asset.height, crop));
         } catch (err) {
           console.warn(`  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`);
         }

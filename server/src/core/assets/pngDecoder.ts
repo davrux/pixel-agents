@@ -30,15 +30,28 @@ import type { CharacterDirectionSprites, PetDirectionSprites } from './types.js'
  * Convert a PNG buffer to SpriteData (2D array of hex color strings).
  * '' = transparent, '#RRGGBB' = opaque, '#RRGGBBAA' = semi-transparent.
  */
-export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number): string[][] {
+export function pngToSpriteData(
+  pngBuffer: Buffer | PNG,
+  width: number,
+  height: number,
+  /** Read the width×height region at this offset instead of the top-left —
+   *  how a grid tileset's shared sheet yields one tile's sprite (see
+   *  assetLoader.ts). Without it the PNG is expected to BE the sprite, and a
+   *  size mismatch is worth a warning; a crop reads a region by design.
+   *  Accepting an already-decoded PNG is for the same caller: a grid sheet is
+   *  cropped once per tile, and re-decoding it every time would be quadratic. */
+  crop?: { x: number; y: number },
+): string[][] {
   try {
-    const png = PNG.sync.read(pngBuffer);
+    const png = Buffer.isBuffer(pngBuffer) ? PNG.sync.read(pngBuffer) : pngBuffer;
 
-    if (png.width !== width || png.height !== height) {
+    if (!crop && (png.width !== width || png.height !== height)) {
       console.warn(
         `PNG dimensions mismatch: expected ${width}×${height}, got ${png.width}×${png.height}`,
       );
     }
+    const offX = crop?.x ?? 0;
+    const offY = crop?.y ?? 0;
 
     const sprite: string[][] = [];
     const data = png.data;
@@ -46,7 +59,7 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
     for (let y = 0; y < height; y++) {
       const row: string[] = [];
       for (let x = 0; x < width; x++) {
-        const pixelIndex = (y * png.width + x) * 4;
+        const pixelIndex = ((offY + y) * png.width + (offX + x)) * 4;
         const r = data[pixelIndex];
         const g = data[pixelIndex + 1];
         const b = data[pixelIndex + 2];
@@ -65,44 +78,6 @@ export function pngToSpriteData(pngBuffer: Buffer, width: number, height: number
     }
     return sprite;
   }
-}
-
-/**
- * Slice a uniform tile SHEET into one sprite per cell, row-major — indexed
- * exactly the way Tiled numbers the tiles of a grid tileset, so a local tile id
- * IS the index here.
- *
- * The generic sibling of parseWallPng below, which is this operation with the
- * wall grid's dimensions baked in. A grid tileset is how a *sheet* of art enters
- * the catalog (the road set, see server/scripts/gen-decal-roads.mts): one PNG on
- * disk and in git rather than several hundred loose files, and a palette in Tiled
- * that keeps the artist's own arrangement — which is what makes a junction
- * stampable as one 3×3 block instead of assembled tile by tile.
- */
-export function parseTileSheetPng(
-  pngBuffer: Buffer,
-  tileW: number,
-  tileH: number,
-): { sprites: string[][][]; columns: number; rows: number } {
-  const png = PNG.sync.read(pngBuffer);
-  const columns = Math.floor(png.width / tileW);
-  const rows = Math.floor(png.height / tileH);
-  const sprites: string[][][] = [];
-  for (let index = 0; index < columns * rows; index++) {
-    const ox = (index % columns) * tileW;
-    const oy = Math.floor(index / columns) * tileH;
-    const sprite: string[][] = [];
-    for (let r = 0; r < tileH; r++) {
-      const row: string[] = [];
-      for (let c = 0; c < tileW; c++) {
-        const i = ((oy + r) * png.width + (ox + c)) * 4;
-        row.push(rgbaToHex(png.data[i], png.data[i + 1], png.data[i + 2], png.data[i + 3]));
-      }
-      sprite.push(row);
-    }
-    sprites.push(sprite);
-  }
-  return { sprites, columns, rows };
 }
 
 /**
