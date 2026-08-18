@@ -11,9 +11,12 @@ back every single time, and getting one of them wrong is cheap to do and expensi
 to notice: art that looks right in Tiled and renders wrong, or renders right and
 silently kills every placement in a saved map.
 
-Read this before writing an importer. The scripts in `server/scripts/gen-*.mts` are
-worked examples of it — `gen-decal-roads.mts` for a sheet, `gen-metro-outdoor.mts`
-for a split, `gen-overworld.mts` for both at once.
+Read this before importing. For a **sheet** you write no script at all:
+`scripts/import-sheet.sh` does it, and each pack gets a small wrapper carrying its
+provenance (`import-overworld-pack.sh`, `import-road-sheet.sh`). For a **collection**
+— art to be cut apart into per-tile files — `server/scripts/gen-metro-outdoor.mts`
+and `gen-metro-furniture.mts` are the worked examples, since where one piece ends and
+the next begins is a judgement no flag can carry.
 
 ---
 
@@ -242,7 +245,13 @@ So verify mechanically, and say what you verified:
 
 - **The pack itself stays out of git** — `tmp/` is gitignored. Only derived art is
   committed: the sheet copy or the sliced PNGs, the `.tsj`, and any baked output.
-- Importers live in `server/scripts/gen-*.mts`, one per pack, with the judgement
-  calls written into the header. Anything a human runs gets a `.sh` wrapper in
-  `scripts/` (see `scripts/push-zones.sh` for the house style).
+- A sheet import is `scripts/import-sheet.sh` plus a per-pack wrapper whose header
+  carries the provenance and the decisions. A collection import is its own
+  `server/scripts/gen-*.mts`, because the cutting is judgement. Anything a human runs
+  gets a `.sh` wrapper in `scripts/` (see `scripts/push-zones.sh` for the house
+  style), and every importer takes `--dry-run` — looking must never be a side effect,
+  which one accidental run of `bake-images-tiled` taught us the hard way.
+- **Ids are identity.** A set's `--id-prefix`, `--id-style` and tile size are fixed
+  once anything is placed from it: they decide the ids, the ids decide the gids, and
+  the gids are what every map stored.
 - Credit the artist in the README. It is their work.

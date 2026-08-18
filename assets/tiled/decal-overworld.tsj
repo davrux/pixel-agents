@@ -10,6 +10,8 @@
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
+  "type": "tileset",
+  "version": "1.10",
   "tiles": [
     {
       "id": 0,
@@ -17179,7 +17181,5 @@
         }
       ]
     }
-  ],
-  "type": "tileset",
-  "version": "1.10"
+  ]
 }

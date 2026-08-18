@@ -225,11 +225,13 @@ the tile that a `FurnitureTile` could not answer.
   make sense next to each other, so Tiled shows them exactly as the artist laid
   them out and you mark a junction and stamp it as one block. 305 named cells out
   of a 20×20 grid; the 95 blanks are deliberately unnamed, so nothing resolves
-  there. Regenerate with `server/scripts/gen-decal-roads.mts`, which copies the
-  sheet through untouched and keeps any labels you have already written.
+  there. Regenerate with `scripts/import-road-sheet.sh`, which copies the sheet
+  through untouched and keeps any labels you have already written.
 
-Roads are ground, so paint them on a flat layer. Where a road should stop movement
-— a central barrier, a wall of parked cars — paint the `CollisionLayer` over it.
+A road you walk on belongs on the `GroundLayer` — that is what makes a cell
+walkable. Paint it on a decal layer only where it lies over ground that is already
+there. Where a road should stop movement — a central barrier, a wall of parked cars
+— paint the `CollisionLayer` over it.
 
 Rule of thumb: if it only needs to be *seen*, it is a decal. If it needs to be
 interacted with, sat on, switched, blocked or moved by the server, it is
