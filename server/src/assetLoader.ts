@@ -37,6 +37,14 @@ export type { FurnitureAsset };
 export interface LoadedAssets {
   catalog: FurnitureAsset[];
   sprites: Map<string, string[][]>; // assetId -> SpriteData
+  /**
+   * Where each id's art lives as an IMAGE: the path (relative to assets/tiled)
+   * plus the rect inside it. This is what the client is sent instead of pixels —
+   * 1763 sprites were 7.6 MB of hex strings per join, where an image is fetched
+   * once and cached. The server keeps the decoded pixels for itself, since the
+   * headless engine has no browser to decode with.
+   */
+  refs: Map<string, { img: string; x: number; y: number; w: number; h: number }>;
 }
 
 /**
@@ -58,6 +66,7 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
 
     const catalog: FurnitureAsset[] = [];
     const sprites = new Map<string, string[][]>();
+    const refs = new Map<string, { img: string; x: number; y: number; w: number; h: number }>();
 
     // Every .tsj is read and then judged by what is in it — a tileset holds
     // furniture if its tiles say FurnitureTile. Naming it `furniture-*.tsj` is
@@ -105,6 +114,18 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
             decoded.set(assetPath, png);
           }
           sprites.set(asset.id, pngToSpriteData(png, asset.width, asset.height, crop));
+          // The same fact the decode just used, in the form a browser wants: which
+          // file, which rect. A collection tile's whole PNG is its rect; a grid
+          // tile's is the crop.
+          refs.set(asset.id, {
+            // As written in the tileset, i.e. relative to assets/tiled — which is
+            // exactly the path the client fetches under.
+            img: imagePath,
+            x: crop?.x ?? 0,
+            y: crop?.y ?? 0,
+            w: asset.width,
+            h: asset.height,
+          });
         } catch (err) {
           console.warn(`  ⚠️  Error loading ${asset.id}: ${err instanceof Error ? err.message : err}`);
         }
@@ -118,7 +139,7 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
     }
 
     console.log(`  ✓ Loaded ${sprites.size} / ${catalog.length} furniture assets from Tiled tilesets`);
-    return { catalog, sprites };
+    return { catalog, sprites, refs };
   } catch (err) {
     console.error(`[AssetLoader] ❌ Error loading furniture tilesets: ${err instanceof Error ? err.message : err}`);
     return null;

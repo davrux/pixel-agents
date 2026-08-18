@@ -33,7 +33,17 @@ export interface LoadedAssetData {
      *  `<frame duration=".."/>` unit. Missing on older data → DEFAULT_ANIMATION_FRAME_MS. */
     durationMs?: number;
   }>;
-  sprites: Record<string, SpriteData>;
+  /** Pixels per id — what the server keeps for itself. The client is sent
+   *  `spriteRefs` instead and receives no pixels at all, so this is optional. */
+  sprites?: Record<string, SpriteData>;
+  /**
+   * Where each id's art is drawn from: an image (relative to assets/tiled) plus
+   * the rect inside it. This is what replaced shipping the pixels — 1763 sprites
+   * were 7.6 MB of hex strings per join, against images the browser fetches once
+   * and caches (see server/scripts/bake-furniture-atlas.mts, and the grid decal
+   * sets, which are sheets already).
+   */
+  spriteRefs?: Record<string, { img: string; x: number; y: number; w: number; h: number }>;
 }
 
 /** Fallback per-frame duration for animation data saved before per-frame
@@ -60,22 +70,34 @@ let catalog: FurnitureCatalogEntry[] | null = null;
  * Build the catalog from loaded assets. Returns true if successful.
  * Uses ONLY custom assets (excludes hardcoded furniture when assets are loaded).
  */
+/** Called with the id → image+rect table when one arrives, so the renderer can
+ *  resolve art without the pixels. Registered by the client (see
+ *  client/src/render/sprites.ts's setSpriteRefs); the headless server leaves it
+ *  unset and keeps using its own decoded sprites. */
+let spriteRefSink: ((refs: LoadedAssetData['spriteRefs']) => void) | null = null;
+export function onSpriteRefs(sink: (refs: LoadedAssetData['spriteRefs']) => void): void {
+  spriteRefSink = sink;
+}
+
 export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
-  if (!assets?.catalog || !assets?.sprites) return false;
+  if (!assets?.catalog) return false;
+  if (assets.spriteRefs) spriteRefSink?.(assets.spriteRefs);
 
   const allEntries = assets.catalog
     .map((asset) => {
-      const sprite = assets.sprites[asset.id];
-      if (!sprite) {
-        console.warn(`No sprite data for asset ${asset.id}`);
-        return null;
-      }
+      // Pixels are optional now: the server's own catalog has them, the client's
+      // does not — it draws each id from a fetched image instead (spriteRefs).
+      // What must always be present is the SIZE, which is what depth sorting and
+      // the pet lift read (see FurnitureCatalogEntry.width/height).
+      const sprite = assets.sprites?.[asset.id];
       return {
         id: asset.id,
         label: asset.label,
         footprintW: asset.footprintW,
         footprintH: asset.footprintH,
-        sprite,
+        width: asset.width,
+        height: asset.height,
+        ...(sprite ? { sprite } : {}),
         ...(asset.canSitOn ? { canSitOn: true } : {}),
         // `!== undefined`, not truthiness: Direction.DOWN is 0, so a plain
         // `asset.sitFacing ? …` would silently drop every south-facing seat.

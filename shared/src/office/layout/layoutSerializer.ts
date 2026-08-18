@@ -54,7 +54,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
     const y = item.row * TILE_SIZE;
-    const spriteH = entry.sprite.length;
+    const spriteH = entry.height;
     let zY = y + spriteH;
 
     // Seat z-sorting: a character sitting here has to end up on the right side
@@ -94,10 +94,10 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       for (const t of tiles) topByTile.set(t, Math.max(topByTile.get(t) ?? 0, zY));
     }
 
-    const sprite = entry.sprite; // furniture renders exactly as drawn — no recoloring
-
     instances.push({
-      sprite,
+      // Pixels only when the catalog has them (the server's own copy does; the
+      // client's does not — it draws by id from a fetched image).
+      ...(entry.sprite ? { sprite: entry.sprite } : {}),
       spriteId: item.id,
       x,
       y,
@@ -138,11 +138,11 @@ export function layoutToDecalInstances(decals: PlacedDecal[] | undefined): Furni
     if (!entry) continue;
     const y = decal.row * TILE_SIZE;
     instances.push({
-      sprite: entry.sprite,
+      ...(entry.sprite ? { sprite: entry.sprite } : {}),
       spriteId: decal.id,
       x: decal.col * TILE_SIZE,
       y,
-      zY: decal.occludes ? y + entry.sprite.length : DECAL_DEPTH,
+      zY: decal.occludes ? y + entry.height : DECAL_DEPTH,
       ...(decal.flippedHorizontally ? { mirrored: true } : {}),
       ...(decal.flippedVertically ? { flippedVertically: true } : {}),
     });

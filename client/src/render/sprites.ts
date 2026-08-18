@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import type { SheetCellRef, SpriteData } from '@pixel/shared/office/types.js';
+import { serverHttpOrigin } from '../net/room.js';
 import { FLOOR_TILE_H, FLOOR_TILE_W, WALL_TILE_H, WALL_TILE_W } from '@pixel/shared/office/tiledSheetLayout.js';
 
 /**
@@ -397,6 +398,80 @@ interface AtlasFrames {
 
 let furnitureAtlas: AtlasFrames | null = null;
 
+/**
+ * id → which image and rect its art is, as the server told us (spriteRefs).
+ *
+ * This is what replaced being sent the pixels. The images themselves are fetched
+ * lazily — the first time an id is actually drawn — because a map draws a fraction
+ * of the catalog: 1763 entries today, of which a zone uses dozens. Fetching all
+ * of them up front would trade one oversized message for a burst of requests
+ * nobody needs.
+ */
+const refs = new Map<string, { img: string; x: number; y: number; w: number; h: number }>();
+/** img path → texture key once fetched; null while in flight or failed. */
+const refTextures = new Map<string, string | null>();
+/**
+ * Told when a ref image has arrived, so whoever draws can draw again.
+ *
+ * Not optional plumbing: an image is fetched the first time an id is drawn, and by
+ * then that draw has already happened with nothing to show. Furniture re-syncs on
+ * its own eventually, but statics (decals, floor, walls) are drawn once per layout
+ * — without this they keep the placeholder for the rest of the session, which is
+ * exactly what a run without a baked atlas showed: every tree a black box.
+ */
+let refImageListener: (() => void) | null = null;
+export function onRefImageLoaded(listener: () => void): void {
+  refImageListener = listener;
+}
+
+/** Take the id → image+rect table from the catalog message. */
+export function setSpriteRefs(
+  table: Record<string, { img: string; x: number; y: number; w: number; h: number }> | undefined,
+): void {
+  refs.clear();
+  for (const [id, r] of Object.entries(table ?? {})) refs.set(id, r);
+}
+
+/** The frame for a ref, fetching its image on first use. Returns null until the
+ *  image is there, so the caller falls back to whatever it has meanwhile — one or
+ *  two frames of the runtime-packed sprite, or nothing at all. */
+function refFrame(scene: Phaser.Scene, id: string): SpriteTex | null {
+  const ref = refs.get(id);
+  if (!ref) return null;
+  const known = refTextures.get(ref.img);
+  if (known === undefined) {
+    refTextures.set(ref.img, null);
+    void (async () => {
+      try {
+        const url = `${serverHttpOrigin()}/assets/tiled/${ref.img}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const bitmap = await createImageBitmap(await res.blob());
+        const key = `ref_${ref.img.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        if (!scene.textures.exists(key)) {
+          const tex = scene.textures.createCanvas(key, bitmap.width, bitmap.height);
+          if (!tex) throw new Error('no canvas texture');
+          const ctx = tex.getContext();
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(bitmap, 0, 0);
+          tex.refresh();
+        }
+        refTextures.set(ref.img, key);
+        refImageListener?.();
+      } catch (err) {
+        console.warn(`[sprites] could not load ${ref.img}: ${err instanceof Error ? err.message : err}`);
+        refTextures.set(ref.img, null);
+      }
+    })();
+    return null;
+  }
+  if (known === null) return null;
+  const tex = scene.textures.get(known) as Phaser.Textures.CanvasTexture;
+  const frame = `${ref.x}_${ref.y}_${ref.w}_${ref.h}`;
+  if (!tex.has(frame)) tex.add(frame, 0, ref.x, ref.y, ref.w, ref.h);
+  return { key: known, frame };
+}
+
 /** Keep the fetched atlas as one texture. Frames are defined on first use, since
  *  a map draws a fraction of the catalog. */
 export function registerFurnitureAtlas(
@@ -447,12 +522,14 @@ const staleInAtlas = new Set<string>();
  * simply ask them: a mismatch in size means this id was re-drawn since the bake,
  * so it goes through the runtime packer instead and says so once.
  */
-export function spriteTextureFor(scene: Phaser.Scene, id: string | undefined, sprite: SpriteData): SpriteTex {
+export function spriteTextureFor(scene: Phaser.Scene, id: string | undefined, sprite?: SpriteData): SpriteTex {
   if (id && furnitureAtlas && !staleInAtlas.has(id)) {
     const rect = furnitureAtlas.rects[id];
-    const h = sprite.length;
-    const w = h > 0 ? sprite[0].length : 0;
-    if (rect && (rect.w !== w || rect.h !== h)) {
+    // Only comparable while the message still carries the pixels; once it stops,
+    // there is nothing to compare against and the rect is simply trusted.
+    const h = sprite?.length ?? 0;
+    const w = h > 0 ? sprite![0].length : 0;
+    if (rect && sprite && (rect.w !== w || rect.h !== h)) {
       staleInAtlas.add(id);
       console.warn(
         `[sprites] "${id}" is ${w}×${h} but the atlas has ${rect.w}×${rect.h} — re-run bake-furniture-atlas.mts; ` +
@@ -462,5 +539,21 @@ export function spriteTextureFor(scene: Phaser.Scene, id: string | undefined, sp
       return atlasFrame(id)!;
     }
   }
+  const viaRef = refFrame(scene, id ?? '');
+  if (viaRef) return viaRef;
+  if (!sprite) {
+    // No image for this id and no pixels either: draw nothing rather than a
+    // placeholder, the same silence a missing image asset gets. Warned once so it
+    // is findable — this means an id reached the renderer that no bake and no
+    // message covers.
+    if (id && !missingArt.has(id)) {
+      missingArt.add(id);
+      console.warn(`[sprites] no art for "${id}" — neither a fetched image nor pixels in the catalog`);
+    }
+    return { key: '__MISSING' };
+  }
   return spriteTexture(scene, sprite);
 }
+
+/** Ids reported as having no art at all — warned once each. */
+const missingArt = new Set<string>();

@@ -9,7 +9,8 @@ import {
   type LoadedCharacterData,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
-import { buildDynamicCatalog } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, onSpriteRefs } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { setSpriteRefs } from '../render/sprites.js';
 
 type Msg = Record<string, any>;
 
@@ -21,6 +22,10 @@ type Msg = Record<string, any>;
  * message. Agent/pet/furniture *state* no longer arrives here either — it is
  * synced authoritatively via the Colyseus schema (see OfficeScene).
  */
+// The catalog hands over the id → image+rect table as it arrives; the renderer is
+// what needs it. Wired once here rather than passed through every call site.
+onSpriteRefs((refs) => setSpriteRefs(refs));
+
 export function createAssetBridge(
   os: OfficeState,
   onLayout: (layout: OfficeLayout) => void,
@@ -54,7 +59,10 @@ export function createAssetBridge(
         setImageAssets(msg.images ?? []);
         break;
       case 'furnitureAssetsLoaded':
-        buildDynamicCatalog({ catalog: msg.catalog, sprites: msg.sprites });
+        // `spriteRefs` says which image and rect each id is drawn from; `sprites`
+        // carries pixels only for ids no image covers. Both are optional, so an
+        // older server (pixels only) and a newer one (refs) both work.
+        buildDynamicCatalog({ catalog: msg.catalog, sprites: msg.sprites, spriteRefs: msg.spriteRefs });
         break;
       case 'layoutLoaded': {
         const raw = msg.layout as OfficeLayout | null;

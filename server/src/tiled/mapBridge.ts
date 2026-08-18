@@ -419,11 +419,11 @@ export function importTmjToLayout(
         }
       }
       const entry = getCatalogEntry(id);
-      // From the sprite's real height, NOT footprintH: that one is clamped to 16
+      // From the art's real height, NOT footprintH: that one is clamped to 16
       // tiles (footprintOf), and Tiled anchors by the image's actual height, so a
       // taller decal would land in the wrong row. The rounding is safe because a
       // sliced item is always padded to whole tiles (see scripts/lib/sheetSlice.mts).
-      const spriteRows = entry ? Math.max(1, Math.round(entry.sprite.length / TILE_SIZE)) : 1;
+      const spriteRows = entry ? Math.max(1, Math.round(entry.height / TILE_SIZE)) : 1;
       const decal: PlacedDecal = {
         id,
         col: i % cols,

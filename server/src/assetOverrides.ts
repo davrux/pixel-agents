@@ -99,6 +99,9 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // Furniture (sprite and/or catalog entry, keyed by assetId). Catalog items in
   // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
   const furnitureSprites = { ...(raw.furnitureSprites as Record<string, unknown>) };
+  /** Where each id's art is as an IMAGE (see LoadedAssets.refs) — what the client
+   *  is sent instead of pixels. */
+  const furnitureRefs = { ...(raw.furnitureRefs as Record<string, unknown>) };
   const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ id?: string }>)];
   // Snapshot BEFORE overrides are applied — bundledFurnitureIds are the
   // non-deletable defaults (deleteAsset on one of these only resets it back
@@ -137,7 +140,16 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
       case 'petSpritesLoaded':
         return { type: 'petSpritesLoaded', dogs, cats, ducks };
       case 'furnitureAssetsLoaded':
-        return { type: 'furnitureAssetsLoaded', catalog: furnitureCatalog, sprites: furnitureSprites, bundledIds: bundledFurnitureIds };
+        return {
+          type: 'furnitureAssetsLoaded',
+          catalog: furnitureCatalog,
+          spriteRefs: furnitureRefs,
+          // Pixels ONLY for ids no image covers. Today that means stored assets
+          // whose art is not a file at all — which is what the 7.6 MB was: 1763
+          // sprites, all of them file-backed, re-sent on every join.
+          sprites: Object.fromEntries(Object.entries(furnitureSprites).filter(([id]) => !furnitureRefs[id])),
+          bundledIds: bundledFurnitureIds,
+        };
       case 'imagesLoaded':
         return { type: 'imagesLoaded', images };
       default:
@@ -148,7 +160,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites, images },
+    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites, furnitureRefs, images },
   };
 }
 
@@ -191,17 +203,23 @@ export function getMergedBundle(): AssetBundle {
  *  assets.ts's watchFurnitureTilesets when a Tiled tileset file changes on
  *  disk, so a save-in-Tiled reaches already-connected players without a
  *  server restart. */
-export function updateFurnitureDefaults(catalog: unknown[], sprites: Record<string, unknown>): void {
+export function updateFurnitureDefaults(
+  catalog: unknown[],
+  sprites: Record<string, unknown>,
+  refs: Record<string, unknown>,
+): void {
   if (!defaultsBundle) return;
   defaultsBundle.raw.furnitureCatalog = catalog;
   defaultsBundle.raw.furnitureSprites = sprites;
+  (defaultsBundle.raw as Record<string, unknown>).furnitureRefs = refs;
   const msg = findMessage(defaultsBundle, 'furnitureAssetsLoaded');
-  if (msg) {
-    msg.catalog = catalog;
-    msg.sprites = sprites;
-  } else {
-    defaultsBundle.messages.push({ type: 'furnitureAssetsLoaded', catalog, sprites });
-  }
+  const payload = {
+    catalog,
+    spriteRefs: refs,
+    sprites: Object.fromEntries(Object.entries(sprites).filter(([id]) => !refs[id])),
+  };
+  if (msg) Object.assign(msg, payload);
+  else defaultsBundle.messages.push({ type: 'furnitureAssetsLoaded', ...payload });
   cached = null;
 }
 

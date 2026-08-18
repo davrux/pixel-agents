@@ -196,7 +196,9 @@ export interface SheetInstance {
 }
 
 export interface FurnitureInstance {
-  sprite: SpriteData;
+  /** The pixels, when the renderer has to pack them itself. Absent once the art
+   *  comes from a fetched image — see spriteId, which is then the answer. */
+  sprite?: SpriteData;
   /** Which catalog entry this draws — the id, so a renderer can take the pixels
    *  from a baked atlas instead of from `sprite` (see
    *  client/src/render/sprites.ts's spriteTextureFor). Purely a rendering
@@ -328,7 +330,23 @@ export interface FurnitureCatalogEntry {
   label: string;
   footprintW: number;
   footprintH: number;
-  sprite: SpriteData;
+  /** The art's size in PIXELS. Present always, and the reason it exists: depth
+   *  sorting and the pet's rest lift need the sprite's height, and the client no
+   *  longer receives the pixels to measure — they are fetched as images and drawn
+   *  by frame (see FurnitureInstance.spriteId). A footprint is a tile count and
+   *  cannot answer this: art is bottom-anchored and routinely taller than the
+   *  tiles it occupies. */
+  width: number;
+  height: number;
+  /**
+   * The art itself — only where something actually manipulates pixels.
+   *
+   * Optional because the client stopped being sent pixels: it gets an image and a
+   * rect instead, which is what a browser is good at. The server still decodes
+   * them for its own catalog, so anything running headless keeps working
+   * unchanged. Never read it to learn a size; that is what width/height are for.
+   */
+  sprite?: SpriteData;
   /** This type's default Action (see effectiveAction) — every placed instance
    *  gets this unless it carries its own PlacedFurniture.action override. */
   action?: Action;

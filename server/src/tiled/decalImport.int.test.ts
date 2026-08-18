@@ -68,7 +68,7 @@ function localIdOfHeight(tiles: number): number {
   );
   for (let i = 0; i < decalSet.tiles.length; i++) {
     const entry = getCatalogEntry(String(decalSet.tiles[i]?.props.id ?? ''));
-    if (entry && Math.round(entry.sprite.length / TILE_SIZE) === tiles) return i;
+    if (entry && Math.round(entry.height / TILE_SIZE) === tiles) return i;
   }
   throw new Error(`decal.tsj holds no tile ${tiles} cells tall`);
 }
@@ -95,7 +95,7 @@ test('an oversized decal converts from Tiled\'s bottom anchor to the top-left ce
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
   const tall = localIdOfHeight(3);
   const entry = getCatalogEntry(String(decalSet!.tiles[tall].props.id));
-  assert.equal(Math.round(entry!.sprite.length / TILE_SIZE), 3);
+  assert.equal(Math.round(entry!.height / TILE_SIZE), 3);
 
   // Painted in the cell at row 6: Tiled draws it upwards from that cell's bottom
   // edge, so it covers rows 4..6 and its top-left cell is row 4.
@@ -174,7 +174,7 @@ test('flat decals render below everything, occluding ones sort by position', asy
   // bottom edge — the same value furniture would get, so a character behind it is
   // drawn behind it. Nothing about the tile changed, which is the point.
   const [sorted] = layoutToDecalInstances([{ id, col: 3, row: 4, occludes: true }]);
-  assert.equal(sorted.zY, 4 * TILE_SIZE + getCatalogEntry(id)!.sprite.length);
+  assert.equal(sorted.zY, 4 * TILE_SIZE + getCatalogEntry(id)!.height);
 });
 
 test('the LAYER decides flat vs standing, and the same tile may do both', async () => {

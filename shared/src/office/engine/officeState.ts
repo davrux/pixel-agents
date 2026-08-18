@@ -2072,7 +2072,7 @@ export class OfficeState {
    *  every column is taken. Pure existence check — no reachability. */
   private freeDeskRestColumn(
     item: PlacedFurniture,
-    entry: { footprintW: number; footprintH: number; sprite: { length: number } },
+    entry: { footprintW: number; footprintH: number; height: number },
     occupied: Map<string, Set<string>>,
   ): { col: number; row: number; lift: number } | null {
     const bottomRow = item.row + entry.footprintH - 1;
@@ -2090,7 +2090,7 @@ export class OfficeState {
       if (!columnFree) continue;
       // A perch's sprite is exactly footprintH tiles tall, so lifting by the
       // part above the bottom row (spriteH − one tile) lands the pet on top.
-      return { col: item.col + dc, row: bottomRow, lift: entry.sprite.length - TILE_SIZE };
+      return { col: item.col + dc, row: bottomRow, lift: entry.height - TILE_SIZE };
     }
     return null;
   }

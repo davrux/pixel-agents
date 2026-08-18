@@ -65,6 +65,7 @@ import {
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
+import { onRefImageLoaded } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
@@ -193,6 +194,8 @@ export class OfficeScene extends Phaser.Scene {
   private perfEnabled = false;
   private perfEl: HTMLDivElement | null = null;
   private updateMsAvg = 0;
+  /** Pending repaint after ref images arrived — see onRefImageLoaded. */
+  private refRepaintTimer: number | null = null;
   /** Shared chat panel (client/src/ui/chatUI.ts). */
   private chat?: ChatUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
@@ -396,6 +399,17 @@ export class OfficeScene extends Phaser.Scene {
     // Independent of the Colyseus connection — races against layoutLoaded;
     // whichever finishes last triggers the buildStatic() that actually
     // shows real floor/wall art (see net/tiledSheets.ts).
+    // A ref image arriving after its first draw has to trigger another one, or
+    // whatever was drawn meanwhile keeps a placeholder forever — statics are drawn
+    // once per layout. Coalesced on a timer because images land in bursts.
+    onRefImageLoaded(() => {
+      if (this.refRepaintTimer !== null) return;
+      this.refRepaintTimer = window.setTimeout(() => {
+        this.refRepaintTimer = null;
+        this.view.buildStatic();
+        this.furnitureDirty = true;
+      }, 50);
+    });
     // Sheets and the baked atlas together: both are static art over HTTP, and
     // buildStatic() should run once, after whichever finishes last.
     void Promise.all([loadTiledSheets(), loadFurnitureAtlas()]).then(([sheets, atlas]) => {

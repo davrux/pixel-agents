@@ -24,6 +24,8 @@ export interface AssetBundle {
     ducks: unknown[];
     furnitureCatalog: unknown[];
     furnitureSprites: Record<string, unknown>;
+    /** id → image + rect, what the client draws from (see LoadedAssets.refs). */
+    furnitureRefs: Record<string, unknown>;
     /** Uploaded background images (see shared/office/imageAssets.ts) — no
      *  bundled defaults, always starts empty. */
     images: unknown[];
@@ -40,9 +42,36 @@ export const ASSETS_ROOT = process.env.PIXEL_STREAM_ASSETS_DIR?.trim() || resolv
  *  appended here are ordinary tiles now; see below). Split out
  *  from loadAssetBundle so watchFurnitureTilesets can re-run just this half
  *  when a .tsj file changes on disk, without reloading characters/pets/floor/wall. */
+/**
+ * The baked atlas's manifest, if it is on disk — which ids it holds and where.
+ *
+ * Read here so the message can point at the atlas instead of at 385 individual
+ * PNGs: one request and one texture in the client rather than hundreds. Absent
+ * means "not baked yet", and every id then simply refers to its own file, which
+ * still works.
+ */
+function atlasRefs(): Record<string, { img: string; x: number; y: number; w: number; h: number }> {
+  try {
+    const file = join(ASSETS_ROOT, 'assets', 'tiled', 'png', 'atlas-furniture.json');
+    if (!fs.existsSync(file)) return {};
+    const manifest = JSON.parse(fs.readFileSync(file, 'utf-8')) as {
+      image?: string;
+      frames?: Record<string, { x: number; y: number; w: number; h: number }>;
+    };
+    if (!manifest.image || !manifest.frames) return {};
+    const img = manifest.image;
+    return Object.fromEntries(Object.entries(manifest.frames).map(([id, r]) => [id, { img, ...r }]));
+  } catch (err) {
+    console.warn(`[assets] could not read the furniture atlas manifest: ${(err as Error)?.message}`);
+    return {};
+  }
+}
+
 export async function buildFurnitureCatalogAndSprites(): Promise<{
   catalog: unknown[];
   sprites: Record<string, unknown>;
+  /** id → image + rect, for the client. See LoadedAssets.refs. */
+  refs: Record<string, unknown>;
   loaded: boolean;
 }> {
   const furniture = await loadFurnitureTilesets(ASSETS_ROOT);
@@ -55,7 +84,15 @@ export async function buildFurnitureCatalogAndSprites(): Promise<{
   // bake-generated-furniture.mts).
   const catalog = furniture?.catalog ?? [];
   const sprites: Record<string, unknown> = furniture ? Object.fromEntries(furniture.sprites) : {};
-  return { catalog, sprites, loaded: !!furniture };
+  // Per-file refs from the loader, then the atlas on top: for an id the atlas
+  // carries, that is the better source (one image for all of them), and for
+  // anything it does not — a grid sheet's tile, art added since the bake — the
+  // file ref stands.
+  const refs: Record<string, unknown> = {
+    ...(furniture ? Object.fromEntries(furniture.refs) : {}),
+    ...atlasRefs(),
+  };
+  return { catalog, sprites, refs, loaded: !!furniture };
 }
 
 export async function loadAssetBundle(): Promise<AssetBundle> {
@@ -72,7 +109,9 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
     messages.push({
       type: 'furnitureAssetsLoaded',
       catalog: furniture.catalog,
-      sprites: furniture.sprites,
+      spriteRefs: furniture.refs,
+      // Pixels only for ids no image covers — see assetOverrides.ts's buildMerged.
+      sprites: Object.fromEntries(Object.entries(furniture.sprites).filter(([id]) => !furniture.refs[id])),
     });
   }
   // No bundled images — always present so assetOverrides.ts's buildMerged()
@@ -93,6 +132,7 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       ducks: pets?.ducks ?? [],
       furnitureCatalog: furniture.catalog,
       furnitureSprites: furniture.sprites,
+      furnitureRefs: furniture.refs,
       images: [],
     },
   };
@@ -119,8 +159,8 @@ const TILESET_FILENAME_RE = /\.tsj$/;
  *  (floor/wall sheets, PNGs) and should not depend on an fs event to finish the
  *  job. Returns the item count for logging. */
 export async function reloadFurnitureCatalog(): Promise<number> {
-  const { catalog, sprites } = await buildFurnitureCatalogAndSprites();
-  updateFurnitureDefaults(catalog, sprites);
+  const { catalog, sprites, refs } = await buildFurnitureCatalogAndSprites();
+  updateFurnitureDefaults(catalog, sprites, refs);
   controlBus.emit(ASSET_CHANGED_EVENT, 'furniture');
   return catalog.length;
 }
