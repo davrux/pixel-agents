@@ -149,5 +149,6 @@ fs.writeFileSync(TARGET_TSJ, `${JSON.stringify(tileset, null, 2)}\n`);
 console.log(`✓ ${PNG_REL} written (${spaced.width}×${spaced.height}, ${SHEET_GAP}px gaps), ${path.basename(TARGET_TSJ)}`);
 console.log(`  ${columns}×${rows} cells, ${tiles.length} named, ${blanks} blank (left unnamed on purpose)`);
 console.log(`  ${existingLabels.size} existing label(s) kept`);
-console.log('  Now in Tiled: add decal-roads.tsj to the map, paint on a DecalLayer.');
-console.log('  Roads are ground, so leave that layer flat (no `occludes`); where a road blocks, paint Collision.');
+console.log('  Now in Tiled: add decal-roads.tsj to the map. A road you drive/walk on belongs on the');
+console.log('  GroundLayer; paint it on a DecalLayer only where it lies over ground that is already there.');
+console.log('  Where a road should block, paint the CollisionLayer over it.');

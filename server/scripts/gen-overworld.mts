@@ -34,7 +34,7 @@
  * sheet is the pack's own; nothing renumbers it. Fully
  * transparent cells get no tiles[] entry, so they never reach the catalog.
  *
- * The pack itself lives outside the repo (tmp/zelda-like, gitignored); only
+ * The pack itself lives outside the repo (tmp/gfx, gitignored); only
  * the derived floors + the sheet copy + tileset are committed.
  *
  * Run: scripts/import-overworld-pack.sh (this is its first step)
@@ -56,7 +56,7 @@ const T = 16;
 
 // ── read the sheet ──
 if (!fs.existsSync(SHEET)) {
-  console.error(`✗ sheet missing: ${SHEET} — put the pack's PNGs in tmp/zelda-like/ first`);
+  console.error(`✗ sheet missing: ${SHEET} — put the pack's PNGs in tmp/gfx/ first`);
   process.exit(1);
 }
 const sheetBytes = fs.readFileSync(SHEET);
@@ -132,4 +132,5 @@ fs.writeFileSync(
   ) + '\n',
 );
 console.log(`✓ decal-overworld.tsj + ${SHEET_COPY} (${tiles.length} of ${cols * rows} cells carry art)`);
-console.log('  Now in Tiled: paint from decal-overworld onto DecalLayers — flat for ground, `occludes` for anything to walk behind.');
+console.log('  Now in Tiled: terrain you walk on goes on the GroundLayer (that is what makes a cell walkable);');
+console.log('  anything that is only a picture goes on a DecalLayer — flat, or `occludes` to walk behind it.');

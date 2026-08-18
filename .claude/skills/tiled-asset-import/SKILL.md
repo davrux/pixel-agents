@@ -190,13 +190,20 @@ in, the lesson is that a wholesale gid rewrite deserves a diff you can read.)
 
 ## Step 4 — Wire it, in this order
 
+0. **Do not invent a tile class to say what a tile IS.** The LAYER says that —
+   ground, lattice, faces, decals, collision. `FloorTile` and `WallTile` both existed
+   for that and both are gone: they carried no properties, and the one fact they
+   encoded (a cell's height) is stated by the tileset. A class is for tiles that carry
+   real BEHAVIOUR — `FurnitureTile`, `DecalTile`.
 1. **Properties**: a new tile class or property goes in `Pixels.tiled-project`
    *and* its definition (`furnitureProps.ts` / `decalProps.ts`), then
    `scripts/sync-furniture-properties.sh` distributes it. Every tile carries every
    property with its default filled in — a property a mapper must remember to add is
    one they will forget.
-2. **Bake** whatever needs baking: `bake-floor-wall-tiled.mts` for floor/wall sets,
-   `bake-furniture-atlas.mts` after any change to collection art.
+2. **Bake** only what still needs baking, which is less than you think:
+   `scripts/bake-sheets.sh` for a new floor pattern or wall geometry — and read its
+   warning, it rewrites tilesets. Collection art needs nothing: the server bakes the
+   atlas itself when the art changed. Ground needs nothing at all.
 3. **Check**: `scripts/sync-furniture-properties.sh --check` must be clean, and it
    also reports a stale gid table.
 4. **Tests + build**: `pnpm -r run check-types`, `pnpm build`, `cd server && pnpm test`.

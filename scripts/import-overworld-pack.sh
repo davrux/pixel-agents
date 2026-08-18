@@ -1,24 +1,21 @@
 #!/usr/bin/env bash
-# Re-derive everything this project takes from the "Zelda-like tilesets and
-# sprites" pack's Overworld.png (ArMM1998, public domain / CC0 — see the
-# README credit): the floor patterns (assets/floors/overworld_*.png), the
-# baked natural-only floor-overworld set, and decal-overworld.tsj — the whole
-# sheet as a grid decal tileset, every non-empty 16x16 cell a paintable
-# DecalTile. Run once at import time — nothing in a normal build calls this,
-# and the derived art is committed.
+# Re-derive the overworld art from the "Zelda-like tilesets and sprites" pack
+# (ArMM1998, public domain / CC0 — see the README credit): decal-overworld.tsj
+# plus its sheet copy, the whole 40x36 grid with every non-empty cell paintable.
 #
-# The pack itself is NOT in this repository (it is public domain, but there
-# is no reason to carry the source collage twice). Put its PNGs in
-# tmp/zelda-like/ first, so that tmp/zelda-like/Overworld.png exists.
+# The pack itself is NOT in this repository (it is public domain, but there is no
+# reason to carry the source collage twice). Put its PNGs under tmp/gfx/ first,
+# so that tmp/gfx/Overworld.png exists.
 #
 # Usage: scripts/import-overworld-pack.sh
-#   Always safe to re-run: both halves are pure functions of the pack plus the
-#   judgement tables in server/scripts/gen-overworld.mts. (Decal tiles carry
-#   no hand-set behaviour — a decal is a picture and nothing else — so unlike
-#   a furniture tileset there is nothing a rewrite could destroy.)
+#   Always safe to re-run: the output is a pure function of the pack, so an
+#   unchanged pack rewrites byte-identical files. It writes the sheet to
+#   assets/tiled/png/src/sheets/ — source art, since a checkout cannot
+#   regenerate it without the pack.
+#
+# It used to bake a floor set from the same pack as well (floor-overworld, 187
+# hand-cut patterns). That set is gone: ground is whatever you paint on the
+# GroundLayer, so the sheet itself is paintable as ground and no bake is needed.
 set -e
-
 cd "$(dirname "$0")/../server"
-
-node --import tsx scripts/gen-overworld.mts
-exec node --import tsx scripts/bake-floor-wall-tiled.mts
+exec node --import tsx scripts/gen-overworld.mts
