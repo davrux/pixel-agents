@@ -1463,12 +1463,15 @@ export class MatrixUI {
     ctxCancel.addEventListener('click', () => this.cancelComposerContext());
     this.composerCtxEl.append(this.composerCtxIconEl, ctxMain, ctxCancel);
 
+    // The action buttons stack vertically beside the input rather than lining
+    // up after it, so the text box keeps the full remaining width.
+    const composerBtns = document.createElement('div');
+    composerBtns.className = 'mx-composer-btns';
+    composerBtns.append(this.emojiBtn, this.attachBtn, this.composerSendBtn);
     composer.append(
       this.composerCtxEl,
       this.composerTextarea,
-      this.emojiBtn,
-      this.attachBtn,
-      this.composerSendBtn,
+      composerBtns,
       this.attachInput,
       this.uploadStatusEl,
       this.composerDisabledEl,

@@ -387,6 +387,11 @@ export function injectMatrixSkin(): void {
   box-shadow:inset 0 2px 0 #4a4744, inset 0 -3px 0 #050505;
 }
 .mx-codewrap:hover .mx-codecopy,.mx-codewrap:focus-within .mx-codecopy{opacity:1;pointer-events:auto}
+/* A code block that *opens* the message has its top-right corner directly
+   under the row's floating ⋯ button (worst on a one-line block, where the two
+   fully cover each other) — step that block's copy button left of the ⋯.
+   Blocks further down the message keep the corner position. */
+.mx-txt > .mx-codewrap:first-child .mx-codecopy{right:2rem}
 .mx-codecopy:hover{color:#f1efec}
 .mx-codecopy:focus-visible{outline:2px solid #4998c0;outline-offset:1px}
 .mx-codecopy.ok{color:#7fbf6a}
@@ -513,6 +518,10 @@ export function injectMatrixSkin(): void {
   border-top:2px solid #0a0908;background:#1c1a19;padding:0.5rem 0.6rem;flex:0 0 auto;
 }
 .mx-input{resize:none;line-height:1.5;max-height:7.5rem;flex:1;min-width:0}
+/* The 😊/📎/➤ column beside the input. Bottom-aligned with it (the container's
+   own align-items:flex-end), equal-width so the stack reads as one control. */
+.mx-composer-btns{display:flex;flex-direction:column;gap:0.3rem;flex:0 0 auto}
+.mx-composer-btns .pa-b{width:100%}
 .mx-composer .muted{flex-basis:100%}
 /* Upload progress / failure. Full-width row under the composer controls —
    a picture send has no local echo to fail into until the bytes are up. */
