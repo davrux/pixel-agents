@@ -21,7 +21,9 @@ import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
-import { buildDynamicCatalog, effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, effectiveAction, getCatalogEntry,
+  entryFor,
+} from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { registerArcadeSaves } from '../arcadeSaveRoom.js';
 import { registerArcadeLobby } from '../arcadeLobby.js';
 import { emptyZoneMap } from '@pixel/shared/office/layout/layoutSerializer.js';
@@ -634,7 +636,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  footprint covers), so an exact match is enough. */
   private actionAt(col: number, row: number): Action | null {
     const item = this.os.getLayout().furniture.find((f) => f.col === col && f.row === row);
-    return item ? effectiveAction(item, getCatalogEntry(item.id)) : null;
+    return item ? effectiveAction(item, entryFor(item)) : null;
   }
 
   /** A meeting-room membership key, namespaced by source so a furniture
@@ -1967,7 +1969,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.col = p.col;
       fs.row = p.row;
       fs.name = p.name ?? '';
-      const action = effectiveAction(p, getCatalogEntry(p.id));
+      const action = effectiveAction(p, entryFor(p));
       fs.action = action ? JSON.stringify(action) : '';
       fs.flippedHorizontally = !!p.flippedHorizontally;
       fs.flippedVertically = !!p.flippedVertically;
@@ -1981,6 +1983,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
       fs.backgroundTiles = p.backgroundTiles ?? -1;
       fs.onState = p.onState ?? '';
       fs.zOffset = p.zOffset ?? 0;
+      // 0 = the art's own size (see FurnitureSync.width).
+      fs.width = p.width ?? 0;
+      fs.height = p.height ?? 0;
       this.state.furniture.push(fs);
     }
   }

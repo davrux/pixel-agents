@@ -254,6 +254,16 @@ background only.)
   a wall piece. What still classifies is the LAYER (`GroundLayer`,
   `WallLatticeLayer`, `DecalLayer`, `CollisionLayer`) and, for things with
   behaviour, `FurnitureTile`/`DecalTile` — those carry real properties.
+- **A placement's own size is honoured, and it means more than the picture.** Tiled
+  lets you resize a tile object; `PlacedFurniture.width/height` carries that, and
+  `entryFor(item)` hands every reader the catalog entry as it applies to THAT placement
+  — drawn size, footprint in cells, and the air rows scaled with it. That is the point:
+  a size decides blocking, seats, approach tiles, pet perching and depth, so resolving
+  it anywhere but in one place lets the collision disagree with the picture. Ignoring it
+  used to be two bugs at once — drawn at the art's size AND anchored by the art's
+  footprint, so a machine placed at 16×16 from 32×32 art sat a cell too high.
+  `entryFor` returns the shared entry unchanged when there is no override, so the normal
+  case allocates nothing in per-tick loops.
 - **Decoration is a decal, not an object.** A `DecalTile` painted on a
   `DecalLayer` is a picture and nothing else — it lives in the *layout* (one
   `layoutLoaded`, like the floor), never in `OfficeState.furniture`, so it has no

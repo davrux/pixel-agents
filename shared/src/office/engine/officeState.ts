@@ -28,6 +28,7 @@ import {
   resolveOnState,
   resolveBackgroundTiles,
   resolvePetCanSitOn,
+  entryFor,
 } from '../layout/furnitureCatalog.js';
 import {
   createDefaultLayout,
@@ -530,7 +531,7 @@ export class OfficeState {
   private buildPoints(): void {
     this.points = layoutToSitPoints(this.layout.furniture);
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry) continue;
       // effectiveAction, not the raw catalog flag — an item's own Action
       // override (the editor's Action… button) must be able to turn ANY
@@ -626,7 +627,7 @@ export class OfficeState {
   private seatDrivenSwitchableTiles(): Set<string> {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry || !this.isSeatDrivenSwitchable(item, entry)) continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -1011,7 +1012,7 @@ export class OfficeState {
     for (const ch of this.characters.values()) occupied.add(`${ch.tileCol},${ch.tileRow}`);
     for (const p of this.pets.values()) occupied.add(`${p.tileCol},${p.tileRow}`);
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       const fw = entry?.footprintW ?? 1;
       const fh = entry?.footprintH ?? 1;
       for (let dr = 0; dr < fh; dr++) {
@@ -1273,7 +1274,7 @@ export class OfficeState {
   private computePortalTiles(): void {
     const tiles = new Set<string>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry || effectiveAction(item, entry)?.kind !== 'portal') continue;
       for (let dr = 0; dr < entry.footprintH; dr++) {
         for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -1323,7 +1324,7 @@ export class OfficeState {
     // ranked against each other.
     const candidates = this.layout.furniture.filter((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
-      const a = effectiveAction(f, getCatalogEntry(f.id));
+      const a = effectiveAction(f, entryFor(f));
       return !!a && a.kind !== 'appliance';
     });
     candidates.sort((a, b) => {
@@ -1333,9 +1334,9 @@ export class OfficeState {
       return this.layout.furniture.indexOf(b) - this.layout.furniture.indexOf(a);
     });
     const item = candidates[0];
-    const action = item ? effectiveAction(item, getCatalogEntry(item.id)) : null;
+    const action = item ? effectiveAction(item, entryFor(item)) : null;
     if (!action) return false;
-    const entry = getCatalogEntry(item!.id);
+    const entry = entryFor(item!);
     const fw = entry?.footprintW ?? 1;
     const fh = entry?.footprintH ?? 1;
     ch.heldDir = null;
@@ -1387,7 +1388,7 @@ export class OfficeState {
     // specifically (effectiveAction, so an override counts too — see
     // buildStations), not just whatever's first at that tile.
     const item = this.layout.furniture.find(
-      (f) => f.col === anchorCol && f.row === anchorRow && effectiveAction(f, getCatalogEntry(f.id))?.kind === 'appliance',
+      (f) => f.col === anchorCol && f.row === anchorRow && effectiveAction(f, entryFor(f))?.kind === 'appliance',
     );
     if (!item) return false;
     const prefix = `station:${item.uid}:`;
@@ -1749,7 +1750,7 @@ export class OfficeState {
     const seen = new Set<string>();
     let sig = '';
     for (const item of this.layout.furniture) {
-      const onType = resolveOnState(item, getCatalogEntry(item.id));
+      const onType = resolveOnState(item, entryFor(item));
       const animType = onType !== item.id ? onType : item.id;
       if (seen.has(animType)) continue;
       seen.add(animType);
@@ -1832,7 +1833,7 @@ export class OfficeState {
     // field was renamed to `id` in the Tiled migration and these three swaps
     // kept writing the old name, so animations and on/off never changed sprite.
     const modifiedFurniture: PlacedFurniture[] = this.layout.furniture.map((item): PlacedFurniture => {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry) return item;
 
       // Ambient (always-on) animation: a stateless animation member, e.g. the
@@ -1886,9 +1887,9 @@ export class OfficeState {
   toggleFurniture(anchorCol: number, anchorRow: number): void {
     const item = this.layout.furniture.find((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
-      return effectiveAction(f, getCatalogEntry(f.id))?.kind === 'toggle';
+      return effectiveAction(f, entryFor(f))?.kind === 'toggle';
     });
-    if (!item || resolveOnState(item, getCatalogEntry(item.id)) === item.id) return;
+    if (!item || resolveOnState(item, entryFor(item)) === item.id) return;
     if (this.manuallyToggledOn.has(item.uid)) this.manuallyToggledOn.delete(item.uid);
     else this.manuallyToggledOn.add(item.uid);
     this.rebuildFurnitureInstances();
@@ -2129,7 +2130,7 @@ export class OfficeState {
     }
     const occupied = this.occupiedSurfaceTiles();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry || !resolvePetCanSitOn(item, entry)) continue;
       if (!this.isFurnitureFreeForPet(item.uid)) continue;
       if (this.freeDeskRestColumn(item, entry, occupied) !== null) return true;
@@ -2154,7 +2155,7 @@ export class OfficeState {
   private occupiedSurfaceTiles(): Map<string, Set<string>> {
     const tiles = new Map<string, Set<string>>();
     for (const item of this.layout.furniture) {
-      const entry = getCatalogEntry(item.id);
+      const entry = entryFor(item);
       if (!entry) continue;
       const bgRows = resolveBackgroundTiles(item, entry);
       for (let dr = bgRows; dr < entry.footprintH; dr++) {
@@ -2399,7 +2400,7 @@ export class OfficeState {
   private seatFacesFurniture(point: InteractionPoint, uid: string): boolean {
     const item = this.layout.furniture.find((f) => f.uid === uid);
     if (!item) return false;
-    const entry = getCatalogEntry(item.id);
+    const entry = entryFor(item);
     if (!entry) return false;
     const footprint = new Set<string>();
     for (let dr = 0; dr < entry.footprintH; dr++) {
@@ -2518,7 +2519,7 @@ export class OfficeState {
     if (action === 'sit') {
       const occupied = this.occupiedSurfaceTiles();
       for (const item of this.layout.furniture) {
-        const entry = getCatalogEntry(item.id);
+        const entry = entryFor(item);
         if (!entry || !resolvePetCanSitOn(item, entry)) continue;
         if (!this.isFurnitureFreeForPet(item.uid)) continue;
         const spot = this.freeDeskRestColumn(item, entry, occupied);

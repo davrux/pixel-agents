@@ -45,8 +45,12 @@ const DECLARED_BEHAVIOUR = ['canSitOn', 'petCanSitOn', 'onState', 'actionKind'];
 
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
  *  corner of the tile's image, not top-left like every other object type. */
-function rowFromTileObjectY(y: number, footprintH: number): number {
-  return Math.round(y / TILE_SIZE) - footprintH;
+function rowFromTileObjectY(y: number, heightPx: number): number {
+  // Tiled anchors a tile object at its BOTTOM left, so the row is where its top edge
+  // lands. Measured from the object's own height: taking it from the catalog's
+  // footprint put a placement Tiled shows at 16px a whole cell too high, because the
+  // art behind it is 32px tall (see PlacedFurniture.width).
+  return Math.round((y - heightPx) / TILE_SIZE);
 }
 
 /** Every imported item gets a fresh identity — `uid` is purely internal engine
@@ -360,10 +364,18 @@ export function importTmjToLayout(
       console.warn(`[tiled] furniture object at ${obj.x},${obj.y} carries id "${props.id}" but its tile is "${tileId}" — the tile wins; delete the stale property`);
     }
     const entry = getCatalogEntry(id);
-    const fh = entry?.footprintH ?? 1;
     const hasGid = rawGid > 0;
+    // The size Tiled shows. Stored only when it differs from the art, so an ordinary
+    // placement stays as small on the wire as it always was.
+    const objW = Math.round(Number(obj.width) || 0);
+    const objH = Math.round(Number(obj.height) || 0);
+    const sized = entry !== undefined && objW > 0 && objH > 0 && (objW !== entry.width || objH !== entry.height);
+    const drawnH = sized ? objH : (entry?.height ?? TILE_SIZE);
     const col = Math.round(Number(obj.x) / TILE_SIZE);
-    const row = hasGid ? rowFromTileObjectY(Number(obj.y), fh) : Math.round(Number(obj.y) / TILE_SIZE);
+    const row = hasGid ? rowFromTileObjectY(Number(obj.y), drawnH) : Math.round(Number(obj.y) / TILE_SIZE);
+    if (sized) {
+      console.log(`[tiled] ${id} at ${col},${row} is placed at ${objW}×${objH}, its art is ${entry.width}×${entry.height} — drawn and occupying cells at the placed size`);
+    }
     // zOffset comes purely from this object's position in Tiled's own
     // Furniture object list (drag to reorder there) — no stored property,
     // per docs/design.md.
@@ -372,6 +384,7 @@ export function importTmjToLayout(
       id,
       col,
       row,
+      ...(sized ? { width: objW, height: objH } : {}),
       zOffset: idx,
     };
     {

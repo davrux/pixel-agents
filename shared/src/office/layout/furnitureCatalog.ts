@@ -1,5 +1,5 @@
 import type { Action, Direction as DirectionVal, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
-import { Direction } from '../types.js';
+import { Direction, TILE_SIZE } from '../types.js';
 
 export interface LoadedAssetData {
   catalog: Array<{
@@ -151,6 +151,45 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
 
 export function getCatalogEntry(id: string): FurnitureCatalogEntry | undefined {
   return catalog?.find((e) => e.id === id);
+}
+
+/**
+ * The catalog entry as it applies to THIS placement.
+ *
+ * A placement may carry its own drawn size (Tiled's object resize — see
+ * PlacedFurniture.width), and a size is not only a picture: the cells a piece occupies
+ * follow from it, and those decide blocking, seats, approach tiles, pet perching and
+ * depth. Resolving both in one place is what keeps them from disagreeing — which is
+ * exactly what a first attempt at this did, by scaling the sprite alone.
+ *
+ * Returns the shared entry itself when there is no override, so the common case
+ * allocates nothing: this is called from per-tick engine loops.
+ */
+export function entryFor(item: { id: string; width?: number; height?: number }): FurnitureCatalogEntry | undefined {
+  const entry = getCatalogEntry(item.id);
+  if (!entry) return undefined;
+  const width = item.width || entry.width;
+  const height = item.height || entry.height;
+  if (width === entry.width && height === entry.height) return entry;
+  const footprintH = Math.max(1, Math.ceil(height / TILE_SIZE));
+  return {
+    ...entry,
+    width,
+    height,
+    // Ceil, never zero: a piece drawn smaller than a cell still stands somewhere, and
+    // rounding down would let it block nothing while covering half a tile.
+    footprintW: Math.max(1, Math.ceil(width / TILE_SIZE)),
+    footprintH,
+    // Background rows are counted in CELLS of the art's own size, so they have to
+    // shrink with it — the espresso machine says "my top row is air", and at half size
+    // that row is half a cell, not a whole one. Without this, scaling a two-cell
+    // appliance to one made it entirely air: an appliance you walk straight through.
+    // Floored, so the doubt goes to solid; an item that is air all the way (a bowl on a
+    // table, backgroundTiles 1 on 1-cell art) stays that way, since 1 × 1 floors to 1.
+    ...(entry.backgroundTiles
+      ? { backgroundTiles: Math.min(footprintH, Math.floor(entry.backgroundTiles * (height / entry.height))) }
+      : {}),
+  };
 }
 
 /** A placed item's effective action (see Action): its own override

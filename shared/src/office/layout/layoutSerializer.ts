@@ -9,7 +9,9 @@ import type {
 } from '../types.js';
 import { DECAL_DEPTH, DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';
 import { localIdFromPatternAndSwatch } from '../floorTiles.js';
-import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing } from './furnitureCatalog.js';
+import { getCatalogEntry, resolveBackgroundTiles, resolveCanSitOn, resolveCanWalkOver, resolveSitFacing,
+  entryFor,
+} from './furnitureCatalog.js';
 import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 
 /** Convert flat tile array from layout into 2D grid */
@@ -98,7 +100,7 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
   // hung over a desk's top row is not standing on the desk).
   const topByTile = new Map<string, number>();
   for (const item of stackOrder) {
-    const entry = getCatalogEntry(item.id);
+    const entry = entryFor(item);
     if (!entry) continue;
     const x = item.col * TILE_SIZE;
     const y = item.row * TILE_SIZE;
@@ -147,6 +149,8 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       // client's does not — it draws by id from a fetched image).
       ...(entry.sprite ? { sprite: entry.sprite } : {}),
       spriteId: item.id,
+      width: entry.width,
+      height: entry.height,
       x,
       y,
       zY,
@@ -188,6 +192,8 @@ export function layoutToDecalInstances(decals: PlacedDecal[] | undefined): Furni
     instances.push({
       ...(entry.sprite ? { sprite: entry.sprite } : {}),
       spriteId: decal.id,
+      width: entry.width,
+      height: entry.height,
       x: decal.col * TILE_SIZE,
       y,
       zY: decal.occludes ? y + entry.height : DECAL_DEPTH,
@@ -207,7 +213,7 @@ export function getBlockedTiles(
 ): Set<string> {
   const tiles = new Set<string>();
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.id);
+    const entry = entryFor(item);
     if (!entry) continue;
     if (resolveCanWalkOver(item, entry)) continue; // walk-over decal — never an obstacle
     const bgRows = resolveBackgroundTiles(item, entry);
@@ -233,7 +239,7 @@ export function getReachThroughTiles(furniture: PlacedFurniture[]): Set<string> 
   const tiles = new Set<string>();
   for (const item of furniture) {
     if (!item.approachThrough) continue;
-    const entry = getCatalogEntry(item.id);
+    const entry = entryFor(item);
     if (!entry) continue;
     for (let dr = 0; dr < entry.footprintH; dr++) {
       for (let dc = 0; dc < entry.footprintW; dc++) {
@@ -271,7 +277,7 @@ export function layoutToSitPoints(furniture: PlacedFurniture[]): Map<string, Int
   // Every footprint tile below the background rows becomes a point, so a 2-tile
   // couch seats two.
   for (const item of furniture) {
-    const entry = getCatalogEntry(item.id);
+    const entry = entryFor(item);
     if (!entry || !resolveCanSitOn(item, entry)) continue;
 
     const facingDir = resolveSitFacing(item, entry);

@@ -215,6 +215,11 @@ export interface FurnitureInstance {
   y: number;
   /** Y value used for depth sorting (typically bottom edge) */
   zY: number;
+  /** Size to draw at, in px — the art's own unless the placement overrode it (see
+   *  PlacedFurniture.width). Always set, so a pooled sprite cannot keep a previous
+   *  item's scale. */
+  width: number;
+  height: number;
   /** Render-time horizontal flip flag (for mirrored side variants) */
   mirrored?: boolean;
   /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
@@ -405,6 +410,21 @@ export interface PlacedFurniture {
   canWalkOver?: boolean;
   backgroundTiles?: number;
   onState?: string;
+  /**
+   * Drawn size in px, when this placement is not the art's own size.
+   *
+   * Tiled lets you resize a tile object, and it means it: the espresso machine placed
+   * at 16×16 from 32×32 art is meant to be a small machine, not a big one. Both halves
+   * follow from it — the sprite is drawn at this size, and the cells it occupies are
+   * derived from it (see entryFor), so collision, seats and depth agree with the
+   * picture. Absent = the art's own size, which is the normal case.
+   *
+   * Ignoring it used to be two bugs in one: drawn at double size AND anchored a cell
+   * too high, because the row was computed from the catalog's footprint rather than
+   * from the object Tiled actually shows.
+   */
+  width?: number;
+  height?: number;
   /** Render alpha, 0..1 — Tiled's own per-object opacity, which is a native
    *  field on every object rather than a custom property, so there is nothing to
    *  declare in Pixels.tiled-project and nothing for the sync script to stamp.

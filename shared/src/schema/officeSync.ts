@@ -126,6 +126,14 @@ export class FurnitureSync extends Schema {
    * stand on which. Appended last, same schema-evolution reasoning as `action`.
    */
   @type('int16') zOffset = 0;
+  /**
+   * Drawn size in px when the placement is not the art's own size — see
+   * PlacedFurniture.width. 0 means "the art's size", which is the normal case, so an
+   * ordinary placement pays two zeroes rather than a decision. Appended last, same
+   * schema-evolution reasoning as `action` and `zOffset`.
+   */
+  @type('uint16') width = 0;
+  @type('uint16') height = 0;
 }
 
 export class RoomState extends Schema {

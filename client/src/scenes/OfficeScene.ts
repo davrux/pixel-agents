@@ -38,6 +38,7 @@ import {
   effectiveAction,
   resolveBackgroundTiles,
   resolveCanSitOn,
+  entryFor,
 } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { LiveKitConference } from '../conference/LiveKitConference.js';
 import { ConferenceUI } from '../conference/ConferenceUI.js';
@@ -1030,6 +1031,8 @@ export class OfficeScene extends Phaser.Scene {
         backgroundTiles: number;
         onState?: string;
         zOffset: number;
+        width: number;
+        height: number;
       }>;
     } | undefined;
     const arr = state?.furniture;
@@ -1065,6 +1068,8 @@ export class OfficeScene extends Phaser.Scene {
         ...(f.onState ? { onState: f.onState } : {}),
         // Stacking among overlapping items — see FurnitureSync.zOffset.
         ...(f.zOffset ? { zOffset: f.zOffset } : {}),
+        // 0 = the art's own size, so only a resized placement carries one.
+        ...(f.width && f.height ? { width: f.width, height: f.height } : {}),
       };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);
@@ -1076,7 +1081,7 @@ export class OfficeScene extends Phaser.Scene {
    *  layoutToSeats, which is where the seats themselves come from. */
   private isSeatTile(col: number, row: number): boolean {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.id);
+      const entry = entryFor(f);
       if (!entry || !resolveCanSitOn(f, entry)) continue;
       const bg = resolveBackgroundTiles(f, entry);
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row + bg && row < f.row + entry.footprintH) {
@@ -1094,7 +1099,7 @@ export class OfficeScene extends Phaser.Scene {
    *  applianceApproach, not the unified actionApproach. */
   private actionAt(col: number, row: number): { col: number; row: number; action: Action; name?: string } | null {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.id);
+      const entry = entryFor(f);
       if (!entry) continue;
       if (col < f.col || col >= f.col + entry.footprintW || row < f.row || row >= f.row + entry.footprintH) continue;
       const action = effectiveAction(f, entry);
@@ -1108,7 +1113,7 @@ export class OfficeScene extends Phaser.Scene {
    *  else null. */
   private applianceAt(col: number, row: number): { col: number; row: number } | null {
     for (const f of this.furniturePlacements) {
-      const entry = getCatalogEntry(f.id);
+      const entry = entryFor(f);
       if (!entry) continue;
       if (effectiveAction(f, entry)?.kind !== 'appliance') continue;
       if (col >= f.col && col < f.col + entry.footprintW && row >= f.row && row < f.row + entry.footprintH) {

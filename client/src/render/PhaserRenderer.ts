@@ -320,6 +320,9 @@ export class PhaserRenderer {
       img.setTexture(ftex.key, ftex.frame);
       img
         .setPosition(f.x, f.y)
+        // Always, not only when resized: these images are pooled, so a sprite that
+        // once drew a scaled placement would keep that scale for the next one.
+        .setDisplaySize(f.width, f.height)
         .setDepth(f.zY)
         .setFlipX(!!f.mirrored)
         .setFlipY(!!f.flippedVertically)
