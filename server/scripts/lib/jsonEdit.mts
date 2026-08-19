@@ -202,3 +202,90 @@ export function removeField(text: string, needle: string, key: string): string {
   const edited = block.slice(0, from) + block.slice(to);
   return text.slice(0, span.start) + edited + text.slice(span.end);
 }
+
+/**
+ * Rewrite every integer that appears as the value of `"<key>"` — either directly
+ * (`"gid":7382`) or as an element of its array (`"data":[7816, 7817, …]`) —
+ * leaving every other byte of the text exactly as it was.
+ *
+ * This is what a gid renumbering needs, and it is why it belongs here rather
+ * than in a re-serializer: a map's tileset table going stale changes thousands
+ * of numbers, but it must not change one space of Tiled's own layout. Only the
+ * digits move.
+ *
+ * Non-integer values under `key` are left alone rather than guessed at, and the
+ * number of integers actually changed comes back so a caller can assert it edited
+ * what it expected instead of silently editing nothing — which is exactly how the
+ * gid repair came to report a fix it had not made.
+ */
+export function mapNumbersUnderKey(
+  text: string,
+  key: string,
+  fn: (n: number) => number,
+): { text: string; changed: number } {
+  const want = `"${key}"`;
+  const pieces: string[] = [];
+  let copied = 0;
+  let changed = 0;
+  let inString = false;
+  const rewrite = (span: string) =>
+    span.replace(/-?\d+/g, (digits) => {
+      const next = fn(Number(digits));
+      if (!Number.isInteger(next)) throw new Error(`${key}: ${digits} → ${next} is not an integer`);
+      if (next !== Number(digits)) changed++;
+      return String(next);
+    });
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c !== '"') continue;
+    if (!text.startsWith(want, i)) {
+      inString = true;
+      continue;
+    }
+    let j = i + want.length;
+    while (j < text.length && /\s/.test(text[j])) j++;
+    if (text[j] !== ':') {
+      inString = true; // a VALUE that happens to read like the key
+      continue;
+    }
+    j++;
+    while (j < text.length && /\s/.test(text[j])) j++;
+    let end: number;
+    if (text[j] === '[' || text[j] === '{') {
+      end = endOfBlock(text, j);
+      if (text[j] === '{') {
+        i = end - 1; // an object under this key holds nothing of ours
+        continue;
+      }
+    } else if (text[j] === '"') {
+      // A string value — a base64-encoded layer, a name. Step over it whole, so
+      // its contents can never be rescanned as if they were structure.
+      let k = j + 1;
+      while (k < text.length) {
+        if (text[k] === '\\') k += 2;
+        else if (text[k] === '"') break;
+        else k++;
+      }
+      i = k;
+      continue;
+    } else {
+      end = j;
+      while (end < text.length && !/[,}\]\s]/.test(text[end])) end++;
+      if (!/^-?\d+$/.test(text.slice(j, end))) {
+        i = end - 1; // not a number: leave it, and do not rescan its bytes
+        continue;
+      }
+    }
+    pieces.push(text.slice(copied, j), rewrite(text.slice(j, end)));
+    copied = end;
+    i = end - 1;
+  }
+  pieces.push(text.slice(copied));
+  return { text: pieces.join(''), changed };
+}

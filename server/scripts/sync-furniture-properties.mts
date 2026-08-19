@@ -41,7 +41,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { removeField, removeObjectWithin, setStringField } from './lib/jsonEdit.mjs';
+import { mapNumbersUnderKey, removeField, removeObjectWithin, setStringField } from './lib/jsonEdit.mjs';
 import { DECAL_TILE_PROPS } from '../src/tiled/decalProps.js';
 import { isNoImportMap } from '../src/tiled/zoneImport.js';
 import { FURNITURE_TILE_PROPS } from '../src/tiled/furnitureProps.js';
@@ -251,11 +251,17 @@ function staleGidTable(
  * Renumber a stale map: the map's own table defines the OLD numbering (Tiled
  * wrote every gid against it), so a gid's local id is its offset from the
  * largest firstgid at or below it — no historical tile counts needed.
+ *
+ * Repairs the parsed model and hands back the mapping it used, because the FILE
+ * is written separately, through jsonEdit — see the caller. The same function
+ * serves all three places a number needs moving: a tile layer's `data`, an
+ * object's `gid`, and a tileset's own `firstgid` (an old firstgid maps to its
+ * own new one, since the largest `from` at or below it is its own).
  */
 function repairGidTable(
   json: { tilesets?: Array<{ firstgid: number; source?: string }>; layers?: Array<Record<string, unknown>> },
   fixed: Array<{ source: string; from: number; to: number }>,
-): number {
+): { renumbered: number; remap: (gid: number) => number } {
   // `>>> 0` on every step, and it is not decoration: JS bitwise operators work on
   // SIGNED 32-bit values, and a flipped tile object has the top bit set
   // (0x80000000). Without the coercion, `flags | base` came back negative, so
@@ -289,7 +295,25 @@ function repairGidTable(
   const to = new Map(fixed.map((f) => [f.source, f.to]));
   for (const ts of json.tilesets ?? []) ts.firstgid = to.get(path.basename(String(ts.source ?? ''))) ?? ts.firstgid;
   json.tilesets?.sort((a, b) => a.firstgid - b.firstgid);
-  return n;
+  return { renumbered: n, remap };
+}
+
+/** Every gid-bearing number in a parsed map, in a fixed order — the tileset
+ *  table, then each tile layer's cells, then each object's gid. Used to prove
+ *  the text that gets written says exactly what the repaired model says. */
+function gidFacts(json: {
+  tilesets?: Array<{ firstgid: number; source?: string }>;
+  layers?: Array<Record<string, unknown>>;
+}): string {
+  const parts: string[] = [];
+  for (const ts of json.tilesets ?? []) parts.push(`${path.basename(String(ts.source ?? ''))}=${ts.firstgid}`);
+  for (const layer of json.layers ?? []) {
+    if (Array.isArray(layer.data)) parts.push((layer.data as number[]).join(','));
+    for (const obj of (layer.objects as Array<{ id: number; gid?: number }>) ?? []) {
+      if (obj.gid) parts.push(`${obj.id}:${obj.gid}`);
+    }
+  }
+  return parts.join('|');
 }
 
 /**
@@ -371,14 +395,16 @@ function syncZones(): string[] {
       layers?: Array<{ objects?: Array<{ id: number; type?: string; gid?: number; properties?: TiledProperty[] }> }>;
     };
     let dirty = false;
+    let regid: ((gid: number) => number) | null = null;
     const stale = staleGidTable(json.tilesets ?? [], counts);
     if (stale) {
       if (FIX_GIDS) {
-        const n = repairGidTable(json, stale);
+        const { renumbered, remap } = repairGidTable(json, stale);
+        regid = remap;
         for (const f of stale.filter((x) => x.from !== x.to)) {
           changes.push(`${file}: ${f.source} firstgid ${f.from} → ${f.to}`);
         }
-        changes.push(`${file}: ${n} gid(s) renumbered`);
+        changes.push(`${file}: ${renumbered} gid(s) renumbered`);
         dirty = true;
       } else {
         const worst = stale.filter((f) => f.from !== f.to);
@@ -398,6 +424,19 @@ function syncZones(): string[] {
     // A map whose formatting flip-flops between contributors cannot be reviewed and
     // cannot be merged.
     let raw = fs.readFileSync(full, 'utf-8');
+    // The renumbering, into the TEXT. It used to stop at the parsed model, which
+    // is never written back — so --fix-gids reported a repair it had not made and
+    // the map stayed stale through a clean-looking run. Only the digits move:
+    // three keys carry a gid, and nothing else in the file changes.
+    if (regid && !CHECK_ONLY) {
+      let moved = 0;
+      for (const key of ['firstgid', 'data', 'gid']) {
+        const edit = mapNumbersUnderKey(raw, key, regid);
+        raw = edit.text;
+        moved += edit.changed;
+      }
+      if (moved === 0) throw new Error(`${file}: nothing to renumber in the text — refusing to claim a repair`);
+    }
     for (const layer of json.layers ?? []) {
       for (const obj of layer.objects ?? []) {
         // A placement dragged or pasted straight from Tiled's Tilesets panel
@@ -448,6 +487,11 @@ function syncZones(): string[] {
       const objectCount = (o: { layers?: Array<{ objects?: unknown[] }> }) =>
         (o.layers ?? []).reduce((n, l) => n + (l.objects?.length ?? 0), 0);
       if (objectCount(check) !== objectCount(json)) throw new Error(`${file}: edit changed the object count — refusing to write`);
+      // And every gid in it must be the one the repair decided on. A renumbering
+      // that is right in the model and wrong in the file is the failure this
+      // whole path exists to prevent, so it is checked rather than trusted.
+      if (regid && gidFacts(check as Parameters<typeof gidFacts>[0]) !== gidFacts(json))
+        throw new Error(`${file}: renumbered text does not match the repaired map — refusing to write`);
       fs.writeFileSync(full, raw);
     }
   }
