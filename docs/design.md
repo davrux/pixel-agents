@@ -249,7 +249,12 @@ in meeting areas, which a mapper places.
 **Mumble** (desktop only) is a real Mumble client speaking the protocol from the
 Electron main process — a browser cannot open the raw TLS socket. It connects
 straight from the user's machine; the pixel-agents server never relays it and
-holds none of its credentials.
+holds none of its credentials. Its *lifetime* is independent too: the world
+reloads the page whenever its server restarts, and a call must not be collateral
+damage of that, so main keeps the socket across the navigation and the returning
+renderer is replayed the roster it missed (`mumble/service.ts`). Audio pauses for
+the moment the page is gone — capture and playback are the renderer's half — but
+nobody in the channel sees a leave and a rejoin.
 
 **Matrix** is the chat client, including E2EE. It talks to its own homeserver
 directly, on the same footing as Mumble: started before the pixel-agents
