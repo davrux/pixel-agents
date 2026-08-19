@@ -6,7 +6,7 @@
 import { strict as assert } from 'node:assert';
 import test from 'node:test';
 
-import { removeField, removeObjectContaining, removeObjectWithin, setStringField } from '../../scripts/lib/jsonEdit.mjs';
+import { mapNumbersUnderKey, removeField, removeObjectContaining, removeObjectWithin, setStringField } from '../../scripts/lib/jsonEdit.mjs';
 
 /** Tiled's own compact style, indentation and all. */
 const TILED_STYLE = `{ "compressionlevel":-1,
@@ -106,4 +106,68 @@ test('a placement that loses its last property loses the empty array too', () =>
   assert.equal(obj.type, 'FurnitureObject', 'its siblings survive');
   assert.equal(obj.id, 7);
   assert.ok(!out.includes(',,') && !out.includes('{,') && !out.includes(',}'), 'no dangling commas');
+});
+
+/**
+ * The gid renumbering. Every number moves, no byte of Tiled's layout does — and
+ * the count comes back, because --fix-gids once reported a repair it had made
+ * only in the parsed model and never wrote.
+ */
+const TILED_LAYERS = `{ "layers":[
+        {
+         "class":"GroundLayer",
+         "data":[7816, 7817, 0,
+            7818, 7819, 7820],
+         "name":"Ground"
+        }, 
+        {
+         "objects":[
+                {
+                 "gid":2147490771,
+                 "id":430,
+                 "name":"data"
+                }],
+         "type":"objectgroup"
+        }],
+ "tilesets":[
+        {
+         "firstgid":7381,
+         "source":"..\\/furniture-misc.tsj"
+        }]
+}`;
+
+test('renumbering moves the digits and nothing else', () => {
+  const shift = (n: number) => (n ? n + 1 : 0);
+  let out = TILED_LAYERS;
+  let moved = 0;
+  for (const key of ['firstgid', 'data', 'gid']) {
+    const edit = mapNumbersUnderKey(out, key, shift);
+    out = edit.text;
+    moved += edit.changed;
+  }
+  // 6 ground cells minus the empty one, plus the object gid, plus the firstgid.
+  assert.equal(moved, 7);
+  assert.equal(out.split('\n').length, TILED_LAYERS.split('\n').length, 'no line added or removed');
+  assert.equal(
+    out.replace(/[0-9]/g, ''),
+    TILED_LAYERS.replace(/[0-9]/g, ''),
+    'every non-digit byte is untouched',
+  );
+  const parsed = JSON.parse(out) as {
+    layers: Array<{ data?: number[]; objects?: Array<{ gid: number; name: string }> }>;
+    tilesets: Array<{ firstgid: number }>;
+  };
+  assert.deepEqual(parsed.layers[0].data, [7817, 7818, 0, 7819, 7820, 7821]);
+  // A flipped placement keeps its flag bits: 0x80000000 | 7382, not a negative.
+  assert.equal(parsed.layers[1].objects?.[0].gid, 2147490772);
+  assert.equal(parsed.tilesets[0].firstgid, 7382);
+});
+
+test('a string that reads like the key is left alone', () => {
+  // The object's own "name":"data" must not be mistaken for a data array, and
+  // "firstgid" must not be mistaken for "gid".
+  const { text, changed } = mapNumbersUnderKey(TILED_LAYERS, 'gid', (n) => n + 1);
+  assert.equal(changed, 1, 'only the object gid — not the firstgid, not the cells');
+  assert.match(text, /"name":"data"/);
+  assert.match(text, /"firstgid":7381/);
 });
