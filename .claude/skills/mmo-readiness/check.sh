@@ -6,9 +6,20 @@ set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
 STATIC_ONLY=0
-[[ "${1:-}" == "--static" ]] && STATIC_ONLY=1
+SELFTEST_ONLY=0
+case "${1:-}" in
+  --static) STATIC_ONLY=1 ;;
+  # Does the security section still catch anything? Punches a hole into the real
+  # source per rule and requires a FAIL — see selftest.mjs.
+  --selftest) SELFTEST_ONLY=1 ;;
+esac
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fail=0
+if [[ $SELFTEST_ONLY -eq 1 ]]; then
+  printf '\n\033[1mSecurity check self-test\033[0m\n'
+  node "$HERE/selftest.mjs"; exit $?
+fi
 pass()  { printf '  \033[32m✓ PASS\033[0m  %s\n' "$1"; }
 bad()   { printf '  \033[31m✗ FAIL\033[0m  %s\n' "$1"; fail=1; }
 warn()  { printf '  \033[33m! WARN\033[0m  %s\n' "$1"; }
@@ -59,7 +70,10 @@ fi
 
 # 4 — Every client message has a server-side handler (validation is manual) ---
 head "4. Server authority over client input"
-handlers=$(grep -rhoE "onMessage\(\s*['\"][^'\"]+['\"]" server/src 2>/dev/null | sed -E "s/.*['\"]([^'\"]+)['\"]/\1/" | sort -u)
+# Same parser as the security section (5b): a grep that wants the name on the same
+# line as onMessage( misses a registration written across lines — which is exactly
+# what hid 'meetingRoomCreate' and 'meetingRoomToken' from this list.
+handlers=$(node "$HERE/security.mjs" --list-handlers 2>/dev/null)
 if [[ -n "$handlers" ]]; then
   pass "onMessage handlers found ($(echo "$handlers" | wc -l | tr -d ' ') types)"
   man "confirm each validates identity/length/format/bounds before mutating state:"
@@ -85,20 +99,16 @@ man "new travel = placed 'portal' furniture + a ZONES entry, not a hard-coded ju
 man "no module-global mutable game state outside a room (keep rooms shared-nothing)"
 man "client works in BOTH Chrome and Firefox (esp. media: setSinkId on elements, not AudioContext; no single-browser-only API without graceful fallback)"
 
-# 5b — Security / authorization (AGENTS.md rule #9) --------------------------
-head "5b. Security & authorization"
-if [[ -f server/src/permissions.ts ]] && grep -rq "\.may(" server/src/rooms 2>/dev/null; then
-  pass "central permission policy present (permissions.ts + may() in rooms)"
+# 5b — Security: no unauthorized access to a resource (AGENTS.md § Security) ---
+# Not a reading list: security.mjs checks the gates in the code that serves each
+# surface — HTTP routes, room messages, voice tokens, chat, secrets — and fails on
+# a surface that is neither gated nor on an explicit, reasoned allow-list. Its own
+# rules are self-tested (--selftest).
+if [[ -f "$HERE/security.mjs" ]]; then
+  node "$HERE/security.mjs" || fail=1
 else
-  warn "permissions.ts / may() not found — admin & world actions must be gated centrally"
+  bad "security.mjs missing — the security section cannot run"
 fi
-# Heuristic: settings/prefs writes should be per-user, not a global setSetting from a handler.
-if grep -rnE "onMessage\([^)]*set(Sound|AlwaysShowLabels|AlertVolume)" server/src 2>/dev/null | grep -q "_c"; then
-  bad "viewer-settings handlers ignore the client — personal prefs must be keyed by the authed userId, not global"
-fi
-man "every state-mutating onMessage authorizes: personal data keyed by authOf(client).userId (never a client-supplied id/name); shared/admin actions via may(client, capability)"
-man "secrets stay server-side: LiveKit key/secret, admin token, password hashes never sent to the client; a user only ever gets its OWN agent token"
-man "a new message/command decides its capability/ownership in the same change and defaults to deny; client-side hiding is UX only"
 
 # 6 — Build & typecheck ------------------------------------------------------
 if [[ $STATIC_ONLY -eq 0 ]]; then

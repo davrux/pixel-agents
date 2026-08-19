@@ -174,8 +174,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  "furniture:col,row" or "tile:col,row" key (disambiguates a furniture
    *  item's own anchor tile from a tile-action area's flood-fill anchor, in
    *  case they ever coincide — see meetingRoomKey) → set of player avatar
-   *  ids. Furniture-sourced membership is explicit (click join/leave, via
-   *  actionApproach/meetingRoomLeave); tile-sourced membership is automatic
+   *  ids. Furniture-sourced membership is granted on ARRIVAL — the avatar has
+   *  to walk to the item (actionApproach -> handleActionArrivals) and leaves
+   *  with meetingRoomLeave. Being there is the gate, and it is the only way in:
+   *  a 'meetingRoomJoin' message used to add membership from any distance,
+   *  which let an account be in a call it was not standing at; nothing sent it
+   *  and it is gone. Tile-sourced membership is automatic
    *  (walk in/out), maintained every tick by updateMeetingRoomMembership,
    *  called from syncCharacters. */
   private readonly meetingRooms = new Map<string, Set<number>>();
@@ -968,21 +972,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Direct meeting-room join (no walking) — for non-spatial clients. Adds
     // the player to the furniture item's membership so meetingRoomToken
     // below admits them.
-    this.onMessage('meetingRoomJoin', (client, msg: { col?: number; row?: number }) => {
-      const id = this.players.get(client.sessionId);
-      if (id === undefined) return;
-      const col = Math.floor(Number(msg?.col));
-      const row = Math.floor(Number(msg?.row));
-      if (!Number.isInteger(col) || !Number.isInteger(row)) return;
-      const action = this.actionAt(col, row);
-      if (action?.kind !== 'meetingRoom') return;
-      const key = this.meetingRoomKey('furniture', col, row);
-      let set = this.meetingRooms.get(key);
-      if (!set) this.meetingRooms.set(key, (set = new Set<number>()));
-      set.add(id);
-      this.broadcast('m', this.meetingRoomMembersMsg(key));
-    });
-
     this.onMessage('meetingRoomLeave', (client, msg: { col?: number; row?: number }) => {
       const id = this.players.get(client.sessionId);
       if (id === undefined) return;

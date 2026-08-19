@@ -97,6 +97,17 @@ Security is a first-class requirement, not a later pass.
 - **Serve over TLS in production.** The session cookie and the desktop bearer
   token are capabilities; media needs a secure context anyway. Plain HTTP is for
   development only.
+- **This section is verified, not trusted.** `mmo-readiness`'s security check
+  (`.claude/skills/mmo-readiness/security.mjs`) fails a route that neither
+  authorizes itself nor stands on an allow-list with a written reason, a message
+  handler that keys off a payload id, a message type nobody sends (dead surface —
+  that is how `meetingRoomJoin` kept granting call membership from any distance
+  long after anything sent it), a voice token minted for a non-member, an
+  unattributed or unbounded chat line, and a secret in anything sent to a client.
+  Its own rules are self-tested (`check.sh --selftest`) because a grep that stops
+  matching keeps printing PASS. So: **a change that adds a surface adds its gate
+  and, if the surface is new in kind, its rule plus that rule's self-test case** —
+  and an allow-list entry always carries the reason it is safe.
 
 ## Conventions
 
@@ -385,8 +396,11 @@ background only.)
 
 - **Run the `mmo-readiness` skill** (`.claude/skills/mmo-readiness/`): typecheck +
   build, no behaviour-tree or server-only code in `client/dist`, no second game
-  engine, every `onMessage` handler guarded, and the entity/zone/portal
-  invariants. Treat its failures as blockers.
+  engine, every `onMessage` handler guarded, the entity/zone/portal invariants —
+  and the **security section**, which checks the gates rather than listing them:
+  every HTTP route gated or explicitly public, no handler acting on a
+  payload-supplied identity, meeting tokens only for members, chat attributed and
+  bounded, no secret in a client payload. Treat its failures as blockers.
 - `pnpm -r run check-types` and `pnpm build` must be clean.
 - If you touched furniture properties:
   `scripts/sync-furniture-properties.sh --check` must report zero changes. It edits a
