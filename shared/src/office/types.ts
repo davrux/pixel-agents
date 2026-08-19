@@ -69,7 +69,7 @@ export type Direction = (typeof Direction)[keyof typeof Direction];
 /** 2D array of hex color strings: '' = transparent, '#RRGGBB' = opaque, '#RRGGBBAA' = semi-transparent. [row][col] */
 export type SpriteData = string[][];
 
-export type Posture = 'sit' | 'stand';
+type Posture = 'sit' | 'stand';
 
 /**
  * A place a character can occupy and do something at: a chair to sit on, or the

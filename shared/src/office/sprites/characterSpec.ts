@@ -83,7 +83,7 @@ export interface NpcConfig {
 /** Per-NPC behaviour switches. All default true; the engine kind-gates them
  *  (only dogs chase, only cats flee), so a flag that doesn't apply to a kind is
  *  simply inert. The editor shows only the kind-relevant switches. */
-export interface NpcBehaviors {
+interface NpcBehaviors {
   /** May rest (sit) at a seat / desk. */
   rest: boolean;
   /** Dogs: chase a nearby cat (shoo-cat). */
@@ -96,7 +96,7 @@ export interface NpcBehaviors {
   talk: boolean;
 }
 
-export const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = {
+const DEFAULT_NPC_BEHAVIORS: NpcBehaviors = {
   rest: true,
   chaseCats: true,
   fleeDogs: true,
