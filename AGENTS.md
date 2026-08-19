@@ -317,9 +317,9 @@ background only.)
   process-wide). A task added there must honour the contract in that file's header:
   two independent sources of evidence, a refusal when the evidence looks broken (an
   unreadable tileset registry makes every row look unused — that is a deployment to
-  fix, not a licence to delete), a grace period so recent work is never touched, a
-  `VACUUM INTO` backup before destroying anything, and it may never keep the server
-  from starting. The guards live in pure functions and are tested; nothing here waits
+  fix, not a licence to delete), a grace period so recent work is never touched, it may
+  destroy only what nothing can reach (no tileset offers the id, no layout places it),
+  and it may never keep the server from starting. The guards live in pure functions and are tested; nothing here waits
   for a human to read a report, because nobody is watching a boot.
 - **A stored asset whose id no tileset carries is dead weight, and it travels.**
   Furniture used to be uploaded into the database as pixels; art then moved into Tiled
@@ -327,9 +327,12 @@ background only.)
   since a mapper only paints what a tileset offers. They are not inert: a row without
   a file has no image to point at, so it is sent as SpriteData in
   `furnitureAssetsLoaded` on every join. 695 of them were 1.33 MB of a 1.79 MB
-  message. `scripts/prune-orphan-assets.sh` reports them and, with `--apply`, deletes
-  them after a `VACUUM INTO` backup — never an id that is placed in any zone or map,
-  which it reports instead. Run it on a deployment too; the ids differ per database.
+  message. The boot prunes them (see the housekeeping bullet above);
+  `scripts/prune-orphan-assets.sh` is how you LOOK — what would go, what the grace
+  period holds back, and which PLACED assets no tileset offers any more, the one case
+  nothing can repair automatically. `--apply` deletes without waiting for the grace
+  period, for when you are reading the list yourself. Both paths share one decision
+  function, so they cannot drift. A deployment prunes itself at its next boot.
 - **One database.** All state lives in `pixel.db` through the shared `db.ts`
   connection.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable

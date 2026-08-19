@@ -13,10 +13,7 @@
  * is testable without a database, and so the CLI and the startup task cannot drift
  * apart — both call it.
  */
-import * as fs from 'node:fs';
-
 import { db } from '../db.js';
-import { dataPath } from '../paths.js';
 import { loadTiledRegistry } from '../tiled/tiledRegistry.js';
 
 export interface StoredAsset {
@@ -107,20 +104,21 @@ export function inspectOrphanAssets(assetsRoot: string, type: string): AssetClas
 }
 
 /**
- * Delete the given rows, after a consistent database snapshot.
+ * Delete the given rows.
  *
- * `VACUUM INTO` rather than a file copy, for the same reason worldReset uses it: a
- * copy taken while the process is writing is not a database. No backup, no delete.
+ * No backup: these rows are unreferenced by construction — no tileset offers the id
+ * and no stored layout places it — so there is nothing here that a restore could give
+ * back that the tilesets cannot. The protection that matters is upstream, in
+ * decidePrune: a broken registry, a placed id or recent work each stop the delete
+ * before it starts. (A `VACUUM INTO` snapshot used to be taken here; it was 5.6 MB
+ * per boot that changed anything, guarding data nobody can reach.)
  */
-export function deleteAssets(type: string, names: string[]): { deleted: number; backup: string } {
-  if (names.length === 0) return { deleted: 0, backup: '' };
-  const backup = dataPath(`pixel.before-prune-${new Date().toISOString().replace(/[:.]/g, '-')}.db`);
-  db.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
-  if (!fs.existsSync(backup)) throw new Error(`backup was not written to ${backup} — refusing to delete`);
+export function deleteAssets(type: string, names: string[]): { deleted: number } {
+  if (names.length === 0) return { deleted: 0 };
   const stmt = db.prepare('DELETE FROM assets WHERE type = ? AND name = ?');
   let deleted = 0;
   for (const name of names) deleted += stmt.run(type, name).changes as number;
-  return { deleted, backup };
+  return { deleted };
 }
 
 export function totalBytes(rows: StoredAsset[]): number {

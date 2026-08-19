@@ -8,9 +8,8 @@
  * thing here nobody can fix automatically).
  *
  * `--apply` runs the same decision the boot takes, immediately and without waiting
- * for the grace period, for when you know exactly what you are removing. Both paths
- * go through the same pure decision and the same backup, so the command and the boot
- * cannot drift apart.
+ * for the grace period, for when you know exactly what you are removing. Both paths go
+ * through the same pure decision, so the command and the boot cannot drift apart.
  *
  * Run: scripts/prune-orphan-assets.sh [--apply] [--type furniture]
  */
@@ -59,7 +58,6 @@ if (!APPLY) {
   process.exit(0);
 }
 // By hand, the grace period is not the point — you are looking at the list.
-const { deleted, backup } = deleteAssets(TYPE, c.orphans.map((r) => r.name));
-console.log(`\nbackup: ${backup}`);
-console.log(`deleted ${deleted} row(s), ${mb(totalBytes(c.orphans))} of asset data`);
+const { deleted } = deleteAssets(TYPE, c.orphans.map((r) => r.name));
+console.log(`\ndeleted ${deleted} row(s), ${mb(totalBytes(c.orphans))} of asset data`);
 console.log('A running server keeps serving its cached bundle until it restarts.');
