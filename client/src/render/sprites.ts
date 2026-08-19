@@ -453,48 +453,78 @@ export function setSpriteRefs(
   for (const [id, r] of Object.entries(table ?? {})) refs.set(id, r);
 }
 
-/** The frame for a ref, fetching its image on first use. Returns null until the
- *  image is there, so the caller falls back to whatever it has meanwhile — one or
- *  two frames of the runtime-packed sprite, or nothing at all. */
+/**
+ * Fetch a ref image and register it as one texture, once.
+ *
+ * Returns the texture key, or null if it could not be had. Shared by the eager
+ * prefetch the loading phase does (prefetchRefImages) and the lazy fetch a later
+ * catalog change still needs — a tileset saved in Tiled can introduce art nobody has
+ * fetched yet, and that path must keep working.
+ */
+async function loadRefImage(scene: Phaser.Scene, img: string): Promise<string | null> {
+  const attempts = refAttempts.get(img) ?? 0;
+  if (attempts >= MAX_REF_ATTEMPTS) return null;
+  refAttempts.set(img, attempts + 1);
+  refTextures.set(img, null);
+  try {
+    const res = await fetch(`${serverHttpOrigin()}/assets/tiled/${img}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const bitmap = await createImageBitmap(await res.blob());
+    const key = `ref_${img.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    if (!scene.textures.exists(key)) {
+      const tex = scene.textures.createCanvas(key, bitmap.width, bitmap.height);
+      if (!tex) throw new Error('no canvas texture');
+      const ctx = tex.getContext();
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(bitmap, 0, 0);
+      tex.refresh();
+    }
+    refTextures.set(img, key);
+    refImageListener?.();
+    return key;
+  } catch (err) {
+    // Deleted, not marked: the next draw may retry (up to MAX_REF_ATTEMPTS).
+    refTextures.delete(img);
+    const left = MAX_REF_ATTEMPTS - (refAttempts.get(img) ?? 0);
+    console.warn(
+      `[sprites] could not load ${img}: ${err instanceof Error ? err.message : err}` +
+        (left > 0 ? ` — ${left} attempt(s) left` : ' — giving up on it'),
+    );
+    // Nudge a redraw so the retry actually happens rather than waiting for the next
+    // unrelated repaint.
+    refImageListener?.();
+    return null;
+  }
+}
+
+/**
+ * Fetch every image the given ids draw from, before anything is drawn.
+ *
+ * This is what the loading phase uses (see scenes/OfficeScene.ts): with the art in
+ * hand, the first frame is the finished world instead of placeholders that get
+ * repainted a moment later. Only the images THESE ids need — a zone uses a handful of
+ * the catalog, so fetching all of them would trade one oversized message for a burst
+ * of requests nobody looks at.
+ */
+export async function prefetchRefImages(scene: Phaser.Scene, ids: Iterable<string>): Promise<{ images: number; failed: number }> {
+  const wanted = new Set<string>();
+  for (const id of ids) {
+    const ref = refs.get(id);
+    if (ref && refTextures.get(ref.img) === undefined) wanted.add(ref.img);
+  }
+  const results = await Promise.all([...wanted].map((img) => loadRefImage(scene, img)));
+  return { images: wanted.size, failed: results.filter((r) => r === null).length };
+}
+
+/** The frame for a ref, fetching its image on first use if the loading phase did not
+ *  already (a catalog that changed since — see loadRefImage). Returns null until the
+ *  image is there, so the caller falls back to whatever it has meanwhile. */
 function refFrame(scene: Phaser.Scene, id: string): SpriteTex | null {
   const ref = refs.get(id);
   if (!ref) return null;
   const known = refTextures.get(ref.img);
   if (known === undefined) {
-    const attempts = refAttempts.get(ref.img) ?? 0;
-    if (attempts >= MAX_REF_ATTEMPTS) return null;
-    refAttempts.set(ref.img, attempts + 1);
-    refTextures.set(ref.img, null);
-    void (async () => {
-      try {
-        const url = `${serverHttpOrigin()}/assets/tiled/${ref.img}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const bitmap = await createImageBitmap(await res.blob());
-        const key = `ref_${ref.img.replace(/[^a-zA-Z0-9]/g, '_')}`;
-        if (!scene.textures.exists(key)) {
-          const tex = scene.textures.createCanvas(key, bitmap.width, bitmap.height);
-          if (!tex) throw new Error('no canvas texture');
-          const ctx = tex.getContext();
-          ctx.imageSmoothingEnabled = false;
-          ctx.drawImage(bitmap, 0, 0);
-          tex.refresh();
-        }
-        refTextures.set(ref.img, key);
-        refImageListener?.();
-      } catch (err) {
-        // Deleted, not marked: the next draw may retry (up to MAX_REF_ATTEMPTS).
-        refTextures.delete(ref.img);
-        const left = MAX_REF_ATTEMPTS - (refAttempts.get(ref.img) ?? 0);
-        console.warn(
-          `[sprites] could not load ${ref.img}: ${err instanceof Error ? err.message : err}` +
-            (left > 0 ? ` — ${left} attempt(s) left` : ' — giving up on it'),
-        );
-        // Nudge a redraw so the retry actually happens rather than waiting for the
-        // next unrelated repaint.
-        refImageListener?.();
-      }
-    })();
+    void loadRefImage(scene, ref.img);
     return null;
   }
   if (known === null) return null;

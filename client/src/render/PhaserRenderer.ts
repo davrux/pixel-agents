@@ -257,6 +257,12 @@ export class PhaserRenderer {
         .setFlipY(!!pi.flippedVertically)
         .setAlpha(pi.opacity ?? 1);
       ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
+        // The decode finishes on a later tick, and buildStatic may have run again by
+        // then (a pushed map, a catalog reload) — which destroyed this image. Touching
+        // a destroyed GameObject throws inside Phaser ("this.scene is undefined"), and
+        // it did: the loading phase made the two buildStatic calls line up that way in
+        // Firefox. A destroyed object has no scene, which is the cheap way to ask.
+        if (!img.scene) return;
         img.setTexture(key).setDisplaySize(pi.width, pi.height);
       });
       this.images.push(img);
