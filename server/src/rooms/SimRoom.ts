@@ -70,6 +70,11 @@ const TICK_HZ = 20;
  *  showing its owner as hard at work. */
 const WORK_STATUS_TTL_MS = 5 * 60_000;
 
+/** How often a player's spot is written down (see checkpointSpots). Short enough
+ *  that a hard restart puts everyone back within a couple of steps of where they
+ *  were, long enough that walking around is not a stream of database writes. */
+const SPOT_CHECKPOINT_SEC = 5;
+
 /**
  * Authoritative office room: the original OfficeState simulation runs here, in
  * the server's tick loop. Claude ingest events mutate it; every tick we write
@@ -135,6 +140,11 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * empty chair.
    */
   private readonly workStatuses = new Map<number, { status: WorkStatus; at: number }>();
+  /** Seconds until the next player-spot checkpoint (see checkpointSpots). */
+  private spotCheckpointIn = SPOT_CHECKPOINT_SEC;
+  /** The spot last written per user, so a checkpoint only writes what changed —
+   *  a world full of people standing still costs nothing. */
+  private readonly savedSpots = new Map<string, string>();
   /** Arcade IPX-multiplayer lobby (drops leavers from matches on disconnect). */
   private arcadeLobby?: { onLeave: (sessionId: string) => void };
   /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
@@ -536,13 +546,19 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.broadcast('m', { type: 'playerAvatar', id: sid, data });
     }
     // Everyone who joins gets a player avatar. Active entry (menu switch or
-    // portal) → land at the zone's arrival tile; a plain refresh resumes where
-    // this user last stood (engine picks a free tile, else random).
-    const saved = userId ? appStore.getPlayerPos(userId, this.zone.id) : null;
-    const spawnAt = options?.arrive ? this.zone.arrive : (saved ?? undefined);
+    // portal) → land at the zone's arrival tile; a plain refresh (or a reconnect
+    // after the server restarted) resumes the spot this user left — tile, facing,
+    // and the chair or appliance they were holding. Entering a zone on purpose
+    // deliberately forgets it: you asked to arrive, not to come back.
+    const resume = !options?.arrive && userId ? appStore.getPlayerSpot(userId, this.zone.id) : null;
+    const spawnAt = options?.arrive ? this.zone.arrive : (resume ?? undefined);
     // The avatar's name is always the player's display name (username or userId).
     const displayName = username || userId || undefined;
     const playerId = this.os.addPlayer(playerSkin ?? undefined, displayName, spawnAt ?? undefined);
+    // Placement first, then the resume: addPlayer answers "where does somebody go
+    // when we have to choose" (never a furniture tile), which is not the same
+    // question as "where were they" — a chair IS a furniture tile. See resumePlayer.
+    if (resume) this.os.resumePlayer(playerId, resume);
     this.players.set(client.sessionId, playerId);
     // Announce a real user's arrival to everyone in the zone. Agents/NPCs are
     // engine entities, never Colyseus clients, so they never reach here. Deduped
@@ -579,9 +595,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     if (userId) presence.leave(userId);
     const playerId = this.players.get(client.sessionId);
     if (playerId !== undefined) {
-      // Persist the avatar's last tile (logged-in users respawn there next time).
-      const ch = this.os.getCharacter(playerId);
-      if (userId && ch) appStore.setPlayerPos(userId, this.zone.id, ch.tileCol, ch.tileRow);
+      // Persist the spot (logged-in users resume there next time). The periodic
+      // checkpoint already has a recent one; this is the exact final word for a
+      // leave we actually saw.
+      if (userId) this.saveSpot(userId, playerId);
       // Announce departure (before removePlayer so chatNameFor still resolves the
       // avatar name). Only for real users, and only when their last session in
       // this zone is leaving.
@@ -1760,6 +1777,44 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
+    this.checkpointSpots(dt);
+  }
+
+  /**
+   * Write every player's spot down every few seconds.
+   *
+   * `onLeave` is the exact record of a departure, but it only runs for departures
+   * this process lives to see. A restart (a deploy, a crash, a `kill -9`, a dev
+   * watcher) takes the whole world with it, and the position nobody had written
+   * yet was the one everybody came back to: the client reconnects by reloading
+   * (see OfficeScene.handleDisconnect), joins a fresh world with no stored spot,
+   * and gets a random free tile. So the truth is checkpointed while it is still
+   * true, and a restart costs at most the last few seconds of walking.
+   *
+   * Cheap by construction: one pass over the clients, and a write only for a
+   * player whose spot actually differs from the last one stored.
+   */
+  private checkpointSpots(dt: number): void {
+    this.spotCheckpointIn -= dt;
+    if (this.spotCheckpointIn > 0) return;
+    this.spotCheckpointIn = SPOT_CHECKPOINT_SEC;
+    for (const client of this.clients) {
+      const { userId } = authOf(client);
+      const playerId = this.players.get(client.sessionId);
+      if (userId && playerId !== undefined) this.saveSpot(userId, playerId);
+    }
+  }
+
+  /** Persist one player's spot for this zone, skipping a write when nothing has
+   *  changed since the last one. */
+  private saveSpot(userId: string, playerId: number): void {
+    const spot = this.os.playerSpot(playerId);
+    if (!spot) return;
+    const key = `${userId}|${this.zone.id}`;
+    const encoded = JSON.stringify(spot);
+    if (this.savedSpots.get(key) === encoded) return;
+    this.savedSpots.set(key, encoded);
+    appStore.setPlayerSpot(userId, this.zone.id, spot);
   }
 
   /** Players who reached a furniture action's stand tile this tick — add

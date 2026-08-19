@@ -87,6 +87,26 @@ server-side and synced; the renderer resolves frames through the single
 plus the frames — never a branch on tool names or state strings in the renderer,
 which is what the original had and what made every new behaviour a render change.
 
+### Coming back is not arriving
+
+The client reconnects by reloading the page, and a server restart takes the
+whole world with it, so a player passes through join far more often than they
+ever *travel*. Those are different questions and get different answers: entering a
+zone on purpose (the menu, a portal) lands you on its arrival tile, while a
+refresh or a reconnect resumes the `PlayerSpot` the server wrote down — tile,
+facing, the AFK marker, and the `InteractionPoint` you were holding, which is what
+puts you back in the same chair or back at the coffee machine with the cup still
+in the pose.
+
+Two things make it work in practice. The spot is **checkpointed every few
+seconds** rather than only on leave: a restart that nobody said goodbye to is
+exactly the case that matters, and the un-written position was the one everyone
+came back to. And the resume is allowed to override automatic placement —
+`findFreeSpawnTile` refuses furniture tiles and meeting areas because it *chooses*
+a tile on somebody's behalf, and a chair is a furniture tile. It is still not
+authority: the point is re-claimed through the same one-occupant rule as any other
+claim, so a seat somebody else took stays theirs and you simply stand.
+
 ## Zones and maps
 
 A zone is an explorable space, and each one is an instance of the *same* room

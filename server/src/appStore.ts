@@ -7,6 +7,8 @@
  */
 import * as crypto from 'node:crypto';
 
+import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
+
 import { db } from './db.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -230,27 +232,45 @@ class AppStore {
     return ns;
   }
 
-  // ── Per-user player position (per zone), to respawn where they left ──
+  // ── Per-user player spot (per zone), to resume where they left off ──
   /**
-   * Last player tile for a user in a zone, or null.
+   * Where a user last was in a zone and what they were doing, or null.
    *
-   * Validated rather than trusted: an entry of `{}` (which is what a write with
-   * undefined coordinates leaves behind, since JSON.stringify drops those keys)
-   * used to come back as a truthy "position" and then blow up the join. Anything
-   * that isn't a pair of integers counts as "no stored position" — you spawn at
-   * the zone's arrival point, which is exactly what a first-time visitor gets.
+   * Validated rather than trusted, field by field: an entry of `{}` (which is
+   * what a write with undefined coordinates leaves behind, since JSON.stringify
+   * drops those keys) used to come back as a truthy "position" and then blow up
+   * the join. Anything that isn't a pair of integers counts as "nothing stored" —
+   * you spawn at the zone's arrival point, exactly like a first-time visitor. The
+   * rest of the spot is optional and is dropped individually, so a stored blob
+   * from an older build (which held only `{col,row}`) still resumes the position
+   * it does have.
    */
-  getPlayerPos(name: string, zone: string): { col: number; row: number } | null {
-    const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
-    const pos = all[`${name}|${zone}`];
-    return pos && Number.isInteger(pos.col) && Number.isInteger(pos.row) ? pos : null;
+  getPlayerSpot(userId: string, zone: string): PlayerSpot | null {
+    const all = this.getSetting<Record<string, unknown>>('playerPos', {});
+    const raw = all[`${userId}|${zone}`];
+    if (!raw || typeof raw !== 'object') return null;
+    const { col, row, dir, pointId, sit, afk } = raw as Record<string, unknown>;
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
+    return {
+      col: col as number,
+      row: row as number,
+      dir: isDirection(dir) ? dir : Direction.DOWN,
+      // Bounded because it is looked up in the points map and would otherwise be
+      // an unbounded string from disk; a real point uid is a furniture uid plus a
+      // short suffix.
+      ...(typeof pointId === 'string' && pointId.length > 0 && pointId.length <= 128
+        ? { pointId }
+        : {}),
+      ...(sit === true ? { sit: true } : {}),
+      ...(afk === true ? { afk: true } : {}),
+    };
   }
   /** Remember where a player left off. A non-tile is not stored at all — writing
    *  it is what produced the `{}` entry above. */
-  setPlayerPos(name: string, zone: string, col: number, row: number): void {
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return;
-    const all = this.getSetting<Record<string, { col: number; row: number }>>('playerPos', {});
-    all[`${name}|${zone}`] = { col, row };
+  setPlayerSpot(userId: string, zone: string, spot: PlayerSpot): void {
+    if (!Number.isInteger(spot.col) || !Number.isInteger(spot.row)) return;
+    const all = this.getSetting<Record<string, PlayerSpot>>('playerPos', {});
+    all[`${userId}|${zone}`] = spot;
     this.setSetting('playerPos', all);
   }
 
@@ -275,6 +295,11 @@ class AppStore {
 }
 
 export const appStore = new AppStore();
+
+/** Whether a value off disk is one of the four Direction constants. */
+function isDirection(value: unknown): value is Direction {
+  return value === Direction.DOWN || value === Direction.LEFT || value === Direction.RIGHT || value === Direction.UP;
+}
 
 /** Migrate skin prefs to string ids: an old numeric palette index N → "char_N"
  *  (the index always named char_N); strings pass through; negatives/junk (the
