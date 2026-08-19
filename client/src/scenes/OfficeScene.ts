@@ -2738,7 +2738,8 @@ export class OfficeScene extends Phaser.Scene {
     } else {
       items = getNpcRoster().map((r) => ({
         id: `${r.kind}_${r.variant}`,
-        name: `${r.kind} ${r.variant}`,
+        // The pet's own display name (Emma, Loui, …); the slot id stays the key.
+        name: r.data.name || `${r.kind} ${r.variant}`,
         frame: r.data.down?.[1] ?? r.data.down?.[0],
         kind: 'npc' as const,
       }));
@@ -3521,7 +3522,7 @@ export class OfficeScene extends Phaser.Scene {
   private showZoneNpcEditor(id: string): void {
     const zone = this.zoneList.find((z) => z.id === id);
     if (!zone) return;
-    const roster = getNpcRoster().map((r) => ({ key: `${r.kind}_${r.variant}`, label: `${r.kind} ${r.variant}` }));
+    const roster = getNpcRoster().map((r) => ({ key: `${r.kind}_${r.variant}`, label: r.data.name || `${r.kind} ${r.variant}` }));
     const enabled = new Set(zone.npc == null ? roster.map((r) => r.key) : zone.npc);
 
     document.getElementById('pa-znpc')?.remove();

@@ -96,6 +96,28 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     if (ki !== null) place(ducks, ki, data);
   }
 
+  // Bundled pets carry a display name for the same reason bundled skins get
+  // `Skin N` above: no UI should ever have to show the technical slot id. The id
+  // stays `dog_0` — it is the asset key that saveAsset/deleteAsset and a zone's
+  // NPC selection are stored under — so this is a label, not a rename. An
+  // override that brings its own name keeps it (the NPC editor derives one from
+  // the slot only when the field is empty, so editing Emma's art keeps 'Emma').
+  const PET_NAMES: Record<string, string> = { dog_0: 'Emma', cat_0: 'Loui', cat_1: 'Daisy' };
+  const named = (kind: 'dog' | 'cat' | 'duck', arr: unknown[]): unknown[] =>
+    arr.map((data, i) => {
+      // A name that merely repeats the slot id carries no information: the NPC editor
+      // fills the mandatory name field from the slot when it is empty, so an override
+      // saved that way says `duck_0`. Treat it as absent — otherwise one old Save
+      // pins the technical id into every list forever.
+      const own = (data as { name?: string })?.name;
+      if (own && own !== `${kind}_${i}`) return data;
+      const fallback = `${kind[0].toUpperCase()}${kind.slice(1)} ${i + 1}`;
+      return { ...(data as object), name: PET_NAMES[`${kind}_${i}`] ?? fallback };
+    });
+  const namedDogs = named('dog', dogs);
+  const namedCats = named('cat', cats);
+  const namedDucks = named('duck', ducks);
+
   // Furniture (sprite and/or catalog entry, keyed by assetId). Catalog items in
   // the bundle use `id` (the buildDynamicCatalog input shape), so match on that.
   const furnitureSprites = { ...(raw.furnitureSprites as Record<string, unknown>) };
@@ -138,7 +160,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
         // (anything not in bundledIds is user-added and deletable).
         return { type: 'characterSpritesLoaded', characters, bundledIds };
       case 'petSpritesLoaded':
-        return { type: 'petSpritesLoaded', dogs, cats, ducks };
+        return { type: 'petSpritesLoaded', dogs: namedDogs, cats: namedCats, ducks: namedDucks };
       case 'furnitureAssetsLoaded':
         return {
           type: 'furnitureAssetsLoaded',
@@ -160,7 +182,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs, cats, ducks, furnitureCatalog, furnitureSprites, furnitureRefs, images },
+    raw: { ...raw, characters, dogs: namedDogs, cats: namedCats, ducks: namedDucks, furnitureCatalog, furnitureSprites, furnitureRefs, images },
   };
 }
 

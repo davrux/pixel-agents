@@ -1,7 +1,12 @@
 # Pet / NPC sprite sheets
 
 `cat_0.png`, `cat_1.png` — and identically `dog_*.png`, `duck_*.png`. One file is
-one NPC variant. `cat_0` is **Loui** (tuxedo), `cat_1` is **Daisy** (tabby); how
+one NPC variant. `dog_0` is **Emma** (beagle), `cat_0` is **Loui** (tuxedo), `cat_1`
+is **Daisy** (tabby) — the display names live in `PET_NAMES`
+(`server/src/assetOverrides.ts`), which fills them in the same place bundled skins
+get `Skin N`, so no UI shows the slot id. The **id stays `dog_0`**: it is the key
+`saveAsset`/`deleteAsset` and a zone's NPC selection are stored under, so a rename
+is a label change and never a file rename. How
 many variants load is capped by `CAT_COUNT` in
 `server/src/core/assets/constants.ts:28`, and loading stops at the first missing
 number, so variants must stay contiguous from `_0`.
@@ -85,6 +90,40 @@ frames for per variant — a sheet on disk simply never has them.
 Chasing and fleeing (dogs chase cats, cats flee dogs) are not poses: they are
 directed movement inside `wander`, so they animate as `walk`.
 
+## What Emma's sheet draws (`dog_0`)
+
+A tricolour beagle: tan head with a white blaze, dark saddle, white chest, legs and
+tail tip. Column by column, as the contract requires:
+
+| Col | Row 0 (down) | Row 1 (up) | Row 2 (right) |
+|-----|--------------|------------|---------------|
+| 0 | standing, front paws together | walking away | mid-stride, front leg forward |
+| 1 | standing — **the stand frame** | walking away | mid-stride, legs gathered |
+| 2 | standing, weight shifted | walking away | mid-stride, opposite legs |
+| 3 | sitting upright | sitting, seen from behind | sitting, facing right |
+| 4 | sitting, eyes closed | sitting, tail to the side | sitting, eyes closed |
+| 5 | standing | standing away | **standing** — not the `cat_1` gap |
+
+Row 2 mirrors safely: the saddle and the white legs are symmetric, and nothing on the
+flank marks one side.
+
+Emma was reduced from a 1774×887 source (`tmp/emma.png`, not committed — the same
+situation as the cats), one 16×16 frame per ~19×19 source pixels. Three things about
+that reduction are worth knowing before repeating it:
+
+- **The 6×3 grid cannot be assumed.** The longest dog is 326 px wide against a
+  295.67 px nominal cell, so slicing on the grid cuts one animal and glues part of it
+  onto its neighbour. The frames were taken as connected components instead — exactly
+  18, one per cell.
+- **One scale for all 18 frames**, as large as fits without any frame leaving its
+  cell. Per-frame fitting makes the dog change size when it turns.
+- **A median beats a mean, and the face needs a rule of its own.** At 19:1 a mean
+  turns everything to mush. Eyes, nose and outlines are all near-black (measured: 1st
+  luminance percentile 7 in the head, 22 in the legs), so darkness cannot separate
+  them — **density** can: an eye fills a whole source block, an outline is a thin
+  line. Ink wins the pixel at ≥30 % coverage; at 12 % the outlines bled and turned the
+  white chest and legs dark.
+
 ## What the cat sheets draw
 
 Both cats follow the contract above; described down each column:
@@ -118,6 +157,16 @@ drawn larger and scaled down — art composed at ~24–26 px loses an eye off ev
 front-facing face when it is reduced, and the loss is invisible until you compare
 frames side by side. For generating a sheet from photos of a real animal, see
 [PROMPT.md](PROMPT.md), which also lists how to verify one before committing it.
+
+**A saved override shadows the file.** An NPC edited in the in-game editor is stored
+in the database (`assets`, type `pet`, keyed `dog_0`) and `buildMerged`
+(`server/src/assetOverrides.ts`) puts that row in place of the whole bundled entry —
+art, spec and spawn config. So in any world where somebody once pressed Save on a
+variant, dropping a new PNG here changes **nothing** until that override is reset
+(NPC editor → Reset, i.e. `deleteAsset`), and the symptom is silent: the file is
+correct, the sheet decodes, and the old animal still walks around. Emma hit exactly
+this on the dev world. Note that a reset also drops that variant's spawn config back
+to the default (60–180 s, max 1) — re-set it in the editor if it was tuned.
 
 There is no bake step and no committed artifact: `loadPetSprites` (`server/src/assetLoader.ts:237`) reads these
 PNGs at startup and the frames are sent to clients as sprite data, so a change is
