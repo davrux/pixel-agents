@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Bring ONE picture in as ONE piece of furniture, resampled to this world's scale.
+#
+# For art that arrives as a single oversized image of a single object — a 1024px
+# render of a coffee machine — rather than as a pack. A pack is a sheet or a
+# collection and goes through scripts/import-sheet.sh or a gen-*.mts slicer; read
+# .claude/skills/tiled-asset-import for which of the three you have.
+#
+# Usage:
+#   scripts/import-furniture-image.sh <source.png> --id ID --set SET [options]
+#   scripts/import-furniture-image.sh --help        # every option
+#
+# The two decisions worth thinking about:
+#   --size WxH        how many TILES the thing is (16px each). Furniture footprint
+#                     is derived from the PNG's size, so this IS the object's
+#                     size in the world. 32x32 = 2x2 tiles = about as tall as a
+#                     character.
+#   --erase X,Y,W,H   source rectangles to blank first. A generator likes to add
+#                     detached decoration — steam, sparkles, a cast shadow — that
+#                     survives a 30:1 reduction as a few stray specks.
+#
+# Example — the espresso machine in furniture-kitchens, its two steam wisps cut
+# off above the machine's top surface:
+#   scripts/import-furniture-image.sh ~/Downloads/coffeemachine.png \
+#       --id ESPRESSO_MACHINE --set kitchens --size 32x32 \
+#       --erase 440,0,584,170 \
+#       --prop backgroundTiles=1 --prop actionKind=appliance --prop actionPose=coffee
+#
+# It only ever APPENDS to furniture-<SET>.tsj, and refuses an --id that exists:
+# ids are identity, and a renumbered tile is a placement that silently draws
+# nothing. Growing a tileset does move the one after it in a map's table, so
+# afterwards run:
+#   scripts/sync-furniture-properties.sh --check    # reports a stale gid table
+#   scripts/sync-furniture-properties.sh --fix-gids # repairs it
+# The furniture atlas needs nothing: the server re-bakes it when the art changed
+# (scripts/bake-atlas.sh --check is the CI question).
+#
+# Behaviour beyond --prop — sittable, what it turns into when switched on — is
+# set on the tile in Tiled afterwards. The source image stays out of the repo;
+# only the resampled PNG and the tileset entry are committed.
+set -e
+cd "$(dirname "$0")/../server"
+exec node --import tsx scripts/gen-furniture-from-image.mts "$@"

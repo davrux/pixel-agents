@@ -287,6 +287,35 @@ Native Tiled features do the rest: **tile animation** (right-click → Tile
 Animation Editor) for a flickering lamp or a spinning fan, and object **flip**
 for mirroring a placement.
 
+### Bringing in one picture as one piece of furniture
+
+Art of a single object usually arrives far too big — a 1024×1024 render of a
+coffee machine. Footprint comes from the PNG's size, so that would be a 16×16-tile
+object; somebody has to say how many **tiles** the thing is:
+
+```sh
+scripts/import-furniture-image.sh ~/Downloads/coffeemachine.png \
+    --id ESPRESSO_MACHINE --set kitchens --size 32x32 \
+    --erase 440,0,584,170 \
+    --prop backgroundTiles=1 --prop actionKind=appliance --prop actionPose=coffee
+```
+
+It resamples (area-averaged over premultiplied alpha, hard silhouette, small
+palette with the accents kept), lays the catalog's usual shadow row under it,
+writes `png/src/furniture/<set>/<ID>.png` and **appends** one tile to
+`furniture-<set>.tsj` with every property at its default. `--erase X,Y,W,H` blanks
+part of the source first — detached decoration like a floating steam wisp survives
+a 30:1 reduction only as specks. Set the rest of the behaviour on the tile in
+Tiled; `--help` lists every option.
+
+16px is one tile, so `--size 32x32` is a 2×2-tile object, about as tall as a
+character. Afterwards run `scripts/sync-furniture-properties.sh --check`: growing
+a tileset moves the next one in every map's own gid table, and `--fix-gids`
+repairs that (so does opening and saving the map in Tiled).
+
+For a whole art *pack* this is the wrong tool — that is a sheet or a collection,
+and `.claude/skills/tiled-asset-import/` covers which.
+
 ## Actions — what happens when you get there
 
 `actionKind` is a discriminated union: it decides which of the other `action*`
