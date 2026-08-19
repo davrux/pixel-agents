@@ -951,7 +951,6 @@ export class OfficeScene extends Phaser.Scene {
     rc.pose = cs.pose as Character['pose'];
     // rc.frame is not synced — the animation phase is timed locally (see update()).
     rc.skin = cs.skin as string;
-    rc.hueShift = cs.hueShift as number;
     rc.isActive = cs.isActive as boolean;
     rc.currentTool = (cs.reading as boolean) ? 'Read' : null;
     rc.bubbleType = ((cs.bubble as string) || null) as Character['bubbleType'];

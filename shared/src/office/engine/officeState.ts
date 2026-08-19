@@ -10,8 +10,6 @@ import {
   COFFEE_STAND_MAX_SEC,
   COFFEE_STAND_MIN_SEC,
   DISMISS_BUBBLE_FAST_FADE_SEC,
-  HUE_SHIFT_MIN_DEG,
-  HUE_SHIFT_RANGE_DEG,
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   PET_EFFECT_DURATION_SEC,
@@ -734,14 +732,19 @@ export class OfficeState {
   }
 
   /**
-   * Pick a diverse palette for a new agent based on currently active agents.
-   * First 6 agents each get a unique skin (random order). Beyond 6, skins
-   * repeat in balanced rounds with a random hue shift (≥45°).
+   * Pick a diverse skin for a new agent based on currently active agents: the
+   * least-used one, ties broken at random. As many agents as there are skins get
+   * a distinct look; beyond that skins simply repeat and two agents look alike.
+   *
+   * That repetition used to be papered over with a random hue rotation (≥45°),
+   * which cost a full recoloured copy of every frame per distinct hue — and only
+   * ever triggered once the skins ran out. Looking alike is accepted instead; the
+   * way to more variety is more art, not more copies.
    */
-  private pickDiverseSkin(): { skin: string; hueShift: number } {
+  private pickDiverseSkin(): string {
     // Count how many non-sub-agents use each loaded skin id.
     const ids = getSkinIds();
-    if (ids.length === 0) return { skin: firstSkinId(), hueShift: 0 };
+    if (ids.length === 0) return firstSkinId();
     const counts = new Map<string, number>(ids.map((id) => [id, 0]));
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
@@ -750,13 +753,7 @@ export class OfficeState {
     const minCount = Math.min(...counts.values());
     // Available = skins at the minimum count (least used).
     const available = ids.filter((id) => counts.get(id) === minCount);
-    const skin = available[Math.floor(Math.random() * available.length)];
-    // First round (minCount === 0): no hue shift. Subsequent rounds: random ≥45°.
-    let hueShift = 0;
-    if (minCount > 0) {
-      hueShift = HUE_SHIFT_MIN_DEG + Math.floor(Math.random() * HUE_SHIFT_RANGE_DEG);
-    }
-    return { skin, hueShift };
+    return available[Math.floor(Math.random() * available.length)];
   }
 
   /** After the skin roster changes, drop pinned skins that no longer exist and
@@ -776,9 +773,7 @@ export class OfficeState {
     }
     for (const ch of this.characters.values()) {
       if (ch.isSubagent || isPlayerAvatarSkin(ch.skin) || validIds.has(ch.skin)) continue;
-      const pick = this.pickDiverseSkin();
-      ch.skin = pick.skin;
-      ch.hueShift = pick.hueShift;
+      ch.skin = this.pickDiverseSkin();
     }
     return dropped;
   }
@@ -790,9 +785,7 @@ export class OfficeState {
     this.skinPrefs.delete(folderName);
     for (const ch of this.characters.values()) {
       if (!ch.isSubagent && ch.folderName === folderName) {
-        const pick = this.pickDiverseSkin();
-        ch.skin = pick.skin;
-        ch.hueShift = pick.hueShift;
+        ch.skin = this.pickDiverseSkin();
       }
     }
   }
@@ -804,7 +797,6 @@ export class OfficeState {
     for (const ch of this.characters.values()) {
       if (!ch.isSubagent && ch.folderName === folderName) {
         ch.skin = skin;
-        ch.hueShift = 0;
       }
     }
   }
@@ -812,28 +804,15 @@ export class OfficeState {
   addAgent(
     id: number,
     preferredSkin?: string,
-    preferredHueShift?: number,
     preferredSeatId?: string,
     skipSpawnEffect?: boolean,
     folderName?: string,
   ): void {
     if (this.characters.has(id)) return;
 
-    let skin: string;
-    let hueShift: number;
     const pref = folderName ? this.skinPrefs.get(folderName) : undefined;
-    if (preferredSkin !== undefined) {
-      skin = preferredSkin;
-      hueShift = preferredHueShift ?? 0;
-    } else if (pref !== undefined) {
-      // The viewer pinned a character for this user → always use it.
-      skin = pref;
-      hueShift = 0;
-    } else {
-      const pick = this.pickDiverseSkin();
-      skin = pick.skin;
-      hueShift = pick.hueShift;
-    }
+    // A pinned skin always wins (the viewer chose it for this user).
+    const skin = preferredSkin ?? pref ?? this.pickDiverseSkin();
 
     // Try the preferred point first, then any free one
     let pointId: string | null = null;
@@ -851,12 +830,12 @@ export class OfficeState {
     if (pointId) {
       const point = this.points.get(pointId)!;
       point.occupantId = id;
-      ch = createCharacter(id, skin, pointId, point, hueShift);
+      ch = createCharacter(id, skin, pointId, point);
     } else {
       // No seats — spawn at a random walkable tile (never inside a meeting area).
       const pool = this.spawnableTiles();
       const spawn = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
-      ch = createCharacter(id, skin, null, null, hueShift);
+      ch = createCharacter(id, skin, null, null);
       ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
       ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
       ch.tileCol = spawn.col;
@@ -903,17 +882,8 @@ export class OfficeState {
    *  FSM) at a free walkable tile. Returns its id. */
   addPlayer(preferredSkin?: string, name?: string, spawnAt?: { col: number; row: number }): number {
     const id = this.nextPlayerId++;
-    let skin: string;
-    let hueShift: number;
-    if (preferredSkin !== undefined) {
-      skin = preferredSkin;
-      hueShift = 0;
-    } else {
-      const pick = this.pickDiverseSkin();
-      skin = pick.skin;
-      hueShift = pick.hueShift;
-    }
-    const ch = createCharacter(id, skin, null, null, hueShift);
+    const skin = preferredSkin ?? this.pickDiverseSkin();
+    const ch = createCharacter(id, skin, null, null);
     ch.isPlayer = true;
     ch.heldDir = null;
     ch.isActive = false;
@@ -1055,15 +1025,6 @@ export class OfficeState {
     const free = spawnable.filter(isFree);
     const pool = free.length > 0 ? free : spawnable.length > 0 ? spawnable : this.walkableTiles;
     return pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : { col: 1, row: 1 };
-  }
-
-  /** Recolor a character (used to change a player's chosen avatar skin). */
-  setCharacterSkin(id: number, skin: string, hueShift = 0): void {
-    const ch = this.characters.get(id);
-    if (ch) {
-      ch.skin = skin;
-      ch.hueShift = hueShift;
-    }
   }
 
   /** Set a character's owner name (a player's display name; shown as its label). */
@@ -1629,7 +1590,6 @@ export class OfficeState {
     const id = this.nextSubagentId--;
     const parentCh = this.characters.get(parentAgentId);
     const skin = parentCh ? parentCh.skin : firstSkinId();
-    const hueShift = parentCh ? parentCh.hueShift : 0;
 
     // Find the closest walkable tile to the parent, avoiding tiles occupied by other characters
     const parentCol = parentCh ? parentCh.tileCol : 0;
@@ -1657,7 +1617,7 @@ export class OfficeState {
       spawn = closest;
     }
 
-    const ch = createCharacter(id, skin, null, null, hueShift);
+    const ch = createCharacter(id, skin, null, null);
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
     ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
     ch.tileCol = spawn.col;

@@ -1961,7 +1961,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       cs.pose = getCharacterPose(ch);
       // cs.frame intentionally not synced — animation phase is client-timed.
       cs.skin = ch.skin;
-      cs.hueShift = ch.hueShift;
       cs.isActive = ch.isActive;
       cs.reading = isReadingTool(ch.currentTool);
       cs.bubble = ch.bubbleType ?? '';

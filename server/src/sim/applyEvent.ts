@@ -22,7 +22,7 @@ export function applyEvent(os: OfficeState, ev: AgentEvent, activity: Map<number
   };
   switch (ev.t) {
     case 'created':
-      os.addAgent(ev.id, undefined, undefined, undefined, false, ev.label);
+      os.addAgent(ev.id, undefined, undefined, false, ev.label);
       break;
 
     case 'removed':

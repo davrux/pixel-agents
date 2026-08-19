@@ -38,7 +38,6 @@ export function createCharacter(
   skin: string,
   homePointId: string | null,
   home: InteractionPoint | null,
-  hueShift = 0,
 ): Character {
   const col = home ? home.col : 1;
   const row = home ? home.row : 1;
@@ -55,7 +54,6 @@ export function createCharacter(
     moveProgress: 0,
     currentTool: null,
     skin,
-    hueShift,
     frame: 0,
     frameTimer: 0,
     wanderTimer: 0,

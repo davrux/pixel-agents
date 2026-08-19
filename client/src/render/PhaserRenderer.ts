@@ -407,7 +407,7 @@ export class PhaserRenderer {
   }
 
   private drawCharacter(ch: Character, g: CharGObjects): void {
-    const sprites = getCharacterSprites(ch.skin, ch.hueShift);
+    const sprites = getCharacterSprites(ch.skin);
     const sd = getCharacterSprite(ch, sprites);
     // No art for this skin yet, or at all: the sheets arrive over their own channel,
     // and a viewer can also carry a skin id this build does not have. Skip the frame

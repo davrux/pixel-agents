@@ -1,6 +1,4 @@
-import type { ColorValue } from '../colorTypes.js';
 import { PALETTE_COUNT } from '../constants.js';
-import { adjustSprite } from '../colorize.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
 import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolveNpcConfig } from './characterSpec.js';
@@ -236,28 +234,6 @@ export function spriteForPose(
 
 const spriteCache = new Map<string, CharacterSprites>();
 
-/** Apply hue shift to every sprite in a CharacterSprites set */
-function hueShiftSprites(sprites: CharacterSprites, hueShift: number): CharacterSprites {
-  const color: ColorValue = { h: hueShift, s: 0, b: 0, c: 0 };
-  const shift = (s: SpriteData) => adjustSprite(s, color);
-  const shiftDirs = (rec: Record<Direction, SpriteData[]>): Record<Direction, SpriteData[]> => ({
-    [Dir.DOWN]: rec[Dir.DOWN].map(shift),
-    [Dir.UP]: rec[Dir.UP].map(shift),
-    [Dir.RIGHT]: rec[Dir.RIGHT].map(shift),
-    [Dir.LEFT]: rec[Dir.LEFT].map(shift),
-  });
-  const byTrack: Record<string, Record<Direction, SpriteData[]>> = {};
-  for (const [name, dirs] of Object.entries(sprites.byTrack)) byTrack[name] = shiftDirs(dirs);
-  return {
-    byTrack,
-    stand: {
-      [Dir.DOWN]: shift(sprites.stand[Dir.DOWN]),
-      [Dir.UP]: shift(sprites.stand[Dir.UP]),
-      [Dir.RIGHT]: shift(sprites.stand[Dir.RIGHT]),
-      [Dir.LEFT]: shift(sprites.stand[Dir.LEFT]),
-    },
-  };
-}
 
 /** Create a transparent placeholder sprite of given dimensions */
 function emptySprite(w: number, h: number): SpriteData {
@@ -381,8 +357,8 @@ function emptyCharacterSprites(w: number, h: number): CharacterSprites {
   return { byTrack: {}, stand: { [Dir.DOWN]: e, [Dir.UP]: e, [Dir.RIGHT]: e, [Dir.LEFT]: e } };
 }
 
-export function getCharacterSprites(skin: string, hueShift = 0): CharacterSprites {
-  const cacheKey = `${skin}:${hueShift}`;
+export function getCharacterSprites(skin: string): CharacterSprites {
+  const cacheKey = skin;
   const cached = spriteCache.get(cacheKey);
   if (cached) return cached;
 
@@ -390,7 +366,6 @@ export function getCharacterSprites(skin: string, hueShift = 0): CharacterSprite
   const data = resolveCharData(skin);
   if (data) {
     sprites = buildCharacterSprites(data);
-    if (hueShift !== 0) sprites = hueShiftSprites(sprites, hueShift);
   } else {
     sprites = emptyCharacterSprites(16, 32);
   }

@@ -27,7 +27,6 @@ export class CharacterSync extends EntitySync {
   @type('string') pose = 'idle';
   /** Stable skin id (e.g. char_3) — which character template this avatar uses. */
   @type('string') skin = 'char_0';
-  @type('number') hueShift = 0;
   @type('boolean') isActive = false;
   /** Current tool is a reading tool → reading vs typing animation. */
   @type('boolean') reading = false;
