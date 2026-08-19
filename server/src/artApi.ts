@@ -44,7 +44,7 @@ import {
   PET_FRAME_W,
 } from './core/assets/constants.js';
 import { encodeDirectionalSheet } from './core/assets/pngEncoder.js';
-import { packedPng } from './art/artStore.js';
+import { packedPng, rowsPresent } from './art/artStore.js';
 import { artHash } from './art/artUrl.js';
 import { PLAYER_AVATAR_SKIN_PREFIX } from '@pixel/shared';
 
@@ -71,7 +71,7 @@ function petSource(id: string): ArtSource | null {
   if (!entry) return null;
   return {
     sprites: entry as unknown as Record<string, string[][][]>,
-    dirs: PET_DIRECTIONS,
+    dirs: rowsPresent(entry as unknown as Record<string, unknown>, PET_DIRECTIONS),
     frameW: entry.spec?.frame?.w ?? PET_FRAME_W,
     frameH: entry.spec?.frame?.h ?? PET_FRAME_H,
     cols: PET_FRAMES_PER_ROW,
@@ -99,14 +99,11 @@ function characterSource(id: string): ArtSource | null {
   }
   if (!data || !Array.isArray(data.down)) return null;
   const frame = (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
-  // A fourth row only when the art actually has one. Nothing stored today does — left
-  // is mirrored from right at runtime — but writing three rows unconditionally would
-  // silently drop a hand-drawn left row if the editor ever saves one, and the client
-  // takes its row count from the image height, so carrying it costs nothing.
-  const left = Array.isArray(data.left) && data.left.length > 0;
   return {
     sprites: data as unknown as Record<string, string[][][]>,
-    dirs: left ? [...CHARACTER_DIRECTIONS, 'left'] : CHARACTER_DIRECTIONS,
+    // Exactly the rows the art has — an empty row would draw an invisible character in
+    // that direction (see rowsPresent).
+    dirs: rowsPresent(data, CHARACTER_DIRECTIONS),
     frameW: frame?.w ?? CHAR_FRAME_W,
     frameH: frame?.h ?? CHAR_FRAME_H,
   };

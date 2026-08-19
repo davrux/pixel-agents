@@ -123,7 +123,8 @@ Security is a first-class requirement, not a later pass.
   `useDefineForClassFields: false`, and `tsconfig` maps `@pixel/shared/office/*`
   to source so tsx applies decorators correctly. Don't "fix" these into a bundle.
 - **Sprites are data:** `SpriteData = string[][]` of hex colours (`''` =
-  transparent). Character sheets default to 16×32, 3 direction rows, 7 frames/row,
+  transparent). Character sheets default to 16×32, 4 direction rows (down, up,
+  right, left), 7 frames/row,
   but frame size is per-character (≤64×64) and per-pose frame counts are
   **track-driven** via `CharacterSpec` (`sprites/characterSpec.ts`). Adding a pose
   means a new `CharacterPose` + a `spriteForPose` branch + a track name.
@@ -153,6 +154,16 @@ Security is a first-class requirement, not a later pass.
   art; and the URL-building half stays free of bundle lookups
   (`server/src/art/artUrl.ts`) — asking `getMergedBundle()` from inside the bundle
   build recurses into a stack overflow on the first join.
+  **A sheet carries all four sides.** `left` used to be mirrored from `right` on every
+  load, which is the one direction the engine invented — and only correct for symmetric
+  art (a bag on one shoulder, a dog's saddle). It is a row now: the bundled sheets were
+  converted once (`scripts/add-left-row.sh`, idempotent), stored rows by a one-time boot
+  migration (`art/migrateLeftRow.ts`, remembered in `_migrations`), and the editor fills
+  it from a mirrored right on **save and export** so three-row data cannot be written
+  again. Two rules that keep it from rotting: a sheet's rows are the longest PRESENT
+  prefix of (down, up, right, left) — `rowsPresent`, because an EMPTY row draws an
+  invisible character in that direction, which is worse than no row — and the only place
+  that still mirrors is the sprite store's door (`withLeftRow`), never the drawing path.
   **The database holds the same PNG**, not pixels: `appStore` packs character-shaped
   rows on write and unpacks them on read (`art/artStore.ts`), so every caller still
   deals in SpriteData and nothing else in the server learned about images. Saves are

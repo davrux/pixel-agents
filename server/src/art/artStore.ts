@@ -56,14 +56,30 @@ interface PackedRow {
 const isPacked = (row: unknown): row is PackedRow =>
   !!row && typeof row === 'object' && typeof (row as PackedRow).png === 'string';
 
+/**
+ * The rows this art actually has, as the LONGEST PREFIX of the row order that is
+ * present. Not a filter: rows are positional, so skipping a missing middle row would
+ * shift every row after it and the art would read back as another direction.
+ *
+ * Writing a row that is not there is just as wrong in the other direction — an empty
+ * fourth row is a character that is invisible when facing left, which is worse than one
+ * with no left row at all (the store's door mirrors that case, see withLeftRow).
+ */
+export function rowsPresent(data: Record<string, unknown>, order: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const d of order) {
+    const frames = data[d];
+    if (!Array.isArray(frames) || frames.length === 0) break;
+    out.push(d);
+  }
+  return out.length > 0 ? out : [order[0]];
+}
+
 /** Frame size and row order for a type, when the art itself does not say. */
 function geometry(type: PackedArtType, data: Record<string, unknown>): { w: number; h: number; dirs: string[] } {
   const frame = (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
   const pet = type === 'pet';
-  const dirs: string[] = [...(pet ? PET_DIRECTIONS : CHARACTER_DIRECTIONS)];
-  // A left row only when the art has one: nothing stored today does (left is mirrored
-  // at runtime), but dropping one that exists would be silent data loss.
-  if (!pet && Array.isArray(data.left) && data.left.length > 0) dirs.push('left');
+  const dirs = rowsPresent(data, pet ? PET_DIRECTIONS : CHARACTER_DIRECTIONS);
   return {
     w: frame?.w ?? (pet ? PET_FRAME_W : CHAR_FRAME_W),
     h: frame?.h ?? (pet ? PET_FRAME_H : CHAR_FRAME_H),

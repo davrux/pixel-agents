@@ -108,3 +108,20 @@ test('listAssets unpacks too — the merge path reads through it', () => {
   for (const n of names) assert.ok(n.frames > 0, `${n.name} came back without pixels`);
   assert.ok(names.length >= 2);
 });
+
+test('a fourth row survives the round trip, and a three-row sheet stays three rows', () => {
+  // Authored left art is the reason left is a row at all: a mirror gets an asymmetric
+  // detail wrong, so what the artist drew has to come back exactly.
+  const withLeft = { ...character('Lefty'), left: [frame(16, 32, '#010203'), frame(16, 32, '#040506')] };
+  appStore.saveAsset('character', 'char_lefty', withLeft);
+  const back = appStore.getAsset<typeof withLeft>('character', 'char_lefty')!;
+  sameArt(back.left, withLeft.left);
+  sameArt(back.right, withLeft.right);
+
+  // And the other direction: art with no left row must NOT gain an empty one — an empty
+  // row draws an invisible character when facing left, which is worse than none.
+  const noLeft = character('Righty');
+  appStore.saveAsset('character', 'char_righty', noLeft);
+  const plain = appStore.getAsset<Record<string, unknown>>('character', 'char_righty')!;
+  assert.equal(plain.left, undefined, 'an empty left row was invented');
+});

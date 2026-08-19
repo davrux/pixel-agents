@@ -13,15 +13,16 @@ number, so variants must stay contiguous from `_0`.
 
 ## File format
 
-**96×48 RGBA PNG — a 6 × 3 grid of 16×16 frames.** No margin, no extrusion, no
+**96×64 RGBA PNG — a 6 × 4 grid of 16×16 frames.** No margin, no extrusion, no
 padding: frame `(col, row)` is exactly the rect at `(col*16, row*16)`. Nothing in
 the file carries its own dimensions, so the size is not negotiable — `decodePetPng`
 (`server/src/core/assets/pngDecoder.ts:188`) slices on those constants with no
-bounds check, and gets it wrong in two different ways: a **larger** sheet is
-silently cropped to the top-left 96×48 (measured: a 192×96 sheet decodes "fine",
-as a quarter of the intended art), while a **smaller** one throws and is swallowed
-by `loadPetSprites`, which returns null for the whole load — one short cat sheet
-and the dogs and ducks disappear too.
+bounds check, and gets it wrong in two different ways: a **wider** sheet is
+silently cropped (measured: a 192×96 sheet decodes "fine", as a quarter of the intended
+art), while a **narrower** one throws and is swallowed by `loadPetSprites`, which returns
+null for the whole load — one short cat sheet and the dogs and ducks disappear too. A
+sheet that is only three rows tall still decodes: the row count comes from the image
+height, and the missing left row is filled by mirroring at the sprite store's door.
 
 Alpha is per-pixel, not a hard mask: `a < 2` becomes transparent (`''`), and
 anything above that is kept, semi-transparent values included (they survive as
@@ -36,13 +37,16 @@ pixels and read as blur at 16×16, so keep the art hard-edged.
 | 0 | **down** — toward the camera | |
 | 1 | **up** — away from the camera | the animal's back |
 | 2 | **right** | |
+| 3 | **left** | real art; seeded by mirroring row 2 |
 
-`PET_DIRECTIONS` (`constants.ts:23`). **There is no left row.** Left is produced
-at runtime by mirroring row 2 horizontally (`buildCharacterSprites`,
-`spriteData.ts:337`), which is the one real authoring constraint here: any marking
-on row 2 that is not left/right symmetric will swap sides when the animal turns
-around. Neither cat carries a side-specific marking — Loui's white is on the
-chest, belly and paws, Daisy's stripes run across the body — so both mirror safely.
+`PET_DIRECTIONS` (`constants.ts`). **Row 3 is left**, and it is real art like the
+other three — no runtime mirroring any more. The bundled sheets got theirs by
+mirroring row 2 once (`scripts/add-left-row.sh`), and the editor seeds a left row the
+same way on save, so every sheet has four rows. Draw over it whenever the animal is not
+symmetric: a marking that sits on one flank swaps sides in a mirror, which is exactly
+why left stopped being computed. Neither cat has a side-specific marking (Loui's white
+is on the chest, belly and paws, Daisy's stripes run across the body), so their mirrored
+left rows are correct as they stand.
 
 ## Columns are animation tracks
 
@@ -151,7 +155,7 @@ has no other frame to ask for.
 
 ## Editing
 
-Regenerate or repaint at **96×48**, keep the grid, keep the column meanings, and
+Regenerate or repaint at **96×64**, keep the grid, keep the column meanings, and
 keep left/right symmetry in mind for row 2. The art must be **drawn at 16×16**, not
 drawn larger and scaled down — art composed at ~24–26 px loses an eye off every
 front-facing face when it is reduced, and the loss is invisible until you compare

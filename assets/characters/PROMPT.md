@@ -22,7 +22,7 @@ declares **9** frames. So a **144×96** sheet is the better target — it fills 
 track, needs no code change, and is the only way to get real `coffee` art.
 
 The height is not derived, and it is where the only *fatal* mistake lives. Exactly
-three rows of 32 are read, so the sheet must be **at least 96 tall**: a 112×128 sheet
+four rows of 32 are read, so the sheet should be **128 tall**: a 112×128 sheet
 loads fine and the fourth row is simply ignored, but a 112×64 one throws inside the
 decoder, and `loadCharacterSprites` swallows the error and returns null for **the
 whole directory** — every agent loses its art, not just the broken skin.
@@ -49,7 +49,8 @@ to the default layout. Frames cap at 64×64.
 | 1 | **up** — away from the camera |
 | 2 | **right** |
 
-**There is no left row.** Left is row 2 mirrored horizontally at runtime, so no
+**Row 3 is left** — real art, not computed. A sheet may omit it (the row count comes
+from the image height) and then the left row is seeded by mirroring row 2 once, but
 marking on row 2 may be side-specific — no logo, badge, text, parting, or patch on
 one flank only. It must read correctly flipped.
 
@@ -165,7 +166,9 @@ Rows are the direction the character faces:
   Row 1 — facing away (back view, you see the back of the head; no face)
   Row 2 — facing RIGHT (side profile, looking right)
 
-There is no left-facing row: the game mirrors row 2 horizontally at runtime.
+Row 3 is the left-facing row. Leaving it out is allowed — it is then seeded from a
+mirrored row 2 — but drawing it is what lets an asymmetric character turn around
+correctly.
 Row 2 must therefore contain NO left/right-specific detail — no logo or badge
 on one side, no text, no hair parting on one side only, no item held in a
 specific hand. It must read correctly when flipped.

@@ -68,8 +68,8 @@ let charById = new Map<string, LoadedCharacterData>();
 /** Set pre-colored character skins loaded from PNG assets. Call this when the
  *  characterSpritesLoaded message arrives. Keyed by stable id, not position. */
 export function setCharacterTemplates(list: CharacterTemplate[]): void {
-  loadedCharacters = list;
-  charById = new Map(list.map((c) => [c.id, c.data]));
+  loadedCharacters = list.map((c) => ({ ...c, data: withLeftRow(c.data) }));
+  charById = new Map(loadedCharacters.map((c) => [c.id, c.data]));
   // Clear cache so sprites are rebuilt from loaded data
   spriteCache.clear();
 }
@@ -89,7 +89,8 @@ function clearSkinCache(id: string): void {
 
 /** Add or replace a single skin (e.g. a per-player avatar) without resetting
  *  the whole gallery. Used for zone-local avatar distribution. */
-export function upsertCharacterTemplate(id: string, data: LoadedCharacterData): void {
+export function upsertCharacterTemplate(id: string, raw: LoadedCharacterData): void {
+  const data = withLeftRow(raw);
   charById.set(id, data);
   const list = loadedCharacters ?? (loadedCharacters = []);
   const i = list.findIndex((c) => c.id === id);
@@ -170,7 +171,9 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
   loadedDogs = dogs;
   loadedCats = cats;
   loadedDucks = ducks;
-  const toNpc = (p: LoadedPetData): LoadedCharacterData => ({
+  const toNpc = (raw: LoadedPetData): LoadedCharacterData => {
+    const p = withLeftRow(raw);
+    return {
     down: p.down,
     up: p.up,
     right: p.right,
@@ -178,9 +181,10 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
     name: p.name,
     // Editor overrides carry their own spec (e.g. an added sleep track); bundled
     // sheets fall back to the default pet layout (walk/sit/idle).
-    spec: p.spec ?? PET_SPRITE_SPEC,
-    npc: p.npc,
-  });
+      spec: p.spec ?? PET_SPRITE_SPEC,
+      npc: p.npc,
+    };
+  };
   loadedNpcs = { dog: dogs.map(toNpc), cat: cats.map(toNpc), duck: ducks.map(toNpc) };
   npcSpriteCache.clear();
 }
@@ -313,6 +317,21 @@ function synthesizeSitFrame(frame: SpriteData): SpriteData {
   return out;
 }
 
+
+/**
+ * Every template entering the store carries all four rows.
+ *
+ * `left` is a row like any other — sheets have carried one since
+ * `scripts/add-left-row.sh` — but data written before that has three, so it is completed
+ * HERE, at the door, by mirroring right. Deliberately not in buildCharacterSprites: the
+ * drawing path should never be the place where a direction is invented, and with this in
+ * front of it, it never has to ask.
+ */
+function withLeftRow<T extends { right: SpriteData[]; left?: SpriteData[] }>(data: T): T {
+  if (data.left && data.left.length > 0) return data;
+  return { ...data, left: data.right.map(flipSpriteHorizontal) };
+}
+
 /** Build track-driven sprite sequences from one entity template (agent or NPC).
  *  Track layout/lengths come from the template's spec; frames missing from the
  *  sheet fall back to a stand frame. Shared by characters and NPCs. */
@@ -320,9 +339,10 @@ function buildCharacterSprites(char: LoadedCharacterData): CharacterSprites {
   const d = char.down;
   const u = char.up;
   const rt = char.right;
-  const lf = char.left; // explicit left-facing frames, or undefined → mirror right
-  const flip = flipSpriteHorizontal;
-  const L = (i: number): SpriteData => lf?.[i] ?? flip(rt[i]);
+  // All four rows are guaranteed by withLeftRow at the store's door, so the drawing
+  // path never invents a direction.
+  const lf = char.left ?? rt;
+  const L = (i: number): SpriteData => lf[i];
 
   const spec = char.spec ?? DEFAULT_CHARACTER_SPEC;
   const slots = trackSlots(spec);

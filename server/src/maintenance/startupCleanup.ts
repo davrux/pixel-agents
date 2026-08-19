@@ -28,6 +28,7 @@
 import { ASSETS_ROOT } from '../assets.js';
 import { deleteAssets, decidePrune, inspectOrphanAssets, knownAssetIds, storedAssets, totalBytes } from './orphanAssets.js';
 import { accountIds, decideAvatarPrune } from './orphanAvatars.js';
+import { migrateLeftRow } from '../art/migrateLeftRow.js';
 
 export interface CleanupTask {
   name: string;
@@ -106,8 +107,22 @@ const pruneOrphanAvatars: CleanupTask = {
   },
 };
 
+
+/**
+ * Convert stored art to four-row sheets, once.
+ *
+ * Not a cleanup — a format migration, but it belongs to the same "before anything reads
+ * the world" slot, since the bundle is built from these rows. It is remembered in
+ * `_migrations` and leaves a row it cannot convert exactly as it was. See
+ * art/migrateLeftRow.ts.
+ */
+const addLeftRowToStoredArt: CleanupTask = {
+  name: 'art-left-row',
+  run: () => migrateLeftRow(),
+};
+
 /** Everything that runs at boot, in order. Add to this list; keep the contract. */
-export const CLEANUP_TASKS: CleanupTask[] = [pruneOrphanAssets, pruneOrphanAvatars];
+export const CLEANUP_TASKS: CleanupTask[] = [addLeftRowToStoredArt, pruneOrphanAssets, pruneOrphanAvatars];
 
 /**
  * Run every task. Never throws: a task that fails is logged and skipped, because

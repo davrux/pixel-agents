@@ -1124,6 +1124,11 @@ export class CharacterEditor {
     }
     // Persist the current frame size + track layout with the sprite data.
     if (this.work.spec) this.work.spec.frame = { w: this.W, h: this.H };
+    // Left is a row like any other, so it is saved even when nobody painted it: the
+    // mirror is the SEED for one (see ensureLeft), and materialising it here is what
+    // keeps three-row data from being written ever again. Draw over it any time — an
+    // asymmetric detail is exactly what a mirror gets wrong.
+    this.ensureLeft();
     const id = this.charId;
     this.cat().save(this.charName(), this.work);
     this.dirty = false;
@@ -1139,11 +1144,14 @@ export class CharacterEditor {
    *  Left is mirrored from right on load, so it isn't part of the file. */
   private doExport(): void {
     const frames = this.baseLen();
+    // Four rows: the sheet IS the art, so it carries every side. Left is filled from a
+    // mirrored right when it was never painted, once, here — not on every load.
+    this.ensureLeft();
     const cv = document.createElement('canvas');
     cv.width = frames * this.W;
-    cv.height = 3 * this.H;
+    cv.height = DIRS.length * this.H;
     const ctx = cv.getContext('2d')!;
-    const rows: SpriteData[][] = [this.work.down, this.work.up, this.work.right];
+    const rows: SpriteData[][] = [this.work.down, this.work.up, this.work.right, this.work.left!];
     rows.forEach((arr, rowIdx) => {
       for (let f = 0; f < frames; f++) {
         const sprite = arr[f];
@@ -1169,7 +1177,7 @@ export class CharacterEditor {
     // sibling manifest so the bundled PNG re-imports 1:1 (drop both next to each
     // other as char_N.png + char_N.json). Default-layout chars need no manifest.
     if (this.isDefaultLayout()) {
-      this.showStatus('Exported PNG (left mirrors right)');
+      this.showStatus('Exported PNG (4 rows: front, back, right, left)');
       return;
     }
     const spec: CharacterSpec = { frame: { w: this.W, h: this.H }, tracks: this.spec().tracks.map((t) => ({ ...t })) };
@@ -1216,7 +1224,8 @@ export class CharacterEditor {
       // No manifest ⇒ the default 16×32 layout; only the frame count is free,
       // and it follows from the sheet width. Any other geometry is ambiguous.
       const { w, h } = DEFAULT_CHARACTER_SPEC.frame;
-      if (img.naturalHeight !== SHEET_ROWS.length * h || img.naturalWidth % w !== 0 || img.naturalWidth === 0) {
+      const rowsInFile = h > 0 ? img.naturalHeight / h : 0;
+      if (!(rowsInFile === DIRS.length || rowsInFile === SHEET_ROWS.length) || img.naturalWidth % w !== 0 || img.naturalWidth === 0) {
         this.showStatus('Frame size unknown — include the exported .json');
         return;
       }
@@ -1243,10 +1252,14 @@ export class CharacterEditor {
     const px = imagePixels(img);
     this.W = w;
     this.H = h;
-    SHEET_ROWS.forEach((dir, row) => {
+    // Take every row the sheet has: a four-row sheet carries authored left art, and
+    // throwing it away (which this used to do) loses work on a round trip through an
+    // external editor — the very thing export/import exists for.
+    const rowsPresent = Math.min(DIRS.length, Math.max(1, Math.floor(img.naturalHeight / h)));
+    DIRS.slice(0, rowsPresent).forEach((dir, row) => {
       this.work[dir] = Array.from({ length: frames }, (_, f) => gridFromImageData(px, f * w, row * h, w, h));
     });
-    delete this.work.left;
+    if (rowsPresent < DIRS.length) delete this.work.left;
     this.work.spec = spec;
     this.ensureSpec(); // re-derives if the manifest names tracks this category doesn't know
     this.frame = Math.min(this.frame, frames - 1);

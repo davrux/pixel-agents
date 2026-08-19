@@ -140,7 +140,12 @@ export function decodeDirectionalSheet(
   const png = PNG.sync.read(pngBuffer);
   const result: Record<string, string[][][]> = {};
 
-  for (let dirIdx = 0; dirIdx < dirs.length; dirIdx++) {
+  // Only the rows the file actually has: a sheet drawn before `left` became a row is
+  // three rows tall, and reading a fourth would run off the end of the image (the same
+  // way a too-narrow pet sheet does). What to do about a missing row is the caller's
+  // decision — see loadCharacterSprites — not something to invent here.
+  const rows = Math.min(dirs.length, Math.max(1, Math.floor(png.height / frameH)));
+  for (let dirIdx = 0; dirIdx < rows; dirIdx++) {
     const rowOffsetY = dirIdx * frameH;
     const frames: string[][][] = [];
 
