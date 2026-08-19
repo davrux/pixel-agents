@@ -5,11 +5,15 @@
 # because a row without a file has no image to point at.
 #
 # Usage:
-#   scripts/prune-orphan-assets.sh [--apply] [--type furniture]
+#   scripts/prune-orphan-assets.sh [--apply] [--type furniture|playerAvatar]
 #
-# Without --apply it only reports. With --apply it takes a VACUUM INTO backup of the
-# database first, and it never deletes an id that is placed in any zone or map — those
-# are reported instead, because that is a map to repair, not a row to remove.
+# Without --apply it only reports. It never deletes an id that is placed in any zone or
+# map — those are reported instead, because that is a map to repair, not a row to
+# remove.
+#
+# --type playerAvatar switches to the other prune the boot performs: personal avatars
+# whose account no longer exists (~77 KB each). Same decision function as the boot, so
+# the report and the boot cannot drift apart.
 set -euo pipefail
 cd "$(dirname "$0")/../server"
 exec node --import tsx scripts/prune-orphan-assets.mts "$@"

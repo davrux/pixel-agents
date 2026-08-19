@@ -44,6 +44,7 @@ import {
   PET_FRAME_W,
 } from './core/assets/constants.js';
 import { encodeDirectionalSheet } from './core/assets/pngEncoder.js';
+import { packedPng } from './art/artStore.js';
 import { artHash } from './art/artUrl.js';
 import { PLAYER_AVATAR_SKIN_PREFIX } from '@pixel/shared';
 
@@ -75,6 +76,16 @@ function petSource(id: string): ArtSource | null {
     frameH: entry.spec?.frame?.h ?? PET_FRAME_H,
     cols: PET_FRAMES_PER_ROW,
   };
+}
+
+/** The stored sheet's bytes for an id, when the row is already a PNG — nothing to
+ *  encode then, and nothing to cache either. */
+function storedPng(kind: string, id: string): Buffer | null {
+  if (kind === 'pet') return packedPng(appStore.assetRow('pet', id));
+  if (kind !== 'character') return null;
+  const type = id.startsWith(PLAYER_AVATAR_SKIN_PREFIX) ? 'playerAvatar' : 'character';
+  const name = type === 'playerAvatar' ? id.slice(PLAYER_AVATAR_SKIN_PREFIX.length) : id;
+  return packedPng(appStore.assetRow(type, name));
 }
 
 /** A gallery skin (char_N or a user-added one) or a player's own avatar (pa:<user>). */
@@ -121,7 +132,9 @@ export function registerArtApi(app: Express): void {
     if (req.headers['if-none-match'] === etag) return void res.status(304).end();
 
     const key = `${kind}/${id}/${etag}`;
-    let png = cache.get(key);
+    // A row that is stored as a PNG is served as it lies — the encode below is for
+    // bundled art (files decoded at boot) and for rows an older world never repacked.
+    let png = storedPng(kind, id) ?? cache.get(key);
     if (!png) {
       png = encodeDirectionalSheet(src.sprites, src.dirs, src.frameW, src.frameH, src.cols);
       if (cache.size >= MAX_CACHED) cache.clear(); // simplest bound that cannot leak

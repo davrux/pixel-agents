@@ -26,7 +26,8 @@
  */
 // ASSETS_ROOT only — importing this module does not load anything (loadAssetBundle does).
 import { ASSETS_ROOT } from '../assets.js';
-import { deleteAssets, decidePrune, inspectOrphanAssets, knownAssetIds, totalBytes } from './orphanAssets.js';
+import { deleteAssets, decidePrune, inspectOrphanAssets, knownAssetIds, storedAssets, totalBytes } from './orphanAssets.js';
+import { accountIds, decideAvatarPrune } from './orphanAvatars.js';
 
 export interface CleanupTask {
   name: string;
@@ -34,7 +35,10 @@ export interface CleanupTask {
   run(): string | null;
 }
 
-const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+/** Bytes for a boot line: KB below a megabyte, because "0.00 MB freed" reads as
+ *  "nothing happened" when a row really was deleted. */
+const mb = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 
 /**
  * Delete stored asset rows no tileset carries any more.
@@ -75,8 +79,35 @@ const pruneOrphanAssets: CleanupTask = {
   },
 };
 
+
+/**
+ * Delete personal avatars whose account no longer exists.
+ *
+ * Unreachable by construction — an avatar is keyed by its owner's user_id and only a
+ * signed-in session renders one — and the largest per-row asset in the table (~77 KB).
+ * See orphanAvatars.ts for why this is defence rather than a fix: the delete paths
+ * already clean up, but a restored or hand-edited database does not.
+ */
+const pruneOrphanAvatars: CleanupTask = {
+  name: 'prune-orphan-avatars',
+  run() {
+    const decision = decideAvatarPrune(storedAssets('playerAvatar'), accountIds());
+    if (decision.refused) {
+      console.warn(`[cleanup] prune-orphan-avatars skipped: ${decision.refused}`);
+      return null;
+    }
+    if (decision.deletable.length === 0) return null;
+    const { deleted } = deleteAssets(
+      'playerAvatar',
+      decision.deletable.map((r) => r.name),
+    );
+    const held = decision.tooYoung.length ? `, ${decision.tooYoung.length} too recent to touch` : '';
+    return `pruned ${deleted} avatar(s) whose account is gone, ${mb(totalBytes(decision.deletable))} freed${held}`;
+  },
+};
+
 /** Everything that runs at boot, in order. Add to this list; keep the contract. */
-export const CLEANUP_TASKS: CleanupTask[] = [pruneOrphanAssets];
+export const CLEANUP_TASKS: CleanupTask[] = [pruneOrphanAssets, pruneOrphanAvatars];
 
 /**
  * Run every task. Never throws: a task that fails is logged and skipped, because

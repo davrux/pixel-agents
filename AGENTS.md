@@ -153,6 +153,16 @@ Security is a first-class requirement, not a later pass.
   art; and the URL-building half stays free of bundle lookups
   (`server/src/art/artUrl.ts`) — asking `getMergedBundle()` from inside the bundle
   build recurses into a stack overflow on the first join.
+  **The database holds the same PNG**, not pixels: `appStore` packs character-shaped
+  rows on write and unpacks them on read (`art/artStore.ts`), so every caller still
+  deals in SpriteData and nothing else in the server learned about images. Saves are
+  still validated as SpriteData BEFORE encoding, which is why this added no untrusted
+  binary path — a client never sends a PNG, and if one ever should, that needs its own
+  bounds first. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
+  world on purpose (measured here: 495 → 16 KB), verifying every row by unpacking it
+  again before keeping the write. One thing to know: the decoder canonicalises hex to
+  upper case, so a packed row reads back equal in colour but not in string case — the
+  runtime atlas keys sprites by object identity, so nothing depends on the text.
 - **A baked sheet is already an atlas — never slice one into pixels.** Floor and
   wall sheets are registered as one texture per set and drawn by frame
   (`registerSheetTexture`/`sheetFrame`); `shared` names a cell (`SheetCellRef`)
@@ -372,7 +382,10 @@ background only.)
 - **Housekeeping runs at boot, unattended — so it is safe by construction.**
   `maintenance/startupCleanup.ts` runs before anything reads the world (before
   `loadAssetBundle`, since the bundle is built from these rows and then cached
-  process-wide). A task added there must honour the contract in that file's header:
+  process-wide). Two tasks today: stored asset rows no tileset carries any more, and
+  personal avatars whose account is gone (~77 KB each; the delete paths already clean
+  up, so this is for a restored or hand-edited database). A task added there must
+  honour the contract in that file's header:
   two independent sources of evidence, a refusal when the evidence looks broken (an
   unreadable tileset registry makes every row look unused — that is a deployment to
   fix, not a licence to delete), a grace period so recent work is never touched, it may

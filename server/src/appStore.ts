@@ -6,6 +6,7 @@
  * are purged on startup and on an interval so the table never grows unbounded.
  */
 import * as crypto from 'node:crypto';
+import { isPackedArtType, packArt, unpackArt } from './art/artStore.js';
 
 import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
 
@@ -85,6 +86,12 @@ class AppStore {
   // ── Asset overrides (characters, furniture, floors, walls, pets) ─
   // Edited/added assets, keyed by (type, name). The bundled files are the
   // read-only defaults; a row here overrides (or adds) one asset.
+  //
+  // Character-shaped art (character, pet, playerAvatar) is STORED as a PNG sheet and
+  // handed out as SpriteData: packed on write, unpacked on read, so no caller had to
+  // learn about images and the table stopped holding 77 KB of hex per avatar. Legacy
+  // rows pass through untouched — see art/artStore.ts. `assetRow` is the way to see
+  // what is actually stored (artApi streams the bytes rather than re-encoding them).
   listAssets(type: string): Array<{ name: string; data: unknown }> {
     const rows = this.db
       .prepare('SELECT name, data FROM assets WHERE type = ?')
@@ -92,7 +99,8 @@ class AppStore {
     const out: Array<{ name: string; data: unknown }> = [];
     for (const r of rows) {
       try {
-        out.push({ name: r.name, data: JSON.parse(r.data) });
+        const parsed = JSON.parse(r.data);
+        out.push({ name: r.name, data: isPackedArtType(type) ? unpackArt(parsed) : parsed });
       } catch {
         /* skip corrupt row */
       }
@@ -101,24 +109,32 @@ class AppStore {
   }
 
   getAsset<T>(type: string, name: string): T | undefined {
+    const row = this.assetRow(type, name);
+    if (row === undefined) return undefined;
+    return (isPackedArtType(type) ? unpackArt(row) : row) as T;
+  }
+
+  /** The stored row, exactly as it is on disk (packed art stays packed). */
+  assetRow(type: string, name: string): unknown {
     const r = this.db
       .prepare('SELECT data FROM assets WHERE type = ? AND name = ?')
       .get(type, name) as { data: string } | undefined;
     if (!r) return undefined;
     try {
-      return JSON.parse(r.data) as T;
+      return JSON.parse(r.data);
     } catch {
       return undefined;
     }
   }
 
   saveAsset(type: string, name: string, data: unknown): void {
+    const stored = isPackedArtType(type) ? packArt(type, data) : data;
     this.db
       .prepare(
         'INSERT INTO assets(type,name,data,updatedAt) VALUES(?,?,?,?) ' +
           'ON CONFLICT(type,name) DO UPDATE SET data=excluded.data, updatedAt=excluded.updatedAt',
       )
-      .run(type, name, JSON.stringify(data), Date.now());
+      .run(type, name, JSON.stringify(stored), Date.now());
   }
 
   /** Revert an asset to its bundled default. Returns true if a row was removed. */

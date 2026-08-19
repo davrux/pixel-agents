@@ -11,15 +11,21 @@
  * for the grace period, for when you know exactly what you are removing. Both paths go
  * through the same pure decision, so the command and the boot cannot drift apart.
  *
- * Run: scripts/prune-orphan-assets.sh [--apply] [--type furniture]
+ * `--type playerAvatar` switches to the other prune the boot performs: personal
+ * avatars whose account is gone. Different evidence (the users table, not the
+ * tilesets), same decision function as the boot — see maintenance/orphanAvatars.ts.
+ *
+ * Run: scripts/prune-orphan-assets.sh [--apply] [--type furniture|playerAvatar]
  */
 import { ASSETS_ROOT } from '../src/assets.js';
+import { accountIds, decideAvatarPrune } from '../src/maintenance/orphanAvatars.js';
 import {
   decidePrune,
   deleteAssets,
   inspectOrphanAssets,
   knownAssetIds,
   ORPHAN_GRACE_DAYS,
+  storedAssets,
   totalBytes,
 } from '../src/maintenance/orphanAssets.js';
 
@@ -27,6 +33,37 @@ const APPLY = process.argv.includes('--apply');
 const typeArg = process.argv.indexOf('--type');
 const TYPE = typeArg >= 0 ? process.argv[typeArg + 1] : 'furniture';
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
+
+// ── Avatars: the same job with the other half of the evidence ────────────────
+if (TYPE === 'playerAvatar') {
+  const rows = storedAssets('playerAvatar');
+  const ids = accountIds();
+  const d = decideAvatarPrune(rows, ids);
+  console.log(`${rows.length} avatar(s), ${mb(totalBytes(rows))} — ${ids.size} account(s)`);
+  console.log(`  ${d.owned.length} with an account — kept`);
+  const orphans = [...d.deletable, ...d.tooYoung];
+  console.log(`  ${orphans.length} without one, ${mb(totalBytes(orphans))}`);
+  if (d.refused) {
+    console.error(`\n✗ refusing to delete: ${d.refused}`);
+    process.exit(1);
+  }
+  if (d.tooYoung.length > 0) {
+    console.log(`      ${d.tooYoung.length} of them written within ${ORPHAN_GRACE_DAYS} days — the boot leaves those alone`);
+  }
+  if (orphans.length === 0) {
+    console.log('\nnothing to prune');
+    process.exit(0);
+  }
+  if (!APPLY) {
+    console.log(`\nexamples: ${orphans.slice(0, 8).map((r) => r.name).join(', ')}`);
+    console.log(`(dry run) --apply deletes all ${orphans.length}, grace period included`);
+    process.exit(0);
+  }
+  const { deleted } = deleteAssets('playerAvatar', orphans.map((r) => r.name));
+  console.log(`\ndeleted ${deleted} avatar(s), ${mb(totalBytes(orphans))} of sprite data`);
+  console.log('A running server keeps serving its cached bundle until it restarts.');
+  process.exit(0);
+}
 
 const known = knownAssetIds(ASSETS_ROOT);
 const c = inspectOrphanAssets(ASSETS_ROOT, TYPE);

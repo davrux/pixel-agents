@@ -124,7 +124,13 @@ export function parseWallPng(pngBuffer: Buffer): string[][][] {
  * The sheet has one row per direction (in `dirs` order) and `framesPerRow`
  * frames of `frameW`×`frameH` per row. Shared by characters and pets.
  */
-function decodeDirectionalSheet(
+/**
+ * Slice a sheet into direction-keyed frame arrays: rows are `dirs` in order, columns
+ * are frames. Exported because stored art is a PNG now (see art/artStore.ts) and a
+ * stored row's geometry comes from its own spec, so neither of the fixed-layout wrappers
+ * below fits it.
+ */
+export function decodeDirectionalSheet(
   pngBuffer: Buffer,
   frameW: number,
   frameH: number,
