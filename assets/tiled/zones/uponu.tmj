@@ -2966,16 +2966,16 @@
                 }, 
                 {
                  "gid":7107,
-                 "height":32,
+                 "height":16,
                  "id":431,
                  "name":"",
                  "opacity":1,
                  "rotation":0,
                  "type":"FurnitureObject",
                  "visible":true,
-                 "width":32,
+                 "width":16,
                  "x":80,
-                 "y":112
+                 "y":96
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -3237,7 +3237,7 @@
          "y":0
         }],
  "nextlayerid":9,
- "nextobjectid":432,
+ "nextobjectid":433,
  "orientation":"orthogonal",
  "properties":[
         {
