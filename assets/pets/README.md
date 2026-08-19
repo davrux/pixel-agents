@@ -105,7 +105,12 @@ orange cats these replaced were arranged the same way.
 ## Editing
 
 Regenerate or repaint at **96×48**, keep the grid, keep the column meanings, and
-keep left/right symmetry in mind for row 2. There is no bake step and no
+keep left/right symmetry in mind for row 2. The art must be **drawn at 16×16**, not
+drawn larger and scaled down — art composed at ~24–26 px loses an eye off every
+front-facing face when it is reduced, and the loss is invisible until you compare
+frames side by side. For generating a sheet from photos of a real animal, see
+[PROMPT.md](PROMPT.md), which also lists how to verify one before committing it.
+There is no bake step and no
 committed artifact: `loadPetSprites` (`server/src/assetLoader.ts:237`) reads these
 PNGs at startup and the frames are sent to clients as sprite data, so a change is
 live on the next server start. These files are **not** part of the Tiled pipeline
