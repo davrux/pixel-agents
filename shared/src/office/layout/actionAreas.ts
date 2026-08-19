@@ -1,3 +1,4 @@
+import { meetingSlug } from '../../protocol.js';
 import type { OfficeLayout } from '../types.js';
 
 /** A meeting area's own room needs a name that survives a layout rebuild even
@@ -105,4 +106,71 @@ export function actionAreaIdAt(map: ActionAreaMap, cols: number, rows: number, c
  *  null for an out-of-range id (e.g. a stale id from before a layout rebuild). */
 export function actionAreaAnchor(map: ActionAreaMap, areaId: number): { col: number; row: number } | null {
   return map.anchors[areaId] ?? null;
+}
+
+/** A meeting area's identity: which call it belongs to, and where that call is addressed. */
+export interface MeetingAreaIdentity {
+  /** This area's own anchor — where the player standing here actually is. */
+  anchor: { col: number; row: number };
+  /** The anchor the CALL is addressed by: the raster-first among the areas sharing this
+   *  identity. Equal to `anchor` for an unnamed area, which is a call of its own. */
+  canonical: { col: number; row: number };
+  /** The name as authored, for labels. */
+  name: string;
+  /** The name reduced to its identity — empty when the area is unnamed. */
+  slug: string;
+  video: boolean;
+}
+
+/** slug+video -> the canonical anchor of the areas sharing it, raster-first.
+ *
+ *  Pure, so a caller can cache it per layout: the scan is cheap but the question is asked
+ *  from a per-tick membership check. */
+export function meetingCanonicalAnchors(layout: OfficeLayout): Map<string, { col: number; row: number }> {
+  const out = new Map<string, { col: number; row: number }>();
+  const acts = layout.tileActions ?? [];
+  for (let i = 0; i < acts.length; i++) {
+    const a = acts[i];
+    if (a?.kind !== 'meetingRoom') continue;
+    const slug = meetingSlug(a.meetingRoomName);
+    if (!slug) continue;
+    const k = `${slug} ${a.video !== false ? 1 : 0}`;
+    // Raster order: the first hit is the raster-first tile of the first such area.
+    if (!out.has(k)) out.set(k, { col: i % layout.cols, row: Math.floor(i / layout.cols) });
+  }
+  return out;
+}
+
+/**
+ * Which call the meeting tile at (col,row) belongs to, or null if it is not one.
+ *
+ * Areas that agree about name AND video share a call even when they do not touch - two
+ * floors, two buildings, the smoking corner outside. Adjacency already merges what a
+ * mapper draws as one room (see computeActionAreas above); this merges what they NAME as
+ * one. An unnamed area keeps its own anchor: there is nothing to tell two of them apart
+ * by, so each stays its own call.
+ *
+ * `video` is part of the identity for the same reason it is part of the adjacency rule:
+ * two areas that disagree cannot be one call without one side silently losing its
+ * setting.
+ */
+export function meetingAreaAt(
+  layout: OfficeLayout,
+  areas: ActionAreaMap,
+  col: number,
+  row: number,
+  canonicals?: Map<string, { col: number; row: number }>,
+): MeetingAreaIdentity | null {
+  const areaId = actionAreaIdAt(areas, layout.cols, layout.rows, col, row);
+  if (areaId === null) return null;
+  const anchor = actionAreaAnchor(areas, areaId);
+  if (!anchor) return null;
+  const action = layout.tileActions?.[anchor.row * layout.cols + anchor.col];
+  if (action?.kind !== 'meetingRoom') return null;
+  const video = action.video !== false;
+  const name = action.meetingRoomName ?? '';
+  const slug = meetingSlug(name);
+  if (!slug) return { anchor, canonical: anchor, name, slug, video };
+  const map = canonicals ?? meetingCanonicalAnchors(layout);
+  return { anchor, canonical: map.get(`${slug} ${video ? 1 : 0}`) ?? anchor, name, slug, video };
 }

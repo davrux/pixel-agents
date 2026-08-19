@@ -3,6 +3,7 @@ import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 
 import {
   conferenceKey,
+  meetingSlug,
   cleanName,
   playerAvatarSkinId,
   findCommand,
@@ -120,6 +121,18 @@ function authOf(client: Client): AuthInfo {
   };
 }
 
+/** A named tile call's key. Named areas carry no coordinates in their identity — the
+ *  name and the video setting ARE the identity — so the key states both and nothing
+ *  else. Coordinates would defeat the merge: that is the whole point. */
+function namedMeetingKey(slug: string, video: boolean): string {
+  return `tile:n:${slug}:v${video ? 1 : 0}`;
+}
+
+function parseNamedMeetingKey(key: string): { slug: string; video: boolean } | null {
+  const m = /^tile:n:(.*):v([01])$/.exec(key);
+  return m ? { slug: m[1], video: m[2] === '1' } : null;
+}
+
 export class SimRoom extends Room<{ state: RoomState }> {
   /** File defaults merged with DB asset overrides — the process-wide cached
    *  bundle from assetOverrides.ts, not recomputed per room (see getMergedBundle). */
@@ -171,6 +184,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  absent — so updateMeetingRoomMembership can detect enter/exit without
    *  re-deriving "was I in one before" from the sets themselves. */
   private readonly lastMeetingRoomArea = new Map<number, string>();
+  /** Each player's OWN area anchor, alongside the key above — with same-named areas
+   *  sharing one call, the key no longer says where somebody stands, and the roster has
+   *  to (see meetingRoomMembersMsg: each member carries their own anchor so a client can
+   *  tell who is in another area). */
+  private readonly lastMeetingAnchor = new Map<number, { col: number; row: number }>();
+  /** identity → the canonical anchor of the areas sharing it, rebuilt when the layout
+   *  object changes. The canonical one is the raster-first of them, so the call keeps one
+   *  stable address even as areas are painted or removed elsewhere. */
   /** Per-deployment prefix for LiveKit room names (env override, else a stable
    *  random id from the DB) so dev + prod never share a voice room. */
   private readonly voiceNs = process.env.PIXEL_VOICE_PREFIX?.trim() || appStore.getVoiceNs();
@@ -642,6 +663,27 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** A meeting-room membership key, namespaced by source so a furniture
    *  item's own anchor tile can never collide with a tile-action area's
    *  flood-fill anchor even if they happen to share a col/row. */
+  /**
+   * The call a meeting-area tile belongs to: its key, its own area anchor, and the
+   * canonical anchor the call is addressed by.
+   *
+   * Areas that agree about name AND video share one call even when they do not touch —
+   * two floors, two buildings, the smoking corner outside. Adjacency already merges what
+   * a mapper draws as one room (see computeActionAreas); this merges what they NAME as
+   * one. Unnamed areas keep their own anchor as identity: there is nothing to tell them
+   * apart by, so each stays its own call, exactly as before.
+   *
+   * `video` rides in the key on purpose. Two same-named areas that disagree about it
+   * cannot be one call without one side silently losing its setting, so they stay apart —
+   * the same reasoning meetingIdentity uses for adjacency.
+   */
+  private tileMeetingRoom(col: number, row: number): { key: string; anchor: { col: number; row: number }; canonical: { col: number; row: number }; video: boolean } | null {
+    const found = this.os.meetingAreaAt(col, row);
+    if (!found) return null;
+    const key = found.slug ? namedMeetingKey(found.slug, found.video) : this.meetingRoomKey('tile', found.anchor.col, found.anchor.row);
+    return { key, anchor: found.anchor, canonical: found.canonical, video: found.video };
+  }
+
   private meetingRoomKey(source: 'furniture' | 'tile', col: number, row: number): string {
     return `${source}:${col},${row}`;
   }
@@ -654,6 +696,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Whether a meeting room (by key) currently offers video — a furniture
    *  item's own action.video, or a tile-area's anchor action.video. */
   private videoForMeetingRoomKey(key: string): boolean {
+    // A named tile call carries the answer in its own key — it is part of the identity,
+    // so areas that disagree never share a call in the first place.
+    const named = parseNamedMeetingKey(key);
+    if (named) return named.video;
     const parsed = this.parseMeetingRoomKey(key);
     if (!parsed) return true;
     if (parsed.source === 'furniture') {
@@ -669,15 +715,32 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private meetingRoomMembersMsg(key: string): Record<string, unknown> {
     const parsed = this.parseMeetingRoomKey(key);
     const ids = this.meetingRooms.get(key) ?? new Set<number>();
-    const members = [...ids].map((id) => ({ id, name: this.os.getCharacter(id)?.folderName || 'Guest' }));
+    // Each member's OWN area anchor rides along: with same-named areas sharing one call,
+    // the message's address is the canonical anchor and no longer says where anybody
+    // stands — the client compares these to tell who is somewhere else (see
+    // onMeetingAreaMembers).
+    const members = [...ids].map((id) => {
+      const own = this.lastMeetingAnchor.get(id);
+      return { id, name: this.os.getCharacter(id)?.folderName || 'Guest', ...(own ? { col: own.col, row: own.row } : {}) };
+    });
+    const address = parsed ?? this.addressForMeetingKey(key);
     return {
       type: 'meetingRoomMembers',
-      source: parsed?.source ?? 'furniture',
-      col: parsed?.col ?? 0,
-      row: parsed?.row ?? 0,
+      source: address?.source ?? 'furniture',
+      col: address?.col ?? 0,
+      row: address?.row ?? 0,
       video: this.videoForMeetingRoomKey(key),
       members,
     };
+  }
+
+  /** The (col,row) a named tile call is addressed by — its canonical anchor. Named keys
+   *  carry no coordinates, so this is where the roster and the token request get theirs. */
+  private addressForMeetingKey(key: string): { source: 'furniture' | 'tile'; col: number; row: number } | null {
+    const named = parseNamedMeetingKey(key);
+    if (!named) return null;
+    const canonical = this.os.meetingCanonicalAnchor(named.slug, named.video);
+    return canonical ? { source: 'tile', col: canonical.col, row: canonical.row } : null;
   }
 
   /** Recompute which meeting-room tile area (if any) a player's current
@@ -686,9 +749,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  furniture-sourced meeting room, there's no explicit join/leave
    *  message; standing on the tile *is* the membership. */
   private updateMeetingRoomMembership(playerId: number, col: number, row: number): void {
-    const areaId = this.os.areaIdAt(col, row);
-    const anchor = areaId !== null ? this.os.areaAnchor(areaId) : null;
-    const newKey = anchor ? this.meetingRoomKey('tile', anchor.col, anchor.row) : null;
+    const room = this.tileMeetingRoom(col, row);
+    const newKey = room?.key ?? null;
+    if (room) this.lastMeetingAnchor.set(playerId, room.anchor);
+    else this.lastMeetingAnchor.delete(playerId);
     const oldKey = this.lastMeetingRoomArea.get(playerId) ?? null;
     if (newKey === oldKey) return;
     if (oldKey) this.leaveMeetingRoom(playerId, oldKey);
@@ -729,6 +793,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
   private leaveAllMeetingRooms(playerId: number): void {
     for (const key of [...this.meetingRooms.keys()]) this.leaveMeetingRoom(playerId, key);
     this.lastMeetingRoomArea.delete(playerId);
+    this.lastMeetingAnchor.delete(playerId);
   }
 
   /** Display name for a chatter: their avatar's name, else display name, else Guest. */
@@ -1017,7 +1082,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
         const col = Math.floor(Number(msg?.col));
         const row = Math.floor(Number(msg?.row));
         const source = msg?.source === 'tile' ? 'tile' : 'furniture';
-        const key = this.meetingRoomKey(source, col, row);
+        // For a tile call the key comes from the AREA at those coordinates, not from the
+        // coordinates themselves: several areas share one named call, and a client asks
+        // with the address it was given (the canonical anchor) or with its own.
+        const key = source === 'tile' ? this.tileMeetingRoom(col, row)?.key ?? '' : this.meetingRoomKey(source, col, row);
         if (!this.meetingRooms.get(key)?.has(id)) return; // not a member → no token
 
         const url = process.env.LIVEKIT_URL;
@@ -1039,7 +1107,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
                   row,
                 )}`,
               )
-            : this.voiceRoom(`${this.zone.id}-meet:${col},${row}`);
+            : this.voiceRoom(`${this.zone.id}-meet:${key.startsWith('tile:n:') ? key.slice('tile:'.length) : `${col},${row}`}`);
         const token = await this.mintVoiceToken(id, roomName);
         if (!token) return;
         client.send('m', {

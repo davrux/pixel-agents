@@ -3333,8 +3333,19 @@ export class OfficeScene extends Phaser.Scene {
    *  joining/leaving) does not re-trigger it. */
   private onMeetingAreaMembers(m: Record<string, unknown>): void {
     const key = `${m.col},${m.row}`;
-    const members = (m.members as Array<{ id: number; name: string }>) ?? [];
+    const members = (m.members as Array<{ id: number; name: string; col?: number; row?: number }>) ?? [];
     const iAmIn = this.myPlayerId !== null && members.some((p) => p.id === this.myPlayerId);
+    // Same-named areas share one call, so somebody in this roster may be standing
+    // somewhere I cannot see. Each member carries their own area anchor; mine is the one
+    // under my own feet, which the client can resolve itself — the areas come with the
+    // layout (computeActionAreas), no round trip needed.
+    if (iAmIn) {
+      const mine = members.find((p) => p.id === this.myPlayerId);
+      const elsewhere = members
+        .filter((p) => p.id !== this.myPlayerId && p.col !== undefined && mine?.col !== undefined && (p.col !== mine.col || p.row !== mine.row))
+        .map((p) => p.name);
+      this.meetingArea?.setElsewhere(elsewhere);
+    }
     if (iAmIn) {
       const entering = this.myMeetingAreaKey !== key;
       this.myMeetingAreaKey = key;

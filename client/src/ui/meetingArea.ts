@@ -45,6 +45,7 @@ export class MeetingAreaUI {
   private readonly minBtn: HTMLButtonElement;
   private minimized = false;
   private readonly statusEl: HTMLSpanElement;
+  private readonly elsewhereEl: HTMLDivElement;
   private readonly stageEl: HTMLDivElement;
   private readonly screensEl: HTMLDivElement;
   private readonly micBtn: HTMLButtonElement;
@@ -75,6 +76,14 @@ export class MeetingAreaUI {
     header.append(this.titleEl, this.statusEl, this.minBtn);
     this.panel.appendChild(header);
     this.wireDrag(header);
+
+    // Who is in this call but NOT in the area you are standing in. Same-named areas share
+    // one call now (see SimRoom.tileMeetingRoom), so "in the call" stopped meaning "over
+    // there, where I can see them" — and a voice from nowhere is worse than a line of text.
+    this.elsewhereEl = document.createElement('div');
+    this.elsewhereEl.className = 'pa-meet-elsewhere';
+    this.elsewhereEl.style.display = 'none';
+    this.panel.appendChild(this.elsewhereEl);
 
     this.stageEl = document.createElement('div');
     this.stageEl.className = 'pa-meet-stage';
@@ -135,6 +144,26 @@ export class MeetingAreaUI {
    *  adjacent areas apart when you walk straight from one into the other. */
   setTitle(meetingRoomName?: string): void {
     this.titleEl.textContent = meetingRoomName ? `🤝 ${meetingRoomName}` : MeetingAreaUI.GENERIC_TITLE;
+  }
+
+  /**
+   * Name the participants who are in another area of the same call.
+   *
+   * Not a count alone: "2 elsewhere" tells you to look around for people who are not
+   * there, while their names tell you who you are talking to. Empty list = hide the line
+   * entirely, which is the ordinary case of one area.
+   */
+  setElsewhere(names: string[]): void {
+    if (names.length === 0) {
+      this.elsewhereEl.style.display = 'none';
+      this.elsewhereEl.textContent = '';
+      return;
+    }
+    const shown = names.slice(0, 3).join(', ');
+    const rest = names.length - Math.min(3, names.length);
+    this.elsewhereEl.textContent = `📍 elsewhere in this room: ${shown}${rest > 0 ? ` +${rest}` : ''}`;
+    this.elsewhereEl.title = `Same room name, different area — you cannot see them from here:\n${names.join('\n')}`;
+    this.elsewhereEl.style.display = 'block';
   }
 
   setVisible(visible: boolean): void {
@@ -304,6 +333,9 @@ function injectMeetingAreaStyles(): void {
     #pa-meeting.min .pa-meet-controls{display:none;}
     #pa-meeting .pa-meet-status{font-weight:normal;font-size:0.75rem;color:#7fbf6a;}
     #pa-meeting .pa-meet-status.err{color:#f2a1a1;}
+    #pa-meeting .pa-meet-elsewhere{font-size:0.72rem;color:#adb0b2;margin:-0.1rem 0 0.35rem;
+      padding:0.2rem 0.35rem;background:#262422;border:2px solid #0a0908;border-radius:0.3rem;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     #pa-meeting .pa-meet-screens{display:none;}
     #pa-meeting .pa-meet-stage{display:grid;grid-template-columns:repeat(2,1fr);gap:0.35rem;max-height:14rem;overflow-y:auto;}
     #pa-meeting .pa-conf-tile{position:relative;aspect-ratio:4/3;background:#262422;border:2px solid #0a0908;

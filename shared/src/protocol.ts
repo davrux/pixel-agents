@@ -186,13 +186,21 @@ export function sanitizeTextLabelFontFamily(input: unknown): string | undefined 
 /** Stable identity of a conference monitor's call: its name (slugged) when set —
  *  so the room survives the monitor being moved — else its tile position. Shared
  *  by client + server so both agree on the key. */
-export function conferenceKey(name: string | undefined, col: number, row: number): string {
-  const slug = (name ?? '')
+/** A room name reduced to its identity: lowercase, punctuation collapsed to dashes,
+ *  capped. Empty when the name says nothing. Shared by conference monitors and meeting
+ *  AREAS so "Standup" means the same room in both — two spellings that differ only in
+ *  case or spacing must not become two calls. */
+export function meetingSlug(name: string | undefined): string {
+  return (name ?? '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 32);
+}
+
+export function conferenceKey(name: string | undefined, col: number, row: number): string {
+  const slug = meetingSlug(name);
   return slug ? `n:${slug}` : `p:${col},${row}`;
 }
 

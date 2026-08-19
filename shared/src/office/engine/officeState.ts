@@ -41,7 +41,15 @@ import {
 } from '../layout/layoutSerializer.js';
 import { canStep, findPath, getWalkableTiles, isWalkable, nearestWalkableTile } from '../layout/tileMap.js';
 import { faceBlockedTiles, wallOnNorthEdge } from '../wallEdges.js';
-import { computeActionAreas, actionAreaAnchor, actionAreaIdAt, type ActionAreaMap } from '../layout/actionAreas.js';
+import {
+  computeActionAreas,
+  actionAreaAnchor,
+  actionAreaIdAt,
+  meetingAreaAt,
+  meetingCanonicalAnchors,
+  type ActionAreaMap,
+  type MeetingAreaIdentity,
+} from '../layout/actionAreas.js';
 import {
   firstSkinId,
   getSkinIds,
@@ -132,6 +140,9 @@ export class OfficeState {
   /** Flood-filled meeting-room tile actions (see computeActionAreas) — read
    *  via areaIdAt()/areaAnchor(), never mutated in place. */
   private actionAreas: ActionAreaMap;
+  /** slug+video -> canonical anchor, rebuilt with actionAreas. Cached because the
+   *  membership check below runs per character per tick. */
+  private meetingCanonical: Map<string, { col: number; row: number }>;
   furniture: FurnitureInstance[];
   /** Current furniture placements after auto-on/animation (server syncs these). */
   furniturePlacements: PlacedFurniture[] = [];
@@ -203,6 +214,7 @@ export class OfficeState {
     this.walls = this.layout.walls;
     this.reachThroughTiles = getReachThroughTiles(this.layout.furniture);
     this.actionAreas = computeActionAreas(this.layout);
+    this.meetingCanonical = meetingCanonicalAnchors(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
     // No characters/manual toggles exist yet at construction, so the
     // auto-on/toggle modifications rebuildFurnitureInstances() would apply
@@ -249,6 +261,7 @@ export class OfficeState {
     this.walls = layout.walls;
     this.reachThroughTiles = getReachThroughTiles(layout.furniture);
     this.actionAreas = computeActionAreas(layout);
+    this.meetingCanonical = meetingCanonicalAnchors(layout);
     this.actionTileKeys = computeActionTileKeys(layout);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
@@ -369,6 +382,19 @@ export class OfficeState {
    *  tile when it has no explicit name; see conferenceKey). */
   areaAnchor(areaId: number): { col: number; row: number } | null {
     return actionAreaAnchor(this.actionAreas, areaId);
+  }
+
+  /** Which meeting call the tile at (col,row) belongs to, or null if it is not a
+   *  meeting tile. Areas that agree about name and video are ONE call even when they
+   *  do not touch; the identity rule itself lives in `layout/actionAreas.ts`. */
+  meetingAreaAt(col: number, row: number): MeetingAreaIdentity | null {
+    return meetingAreaAt(this.layout, this.actionAreas, col, row, this.meetingCanonical);
+  }
+
+  /** Where a named call is addressed — its raster-first anchor across all areas
+   *  sharing the name. Lets a caller answer for a call nobody currently stands in. */
+  meetingCanonicalAnchor(slug: string, video: boolean): { col: number; row: number } | null {
+    return this.meetingCanonical.get(`${slug} ${video ? 1 : 0}`) ?? null;
   }
 
   /** Walkable tiles minus any meeting area — nobody should ever spawn/land
