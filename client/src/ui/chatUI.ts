@@ -92,8 +92,13 @@ export class ChatUI {
     row.id = 'pa-chatrow';
     const hide = document.createElement('button');
     hide.id = 'pa-chathide';
-    hide.textContent = '🗕';
-    hide.title = 'Hide chat';
+    // paSkin's shared close chip, ✕ and all — the same control the Mumble and
+    // Matrix windows close with. It used to be 🗕 (U+1F5D5), which neither FS
+    // Pixel Sans nor the monospace fallback has a glyph for, so it arrived as
+    // tofu and read as a broken button.
+    hide.className = 'pa-x';
+    hide.textContent = '✕';
+    hide.title = 'Close chat';
     hide.onclick = () => this.setHidden(true);
     row.append(this.input, hide);
     this.box.append(this.log, row);
@@ -420,13 +425,10 @@ function injectStyle(): void {
     #pa-chatresize:hover{opacity:1;border-color:#4998c0;}
     #pa-chatrow{display:flex;gap:0.35rem;align-items:stretch;}
     #pa-chatrow #pa-chatinput{flex:1;min-width:0;}
-    /* Both of these are .pa-b in everything but name — same inset-control
-       surface (#262422), same border, same signature bevel, same 0.35rem
-       radius. Opaque, unlike the log above: they are small controls, so nothing
-       is hidden behind them, and a translucent button reads as disabled. */
-    #pa-chathide{flex:0 0 auto;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;
-      color:#adb0b2;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-    #pa-chathide:hover{color:#f1efec;}
+    /* The close button is paSkin's .pa-x — every token comes from there. Only its
+       fixed 1.7rem square is relaxed, so it squares off against the input's
+       height instead of standing short beside it. */
+    #pa-chatrow .pa-x{height:auto;aspect-ratio:1;}
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#4998c0;}
     #pa-chatlog .ln a{color:#4998c0;text-decoration:underline;overflow-wrap:anywhere;}

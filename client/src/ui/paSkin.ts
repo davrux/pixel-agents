@@ -94,9 +94,16 @@ export function injectPaSkin(): void {
         padding:0.75rem 0.85rem 0.65rem;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;
         position:sticky;top:0;background:#1c1a19;z-index:2;}
       .pa-panel .pa-head h4{margin:0;font-size:1.3rem;font-weight:600;color:#f5f3f0;letter-spacing:.3px;}
-      .pa-panel .pa-x{flex:none;width:1.7rem;height:1.7rem;display:flex;align-items:center;justify-content:center;
+      /* The close chip, deliberately NOT scoped to .pa-panel: the corner widgets
+         that are not panels (the chat box, the online list) close the same way and
+         must look identical doing it, and one definition is what keeps that true.
+         font:inherit because those two carry it on a <button>, which would
+         otherwise take the UA's own font — the panels' own .pa-x is a <div>. */
+      .pa-x{flex:none;width:1.7rem;height:1.7rem;display:flex;align-items:center;justify-content:center;
         background:#262422;border:2px solid #0a0908;border-radius:0.35rem;cursor:pointer;color:#d7d9da;
+        font:inherit;padding:0;line-height:1;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+      .pa-x:hover{background:#2e2b28;color:#f5f3f0;}
       .pa-panel .pa-body{padding:0.85rem 0.9rem 1rem;}
       /* Segmented tabs + chips. */
       .pa-seg{display:flex;gap:0.35rem;padding:0.25rem;background:#141312;border:2px solid #0a0908;border-radius:0.5rem;margin-bottom:0.85rem;}
