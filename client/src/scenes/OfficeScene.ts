@@ -74,6 +74,7 @@ import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
 import { WORK_STATUS_ICON, WORK_STATUS_LABEL, type WorkStatus } from '@pixel/shared/timetracking';
 import { TimeTrackingUI } from '../timetracking/TimeTrackingUI.js';
 import { ChatUI } from '../ui/chatUI.js';
+import { OnlineListUI, type OnlineUser } from '../ui/onlineList.js';
 import { injectPaSkin } from '../ui/paSkin.js';
 import { DockWindow } from '../ui/dockWindow.js';
 import type { MatrixClientHandle } from '../matrix/index.js';
@@ -198,6 +199,9 @@ export class OfficeScene extends Phaser.Scene {
   private refRepaintTimer: number | null = null;
   /** Shared chat panel (client/src/ui/chatUI.ts). */
   private chat?: ChatUI;
+  /** Who is online, world-wide (client/src/ui/onlineList.ts) — the chat panel's
+   *  neighbour in the bottom-left HUD strip, and its mutual exclusive. */
+  private onlineList?: OnlineListUI;
   /** The conference monitor (anchor tile + name) this viewer has joined, or null. */
   private myConference: { col: number; row: number; name?: string } | null = null;
   /** A monitor we clicked and are walking toward (join finalizes on arrival). */
@@ -443,6 +447,7 @@ export class OfficeScene extends Phaser.Scene {
     this.createHud();
     this.createSettingsPanel();
     this.createChat();
+    this.createOnlineList();
     this.confUI = new ConferenceUI();
     this.meetingArea = new MeetingAreaUI();
     this.arcadeUI = ArcadeUI.get();
@@ -608,6 +613,7 @@ export class OfficeScene extends Phaser.Scene {
         if (m.type === 'zoneList') this.updateZoneList(m);
         else if (m.type === 'zoneMembers') this.onZoneMembers(m);
         else if (m.type === 'userList') this.onUserList(m);
+        else if (m.type === 'onlineUsers') this.onOnlineUsers(m);
         else if (m.type === 'zoneInviteSent') this.onZoneInviteSent(m);
         else if (m.type === 'zoneInvitePrompt') this.onZoneInvitePrompt(m);
         else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
@@ -643,6 +649,7 @@ export class OfficeScene extends Phaser.Scene {
           // Also repaints ✉ and reconciles a client already started offline
           // under a different pixel user.
           void this.maybeAutoStartMatrix();
+          this.onlineList?.refresh(); // now knows which row is "you"
           this.isAdmin = !!m.isAdmin;
           this.myRole = (m.role as typeof this.myRole) ?? 'user';
           this.myZoneAdmin = !!m.zoneAdmin;
@@ -4092,6 +4099,9 @@ export class OfficeScene extends Phaser.Scene {
       sendCommand: (name, args) => void this.room?.send("command", { name, args }),
       isAdmin: () => this.isAdmin,
       canFocus: () => !this.arcadeUI.isOpen && this.matrix?.ownsFocus() !== true,
+      // One corner, one panel: opening either closes the other (Enter opens the
+      // chat from anywhere, so this is not only about the two buttons).
+      onOpen: () => this.onlineList?.close(),
       clientCommand: (name, args, sys) => {
         if (name === "admin-site") {
           if (!this.isAdmin) sys("/admin-site is for admins only.");
@@ -4127,6 +4137,22 @@ export class OfficeScene extends Phaser.Scene {
         return false;
       },
     });
+  }
+
+  // ── Online list (world-wide roster; the chat panel's neighbour) ──
+
+  private createOnlineList(): void {
+    this.onlineList = new OnlineListUI({
+      currentZone: () => currentZone(),
+      myUserId: () => this.myUserId,
+      onOpen: () => this.chat?.close(),
+    });
+  }
+
+  /** Server push (SimRoom.onlineUsersMessage): who is logged in and where. */
+  private onOnlineUsers(m: Record<string, unknown>): void {
+    if (!Array.isArray(m.users)) return;
+    this.onlineList?.setUsers(m.users as OnlineUser[]);
   }
 
   private onChatHistory(m: Record<string, unknown>): void {

@@ -54,6 +54,7 @@ import {
   ZONE_DELETED_EVENT,
   ASSET_CHANGED_EVENT,
   ZONE_LAYOUT_CHANGED_EVENT,
+  PRESENCE_EVENT,
 } from '../controlBus.js';
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
@@ -293,6 +294,20 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.broadcast('m', { type: 'zoneTransition', zone: DEFAULT_ZONE });
   };
 
+  /** Somebody anywhere in the world joined, switched zone or left (see
+   *  presence.ts) — push the refreshed roster to this room's clients. Coalesced
+   *  onto the next macrotask: a zone switch is a leave plus a join, and a server
+   *  restart reconnects everyone at once, which would otherwise be one broadcast
+   *  per user per room. */
+  private presencePush: ReturnType<typeof setTimeout> | null = null;
+  private readonly onPresenceChanged = (): void => {
+    if (this.presencePush !== null) return;
+    this.presencePush = setTimeout(() => {
+      this.presencePush = null;
+      this.broadcastOnlineUsers();
+    }, 0);
+  };
+
   /** This zone's saved layout changed on disk via Tiled (see
    *  tiled/zonePushApi.ts's push endpoint) — nothing else told this
    *  already-running room to pick it up, unlike a loadLayout/saveLayout(As)
@@ -458,6 +473,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.on(ASSET_CHANGED_EVENT, this.onAssetChanged);
     controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
+    controlBus.on(PRESENCE_EVENT, this.onPresenceChanged);
 
     this.registerRoomHandlers();
     this.setSimulationInterval((dtMs) => this.tick(dtMs / 1000), 1000 / TICK_HZ);
@@ -472,6 +488,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.off(ASSET_CHANGED_EVENT, this.onAssetChanged);
     controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
+    controlBus.off(PRESENCE_EVENT, this.onPresenceChanged);
+    if (this.presencePush !== null) clearTimeout(this.presencePush);
     this.zones?.close();
   }
 
@@ -494,6 +512,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // reroute hands them over from whatever zone they were in (no-op if same).
     director.setOwnerZone(userId, this.zone.id);
     if (userId) presence.join(userId, this.zone.id, username || userId);
+    // The roster this join just changed. Sent explicitly rather than left to the
+    // coalesced PRESENCE_EVENT broadcast, so the list is populated even for a
+    // viewer who joins while nothing else is moving.
+    if (userId) client.send('m', this.onlineUsersMessage());
     const characterSkin = userId ? (appStore.getCharPrefs()[userId] ?? null) : null;
 
     // Zone-local avatar loading: give the joiner every owned avatar already
@@ -751,6 +773,38 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Zones a viewer may see/travel to — the full registry. */
   private zoneListMessage(): Record<string, unknown> {
     return { type: 'zoneList', zones: this.zones.list(), current: this.zone.id };
+  }
+
+  /**
+   * Everyone logged in right now, world-wide — the HUD's online list. Only real
+   * accounts appear: agents and NPCs are engine entities, never sessions, so
+   * they never reach presence.ts in the first place.
+   *
+   * The same facts `/users online` prints (name, id, ★ admin, zone), plus the
+   * zone's label so the list reads like the zone switcher rather than showing
+   * raw ids. Nothing here is secret to a signed-in viewer — that command has
+   * always been in the `user` group — but it IS account data, so it goes only
+   * to authenticated clients.
+   */
+  private onlineUsersMessage(): Record<string, unknown> {
+    const users = presence
+      .list()
+      .map((u) => ({
+        userId: u.userId,
+        name: u.name,
+        zone: u.zone,
+        zoneLabel: this.zones.get(u.zone)?.label ?? u.zone,
+        isAdmin: !!userStore.get(u.userId)?.isAdmin,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
+    return { type: 'onlineUsers', users };
+  }
+
+  private broadcastOnlineUsers(): void {
+    const msg = this.onlineUsersMessage();
+    for (const client of this.clients) {
+      if (authOf(client).userId) client.send('m', msg);
+    }
   }
 
   /** Re-read + push the zone registry to everyone here. Deliberately unfiltered:
