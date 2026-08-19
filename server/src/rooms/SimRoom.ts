@@ -4,6 +4,7 @@ import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import {
   conferenceKey,
   meetingSlug,
+  PROTOCOL_VERSION,
   cleanName,
   playerAvatarSkinId,
   findCommand,
@@ -608,6 +609,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       playerSkin,
       playerId,
       version: this.version,
+      // Wire compatibility, checked by the client (see PROTOCOL_VERSION).
+      protocol: PROTOCOL_VERSION,
     });
     // Personal viewer prefs (per user; anonymous viewers get the defaults).
     const vs = userId

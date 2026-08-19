@@ -98,6 +98,17 @@ dist:desktop`) — the same client in a native window, with an OS-keychain-store
 login, a screen-share source picker, a system tray with an unread badge, and a
 built-in Mumble client. See [docs/design.md](docs/design.md).
 
+The desktop app ships its **own** bundle and talks to a *remote* server, so unlike a
+browser tab it does not get a new client with a deployment — and it has no
+auto-updater. When a release changes the wire format, the app says so instead of
+rendering a wrong world (`PROTOCOL_VERSION`, checked on join — see
+`client/src/ui/versionGate.ts`) and offers this one-liner, which replaces the
+AppImage in place:
+
+```bash
+curl -L -o ~/.local/share/AppImage/pixel-agents.AppImage https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage && chmod +x ~/.local/share/AppImage/pixel-agents.AppImage
+```
+
 ---
 
 # Building a world with Tiled

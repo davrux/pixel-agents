@@ -63,10 +63,25 @@ function requestCancel(dialogEl: HTMLDialogElement): void {
 
 /**
  * Open a modal. `body` is your form content (built with .fld / .pa-select / .pa-input).
- * `buttons` render bottom-right; a Cancel button is added automatically.
+ * `buttons` render bottom-right; a Cancel button is added automatically unless
+ * `dismissable: false`.
  * Returns a close() you can call yourself.
  */
-export function openPaDialog(opts: { title: string; body: HTMLElement; buttons: PaDialogButton[]; onCancel?: () => void; onClose?: () => void }): () => void {
+export function openPaDialog(opts: {
+  title: string;
+  body: HTMLElement;
+  buttons: PaDialogButton[];
+  onCancel?: () => void;
+  onClose?: () => void;
+  /**
+   * false = no way out but the buttons: no Cancel, no ✕, Esc and backdrop-click do
+   * nothing. For a dialog whose "not now" state does not exist — the version gate sits
+   * in front of a world that decodes wrongly, so dismissing it would only hide that.
+   * Defaults to true; every other caller keeps its cancel affordances.
+   */
+  dismissable?: boolean;
+}): () => void {
+  const dismissable = opts.dismissable !== false;
   ensureStyle();
   // Only one <dialog> may be open via showModal() at a time — close whatever's
   // up before opening this one (matches the previous "one modal at a time").
@@ -80,20 +95,22 @@ export function openPaDialog(opts: { title: string; body: HTMLElement; buttons: 
   panel.className = 'pa-panel';
   const head = document.createElement('div');
   head.className = 'pa-head';
-  head.innerHTML = `<h4></h4><div class="pa-x" title="Cancel (Esc)">✕</div>`;
+  head.innerHTML = dismissable ? `<h4></h4><div class="pa-x" title="Cancel (Esc)">✕</div>` : '<h4></h4>';
   head.querySelector('h4')!.textContent = opts.title;
-  head.querySelector<HTMLElement>('.pa-x')!.onclick = () => requestCancel(dialogEl);
+  if (dismissable) head.querySelector<HTMLElement>('.pa-x')!.onclick = () => requestCancel(dialogEl);
   const bodyEl = document.createElement('div');
   bodyEl.className = 'pa-body';
   bodyEl.appendChild(opts.body);
   const foot = document.createElement('div');
   foot.className = 'pa-foot';
-  const cancel = document.createElement('button');
-  cancel.type = 'button';
-  cancel.className = 'pa-b';
-  cancel.textContent = 'Cancel';
-  cancel.onclick = () => requestCancel(dialogEl);
-  foot.appendChild(cancel);
+  if (dismissable) {
+    const cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'pa-b';
+    cancel.textContent = 'Cancel';
+    cancel.onclick = () => requestCancel(dialogEl);
+    foot.appendChild(cancel);
+  }
   for (const b of opts.buttons) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -108,7 +125,11 @@ export function openPaDialog(opts: { title: string; body: HTMLElement; buttons: 
   panel.append(head, bodyEl);
   dialogEl.appendChild(panel);
 
-  dialogEl.addEventListener('cancel', () => opts.onCancel?.());
+  dialogEl.addEventListener('cancel', (e) => {
+    // Esc fires 'cancel'; preventing it is the only way to keep a <dialog> open.
+    if (!dismissable) return void e.preventDefault();
+    opts.onCancel?.();
+  });
   // Fires exactly once, on every close path (button / cancel-Esc / backdrop / .close()).
   dialogEl.addEventListener('close', () => {
     if (current === dialogEl) current = null;
@@ -118,7 +139,7 @@ export function openPaDialog(opts: { title: string; body: HTMLElement; buttons: 
   // Backdrop click: with showModal(), a click whose target is the <dialog>
   // element itself (not something inside .pa-panel) landed in the ::backdrop.
   dialogEl.addEventListener('mousedown', (e) => {
-    if (e.target === dialogEl) requestCancel(dialogEl);
+    if (dismissable && e.target === dialogEl) requestCancel(dialogEl);
   });
 
   (document.getElementById('game') ?? document.body).appendChild(dialogEl);

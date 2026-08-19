@@ -66,6 +66,8 @@ import {
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
+import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
+import { checkProtocol } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
@@ -769,6 +771,10 @@ export class OfficeScene extends Phaser.Scene {
           // Show the server version next to the connection status (arrives just
           // after the bare "connected" set at connect time).
           if (typeof m.version === 'string' && m.version) setStatus(`connected · ${m.version}`);
+          // Wire compatibility before anything is drawn from synced state: an older
+          // build decodes a shifted schema into nonsense without erroring (see
+          // versionGate.ts). Silent when the numbers agree.
+          checkProtocol(m.protocol, PROTOCOL_VERSION, typeof m.version === 'string' ? m.version : undefined);
           // The server assigns this viewer's owned avatar (pa:<userId>) — remember
           // its id so "My avatar" edits/preview target the right skin.
           if (typeof m.playerSkin === 'string') this.myAvatarId = m.playerSkin;

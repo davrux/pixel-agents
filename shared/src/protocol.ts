@@ -6,6 +6,19 @@
 
 export const WORLD_ROOM = 'world';
 
+/**
+ * Wire-compatibility number. Bump it in the same change as anything that makes an
+ * older client decode this server wrongly: adding, removing or REORDERING a synced
+ * schema field, or changing what a message means.
+ *
+ * Why a number and not the build version: the displayed version (`git describe`)
+ * differs after every commit, so gating on it would cry wolf in development and
+ * teach everyone to ignore the panel. This changes only when compatibility does.
+ *
+ * 2 — CharacterSync.hueShift removed, which shifted the 17 fields after it.
+ */
+export const PROTOCOL_VERSION = 2;
+
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct
 // from the shared, deletable template gallery (`char_*`). Owned avatars use a
