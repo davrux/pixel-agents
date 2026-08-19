@@ -91,16 +91,24 @@ Both cats follow the contract above; described down each column:
 
 | Col | Row 0 (down) | Row 1 (up) | Row 2 (right) |
 |-----|--------------|------------|---------------|
-| 0 | sitting upright, tail out to one side | back, upright | mid-stride, tail raised |
-| 1 | sitting upright — **the stand frame** | back, upright | mid-stride, legs gathered |
-| 2 | head tilted, one ear folded | back, weight shifted | mid-stride, opposite legs |
-| 3 | loafed down, paws tucked | back, settled low | lying down, tail low |
-| 4 | loafed, paws tucked further | back, settled low | lying down, head up, eye and nose visible |
-| 5 | sitting upright, tail visible | back, upright | standing, tail up |
+| 0 | standing, tail raised behind | walking away, tail raised | mid-stride, tail raised |
+| 1 | standing — **the stand frame** | walking away | mid-stride, legs gathered |
+| 2 | standing, weight shifted | walking away | mid-stride, opposite legs |
+| 3 | sitting upright | sitting, seen from behind | sitting, facing right |
+| 4 | sitting, eyes closed | sitting, seen from behind | sitting, eyes closed |
+| 5 | standing, tail raised | standing away, tail raised | Loui standing; **Daisy sitting** |
 
 Note that the cats' `walk` frames for rows 0 and 1 are near-static — a
-front-facing walk barely moves at 16×16 — while row 2 carries the real gait. The
-orange cats these replaced were arranged the same way.
+front-facing walk barely moves at 16×16 — while row 2 carries the real gait. Every
+generation of this art has been arranged that way, the orange cats these replaced
+included.
+
+**Known gap in `cat_1`:** Daisy's row 2 column 5 is a *sitting* pose where it
+should be a stand. Column 5 is the `idle` frame and also stands in for `drink` and
+`talk` (see the table above), so a Daisy waiting at a coffee station facing left or
+right reads as seated. Loui's column 5 is a stand in all three rows. Fixing it
+means redrawing that one frame; nothing in code can compensate, because the engine
+has no other frame to ask for.
 
 ## Editing
 
@@ -110,8 +118,17 @@ drawn larger and scaled down — art composed at ~24–26 px loses an eye off ev
 front-facing face when it is reduced, and the loss is invisible until you compare
 frames side by side. For generating a sheet from photos of a real animal, see
 [PROMPT.md](PROMPT.md), which also lists how to verify one before committing it.
-There is no bake step and no
-committed artifact: `loadPetSprites` (`server/src/assetLoader.ts:237`) reads these
+
+There is no bake step and no committed artifact: `loadPetSprites` (`server/src/assetLoader.ts:237`) reads these
 PNGs at startup and the frames are sent to clients as sprite data, so a change is
 live on the next server start. These files are **not** part of the Tiled pipeline
 and never enter the furniture atlas.
+
+The two cats on disk did not arrive drawn at 16×16. They were generated at roughly
+32 px per cell and reduced 2:1, which is why their fur is mottled where the orange
+cats before them were flat: halving pixel art aliases every 1 px stripe, and no
+resampling rule recovers a detail that lands between two output pixels. What did
+survive — eye, nose, ear pink — survived because the reduction let a rare,
+chromatically distant colour outvote the local average in its block; a plain area
+average dissolves all three. Treat that as a rescue, not a pipeline: drawing at
+16×16 remains the only way to get a clean sheet.
