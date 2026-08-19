@@ -2,7 +2,7 @@
  * The online list — who is logged into the world right now, and where.
  *
  * A sibling of the chat panel (ui/chatUI.ts): same bottom-left corner, same
- * toggle in the shared HUD strip (ui/hudBar.ts), same 🗕 to put it away. The two
+ * toggle in the shared HUD strip (ui/hudBar.ts), same ✕ to put it away. The two
  * are mutually exclusive; the host wires that through `onOpen` (see
  * OfficeScene).
  *
@@ -53,9 +53,9 @@ export class OnlineListUI {
     this.title = document.createElement('span');
     this.title.className = 'ttl';
     const hide = document.createElement('button');
-    hide.className = 'x';
-    hide.textContent = '🗕';
-    hide.title = 'Hide online list';
+    hide.className = 'pa-x';
+    hide.textContent = '✕';
+    hide.title = 'Close online list';
     hide.onclick = () => this.setHidden(true);
     head.append(this.title, hide);
 
@@ -158,10 +158,8 @@ function injectStyle(): void {
     #pa-online .pa-online-head{display:flex;align-items:center;justify-content:space-between;gap:0.6rem;
       padding:0.45rem 0.45rem 0.45rem 0.6rem;border-bottom:2px solid #0a0908;}
     #pa-online .pa-online-head .ttl{font-size:1rem;color:#f5f3f0;}
-    #pa-online .pa-online-head .x{background:#262422;border:2px solid #0a0908;border-radius:0.35rem;color:#adb0b2;
-      font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.5rem;cursor:pointer;
-      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-    #pa-online .pa-online-head .x:hover{color:#f1efec;}
+    /* The close button is paSkin's .pa-x, unmodified — the same chip the Mumble
+       and Matrix windows close with, in a head that is a .pa-head in all but name. */
     #pa-online .pa-online-list{max-height:16rem;overflow-y:auto;padding:0.25rem 0.6rem 0.45rem;}
     #pa-online .row{display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px solid #2c2a28;}
     #pa-online .row:last-child{border-bottom:0;}

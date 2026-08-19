@@ -87,6 +87,26 @@ server-side and synced; the renderer resolves frames through the single
 plus the frames — never a branch on tool names or state strings in the renderer,
 which is what the original had and what made every new behaviour a render change.
 
+### Coming back is not arriving
+
+The client reconnects by reloading the page, and a server restart takes the
+whole world with it, so a player passes through join far more often than they
+ever *travel*. Those are different questions and get different answers: entering a
+zone on purpose (the menu, a portal) lands you on its arrival tile, while a
+refresh or a reconnect resumes the `PlayerSpot` the server wrote down — tile,
+facing, the AFK marker, and the `InteractionPoint` you were holding, which is what
+puts you back in the same chair or back at the coffee machine with the cup still
+in the pose.
+
+Two things make it work in practice. The spot is **checkpointed every few
+seconds** rather than only on leave: a restart that nobody said goodbye to is
+exactly the case that matters, and the un-written position was the one everyone
+came back to. And the resume is allowed to override automatic placement —
+`findFreeSpawnTile` refuses furniture tiles and meeting areas because it *chooses*
+a tile on somebody's behalf, and a chair is a furniture tile. It is still not
+authority: the point is re-claimed through the same one-occupant rule as any other
+claim, so a seat somebody else took stays theirs and you simply stand.
+
 ## Zones and maps
 
 A zone is an explorable space, and each one is an instance of the *same* room
@@ -249,7 +269,12 @@ in meeting areas, which a mapper places.
 **Mumble** (desktop only) is a real Mumble client speaking the protocol from the
 Electron main process — a browser cannot open the raw TLS socket. It connects
 straight from the user's machine; the pixel-agents server never relays it and
-holds none of its credentials.
+holds none of its credentials. Its *lifetime* is independent too: the world
+reloads the page whenever its server restarts, and a call must not be collateral
+damage of that, so main keeps the socket across the navigation and the returning
+renderer is replayed the roster it missed (`mumble/service.ts`). Audio pauses for
+the moment the page is gone — capture and playback are the renderer's half — but
+nobody in the channel sees a leave and a rejoin.
 
 **Matrix** is the chat client, including E2EE. It talks to its own homeserver
 directly, on the same footing as Mumble: started before the pixel-agents

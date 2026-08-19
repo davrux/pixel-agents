@@ -842,3 +842,28 @@ export interface Character {
   /** Cumulative output tokens consumed */
   outputTokens: number;
 }
+
+/**
+ * Where a player was and what they were doing, small enough to store and put
+ * back — what a returning viewer resumes from.
+ *
+ * A reload is not a decision to go anywhere: the world reloads its own page
+ * whenever the server restarts, and an avatar that reappears somewhere else (or
+ * standing up from the chair it was sitting in) reads as being teleported for no
+ * reason. So the same three facts the renderer draws a player from — tile,
+ * facing, and which InteractionPoint they hold — are what gets persisted and
+ * restored. Nothing here is authority: the point is re-claimed through the same
+ * one-occupant rule as any other claim, and a tile that is no longer walkable
+ * (the map changed) simply is not restored.
+ */
+export interface PlayerSpot {
+  col: number;
+  row: number;
+  dir: Direction;
+  /** The point they were holding: a seat (sitting) or an appliance's stand tile
+   *  (the ☕ pose). Absent when they were standing on open floor. */
+  pointId?: string;
+  /** Sitting where they stood, with no chair involved (the sit toggle). */
+  sit?: boolean;
+  afk?: boolean;
+}

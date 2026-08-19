@@ -69,6 +69,15 @@ export interface MumbleUser {
   listening: number[];
 }
 
+/** Everything a renderer needs to draw the server it is on: what a ServerSync
+ *  carries, and what `MumbleSession.snapshot()` can hand out again later. */
+export interface MumbleSnapshot {
+  session: number;
+  welcome?: string;
+  channels: MumbleChannel[];
+  users: MumbleUser[];
+}
+
 /** Answer to a PermissionQuery, or the unsolicited flush Murmur broadcasts
  *  when an ACL changes — which carries no channel at all. */
 export interface MumblePermissions {
@@ -95,8 +104,8 @@ export interface MumbleSessionOptions {
   osVersion: string;
 }
 
-/** Emits: sync, channel, channelRemove, user, userRemove, audio, text,
- *  permission, permissions, error, close. */
+/** Emits: sync (a MumbleSnapshot), channel, channelRemove, user, userRemove,
+ *  audio, text, permission, permissions, error, close. */
 export class MumbleSession extends EventEmitter {
   private socket: TLSSocket | null = null;
   private readonly reader = new FrameReader(MAX_MESSAGE_BYTES);
@@ -109,6 +118,9 @@ export class MumbleSession extends EventEmitter {
 
   private ourSession = 0;
   private currentChannel = 0;
+  /** The server's welcome text, kept so a re-attaching renderer's replayed sync
+   *  carries the same payload the original one did (see snapshot). */
+  private welcome: string | undefined;
   private readonly channels = new Map<number, MumbleChannel>();
   private readonly users = new Map<number, MumbleUser>();
 
@@ -287,15 +299,14 @@ export class MumbleSession extends EventEmitter {
     const { session, welcome, permissions } = decodeServerSync(payload);
     this.ourSession = session;
     this.currentChannel = this.users.get(session)?.channel ?? 0;
+    this.welcome = welcome;
     this.synced = true;
     this.stopHandshakeTimer();
     if (this.opts.channel) this.joinChannelByName(this.opts.channel);
-    this.emit('sync', {
-      session,
-      welcome,
-      channels: [...this.channels.values()],
-      users: [...this.users.values()],
-    });
+    // Emitted from snapshot() so the first sync and a replayed one are the same
+    // message by construction — a renderer that attached late must not be able
+    // to see a different world from one that was here all along.
+    this.emit('sync', this.snapshot());
     // After the sync, never before: the renderer empties its permission cache
     // on a sync, and this is the one channel's answer it does not have to ask
     // for. `currentChannel` is still where we landed — a join requested above
@@ -333,6 +344,30 @@ export class MumbleSession extends EventEmitter {
       // reused for the next chunk, and this crosses an async IPC boundary.
       opus: Uint8Array.from(packet.opus),
     });
+  }
+
+  /** True while the socket is up: a session that can still carry voice. */
+  get live(): boolean {
+    return !this.closed;
+  }
+
+  /**
+   * The world as it stands right now, in the shape of a ServerSync.
+   *
+   * A renderer that attaches after the handshake — the app reloaded, and voice
+   * is not part of that (see `service.ts`) — has no roster of its own, and the
+   * protocol dumps the tree only once. Replaying this is what lets the socket
+   * outlive the page. Null before the sync: there is nothing to replay yet, and
+   * "connecting" is the honest answer.
+   */
+  snapshot(): MumbleSnapshot | null {
+    if (!this.synced || this.closed) return null;
+    return {
+      session: this.ourSession,
+      welcome: this.welcome,
+      channels: [...this.channels.values()],
+      users: [...this.users.values()],
+    };
   }
 
   // ── outgoing ───────────────────────────────────────────────────────────────

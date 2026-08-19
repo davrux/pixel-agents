@@ -58,6 +58,7 @@ import type {
   Pet,
   PetKind,
   PlacedFurniture,
+  PlayerSpot,
   TileType as TileTypeVal,
   GroundMap,
 } from '../types.js';
@@ -905,6 +906,98 @@ export class OfficeState {
     return id;
   }
 
+  /**
+   * What a returning viewer should resume from (see PlayerSpot), or null if the
+   * id is not a player's.
+   *
+   * Read from the character rather than tracked as the player moves: the truth is
+   * already in `OfficeState`, and anything remembered alongside it would be a
+   * second copy to keep in step. Sitting is two different facts — a claimed seat
+   * (`pointId` names the chair) and the chair-less sit toggle (`sit`) — because
+   * putting each back is a different act.
+   */
+  playerSpot(id: number): PlayerSpot | null {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return null;
+    const spot: PlayerSpot = { col: ch.tileCol, row: ch.tileRow, dir: ch.dir };
+    if (ch.atPointId) spot.pointId = ch.atPointId;
+    else if (ch.state === CharacterState.SIT) spot.sit = true;
+    if (ch.afk) spot.afk = true;
+    return spot;
+  }
+
+  /**
+   * Put a player back the way they left (see PlayerSpot), as far as the world
+   * still allows.
+   *
+   * Called right after addPlayer, and deliberately allowed to override where that
+   * put them: `findFreeSpawnTile` answers a different question — where to *place*
+   * somebody automatically, which is why it refuses furniture tiles and meeting
+   * areas — and a chair is exactly a furniture tile. This is not placement, it is
+   * a resume: the tile is one the player was standing on a moment ago, and the
+   * only reasons not to honour it are that the world has moved on. Every one of
+   * those is checked here rather than assumed:
+   *
+   * - a point that no longer exists (the furniture was removed, or the map was
+   *   re-imported and uids changed) restores nothing;
+   * - a point somebody else now holds is theirs — the same first-come rule as
+   *   every other claim (`claimPoint`), and the player just stands instead;
+   * - a tile that is no longer walkable leaves them wherever addPlayer put them.
+   */
+  resumePlayer(id: number, spot: PlayerSpot): void {
+    const ch = this.characters.get(id);
+    if (!ch || !ch.isPlayer) return;
+    // Facing is worth keeping even when nothing else can be: a resumed avatar
+    // that turns to face south says "you were moved" all by itself. The stored
+    // spot is validated where it is read back (appStore.getPlayerSpot), so this
+    // takes it as the Direction its type says it is.
+    ch.dir = spot.dir;
+    ch.afk = spot.afk === true;
+
+    const point = spot.pointId ? this.points.get(spot.pointId) : undefined;
+    if (point && (point.occupantId === null || point.occupantId === ch.id)) {
+      this.placePlayerAt(ch, point.col, point.row);
+      ch.dir = point.facingDir;
+      claimPoint(ch, this.points, point.uid);
+      // Players hold a pose until they move — no countdown, exactly as
+      // useAppliance/sitPlayerAt leave it (an NPC's coffee break is the timed one).
+      ch.atPointTimer = 0;
+      ch.state = point.posture === 'sit' ? CharacterState.SIT : CharacterState.IDLE;
+      return;
+    }
+
+    // No point (or it is gone/taken): stand — or sit in place — on the stored
+    // tile when it is still somewhere a character can be.
+    if (this.tileFreeForResume(ch, spot.col, spot.row)) this.placePlayerAt(ch, spot.col, spot.row);
+    if (spot.sit) ch.state = CharacterState.SIT;
+  }
+
+  /** Move a player's avatar onto a tile outright: no path, no walk, tile and
+   *  pixel position in step (a resume, not movement). */
+  private placePlayerAt(ch: Character, col: number, row: number): void {
+    ch.tileCol = col;
+    ch.tileRow = row;
+    ch.path = [];
+    ch.moveProgress = 0;
+    snapToTile(ch);
+  }
+
+  /** Whether a resume may put `ch` on this tile: walkable now, and nobody else
+   *  standing there. Meeting areas are allowed on purpose — the player was
+   *  already in that call, and being pushed out of it by a reload is the very
+   *  thing a resume is for (contrast findFreeSpawnTile, which places somebody
+   *  automatically and must never opt them into one). */
+  private tileFreeForResume(ch: Character, col: number, row: number): boolean {
+    if (!isWalkable(col, row, this.tileMap, this.blockedTiles)) return false;
+    for (const other of this.characters.values()) {
+      if (other.id !== ch.id && other.tileCol === col && other.tileRow === row) return false;
+    }
+    for (const pet of this.pets.values()) {
+      if (pet.tileCol === col && pet.tileRow === row) return false;
+    }
+    return true;
+  }
+
   /** A free walkable tile to spawn on: not a wall/blocked tile, not under any
    *  furniture footprint, not occupied by another character or pet, and never
    *  inside a meeting area (see spawnableTiles). Prefers `preferred` (e.g. a
@@ -952,10 +1045,22 @@ export class OfficeState {
     if (ch) ch.folderName = name;
   }
 
-  /** Remove a player's avatar (immediate; viewers leave abruptly). */
+  /**
+   * Remove a player's avatar (immediate; viewers leave abruptly).
+   *
+   * Releasing the claim is not tidiness: a point is occupied by an *id*, and an id
+   * whose character is gone can never release it again — the chair somebody
+   * disconnected from stayed occupied by a ghost, so neither an agent nor the
+   * player themselves could ever take it again (until the layout was rebuilt, or
+   * the server restarted, which is what hid it). A reload is a departure and an
+   * arrival in quick succession, so this is also what lets the returning player
+   * claim their own seat back (see resumePlayer).
+   */
   removePlayer(id: number): void {
     if (this.selectedAgentId === id) this.selectedAgentId = null;
     if (this.cameraFollowId === id) this.cameraFollowId = null;
+    const ch = this.characters.get(id);
+    if (ch) releasePoint(ch, this.points);
     this.characters.delete(id);
   }
 
