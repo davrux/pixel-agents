@@ -15,6 +15,12 @@
  * not something the live game decodes/colorizes/sends per-connection anymore.
  */
 import { appStore } from './appStore.js';
+import { withArtUrl } from './art/artUrl.js';
+import { CHAR_FRAME_H, CHAR_FRAME_W, PET_FRAME_H, PET_FRAME_W } from './core/assets/constants.js';
+
+/** Frame size for an entry with no spec of its own — see withArtUrl. */
+const CHAR_FRAME = { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
+const PET_FRAME = { w: PET_FRAME_W, h: PET_FRAME_H };
 import type { AssetBundle } from './assets.js';
 
 export const ASSET_TYPES = ['character', 'pet', 'furniture', 'image'] as const;
@@ -52,6 +58,7 @@ function findMessage(bundle: AssetBundle, type: string): Record<string, unknown>
 
 /** Build a merged bundle: file defaults with the DB asset overrides applied.
  *  Only references are rebuilt (arrays/messages); pixel data is shared. */
+
 export function buildMerged(defaults: AssetBundle): AssetBundle {
   const raw = defaults.raw;
 
@@ -157,10 +164,20 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     switch (m.type) {
       case 'characterSpritesLoaded':
         // Each entry is { id, data }; bundledIds are the non-deletable skins
-        // (anything not in bundledIds is user-added and deletable).
-        return { type: 'characterSpritesLoaded', characters, bundledIds };
+        // (anything not in bundledIds is user-added and deletable). The pixels
+        // travel as a PNG behind data.url — see withArtUrl.
+        return {
+          type: 'characterSpritesLoaded',
+          characters: characters.map((c) => ({ id: c.id, data: withArtUrl('character', c.id, c.data, CHAR_FRAME) })),
+          bundledIds,
+        };
       case 'petSpritesLoaded':
-        return { type: 'petSpritesLoaded', dogs: namedDogs, cats: namedCats, ducks: namedDucks };
+        return {
+          type: 'petSpritesLoaded',
+          dogs: namedDogs.map((d, i) => withArtUrl('pet', `dog_${i}`, d, PET_FRAME)),
+          cats: namedCats.map((d, i) => withArtUrl('pet', `cat_${i}`, d, PET_FRAME)),
+          ducks: namedDucks.map((d, i) => withArtUrl('pet', `duck_${i}`, d, PET_FRAME)),
+        };
       case 'furnitureAssetsLoaded':
         return {
           type: 'furnitureAssetsLoaded',

@@ -1,5 +1,6 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
+import { withArtUrl } from '../art/artUrl.js';
 
 import {
   conferenceKey,
@@ -20,6 +21,7 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
+import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
@@ -559,7 +561,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Zone-local avatar loading: give the joiner every owned avatar already
     // present in this zone, so it can render the players standing here without
     // pulling in avatars from other zones.
-    for (const [sid, data] of this.avatarData) client.send('m', { type: 'playerAvatar', id: sid, data });
+    for (const [sid, data] of this.avatarData) client.send('m', this.avatarMessage(sid, data));
 
     // Logged-in viewers own a private, editable avatar (pa:<userId>); anonymous
     // viewers (open dev mode) fall back to a random gallery skin.
@@ -571,7 +573,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.avatarData.set(sid, data);
       this.avatarRefs.set(sid, (this.avatarRefs.get(sid) ?? 0) + 1);
       // Announce (or refresh) this avatar to everyone in the zone, incl. the joiner.
-      this.broadcast('m', { type: 'playerAvatar', id: sid, data });
+      this.broadcast('m', this.avatarMessage(sid, data));
     }
     // Everyone who joins gets a player avatar. Active entry (menu switch or
     // portal) → land at the zone's arrival tile; a plain refresh (or a reconnect
@@ -716,6 +718,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const layout = this.os.getLayout();
     const a = layout.tileActions?.[parsed.row * layout.cols + parsed.col];
     return a?.kind === 'meetingRoom' ? a.video : true;
+  }
+
+
+  /**
+   * An avatar announcement: its art as a URL, not as pixels.
+   *
+   * An avatar is 77 KB of sprite data and every viewer in the zone gets every
+   * avatar standing there, so this was the largest repeated payload in the world.
+   * As a PNG behind /art it is ~3.5 KB, and the browser caches it across joins.
+   * The pixels stay as a fallback only when the art cannot be addressed at all.
+   */
+  private avatarMessage(sid: string, data: unknown): Record<string, unknown> {
+    const entry = withArtUrl('character', sid, data, { w: CHAR_FRAME_W, h: CHAR_FRAME_H }) as Record<string, unknown>;
+    // Same shape either way: with a url the pixels are behind it, without one they are
+    // still in `data`. The spec rides along because a sheet cannot be sliced without it.
+    return entry.url ? { type: 'playerAvatar', id: sid, ...entry } : { type: 'playerAvatar', id: sid, data };
   }
 
   /** Current members of a meeting room (by its "source:col,row" key), for broadcast. */
@@ -1598,7 +1616,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     appStore.setPlayerAvatar(userId, data);
     const sid = playerAvatarSkinId(userId);
     if (this.avatarData.has(sid)) this.avatarData.set(sid, data);
-    this.broadcast('m', { type: 'playerAvatar', id: sid, data });
+    this.broadcast('m', this.avatarMessage(sid, data));
   }
 
   /** Next free gallery template id (char_<n>) across bundled + DB skins. */

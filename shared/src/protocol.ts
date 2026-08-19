@@ -16,8 +16,9 @@ export const WORLD_ROOM = 'world';
  * teach everyone to ignore the panel. This changes only when compatibility does.
  *
  * 2 — CharacterSync.hueShift removed, which shifted the 17 fields after it.
+ * 3 — character/pet/avatar art travels as a PNG URL instead of sprite pixels.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

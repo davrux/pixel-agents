@@ -836,11 +836,14 @@ export class OfficeScene extends Phaser.Scene {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
             if (Array.isArray(m.bundledIds)) this.bundledFurnitureIds = new Set(m.bundledIds as string[]);
           }
-          if (m.type === 'characterSpritesLoaded') {
-            this.resolveSkins(); // the loading phase waits for this once
-            if (Array.isArray(m.bundledIds)) this.bundledSkinIds = new Set(m.bundledIds as string[]);
+          if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
+            this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
-          assetBridge(m);
+          // Art now arrives as PNG URLs, so applying an asset message can be async
+          // (see net/bridge.ts). Anything that reads the sprite store afterwards has
+          // to wait for it — the loading phase above all, which would otherwise draw
+          // the world before a single skin had pixels.
+          const applied = assetBridge(m);
           // The furniture schema (state.furniture) and the catalog broadcast
           // (furnitureAssetsLoaded, needed to resolve each entry's sprite/
           // footprint) arrive over two independent channels with no ordering
@@ -869,8 +872,13 @@ export class OfficeScene extends Phaser.Scene {
             // decode was still in flight (see PhaserRenderer's ensureImageTexture).
             if (this.loading === null && (this.os.getLayout().decals?.length ?? 0) > 0) this.view.buildStatic();
           }
+          if (m.type === 'characterSpritesLoaded') {
+            void Promise.resolve(applied).then(() => this.resolveSkins()); // the loading phase waits for this once
+          }
           // Keep the Settings avatar preview honest after a live avatar change.
-          if (m.type === 'playerAvatar' && m.id === this.myAvatarId) this.renderAvatarPreview();
+          if (m.type === 'playerAvatar' && m.id === this.myAvatarId) {
+            void Promise.resolve(applied).then(() => this.renderAvatarPreview());
+          }
         }
       });
       this.bindState(this.room);

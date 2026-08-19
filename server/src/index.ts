@@ -48,6 +48,7 @@ import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
+import { registerArtApi } from './artApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
@@ -253,6 +254,10 @@ async function main(): Promise<void> {
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
     console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
   }
+  // Character/NPC/avatar art as PNG. AFTER registerAuth on purpose: it carries no
+  // file extension, so the session gate covers it — which is the whole point, since
+  // avatars are personal art and /assets/*.png is served openly (see artApi.ts).
+  registerArtApi(app);
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in
   // the image — the operator bind-mounts ARCADE_CONTENT_DIR at runtime. The catalog
   // (metadata only) is public; the files are auth-gated (see auth.ts: /arcade/content

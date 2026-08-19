@@ -24,6 +24,26 @@ export function serverHttpOrigin(): string {
   return getServerHttpOrigin();
 }
 
+
+/**
+ * GET a server path — the one place that knows how a request proves who it is.
+ *
+ * In the browser the session cookie rides along, same-origin. On the desktop the page
+ * is an `app://` origin talking to a remote server, so there is no cookie and the
+ * server-issued bearer goes in a header instead (same token the room join uses, read
+ * from the preload IPC and never persisted in the renderer). Callers pass a path, never
+ * an origin — a relative fetch would hit `app://` and fail (invariant #10).
+ */
+export async function serverFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (isDesktop()) {
+    const token = await desktop().getToken();
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  }
+  const url = /^https?:\/\//.test(path) ? path : `${serverHttpOrigin()}${path.startsWith('/') ? '' : '/'}${path}`;
+  return fetch(url, { ...init, headers });
+}
+
 /** Resolve once the server's /health responds OK — used to wait out a restart. */
 export async function isServerUp(): Promise<boolean> {
   try {

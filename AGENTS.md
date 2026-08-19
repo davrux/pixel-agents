@@ -139,6 +139,20 @@ Security is a first-class requirement, not a later pass.
   so anything that draws a sprite goes through that function, never
   `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
   (fresh pixels every frame) and uploaded background images (real PNGs).
+- **Character, NPC and avatar art travels as a PNG, not as pixels.** The bundled
+  sheets already ARE images (`assets/characters/char_*.png`, `assets/pets/*.png`);
+  what a join used to ship was one hex string per pixel. Entries now carry a URL into
+  `/art/<kind>/<id>?v=<hash>` (`server/src/artApi.ts`) plus the metadata a sheet cannot
+  hold — name, `CharacterSpec`, NPC config, and the frame size, without which a client
+  would slice a 16×16 pet on the 16×32 character default. Measured: `characterSpritesLoaded`
+  668 → 2.9 KB, `petSpritesLoaded` 163 → 1.4 KB, a player avatar 77 → 0.2 KB, and the
+  sheets themselves are 20.5 KB for the whole roster (PNG written with
+  `filterType: 0, deflateStrategy: 0` — pngjs's RLE default costs 5× on pixel art).
+  Two rules that keep it honest: the route must **not** end in `.png` or live under
+  `/assets/`, because the session gate exempts by EXTENSION and avatars are personal
+  art; and the URL-building half stays free of bundle lookups
+  (`server/src/art/artUrl.ts`) — asking `getMergedBundle()` from inside the bundle
+  build recurses into a stack overflow on the first join.
 - **A baked sheet is already an atlas — never slice one into pixels.** Floor and
   wall sheets are registered as one texture per set and drawn by frame
   (`registerSheetTexture`/`sheetFrame`); `shared` names a cell (`SheetCellRef`)

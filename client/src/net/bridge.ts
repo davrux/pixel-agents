@@ -11,6 +11,12 @@ import {
 import { setImageAssets } from '@pixel/shared/office/imageAssets.js';
 import { buildDynamicCatalog, onSpriteRefs } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { setSpriteRefs } from '../render/sprites.js';
+import { fetchSheet } from '../art/sheet';
+
+/** Fallback frame size for a sheet whose entry names no spec (the historical
+ *  16×32 character; pets always carry one). */
+const CHAR_FRAME_W = 16;
+const CHAR_FRAME_H = 32;
 
 type Msg = Record<string, any>;
 
@@ -26,35 +32,88 @@ type Msg = Record<string, any>;
 // what needs it. Wired once here rather than passed through every call site.
 onSpriteRefs((refs) => setSpriteRefs(refs));
 
+
+/**
+ * Fill in an entry's pixels when the server sent a URL instead of them.
+ *
+ * The entry keeps its shape — name, spec and NPC config travel in the message, because
+ * a sheet is not decodable without the spec (columns per track vary) and those few
+ * bytes are not what made the message big. Only `down/up/right/left` come from the PNG.
+ *
+ * A fetch that fails leaves the entry as it arrived rather than dropping it: without
+ * pixels the renderer falls back to its empty-sprite placeholder, which is a visible
+ * gap rather than a character that silently ceases to exist.
+ */
+async function withPixels<T extends Record<string, any>>(entry: T): Promise<T> {
+  const url = entry?.url as string | undefined;
+  if (!url) return entry;
+  // The server states the frame size (artFrame); an entry's own spec is the fallback
+  // for a server that predates it, and 16×32 the last resort.
+  const frame = (entry.artFrame ?? (entry.spec as { frame?: unknown } | undefined)?.frame) as
+    | { w?: number; h?: number }
+    | undefined;
+  try {
+    const dirs = await fetchSheet(url, frame?.w ?? CHAR_FRAME_W, frame?.h ?? CHAR_FRAME_H);
+    return { ...entry, ...dirs };
+  } catch (err) {
+    console.warn('[bridge] could not load art', url, err instanceof Error ? err.message : err);
+    return entry;
+  }
+}
+
+/** Same, for a list of entries — one round of fetches, in parallel. */
+const allWithPixels = <T extends Record<string, any>>(list: T[] | undefined): Promise<T[]> =>
+  Promise.all((list ?? []).map(withPixels));
+
 export function createAssetBridge(
   os: OfficeState,
   onLayout: (layout: OfficeLayout) => void,
-): (msg: Msg) => void {
+): (msg: Msg) => void | Promise<void> {
   // Owned avatars (pa:<user>) of the players in the current zone, kept so they
   // can be re-applied after a gallery reload (setCharacterTemplates rebuilds the
   // skin store from the gallery alone, which would otherwise drop them).
   const avatars = new Map<string, LoadedCharacterData>();
-  return function apply(msg: Msg): void {
+  return function apply(msg: Msg): void | Promise<void> {
     switch (msg.type) {
       case 'providerCapabilities':
         setProviderCapabilities({ readingTools: msg.readingTools, subagentToolNames: msg.subagentToolNames });
         break;
       case 'characterSpritesLoaded':
-        setCharacterTemplates(msg.characters);
-        // Re-apply zone avatars on top of the refreshed gallery.
-        for (const [id, data] of avatars) upsertCharacterTemplate(id, data);
-        break;
+        // Art arrives as PNG URLs (see server/src/artApi.ts), so this is the one
+        // asset message that has to wait for a fetch before the store is right.
+        return (async () => {
+          const list = await Promise.all(
+            (msg.characters as Array<{ id: string; data: Record<string, any> }>).map(async (c) => ({
+              id: c.id,
+              data: await withPixels(c.data ?? {}),
+            })),
+          );
+          setCharacterTemplates(list as never);
+          // Re-apply zone avatars on top of the refreshed gallery.
+          for (const [id, data] of avatars) upsertCharacterTemplate(id, data);
+        })();
       case 'playerAvatar':
-        avatars.set(msg.id, msg.data);
-        upsertCharacterTemplate(msg.id, msg.data);
-        break;
+        return (async () => {
+          // With a url the message IS the entry (url + name/spec/npc); without one it
+          // carries the pixels in `data`, as it always did.
+          const { type: _t, id: _i, data: legacy, ...entry } = msg;
+          const data = (await withPixels(msg.url ? entry : legacy)) as LoadedCharacterData;
+          avatars.set(msg.id, data);
+          upsertCharacterTemplate(msg.id, data);
+        })();
       case 'playerAvatarGone':
         avatars.delete(msg.id);
         removeCharacterTemplate(msg.id);
         break;
       case 'petSpritesLoaded':
-        setPetTemplates(msg.dogs ?? [], msg.cats ?? [], msg.ducks ?? []);
-        break;
+        return (async () => {
+          const [dogs, cats, ducks] = await Promise.all([
+            allWithPixels(msg.dogs),
+            allWithPixels(msg.cats),
+            allWithPixels(msg.ducks),
+          ]);
+          setPetTemplates(dogs as never, cats as never, ducks as never);
+        })();
       case 'imagesLoaded':
         setImageAssets(msg.images ?? []);
         break;

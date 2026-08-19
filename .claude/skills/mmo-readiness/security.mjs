@@ -217,7 +217,14 @@ const PUBLIC_ROUTES = new Map([
 ]);
 
 /** GET routes that rely on the central gate in auth.ts rather than their own. */
-const CENTRALLY_GATED = new Set(['GET /arcade/catalog', 'GET /arcade/allowed-games']);
+const CENTRALLY_GATED = new Set([
+  'GET /arcade/catalog',
+  'GET /arcade/allowed-games',
+  // Character/NPC/avatar PNGs. No file extension on purpose, so the gate covers it —
+  // /assets/*.png is exempt BY EXTENSION and would serve personal avatars to anyone.
+  // Any signed-in viewer may fetch any avatar: players see each other in the world.
+  'GET /art/:kind/:id',
+]);
 
 /** What a gate looks like: the helpers that resolve identity or a capability. */
 const AUTH_PRIMITIVES = [

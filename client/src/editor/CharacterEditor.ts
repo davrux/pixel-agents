@@ -11,6 +11,7 @@ import {
   type TrackPlay,
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
+import { gridFromImageData, imagePixels } from '../art/sheet';
 import { confirmDialog } from '../ui/dialog.js';
 import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
 
@@ -174,28 +175,6 @@ function flipH(f: SpriteData): SpriteData {
   return f.map((row) => row.slice().reverse());
 }
 
-/** Read a w×h region of decoded pixels into engine-native SpriteData (`#rrggbb`,
- *  `#rrggbbaa` when partially transparent, '' when fully transparent). Reads
- *  outside the image yield transparent, so a short sheet can't throw. */
-function gridFromImageData(px: ImageData, sx: number, sy: number, w: number, h: number): SpriteData {
-  const hx = (n: number): string => n.toString(16).padStart(2, '0');
-  const grid: SpriteData = [];
-  for (let y = 0; y < h; y++) {
-    const row: string[] = [];
-    for (let x = 0; x < w; x++) {
-      if (sx + x >= px.width || sy + y >= px.height) {
-        row.push('');
-        continue;
-      }
-      const i = ((sy + y) * px.width + (sx + x)) * 4;
-      const a = px.data[i + 3];
-      row.push(a === 0 ? '' : `#${hx(px.data[i])}${hx(px.data[i + 1])}${hx(px.data[i + 2])}${a < 255 ? hx(a) : ''}`);
-    }
-    grid.push(row);
-  }
-  return grid;
-}
-
 /** Decode a picked image file. Rejects on anything the browser can't decode. */
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -211,17 +190,6 @@ function loadImage(file: File): Promise<HTMLImageElement> {
     };
     img.src = url;
   });
-}
-
-/** Decode an image into a full-size ImageData buffer (nearest-neighbour, no smoothing). */
-function imagePixels(img: HTMLImageElement): ImageData {
-  const cv = document.createElement('canvas');
-  cv.width = img.naturalWidth;
-  cv.height = img.naturalHeight;
-  const ctx = cv.getContext('2d')!;
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, 0, 0);
-  return ctx.getImageData(0, 0, cv.width, cv.height);
 }
 
 /** Display label for a skin: its name, or the stable id when unnamed. The id is
