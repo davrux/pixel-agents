@@ -49,10 +49,10 @@ export interface LoadedAssetData {
 /** Fallback per-frame duration for animation data saved before per-frame
  *  timing existed (or that simply omits it) — keeps old content playing at
  *  the same speed it always has. */
-export const DEFAULT_ANIMATION_FRAME_MS = 200;
+const DEFAULT_ANIMATION_FRAME_MS = 200;
 
 // ── Animation groups ────────────────────────────────────────────
-export interface AnimationFrameInfo {
+interface AnimationFrameInfo {
   id: string;
   durationMs: number;
 }
@@ -215,7 +215,7 @@ export function resolveBackgroundTiles(item: PlacedFurniture, entry: FurnitureCa
 
 /** Mirror a facing direction to match a flipped sprite — see resolveSitFacing
  *  for when this applies and when it deliberately doesn't. */
-export function mirrorFacing(dir: DirectionVal, flippedHorizontally?: boolean, flippedVertically?: boolean): DirectionVal {
+function mirrorFacing(dir: DirectionVal, flippedHorizontally?: boolean, flippedVertically?: boolean): DirectionVal {
   if (flippedHorizontally) {
     if (dir === Direction.LEFT) dir = Direction.RIGHT;
     else if (dir === Direction.RIGHT) dir = Direction.LEFT;
@@ -238,7 +238,7 @@ export function resolveOnState(item: PlacedFurniture, entry: FurnitureCatalogEnt
 
 /** Get the ordered {id, durationMs} animation frames for a given type, or
  *  null if it isn't part of any animation group. */
-export function getAnimationFrameData(type: string): AnimationFrameInfo[] | null {
+function getAnimationFrameData(type: string): AnimationFrameInfo[] | null {
   for (const [, frames] of animationGroups) {
     if (frames.some((f) => f.id === type)) return frames;
   }

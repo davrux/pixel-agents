@@ -9,14 +9,14 @@
 import { Direction, TILE_SIZE } from '../types.js';
 
 /** A tile coordinate step in a path. */
-export interface TileStep {
+interface TileStep {
   col: number;
   row: number;
 }
 
 /** The transform + movement state shared by every moving entity. Character and
  *  Pet both structurally satisfy this, so shared movement code operates on both. */
-export interface MovingEntity {
+interface MovingEntity {
   dir: Direction;
   /** Pixel position (tile-center anchored). */
   x: number;
@@ -35,7 +35,7 @@ export function tileCenter(col: number, row: number): { x: number; y: number } {
 }
 
 /** Cardinal direction from one tile toward an adjacent tile. */
-export function directionBetween(fromCol: number, fromRow: number, toCol: number, toRow: number): Direction {
+function directionBetween(fromCol: number, fromRow: number, toCol: number, toRow: number): Direction {
   const dc = toCol - fromCol;
   const dr = toRow - fromRow;
   if (dc > 0) return Direction.RIGHT;

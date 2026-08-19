@@ -65,7 +65,8 @@ import {
 } from '../shared/userAutocomplete.js';
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
-import { onRefImageLoaded } from '../render/sprites.js';
+import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
+import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
@@ -127,6 +128,13 @@ const DEFAULT_ZOOM = 1.5;
 // the whole render loop is put to sleep (woken by input/state/voice/tab focus).
 const OVERLAY_INTERVAL_MS = 50;
 const IDLE_GRACE_FRAMES = 6;
+/**
+ * How long the loading phase waits for the two websocket messages before giving up and
+ * showing the world anyway. Generous, because the alternative to waiting is a world
+ * drawn from half its art — but bounded, because a panel that never goes away is worse
+ * than either.
+ */
+const LOADING_DEADLINE_MS = 15_000;
 const SLEEP_AFTER_IDLE_FRAMES = 120;
 
 /** Deterministic per-column rain stagger seeds (0..1) for the Matrix effect,
@@ -195,6 +203,13 @@ export class OfficeScene extends Phaser.Scene {
   private perfEnabled = false;
   private perfEl: HTMLDivElement | null = null;
   private updateMsAvg = 0;
+  /** The loading phase: resolved when the catalog / the layout has arrived once, so
+   *  the world is only shown when its art is actually in hand (see startLoading). */
+  private catalogArrived!: Promise<void>;
+  private layoutArrived!: Promise<void>;
+  private resolveCatalog: () => void = () => {};
+  private resolveLayout: () => void = () => {};
+  private loading: LoadingProgress | null = null;
   /** Pending repaint after ref images arrived — see onRefImageLoaded. */
   private refRepaintTimer: number | null = null;
   /** Shared chat panel (client/src/ui/chatUI.ts). */
@@ -381,8 +396,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Manual drag-panning "detaches" the camera from follow (see setupInput's
    *  pan handler + update()'s re-engage check below) so looking around doesn't
    *  fight the every-frame recenter; it snaps back to following the moment the
-   *  player's own position changes again (walk, sit, portal, anything). Never
-   *  active while editing — the editor keeps its existing free-camera feel. */
+   *  player's own position changes again (walk, sit, portal, anything). */
   private cameraFollowDetached = false;
   /** Player position at the moment of detaching, to detect "have I moved". */
   private cameraDetachAt: { x: number; y: number } | null = null;
@@ -400,12 +414,21 @@ export class OfficeScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor('#171514');
     this.os = new OfficeState();
     this.view = new PhaserRenderer(this, this.renderSource());
-    // Independent of the Colyseus connection — races against layoutLoaded;
-    // whichever finishes last triggers the buildStatic() that actually
-    // shows real floor/wall art (see net/tiledSheets.ts).
-    // A ref image arriving after its first draw has to trigger another one, or
-    // whatever was drawn meanwhile keeps a placeholder forever — statics are drawn
-    // once per layout. Coalesced on a timer because images land in bursts.
+    // ── The loading phase ────────────────────────────────────────
+    // Four independent channels feed the first frame: sets.json plus the sheet PNGs,
+    // the baked atlas, the catalog message and the layout message. Nothing orders
+    // them, and drawing as they land is what produced grey floors, black boxes where
+    // trees belong and a burst of "no art for …" warnings, all repainted a moment
+    // later. So: wait for all four, fetch the images this zone's placements actually
+    // need, and only then draw — once.
+    this.catalogArrived = new Promise<void>((resolve) => (this.resolveCatalog = resolve));
+    this.layoutArrived = new Promise<void>((resolve) => (this.resolveLayout = resolve));
+    void this.runLoadingPhase();
+
+    // A ref image arriving after its first draw still has to trigger another one: a
+    // tileset saved in Tiled introduces art nobody has fetched, and statics are drawn
+    // once per layout. Not the startup case any more — that one is handled above —
+    // but the live-change case, coalesced because images land in bursts.
     onRefImageLoaded(() => {
       if (this.refRepaintTimer !== null) return;
       this.refRepaintTimer = window.setTimeout(() => {
@@ -413,17 +436,6 @@ export class OfficeScene extends Phaser.Scene {
         this.view.buildStatic();
         this.furnitureDirty = true;
       }, 50);
-    });
-    // Sheets and the baked atlas together: both are static art over HTTP, and
-    // buildStatic() should run once, after whichever finishes last.
-    void Promise.all([loadTiledSheets(), loadFurnitureAtlas()]).then(([sheets, atlas]) => {
-      this.view.registerSheets(sheets);
-      if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
-      this.view.buildStatic();
-      // Furniture is pooled and only re-synced when its instances change, so a
-      // catalog already drawn from message pixels has to be told to look again —
-      // otherwise the atlas only takes effect at the next layout change.
-      this.furnitureDirty = true;
     });
     this.setupIdleWaking();
     // A name/character chosen in Settings (remembered per browser).
@@ -556,6 +568,73 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Renderer reads layout/tiles from the (layout-only) OfficeState and the
    *  live entities from our synced maps. */
+  /**
+   * Fetch everything the first frame needs, then draw once.
+   *
+   * Four steps are known up front (sheets, atlas, catalog, layout) and a fifth is
+   * announced once the layout is known, since only then is it clear which images the
+   * placements draw from. The bar rescales rather than lying about being done.
+   *
+   * Nothing here may strand a player behind a panel that never goes away, so the two
+   * websocket waits have a deadline: past it the world is shown with whatever arrived,
+   * and the live-change paths (see onRefImageLoaded) fill in the rest as it lands —
+   * which is exactly how it behaved before this phase existed.
+   */
+  private async runLoadingPhase(): Promise<void> {
+    const loading = showLoadingOverlay('Loading the world…', 4);
+    this.loading = loading;
+    const deadline = new Promise<'timeout'>((resolve) => window.setTimeout(() => resolve('timeout'), LOADING_DEADLINE_MS));
+    try {
+      loading.say('fetching art');
+      const [sheets, atlas] = await Promise.all([
+        loadTiledSheets().then((r) => {
+          loading.advance('tilesets');
+          return r;
+        }),
+        loadFurnitureAtlas().then((r) => {
+          loading.advance('furniture atlas');
+          return r;
+        }),
+      ]);
+      this.view.registerSheets(sheets);
+      if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
+
+      loading.say('waiting for the world');
+      const waited = await Promise.race([
+        Promise.all([
+          this.catalogArrived.then(() => loading.advance('catalog')),
+          this.layoutArrived.then(() => loading.advance('map')),
+        ]).then(() => 'ready' as const),
+        deadline,
+      ]);
+      if (waited === 'timeout') {
+        console.warn('[loading] the catalog or the map did not arrive in time — showing the world as it is');
+      } else {
+        // Only the art THIS zone places: furniture and decals name their ids, and a
+        // zone uses a handful of a catalog with thousands of entries.
+        const layout = this.os.getLayout();
+        const ids = new Set<string>();
+        for (const f of layout.furniture ?? []) ids.add(f.id);
+        for (const d of layout.decals ?? []) ids.add(d.id);
+        loading.expect();
+        loading.say('fetching the art this map uses');
+        const { images, failed } = await prefetchRefImages(this, ids);
+        loading.advance(images ? `${images} image${images === 1 ? '' : 's'}` : 'nothing left to fetch');
+        if (failed) console.warn(`[loading] ${failed} of ${images} image(s) could not be fetched`);
+      }
+    } catch (err) {
+      console.warn('[loading] failed, showing the world as it is:', err instanceof Error ? err.message : err);
+    } finally {
+      // One draw, with everything that made it. Furniture is pooled and only re-synced
+      // when its instances change, so it has to be told to look again.
+      this.view.buildStatic();
+      this.furnitureDirty = true;
+      loading.finish();
+      this.loading = null;
+      this.wake();
+    }
+  }
+
   private renderSource(): RenderSource {
     const scene = this;
     return {
@@ -724,6 +803,7 @@ export class OfficeScene extends Phaser.Scene {
           // Tiled tileset hot-reload) that should refresh already-placed
           // furniture too.
           if (m.type === 'furnitureAssetsLoaded') {
+            this.resolveCatalog(); // the loading phase waits for this once
             this.furnitureDirty = true;
             // Decals resolve their sprite through this same catalog but are drawn
             // as statics (they never change, see PlacedDecal), so they meet the
@@ -732,7 +812,10 @@ export class OfficeScene extends Phaser.Scene {
             // rebuilds statics. Guarded on the map actually having decals, so a
             // map without any pays nothing; also makes a decal tileset saved in
             // Tiled show up live, like furniture already does.
-            if ((this.os.getLayout().decals?.length ?? 0) > 0) this.view.buildStatic();
+            // Not during the loading phase: it draws once at the end, and a second
+            // buildStatic here only throws the first one away — including images whose
+            // decode was still in flight (see PhaserRenderer's ensureImageTexture).
+            if (this.loading === null && (this.os.getLayout().decals?.length ?? 0) > 0) this.view.buildStatic();
           }
           // Keep the Settings avatar preview honest after a live avatar change.
           if (m.type === 'playerAvatar' && m.id === this.myAvatarId) this.renderAvatarPreview();
@@ -1453,7 +1536,10 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   private onLayout(layout: OfficeLayout): void {
-    this.view.buildStatic();
+    // The loading phase waits for the first one of these; it then draws once itself,
+    // so the buildStatic below is for the LATER ones — a pushed map arriving live.
+    this.resolveLayout();
+    if (this.loading === null) this.view.buildStatic();
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
   }
 
@@ -1693,8 +1779,8 @@ export class OfficeScene extends Phaser.Scene {
    * WASD / arrow-key walking (control scheme "A"). Sends the held cardinal
    * direction to the server, which steps the avatar tile-by-tile (server-
    * authoritative); null on release. The most recently pressed key wins, so
-   * releasing it resumes the previously held one. Ignored while editing, while
-   * typing in a field, or when this viewer has no avatar (spectator).
+   * releasing it resumes the previously held one. Ignored while typing in a field,
+   * or when this viewer has no avatar (spectator).
    */
   private setupKeyboardMovement(): void {
     const KEY_DIR: Record<string, Direction> = {
@@ -1798,6 +1884,13 @@ export class OfficeScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (!this.room) return;
+    // Nothing is drawn while the loading phase is still fetching. The overlay covers
+    // the canvas anyway, and drawing here is what defeated the point of waiting: the
+    // renderer syncs furniture every frame, so it resolved ids whose art had not
+    // arrived and left placeholders behind — 62 of them in Firefox, whose message
+    // order differs from Chrome's. runLoadingPhase draws exactly once, at the end,
+    // and wakes the loop.
+    if (this.loading !== null) return;
     const t0 = this.perfEnabled ? performance.now() : 0;
     // Follow-camera: recenter on the local player every frame this runs at
     // all (ahead of the idle-throttle return below, so it isn't skipped and
@@ -2414,7 +2507,7 @@ export class OfficeScene extends Phaser.Scene {
       body.appendChild(r);
     };
     if (this.collapsed) {
-      row('🌐', 'Space', 'Zones · Layouts', () => void this.setMenu('space'));
+      row('🌐', 'Space', 'Zones', () => void this.setMenu('space'));
       if (this.assetsAdmin) row('🎨', 'Assets', 'Chars · Furniture', () => void this.setMenu('assets'));
     }
     row('⚙', 'Settings', null, () => void this.setMenu('settings'));
@@ -2505,19 +2598,8 @@ export class OfficeScene extends Phaser.Scene {
           ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which NPCs spawn, or delete a zone'],
           ['📍 Set arrival point', 'Where new arrivals land in this zone (zone admin)'],
           ['⚙ next to your zone', 'Privacy, access list, invites, entry password'],
-          ['👤 next to your zone', 'Grant or revoke zone-admins (who may edit its layout)'],
-        ],
-      },
-      {
-        title: 'Editing a layout',
-        rows: [
-          ['🌐 Space → Layouts → ✏ Edit', 'Rearrange floor, walls, furniture (zone admin)'],
-          ['First edit of a zone', 'Forks the shared "Default" into your own saved layout'],
-          ['1 2 3 4 5 (while editing)', 'Select / furniture / floor / wall / eyedropper tool'],
-          ['R / Shift+R', 'Rotate the selected piece'],
-          ['Delete / Backspace', 'Remove the selected piece'],
-          ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
-          ['✓ Done', 'Exit — changes already autosaved live for everyone here'],
+          ['👤 next to your zone', 'Grant or revoke zone-admins (its map, arrival point and NPCs)'],
+          ['A zone\'s map', 'Drawn in Tiled and pushed to the server — there is no in-game editor'],
         ],
       },
       {

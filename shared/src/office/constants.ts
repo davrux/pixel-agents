@@ -36,8 +36,8 @@ export const COFFEE_COOLDOWN_MAX_SEC = 90.0;
 
 // ── Pets ─────────────────────────────────────────────────────
 // Pets spawn based on connected agents: target = min(PET_MAX, floor(agents / PET_AGENTS_PER_PET))
-export const PET_AGENTS_PER_PET = 2;
-export const PET_MAX = 4;
+const PET_AGENTS_PER_PET = 2;
+const PET_MAX = 4;
 export const PET_LIFESPAN_SEC = 600; // ~10 minutes
 export const PET_WALK_SPEED_PX_PER_SEC = 40;
 export const PET_WALK_FRAME_DURATION_SEC = 0.12;

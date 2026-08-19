@@ -13,7 +13,9 @@
  *    delete. Guards live in pure functions so they are tested, not hoped for.
  *  • **It leaves recent work alone.** Anything touched in the last few days belongs
  *    to somebody who is still working; junk is weeks old and is not going anywhere.
- *  • **It backs up before destroying.** No snapshot, no delete.
+ *  • **It destroys only what nothing can reach.** A row it deletes is offered by no
+ *    tileset and placed in no layout, so there is nothing to restore it from — and
+ *    nothing that wants it.
  *  • **It cannot stop the server.** A failing task logs and is skipped: housekeeping
  *    is never worth a world that will not come up.
  *
@@ -64,12 +66,12 @@ const pruneOrphanAssets: CleanupTask = {
       );
     }
     if (decision.deletable.length === 0) return null;
-    const { deleted, backup } = deleteAssets(
+    const { deleted } = deleteAssets(
       type,
       decision.deletable.map((r) => r.name),
     );
     const held = decision.tooYoung.length ? `, ${decision.tooYoung.length} too recent to touch` : '';
-    return `pruned ${deleted} orphaned ${type} asset(s), ${mb(totalBytes(decision.deletable))} freed${held} — backup ${backup}`;
+    return `pruned ${deleted} orphaned ${type} asset(s), ${mb(totalBytes(decision.deletable))} freed${held}`;
   },
 };
 

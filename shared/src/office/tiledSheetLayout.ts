@@ -64,10 +64,10 @@ export function hasSheets(): boolean {
 export const TILED_SHEET_COLUMNS = PALETTE_64.length + 1;
 /** The sizes the BAKE cuts its sheets to. Read at render time from the sheet's own
  *  grid instead (see SheetGrid) — these stay because the bake has to choose a
- *  height for a wall piece, and 32 is that choice. */
+ *  height for a wall piece, and 32 is that choice. WALL_TILE_W is gone with the
+ *  floor/wall distinction in SheetCellRef: a cell's width is the map cell's. */
 export const FLOOR_TILE_W = TILE_SIZE;
 export const FLOOR_TILE_H = TILE_SIZE;
-export const WALL_TILE_W = TILE_SIZE;
 export const WALL_TILE_H = 32;
 /** How many of a wall set's pieces are the adjacency autotile ones (N=1, E=2,
  *  S=4, W=8 — see wallEdges.ts's latticeMask). Always the FIRST 16 rows of

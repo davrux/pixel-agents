@@ -157,6 +157,20 @@ a button; highlight `#e7da00`. Radius: buttons `0.35–0.45rem`, panels `0.6rem`
 `#3a6df0`, flat `0 8px 0` shadows. (`#14161c` is fine as the Phaser *canvas*
 background only.)
 
+- **The client waits for its art, then draws once** (the loading phase in
+  `OfficeScene.runLoadingPhase`, panel in `ui/loadingOverlay.ts`). Four independent
+  channels feed the first frame — sets.json plus the sheet PNGs, the baked atlas, the
+  catalog message, the layout message — and nothing orders them. Drawing as they landed
+  gave grey floors, black boxes where trees belong and a burst of "no art for …"
+  warnings, all repainted a moment later. So: fetch the HTTP art, wait for both
+  messages, prefetch the ref images THIS map's placements name (`prefetchRefImages`),
+  draw once. `update()` returns early while it runs, because the renderer syncs
+  furniture every frame and would otherwise resolve ids whose art has not arrived —
+  which is what it did, invisibly in Chrome and 62 times over in Firefox.
+  Two rules that keep it honest: the wait has a deadline (a panel that never goes away
+  is worse than a partial world), and the live-change paths stay — a tileset saved in
+  Tiled still introduces art nobody has fetched, and that repaint is what draws it.
+
 ### Content pipeline
 
 - **Importing an art pack follows the `tiled-asset-import` skill**
@@ -317,9 +331,9 @@ background only.)
   process-wide). A task added there must honour the contract in that file's header:
   two independent sources of evidence, a refusal when the evidence looks broken (an
   unreadable tileset registry makes every row look unused — that is a deployment to
-  fix, not a licence to delete), a grace period so recent work is never touched, a
-  `VACUUM INTO` backup before destroying anything, and it may never keep the server
-  from starting. The guards live in pure functions and are tested; nothing here waits
+  fix, not a licence to delete), a grace period so recent work is never touched, it may
+  destroy only what nothing can reach (no tileset offers the id, no layout places it),
+  and it may never keep the server from starting. The guards live in pure functions and are tested; nothing here waits
   for a human to read a report, because nobody is watching a boot.
 - **A stored asset whose id no tileset carries is dead weight, and it travels.**
   Furniture used to be uploaded into the database as pixels; art then moved into Tiled
@@ -327,9 +341,12 @@ background only.)
   since a mapper only paints what a tileset offers. They are not inert: a row without
   a file has no image to point at, so it is sent as SpriteData in
   `furnitureAssetsLoaded` on every join. 695 of them were 1.33 MB of a 1.79 MB
-  message. `scripts/prune-orphan-assets.sh` reports them and, with `--apply`, deletes
-  them after a `VACUUM INTO` backup — never an id that is placed in any zone or map,
-  which it reports instead. Run it on a deployment too; the ids differ per database.
+  message. The boot prunes them (see the housekeeping bullet above);
+  `scripts/prune-orphan-assets.sh` is how you LOOK — what would go, what the grace
+  period holds back, and which PLACED assets no tileset offers any more, the one case
+  nothing can repair automatically. `--apply` deletes without waiting for the grace
+  period, for when you are reading the list yourself. Both paths share one decision
+  function, so they cannot drift. A deployment prunes itself at its next boot.
 - **One database.** All state lives in `pixel.db` through the shared `db.ts`
   connection.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable

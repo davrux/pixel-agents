@@ -43,7 +43,7 @@ export type NpcAction = 'wander' | 'sit' | 'chase' | 'flee' | 'drink' | 'talk';
 
 /** Kinds of interactable the world affords an NPC: claimable seats, adjacent-to
  *  furniture (cat on a desk), appliance stations (coffee), and agents (talk). */
-export type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
+type AffordanceKind = 'seat' | 'furniture' | 'station' | 'agent';
 
 /**
  * What's available in the world for an NPC to interact with right now — a cheap
@@ -84,7 +84,7 @@ export interface PetTarget {
   path: Array<{ col: number; row: number }>;
 }
 
-export interface PetUpdateContext {
+interface PetUpdateContext {
   walkableTiles: Array<{ col: number; row: number }>;
   tileMap: GroundMap;
   blockedTiles: Set<string>;
