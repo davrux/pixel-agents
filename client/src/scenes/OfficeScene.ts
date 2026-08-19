@@ -396,8 +396,7 @@ export class OfficeScene extends Phaser.Scene {
   /** Manual drag-panning "detaches" the camera from follow (see setupInput's
    *  pan handler + update()'s re-engage check below) so looking around doesn't
    *  fight the every-frame recenter; it snaps back to following the moment the
-   *  player's own position changes again (walk, sit, portal, anything). Never
-   *  active while editing — the editor keeps its existing free-camera feel. */
+   *  player's own position changes again (walk, sit, portal, anything). */
   private cameraFollowDetached = false;
   /** Player position at the moment of detaching, to detect "have I moved". */
   private cameraDetachAt: { x: number; y: number } | null = null;
@@ -1780,8 +1779,8 @@ export class OfficeScene extends Phaser.Scene {
    * WASD / arrow-key walking (control scheme "A"). Sends the held cardinal
    * direction to the server, which steps the avatar tile-by-tile (server-
    * authoritative); null on release. The most recently pressed key wins, so
-   * releasing it resumes the previously held one. Ignored while editing, while
-   * typing in a field, or when this viewer has no avatar (spectator).
+   * releasing it resumes the previously held one. Ignored while typing in a field,
+   * or when this viewer has no avatar (spectator).
    */
   private setupKeyboardMovement(): void {
     const KEY_DIR: Record<string, Direction> = {
@@ -2508,7 +2507,7 @@ export class OfficeScene extends Phaser.Scene {
       body.appendChild(r);
     };
     if (this.collapsed) {
-      row('🌐', 'Space', 'Zones · Layouts', () => void this.setMenu('space'));
+      row('🌐', 'Space', 'Zones', () => void this.setMenu('space'));
       if (this.assetsAdmin) row('🎨', 'Assets', 'Chars · Furniture', () => void this.setMenu('assets'));
     }
     row('⚙', 'Settings', null, () => void this.setMenu('settings'));
@@ -2599,19 +2598,8 @@ export class OfficeScene extends Phaser.Scene {
           ['✎ / 🐾 / ✕ (zone admin)', 'Rename, pick which NPCs spawn, or delete a zone'],
           ['📍 Set arrival point', 'Where new arrivals land in this zone (zone admin)'],
           ['⚙ next to your zone', 'Privacy, access list, invites, entry password'],
-          ['👤 next to your zone', 'Grant or revoke zone-admins (who may edit its layout)'],
-        ],
-      },
-      {
-        title: 'Editing a layout',
-        rows: [
-          ['🌐 Space → Layouts → ✏ Edit', 'Rearrange floor, walls, furniture (zone admin)'],
-          ['First edit of a zone', 'Forks the shared "Default" into your own saved layout'],
-          ['1 2 3 4 5 (while editing)', 'Select / furniture / floor / wall / eyedropper tool'],
-          ['R / Shift+R', 'Rotate the selected piece'],
-          ['Delete / Backspace', 'Remove the selected piece'],
-          ['Ctrl+Z / Ctrl+Shift+Z', 'Undo / redo'],
-          ['✓ Done', 'Exit — changes already autosaved live for everyone here'],
+          ['👤 next to your zone', 'Grant or revoke zone-admins (its map, arrival point and NPCs)'],
+          ['A zone\'s map', 'Drawn in Tiled and pushed to the server — there is no in-game editor'],
         ],
       },
       {

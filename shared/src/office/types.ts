@@ -223,17 +223,6 @@ export interface FurnitureInstance {
   opacity?: number;
 }
 
-export const EditTool = {
-  TILE_PAINT: 'tile_paint',
-  WALL_PAINT: 'wall_paint',
-  FURNITURE_PLACE: 'furniture_place',
-  FURNITURE_PICK: 'furniture_pick',
-  SELECT: 'select',
-  EYEDROPPER: 'eyedropper',
-  ERASE: 'erase',
-} as const;
-export type EditTool = (typeof EditTool)[keyof typeof EditTool];
-
 /** A furniture item's interaction affordance: marks it as an appliance station
  *  an NPC (or agent) walks up to and uses. Coffee for now; extensible (fridge,
  *  water cooler, …). Empty/undefined = ordinary furniture. */
@@ -725,13 +714,11 @@ export interface OfficeLayout {
    *  share one depth, so two DecalLayers stack the way the Layers panel shows
    *  them. */
   decals?: PlacedDecal[];
-  /** Free-text labels — see PlacedText. Painted with the editor's Text tool. */
+  /** Free-text labels — see PlacedText. Text objects in Tiled. */
   texts?: PlacedText[];
-  /** Background decoration images — see PlacedImage. Placed with the editor's
-   *  Image tool. */
+  /** Background decoration images — see PlacedImage. Image objects in Tiled
+   *  (see images.tsj / ImageTile). */
   images?: PlacedImage[];
-  /** Bumped when the bundled default layout changes; forces a reset on existing installs */
-  layoutRevision?: number;
 }
 
 export interface Character {
