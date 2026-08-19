@@ -2965,13 +2965,13 @@
                  "y":496
                 }, 
                 {
-                 "gid":7107,
+                 "gid":7099,
                  "height":16,
-                 "id":431,
+                 "id":433,
                  "name":"",
                  "opacity":1,
                  "rotation":0,
-                 "type":"FurnitureObject",
+                 "type":"",
                  "visible":true,
                  "width":16,
                  "x":80,
@@ -3237,7 +3237,7 @@
          "y":0
         }],
  "nextlayerid":9,
- "nextobjectid":433,
+ "nextobjectid":434,
  "orientation":"orthogonal",
  "properties":[
         {
