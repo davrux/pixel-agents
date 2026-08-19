@@ -41,6 +41,7 @@ import { WORLD_ROOM } from '@pixel/shared';
 import { ASSETS_ROOT, loadAssetBundle, watchFurnitureTilesets } from './assets.js';
 import { ensureDevTls } from './dataBootstrap.js';
 import { registerZonePushApi } from './tiled/zonePushApi.js';
+import { runStartupCleanup } from './maintenance/startupCleanup.js';
 import { seedBundledZoneMaps } from './tiled/seedBundledZones.js';
 import { gridSheets, loadTiledRegistry } from './tiled/tiledRegistry.js';
 import { initAssetDefaults } from './assetOverrides.js';
@@ -142,6 +143,12 @@ export function securityHeaders(): RequestHandler {
 }
 
 async function main(): Promise<void> {
+  // Housekeeping first: the asset bundle below is built from the database and then
+  // cached process-wide, so anything cleaned afterwards would still be served until
+  // the next restart. See maintenance/startupCleanup.ts for what a task there must
+  // guarantee — it runs unattended, on every boot, with nobody reading a report.
+  runStartupCleanup();
+
   console.log('[server] decoding assets…');
   const bundle = await loadAssetBundle();
   initAssetDefaults(bundle); // process-wide merged-bundle cache (see assetOverrides.ts)

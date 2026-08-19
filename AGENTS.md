@@ -311,6 +311,16 @@ background only.)
   means no wipe. Survivors are an allow-list (`server/src/worldReset.ts`): a table
   added later is wiped by default, so **if you add one holding account data, add
   it to `KEEP_TABLES` in the same change.**
+- **Housekeeping runs at boot, unattended — so it is safe by construction.**
+  `maintenance/startupCleanup.ts` runs before anything reads the world (before
+  `loadAssetBundle`, since the bundle is built from these rows and then cached
+  process-wide). A task added there must honour the contract in that file's header:
+  two independent sources of evidence, a refusal when the evidence looks broken (an
+  unreadable tileset registry makes every row look unused — that is a deployment to
+  fix, not a licence to delete), a grace period so recent work is never touched, a
+  `VACUUM INTO` backup before destroying anything, and it may never keep the server
+  from starting. The guards live in pure functions and are tested; nothing here waits
+  for a human to read a report, because nobody is watching a boot.
 - **A stored asset whose id no tileset carries is dead weight, and it travels.**
   Furniture used to be uploaded into the database as pixels; art then moved into Tiled
   tilesets, and the rows of retired packages stayed behind — ids nobody can place,
