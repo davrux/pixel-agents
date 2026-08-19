@@ -207,9 +207,13 @@ export class OfficeScene extends Phaser.Scene {
    *  the world is only shown when its art is actually in hand (see startLoading). */
   private catalogArrived!: Promise<void>;
   private layoutArrived!: Promise<void>;
+  private skinsArrived!: Promise<void>;
   private resolveCatalog: () => void = () => {};
   private resolveLayout: () => void = () => {};
+  private resolveSkins: () => void = () => {};
   private loading: LoadingProgress | null = null;
+  /** Sheets already fetched and registered — see loadSheetsFor. */
+  private loadedSheets = new Set<string>();
   /** Pending repaint after ref images arrived — see onRefImageLoaded. */
   private refRepaintTimer: number | null = null;
   /** Shared chat panel (client/src/ui/chatUI.ts). */
@@ -423,6 +427,7 @@ export class OfficeScene extends Phaser.Scene {
     // need, and only then draw — once.
     this.catalogArrived = new Promise<void>((resolve) => (this.resolveCatalog = resolve));
     this.layoutArrived = new Promise<void>((resolve) => (this.resolveLayout = resolve));
+    this.skinsArrived = new Promise<void>((resolve) => (this.resolveSkins = resolve));
     void this.runLoadingPhase();
 
     // A ref image arriving after its first draw still has to trigger another one: a
@@ -581,32 +586,35 @@ export class OfficeScene extends Phaser.Scene {
    * which is exactly how it behaved before this phase existed.
    */
   private async runLoadingPhase(): Promise<void> {
-    const loading = showLoadingOverlay('Loading the world…', 4);
+    const loading = showLoadingOverlay('Loading the world…', 5);
     this.loading = loading;
     const deadline = new Promise<'timeout'>((resolve) => window.setTimeout(() => resolve('timeout'), LOADING_DEADLINE_MS));
     try {
       loading.say('fetching art');
-      const [sheets, atlas] = await Promise.all([
-        loadTiledSheets().then((r) => {
-          loading.advance('tilesets');
-          return r;
-        }),
-        loadFurnitureAtlas().then((r) => {
-          loading.advance('furniture atlas');
-          return r;
-        }),
-      ]);
-      this.view.registerSheets(sheets);
-      if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
+      const atlasPromise = loadFurnitureAtlas().then((r) => {
+        loading.advance('furniture atlas');
+        return r;
+      });
 
       loading.say('waiting for the world');
       const waited = await Promise.race([
         Promise.all([
           this.catalogArrived.then(() => loading.advance('catalog')),
           this.layoutArrived.then(() => loading.advance('map')),
+          // The characters' own sheets are a fourth channel, and the first frame draws
+          // characters — without this the renderer reached into a skin that had not
+          // arrived, which threw inside the Matrix effect in Firefox.
+          this.skinsArrived.then(() => loading.advance('characters')),
         ]).then(() => 'ready' as const),
         deadline,
       ]);
+      const atlas = await atlasPromise;
+      if (atlas) this.view.registerAtlas(atlas.bitmap, atlas.manifest.frames);
+      // Sheets AFTER the map, because the map says which are needed: a ground or wall
+      // cell can only name a set the layout lists. Everything else it draws comes from
+      // the atlas or its own ref image.
+      await this.loadSheetsFor(this.os.getLayout());
+      loading.advance('tilesets');
       if (waited === 'timeout') {
         console.warn('[loading] the catalog or the map did not arrive in time — showing the world as it is');
       } else {
@@ -633,6 +641,25 @@ export class OfficeScene extends Phaser.Scene {
       this.loading = null;
       this.wake();
     }
+  }
+
+  /**
+   * Fetch and register the sheets a layout names, skipping the ones already in hand.
+   *
+   * Only what the map uses: a ground or wall cell can refer only to a set the layout
+   * lists (`floorSets` / `wallSets`), so fetching the rest meant every zone downloading
+   * palettes it never paints, roads it has not drawn and the collision marker nothing
+   * renders — 177 KB of 774 KB in this repo's map, and one sheet more per pack
+   * imported. Returns true if anything new was registered.
+   */
+  private async loadSheetsFor(layout: OfficeLayout): Promise<boolean> {
+    const named = new Set<string>([...(layout.floorSets ?? []), ...(layout.wallSets ?? [])]);
+    const missing = [...named].filter((n) => !this.loadedSheets.has(n));
+    if (missing.length === 0) return false;
+    const sheets = await loadTiledSheets(missing);
+    this.view.registerSheets(sheets);
+    for (const s of sheets) this.loadedSheets.add(s.name);
+    return sheets.length > 0;
   }
 
   private renderSource(): RenderSource {
@@ -785,8 +812,9 @@ export class OfficeScene extends Phaser.Scene {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
             if (Array.isArray(m.bundledIds)) this.bundledFurnitureIds = new Set(m.bundledIds as string[]);
           }
-          if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
-            this.bundledSkinIds = new Set(m.bundledIds as string[]);
+          if (m.type === 'characterSpritesLoaded') {
+            this.resolveSkins(); // the loading phase waits for this once
+            if (Array.isArray(m.bundledIds)) this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
           assetBridge(m);
           // The furniture schema (state.furniture) and the catalog broadcast
@@ -1539,7 +1567,14 @@ export class OfficeScene extends Phaser.Scene {
     // The loading phase waits for the first one of these; it then draws once itself,
     // so the buildStatic below is for the LATER ones — a pushed map arriving live.
     this.resolveLayout();
-    if (this.loading === null) this.view.buildStatic();
+    if (this.loading === null) {
+      // A pushed map may name a tileset nobody fetched yet (we only fetch what a map
+      // uses). Register the missing ones, then draw again with them.
+      void this.loadSheetsFor(layout).then((added) => {
+        if (added) this.view.buildStatic();
+      });
+      this.view.buildStatic();
+    }
     this.fitCamera(layout.cols * TILE_SIZE, layout.rows * TILE_SIZE);
   }
 
