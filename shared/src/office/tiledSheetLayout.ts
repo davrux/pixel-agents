@@ -43,9 +43,15 @@ export interface SheetGrid {
 }
 let grids: Record<string, SheetGrid> = {};
 
-/** Register the sheets that loaded (client/src/net/tiledSheets.ts does this once). */
+/**
+ * Register sheets that loaded — MERGING, not replacing.
+ *
+ * The client fetches only the sets a map names, so a later map (a live push, a zone
+ * change) can name one nobody has fetched yet and register it then. Replacing would
+ * drop the sheets already in hand and blank every cell drawn from them.
+ */
 export function setSheetGrids(next: Record<string, SheetGrid>): void {
-  grids = next;
+  grids = { ...grids, ...next };
 }
 
 /** A sheet's grid, or undefined if this build never loaded it — a map naming a

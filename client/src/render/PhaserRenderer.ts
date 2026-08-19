@@ -406,6 +406,14 @@ export class PhaserRenderer {
   private drawCharacter(ch: Character, g: CharGObjects): void {
     const sprites = getCharacterSprites(ch.skin, ch.hueShift);
     const sd = getCharacterSprite(ch, sprites);
+    // No art for this skin yet, or at all: the sheets arrive over their own channel,
+    // and a viewer can also carry a skin id this build does not have. Skip the frame
+    // rather than reach into undefined pixels — that threw inside the Matrix effect
+    // and took the whole render loop with it.
+    if (!sd || sd.length === 0) {
+      g.body.setVisible(false);
+      return;
+    }
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 
     // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer):

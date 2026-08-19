@@ -146,24 +146,33 @@ async function fetchBitmap(url: string): Promise<ImageBitmap> {
  * Safe to call once at scene start; a failure is logged and leaves floor/wall
  * rendering at their "not loaded yet" fallback (a flat fill).
  */
-export async function loadTiledSheets(): Promise<LoadedSheet[]> {
+export async function loadTiledSheets(wanted?: Iterable<string>): Promise<LoadedSheet[]> {
   try {
     const origin = serverHttpOrigin();
-    // Which sheets exist comes from the server, which reads it off disk — no list
-    // of filenames in the client bundle, so adding or renaming a tileset needs no
-    // client release (see tiledSheetLayout.ts for what the old constants cost).
-    // ALL grid sets: ground may name any of them (see OfficeLayout.tiles), and the
-    // wall sets are in the same list because nothing distinguishes them any more
-    // beyond their cell height.
+    // Which sheets exist comes from the server, which reads it off disk — no list of
+    // filenames in the client bundle, so adding or renaming a tileset needs no client
+    // release (see tiledSheetLayout.ts for what the old constants cost).
     const sets = await sheetPaths(origin);
-    const sheets = sets.sheets ?? [];
+    const all = sets.sheets ?? [];
+    // Only the sets a map NAMES, when the caller knows them. A ground or wall cell can
+    // only refer to a set the layout lists (see OfficeLayout.floorSets/wallSets), and
+    // everything else — decal and furniture art — arrives through the atlas or its own
+    // ref image. Fetching all of them meant this zone also downloaded the palette it
+    // does not use, the roads it has not painted and the collision marker nothing ever
+    // draws: 177 KB of 774 KB here, and one more sheet with every pack imported.
+    const names = wanted ? new Set(wanted) : null;
+    const sheets = names ? all.filter((f) => names.has(f.name)) : all;
+    if (names) {
+      const missing = [...names].filter((n) => !all.some((f) => f.name === n));
+      if (missing.length) console.warn(`[tiledSheets] this build has no tileset named ${missing.join(', ')} — those cells stay blank`);
+    }
     const bitmaps = await Promise.all(
       sheets.map((f) => fetchBitmap(`${origin}/assets/tiled/${f.img || `png/baked/${f.name}.png`}`)),
     );
-    // Row count per set comes from the sheet's own height, so adding a floor
-    // pattern or an extra hand-painted wall piece needs no code change. A wall set
-    // may carry pieces past the 16 adjacency ones (the metro sets' north-wall
-    // faces — see server/src/core/assets/pngDecoder.ts's parseWallPng).
+    // Row count per set comes from the sheet's own height, so adding a floor pattern or
+    // an extra hand-painted wall piece needs no code change. A wall set may carry
+    // pieces past the 16 adjacency ones (the metro sets' north-wall faces — see
+    // server/src/core/assets/pngDecoder.ts's parseWallPng).
     setSheetGrids(
       Object.fromEntries(
         sheets.map((f, i) => {

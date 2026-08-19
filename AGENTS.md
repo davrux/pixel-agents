@@ -159,12 +159,15 @@ background only.)
 
 - **The client waits for its art, then draws once** (the loading phase in
   `OfficeScene.runLoadingPhase`, panel in `ui/loadingOverlay.ts`). Four independent
-  channels feed the first frame — sets.json plus the sheet PNGs, the baked atlas, the
-  catalog message, the layout message — and nothing orders them. Drawing as they landed
+  channels feed the first frame — the baked atlas, the catalog message, the layout
+  message and the character sheets — and nothing orders them. Drawing as they landed
   gave grey floors, black boxes where trees belong and a burst of "no art for …"
   warnings, all repainted a moment later. So: fetch the HTTP art, wait for both
-  messages, prefetch the ref images THIS map's placements name (`prefetchRefImages`),
-  draw once. `update()` returns early while it runs, because the renderer syncs
+  messages, then fetch only the tilesets the layout NAMES (`floorSets`/`wallSets` — a
+  ground or wall cell can refer to nothing else, so the palette this zone never paints,
+  the roads it has not drawn and the collision marker nothing renders all stay home:
+  177 KB of 774 KB here, and one sheet more per pack imported) plus the ref images this
+  map's placements name (`prefetchRefImages`), and draw once. `update()` returns early while it runs, because the renderer syncs
   furniture every frame and would otherwise resolve ids whose art has not arrived —
   which is what it did, invisibly in Chrome and 62 times over in Firefox.
   Two rules that keep it honest: the wait has a deadline (a panel that never goes away
