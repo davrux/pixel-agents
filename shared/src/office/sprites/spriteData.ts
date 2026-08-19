@@ -1,4 +1,5 @@
 import { PALETTE_COUNT } from '../constants.js';
+import { posePlaybackLength } from './poseFrames.js';
 import type { CharacterPose, Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
 import { DEFAULT_CHARACTER_SPEC, PET_SPRITE_SPEC, resolveNpcConfig } from './characterSpec.js';
@@ -189,6 +190,19 @@ export function setPetTemplates(dogs: LoadedPetData[], cats: LoadedPetData[], du
   npcSpriteCache.clear();
 }
 
+
+/** The animation spec of a skin (or the historical default) — what a pose needs to
+ *  resolve to a sheet column without any pixels being involved. */
+export function getSkinSpec(skin: string): CharacterSpec {
+  return charById.get(skin)?.spec ?? DEFAULT_CHARACTER_SPEC;
+}
+
+/** The animation spec of an NPC variant. Bundled sheets carry the pet layout. */
+export function getNpcSpec(kind: PetKindName, variant: number): CharacterSpec {
+  const arr = loadedNpcs[kind];
+  return arr?.[variant % (arr.length || 1)]?.spec ?? PET_SPRITE_SPEC;
+}
+
 /** Number of loaded variants for a pet kind (0 if none loaded). */
 export function getLoadedPetVariantCount(kind: PetKindName): number {
   const arr = petArr(kind);
@@ -327,14 +341,28 @@ function synthesizeSitFrame(frame: SpriteData): SpriteData {
  * drawing path should never be the place where a direction is invented, and with this in
  * front of it, it never has to ask.
  */
-function withLeftRow<T extends { right: SpriteData[]; left?: SpriteData[] }>(data: T): T {
+function withLeftRow<T extends { right?: SpriteData[]; left?: SpriteData[] }>(data: T): T {
+  // No pixels at all is the normal case now: the client keeps art as a PNG sheet and
+  // this store holds only metadata (name, spec, NPC config). Nothing to complete then —
+  // the sheet's own rows decide, and a three-row sheet is mirrored where it is drawn.
+  if (!data?.right || data.right.length === 0) return data;
   if (data.left && data.left.length > 0) return data;
   return { ...data, left: data.right.map(flipSpriteHorizontal) };
 }
 
-/** Build track-driven sprite sequences from one entity template (agent or NPC).
- *  Track layout/lengths come from the template's spec; frames missing from the
- *  sheet fall back to a stand frame. Shared by characters and NPCs. */
+/**
+ * Build track-driven sprite sequences from one entity template (agent or NPC). Track
+ * layout/lengths come from the template's spec; frames missing from the sheet fall back
+ * to a stand frame. Shared by characters and NPCs.
+ *
+ * NOT on the drawing path any more: the renderer points the GPU at a cell of the PNG
+ * sheet (`poseFrames.ts` decides which one, `art/sheetStore.ts` packs it). This pixel
+ * implementation stays as the REFERENCE the arithmetic is measured against —
+ * `poseFrames.int.test.ts` compares them across every bundled sheet, pose, direction and
+ * frame, which is the only thing that makes "the index model picks the same picture"
+ * a fact rather than a hope. Keep them independent: if one is edited, the other must
+ * disagree, and the test must be the thing that notices.
+ */
 function buildCharacterSprites(char: LoadedCharacterData): CharacterSprites {
   const d = char.down;
   const u = char.up;
@@ -424,13 +452,27 @@ export function getNpcSprites(kind: PetKindName, variant: number): CharacterSpri
   return sprites;
 }
 
-/** Playback length of an NPC pose/track (for the server's frame advance).
- *  Mirrors spriteForPose's fallback so the server's modulo matches what the
- *  client renders: action track → idle track → 1. */
+/**
+ * Playback length of an NPC pose/track — for the server's frame advance, and computed
+ * from the SPEC, not from built sprites.
+ *
+ * It used to build the whole sprite set just to read an array length, which meant the
+ * server held pixels for every NPC variant purely to count them. `posePlaybackLength`
+ * answers the same question as arithmetic, and it is the same function the client times
+ * its animation with, so the two cannot drift.
+ */
 export function getNpcPosePlaybackLength(kind: PetKindName, variant: number, pose: string): number {
-  const byTrack = getNpcSprites(kind, variant).byTrack;
-  const seq = byTrack[pose]?.[Dir.DOWN] ?? (pose !== 'idle' ? byTrack['idle']?.[Dir.DOWN] : undefined);
-  return Math.max(1, seq?.length ?? 1);
+  return posePlaybackLength(getNpcSpec(kind, variant), pose, npcSheetColumns(kind, variant));
+}
+
+/** Columns in an NPC's sheet: from its art when this side has it (the server decodes the
+ *  files), else what the spec's tracks add up to. */
+function npcSheetColumns(kind: PetKindName, variant: number): number {
+  const arr = loadedNpcs[kind];
+  const data = arr?.[variant % (arr.length || 1)];
+  if (data && Array.isArray(data.down) && data.down.length > 0) return data.down.length;
+  const spec = getNpcSpec(kind, variant);
+  return spec.tracks.reduce((n, t) => n + t.frames, 0);
 }
 
 /** Flat NPC roster (dog/cat/duck × variants), in stable order, for the editor. */

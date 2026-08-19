@@ -1,24 +1,14 @@
 /**
- * Turning a PNG sheet back into engine-native SpriteData, in the browser.
+ * Reading pixels out of an image, in the browser.
  *
- * The server now sends art as a URL instead of pixels (see server/src/artApi.ts), so
- * the client fetches the sheet once per skin and slices it here. One implementation on
- * purpose: the character editor's "import a PNG" does the same slicing, and two copies
- * of "which pixel belongs to which frame" is how the two paths would drift.
- *
- * Layout, matching the encoder: rows are directions in the order down, up, right, left
- * (a sheet with three rows simply has no left row — the renderer mirrors right), and
- * columns are frames left to right. The row COUNT comes from the image height rather
- * than from the direction list, so a sheet that carries a left row keeps it and one that
- * does not is not invented.
+ * Two callers, both of which genuinely work on pixels: the sheet store, which hands cells
+ * to the character editor and to the Matrix effect (see art/sheetStore.ts), and the
+ * editor's own "import a PNG". The drawing path does not appear here — it points the GPU
+ * at a cell of the sheet instead (`atlasFromImage`).
  */
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
 import { serverFetch } from '../net/room';
-
-/** Row order of a sheet. A file may stop after any of them. */
-export const SHEET_DIRECTIONS = ['down', 'up', 'right', 'left'] as const;
-export type SheetDirection = (typeof SHEET_DIRECTIONS)[number];
 
 /** Decode an image into a full-size pixel buffer (nearest-neighbour, no smoothing). */
 export function imagePixels(img: HTMLImageElement | ImageBitmap): ImageData {
@@ -57,35 +47,9 @@ export function gridFromImageData(px: ImageData, sx: number, sy: number, w: numb
   return grid;
 }
 
-/** Slice a decoded sheet into direction-keyed frame arrays. */
-export function sheetToDirections(
-  px: ImageData,
-  frameW: number,
-  frameH: number,
-): Partial<Record<SheetDirection, SpriteData[]>> {
-  const cols = Math.max(1, Math.floor(px.width / frameW));
-  const rows = Math.min(SHEET_DIRECTIONS.length, Math.max(1, Math.floor(px.height / frameH)));
-  const out: Partial<Record<SheetDirection, SpriteData[]>> = {};
-  for (let r = 0; r < rows; r++) {
-    out[SHEET_DIRECTIONS[r]] = Array.from({ length: cols }, (_, c) =>
-      gridFromImageData(px, c * frameW, r * frameH, frameW, frameH),
-    );
-  }
-  return out;
-}
-
-/** Fetch a sheet from the server and slice it. Throws if it cannot be decoded. */
-export async function fetchSheet(
-  url: string,
-  frameW: number,
-  frameH: number,
-): Promise<Partial<Record<SheetDirection, SpriteData[]>>> {
+/** Fetch a sheet as an image — no slicing, no pixels. What the renderer registers. */
+export async function fetchSheetBitmap(url: string): Promise<ImageBitmap> {
   const res = await serverFetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
-  const bitmap = await createImageBitmap(await res.blob());
-  try {
-    return sheetToDirections(imagePixels(bitmap), frameW, frameH);
-  } finally {
-    bitmap.close();
-  }
+  return createImageBitmap(await res.blob());
 }

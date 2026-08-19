@@ -20,7 +20,7 @@ import {
   PET_Z_SORT_OFFSET,
 } from '@pixel/shared/office/constants.js';
 import { TEXT_LABEL_DEFAULT_FONT_SIZE, TEXT_LABEL_DEFAULT_FONT_FAMILY } from '@pixel/shared/protocol';
-import { getCharacterSprite } from '@pixel/shared/office/engine/index.js';
+import { getCharacterPose } from '@pixel/shared/office/engine/index.js';
 import { renderMatrixEffect } from '@pixel/shared/office/engine/matrixEffect.js';
 import type {
   FurnitureInstance,
@@ -46,9 +46,11 @@ import { getWallEdgeInstances, getWallFaceInstances } from '@pixel/shared/office
 import {
   BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
-  getCharacterSprites,
 } from '@pixel/shared/office/sprites/spriteData.js';
-import { getPetSprite } from '@pixel/shared/office/engine/pets.js';
+import { petPose } from '@pixel/shared/office/engine/pets.js';
+import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
+import { getNpcSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
+import { sheetCellFrame, sheetCellPixels, sheetColumns, sheetFrameSize } from '../art/sheetStore';
 import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
 import {
   spriteTexture,
@@ -407,21 +409,33 @@ export class PhaserRenderer {
   }
 
   private drawCharacter(ch: Character, g: CharGObjects): void {
-    const sprites = getCharacterSprites(ch.skin);
-    const sd = getCharacterSprite(ch, sprites);
+    // Which CELL of the skin's sheet this pose draws (poseFrames.ts), not which pixels:
+    // the art is a PNG and the atlas holds cells of it, so nothing here decodes anything.
+    const size = sheetFrameSize(ch.skin);
     // No art for this skin yet, or at all: the sheets arrive over their own channel,
     // and a viewer can also carry a skin id this build does not have. Skip the frame
-    // rather than reach into undefined pixels — that threw inside the Matrix effect
-    // and took the whole render loop with it.
-    if (!sd || sd.length === 0) {
+    // rather than draw a texture that is not there — reaching into undefined pixels
+    // used to throw inside the Matrix effect and take the whole render loop with it.
+    if (!size) {
       g.body.setVisible(false);
       return;
     }
+    const pose = ch.pose ?? getCharacterPose(ch);
+    const cell = poseFrame(getSkinSpec(ch.skin), pose, ch.frame, sheetColumns(ch.skin));
+    const frameW = size.w;
+    const frameH = size.h;
     const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
 
-    // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer):
-    // draw the effect into a per-character canvas texture instead of the sprite.
-    const tex = ch.matrixEffect ? this.matrixTexture(ch, sd) : spriteTexture(this.scene, sd);
+    // Matrix digital-rain spawn/despawn (per-pixel, 1:1 with the v1 renderer): the one
+    // caller that genuinely needs pixels, and it generates its own every frame — so it
+    // asks the sheet store for the cell it is dissolving.
+    const tex = ch.matrixEffect
+      ? this.matrixTexture(ch, sheetCellPixels(ch.skin, ch.dir, cell.col) ?? [])
+      : sheetCellFrame(this.scene, ch.skin, ch.dir, cell.col, cell.synthSit);
+    if (!tex) {
+      g.body.setVisible(false);
+      return;
+    }
     g.body.setTexture(tex.key, tex.frame);
     g.body.setPosition(ch.x, ch.y + sit);
     g.body.setDepth(ch.y + TILE_SIZE / 2 + CHARACTER_Z_SORT_OFFSET);
@@ -434,7 +448,7 @@ export class PhaserRenderer {
     if (this.speakingIds.has(ch.id) && !ch.matrixEffect) {
       const p = 0.5 + 0.5 * Math.sin((this.scene.time.now / 1000) * 2 * Math.PI * VOICE_RING_PULSE_HZ);
       // Scale the 48px-wide texture to sit a little wider than the avatar's feet.
-      const spriteW = sd[0]?.length ?? TILE_SIZE;
+      const spriteW = frameW;
       const baseScale = ((spriteW * 1.9) / 48) * (1 + 0.12 * p);
       g.ring.setPosition(Math.round(ch.x), Math.round(ch.y + sit));
       g.ring.setDepth(g.body.depth - 1);
@@ -447,7 +461,7 @@ export class PhaserRenderer {
     }
 
     // Status markers over the head (☕ / 💤 afk / muted mic).
-    this.drawMarkers(ch, g, sd.length, sit);
+    this.drawMarkers(ch, g, frameH, sit);
 
     // Hide bubbles while the character is materialising/dissolving.
     if (ch.matrixEffect) {
@@ -463,7 +477,7 @@ export class PhaserRenderer {
       const bsit = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
       // Lift the bubble proportionally to the sprite height so it clears the head
       // of taller characters (baseline 32px → the original 24px offset).
-      const vOff = (BUBBLE_VERTICAL_OFFSET_PX * sd.length) / CHARACTER_BASELINE_HEIGHT;
+      const vOff = (BUBBLE_VERTICAL_OFFSET_PX * frameH) / CHARACTER_BASELINE_HEIGHT;
       g.bubble.setPosition(Math.round(ch.x), Math.round(ch.y + bsit - vOff));
       let ba = 1;
       if (ch.bubbleType === 'waiting' && ch.bubbleTimer < BUBBLE_FADE_DURATION_SEC) {
@@ -566,7 +580,15 @@ export class PhaserRenderer {
         img = this.scene.add.image(0, 0, '__WHITE').setOrigin(0.5, 1);
         this.pets.set(pet.id, img);
       }
-      const tex = spriteTexture(this.scene, getPetSprite(pet));
+      // Same as characters: a cell of the pet's sheet, resolved by pose (petPose) and
+      // direction, never decoded into pixels here.
+      const sheetId = `${pet.kind}_${pet.variant}`;
+      const cell = poseFrame(getNpcSpec(pet.kind, pet.variant), petPose(pet), pet.frame, sheetColumns(sheetId));
+      const tex = sheetCellFrame(this.scene, sheetId, pet.dir, cell.col, cell.synthSit);
+      if (!tex) {
+        img.setVisible(false);
+        continue;
+      }
       img.setTexture(tex.key, tex.frame);
       // Resting on a desk: lift the sprite onto the surface, but keep depth from
       // the (un-lifted) bottom-row anchor so the pet sorts in front of the desk.

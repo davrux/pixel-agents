@@ -48,7 +48,9 @@ import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { openActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
-import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
+import { posePlaybackLength } from '@pixel/shared/office/sprites/poseFrames.js';
+import { sheetColumns } from '../art/sheetStore';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { frameFailures } from '../render/frameGuard.js';
@@ -68,6 +70,7 @@ import {
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
+import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
 import { checkProtocol, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
@@ -493,7 +496,7 @@ export class OfficeScene extends Phaser.Scene {
         {
           key: 'agent',
           label: 'Avatars',
-          getTemplates: () => getCharacterTemplates(),
+          getTemplates: () => characterTemplatesWithArt(),
           // New skins get the next free char_<n> id (ids are stable, never reused).
           newId: (existing) => {
             let n = 0;
@@ -511,7 +514,7 @@ export class OfficeScene extends Phaser.Scene {
         {
           key: 'npc',
           label: 'NPCs',
-          getTemplates: () => getNpcRoster().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
+          getTemplates: () => npcRosterWithArt().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
           newId: () => 'npc_0', // unused (canCreate=false)
           save: (name, data) => this.room?.send('saveAsset', { assetType: 'pet', name, data }),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
@@ -528,7 +531,7 @@ export class OfficeScene extends Phaser.Scene {
           label: 'My Avatar',
           getTemplates: () => {
             const id = this.myAvatarId;
-            const t = id ? (getCharacterTemplates() ?? []).find((c) => c.id === id) : undefined;
+            const t = id ? characterTemplatesWithArt().find((c) => c.id === id) : undefined;
             return t ? [t] : [];
           },
           newId: () => this.myAvatarId ?? 'pa:me', // unused (canCreate=false)
@@ -2044,7 +2047,9 @@ export class OfficeScene extends Phaser.Scene {
         if (durMs > 0) {
           ch.animTimer = (ch.animTimer ?? 0) + delta;
           if (ch.animTimer >= durMs) {
-            const len = getPosePlaybackLength(ch.skin ?? "", pose);
+            // From the spec, not from built sprites: the client holds no pixels any
+            // more (art is a PNG sheet, see art/sheetStore.ts).
+            const len = posePlaybackLength(getSkinSpec(ch.skin ?? ''), pose, sheetColumns(ch.skin ?? ''));
             while (ch.animTimer >= durMs) {
               ch.animTimer -= durMs;
               ch.frame = ((ch.frame ?? 0) + 1) % len;
@@ -2770,13 +2775,13 @@ export class OfficeScene extends Phaser.Scene {
     if (this.charTab === 'agent') {
       items = (getCharacterTemplates() ?? [])
         .filter((c) => !isPlayerAvatarSkin(c.id))
-        .map((c) => ({ id: c.id, name: c.id, frame: c.data.down?.[1] ?? c.data.down?.[0], kind: 'agent' as const }));
+        .map((c) => ({ id: c.id, name: c.id, frame: thumbFrame(c.id), kind: 'agent' as const }));
     } else {
       items = getNpcRoster().map((r) => ({
         id: `${r.kind}_${r.variant}`,
         // The pet's own display name (Emma, Loui, …); the slot id stays the key.
         name: r.data.name || `${r.kind} ${r.variant}`,
-        frame: r.data.down?.[1] ?? r.data.down?.[0],
+        frame: thumbFrame(`${r.kind}_${r.variant}`),
         kind: 'npc' as const,
       }));
     }
@@ -2821,7 +2826,7 @@ export class OfficeScene extends Phaser.Scene {
         copy.className = 'pa-b';
         copy.textContent = 'Copy';
         copy.onclick = () => {
-          const tpl = (getCharacterTemplates() ?? []).find((c) => c.id === it.id);
+          const tpl = characterTemplatesWithArt().find((c) => c.id === it.id);
           if (!tpl) return;
           const id = this.nextCharId((getCharacterTemplates() ?? []).map((c) => c.id));
           this.room?.send('saveAsset', { assetType: 'character', name: id, data: tpl.data });
@@ -3925,10 +3930,10 @@ export class OfficeScene extends Phaser.Scene {
   private renderAvatarPreview(): void {
     const cv = this.settingsPanel?.querySelector<HTMLCanvasElement>('#pa-avatar-pic');
     const mine = this.myAvatarId
-      ? (getCharacterTemplates() ?? []).find((c) => c.id === this.myAvatarId)
+      ? characterTemplatesWithArt().find((c) => c.id === this.myAvatarId)
       : undefined;
     if (cv) {
-      const frame = mine?.data.down?.[1] ?? mine?.data.down?.[0];
+      const frame = this.myAvatarId ? thumbFrame(this.myAvatarId) : undefined;
       const w = frame?.[0]?.length ?? 16;
       const h = frame?.length ?? 32;
       cv.width = w;
@@ -4089,7 +4094,7 @@ export class OfficeScene extends Phaser.Scene {
     const host = this.settingsPanel?.querySelector<HTMLDivElement>(hostSel);
     if (!host) return;
     // Only gallery templates here — owned avatars (pa:<user>) aren't pickable.
-    const tpl = (getCharacterTemplates() ?? []).filter((c) => !isPlayerAvatarSkin(c.id));
+    const tpl = characterTemplatesWithArt().filter((c) => !isPlayerAvatarSkin(c.id));
     host.innerHTML = '';
     // "Default (Random)" = no pin; the server diversifies the skin.
     if (opts.random !== false) {
@@ -4104,7 +4109,7 @@ export class OfficeScene extends Phaser.Scene {
       host.appendChild(rnd);
     }
     tpl.forEach((c) => {
-      const frame = c.data.down?.[1] ?? c.data.down?.[0];
+      const frame = thumbFrame(c.id);
       const w = frame?.[0]?.length ?? 16;
       const h = frame?.length ?? 32;
       const cv = document.createElement('canvas');

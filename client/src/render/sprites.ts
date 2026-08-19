@@ -274,6 +274,59 @@ export function spriteTexture(scene: Phaser.Scene, sprite: SpriteData): SpriteTe
   return out;
 }
 
+
+/**
+ * Pack a rectangle of an IMAGE into the atlas — the same shelf, the same page, one
+ * `drawImage` instead of a pixel loop.
+ *
+ * This is how character and NPC art reaches the GPU now: the server sends a PNG sheet,
+ * and a cell of it becomes an atlas frame without ever being turned into hex strings.
+ * Going through the atlas rather than making a texture per sheet is deliberate — a
+ * texture per skin is a bind per skin on screen, which is the batching the atlas exists
+ * to protect (measured with 18 characters: 21 textures, ONE page).
+ *
+ * `mirror` writes the cell flipped horizontally; `shiftY` writes it lower in its own box
+ * and clips what falls out the bottom. Both are one-time draws, not per-frame work: the
+ * first is how a sheet with no left row gets one, the second is the seated placeholder
+ * for a character with no sit track.
+ */
+/** Cells packed straight from an image — counted so the perf overlay's frame number
+ *  still says what is in the atlas now that most of it arrives as sheets. */
+let imageFrames = 0;
+
+export function atlasFromImage(
+  scene: Phaser.Scene,
+  bitmap: ImageBitmap | HTMLCanvasElement,
+  src: { x: number; y: number; w: number; h: number },
+  opts: { mirror?: boolean; shiftY?: number } = {},
+): SpriteTex {
+  if (src.w <= 0 || src.h <= 0) return { key: '__WHITE' };
+  hookFlush(scene);
+  const at = reserve(scene, src.w, src.h);
+  if (!at) return { key: '__WHITE' }; // pages full: nothing to draw is better than a wrong frame
+  const frame = `f${frameCounter++}`;
+  const ctx = at.page.ctx;
+  ctx.save();
+  // Clip to the reserved box so a shifted draw cannot bleed into a neighbour.
+  ctx.beginPath();
+  ctx.rect(at.x, at.y, src.w, src.h);
+  ctx.clip();
+  ctx.imageSmoothingEnabled = false;
+  const dy = opts.shiftY ?? 0;
+  if (opts.mirror) {
+    ctx.translate(at.x + src.w, at.y + dy);
+    ctx.scale(-1, 1);
+    ctx.drawImage(bitmap, src.x, src.y, src.w, src.h, 0, 0, src.w, src.h);
+  } else {
+    ctx.drawImage(bitmap, src.x, src.y, src.w, src.h, at.x, at.y + dy, src.w, src.h);
+  }
+  ctx.restore();
+  at.page.tex.add(frame, 0, at.x, at.y, src.w, src.h);
+  at.page.dirty = true;
+  imageFrames++;
+  return { key: at.page.key, frame };
+}
+
 /** How many atlas pages exist — shown in the perf overlay (F8). */
 export function spriteAtlasPageCount(): number {
   return pages.length;
@@ -283,7 +336,10 @@ export function spriteAtlasPageCount(): number {
  *  the same art arrives again (a tileset saved in Tiled, an avatar re-broadcast).
  *  Shown in the perf overlay next to the page count. */
 export function spriteAtlasFrameCount(): number {
-  return byContent.size;
+  // Both kinds of packing: pixel sprites (deduplicated by content) and cells packed
+  // straight from a sheet. Counting only the first made the overlay read "0f" once
+  // characters started drawing from images, which is the opposite of informative.
+  return byContent.size + imageFrames;
 }
 
 /** Load (or reuse) a Phaser texture from an uploaded background image's data

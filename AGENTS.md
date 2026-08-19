@@ -135,11 +135,23 @@ Security is a first-class requirement, not a later pass.
   loop when nothing moves.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
   `spriteTexture()` packs each SpriteData into shared canvas pages and returns
-  `{key, frame}`. A texture per sprite is what breaks batching — a painted decal
-  field is hundreds of distinct 16×16 pieces, i.e. hundreds of binds per frame —
-  so anything that draws a sprite goes through that function, never
+  `{key, frame}`, and `atlasFromImage()` packs a rectangle of an IMAGE into the same
+  pages with one `drawImage` — which is how character and NPC art gets there, since it
+  arrives as a PNG sheet. A texture per sprite (or per skin) is what breaks batching — a
+  painted decal field is hundreds of distinct 16×16 pieces, i.e. hundreds of binds per
+  frame — so anything that draws a sprite goes through one of those two functions, never
   `createCanvas` of its own. Two exceptions, both deliberate: the Matrix effect
   (fresh pixels every frame) and uploaded background images (real PNGs).
+- **Characters and NPCs are drawn from their sheet, not from pixels.** `poseFrames.ts`
+  (shared) turns a pose into a COLUMN — same rule as `spriteForPose`, arithmetic instead
+  of arrays — and `client/src/art/sheetStore.ts` hands the renderer that cell out of the
+  atlas. So the client holds no hex for art at all; pixels are read from a sheet only by
+  the two callers that work on pixels (the character editor, the Matrix effect).
+  Measured with 18 characters: update time **7.55 → 0.36 ms**, JS heap **74.6 → 46.6 MB**,
+  still one atlas page. The pixel implementation in `spriteData.ts` stays as the
+  REFERENCE `poseFrames.int.test.ts` measures the arithmetic against, across every
+  bundled sheet, pose, direction and frame — keep the two independent, because that test
+  is the only reason "the index picks the same picture" is a fact.
 - **Character, NPC and avatar art travels as a PNG, not as pixels.** The bundled
   sheets already ARE images (`assets/characters/char_*.png`, `assets/pets/*.png`);
   what a join used to ship was one hex string per pixel. Entries now carry a URL into
