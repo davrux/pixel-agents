@@ -7,6 +7,8 @@
  */
 import { findCommand, mayRunCommand, commandsForGroup, type CommandSpec } from '@pixel/shared/commands';
 
+import { hudButton } from './hudBar.js';
+
 export interface ChatHooks {
   sendChat: (text: string) => void;
   sendCommand: (name: string, args: string) => void;
@@ -21,6 +23,9 @@ export interface ChatHooks {
   extraCommands?: CommandSpec[];
   onFocus?: () => void; // e.g. release pointer lock
   onBlur?: () => void;
+  /** The panel just opened — the host closes whatever else owns the corner
+   *  (see OfficeScene: chat and the online list are mutually exclusive). */
+  onOpen?: () => void;
 }
 
 export class ChatUI {
@@ -100,16 +105,14 @@ export class ChatUI {
     this.wireResize(grip);
     host.appendChild(this.box);
 
-    this.openBtn = document.createElement('button');
-    this.openBtn.id = 'pa-chatopen';
-    this.openBtn.className = 'pa-ui';
-    this.openBtn.textContent = '💬';
-    this.openBtn.title = 'Open chat';
+    // In the shared bottom-left strip (ui/hudBar.ts), which stays visible while
+    // the panel is open — so this button is a toggle, and the online list's
+    // button next to it is one click away rather than behind a close.
+    this.openBtn = hudButton('pa-chatopen', '💬', 'Chat');
     this.openBtn.onclick = () => {
-      this.setHidden(false);
-      this.input.focus();
+      if (this.hidden) this.focus();
+      else this.setHidden(true);
     };
-    host.appendChild(this.openBtn);
 
     // Start minimised, every time. Entering a zone is a full page reload (see
     // OfficeScene's goToZone), so this covers both "on entry" and "after a
@@ -120,6 +123,15 @@ export class ChatUI {
     this.setHidden(true);
     this.fadeTimer = setInterval(() => this.tickFade(), 250);
     window.addEventListener('keydown', this.onGlobalKey);
+  }
+
+  /** Is the chat panel open? */
+  isOpen(): boolean {
+    return !this.hidden;
+  }
+  /** Close the panel (the host does this when another corner panel opens). */
+  close(): void {
+    this.setHidden(true);
   }
 
   /** True while the chat input has focus (hosts suspend game input while typing). */
@@ -268,12 +280,14 @@ export class ChatUI {
   }
 
   private setHidden(hidden: boolean): void {
+    const wasHidden = this.hidden;
     this.hidden = hidden;
     this.box.style.display = hidden ? 'none' : 'flex';
-    this.openBtn.style.display = hidden ? 'block' : 'none';
+    this.openBtn.classList.toggle('on', !hidden);
     if (!hidden) {
       this.openBtn.classList.remove('unread');
       this.bump();
+      if (wasHidden) this.hooks.onOpen?.();
     }
   }
   private bump(): void {
@@ -384,7 +398,7 @@ function injectStyle(): void {
        means being covered rather than covering. It has no floor for that
        reason — unlike a popover, this is permanent furniture, and a narrow chat
        box you can read beats a wide one hidden under Mumble. */
-    #pa-chat{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;width:24rem;
+    #pa-chat{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:var(--pa-hud-bottom, 3.1rem);z-index:55;width:24rem;
       max-width:min(46vw, calc(var(--pa-hud-gap, 100vw) - 1rem));
       display:flex;flex-direction:column;gap:0.35rem;font-family:'FS Pixel Sans',ui-monospace,monospace;
       transition:opacity 0.8s ease;}
@@ -413,10 +427,6 @@ function injectStyle(): void {
     #pa-chathide{flex:0 0 auto;background:#262422;border:2px solid #0a0908;border-radius:0.35rem;
       color:#adb0b2;font:1.05rem 'FS Pixel Sans',monospace;padding:0 0.6rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
     #pa-chathide:hover{color:#f1efec;}
-    #pa-chatopen{position:fixed;left:calc(0.5rem + var(--pa-dock-l, 0px));bottom:0.5rem;z-index:55;display:none;background:#262422;
-      border:2px solid #0a0908;border-radius:0.35rem;color:#f1efec;font-size:1.1rem;padding:0.35rem 0.55rem;cursor:pointer;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
-    #pa-chatopen.unread::after{content:'';position:absolute;top:-4px;right:-4px;width:0.5rem;height:0.5rem;
-      border:2px solid #0a0908;border-radius:50%;background:#e7da00;}
     #pa-chatlog .ln{white-space:pre-wrap;word-break:break-word;}
     #pa-chatlog .ln b{color:#4998c0;}
     #pa-chatlog .ln a{color:#4998c0;text-decoration:underline;overflow-wrap:anywhere;}

@@ -45,3 +45,10 @@ export const ASSET_CHANGED_EVENT = 'assetChanged';
  *  currently live) rebuilds from the newly active layout and rebroadcasts,
  *  same as after a normal loadLayout; every other room ignores it. */
 export const ZONE_LAYOUT_CHANGED_EVENT = 'zoneLayoutChanged';
+
+/** The set of online users changed (someone joined a zone, switched zone or
+ *  left). Emitted by presence.ts, which is the only place that knows; every
+ *  SimRoom listens and pushes the refreshed roster to its own clients, since
+ *  the online list is world-wide and a room only ever sees its own joins. No
+ *  payload — a listener reads `presence.list()`. */
+export const PRESENCE_EVENT = 'presence';
