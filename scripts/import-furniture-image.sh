@@ -14,7 +14,10 @@
 #   --size WxH        how many TILES the thing is (16px each). Furniture footprint
 #                     is derived from the PNG's size, so this IS the object's
 #                     size in the world. 32x32 = 2x2 tiles = about as tall as a
-#                     character.
+#                     character. It is a box to FILL; add --fit when the subject
+#                     has its own proportions to keep (a side-on car is 3.4:1 and
+#                     the vehicle box is 2:1 — filling it ovalises the wheels),
+#                     and the art sits bottom-centred in the spare rows.
 #   --erase X,Y,W,H   source rectangles to blank first. A generator likes to add
 #                     detached decoration — steam, sparkles, a cast shadow — that
 #                     survives a 30:1 reduction as a few stray specks.

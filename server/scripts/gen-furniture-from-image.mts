@@ -23,7 +23,13 @@
  *      silhouette. Resampling straight RGBA blends the transparent pixels'
  *      black into every edge and rims the sprite in soot; premultiplying is
  *      what keeps the edge the object's own colour. The hard cut is because
- *      this world's sprites are opaque-or-absent, not feathered.
+ *      this world's sprites are opaque-or-absent, not feathered. --size is a
+ *      BOX to fill, which is right for a machine drawn to fit one; --fit keeps
+ *      the subject's own aspect inside that box instead, bottom-anchored and
+ *      centred. A car seen from the side is 3.4:1 where the vehicle sets' box
+ *      is 2:1, and stretching it to fill ovalises every wheel — the tile size
+ *      has to stay what the set already uses, so the art gives up the spare
+ *      rows rather than the proportions.
  *   4. quantizes, greys and accents SEPARATELY (see quantize below),
  *   5. lays the house shadow row under it — every hand-drawn piece in
  *      furniture-kitchens has one, and without it the piece floats,
@@ -67,6 +73,7 @@ interface Args {
   greys: number;
   chroma: number;
   shadow: boolean;
+  fit: boolean;
   erase: Array<[number, number, number, number]>;
   props: Map<string, string>;
   dry: boolean;
@@ -82,6 +89,8 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
                      PNG to png/src/furniture/<NAME>/
   --size WxH         target size in PIXELS, each a multiple of 16 (default 32x32).
                      16px = one tile, so 32x32 is a 2x2-tile object.
+  --fit              keep the subject's aspect inside --size (bottom-anchored,
+                     centred) instead of stretching to fill it
   --label TEXT       display name (default: the id, title-cased)
   --erase X,Y,W,H    blank this rectangle of the SOURCE first; repeatable
   --greys N          palette entries for the neutral colours (default 14)
@@ -97,7 +106,7 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
-  const out: Partial<Args> = { erase: [], props: new Map(), dry: false, shadow: true };
+  const out: Partial<Args> = { erase: [], props: new Map(), dry: false, shadow: true, fit: false };
   let label: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -105,6 +114,7 @@ function parseArgs(argv: string[]): Args {
     if (a === '--help' || a === '-h') usage();
     else if (a === '--dry-run') out.dry = true;
     else if (a === '--no-shadow') out.shadow = false;
+    else if (a === '--fit') out.fit = true;
     else if (a === '--id') out.id = next();
     else if (a === '--set') out.set = next();
     else if (a === '--label') label = next();
@@ -144,6 +154,7 @@ function parseArgs(argv: string[]): Args {
     greys: out.greys ?? 14,
     chroma: out.chroma ?? 7,
     shadow: out.shadow!,
+    fit: out.fit!,
     erase: out.erase!,
     props: out.props!,
     dry: out.dry!,
@@ -426,14 +437,25 @@ for (const rect of args.erase) {
 const box = bbox(src);
 console.log(`  subject ${box.x1 - box.x0}x${box.y1 - box.y0} at ${box.x0},${box.y0}`);
 const artHeight = args.shadow ? args.height - 1 : args.height;
-const art = shrink(src, box, args.width, artHeight);
+// --fit: the subject keeps its own aspect and gives up the spare rows, so a long
+// low vehicle stays a long low vehicle inside the box the set already uses.
+let artW = args.width;
+let artH = artHeight;
+if (args.fit) {
+  const scale = Math.min(args.width / (box.x1 - box.x0), artHeight / (box.y1 - box.y0));
+  artW = Math.max(1, Math.round((box.x1 - box.x0) * scale));
+  artH = Math.max(1, Math.round((box.y1 - box.y0) * scale));
+}
+const art = shrink(src, box, artW, artH);
 const { palette, accents } = quantize(art, args.greys, args.chroma);
 const out = new PNG({ width: args.width, height: args.height });
 out.data.fill(0);
-PNG.bitblt(art, out, 0, 0, art.width, art.height, 0, 0);
+PNG.bitblt(art, out, 0, 0, art.width, art.height, Math.floor((args.width - artW) / 2), artHeight - artH);
 if (args.shadow) shadowRow(out);
 console.log(
-  `  → ${args.width}x${args.height} (${args.width / TILE}x${args.height / TILE} tiles), ${palette} colours, ${accents} of them accents`,
+  `  → ${args.width}x${args.height} (${args.width / TILE}x${args.height / TILE} tiles)` +
+    (artW !== args.width || artH !== artHeight ? `, art ${artW}x${artH} bottom-centred` : '') +
+    `, ${palette} colours, ${accents} of them accents`,
 );
 
 const pngRel = path.join('png', 'src', 'furniture', args.set, `${args.id}.png`);
