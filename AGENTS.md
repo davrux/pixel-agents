@@ -369,8 +369,20 @@ background only.)
   nothing; a dense array of 3192 zeros would otherwise travel to every client on every
   join. The diagonal states are only expressible because `groundFits` already requires
   a ground tile to be exactly one square cell — a quarter turn of a 16×32 tile would
-  overflow its neighbours. Decals, furniture and images still read H/V only: their art
-  may be several cells tall, so a quarter turn there needs its own answer first.
+  overflow its neighbours.
+  **A decal turns the same way, when its art can take it.** Decals go through the same
+  table (`orientationOf`, the placement's three booleans instead of a mask) and get all
+  eight orientations — but only where the art is SQUARE, and that is decided at import,
+  not in the renderer: a decal may be several cells tall, and a 32×16 piece turned a
+  quarter of the way round would occupy 16×32, i.e. cells nobody painted. What Tiled
+  draws for an oversized rotated tile in a tile layer is not something a checkout can be
+  compared against, so the import keeps the two mirrors, drops the turn, and names the id
+  — the same shape of refusal as `groundFits`. Furniture and images still read H/V only;
+  they are placed objects with their own size, so a rotation there is a separate question.
+  Both paths are measured, not argued: the tests pin the table against where the four
+  corners of a cell land, and the orientations were read back out of a screenshot of the
+  running client — pixel-exact for all eight, where an unturned cell differs in 96 to 226
+  of the pixels its art paints.
   **No tile class decides anything any more.** `FloorTile` and `WallTile` are both
   gone: neither carried a property, and the one fact they encoded — how tall a cell
   is — is stated by the tileset itself (`tilewidth`/`tileheight`, passed to the

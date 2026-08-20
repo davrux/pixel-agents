@@ -224,6 +224,12 @@ export interface FurnitureInstance {
   mirrored?: boolean;
   /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
   flippedVertically?: boolean;
+  /** Render-time diagonal flip (the axes swap), which together with the two mirrors
+   *  spans all eight of Tiled's orientations — see office/tileOrientation.ts. Only
+   *  ever set on SQUARE art: a quarter turn of a taller-than-wide picture would not
+   *  fit the footprint it was placed with, so the import refuses it there (loudly)
+   *  rather than letting the game disagree with the editor. */
+  flippedDiagonally?: boolean;
   /** Render alpha, 0..1 — see PlacedFurniture.opacity. Unset = opaque. */
   opacity?: number;
 }
@@ -529,6 +535,19 @@ export interface PlacedDecal {
   /** Tiled's own tile-flip bits, same meaning as PlacedFurniture's. */
   flippedHorizontally?: boolean;
   flippedVertically?: boolean;
+  /**
+   * Tiled's third bit: the axes swap, so with the two mirrors a decal spans all eight
+   * orientations — the same set a ground cell has (see office/tileOrientation.ts, which
+   * both go through).
+   *
+   * Set only on decals whose art is SQUARE. A decal may be several cells tall — that is
+   * what `spriteRows` above converts — and a quarter turn of a 16×48 tree would occupy
+   * 48×16, i.e. not the cells it was placed on. Tiled's own answer for an oversized
+   * rotated tile in a tile layer is not something this codebase can check against, so the
+   * import drops the bit there and says so, rather than guessing and having the game
+   * disagree with the editor. Square art is the unambiguous case and the common one.
+   */
+  flippedDiagonally?: boolean;
 }
 
 /** A free-text label placed on one tile — purely decorative (no footprint,

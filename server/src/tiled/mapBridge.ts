@@ -466,6 +466,8 @@ export function importTmjToLayout(
    * is the one thing the whole Tiled path exists to prevent.
    */
   const decals: PlacedDecal[] = [];
+  /** Rotated decals whose art cannot take it — reported once each. */
+  const decalWarnings = new Set<string>();
   for (const layer of layers.filter((l) => l.class === 'DecalLayer')) {
     const data = layer.data as number[] | undefined;
     if (!Array.isArray(data)) continue; // an empty or non-tile layer carrying the class
@@ -513,7 +515,27 @@ export function importTmjToLayout(
         decal.flippedHorizontally = true;
         flipBits -= TILED_FLIP_H;
       }
-      if (flipBits >= TILED_FLIP_V) decal.flippedVertically = true;
+      if (flipBits >= TILED_FLIP_V) {
+        decal.flippedVertically = true;
+        flipBits -= TILED_FLIP_V;
+      }
+      if (flipBits >= TILED_FLIP_D) {
+        // A quarter turn swaps the art's width and height, so it only lands on the cells
+        // it was placed on when the art is square. Unlike ground — where `groundFits`
+        // guarantees one square cell — a decal may be several cells tall, and Tiled's own
+        // rendering of an oversized rotated tile is not something this repo can check
+        // against. So the two mirrors above are kept and the turn is dropped, with the id
+        // named: silently drawing it unrotated is the same class of bug as silently
+        // drawing it unmirrored, which is what this whole change is fixing.
+        const square = entry ? entry.width === entry.height : false;
+        if (square) decal.flippedDiagonally = true;
+        else
+          warnOnce(
+            decalWarnings,
+            `decal "${id}" is rotated in the map but its art is ${entry ? `${entry.width}×${entry.height}` : 'not square'} — ` +
+              'only a square decal can be turned a quarter of the way round (its mirrors still apply)',
+          );
+      }
       decals.push(decal);
     }
   }

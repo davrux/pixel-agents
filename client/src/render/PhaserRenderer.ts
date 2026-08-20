@@ -40,7 +40,7 @@ export interface RenderSource {
   tileMap: GroundMap;
 }
 import { groundCellRef } from '@pixel/shared/office/floorTiles.js';
-import { cellOrientation } from '@pixel/shared/office/tileOrientation.js';
+import { cellOrientation, orientationOf } from '@pixel/shared/office/tileOrientation.js';
 import { hasSheets } from '@pixel/shared/office/tiledSheetLayout.js';
 import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getWallEdgeInstances, getWallFaceInstances } from '@pixel/shared/office/wallTiles.js';
@@ -243,14 +243,21 @@ export class PhaserRenderer {
     // decals (all sharing DECAL_DEPTH) stack the way the Layers panel shows them.
     for (const d of layoutToDecalInstances(layout.decals)) {
       const tex = spriteTextureFor(this.scene, d.spriteId, d.sprite);
-      this.statics.push(
-        this.scene.add
-          .image(d.x, d.y, tex.key, tex.frame)
-          .setOrigin(0, 0)
-          .setDepth(d.zY)
-          .setFlipX(!!d.mirrored)
-          .setFlipY(!!d.flippedVertically),
-      );
+      const img = this.scene.add
+        .image(d.x, d.y, tex.key, tex.frame)
+        .setOrigin(0, 0)
+        .setDepth(d.zY)
+        .setFlipX(!!d.mirrored)
+        .setFlipY(!!d.flippedVertically);
+      // Turned the same way a ground cell is (one table, see tileOrientation.ts). The
+      // import only sets the diagonal bit on square art, so w === h here and the rotated
+      // quad covers the same box — which is why the centre is the art's own, not a cell's.
+      const orient = orientationOf(d.mirrored, d.flippedVertically, d.flippedDiagonally);
+      if (orient.angle !== 0) {
+        img.setOrigin(0.5, 0.5).setPosition(d.x + d.width / 2, d.y + d.height / 2).setAngle(orient.angle);
+        img.setFlipX(orient.flipX).setFlipY(orient.flipY);
+      }
+      this.statics.push(img);
     }
 
     // Placed background images (OfficeLayout.images) — fixed depth, free

@@ -234,6 +234,7 @@ export function layoutToDecalInstances(decals: PlacedDecal[] | undefined): Furni
       zY: decal.occludes ? y + entry.height : DECAL_DEPTH,
       ...(decal.flippedHorizontally ? { mirrored: true } : {}),
       ...(decal.flippedVertically ? { flippedVertically: true } : {}),
+      ...(decal.flippedDiagonally ? { flippedDiagonally: true } : {}),
     });
   }
   return instances;

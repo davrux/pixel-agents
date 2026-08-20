@@ -76,6 +76,22 @@ export function cellOrientation(bits: number | undefined): CellOrientation {
   return TABLE[bits & ORIENT_MASK];
 }
 
+/**
+ * The same answer for a PLACEMENT, which carries the three bits as booleans rather than
+ * as a mask (`PlacedDecal`/`PlacedFurniture`/`PlacedImage` predate the mask and store one
+ * flag each). Same table either way — the point of routing both through here is that
+ * "how is this turned" must not have a second implementation for the placement case.
+ */
+export function orientationOf(
+  flippedHorizontally: boolean | undefined,
+  flippedVertically: boolean | undefined,
+  flippedDiagonally: boolean | undefined,
+): CellOrientation {
+  return cellOrientation(
+    (flippedHorizontally ? ORIENT_H : 0) | (flippedVertically ? ORIENT_V : 0) | (flippedDiagonally ? ORIENT_D : 0),
+  );
+}
+
 /** True when this cell is turned at all — lets a caller keep its fast path. */
 export function isTurned(bits: number | undefined): boolean {
   return ((bits ?? 0) & ORIENT_MASK) !== 0;
