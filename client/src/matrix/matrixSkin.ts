@@ -141,6 +141,10 @@ export function injectMatrixSkin(): void {
 /* room + encryption both pin a subhead above their own scroller, so the section
    itself must not pad or scroll — see .mx-encbody below. */
 #pa-mx > section[data-view="room"],#pa-mx > section[data-view="encryption"]{padding:0;gap:0}
+/* The room view is the one section that lays out sideways — the fast-switch
+   rail down its left edge, and everything else in the column beside it. */
+#pa-mx > section[data-view="room"]{flex-direction:row}
+.mx-room-col{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0}
 #pa-mx > section:not([data-view="room"]):not([data-view="encryption"]){padding:0.6rem 0.7rem 0.8rem}
 /* Every other view (encryption, members, …) stacks more content than the window's height can show
    at once — without its own scroller here, the body's overflow:hidden above (which outranks the
@@ -538,6 +542,65 @@ export function injectMatrixSkin(): void {
 .mx-rooms-foot-row{display:flex;gap:0.5rem}
 .mx-rooms-foot-row .pa-b{flex:1}
 
+/* ---- fast-switch rail (MatrixUI.renderRail) ---------------------------------
+   Discord's server column, at chat-panel scale: the chats with the newest
+   messages as bare avatars, name on the tooltip, one click to switch. It is a
+   shortcut, not a second room list — no names, no previews, nothing that would
+   cost the timeline width it cannot spare in a 20rem column.
+
+   Both indicators (the ▍marker on the left, the unread dot on the right) sit
+   in the rail's own padding, never outside it: overflow-y:auto below makes the
+   padding box a clipping box, so a badge poking past it would be cut off (or
+   worse, add a horizontal scrollbar to a 2.6rem column).
+
+   The rail is as tall as the window, so its ten squares only ever overflow on
+   a genuinely short viewport — but a hidden scrollbar there would truncate the
+   stack with nothing to say so. Hence a thin one, styled both ways (Firefox
+   honours scrollbar-width/-color, Chrome the ::-webkit- pseudos), narrow
+   enough that the column it costs is affordable. */
+.mx-rail{
+  flex:0 0 auto;display:flex;flex-direction:column;gap:0.35rem;
+  padding:0.45rem 0.3rem 0.45rem 0.5rem;
+  background:#141312;border-right:2px solid #0a0908;
+  overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;scrollbar-color:#37342f transparent;
+}
+.mx-rail::-webkit-scrollbar{width:0.3rem}
+/* Chrome still draws its platform stepper arrows on a sized scrollbar, and at
+   this width they are two grey smudges wider than the thumb itself. */
+.mx-rail::-webkit-scrollbar-button{display:none}
+.mx-rail::-webkit-scrollbar-track{background:transparent}
+.mx-rail::-webkit-scrollbar-thumb{background:#37342f;border-radius:0.15rem}
+.mx-rail[hidden]{display:none}
+/* A bare square: the button chrome is stripped back to the avatar, the way
+   .mx-me-av strips the status strip's own. Inactive rides dimmed so the room
+   you are in — and anything with something new in it — reads first. */
+.mx-rail-b{
+  position:relative;display:block;flex:0 0 auto;
+  padding:0;margin:0;border:0;background:none;cursor:pointer;opacity:.72;
+  transition:opacity .08s linear;
+}
+.mx-rail-b:hover,.mx-rail-b.unread,.mx-rail-b.on{opacity:1}
+.mx-rail-b:focus-visible{outline:2px solid #4998c0;outline-offset:2px}
+/* The marker in the gutter: a short bar for "something new here", the full
+   height in the highlight colour for "you are here" (the same #e7da00 the room
+   list's current row already uses). .on last, so it wins when both apply. */
+.mx-rail-b::before{
+  content:'';position:absolute;left:-0.35rem;top:50%;transform:translateY(-50%);
+  width:0.2rem;height:0;border-radius:0.1rem;background:#f1efec;
+}
+.mx-rail-b.unread::before{height:0.5rem}
+.mx-rail-b.on::before{height:1.4rem;background:#e7da00}
+/* Sits on the square's corner rather than beside it — there is no width for a
+   count, which is what the tooltip carries. Same two states as .mx-badge:
+   muted for unread, primary red for a highlight (a mention). */
+.mx-rail-dot{
+  position:absolute;top:-0.15rem;right:-0.15rem;
+  width:0.6rem;height:0.6rem;border-radius:50%;
+  background:#adb0b2;box-shadow:0 0 0 2px #141312;
+}
+.mx-rail-dot.hl{background:#c51a1b}
+
 /* ---- message options menu (messageMenu.ts) ----------------------------------
    A panel-shaped popover, positioned by script inside #pa-mx. Panel tokens
    (the deeper bevel + drop shadow), because that is what every other floating
@@ -693,6 +756,10 @@ export function injectMatrixSkin(): void {
 /* The room list's second line costs every row twice its height to preview a
    message the timeline shows in full the moment you open the room. */
 .pa-compact .mx-prev{display:none}
+/* The rail keeps its squares (see the note above: no box changes here) and
+   gives back its gutters instead — the marker moves in with them. */
+.pa-compact .mx-rail{padding:0.35rem 0.2rem 0.35rem 0.4rem;gap:0.3rem}
+.pa-compact .mx-rail-b::before{left:-0.28rem}
 /* 18rem of picture in a ~20rem column would be the panel's whole width minus
    its gutters; let it use what there is instead. */
 .pa-compact .mx-img{max-width:100%}

@@ -10,6 +10,11 @@
  * (./session.js). This file is purely "given a store, draw the panel; given
  * clicks, drive the store."
  *
+ * The room view also carries the fast-switch rail (`renderRail`): a Discord-
+ * style column of the most recently active chats down its left edge, avatars
+ * only, so hopping between the handful of conversations that are actually live
+ * costs one click instead of ◀ + a scroll through the room list.
+ *
  * Navigation is a small explicit stack: `rooms` is the root, `room` pushes on
  * top of it, `members` pushes on top of `room`, and `newdm`/`newgroup`/`join`/
  * `encryption` push directly on top of `rooms`. Every view is rebuilt from
@@ -159,6 +164,14 @@ export class MatrixUI {
   private readonly inviteError = new Map<string, string>();
 
   // ---- room view ----
+  /** The fast-switch rail down the left edge of the room view, and the
+   *  signature of what it is currently showing. The room view re-renders on
+   *  every timeline event, so the rail is rebuilt only when what it would draw
+   *  actually changed — same trick as `paintAvatarSlot`, for the same reason:
+   *  rebuilding it per event would recreate ten avatar squares (and their
+   *  <img> elements) several times a second while a room is busy. */
+  private railEl!: HTMLElement;
+  private railKey = '';
   private roomNameEl!: HTMLSpanElement;
   private roomLockEl!: HTMLSpanElement;
   private roomMembersBtn!: HTMLButtonElement;
@@ -392,6 +405,11 @@ export class MatrixUI {
   private teardownStore(): void {
     for (const unsub of this.storeUnsubs) unsub();
     this.storeUnsubs = [];
+    // The rail's squares hold blob: URLs from this store's media cache, which
+    // `destroy()` below revokes — keeping them would paint broken avatars if
+    // the same account signs back in and the rail's signature happens to match.
+    this.railEl.replaceChildren();
+    this.railKey = '';
     this.store?.destroy();
     this.store = null;
     this.hsBaseUrl = '';
@@ -1287,6 +1305,17 @@ export class MatrixUI {
     const section = document.createElement('section');
     section.dataset.view = 'room';
 
+    // The room view is the one section that lays out sideways: the rail down
+    // the left edge, everything that was here before in a column beside it.
+    this.railEl = document.createElement('nav');
+    this.railEl.className = 'mx-rail';
+    this.railEl.setAttribute('aria-label', 'Recent chats');
+    section.appendChild(this.railEl);
+
+    const col = document.createElement('div');
+    col.className = 'mx-room-col';
+    section.appendChild(col);
+
     const subhead = document.createElement('div');
     subhead.className = 'mx-subhead';
     const back = document.createElement('button');
@@ -1313,12 +1342,12 @@ export class MatrixUI {
     this.roomMembersBtn.addEventListener('click', () => this.openMembersView());
     subhead.appendChild(this.roomMembersBtn);
 
-    section.appendChild(subhead);
+    col.appendChild(subhead);
 
     this.roomNoticeEl = document.createElement('div');
     this.roomNoticeEl.className = 'mx-notice';
     this.roomNoticeEl.style.display = 'none';
-    section.appendChild(this.roomNoticeEl);
+    col.appendChild(this.roomNoticeEl);
 
     const hooks: TimelineHooks = {
       onPaginate: () => {
@@ -1360,7 +1389,7 @@ export class MatrixUI {
       },
     };
     this.timelineView = new TimelineView(hooks);
-    section.appendChild(this.timelineView.el);
+    col.appendChild(this.timelineView.el);
 
     const composer = document.createElement('div');
     composer.className = 'mx-composer';
@@ -1476,7 +1505,7 @@ export class MatrixUI {
       this.uploadStatusEl,
       this.composerDisabledEl,
     );
-    section.appendChild(composer);
+    col.appendChild(composer);
 
     // Drop anywhere in the room view, not just on the composer — a 26rem-wide
     // panel makes a composer-sized drop target genuinely fiddly.
@@ -1506,6 +1535,7 @@ export class MatrixUI {
 
   private renderRoomView(roomId: string): void {
     if (!this.store) return;
+    this.renderRail(roomId);
     const room = this.store.room(roomId);
     this.roomNameEl.textContent = room?.name ?? roomId;
     this.roomNameEl.title = room?.name ?? roomId;
@@ -1592,6 +1622,78 @@ export class MatrixUI {
     if (!document.hidden && this.timelineView.isAtBottom()) {
       this.store.markRead(roomId);
     }
+  }
+
+  /** How many chats the fast-switch rail keeps. A rail is a shortcut to the
+   *  conversations that are live right now, not a second room list — past
+   *  about a screenful of squares in a 26rem column, ◀ and the real list
+   *  (which has names, previews and a filter) is the faster way to find one. */
+  private static readonly RAIL_MAX = 10;
+
+  /** The rail: joined chats — people and groups alike, invites excluded since
+   *  there is nothing to switch *to* until one is accepted — newest message
+   *  first, avatars only with the name on the tooltip.
+   *
+   *  The open room is always among them even when it has dropped past the cap,
+   *  because a rail that doesn't show where you are reads as broken (and its
+   *  ▍marker would be nowhere). */
+  private renderRail(openRoomId: string): void {
+    if (!this.store) return;
+    const joined = this.store.rooms().filter((r) => r.membership === 'join');
+    joined.sort((a, b) => b.lastTs - a.lastTs);
+    const max = MatrixUI.RAIL_MAX;
+    let shown = joined.slice(0, max);
+    if (!shown.some((r) => r.roomId === openRoomId)) {
+      const open = joined.find((r) => r.roomId === openRoomId);
+      // Replaces the oldest square rather than growing the rail, so the cap
+      // holds and the ones above keep their newest-first order.
+      if (open) shown = [...shown.slice(0, max - 1), open];
+    }
+    // One square is the room you are already in — nothing to switch to, and in
+    // a 20rem column the rail's width is worth more than that.
+    this.railEl.hidden = shown.length < 2;
+
+    const key = shown
+      .map((r) => [r.roomId, r.name, r.avatarMxc ?? '', r.unread, r.highlight, r.roomId === openRoomId].join('\u0001'))
+      .join('\n');
+    if (this.railKey === key) return;
+    this.railKey = key;
+    this.railEl.replaceChildren(...shown.map((r) => this.buildRailButton(r, openRoomId)));
+  }
+
+  private buildRailButton(room: MxRoom, openRoomId: string): HTMLButtonElement {
+    const here = room.roomId === openRoomId;
+    const btn = document.createElement('button');
+    btn.className = 'mx-rail-b';
+    if (here) {
+      btn.classList.add('on');
+      btn.setAttribute('aria-current', 'true');
+    }
+    if (room.unread > 0) btn.classList.add('unread');
+
+    // Remote text, so title/aria-label only — never interpolated into markup.
+    // The count rides along on the tooltip because the square itself only has
+    // room to say *that* something arrived, not how much.
+    const label = room.unread > 0 ? `${room.name} — ${room.unread} unread` : room.name;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+
+    const av = mkAvatar(room.roomId, room.name, this.picture(room.avatarMxc));
+    // mkAvatar titles the square itself; the button's own title would never
+    // win under the pointer, so both carry the same text.
+    av.title = label;
+    btn.appendChild(av);
+
+    if (room.unread > 0) {
+      const dot = document.createElement('span');
+      dot.className = 'mx-rail-dot' + (room.highlight > 0 ? ' hl' : '');
+      btn.appendChild(dot);
+    }
+
+    btn.addEventListener('click', () => {
+      if (!here) this.openRoomView(room.roomId);
+    });
+    return btn;
   }
 
   private autoGrow(ta: HTMLTextAreaElement): void {
