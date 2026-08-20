@@ -12,10 +12,20 @@
  *                       itself never reaches the client.
  *   ARCADE_TURN_TTL     credential lifetime in seconds (default 43200 = 12h)
  *   ARCADE_STUN_URLS    optional comma-separated STUN URLs; if unset we derive a
- *                       stun: URL from each turn host and add a public fallback.
+ *                       stun: URL from each turn host (coturn answers STUN on the
+ *                       same port).
  *
- * With no ARCADE_TURN_* set this returns just STUN, matching js-dos' own default —
- * fine for a LAN / same-machine test, not for NAT-to-NAT over the internet.
+ * No public STUN server is named here. It used to append stun.l.google.com whenever
+ * ARCADE_STUN_URLS was unset — including when a deployment HAD its own relay, which is
+ * every real deployment. js-dos replaces its own ICE config with whatever list we hand it
+ * (`s.iceServers = e`), so that entry was ours, and it was the only host in the list
+ * needing DNS: a client that cannot resolve it logs `Failed to resolve address for
+ * stun.l.google.com, errorcode: -105` while its own relay sits there working.
+ *
+ * With nothing configured this returns an EMPTY list, the client then passes no `net`
+ * config at all, and js-dos falls back to its own default (five Google STUN servers).
+ * Same outcome as before for a bare LAN test, but it is then js-dos' choice of third
+ * party rather than a hardcoded one of ours.
  */
 import { createHmac } from 'node:crypto';
 
@@ -47,14 +57,13 @@ export function arcadeIceServers(now: number = Date.now()): IceServer[] {
   const stunUrls = list(process.env.ARCADE_STUN_URLS);
   const servers: IceServer[] = [];
 
-  // STUN: explicit, else derived from the TURN hosts, else a public fallback.
+  // STUN: explicit, else derived from the TURN hosts. Nothing else — see the header.
   const stun = new Set<string>(stunUrls);
   if (!stun.size) {
     for (const t of turnUrls) {
       const s = stunFromTurn(t);
       if (s) stun.add(s);
     }
-    stun.add('stun:stun.l.google.com:19302');
   }
   if (stun.size) servers.push({ urls: [...stun] });
 
