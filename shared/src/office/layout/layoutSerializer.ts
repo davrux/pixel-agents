@@ -35,8 +35,13 @@ import { emptyWallEdges, hIndex, vIndex } from '../wallEdges.js';
 export function migrateLayout(
   layout: OfficeLayout,
   columnsOf: (setName: string) => number | undefined,
+  /** v2 → v3: where an image placement's file is, by its id. The caller looks on disk
+   *  (this module stays free of the file system); a placement whose art cannot be found
+   *  is dropped, because a picture nobody can fetch is a hole either way. */
+  imageSrcFor: (imageId: string) => string | undefined = () => undefined,
 ): { layout: OfficeLayout; unresolved: string[] } {
-  if (layout.version === 2) return { layout, unresolved: [] };
+  if (layout.version === 3) return { layout, unresolved: [] };
+  if (layout.version === 2) return migrateImagesToSrc(layout, imageSrcFor);
   const unresolved = new Set<string>();
   const tiles: number[] = [];
   for (let i = 0; i < layout.tiles.length; i++) {
@@ -58,7 +63,37 @@ export function migrateLayout(
   }
   const migrated: OfficeLayout = { ...layout, version: 2, tiles };
   delete migrated.tileColors;
-  return { layout: migrated, unresolved: [...unresolved] };
+  // Straight on to v3, so a v1 map does not need two passes.
+  const v3 = migrateImagesToSrc(migrated, imageSrcFor);
+  return { layout: v3.layout, unresolved: [...unresolved, ...v3.unresolved] };
+}
+
+/**
+ * v2 → v3: an image placement carries the path to its file instead of only an id.
+ *
+ * Images used to live in the database as base64 and travel to every client on join; the
+ * file in `assets/tiled` is the source now (the same rule the tilesets follow), so the
+ * placement has to say which file. A placement whose file cannot be resolved is dropped
+ * and reported — drawing nothing is what it did before, and keeping it would only carry
+ * the hole forward.
+ */
+function migrateImagesToSrc(
+  layout: OfficeLayout,
+  imageSrcFor: (imageId: string) => string | undefined,
+): { layout: OfficeLayout; unresolved: string[] } {
+  const unresolved: string[] = [];
+  const images = (layout.images ?? []).flatMap((im) => {
+    if (im.src) return [im];
+    const src = imageSrcFor(im.imageId);
+    if (!src) {
+      unresolved.push(`image ${im.imageId}`);
+      return [];
+    }
+    return [{ ...im, src }];
+  });
+  const migrated: OfficeLayout = { ...layout, version: 3 };
+  if (layout.images) migrated.images = images;
+  return { layout: migrated, unresolved };
 }
 
 export function layoutToTileMap(layout: OfficeLayout): GroundMap {
@@ -338,7 +373,7 @@ export function createDefaultLayout(): OfficeLayout {
   // looked deliberate.
   const tiles = new Array<number>(DEFAULT_COLS * DEFAULT_ROWS).fill(0);
   return {
-    version: 2,
+    version: 3,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     tiles,
@@ -359,7 +394,7 @@ export function createDefaultLayout(): OfficeLayout {
  */
 export function emptyZoneMap(cols: number, rows: number): OfficeLayout {
   const tiles = new Array<number>(cols * rows).fill(0);
-  return { version: 2, cols, rows, tiles, walls: borderWalls(cols, rows), furniture: [] };
+  return { version: 3, cols, rows, tiles, walls: borderWalls(cols, rows), furniture: [] };
 }
 
 /** Serialize layout to JSON string
@@ -377,7 +412,7 @@ export function serializeLayout(layout: OfficeLayout): string {
 export function deserializeLayout(json: string): OfficeLayout | null {
   try {
     const obj = JSON.parse(json);
-    if (obj && (obj.version === 1 || obj.version === 2) && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
+    if (obj && [1, 2, 3].includes(obj.version) && Array.isArray(obj.tiles) && Array.isArray(obj.furniture)) {
       return obj as OfficeLayout;
     }
   } catch {

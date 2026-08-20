@@ -29,7 +29,6 @@ export interface AssetBundle {
     furnitureRefs: Record<string, unknown>;
     /** Uploaded background images (see shared/office/imageAssets.ts) — no
      *  bundled defaults, always starts empty. */
-    images: unknown[];
   };
 }
 
@@ -124,10 +123,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       sprites: Object.fromEntries(Object.entries(furniture.sprites).filter(([id]) => !furniture.refs[id])),
     });
   }
-  // No bundled images — always present so assetOverrides.ts's buildMerged()
-  // has a message to rebuild once the first one is uploaded.
-  messages.push({ type: 'imagesLoaded', images: [] });
-
   return {
     providerCapabilities: {
       type: 'providerCapabilities',
@@ -143,7 +138,6 @@ export async function loadAssetBundle(): Promise<AssetBundle> {
       furnitureCatalog: furniture.catalog,
       furnitureSprites: furniture.sprites,
       furnitureRefs: furniture.refs,
-      images: [],
     },
   };
 }

@@ -1833,8 +1833,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
         this.os.rebuildFromLayout(this.zoneLayout() ?? this.os.layout);
         this.lastFurnitureRef = null; // force furniture re-sync
         break;
-      // 'image': nothing to re-apply server-side (the client renders them) —
-      // just rebroadcast below, which is how a pushed map's images reach viewers.
     }
     const msgType = messageTypeForAsset(type);
     const message = this.bundle.messages.find((m) => m.type === msgType);

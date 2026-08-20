@@ -17,8 +17,9 @@ export const WORLD_ROOM = 'world';
  *
  * 2 — CharacterSync.hueShift removed, which shifted the 17 fields after it.
  * 3 — character/pet/avatar art travels as a PNG URL instead of sprite pixels.
+ * 4 — map images come from their file (layout v3 carries the path); imagesLoaded is gone.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

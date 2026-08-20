@@ -21,7 +21,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
 import { migrateLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
+
+import { ASSETS_ROOT } from './assets.js';
 
 import { db } from './db.js';
 
@@ -40,6 +45,31 @@ type Layout = Record<string, unknown>;
 let groundColumnsOf: (setName: string) => number | undefined = () => undefined;
 export function setGroundColumnsResolver(resolve: (setName: string) => number | undefined): void {
   groundColumnsOf = resolve;
+}
+
+
+/**
+ * Where an image placement's file is, for the v2 → v3 migration: the tile's own path is
+ * not in a v2 layout, so the only thing left is the convention the importer falls back on
+ * (`png/src/images/<imageId>.png`) — checked against the disk rather than assumed, and
+ * any extension the directory happens to hold.
+ *
+ * Returning nothing drops that placement (migrateLayout says so): a picture whose file
+ * nobody has draws nothing either way, and carrying the id forward only carries the hole.
+ */
+function imageSrcFor(imageId: string): string | undefined {
+  const dir = path.join(ASSETS_ROOT, 'assets', 'tiled', 'png', 'src', 'images');
+  for (const ext of ['png', 'PNG', 'jpg', 'jpeg', 'webp']) {
+    const rel = `png/src/images/${imageId}.${ext}`;
+    if (fs.existsSync(path.join(ASSETS_ROOT, 'assets', 'tiled', rel))) return rel;
+  }
+  // Last try: any file whose stem matches, whatever it is called.
+  try {
+    const hit = fs.readdirSync(dir).find((f) => f.replace(/\.[^.]+$/, '') === imageId);
+    return hit ? `png/src/images/${hit}` : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export class ZoneMapStore {
@@ -70,7 +100,7 @@ export class ZoneMapStore {
     }
     // Migrate on first read, keeping the original timestamp: a map's updated_at is
     // when a HUMAN last pushed it, and a format bump is not an edit.
-    const { layout: migrated, unresolved } = migrateLayout(parsed as unknown as OfficeLayout, groundColumnsOf);
+    const { layout: migrated, unresolved } = migrateLayout(parsed as unknown as OfficeLayout, groundColumnsOf, imageSrcFor);
     if (migrated === (parsed as unknown as OfficeLayout)) return parsed;
     if (unresolved.length > 0) {
       // NOT persisted. Every cell of an unresolved set became a hole, and writing
@@ -85,7 +115,7 @@ export class ZoneMapStore {
       return parsed;
     }
     this.db.prepare('UPDATE layouts SET data = ? WHERE name = ?').run(JSON.stringify(migrated), zone);
-    console.log(`[zone-maps] ${zone}: layout migrated to version 2 (ground cells now hold tile ids)`);
+    console.log(`[zone-maps] ${zone}: layout migrated to version ${migrated.version}`);
     return migrated as unknown as Layout;
   }
 

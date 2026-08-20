@@ -139,9 +139,10 @@ function imageIdFromPath(image: string | undefined): string {
 
 export interface TmjImportResult {
   layout: OfficeLayout;
-  /** imageId → PNG buffer for images the caller should persist as new/updated
-   *  image assets before saving the layout (matches saveAsset's 'image' type). */
-  images: Array<{ imageId: string; label: string; buffer: Buffer }>;
+  /** Images this map draws: where each one's file belongs under `assets/tiled`, plus
+   *  its bytes when they came from a push. The caller writes any file the server does
+   *  not have yet — nothing is stored in the database (see zoneImport). */
+  images: Array<{ imageId: string; label: string; src: string; buffer: Buffer }>;
   /** The map's own `mapName` property (see Pixels.tiled-project's Map
    *  class), or null if absent — e.g. a .tmj predating this property, or a
    *  hand-created map that never set it. Callers decide the fallback
@@ -566,8 +567,12 @@ export function importTmjToLayout(
     // fallback for the cases with no such tile at all (a bare `type: 'Image'`
     // object with no gid). readImageFile resolves both against assets/tiled
     // itself, never zone-relative (see zoneImport.ts).
-    const buffer = readImageFile(resolvedTile?.image ?? `png/src/images/${imageId}.png`);
-    if (buffer) importedImages.push({ imageId, label: imageId, buffer });
+    // Where the picture lives, relative to assets/tiled. This goes into the layout: the
+    // file is the source of truth, and the client fetches it like any other sheet. The
+    // buffer is only carried so a PUSH can write a file the server does not have yet.
+    const src = resolvedTile?.image ?? `png/src/images/${imageId}.png`;
+    const buffer = readImageFile(src);
+    if (buffer) importedImages.push({ imageId, label: imageId, src, buffer });
     const image: PlacedImage = {
       uid: generateUid(),
       x: Number(obj.x) || 0,
@@ -578,6 +583,7 @@ export function importTmjToLayout(
       width: Number(obj.width) || TILE_SIZE,
       height,
       imageId,
+      src,
     };
     const imgOpacity = Number(obj.opacity);
     if (Number.isFinite(imgOpacity) && imgOpacity >= 0 && imgOpacity < 1) image.opacity = imgOpacity;
@@ -594,7 +600,7 @@ export function importTmjToLayout(
   }
 
   const layout: OfficeLayout = {
-    version: 2,
+    version: 3,
     cols,
     rows,
     tiles,

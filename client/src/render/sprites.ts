@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import type { SheetCellRef, SpriteData } from '@pixel/shared/office/types.js';
-import { serverHttpOrigin } from '../net/room.js';
+import { serverFetch, serverHttpOrigin } from '../net/room.js';
 
 
 /**
@@ -353,20 +353,53 @@ export function spriteAtlasFrameCount(): number {
  *  react once it does (e.g. re-set a GameObject's texture/size). Safe to
  *  call `onReady` synchronously when already loaded. */
 const pendingImageKeys = new Set<string>();
-export function ensureImageTexture(scene: Phaser.Scene, assetId: string, dataUrl: string, onReady?: (key: string) => void): string {
+export function ensureImageTexture(
+  scene: Phaser.Scene,
+  assetId: string,
+  source: string,
+  onReady?: (key: string) => void,
+): string {
   const key = `img_${assetId}`;
   if (scene.textures.exists(key)) {
     onReady?.(key);
     return key;
   }
   if (onReady) scene.textures.once(Phaser.Textures.Events.ADD_KEY + key, () => onReady(key));
-  // Multiple PlacedImage instances can share one imageId, and buildStatic()
-  // may re-run before a prior load finished — only ever request the decode once.
-  if (!pendingImageKeys.has(key)) {
-    pendingImageKeys.add(key);
-    scene.textures.once(Phaser.Textures.Events.ADD_KEY + key, () => pendingImageKeys.delete(key));
-    scene.textures.addBase64(key, dataUrl);
+  // Multiple PlacedImage instances can share one image, and buildStatic() may re-run
+  // before a prior load finished — only ever request the decode once.
+  if (pendingImageKeys.has(key)) return key;
+  pendingImageKeys.add(key);
+  scene.textures.once(Phaser.Textures.Events.ADD_KEY + key, () => pendingImageKeys.delete(key));
+  if (source.startsWith('data:')) {
+    scene.textures.addBase64(key, source);
+    return key;
   }
+  // A path under the server's art: fetched through serverFetch, so the desktop build
+  // (an app:// origin talking to a remote server) sends its bearer and this keeps
+  // working if /assets ever stops being public.
+  void serverFetch(source)
+    .then((res) => (res.ok ? res.blob() : Promise.reject(new Error(`HTTP ${res.status}`))))
+    .then(
+      (blob) =>
+        new Promise<void>((resolve, reject) => {
+          const url = URL.createObjectURL(blob);
+          const el = new Image();
+          el.onload = () => {
+            if (!scene.textures.exists(key)) scene.textures.addImage(key, el);
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          el.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('decode failed'));
+          };
+          el.src = url;
+        }),
+    )
+    .catch((err) => {
+      pendingImageKeys.delete(key);
+      console.warn(`[sprites] could not load image ${source}:`, err instanceof Error ? err.message : err);
+    });
   return key;
 }
 

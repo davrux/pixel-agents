@@ -23,7 +23,10 @@ const CHAR_FRAME = { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
 const PET_FRAME = { w: PET_FRAME_W, h: PET_FRAME_H };
 import type { AssetBundle } from './assets.js';
 
-export const ASSET_TYPES = ['character', 'pet', 'furniture', 'image'] as const;
+/** Asset types the database may override. `image` is gone: a map's pictures are files
+ *  under assets/tiled that the layout points at (PlacedImage.src), not rows shipped on
+ *  every join — see tiled/zoneImport.ts. */
+export const ASSET_TYPES = ['character', 'pet', 'furniture'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 /** Parse `${prefix}_<n>` → n, or null. */
@@ -148,17 +151,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     }
   }
 
-  // Images (no bundled defaults — raw.images always starts empty), id-keyed
-  // like furniture (not positional like floor/wall — there's no "slot 0" to
-  // preserve for an upload).
-  const images = [...(raw.images as Array<{ id?: string }>)];
-  for (const { name, data } of orderedAssets('image')) {
-    const entry = { ...(data as Record<string, unknown>), id: name };
-    const k = images.findIndex((c) => c.id === name);
-    if (k >= 0) images[k] = entry;
-    else images.push(entry);
-  }
-
   // Rebuild the asset messages from merged data; keep everything else (layout).
   const messages = defaults.messages.map((m) => {
     switch (m.type) {
@@ -189,8 +181,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
           sprites: Object.fromEntries(Object.entries(furnitureSprites).filter(([id]) => !furnitureRefs[id])),
           bundledIds: bundledFurnitureIds,
         };
-      case 'imagesLoaded':
-        return { type: 'imagesLoaded', images };
       default:
         return m;
     }
@@ -199,7 +189,7 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   return {
     providerCapabilities: defaults.providerCapabilities,
     messages,
-    raw: { ...raw, characters, dogs: namedDogs, cats: namedCats, ducks: namedDucks, furnitureCatalog, furnitureSprites, furnitureRefs, images },
+    raw: { ...raw, characters, dogs: namedDogs, cats: namedCats, ducks: namedDucks, furnitureCatalog, furnitureSprites, furnitureRefs },
   };
 }
 
@@ -209,7 +199,6 @@ export function messageTypeForAsset(type: AssetType): string {
     character: 'characterSpritesLoaded',
     pet: 'petSpritesLoaded',
     furniture: 'furnitureAssetsLoaded',
-    image: 'imagesLoaded',
   }[type];
 }
 

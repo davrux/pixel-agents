@@ -51,7 +51,6 @@ import { petPose } from '@pixel/shared/office/engine/pets.js';
 import { poseFrame } from '@pixel/shared/office/sprites/poseFrames.js';
 import { getNpcSpec, getSkinSpec } from '@pixel/shared/office/sprites/spriteData.js';
 import { sheetCellFrame, sheetCellPixels, sheetColumns, sheetFrameSize } from '../art/sheetStore';
-import { getImageAsset } from '@pixel/shared/office/imageAssets.js';
 import {
   spriteTexture,
   spriteTextureFor,
@@ -247,8 +246,9 @@ export class PhaserRenderer {
     // furniture/text — an image has no "standing point"), stretched to fill
     // exactly the box the mapper drew in Tiled.
     for (const pi of layout.images ?? []) {
-      const asset = getImageAsset(pi.imageId);
-      if (!asset) continue; // deleted since this layout was saved — skip silently
+      // The placement says where its file is (PlacedImage.src, under assets/tiled) —
+      // the picture is a file in the repo, not a row that travels on every join.
+      if (!pi.src) continue; // a layout older than version 3 that never migrated
       const img = this.scene.add
         .image(0, 0, '__DEFAULT')
         .setOrigin(0, 0)
@@ -258,7 +258,7 @@ export class PhaserRenderer {
         .setFlipX(!!pi.flippedHorizontally)
         .setFlipY(!!pi.flippedVertically)
         .setAlpha(pi.opacity ?? 1);
-      ensureImageTexture(this.scene, asset.id, asset.data, (key) => {
+      ensureImageTexture(this.scene, pi.imageId, `/assets/tiled/${pi.src}`, (key) => {
         // The decode finishes on a later tick, and buildStatic may have run again by
         // then (a pushed map, a catalog reload) — which destroyed this image. Touching
         // a destroyed GameObject throws inside Phaser ("this.scene is undefined"), and

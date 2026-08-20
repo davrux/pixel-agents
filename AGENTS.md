@@ -364,6 +364,16 @@ background only.)
   means another cell). Hence: **append only, never insert, never renumber, retire
   instead of delete** — and if art really is removed, the maps that used it must be
   re-authored.
+- **A map's pictures are files, not rows.** An image placement carries the path to its
+  file under `assets/tiled` (`PlacedImage.src`, layout **version 3**), and the client
+  fetches it over HTTP like every other sheet. It used to be stored as a base64 row and
+  shipped in an `imagesLoaded` message on every join — a copy of a file that is already
+  in git (measured: 60 KB per join for one 46 KB picture, 237 KB when three unused rows
+  were still there). The `image` asset type is gone with it: a pushed map writes any
+  picture the server lacks to DISK (`tiled/zoneImport.ts`), and nothing writes it to the
+  database. A v2 layout is migrated on read by resolving the id against
+  `png/src/images/` — and a placement whose file cannot be found is dropped rather than
+  carried forward as a hole.
 - **A zone has exactly one map, and it comes from Tiled.** The `layouts` table is
   keyed by zone id: no named layouts, no active-layout pointer, no bundled
   read-only default, no code-generated zone. The import is one-way; there is no

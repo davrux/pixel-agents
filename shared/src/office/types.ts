@@ -583,6 +583,11 @@ export interface PlacedImage {
   width: number;
   height: number;
   imageId: string;
+  /** Where the picture IS: a path under `assets/tiled`, taken from the tile's own
+   *  `image` in Tiled (see mapBridge). The client fetches it over HTTP like every
+   *  other sheet — the file in the repo is the source, and there is no copy of it in
+   *  the database any more (it used to be a base64 row shipped on every join). */
+  src: string;
   /** Mirror the image horizontally/vertically — maps directly onto Tiled's
    *  own GID flip bits (see mapBridge.ts), same convention as
    *  PlacedFurniture.flippedHorizontally. Unlike furniture (hand-drawn 2.5D
@@ -663,7 +668,9 @@ export interface WallEdges {
 export interface OfficeLayout {
   /** 2 since ground cells hold a sheet's local tile id (see `tiles`); 1 stored a
    *  floor PATTERN plus a separate colour, and is migrated on read. */
-  version: 1 | 2;
+  /** 1 = floor patterns + colours · 2 = ground tile ids · 3 = image placements carry
+   *  the path to their file (the picture is a file in assets/tiled, not a database row). */
+  version: 1 | 2 | 3;
   cols: number;
   rows: number;
   /**

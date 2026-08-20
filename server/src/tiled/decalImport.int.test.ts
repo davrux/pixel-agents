@@ -380,7 +380,7 @@ test('a tile from an imported art sheet painted on the ground layer is walkable 
   );
 
   const idx = 3 * COLS + 4;
-  assert.equal(layout.version, 2, 'the importer writes the current layout version');
+  assert.equal(layout.version, 3, 'the importer writes the current layout version');
   assert.equal(layout.tiles[idx], localId, 'the cell keeps the tile id it was painted with');
   assert.deepEqual(layout.floorSets, ['decal-overworld'], 'the set the map used names itself');
   assert.equal(layout.tileFloorSet?.[idx], 0);
@@ -428,7 +428,9 @@ test('a baked floor set still resolves to the same cell it always did', async ()
   };
   const { layout: migrated, unresolved } = migrateLayout(v1 as never, (name) => (name === 'floor-endesga' ? columns : undefined));
   assert.deepEqual(unresolved, [], 'every set in this layout resolves');
-  assert.equal(migrated.version, 2);
+  // A v1 layout goes all the way to the current version in one pass — two passes would
+  // mean a map read once still needed reading again.
+  assert.equal(migrated.version, 3);
   assert.equal(migrated.tiles[0], localId, 'a migrated v1 cell must draw the same art as before');
   assert.equal(migrated.tileColors, undefined, 'the swatch is folded into the tile id');
 });

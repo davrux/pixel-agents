@@ -7,13 +7,11 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { PNG } from 'pngjs';
 
 import { appStore } from '../appStore.js';
 import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
-import { controlBus, ZONE_LAYOUT_CHANGED_EVENT, ASSET_CHANGED_EVENT } from '../controlBus.js';
-import { invalidateMergedBundle } from '../assetOverrides.js';
+import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions } from '../layoutSanitize.js';
 import { importTmjToLayout } from './mapBridge.js';
 import { loadTiledRegistry, type TiledRegistry } from './tiledRegistry.js';
@@ -135,23 +133,20 @@ export async function importZoneTmj(
     return fs.existsSync(p) ? fs.readFileSync(p) : null;
   });
 
-  for (const { imageId, label, buffer } of images) {
-    const { width, height } = PNG.sync.read(buffer);
-    appStore.saveAsset('image', imageId, {
-      data: `data:image/png;base64,${buffer.toString('base64')}`,
-      width,
-      height,
-      label,
-    });
-  }
-  // The store is not what clients read — they get the merged bundle, which caches
-  // the DB overrides. Writing an image without dropping that cache leaves a pushed
-  // map's images invisible until something unrelated invalidates it (or the process
-  // restarts). This is now the ONLY writer of image assets: the in-game upload tab
-  // is gone, so nothing else would ever invalidate on their behalf.
-  if (images.length > 0) {
-    invalidateMergedBundle();
-    controlBus.emit(ASSET_CHANGED_EVENT, 'image');
+  // A pushed map may bring pictures the server does not have yet. They belong on DISK,
+  // next to the tilesets — the layout points at the file and the client fetches it like
+  // any other sheet. Nothing goes into the database: an image row used to be base64 that
+  // travelled to every client on every join, a copy of a file that is already in git.
+  for (const { imageId, src, buffer } of images) {
+    const target = path.join(tiledDir, src);
+    if (fs.existsSync(target)) continue;
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, buffer);
+      console.log(`[zone-import] wrote ${src} (${buffer.length} bytes) — image ${imageId} came with the push`);
+    } catch (err) {
+      console.warn(`[zone-import] could not write ${src}: ${err instanceof Error ? err.message : err}`);
+    }
   }
 
   // Round-trip through (de)serializeLayout so this matches exactly what a
