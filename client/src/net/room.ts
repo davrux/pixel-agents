@@ -111,6 +111,12 @@ export async function connect(
   if (isDesktop()) {
     const token = await desktop().getToken();
     if (token) client.auth.token = token;
+    // The SDK's matchmake fetch defaults to `credentials: 'include'`, and the
+    // server's CORS deliberately never sets Access-Control-Allow-Credentials
+    // (no cross-origin cookie surface) — so from app:// the preflight fails and
+    // the join never happens. There is no cookie to send anyway; the bearer
+    // header above is the whole desktop auth.
+    client.http.options.credentials = 'omit';
   }
   // `arrive` = the player actively entered this zone (menu switch or portal), so
   // the server should land them at the zone's arrival tile rather than where they
