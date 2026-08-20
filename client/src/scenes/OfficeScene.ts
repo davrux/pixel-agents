@@ -1066,6 +1066,7 @@ export class OfficeScene extends Phaser.Scene {
         zOffset: number;
         width: number;
         height: number;
+        angle: number;
       }>;
     } | undefined;
     const arr = state?.furniture;
@@ -1103,6 +1104,10 @@ export class OfficeScene extends Phaser.Scene {
         ...(f.zOffset ? { zOffset: f.zOffset } : {}),
         // 0 = the art's own size, so only a resized placement carries one.
         ...(f.width && f.height ? { width: f.width, height: f.height } : {}),
+        // 0 = upright — see FurnitureSync.angle. Carried because entryFor swaps the
+        // piece's sides for a quarter turn, and the client asks entryFor the same
+        // questions the server does (which cells, which seats, what depth).
+        ...(f.angle ? { angle: f.angle } : {}),
       };
     });
     this.furnitureArr = layoutToFurnitureInstances(this.furniturePlacements);

@@ -121,22 +121,29 @@ test('a map that mirrors nothing carries no tileFlip at all', () => {
   assert.equal(layout.tileFloorSet?.length, COLS * ROWS);
 });
 
-test('the committed zone maps come through with no orientation at all', () => {
-  // The regression this guards against is a sign bug: reading the bits with a bitwise `&`
-  // instead of this file's subtraction style makes 0x80000000 negative, and ordinary cells
-  // start reporting an orientation. Every committed map is a fixture for that — they are
-  // real maps, thousands of cells each, and none of them mirrors a ground cell today.
+test('every committed zone map carries exactly the orientations its file states', () => {
+  // Counted from the .tmj itself rather than asserting "no map uses this", which was true
+  // for about a day: uponu mirrors 98 ground cells now. Reading the flip bits out of the
+  // raw file and comparing the totals is the version of this that keeps working, and it is
+  // the one that actually catches the regression it was written for — a bitwise `&` instead
+  // of this file's subtraction style makes 0x80000000 negative, and ORDINARY cells start
+  // reporting an orientation, which shows up here as a count that does not match.
   const dir = path.join(ASSETS_ROOT, 'assets', 'tiled', 'zones');
   const maps = fs.readdirSync(dir).filter((f) => f.endsWith('.tmj'));
   assert.ok(maps.length > 0, 'no bundled zone maps to check');
+  const ANY_FLIP = 0x80000000 + 0x40000000 + 0x20000000;
   for (const file of maps) {
-    const tmj = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as Record<string, unknown>;
-    const { layout } = importTmjToLayout(tmj, registry, noImages);
-    assert.equal(
-      layout.tileFlip,
-      undefined,
-      `${file}: no cell is mirrored in the map, so the layout must carry no orientation array`,
-    );
-    assert.ok(layout.tiles.length > 0, `${file}: imported no ground at all`);
+    const tmj = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as {
+      layers?: Array<{ class?: string; data?: number[] }>;
+    };
+    const ground = tmj.layers?.find((l) => l.class === 'GroundLayer')?.data ?? [];
+    const stated = ground.filter((gid) => ((gid >>> 0) & ANY_FLIP) !== 0).length;
+    const { layout } = importTmjToLayout(tmj as Record<string, unknown>, registry, noImages);
+    const carried = (layout.tileFlip ?? []).filter((bits) => bits !== 0).length;
+    assert.equal(carried, stated, `${file}: the map states ${stated} turned ground cell(s), the layout carries ${carried}`);
+    if (stated === 0) assert.equal(layout.tileFlip, undefined, `${file}: nothing is turned, so no array should travel`);
+    for (const bits of layout.tileFlip ?? []) {
+      assert.ok(bits >= 0 && bits <= 7, `${file}: ${bits} is not one of the eight orientations`);
+    }
   }
 });

@@ -22,7 +22,7 @@ import { DECAL_TILE_CLASS, resolveFromTmjTilesets, type TiledRegistry, type Regi
 import { actionFromProps, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject } from './furnitureProps.js';
 import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
-import { ORIENT_D, ORIENT_H, ORIENT_V } from '@pixel/shared/office/tileOrientation.js';
+import { ORIENT_D, ORIENT_H, ORIENT_V, quarterTurnsOf } from '@pixel/shared/office/tileOrientation.js';
 import { emptyWallEdges, hIndex, latticeIndex, vIndex } from '@pixel/shared/office/wallEdges.js';
 
 /** Tiled's own GID flip bits (top two bits of the 32-bit GID field) — plain
@@ -47,12 +47,38 @@ const DECLARED_BEHAVIOUR = ['canSitOn', 'petCanSitOn', 'onState', 'actionKind'];
 
 /** Tiled's documented Tile Object convention: (x,y) is the BOTTOM-LEFT
  *  corner of the tile's image, not top-left like every other object type. */
-function rowFromTileObjectY(y: number, heightPx: number): number {
-  // Tiled anchors a tile object at its BOTTOM left, so the row is where its top edge
-  // lands. Measured from the object's own height: taking it from the catalog's
-  // footprint put a placement Tiled shows at 16px a whole cell too high, because the
-  // art behind it is 32px tall (see PlacedFurniture.width).
-  return Math.round((y - heightPx) / TILE_SIZE);
+/**
+ * The top-left corner of a tile object's box after Tiled turned it.
+ *
+ * Tiled documents its own pivot: an object's `rotation` is "in degrees clockwise around
+ * (x, y)" — and for a tile object that (x, y) is the BOTTOM-left corner of the unrotated
+ * box. So a quarter turn does not spin the piece in place; it swings the box around that
+ * corner, which is why this cannot be "same cell, sides swapped". Worked out from the four
+ * corners rather than guessed, and pinned by furnitureTurn.int.test.ts:
+ *
+ *   0°    the box is above the pivot            → (x,     y − h)   w × h
+ *   90°   it swings right and down              → (x,     y    )   h × w
+ *   180°  it hangs left and down                → (x − w, y    )   w × h
+ *   270°  it swings left and up                 → (x − h, y − w)   h × w
+ *
+ * Getting this wrong moves a piece by its own size — visible immediately, but only if
+ * somebody looks, which is what the test is for.
+ *
+ * The height is the object's OWN drawn height, never the catalog's: a placement Tiled shows
+ * at 16px whose art is 32px tall landed a whole cell too high when this was taken from the
+ * footprint (see PlacedFurniture.width). That is why the caller passes the drawn size.
+ */
+function turnedTopLeftPx(x: number, y: number, w: number, h: number, quarters: 0 | 1 | 2 | 3): { x: number; y: number } {
+  switch (quarters) {
+    case 1:
+      return { x, y };
+    case 2:
+      return { x: x - w, y };
+    case 3:
+      return { x: x - h, y: y - w };
+    default:
+      return { x, y: y - h };
+  }
 }
 
 /** Every imported item gets a fresh identity — `uid` is purely internal engine
@@ -375,6 +401,8 @@ export function importTmjToLayout(
     };
   })();
 
+  /** Pieces whose rotation cannot be honoured — reported once each. */
+  const turnWarnings = new Set<string>();
   const furniture: PlacedFurniture[] = furnitureObjects.map((obj, idx) => {
     const props: PropBag = Object.fromEntries(((obj.properties as TiledProp[]) ?? []).map((p) => [p.name, p.value]));
     // Identity comes from the GID — i.e. from the tile whose sprite you can
@@ -400,8 +428,31 @@ export function importTmjToLayout(
     const objH = Math.round(Number(obj.height) || 0);
     const sized = entry !== undefined && objW > 0 && objH > 0 && (objW !== entry.width || objH !== entry.height);
     const drawnH = sized ? objH : (entry?.height ?? TILE_SIZE);
-    const col = Math.round(Number(obj.x) / TILE_SIZE);
-    const row = hasGid ? rowFromTileObjectY(Number(obj.y), drawnH) : Math.round(Number(obj.y) / TILE_SIZE);
+    const drawnW = sized ? objW : (entry?.width ?? TILE_SIZE);
+    // Tiled lets an object sit at any angle; cells can only answer a quarter turn, and a
+    // piece whose TOP rows are air (backgroundTiles) cannot answer even that — "the top" is
+    // a side once it is turned. Both are refused here rather than approximated, so the
+    // engine never sees a rotation it cannot honour, and the mapper is told which piece.
+    const rawAngle = Number(obj.rotation) || 0;
+    let quarters = quarterTurnsOf(rawAngle);
+    if (quarters === null) {
+      warnOnce(
+        turnWarnings,
+        `"${id}" is rotated ${rawAngle}° — furniture can only be turned in quarter steps (its cells have no answer for anything else), so it stays upright`,
+      );
+      quarters = 0;
+    } else if (quarters !== 0 && (entry?.backgroundTiles ?? 0) > 0) {
+      warnOnce(
+        turnWarnings,
+        `"${id}" is rotated but its top ${entry?.backgroundTiles} row(s) are air (backgroundTiles) — that only means something while the top is the top, so it stays upright`,
+      );
+      quarters = 0;
+    }
+    const topLeft = hasGid
+      ? turnedTopLeftPx(Number(obj.x) || 0, Number(obj.y) || 0, drawnW, drawnH, quarters)
+      : { x: Number(obj.x) || 0, y: Number(obj.y) || 0 };
+    const col = Math.round(topLeft.x / TILE_SIZE);
+    const row = Math.round(topLeft.y / TILE_SIZE);
     if (sized) {
       console.log(`[tiled] ${id} at ${col},${row} is placed at ${objW}×${objH}, its art is ${entry.width}×${entry.height} — drawn and occupying cells at the placed size`);
     }
@@ -416,14 +467,15 @@ export function importTmjToLayout(
       ...(sized ? { width: objW, height: objH } : {}),
       zOffset: idx,
     };
-    {
-      let flipBits = rawGid;
-      if (flipBits >= TILED_FLIP_H) {
-        item.flippedHorizontally = true;
-        flipBits -= TILED_FLIP_H;
-      }
-      if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
+    let flipBits = rawGid;
+    if (flipBits >= TILED_FLIP_H) {
+      item.flippedHorizontally = true;
+      flipBits -= TILED_FLIP_H;
     }
+    if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
+    // Only ever a quarter turn, and only one the engine can honour — see the refusals
+    // above. Stored in degrees like PlacedText.angle, so a map reads the way Tiled shows it.
+    if (quarters !== 0) item.angle = quarters * 90;
     // The native Tiled object Name, not a custom property.
     if (typeof obj.name === 'string' && obj.name) item.name = obj.name;
     // Likewise opacity: Tiled writes it on every object itself, so there is no
@@ -637,6 +689,12 @@ export function importTmjToLayout(
     };
     const imgOpacity = Number(obj.opacity);
     if (Number.isFinite(imgOpacity) && imgOpacity >= 0 && imgOpacity < 1) image.opacity = imgOpacity;
+    // Any angle, unlike furniture: an image has a free pixel box and no cells, so there is
+    // nothing to refuse. Normalized here so the renderer never sees -90 or 720, and stored
+    // against the UNROTATED box — the pivot is Tiled's own (x, y), which x/y above still
+    // describe, so nothing has to be recomputed when the mapper nudges the angle.
+    const imgAngle = Number(obj.rotation);
+    if (Number.isFinite(imgAngle) && imgAngle % 360 !== 0) image.angle = ((imgAngle % 360) + 360) % 360;
     // Decode both flip bits independently — strip H first so a lingering H
     // bit can't be mistaken for V (H > V, so any H-flipped gid is already
     // >= TILED_FLIP_V on its own).

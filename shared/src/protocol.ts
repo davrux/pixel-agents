@@ -18,8 +18,10 @@ export const WORLD_ROOM = 'world';
  * 2 — CharacterSync.hueShift removed, which shifted the 17 fields after it.
  * 3 — character/pet/avatar art travels as a PNG URL instead of sprite pixels.
  * 4 — map images come from their file (layout v3 carries the path); imagesLoaded is gone.
+ * 5 — FurnitureSync.angle: a placement can be turned a quarter of the way round, and the
+ *     client needs it to draw the piece and to agree about which cells it occupies.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

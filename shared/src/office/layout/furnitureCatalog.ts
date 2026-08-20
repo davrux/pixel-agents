@@ -1,3 +1,4 @@
+import { turnFacing, turnSwapsSides } from '../tileOrientation.js';
 import type { Action, Direction as DirectionVal, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
 import { Direction, TILE_SIZE } from '../types.js';
 
@@ -165,12 +166,26 @@ export function getCatalogEntry(id: string): FurnitureCatalogEntry | undefined {
  * Returns the shared entry itself when there is no override, so the common case
  * allocates nothing: this is called from per-tick engine loops.
  */
-export function entryFor(item: { id: string; width?: number; height?: number }): FurnitureCatalogEntry | undefined {
+export function entryFor(item: {
+  id: string;
+  width?: number;
+  height?: number;
+  angle?: number;
+}): FurnitureCatalogEntry | undefined {
   const entry = getCatalogEntry(item.id);
   if (!entry) return undefined;
-  const width = item.width || entry.width;
-  const height = item.height || entry.height;
-  if (width === entry.width && height === entry.height) return entry;
+  // A quarter turn swaps the sides, and it has to be resolved HERE for the same reason a
+  // resized placement is: the cells a piece occupies decide blocking, seats, approach
+  // tiles, pet perching and depth, so a turn that only reached the renderer would draw a
+  // desk lying across two cells while the collision still stood in one. A half turn keeps
+  // the sides as they are (see quarterTurnsOf; an angle Tiled allows but cells cannot
+  // express never reaches here — the import refuses it).
+  const turned = turnSwapsSides(item.angle);
+  const placedW = item.width || entry.width;
+  const placedH = item.height || entry.height;
+  const width = turned ? placedH : placedW;
+  const height = turned ? placedW : placedH;
+  if (width === entry.width && height === entry.height && !turned) return entry;
   const footprintH = Math.max(1, Math.ceil(height / TILE_SIZE));
   return {
     ...entry,
@@ -229,7 +244,14 @@ export function resolveCanSitOn(item: PlacedFurniture, entry: FurnitureCatalogEn
 export function resolveSitFacing(item: PlacedFurniture, entry: FurnitureCatalogEntry | undefined): DirectionVal {
   // `!== undefined` throughout, never truthiness — Direction.DOWN is 0.
   if (item.sitFacing !== undefined) return item.sitFacing;
-  return mirrorFacing(entry?.sitFacing ?? Direction.UP, item.flippedHorizontally, item.flippedVertically);
+  // Turned after the mirrors, matching how both Tiled and the renderer compose the two
+  // (see turnFacing). The placement's own override above is deliberately NOT turned: a
+  // mapper who typed a facing on THIS placement stated it in world terms, looking at the
+  // map — only the tile's baked default is in the art's own frame.
+  return turnFacing(
+    mirrorFacing(entry?.sitFacing ?? Direction.UP, item.flippedHorizontally, item.flippedVertically),
+    item.angle,
+  );
 }
 
 /** May a pet rest on top of this? (Whether one actually FITS also depends on

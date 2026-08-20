@@ -2065,6 +2065,8 @@ export class SimRoom extends Room<{ state: RoomState }> {
       // 0 = the art's own size (see FurnitureSync.width).
       fs.width = p.width ?? 0;
       fs.height = p.height ?? 0;
+      // 0 = upright. Only ever a quarter turn: the import refuses anything else.
+      fs.angle = p.angle ?? 0;
       this.state.furniture.push(fs);
     }
   }

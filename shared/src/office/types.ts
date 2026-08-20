@@ -224,6 +224,11 @@ export interface FurnitureInstance {
   mirrored?: boolean;
   /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
   flippedVertically?: boolean;
+  /** Render-time rotation in degrees clockwise, pivoted at the centre of the box this
+   *  instance occupies — which is already the TURNED box, since entryFor swapped the
+   *  sides. Only ever a quarter turn for furniture; a decal uses flippedDiagonally
+   *  below instead, because its turn comes from a tile-layer cell, not an object. */
+  angle?: number;
   /** Render-time diagonal flip (the axes swap), which together with the two mirrors
    *  spans all eight of Tiled's orientations — see office/tileOrientation.ts. Only
    *  ever set on SQUARE art: a quarter turn of a taller-than-wide picture would not
@@ -465,12 +470,27 @@ export interface PlacedFurniture {
    *  use either — there's no equivalent gate in Tiled either, and whether a
    *  vertical flip looks right for a given hand-drawn 2.5D piece is the
    *  mapper's own call to make in Tiled, not this engine's to police.
-   *  Continuous rotation, which Tiled's object model also supports, is still
-   *  not adopted (same reasoning that killed rotation groups: there's no
-   *  sensible rotated frame for art drawn from one fixed camera angle) — but
-   *  a flip is just mirroring the SAME frame, always well-defined. */
+   *  Tiled's other object transform, free rotation, is adopted only in quarter
+   *  turns — see `angle` below. The old reason for adopting none of it still
+   *  stands as a warning rather than as a rule: art drawn from one fixed camera
+   *  angle has no sensible rotated frame, so turning a desk on its side reads
+   *  wrong however correctly it is drawn. What made it worth having anyway is
+   *  that plenty of pieces ARE turn-symmetric (a rug, a crate, a plant), and
+   *  that a quarter turn — unlike 37° — has an exact answer in cells. */
   flippedHorizontally?: boolean;
   flippedVertically?: boolean;
+  /**
+   * Quarter turns clockwise, in degrees (90, 180, 270) — Tiled's object rotation.
+   *
+   * Unlike a mirror this is NOT cosmetic: `entryFor` swaps the piece's sides for a quarter
+   * turn, so the cells it blocks, the seats it offers, its approach tiles, where a pet
+   * perches and how it sorts all follow the picture. Two things Tiled allows are refused at
+   * import rather than approximated, because both would put the collision somewhere the
+   * mapper can see it is not: an angle that is not a multiple of 90 (cells have no answer
+   * for 37°), and turning a piece with air rows (`backgroundTiles` says "my TOP rows are
+   * air", which stops meaning anything once the top is a side).
+   */
+  angle?: number;
   /** Lets players search THROUGH this item for a place to stand when
    *  approaching some other action/appliance behind it (e.g. a kitchen
    *  counter in front of a coffee machine) — see computeApproachTiles. This
@@ -615,6 +635,13 @@ export interface PlacedImage {
    *  false. */
   flippedHorizontally?: boolean;
   flippedVertically?: boolean;
+  /** Free rotation in degrees (0-359, normalized), pivoted at Tiled's own pivot for an
+   *  object: the point it stores as (x, y), which for a tile object is the BOTTOM-left
+   *  corner of the unrotated box. Any angle, not just a quarter turn — an image is
+   *  decoration with a free pixel box, so unlike furniture nothing about cells depends
+   *  on it, and the same "no fixed camera angle" that allows a vertical flip allows a
+   *  turn. Same field and same pivot convention as PlacedText.angle. */
+  angle?: number;
   /** Render alpha, 0..1 — see PlacedFurniture.opacity. Unset = opaque. */
   opacity?: number;
 }

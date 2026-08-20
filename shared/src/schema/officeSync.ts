@@ -133,6 +133,16 @@ export class FurnitureSync extends Schema {
    */
   @type('uint16') width = 0;
   @type('uint16') height = 0;
+  /**
+   * Quarter turns clockwise in degrees (0, 90, 180, 270) — see PlacedFurniture.angle.
+   *
+   * It has to be synced for the same reason `width` does: the client decides depth,
+   * clickability and what a seat tile is, and it draws the piece. A turn that stayed on the
+   * server would leave the client drawing a sofa across the wrong cells and refusing clicks
+   * on the seats the server offers. 0 is upright, which is every placement today, so an
+   * ordinary map pays one zero. Appended last, same schema-evolution reasoning as `action`.
+   */
+  @type('uint16') angle = 0;
 }
 
 export class RoomState extends Schema {

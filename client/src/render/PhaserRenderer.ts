@@ -268,11 +268,17 @@ export class PhaserRenderer {
       // The placement says where its file is (PlacedImage.src, under assets/tiled) —
       // the picture is a file in the repo, not a row that travels on every join.
       if (!pi.src) continue; // a layout older than version 3 that never migrated
+      // Tiled turns an object around the point it stores as (x, y) — for a tile object
+      // the BOTTOM-left corner of the box, which is what pi.x/pi.y + height is here. So
+      // the pivot is that corner rather than the centre, and an unrotated image keeps the
+      // top-left anchor it has always had.
+      const iAngle = pi.angle ?? 0;
       const img = this.scene.add
         .image(0, 0, '__DEFAULT')
-        .setOrigin(0, 0)
-        .setPosition(pi.x, pi.y)
+        .setOrigin(0, iAngle === 0 ? 0 : 1)
+        .setPosition(pi.x, iAngle === 0 ? pi.y : pi.y + pi.height)
         .setDisplaySize(pi.width, pi.height)
+        .setAngle(iAngle)
         .setDepth(IMAGE_DEPTH)
         .setFlipX(!!pi.flippedHorizontally)
         .setFlipY(!!pi.flippedVertically)
@@ -339,11 +345,23 @@ export class PhaserRenderer {
       }
       const ftex = spriteTextureFor(this.scene, f.spriteId, f.sprite);
       img.setTexture(ftex.key, ftex.frame);
+      // A quarter turn swapped this instance's width and height (entryFor did, so the
+      // cells it blocks agree with the picture) — but the ART is still its own way round,
+      // so it is drawn at the UNSWAPPED size and turned to cover the box. Setting the
+      // display size to the swapped box instead would squash a 32×16 desk into 16×32,
+      // which looks like a rotation bug and is really a scaling one.
+      const angle = f.angle ?? 0;
+      const swap = angle === 90 || angle === 270;
       img
-        .setPosition(f.x, f.y)
+        // Origin only moves when there is something to turn: an unturned placement keeps
+        // the top-left anchor it has always had, so every existing map draws exactly as
+        // before — and these are POOLED, so both cases must be set every frame.
+        .setOrigin(angle === 0 ? 0 : 0.5, angle === 0 ? 0 : 0.5)
+        .setPosition(angle === 0 ? f.x : f.x + f.width / 2, angle === 0 ? f.y : f.y + f.height / 2)
         // Always, not only when resized: these images are pooled, so a sprite that
         // once drew a scaled placement would keep that scale for the next one.
-        .setDisplaySize(f.width, f.height)
+        .setDisplaySize(swap ? f.height : f.width, swap ? f.width : f.height)
+        .setAngle(angle)
         .setDepth(f.zY)
         .setFlipX(!!f.mirrored)
         .setFlipY(!!f.flippedVertically)

@@ -377,8 +377,26 @@ background only.)
   quarter of the way round would occupy 16×32, i.e. cells nobody painted. What Tiled
   draws for an oversized rotated tile in a tile layer is not something a checkout can be
   compared against, so the import keeps the two mirrors, drops the turn, and names the id
-  — the same shape of refusal as `groundFits`. Furniture and images still read H/V only;
-  they are placed objects with their own size, so a rotation there is a separate question.
+  — the same shape of refusal as `groundFits`.
+  **A placed OBJECT turns too, and that is where a turn stops being cosmetic.** Furniture and
+  images carry Tiled's object `rotation` (the same field a text label already used), and for
+  furniture `entryFor` swaps the piece's sides for a quarter turn — so the cells it blocks,
+  the seats it offers, its approach tiles, where a pet perches and how it sorts all follow the
+  picture, and its sitter turns with it. That is the whole reason the turn is resolved in
+  `entryFor` and not in the renderer: a picture-only rotation is a collision bug with a
+  plausible screenshot. Tiled's own pivot decides where the piece lands — "clockwise around
+  (x, y)", the bottom-left corner of the unrotated box, so the box SWINGS rather than spinning
+  in place (`turnedTopLeftPx`). Two things Tiled allows are refused at import, both because
+  cells cannot express them: an angle that is not a multiple of 90, and turning a piece whose
+  TOP rows are air (`backgroundTiles` stops meaning anything once the top is a side). Images
+  take any angle — a free pixel box, no cells, nothing to refuse. The old comment saying
+  rotation was deliberately not adopted is a warning now rather than a rule: art drawn from
+  one fixed camera angle still has no sensible rotated frame, so a turned desk reads wrong
+  however correctly it is drawn — it is turn-symmetric pieces (a rug, a crate, a plant) that
+  make this worth having.
+  **`FurnitureSync.angle` is a synced schema field**, so this bumped `PROTOCOL_VERSION` to 5:
+  the client draws the piece and decides what a seat tile is, so a turn that stayed on the
+  server would have it drawing across the wrong cells and refusing clicks on real seats.
   Both paths are measured, not argued: the tests pin the table against where the four
   corners of a cell land, and the orientations were read back out of a screenshot of the
   running client — pixel-exact for all eight, where an unturned cell differs in 96 to 226
@@ -447,6 +465,12 @@ background only.)
   database. A v2 layout is migrated on read by resolving the id against
   `png/src/images/` — and a placement whose file cannot be found is dropped rather than
   carried forward as a hole.
+  One trap this sprang, worth knowing before adding the next field: `sanitizeLayoutImages`
+  rebuilds every image from a WHITELIST, so `src` — added by that very change — was stripped
+  on every write path, the renderer then skipped each image for want of a path, and a map's
+  pictures silently stopped appearing (uponu's own logo included, until 2026-08-20). A field
+  added to a layout type is not saved until it is named there, and a path that ends up in a
+  client fetch is validated there too.
 - **A zone has exactly one map, and it comes from Tiled.** The `layouts` table is
   keyed by zone id: no named layouts, no active-layout pointer, no bundled
   read-only default, no code-generated zone. The import is one-way; there is no

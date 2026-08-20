@@ -28,6 +28,8 @@
  * path, and it keeps rotation to the cases that genuinely need it.
  */
 
+import { Direction } from './types.js';
+
 /** Tiled's flip bits, as the small mask stored per cell (see OfficeLayout.tileFlip). */
 export const ORIENT_H = 1;
 export const ORIENT_V = 2;
@@ -74,6 +76,45 @@ const TABLE: readonly CellOrientation[] = [
 export function cellOrientation(bits: number | undefined): CellOrientation {
   if (!bits) return UNTURNED; // the overwhelmingly common case, and 0/undefined agree
   return TABLE[bits & ORIENT_MASK];
+}
+
+/**
+ * A free angle in degrees as a number of quarter turns clockwise, or null when it is not a
+ * multiple of 90.
+ *
+ * Tiled lets an OBJECT be rotated to any angle, which a tile-layer cell cannot be — and for
+ * furniture only quarter turns can be honoured, because the footprint it blocks is counted
+ * in cells. 37° has no cell answer, so the import refuses it rather than rounding: rounding
+ * would put the collision somewhere the mapper can see it is not.
+ */
+export function quarterTurnsOf(angle: number | undefined): 0 | 1 | 2 | 3 | null {
+  if (!angle) return 0;
+  if (!Number.isFinite(angle)) return null;
+  const norm = ((angle % 360) + 360) % 360;
+  if (norm % 90 !== 0) return null;
+  return (norm / 90) as 0 | 1 | 2 | 3;
+}
+
+/** Does this angle swap a piece's width and height? True for a quarter turn either way. */
+export function turnSwapsSides(angle: number | undefined): boolean {
+  const q = quarterTurnsOf(angle);
+  return q === 1 || q === 3;
+}
+
+/**
+ * A facing, turned clockwise by the same angle.
+ *
+ * Applied AFTER the mirrors, matching both Tiled (an object's rotation turns the
+ * already-flipped tile image) and the renderer (`Rotate ∘ Mirror`, see above) — so a
+ * chair's sitter faces where the chair's back now points, whatever else was done to it.
+ */
+export function turnFacing(dir: Direction, angle: number | undefined): Direction {
+  const q = quarterTurnsOf(angle);
+  if (!q) return dir;
+  // Clockwise on screen: down → left → up → right → down.
+  const CW: Direction[] = [Direction.DOWN, Direction.LEFT, Direction.UP, Direction.RIGHT];
+  const at = CW.indexOf(dir);
+  return at < 0 ? dir : CW[(at + q) % 4];
 }
 
 /**

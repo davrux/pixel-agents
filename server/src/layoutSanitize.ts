@@ -78,8 +78,10 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     width: number;
     height: number;
     imageId: string;
+    src?: string;
     flippedHorizontally?: boolean;
     flippedVertically?: boolean;
+    angle?: number;
     opacity?: number;
   }> = [];
   for (const img of images) {
@@ -93,8 +95,22 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
     const h = Number(rec.height);
     if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0 || w > MAX_DIMENSION_PX || h > MAX_DIMENSION_PX) continue;
     const entry: (typeof clean)[number] = { uid: rec.uid, x: rec.x, y: rec.y, width: w, height: h, imageId: rec.imageId };
+    // WHERE the picture is (layout v3). This list is a whitelist, so a field missing from it
+    // is silently dropped on every write path — which is what happened to `src` when images
+    // became files: the import kept working, the renderer then skipped every image for want
+    // of a path, and a map's pictures simply stopped appearing.
+    //
+    // Validated rather than copied, because a pushed map is untrusted input and this string
+    // becomes a URL the client fetches: a relative path under assets/tiled, no traversal, no
+    // scheme, and an image extension.
+    if (typeof rec.src === 'string' && isSafeAssetPath(rec.src)) entry.src = rec.src;
     if (rec.flippedHorizontally === true) entry.flippedHorizontally = true;
     if (rec.flippedVertically === true) entry.flippedVertically = true;
+    // Normalized, not just type-checked, for the same reason opacity is clamped below:
+    // this list is a whitelist, and a NaN or a 1e9 angle would reach a renderer that then
+    // draws the picture somewhere nobody placed it.
+    const ang = Number(rec.angle);
+    if (Number.isFinite(ang) && ang % 360 !== 0) entry.angle = ((ang % 360) + 360) % 360;
     // Clamped, not just type-checked: this list is a whitelist, so an opacity
     // outside 0..1 (or NaN) must not reach a renderer that would make the image
     // invisible or draw it out of range.
@@ -104,6 +120,16 @@ export function sanitizeLayoutImages(layout: Record<string, unknown>): Record<st
   }
   layout.images = clean;
   return layout;
+}
+
+/** A path to a picture inside `assets/tiled`, as PlacedImage.src carries it. Relative,
+ *  no traversal, no scheme or protocol-relative host, an image extension, and bounded —
+ *  the client turns it straight into a fetch. */
+function isSafeAssetPath(p: string): boolean {
+  if (p.length === 0 || p.length > 200) return false;
+  if (p.startsWith('/') || p.startsWith('\\')) return false;
+  if (p.includes('..') || p.includes('\\') || p.includes('://') || p.includes('\0')) return false;
+  return /\.(png|jpg|jpeg|gif|webp)$/i.test(p);
 }
 
 const MAX_IFRAME_URL_LEN = 500;
