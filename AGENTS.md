@@ -112,6 +112,15 @@ Security is a first-class requirement, not a later pass.
   `/arcade/content/**` are refused ABOVE the build prefixes, because they share a mount
   point with them. The guest meeting page stays reachable: `/meet/:slug` and its `/info`
   are registered before the gate, on purpose.
+  The build stays public deliberately, and two facts settle it rather than taste. The
+  **public guest page shares its chunks with the app** — `/meet/<slug>` pulls `bridge`,
+  `ConferenceUI`, `livekit-client` and `preload-helper` out of `/assets/`, and they are
+  content-hashed and partly loaded by dynamic import, so gating that prefix either breaks
+  guest links or needs the guest page split into its own bundle (duplicating ~550 KB of
+  LiveKit). And the same bundle is downloadable from a **public GitHub release** as the
+  desktop AppImage, so a gate on the server would protect nothing that is not already
+  published. What it must therefore keep being true is the contract the gate leans on: no
+  secret in `client/src`, which `mmo-readiness` fails on.
 - **No credentialed cross-origin surface.** `desktopCors` echoes the request Origin for
   the three paths the desktop needs and deliberately sends no
   `Access-Control-Allow-Credentials` — but Colyseus ships that header in its matchmaker
