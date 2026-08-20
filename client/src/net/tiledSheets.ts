@@ -14,7 +14,7 @@ import {
   WALL_TILE_SPACING,
 } from '@pixel/shared/office/tiledSheetLayout.js';
 
-import { serverHttpOrigin } from './room.js';
+import { serverFetch, serverHttpOrigin } from './room.js';
 
 /** The furniture/decal atlas manifest — see server/scripts/bake-furniture-atlas.mts.
  *  Rects, not a grid: the art has mixed sizes, so a cell formula cannot describe
@@ -44,7 +44,7 @@ export async function loadFurnitureAtlas(): Promise<{ bitmap: ImageBitmap; manif
     // Where the atlas is comes from the server (sets.json), and the image it
     // points at comes from the manifest — no path spelled out here.
     const manifestRel = (await sheetPaths(origin)).atlas || 'png/baked/atlas-furniture.json';
-    const res = await fetch(`${origin}/assets/tiled/${manifestRel}`);
+    const res = await serverFetch(`${origin}/assets/tiled/${manifestRel}`);
     if (!res.ok) throw new Error(`${manifestRel}: HTTP ${res.status}`);
     const manifest = (await res.json()) as AtlasManifest;
     if (!manifest?.frames || Object.keys(manifest.frames).length === 0) throw new Error('manifest has no frames');
@@ -90,7 +90,7 @@ interface SetsJson {
  *  so a later call may try again. */
 let setsPromise: Promise<SetsJson> | null = null;
 function sheetPaths(origin: string): Promise<SetsJson> {
-  setsPromise ??= fetch(`${origin}/assets/tiled/sets.json`)
+  setsPromise ??= serverFetch(`${origin}/assets/tiled/sets.json`)
     .then((r) => {
       if (!r.ok) throw new Error(`sets.json: HTTP ${r.status}`);
       return r.json() as Promise<SetsJson>;
@@ -130,7 +130,10 @@ function hex2(n: number): string {
  *  misaligning every tile the next time the sheet's layout changes (as
  *  happened when WALL_TILE_SPACING was introduced). */
 async function fetchBitmap(url: string): Promise<ImageBitmap> {
-  const res = await fetch(url);
+  // serverFetch, not fetch: the map's art is behind the session gate like everything else,
+  // and on the desktop this is a CROSS-origin request from app://, where no cookie is sent
+  // and only the bearer serverFetch attaches identifies the caller.
+  const res = await serverFetch(url);
   if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
   return createImageBitmap(await res.blob());
 }

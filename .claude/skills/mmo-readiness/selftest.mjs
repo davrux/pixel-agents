@@ -45,11 +45,34 @@ const SECURITY_CASES = [
     'POST /admin/nuke',
   ],
   [
-    'a widened session-gate exemption',
+    'a widened session-gate allow-list',
     'server/src/auth.ts',
-    "const isApi = p === '/health'",
-    "const isApi = p === '/backdoor' || p === '/health'",
-    '/backdoor',
+    "if (p === '/login' || p === '/health') return true;",
+    "if (p === '/login' || p === '/health' || p.startsWith('/backdoor/')) return true;",
+    '/backdoor/',
+  ],
+  [
+    // The hole this whole allow-list was written for: the world's art was public because
+    // `/assets/` was, and its own mount point sits under that prefix.
+    "the world's art let back out from behind the gate",
+    'server/src/auth.ts',
+    "if (p.startsWith('/assets/tiled/')) return false;",
+    "if (p.startsWith('/assets/tiled/')) return true;",
+    '/assets/tiled/',
+  ],
+  [
+    'operator arcade content let back out',
+    'server/src/auth.ts',
+    "if (p.startsWith('/arcade/content/')) return false;",
+    "if (p.startsWith('/arcade/content/')) return true;",
+    '/arcade/content/',
+  ],
+  [
+    'a credentialed cross-origin surface',
+    'server/src/index.ts',
+    "  delete (matchMaker.controller.DEFAULT_CORS_HEADERS as Record<string, string>)['Access-Control-Allow-Credentials'];",
+    '  void matchMaker;',
+    'Access-Control-Allow-Credentials',
   ],
   [
     "a handler acting on someone else's userId",

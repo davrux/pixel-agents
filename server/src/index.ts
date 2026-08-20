@@ -29,7 +29,7 @@ function serverVersion(): string {
   }
 }
 
-import { Server } from '@colyseus/core';
+import { Server, matchMaker } from '@colyseus/core';
 import { Encoder } from '@colyseus/schema';
 import { ATLAS_MANIFEST_REL } from './tiled/furnitureAtlas.js';
 import { WebSocketTransport } from '@colyseus/ws-transport';
@@ -181,6 +181,16 @@ async function main(): Promise<void> {
   app.set('trust proxy', 'loopback');
   app.use(securityHeaders());
   app.use(cors());
+  // Colyseus's matchmaker ships `Access-Control-Allow-Credentials: true` in its
+  // DEFAULT_CORS_HEADERS, and its transport applies those to every request — which quietly
+  // undid the contract stated at desktopCors ("no cross-origin cookie surface is opened",
+  // AC-012). Measured 2026-08-20: every response carried it, and on the three paths
+  // desktopCors echoes a specific Origin for, that pair is exactly what lets any website
+  // read a cookie-authenticated response. Harmless today because those three answer nothing
+  // sensitive — and a trap primed for the day a data route joins them. Removed here rather
+  // than worked around at each route, and the override point is the library's own
+  // (see the comment on getCorsHeaders in @colyseus/core's matchmaker/controller).
+  delete (matchMaker.controller.DEFAULT_CORS_HEADERS as Record<string, string>)['Access-Control-Allow-Credentials'];
   // Narrow cross-origin headers for the desktop bearer path (Authorization
   // allowed, no credentialed cookies) — see desktopCors. Applied before the
   // routes so preflight and actual responses carry the contract.

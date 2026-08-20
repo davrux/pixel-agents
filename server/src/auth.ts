@@ -235,24 +235,57 @@ export function registerAuth(app: Express, adminToken: string): void {
     res.redirect(303, '/');
   });
 
-  // Gate the SPA document; assets, /health, /login and Colyseus matchmaking pass
-  // through (the room validates the session cookie itself via onAuth).
+  /**
+   * What an anonymous GET may reach, and why each one is here.
+   *
+   * This used to be the other way round: anything under `/assets/` or ending in an asset
+   * EXTENSION was public, on the grounds that "the desktop app fetches them cross-origin,
+   * cookie-less". That was measured on 2026-08-20 and it made the whole world's art
+   * readable to anybody who could reach the port — every tileset sheet, `sets.json`, and
+   * every picture a pushed map brought with it (a map's images are written to disk by the
+   * push, so they are not necessarily in git either). The desktop half of the reasoning had
+   * also expired: it sends a bearer through serverFetch, which the gate below accepts, so
+   * the client needed no exemption — only three of its fetches were still using a bare
+   * `fetch` and had to be routed through it.
+   *
+   * The rule now: deny by default, and every entry below states what would break without it.
+   */
+  const isPublicGet = (p: string): boolean => {
+    // The login page itself is what an ungated navigation is answered WITH (see below), and
+    // it is self-contained: no script, no stylesheet, no font of its own to fetch.
+    if (p === '/login' || p === '/health') return true;
+    // Colyseus seat reservation. The room authorizes for itself in onAuth — and this is
+    // where a client that has just logged in arrives, before any document is served.
+    if (p.startsWith('/matchmake')) return true;
+    // The world's art shares a mount point with the client build, and it is DATA — every
+    // tileset sheet, sets.json, and every picture a pushed map brought with it. Checked
+    // before the build prefixes below, which is the whole point of the rewrite.
+    if (p.startsWith('/assets/tiled/')) return false;
+    // Operator-provided bundles and ROMs. Never anonymous; the launcher sends the session
+    // (cookie in the browser, bearer on the desktop — see ArcadeUI).
+    if (p.startsWith('/arcade/content/')) return false;
+    // The client BUILD's own directories (client/dist): the app shell a browser needs to
+    // boot, plus the fonts, sounds and part art it ships with. No world data and, by
+    // contract, no secret — mmo-readiness fails a secret named anywhere in client/src. The
+    // desktop needs none of this; it ships its own copy.
+    //
+    // A directory the build gains later is NOT here, and that is the safe direction: a
+    // signed-in browser still gets it (same-origin, so the cookie rides along) and only an
+    // anonymous first load would miss it.
+    if (BUILD_DIRS.some((dir) => p.startsWith(dir))) return true;
+    // Files at the build's root: the favicon and the manifest a browser asks for before
+    // anything else. index.html is deliberately NOT here — an ungated navigation is
+    // answered with the login page instead.
+    return /\.(ico|webmanifest)$/i.test(p);
+  };
+  /** client/dist's own top-level directories — see isPublicGet. */
+  const BUILD_DIRS = ['/assets/', '/fonts/', '/sounds/', '/charparts/', '/jsdos/', '/emulatorjs/'];
+
+  // Gate every GET except what an anonymous caller demonstrably needs. See PUBLIC_GETS
+  // for what that is and why each entry is there.
   app.use((req: Request, res: Response, next: NextFunction) => {
     const p = req.path;
-    // Arcade content (operator-provided bundles/ROMs served from ARCADE_CONTENT_DIR)
-    // must NOT be publicly fetchable — require a valid session. In the browser the
-    // launcher fetches these same-origin so the cookie rides along; the desktop app
-    // sends the bearer (see ArcadeUI). Only anonymous direct-URL access is blocked.
-    const isArcadeContent = p.startsWith('/arcade/content/');
-    // Static assets are served openly (the desktop app fetches them cross-origin,
-    // cookie-less). NOTE the .jsdos here is only for any bundles that might live in
-    // the client build; runtime content lives under /arcade/content (gated above).
-    const isAsset =
-      !isArcadeContent &&
-      (p.startsWith('/assets/') ||
-        /\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|json|webmanifest|wasm|jsdos)$/i.test(p));
-    const isApi = p === '/health' || p === '/login' || p.startsWith('/matchmake');
-    const needsAuth = req.method === 'GET' && !isAsset && !isApi;
+    const needsAuth = req.method === 'GET' && !isPublicGet(p);
     if (needsAuth && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
       // Login page only for navigations; programmatic fetches get an honest 401 so a
       // gate miss can never hand HTML-as-200 to a client that will cache it as data

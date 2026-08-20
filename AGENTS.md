@@ -97,6 +97,30 @@ Security is a first-class requirement, not a later pass.
   and granting zone-admins need global admin; a zone's map, arrival point and NPCs
   need that zone's admin. Slash commands are gated by their registry group
   (`mayRunCommand`). **Default to deny.**
+- **The GET gate is an allow-list, and world data is not on it.** `isPublicGet`
+  (`auth.ts`) names what an anonymous caller may fetch: the login page and `/login`,
+  `/health`, `/matchmake` (the room authorizes itself in `onAuth`), and the client
+  BUILD's own directories — which carry no world data and, by contract, no secret. It
+  used to be the other way round: anything under `/assets/` or ending in an asset
+  EXTENSION was public "because the desktop app fetches them cross-origin, cookie-less".
+  Measured 2026-08-20, that published the whole world's art — every tileset sheet,
+  `sets.json`, and every picture a pushed map wrote to disk, which is not necessarily in
+  git either. The desktop half had expired too: it sends a bearer through `serverFetch`,
+  which the gate accepts, and only three client fetches were still using a bare `fetch`
+  (they now go through it — a cross-origin request from `app://` carries no cookie, so
+  that helper is the only thing identifying the caller). `/assets/tiled/**` and
+  `/arcade/content/**` are refused ABOVE the build prefixes, because they share a mount
+  point with them. The guest meeting page stays reachable: `/meet/:slug` and its `/info`
+  are registered before the gate, on purpose.
+- **No credentialed cross-origin surface.** `desktopCors` echoes the request Origin for
+  the three paths the desktop needs and deliberately sends no
+  `Access-Control-Allow-Credentials` — but Colyseus ships that header in its matchmaker
+  defaults and applies them to every response, so the contract was false in practice
+  until `index.ts` deleted it. Origin-echo plus credentials is exactly what lets any
+  website read a cookie-authenticated response; it was harmless only because those three
+  paths answer nothing sensitive, and it was a trap primed for the day a data route
+  joined them. Both this and the allow-list are checked by `mmo-readiness`, with a
+  planted hole per rule.
 - **Secrets stay on the server**: LiveKit key/secret, the admin token and scrypt
   hashes never reach a client. A viewer gets only its own agent token and
   short-lived, room-scoped LiveKit JWTs whose identity is its own avatar. Bound
@@ -220,9 +244,10 @@ check asks: is the release present in the code that acquires?
   668 → 2.9 KB, `petSpritesLoaded` 163 → 1.4 KB, a player avatar 77 → 0.2 KB, and the
   sheets themselves are 20.5 KB for the whole roster (PNG written with
   `filterType: 0, deflateStrategy: 0` — pngjs's RLE default costs 5× on pixel art).
-  Two rules that keep it honest: the route must **not** end in `.png` or live under
-  `/assets/`, because the session gate exempts by EXTENSION and avatars are personal
-  art; and the URL-building half stays free of bundle lookups
+  Two rules that keep it honest: the route stays out of `/assets/` — that prefix is the
+  client BUILD and is the one thing served anonymously, while an avatar is personal art
+  (the gate used to exempt by file EXTENSION too, which is why `/art/<kind>/<id>` carries
+  none; see § Security); and the URL-building half stays free of bundle lookups
   (`server/src/art/artUrl.ts`) — asking `getMergedBundle()` from inside the bundle
   build recurses into a stack overflow on the first join.
   **A sheet carries all four sides.** `left` used to be mirrored from `right` on every

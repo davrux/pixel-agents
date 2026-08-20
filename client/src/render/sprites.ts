@@ -559,7 +559,7 @@ async function loadRefImage(scene: Phaser.Scene, img: string): Promise<string | 
   refAttempts.set(img, attempts + 1);
   refTextures.set(img, null);
   try {
-    const res = await fetch(`${serverHttpOrigin()}/assets/tiled/${img}`);
+    const res = await serverFetch(`${serverHttpOrigin()}/assets/tiled/${img}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const bitmap = await createImageBitmap(await res.blob());
     const key = `ref_${img.replace(/[^a-zA-Z0-9]/g, '_')}`;

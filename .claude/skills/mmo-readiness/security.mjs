@@ -291,23 +291,73 @@ if (routes.length === 0) {
   pass(`all ${routes.length} HTTP routes gated or explicitly public (${ungated.length} on the allow-lists)`);
 }
 
-// The central gate must still exist, and its exemption list must not grow
-// unnoticed: every exemption is a path served without a session.
+// The central gate must still exist, and what it lets through anonymously must not grow
+// unnoticed: every entry is a path served without a session.
+//
+// The list used to be an EXEMPTION list (`isApi`) beside a rule that made anything under
+// `/assets/` or ending in an asset extension public. That was measured on 2026-08-20 and it
+// published the whole world's art — every tileset sheet, sets.json, and every picture a
+// pushed map wrote to disk. It is an allow-list now (`isPublicGet`), so this rule reads the
+// paths and prefixes IT names and compares them against the signed-off set. A new entry
+// there fails here until somebody adds it below on purpose.
 const authSrc = read('server/src/auth.ts');
-const gateLine = /const\s+isApi\s*=([^;]+);/.exec(authSrc);
+const gateFn = /const\s+isPublicGet\s*=[\s\S]*?\n  };/.exec(authSrc);
+const buildDirs = /const\s+BUILD_DIRS\s*=\s*\[([^\]]*)\]/.exec(authSrc);
 if (!/needsAuth[^;]*hasValidSession|hasValidSession[^)]*\)\s*&&\s*!hasValidBearerSession/.test(authSrc.replace(/\n/g, ' '))) {
   bad('the central session gate in auth.ts no longer checks hasValidSession/hasValidBearerSession');
-} else if (!gateLine) {
-  bad("auth.ts has no `isApi` exemption list — the gate's shape changed; re-read it before shipping");
+} else if (!gateFn) {
+  bad("auth.ts has no `isPublicGet` allow-list — the gate's shape changed; re-read it before shipping");
 } else {
-  const exempt = [...gateLine[1].matchAll(/['"]([^'"]+)['"]/g)].map((m) => m[1]).sort();
-  const expected = ['/health', '/login', '/matchmake'];
-  const extra = exempt.filter((p) => !expected.includes(p));
+  // Every quoted path in the allow-list, plus the client build's directories.
+  const listed = [
+    ...[...gateFn[0].matchAll(/['"](\/[^'"]*)['"]/g)].map((m) => m[1]),
+    ...(buildDirs ? [...buildDirs[1].matchAll(/['"](\/[^'"]*)['"]/g)].map((m) => m[1]) : []),
+  ];
+  /** Public without a session, each for a reason stated at isPublicGet. */
+  const SIGNED_OFF = [
+    '/login', // the page an ungated navigation is answered with, and the form it posts to
+    '/health', // ops liveness
+    '/matchmake', // Colyseus seat reservation; the room authorizes itself in onAuth
+    '/assets/', // the client build (minus /assets/tiled/, refused above it)
+    '/fonts/',
+    '/sounds/',
+    '/charparts/',
+    '/jsdos/',
+    '/emulatorjs/',
+    // Refusals, listed so a `return false` line cannot be mistaken for an exemption.
+    '/assets/tiled/',
+    '/arcade/content/',
+  ];
+  const extra = listed.filter((p) => !SIGNED_OFF.includes(p));
+  // The two that must stay CLOSED, whatever else the list says.
+  const closed = ['/assets/tiled/', '/arcade/content/'];
+  const notRefused = closed.filter((p) => !new RegExp(`startsWith\\('${p}'\\)\\)\\s*return false`).test(gateFn[0]));
   if (extra.length) {
-    bad(`the session gate exempts path(s) nobody signed off on: ${extra.join(', ')}`);
+    bad(`the session gate would serve path(s) nobody signed off on: ${[...new Set(extra)].join(', ')}`);
+  } else if (notRefused.length) {
+    bad(`the gate no longer refuses ${notRefused.join(', ')} — world art and operator content must need a session`);
   } else {
-    pass(`session gate intact; exempts only ${exempt.join(', ')}`);
+    pass(`session gate intact; anonymous GETs limited to ${listed.filter((p) => !closed.includes(p)).sort().join(', ')}`);
   }
+}
+
+// No credentialed cross-origin surface. `desktopCors` echoes the request Origin on the
+// paths the desktop app needs, and says in its own comment that it deliberately does NOT
+// send Access-Control-Allow-Credentials — but Colyseus ships that header in its matchmaker
+// defaults and its transport applies them to every response, so the contract was false in
+// practice until index.ts removed it. Origin-echo plus credentials is exactly what lets any
+// website read a cookie-authenticated response, so the removal is checked, not trusted.
+const corsSrc = read('server/src/index.ts');
+if (/delete\s*\(?\s*matchMaker\.controller\.DEFAULT_CORS_HEADERS[\s\S]{0,120}Access-Control-Allow-Credentials/.test(corsSrc)) {
+  pass("Colyseus's default Access-Control-Allow-Credentials is removed (no credentialed cross-origin reads)");
+} else {
+  bad(
+    'nothing removes Access-Control-Allow-Credentials from Colyseus\'s DEFAULT_CORS_HEADERS — ' +
+      'combined with the Origin echo in desktopCors that is a cross-origin read of authenticated responses',
+  );
+}
+if (/Access-Control-Allow-Credentials['"]?\s*[,:]\s*['"]?true/.test(corsSrc.replace(/\/\/[^\n]*/g, ''))) {
+  bad('server code sets Access-Control-Allow-Credentials: true — see AC-012 at desktopCors');
 }
 
 // ── 2. Room messages ────────────────────────────────────────────────────────
