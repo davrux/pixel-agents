@@ -491,16 +491,3 @@ export function getNpcConfig(kind: PetKindName, variant: number): NpcConfig {
   return resolveNpcConfig(arr?.[variant % (arr.length || 1)]?.npc);
 }
 
-/**
- * Playback length (number of distinct animation steps) for a character's pose —
- * the modulo the server uses to advance `ch.frame`. Derived from the built
- * sequences so it accounts for both the spec's track length/play-mode and the
- * frames the sheet actually provides (e.g. a missing coffee track → 1). Always
- * ≥ 1. Server and client agree because both build from the same templates.
- */
-export function getPosePlaybackLength(skin: string, pose: CharacterPose | string): number {
-  const s = getCharacterSprites(skin);
-  // Mirror spriteForPose's fallback: action track, else the idle track, else 1.
-  const seq = s.byTrack[pose]?.[Dir.DOWN] ?? (pose !== 'idle' ? s.byTrack['idle']?.[Dir.DOWN] : undefined);
-  return Math.max(1, seq?.length ?? 1);
-}
