@@ -26,7 +26,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import test from 'node:test';
 
-import { poseFrame, standColumn } from '@pixel/shared/office/sprites/poseFrames.js';
+import { poseFrame, sheetRowForDir, standColumn } from '@pixel/shared/office/sprites/poseFrames.js';
 import { DEFAULT_CHARACTER_SPEC, type CharacterSpec } from '@pixel/shared/office/sprites/characterSpec.js';
 import { getCharacterSprites, setCharacterTemplates, spriteForPose } from '@pixel/shared/office/sprites/spriteData.js';
 import { Direction } from '@pixel/shared/office/types.js';
@@ -35,7 +35,6 @@ import { ASSETS_ROOT } from './assets.js';
 import { decodeCharacterPng } from './core/assets/pngDecoder.js';
 
 const DIRS = [Direction.DOWN, Direction.UP, Direction.RIGHT, Direction.LEFT];
-const ROW_OF = [0, 1, 2, 3]; // Direction enum order matches the sheet's row order
 
 /** Poses the engine can ask for (agents and pets), plus one nobody ever drew. */
 const POSES = ['walk', 'typing', 'reading', 'coffee', 'idle', 'sit', 'drink', 'talk', 'sleep', 'nonsense'];
@@ -59,7 +58,11 @@ test('for every sheet, pose, direction and frame the index model picks the pixel
           const got = poseFrame(DEFAULT_CHARACTER_SPEC, pose, frame, available);
           if (got.synthSit) continue; // compared separately below
           assert.deepEqual(
-            rows[ROW_OF[d]][got.col],
+            // Through sheetRowForDir, the same conversion the renderer uses — the
+            // earlier version of this test wrote the mapping out by hand and therefore
+            // could not catch the renderer passing a Direction where a row was wanted
+            // (walking north drew the left-facing frames).
+            rows[sheetRowForDir(DIRS[d])][got.col],
             want,
             `${id} pose=${pose} dir=${d} frame=${frame}: column ${got.col} is not what spriteForPose drew`,
           );
@@ -101,4 +104,16 @@ test('ping-pong turns three drawn steps into a four-step cycle', () => {
   const spec: CharacterSpec = { frame: { w: 16, h: 32 }, tracks: [{ name: 'walk', frames: 3, play: 'pingpong' }] };
   const cols = [0, 1, 2, 3, 4].map((f) => poseFrame(spec, 'walk', f, 3).col);
   assert.deepEqual(cols, [0, 1, 2, 1, 0]);
+});
+
+test('a facing is not a row number — the mapping is stated, not assumed', () => {
+  // Direction is DOWN 0, LEFT 1, RIGHT 2, UP 3; a sheet is down, up, right, left. Two of
+  // the four coincide, which is why passing one for the other looked fine until somebody
+  // walked north.
+  assert.equal(sheetRowForDir(Direction.DOWN), 0);
+  assert.equal(sheetRowForDir(Direction.UP), 1);
+  assert.equal(sheetRowForDir(Direction.RIGHT), 2);
+  assert.equal(sheetRowForDir(Direction.LEFT), 3);
+  assert.notEqual(sheetRowForDir(Direction.UP), Direction.UP);
+  assert.notEqual(sheetRowForDir(Direction.LEFT), Direction.LEFT);
 });

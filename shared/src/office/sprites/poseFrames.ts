@@ -17,7 +17,33 @@
  *   3. the `idle` track;
  *   4. the bare stand column.
  */
+import { Direction } from '../types.js';
+
 import { DEFAULT_CHARACTER_SPEC, type CharacterSpec } from './characterSpec.js';
+
+
+/** Sheet rows, top to bottom — the layout every sheet has (see CHARACTER_DIRECTIONS). */
+export const SHEET_ROWS = ['down', 'up', 'right', 'left'] as const;
+
+/**
+ * The sheet ROW for a facing. Not the same number as the direction: `Direction` is
+ * DOWN 0, LEFT 1, RIGHT 2, UP 3, while a sheet is ordered down, up, right, left. Passing
+ * a direction where a row was wanted drew the back when walking left and the left-facing
+ * frames when walking north — which is exactly what happened, because two of the four
+ * happen to coincide and the bug hides until somebody turns.
+ */
+export function sheetRowForDir(dir: Direction): number {
+  switch (dir) {
+    case Direction.UP:
+      return 1;
+    case Direction.RIGHT:
+      return 2;
+    case Direction.LEFT:
+      return 3;
+    default:
+      return 0; // DOWN
+  }
+}
 
 export interface PoseFrame {
   /** Column in the sheet, 0-based. */

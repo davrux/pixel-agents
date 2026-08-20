@@ -16,6 +16,8 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 
+import { Direction } from '@pixel/shared/office/types.js';
+
 import { sheetCellPixels, sheetTemplate } from './sheetStore';
 
 /** One template's metadata plus the pixels of its sheet, or null when no art arrived. */
@@ -44,5 +46,5 @@ export function npcRosterWithArt(): Array<{ kind: string; variant: number; data:
 
 /** The frame a thumbnail shows: the neutral standing pose, facing the camera. */
 export function thumbFrame(id: string): SpriteData | undefined {
-  return sheetCellPixels(id, 0, 1) ?? sheetCellPixels(id, 0, 0) ?? undefined;
+  return sheetCellPixels(id, Direction.DOWN, 1) ?? sheetCellPixels(id, Direction.DOWN, 0) ?? undefined;
 }

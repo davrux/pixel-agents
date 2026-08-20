@@ -14,7 +14,8 @@
  */
 import type Phaser from 'phaser';
 
-import type { SpriteData } from '@pixel/shared/office/types.js';
+import { Direction, type SpriteData } from '@pixel/shared/office/types.js';
+import { sheetRowForDir } from '@pixel/shared/office/sprites/poseFrames.js';
 
 import { atlasFromImage, type SpriteTex } from '../render/sprites';
 import { gridFromImageData, imagePixels } from './sheet';
@@ -76,11 +77,13 @@ export function sheetColumns(id: string): number {
  * A left cell on a three-row sheet is packed mirrored from the right row, so callers
  * never have to know which kind of sheet they got.
  */
-export function sheetCellFrame(scene: Phaser.Scene, id: string, row: number, col: number, seated = false): SpriteTex | null {
+export function sheetCellFrame(scene: Phaser.Scene, id: string, dir: Direction, col: number, seated = false): SpriteTex | null {
   const s = sheets.get(id);
   if (!s) return null;
   const c = Math.max(0, Math.min(col, s.cols - 1));
-  const wantRow = Math.max(0, Math.min(row, 3));
+  // A FACING, never a row number: the two are not the same order (see sheetRowForDir),
+  // and passing one for the other is a bug that only shows when somebody turns.
+  const wantRow = sheetRowForDir(dir);
   const mirror = wantRow === 3 && s.rows < 4;
   const srcRow = mirror ? 2 : Math.min(wantRow, s.rows - 1);
   const key = `${seated ? 's' : ''}${wantRow}:${c}`;
@@ -103,10 +106,11 @@ export function sheetCellFrame(scene: Phaser.Scene, id: string, row: number, col
  * frame) and the editor; the drawing path never needs this. The decode happens once per
  * sheet and is cached — `getImageData` of a whole sheet is one call.
  */
-export function sheetCellPixels(id: string, row: number, col: number): SpriteData | null {
+export function sheetCellPixels(id: string, dir: Direction, col: number): SpriteData | null {
   const s = sheets.get(id);
   if (!s) return null;
   if (!s.pixels) s.pixels = imagePixels(s.bitmap);
+  const row = sheetRowForDir(dir);
   const mirror = row === 3 && s.rows < 4;
   const srcRow = mirror ? 2 : Math.min(row, s.rows - 1);
   const grid = gridFromImageData(s.pixels, col * s.frameW, srcRow * s.frameH, s.frameW, s.frameH);
@@ -121,8 +125,13 @@ export function sheetTemplate(id: string): { down: SpriteData[]; up: SpriteData[
   const s = sheets.get(id);
   if (!s) return null;
   if (s.template) return s.template;
-  const row = (r: number): SpriteData[] =>
-    Array.from({ length: s.cols }, (_, c) => sheetCellPixels(id, r, c)!).filter(Boolean);
-  s.template = { down: row(0), up: row(1), right: row(2), left: row(3) };
+  const row = (d: Direction): SpriteData[] =>
+    Array.from({ length: s.cols }, (_, c) => sheetCellPixels(id, d, c)!).filter(Boolean);
+  s.template = {
+    down: row(Direction.DOWN),
+    up: row(Direction.UP),
+    right: row(Direction.RIGHT),
+    left: row(Direction.LEFT),
+  };
   return s.template;
 }
