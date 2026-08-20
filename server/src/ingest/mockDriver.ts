@@ -23,7 +23,9 @@ export function startMockDriver(count: number): void {
   }
 
   let toolSeq = 0;
-  setInterval(() => {
+  // unref'd like every other interval that lives as long as the process: a timer that
+  // holds the event loop open turns "the server is idle" into "the server will not exit".
+  const tick = setInterval(() => {
     const id = ids[Math.floor(Math.random() * ids.length)];
     const roll = Math.random();
     if (roll < 0.45) {
@@ -52,6 +54,7 @@ export function startMockDriver(count: number): void {
       });
     }
   }, 1500);
+  if (typeof tick.unref === 'function') tick.unref();
 
   console.log(`[mock] driving ${count} synthetic agents`);
 }

@@ -656,6 +656,10 @@ export class SimRoom extends Room<{ state: RoomState }> {
       }
     }
     this.lastChatAt.delete(client.sessionId);
+    // The write-dedup entry for this user goes with them: it only exists to skip
+    // rewriting an unchanged spot while they are here, and a room that outlives a
+    // thousand visitors would otherwise keep a thousand of them.
+    if (userId && !this.hasOtherSession(client)) this.savedSpots.delete(`${userId}|${this.zone.id}`);
   }
 
   /** The effective action (see Action) of the furniture item anchored
