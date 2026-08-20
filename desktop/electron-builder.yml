@@ -58,6 +58,13 @@ directories:
 publish:
   provider: generic
   url: https://github.com/davrux/pixel-agents/releases/download/latest
+  # Pinned: without it electron-builder derives the channel from the semver
+  # prerelease tag, so a CI master build (0.1.1-master.42.g…) wrote
+  # master-linux.yml — a file the installed app never asks for, because
+  # electron-updater's generic provider defaults to the "latest" channel. The
+  # first CI run shipped exactly that mismatch: packages on the release, no
+  # feed the updater could find.
+  channel: latest
 
 # The compiled Electron main/preload (desktop/dist, emitted by the T4.6
 # build:desktop step) plus the client Vite output that the app:// protocol serves.
