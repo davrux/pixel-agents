@@ -48,13 +48,25 @@ jobs:
       # lieber zwei brauchbare Assets und ein rotes Kreuz als gar keins.
       fail-fast: false
       matrix:
+        # Linux/Windows sammeln neben dem Paket auch die latest*.yml-Kanaldateien
+        # ein, die electron-builder dank der publish-Konfiguration schreibt — sie
+        # sind der Update-Feed, aus dem sich installierte Apps selbst
+        # aktualisieren (electron-updater, desktop/src/updater.ts). Windows dazu
+        # die .blockmap, mit der der Updater differenziell lädt. macOS hat
+        # bewusst keinen Feed (publish: null in electron-builder.yml — ad-hoc
+        # signiert kann sich dort nichts selbst aktualisieren).
         include:
           - os: ubuntu-latest
             label: linux
-            glob: desktop/release/*.AppImage
+            glob: |
+              desktop/release/*.AppImage
+              desktop/release/latest-linux.yml
           - os: windows-latest
             label: windows
-            glob: desktop/release/*.exe
+            glob: |
+              desktop/release/*.exe
+              desktop/release/*.exe.blockmap
+              desktop/release/latest.yml
           - os: macos-latest
             label: macos
             glob: desktop/release/*.dmg
@@ -82,20 +94,31 @@ jobs:
       # Die Paketversion (und damit der Dateiname, siehe artifactName in
       # desktop/electron-builder.yml) kommt aus desktop/package.json. Bei einem
       # Tag-Build wird sie auf den Tag gesetzt, damit Asset und Release-Tag
-      # zusammenpassen; bei einem master-Build wird der Commit als
-      # Prerelease-Suffix angehängt, damit man einem installierten Paket ansieht,
-      # aus welchem Stand es gebaut wurde. Alle drei Jobs berechnen dasselbe.
+      # zusammenpassen. Alle drei Jobs berechnen dasselbe.
+      #
+      # Ein master-Build muss für electron-updater MONOTON und semver-vergleichbar
+      # sein — der Updater installiert nur, was semver-größer ist als das
+      # Installierte. Deshalb: Patch+1 gegenüber desktop/package.json (so ist
+      # jeder master-Build neuer als das zuletzt getaggte Release, solange
+      # package.json dessen Version trägt), dann die Run-Nummer als zählendes
+      # Prerelease-Feld. Der Commit bleibt als g<sha> für die Rückverfolgung —
+      # das g-Präfix (git-Stil) verhindert einen rein numerischen Identifier mit
+      # führender Null, den semver zurückweisen würde. Der alte Suffix
+      # `-master.<sha>` ordnete nicht (shas zählen nicht) und konnte daher nie
+      # als Update erkannt werden.
       - name: Version stempeln
         env:
           REF_TYPE: ${{ github.ref_type }}
           TAG: ${{ github.ref_name }}
           SHA: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -e
           if [ "$REF_TYPE" = tag ]; then
             export VERSION="${TAG#v}"
           else
-            export VERSION="$(node -p 'require("./desktop/package.json").version')-master.${SHA:0:7}"
+            NEXT_PATCH="$(node -p 'const v = require("./desktop/package.json").version.split("."); `${v[0]}.${v[1]}.${Number(v[2]) + 1}`')"
+            export VERSION="${NEXT_PATCH}-master.${RUN_NUMBER}.g${SHA:0:7}"
           fi
           node -e '
             const fs = require("node:fs");
@@ -161,10 +184,13 @@ jobs:
         shell: bash
 
       # Rollendes "latest"-Release: immer der Build des letzten master-Commits.
-      # Die Dateinamen sind bewusst *ohne* Version, damit die Download-URLs
+      # Jedes Paket hängt hier ZWEIMAL: einmal unter seinem versionierten
+      # Original-Namen — auf den verweisen die latest*.yml-Kanaldateien, aus
+      # denen sich installierte Apps selbst aktualisieren (electron-updater lädt
+      # exakt den Dateinamen aus dem Feed) — und einmal als versionsloser Alias,
+      # damit die dokumentierten Download-URLs
       # (…/releases/download/latest/pixel-agents-latest-x86_64.AppImage) stabil
-      # bleiben; die tatsächlich gebaute Version steckt im Paket und in den
-      # Release-Notes. Release + Tag werden gelöscht und neu angelegt, weil
+      # bleiben. Release + Tag werden gelöscht und neu angelegt, weil
       # GitHub einen bereits veröffentlichten Tag nicht umhängen lässt.
       # Prerelease, damit GitHub weiterhin das jüngste v*-Release als "Latest
       # release" anzeigt.
@@ -179,14 +205,25 @@ jobs:
           built=""
           for src in packages/*; do
             base="$(basename "$src")"
-            # Version raus, Architektur und Endung behalten:
-            # pixel-agents-0.1.0-master.abc1234-arm64.dmg -> pixel-agents-latest-arm64.dmg
-            ext="${base##*.}"
-            stem="${base%.*}"
-            arch="${stem##*-}"
-            cp "$src" "upload/pixel-agents-latest-$arch.$ext"
-            built="$built
+            case "$base" in
+              *.yml|*.blockmap)
+                # Update-Feed: Kanaldateien und Blockmaps unverändert, unter
+                # ihren Originalnamen — genau so fragt electron-updater sie an.
+                cp "$src" "upload/$base"
+                ;;
+              *)
+                # Das versionierte Original (der Feed lädt diesen Namen) …
+                cp "$src" "upload/$base"
+                # … plus Alias ohne Version, Architektur und Endung behalten:
+                # pixel-agents-0.1.1-master.7.gabc1234-arm64.dmg -> pixel-agents-latest-arm64.dmg
+                ext="${base##*.}"
+                stem="${base%.*}"
+                arch="${stem##*-}"
+                cp "$src" "upload/pixel-agents-latest-$arch.$ext"
+                built="$built
           - \`$base\`"
+                ;;
+            esac
           done
 
           gh release delete latest --yes --cleanup-tag || true
@@ -206,6 +243,8 @@ jobs:
           - **Linux** (\`.AppImage\`): nach dem Download ausführbar machen (\`chmod +x\`).
           - **Windows** (\`.exe\`): SmartScreen warnt vor einem unbekannten Herausgeber — \"Weitere Informationen\" → \"Trotzdem ausführen\".
           - **macOS** (\`.dmg\`): ad-hoc signiert, aber nicht notarisiert — Gatekeeper fragt beim ersten Start nach. Im Finder rechtsklicken → \"Öffnen\" (nicht Doppelklick), oder nach dem Kopieren in \"Programme\" einmal \`xattr -dr com.apple.quarantine \"/Applications/Pixel Agents.app\"\`. \`arm64\` ist für Apple Silicon (M1-M4), \`x64\` für Intel — die falsche Variante startet nicht.
+
+          Einmal installiert, aktualisiert sich die App aus diesem Release selbst (Linux-AppImage und Windows; macOS kann das ohne echte Signatur nicht) — über den Update-Dialog oder das Tray-Menü \"Check for updates…\".
 
           Dieses Release wird bei jedem master-Commit überschrieben; für einen festen Stand ein \`v*\`-Release nehmen."
           gh release upload latest upload/* --clobber

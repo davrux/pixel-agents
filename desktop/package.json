@@ -9,8 +9,9 @@
   "main": "./src/main.ts",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && pnpm run build:preload",
+    "build": "tsc -p tsconfig.build.json && pnpm run build:preload && pnpm run build:vendor",
     "build:preload": "esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs",
+    "build:vendor": "esbuild electron-updater --bundle --platform=node --format=cjs --external:electron --outfile=dist/vendor/electron-updater.cjs",
     "dev": "electron dist/main.js",
     "dist": "electron-builder",
     "test": "tsc -p tsconfig.test.json && node --test \"dist/test-build/**/*.test.js\""
@@ -19,6 +20,7 @@
     "@types/node": "^26.1.2",
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
+    "electron-updater": "^6.8.9",
     "esbuild": "^0.28.1",
     "typescript": "^7.0.2"
   }

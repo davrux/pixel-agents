@@ -21,8 +21,9 @@
 #   --mac         not possible here at all; the dmg needs macOS's hdiutil.
 #
 # Nothing here needs a per-platform native rebuild: the main process imports
-# only `electron` and `node:` builtins (Mumble included — it speaks its
-# protocol over node:tls), and desktop/package.json declares no runtime
+# only `electron`, `node:` builtins (Mumble included — it speaks its protocol
+# over node:tls) and the pure-JS electron-updater bundle that `build:vendor`
+# emits into dist/vendor, and desktop/package.json declares no runtime
 # dependencies at all.
 #
 # Packaged layout must satisfy the path math in desktop/src/main.ts, which
@@ -41,6 +42,22 @@ directories:
   # icon.png (+ any future variants) resolved here; also the AppImage icon source.
   buildResources: build
   output: release
+
+# Self-update feed (electron-updater, driven by desktop/src/updater.ts): the
+# rolling "latest" GitHub release. This block does two things at build time —
+# it bakes a resources/app-update.yml with this URL into the Linux/Windows
+# packages, and it writes the latest.yml / latest-linux.yml channel files into
+# release/, which the CI release job uploads next to the versioned artifacts
+# (the channel files reference them by exact name). CI still builds with
+# `--publish never`; that flag only stops electron-builder from UPLOADING.
+#
+# The GENERIC provider and not `github`, deliberately: the github provider
+# resolves releases by semver TAG, and the rolling release's tag is the
+# non-semver literal `latest`. A fixed download URL sidesteps that and the
+# GitHub API rate limit with it.
+publish:
+  provider: generic
+  url: https://github.com/davrux/pixel-agents/releases/download/latest
 
 # The compiled Electron main/preload (desktop/dist, emitted by the T4.6
 # build:desktop step) plus the client Vite output that the app:// protocol serves.
@@ -127,6 +144,12 @@ mac:
   # (Open Anyway / xattr -dr com.apple.quarantine, see the release notes) rather
   # than a dead end.
   identity: "-"
+  # No update feed on macOS: Squirrel.Mac verifies the code signature before it
+  # applies an update, and an ad-hoc signed build fails that check — so a mac
+  # package must not carry a feed it can never use (desktop/src/updater.ts
+  # reports the platform as unsupported for the same reason). This also spares
+  # the zip target electron-builder demands as soon as a mac build publishes.
+  publish: null
   # Required with ad-hoc signing: hardened runtime enforces library validation,
   # which rejects Electron's pre-signed framework because it carries a different
   # Team ID, and the app dies on launch. The alternative is an entitlements file

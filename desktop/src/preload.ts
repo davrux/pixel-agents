@@ -7,6 +7,7 @@ import {
   type MumbleSettingsPatch,
   type PixelDesktopApi,
   type TimeTrackingSettingsPatch,
+  type UpdateEvent,
   type WorkAction,
   type WorkSnapshot,
 } from './ipc.js';
@@ -75,6 +76,12 @@ const api: PixelDesktopApi = {
     getStatus: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttGetStatus),
     book: (action: WorkAction) => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttBook, action),
     onStatus: (cb: (snapshot: WorkSnapshot) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.ttStatusEvent, cb),
+  },
+  updates: {
+    check: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.updatesCheck),
+    download: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.updatesDownload),
+    install: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.updatesInstall),
+    onEvent: (cb: (event: UpdateEvent) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.updatesEvent, cb),
   },
 };
 

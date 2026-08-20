@@ -72,10 +72,11 @@ interacting?"
     desktop-only capabilities go through the typed preload bridge with a browser
     fallback. **A wire-format change bumps `PROTOCOL_VERSION`** (`shared/protocol.ts`)
     in the same commit — adding, removing or reordering a synced schema field, or
-    changing what a message means. The desktop app ships its own bundle and has no
-    auto-updater, so without the bump an older build decodes the new state into
-    nonsense silently; with it, the client shows the update command instead
-    (`client/src/ui/versionGate.ts`). Gate on that number, never on the build version:
+    changing what a message means. The desktop app ships its own bundle and only
+    updates when the user triggers it (`desktop/src/updater.ts`; never at all on
+    macOS, which refuses unsigned updates), so without the bump an older build
+    decodes the new state into nonsense silently; with it, the client offers the
+    update instead (`client/src/ui/versionGate.ts`). Gate on that number, never on the build version:
     `git describe` changes with every commit and would cry wolf in development.
 
 ## Security

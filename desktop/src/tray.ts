@@ -68,6 +68,8 @@ export interface TrayHooks {
    *  (it is also the side that persists it and that the `close` handler asks). */
   closeToTray(): boolean;
   setCloseToTray(enabled: boolean): void;
+  /** Run the interactive self-update check (native dialogs, owned by main). */
+  checkForUpdates(): void;
 }
 
 let tray: Tray | null = null;
@@ -77,6 +79,7 @@ let hooks: TrayHooks = {
   hide: () => undefined,
   closeToTray: () => false,
   setCloseToTray: () => undefined,
+  checkForUpdates: () => undefined,
 };
 
 /** Decoded icons, kept because `render()` runs on every count change and the
@@ -109,6 +112,10 @@ function buildMenu(): Menu {
     { type: 'separator' },
     { label: 'Show Pixel Agents', click: () => hooks.reveal() },
     { label: 'Hide to tray', click: () => hooks.hide() },
+    { type: 'separator' },
+    // The manual update path (the version gate is the on-demand one): useful
+    // exactly here because a window hidden to tray has no UI to ask from.
+    { label: 'Check for updates…', click: () => hooks.checkForUpdates() },
     { type: 'separator' },
     {
       // The setting lives here rather than in the app's own UI because this is

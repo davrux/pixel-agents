@@ -160,6 +160,37 @@ export interface TimeTrackingApi {
   onStatus(cb: (snapshot: WorkSnapshot) => void): () => void;
 }
 
+// ── Self-update ──────────────────────────────────────────────────────────────
+// Desktop-only: electron-updater lives in the Electron main process (it swaps
+// the binary the process runs from); this renderer only asks and listens. The
+// browser build updates by reloading and has no equivalent.
+
+/** `unsupported` is a fact about the build and how it runs (development start,
+ *  macOS without a real signature, Linux outside an AppImage), not a failure —
+ *  the caller shows the manual update path instead. */
+export type UpdateCheckStatus =
+  | { status: 'available'; version: string }
+  | { status: 'none'; version: string }
+  | { status: 'unsupported'; reason: string }
+  | { status: 'error'; error: string };
+
+export type UpdateEvent =
+  | { t: 'progress'; percent: number; transferredBytes: number; totalBytes: number }
+  | { t: 'downloaded'; version: string }
+  | { t: 'error'; message: string };
+
+export interface UpdatesApi {
+  /** Ask the release feed for a newer build. Resolves, never rejects. */
+  check(): Promise<UpdateCheckStatus>;
+  /** Download the update a preceding check() reported; resolves when the
+   *  package is complete (progress arrives via onEvent meanwhile). */
+  download(): Promise<{ ok: boolean; error?: string }>;
+  /** Quit, install the downloaded update and relaunch. */
+  install(): Promise<void>;
+  /** Subscribe to download progress; returns an unsubscribe function. */
+  onEvent(cb: (event: UpdateEvent) => void): () => void;
+}
+
 /** An OS-level notification, shown by the Electron main process. */
 export interface DesktopNotification {
   title: string;
@@ -203,6 +234,8 @@ export interface PixelDesktopApi {
   mumble: MumbleApi;
   /** TimeTracking client (desktop only). */
   timeTracking: TimeTrackingApi;
+  /** Self-update (desktop only). */
+  updates: UpdatesApi;
 }
 
 declare global {
@@ -238,6 +271,15 @@ export function mumbleApi(): MumbleApi | null {
  *  by this being null (see TimeTrackingUI). */
 export function timeTrackingApi(): TimeTrackingApi | null {
   return isDesktop() ? (window.pixelDesktop?.timeTracking ?? null) : null;
+}
+
+/** The self-update client, or null in the browser (which updates by reloading).
+ *  Guarded with `?? null` like the others — in the desktop shell the bundle is
+ *  served from the shell's own asar, so preload and renderer normally match,
+ *  but a null here must degrade to "no auto-update", never to a throw inside
+ *  the version gate that needs it. */
+export function updatesApi(): UpdatesApi | null {
+  return isDesktop() ? (window.pixelDesktop?.updates ?? null) : null;
 }
 
 /**

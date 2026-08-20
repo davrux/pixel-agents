@@ -55,6 +55,12 @@ export const PIXEL_DESKTOP_CHANNELS = {
   ttGetStatus: 'pixelDesktop:ttGetStatus',
   ttBook: 'pixelDesktop:ttBook',
   ttStatusEvent: 'pixelDesktop:ttStatusEvent', // main -> renderer
+  // Self-update. electron-updater lives in main (it swaps the binary the
+  // process is running from); the renderer only asks and listens.
+  updatesCheck: 'pixelDesktop:updatesCheck',
+  updatesDownload: 'pixelDesktop:updatesDownload',
+  updatesInstall: 'pixelDesktop:updatesInstall',
+  updatesEvent: 'pixelDesktop:updatesEvent', // main -> renderer
 } as const;
 
 export type PixelDesktopChannel =
@@ -245,6 +251,41 @@ export interface TimeTrackingApi {
   onStatus(cb: (snapshot: WorkSnapshot) => void): () => void;
 }
 
+// ── Self-update ──────────────────────────────────────────────────────────────
+
+/**
+ * Answer to an update check. `unsupported` is a fact about the build and how it
+ * runs (development start, macOS without a real signature, Linux outside an
+ * AppImage), not a failure — the caller shows the manual update path instead.
+ */
+export type UpdateCheckStatus =
+  | { status: 'available'; version: string }
+  | { status: 'none'; version: string }
+  | { status: 'unsupported'; reason: string }
+  | { status: 'error'; error: string };
+
+/** Pushed from main on the `updatesEvent` channel while a download runs. */
+export type UpdateEvent =
+  | { t: 'progress'; percent: number; transferredBytes: number; totalBytes: number }
+  | { t: 'downloaded'; version: string }
+  | { t: 'error'; message: string };
+
+/** Self-update, driven from the version gate and the tray. Check and download
+ *  stay two calls so the renderer can show what it found before fetching a
+ *  ~100 MB package; install quits, swaps and relaunches. Nothing here runs
+ *  without one of these calls — there is no background updater. */
+export interface UpdatesApi {
+  /** Ask the release feed for a newer build. Resolves, never rejects. */
+  check(): Promise<UpdateCheckStatus>;
+  /** Download the update a preceding check() reported; resolves when the
+   *  package is complete (progress arrives via onEvent meanwhile). */
+  download(): Promise<{ ok: boolean; error?: string }>;
+  /** Quit, install the downloaded update and relaunch. */
+  install(): Promise<void>;
+  /** Subscribe to download progress; returns an unsubscribe function. */
+  onEvent(cb: (event: UpdateEvent) => void): () => void;
+}
+
 /**
  * The typed API injected as `window.pixelDesktop` in the desktop renderer.
  * Absent in the browser build, where `isDesktop()` is therefore false.
@@ -293,4 +334,6 @@ export interface PixelDesktopApi {
   mumble: MumbleApi;
   /** TimeTracking (credential + third-party HTTP live in main). */
   timeTracking: TimeTrackingApi;
+  /** Self-update (electron-updater lives in main). */
+  updates: UpdatesApi;
 }

@@ -19,6 +19,7 @@ import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
 import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
 import { registerTimeTrackingIpc, shutdownTimeTracking } from './timetracking/service.js';
 import { createTray, destroyTray, setTrayUnread } from './tray.js';
+import { checkForUpdatesInteractive, registerUpdaterIpc } from './updater.js';
 
 // Custom scheme serving the client Vite output. A registered "standard" +
 // "secure" scheme gives the renderer a stable secure-context origin across
@@ -419,6 +420,7 @@ function registerIpcHandlers(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
   registerMumbleIpc(getWindow);
   registerTimeTrackingIpc();
+  registerUpdaterIpc(getWindow);
   ipcMain.handle(channels.getServerUrl, (): Promise<string | null> => readServerUrl());
   ipcMain.handle(channels.setServerUrl, (_event, url: string): Promise<void> => writeServerUrl(url));
   ipcMain.handle(channels.clearServerUrl, (): Promise<void> => clearStoredServerUrl());
@@ -587,6 +589,7 @@ if (!gotLock) {
       },
       closeToTray: () => closeToTray,
       setCloseToTray,
+      checkForUpdates: () => void checkForUpdatesInteractive(),
     });
     // No tray icon means no way back from a hidden window and no way to switch
     // the preference off again, so the setting is forced off for this run. The
