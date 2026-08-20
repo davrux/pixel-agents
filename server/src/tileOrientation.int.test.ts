@@ -17,7 +17,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ORIENT_D, ORIENT_H, ORIENT_MASK, ORIENT_V, cellOrientation, isTurned } from '@pixel/shared/office/tileOrientation.js';
+import {
+  ORIENT_D,
+  ORIENT_H,
+  ORIENT_MASK,
+  ORIENT_V,
+  cellOrientation,
+  isTurned,
+  quarterTurnsOf,
+  turnedExtent,
+} from '@pixel/shared/office/tileOrientation.js';
 
 type Pt = readonly [number, number];
 /** The unit cell's corners. 0/1 rather than pixels: the transform is what is being tested,
@@ -104,4 +113,48 @@ test('a mask from an untrusted layout cannot ask for a ninth orientation', () =>
   assert.equal(isTurned(undefined), false);
   assert.equal(isTurned(0), false);
   assert.equal(isTurned(ORIENT_H), true);
+});
+
+// ── What a turned piece OCCUPIES ────────────────────────────────────────────
+//
+// Cells are axis-aligned, so a diagonal piece can only be given the rectangle around it.
+// Two things here are load-bearing rather than obvious: the quarter turns must be an EXACT
+// swap (cos(90°) is 6e-17, and a footprint that ceils 16.0000000000000002 blocks a whole
+// extra cell), and the free angles must be rounded to whole pixels for the same reason at
+// a smaller scale.
+
+test('a quarter turn is an exact swap — no float drift, no extra cell', () => {
+  for (const angle of [90, 270, -90, 450]) {
+    assert.deepEqual(turnedExtent(32, 16, angle), { w: 16, h: 32 }, `${angle}° must swap exactly`);
+  }
+  for (const angle of [0, 180, 360, -180]) {
+    assert.deepEqual(turnedExtent(32, 16, angle), { w: 32, h: 16 }, `${angle}° must keep the sides`);
+  }
+  assert.deepEqual(turnedExtent(32, 16, undefined), { w: 32, h: 16 }, 'and no angle at all changes nothing');
+});
+
+test('a free angle gets the rectangle around it, in whole pixels', () => {
+  // 32×16 at 37°: 32·cos37 + 16·sin37 ≈ 35.19 wide, 32·sin37 + 16·cos37 ≈ 32.04 tall. The
+  // rounding is what keeps that four-hundredths of a pixel from costing a blocked row.
+  assert.deepEqual(turnedExtent(32, 16, 37), { w: 35, h: 32 });
+  assert.equal(Math.ceil(35 / 16), 3, 'three cells wide');
+  assert.equal(Math.ceil(32 / 16), 2, 'two cells tall — not three, which the unrounded 32.04 would have given');
+
+  // Opposite angles enclose the same rectangle, and a square piece is symmetric in it.
+  assert.deepEqual(turnedExtent(32, 16, 37), turnedExtent(32, 16, 217));
+  assert.deepEqual(turnedExtent(16, 16, 45), turnedExtent(16, 16, 135));
+  // 45° on a square is the widest it gets: 16·√2 ≈ 22.6 → 23.
+  assert.deepEqual(turnedExtent(16, 16, 45), { w: 23, h: 23 });
+});
+
+test('quarterTurnsOf answers null only for an angle cells cannot express', () => {
+  assert.equal(quarterTurnsOf(0), 0);
+  assert.equal(quarterTurnsOf(90), 1);
+  assert.equal(quarterTurnsOf(180), 2);
+  assert.equal(quarterTurnsOf(270), 3);
+  assert.equal(quarterTurnsOf(-90), 3, 'normalized, not rejected');
+  assert.equal(quarterTurnsOf(450), 1);
+  assert.equal(quarterTurnsOf(37), null);
+  assert.equal(quarterTurnsOf(322.883756654971), null);
+  assert.equal(quarterTurnsOf(Number.NaN), null, 'and nonsense is not a quarter turn either');
 });

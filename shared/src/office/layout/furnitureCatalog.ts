@@ -1,4 +1,4 @@
-import { turnFacing, turnSwapsSides } from '../tileOrientation.js';
+import { turnFacing, turnedExtent } from '../tileOrientation.js';
 import type { Action, Direction as DirectionVal, FurnitureCatalogEntry, PlacedFurniture, SpriteData } from '../types.js';
 import { Direction, TILE_SIZE } from '../types.js';
 
@@ -66,6 +66,16 @@ const animationGroups = new Map<string, AnimationFrameInfo[]>();
  *  sections; with authoring moved entirely to Tiled (whose own tileset panel
  *  shows every tile, unfiltered) there is nothing left to filter for. */
 let catalog: FurnitureCatalogEntry[] | null = null;
+/**
+ * id → entry, rebuilt with the catalog.
+ *
+ * `getCatalogEntry` was a linear `find` over every asset, and it is called from per-tick
+ * engine loops (through entryFor, and directly by the serializer and the renderer). Measured
+ * with the 1773-asset catalog this repo builds: 24.2 µs per call, which made one lookup cost
+ * more than the rest of a tick's work on a placement. An index is the same answer in 0.06 µs.
+ * Bounded by the catalog it mirrors, and replaced wholesale when that is rebuilt.
+ */
+let byId: Map<string, FurnitureCatalogEntry> | null = null;
 
 /**
  * Build the catalog from loaded assets. Returns true if successful.
@@ -144,6 +154,11 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
   }
 
   catalog = allEntries;
+  // Rebuilt here and nowhere else, so it cannot drift from the array it indexes. The FIRST
+  // entry for an id wins, which is what the linear `find` returned — a duplicate id must not
+  // start resolving to the other one.
+  byId = new Map();
+  for (const e of allEntries) if (!byId.has(e.id)) byId.set(e.id, e);
 
   const statePairs = allEntries.filter((e) => e.onState).length;
   console.log(`✓ Built dynamic catalog with ${allEntries.length} assets (${statePairs} state pairs, ${animationGroups.size} animation groups)`);
@@ -151,7 +166,7 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
 }
 
 export function getCatalogEntry(id: string): FurnitureCatalogEntry | undefined {
-  return catalog?.find((e) => e.id === id);
+  return byId?.get(id);
 }
 
 /**
@@ -174,20 +189,25 @@ export function entryFor(item: {
 }): FurnitureCatalogEntry | undefined {
   const entry = getCatalogEntry(item.id);
   if (!entry) return undefined;
-  // A quarter turn swaps the sides, and it has to be resolved HERE for the same reason a
-  // resized placement is: the cells a piece occupies decide blocking, seats, approach
-  // tiles, pet perching and depth, so a turn that only reached the renderer would draw a
-  // desk lying across two cells while the collision still stood in one. A half turn keeps
-  // the sides as they are (see quarterTurnsOf; an angle Tiled allows but cells cannot
-  // express never reaches here — the import refuses it).
-  const turned = turnSwapsSides(item.angle);
+  // A turn has to be resolved HERE for the same reason a resized placement is: the cells a
+  // piece occupies decide blocking, seats, approach tiles, pet perching and depth, so a turn
+  // that only reached the renderer would draw a desk lying across two cells while the
+  // collision still stood in one. What comes back is the box the piece OCCUPIES — a swap for
+  // a quarter turn, the enclosing rectangle for any other angle (see turnedExtent). The ART
+  // keeps its own size; the renderer gets that separately, because for a diagonal piece the
+  // two are different things.
   const placedW = item.width || entry.width;
   const placedH = item.height || entry.height;
-  const width = turned ? placedH : placedW;
-  const height = turned ? placedW : placedH;
-  if (width === entry.width && height === entry.height && !turned) return entry;
+  const { w: width, h: height } = turnedExtent(placedW, placedH, item.angle);
+  if (width === entry.width && height === entry.height) return entry;
+  const memo = resolved.get(item);
+  // Keyed by the placement, but only valid while it still resolves to the SAME shared entry
+  // and the same box: a placement's id changes when an appliance switches on (see
+  // resolveOnState), and the catalog itself is rebuilt on a push. Either would otherwise hand
+  // back the previous item's art and footprint.
+  if (memo && memo.from === entry && memo.built.width === width && memo.built.height === height) return memo.built;
   const footprintH = Math.max(1, Math.ceil(height / TILE_SIZE));
-  return {
+  const built: FurnitureCatalogEntry = {
     ...entry,
     width,
     height,
@@ -205,7 +225,22 @@ export function entryFor(item: {
       ? { backgroundTiles: Math.min(footprintH, Math.floor(entry.backgroundTiles * (height / entry.height))) }
       : {}),
   };
+  resolved.set(item, { from: entry, built });
+  return built;
 }
+
+/**
+ * The resolved entry per placement object — a WeakMap, so it holds nothing alive and needs
+ * no invalidation: a rebuilt layout brings new placement objects and the old ones go.
+ *
+ * Why it exists: this function is called from per-tick engine loops, and every placement that
+ * is not the art's own size built a fresh object on EVERY call. That predates turning (a
+ * resized placement paid it too) and turning would have multiplied it, since a whole zone can
+ * be turned. Measured on the uponu map, per OfficeState.update tick: see the numbers in
+ * AGENTS.md. The guard above re-checks the size, so a stale entry cannot survive a change
+ * that somehow mutates a placement in place.
+ */
+const resolved = new WeakMap<object, { from: FurnitureCatalogEntry; built: FurnitureCatalogEntry }>();
 
 /** A placed item's effective action (see Action): its own override
  *  (`item.action`) if set, else the catalog type's own default

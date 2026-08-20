@@ -345,13 +345,14 @@ export class PhaserRenderer {
       }
       const ftex = spriteTextureFor(this.scene, f.spriteId, f.sprite);
       img.setTexture(ftex.key, ftex.frame);
-      // A quarter turn swapped this instance's width and height (entryFor did, so the
-      // cells it blocks agree with the picture) — but the ART is still its own way round,
-      // so it is drawn at the UNSWAPPED size and turned to cover the box. Setting the
-      // display size to the swapped box instead would squash a 32×16 desk into 16×32,
-      // which looks like a rotation bug and is really a scaling one.
+      // f.width/f.height is the box this piece OCCUPIES — for a turned piece the rectangle
+      // around the turned art (entryFor resolved that, so the cells it blocks agree with the
+      // picture). The art keeps its own size and is turned inside that box; drawing it at the
+      // box size would squash a 32×16 couch into its own footprint, which looks like a
+      // rotation bug and is really a scaling one.
       const angle = f.angle ?? 0;
-      const swap = angle === 90 || angle === 270;
+      const drawW = angle === 0 ? f.width : (f.artWidth ?? f.width);
+      const drawH = angle === 0 ? f.height : (f.artHeight ?? f.height);
       img
         // Origin only moves when there is something to turn: an unturned placement keeps
         // the top-left anchor it has always had, so every existing map draws exactly as
@@ -360,7 +361,7 @@ export class PhaserRenderer {
         .setPosition(angle === 0 ? f.x : f.x + f.width / 2, angle === 0 ? f.y : f.y + f.height / 2)
         // Always, not only when resized: these images are pooled, so a sprite that
         // once drew a scaled placement would keep that scale for the next one.
-        .setDisplaySize(swap ? f.height : f.width, swap ? f.width : f.height)
+        .setDisplaySize(drawW, drawH)
         .setAngle(angle)
         .setDepth(f.zY)
         .setFlipX(!!f.mirrored)

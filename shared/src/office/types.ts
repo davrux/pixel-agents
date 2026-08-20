@@ -225,10 +225,16 @@ export interface FurnitureInstance {
   /** Render-time vertical flip flag — see PlacedFurniture.flippedVertically. */
   flippedVertically?: boolean;
   /** Render-time rotation in degrees clockwise, pivoted at the centre of the box this
-   *  instance occupies — which is already the TURNED box, since entryFor swapped the
-   *  sides. Only ever a quarter turn for furniture; a decal uses flippedDiagonally
+   *  instance occupies — `width`/`height`, which for a turned piece is the rectangle AROUND
+   *  the turned art (see turnedExtent), not the art itself. A decal uses flippedDiagonally
    *  below instead, because its turn comes from a tile-layer cell, not an object. */
   angle?: number;
+  /** The art's OWN size, present only on a turned piece: `width`/`height` are then the box it
+   *  occupies, and for anything but a quarter turn the two differ (a 16×32 couch at 37°
+   *  occupies about 32×35). Drawing at the box size instead would squash the picture — which
+   *  looks like a rotation bug and is really a scaling one. */
+  artWidth?: number;
+  artHeight?: number;
   /** Render-time diagonal flip (the axes swap), which together with the two mirrors
    *  spans all eight of Tiled's orientations — see office/tileOrientation.ts. Only
    *  ever set on SQUARE art: a quarter turn of a taller-than-wide picture would not

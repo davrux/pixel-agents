@@ -88,8 +88,11 @@ export function cellOrientation(bits: number | undefined): CellOrientation {
  * would put the collision somewhere the mapper can see it is not.
  */
 export function quarterTurnsOf(angle: number | undefined): 0 | 1 | 2 | 3 | null {
+  // Finiteness first: `!NaN` is true, so the shortcut below would have called NaN upright
+  // instead of unexpressible — and an unturned answer is the one thing a caller acts on
+  // without checking.
+  if (!Number.isFinite(angle ?? 0)) return null;
   if (!angle) return 0;
-  if (!Number.isFinite(angle)) return null;
   const norm = ((angle % 360) + 360) % 360;
   if (norm % 90 !== 0) return null;
   return (norm / 90) as 0 | 1 | 2 | 3;
@@ -99,6 +102,35 @@ export function quarterTurnsOf(angle: number | undefined): 0 | 1 | 2 | 3 | null 
 export function turnSwapsSides(angle: number | undefined): boolean {
   const q = quarterTurnsOf(angle);
   return q === 1 || q === 3;
+}
+
+/**
+ * The box a w×h piece OCCUPIES once turned — the axis-aligned rectangle around the turned
+ * art, rounded out to whole pixels.
+ *
+ * Cells are axis-aligned, so this is the only answer they have for a diagonal piece: a 16×32
+ * couch at 37° covers a wider, shorter rectangle than it does upright, and that rectangle is
+ * what may be blocked, sorted and reasoned about. It covers cells the art does not reach —
+ * deliberately, because the alternative is walking through a couch.
+ *
+ * Exact for the quarter turns (a plain swap) rather than trusting cos(90°) to be 0: floating
+ * point makes it 6e-17, which ceil() then turns into an extra cell, and a sofa would silently
+ * block one row more than it does today.
+ */
+export function turnedExtent(w: number, h: number, angle: number | undefined): { w: number; h: number } {
+  const q = quarterTurnsOf(angle);
+  if (q === 0) return { w, h };
+  if (q === 2) return { w, h };
+  if (q === 1 || q === 3) return { w: h, h: w };
+  const rad = (((angle ?? 0) % 360) * Math.PI) / 180;
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
+  // Rounded to whole PIXELS before anybody divides by the cell size. A 32×16 couch at 37°
+  // measures 35.19 × 32.04, and that four hundredths of a pixel is otherwise a whole extra
+  // blocked row once the footprint ceils it — invisible in the picture, very visible when you
+  // cannot walk somewhere. Rounding can under-state by half a pixel, which the ceil to cells
+  // absorbs anyway.
+  return { w: Math.round(w * c + h * s), h: Math.round(w * s + h * c) };
 }
 
 /**

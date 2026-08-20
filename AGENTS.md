@@ -179,6 +179,18 @@ check asks: is the release present in the code that acquires?
   client has a perf overlay — **F8** or `?perf=1` — showing fps, frame time,
   character count and `tex/p/f` (live textures / atlas pages / packed frames), and sleeps its render
   loop when nothing moves.
+  On the server, drive `OfficeState.update` over a real layout and take the MINIMUM of several
+  interleaved runs — the mean is dominated by GC and the OS, and a first attempt at the numbers
+  below had more noise than signal (a turned map came out *faster* than an upright one).
+  Measured 2026-08-20 on uponu (158 placements): **0.062 ms/tick** as authored, 0.073 with
+  every piece quarter-turned, 0.097 with every piece at a free angle — so turning a whole map
+  costs about a thirtieth of a millisecond, and rotation is not a performance question.
+  What WAS one, found by asking: `getCatalogEntry` was a linear `find` over all 1773 assets and
+  is called from per-tick loops, at **24.2 µs per call**. It is a Map now (61 ns), which took
+  that tick from 2.056 ms to 0.062 — **33× faster than before any of the turning work**. The
+  lesson generalises: before believing a new feature is slow, measure what was already there.
+  `entryFor` also memoizes per placement (a WeakMap), because every non-default placement built
+  a fresh entry on every call: 1138 ns → 69 ns for a turned or resized piece.
 - **Sprites reach the GPU through one runtime atlas** (`client/src/render/sprites.ts`):
   `spriteTexture()` packs each SpriteData into shared canvas pages and returns
   `{key, frame}`, and `atlasFromImage()` packs a rectangle of an IMAGE into the same
@@ -386,10 +398,24 @@ background only.)
   `entryFor` and not in the renderer: a picture-only rotation is a collision bug with a
   plausible screenshot. Tiled's own pivot decides where the piece lands — "clockwise around
   (x, y)", the bottom-left corner of the unrotated box, so the box SWINGS rather than spinning
-  in place (`turnedTopLeftPx`). Two things Tiled allows are refused at import, both because
-  cells cannot express them: an angle that is not a multiple of 90, and turning a piece whose
-  TOP rows are air (`backgroundTiles` stops meaning anything once the top is a side). Images
-  take any angle — a free pixel box, no cells, nothing to refuse. The old comment saying
+  in place (`turnedTopLeftPx`).
+  **Any angle is honoured; what a turn cannot carry is dropped, loudly.** A quarter turn keeps
+  everything — the sides swap and seats, facing and depth come with them. Any other angle is
+  drawn as Tiled shows it and occupies the RECTANGLE around the turned art (`turnedExtent`),
+  which is the only answer axis-aligned cells have for a diagonal piece; it covers cells the
+  art does not reach, so the piece keeps blocking (never walk through a couch) but loses its
+  seats — a seat on a cell where there is no couch is worse than a couch you cannot sit on.
+  Air rows go the same way for any turn at all: `backgroundTiles` says "my TOP rows are air",
+  which stops meaning anything once the top is a side, so it is dropped towards SOLID. Both
+  losses are written onto the placement as ordinary overrides (`canSitOn`, `backgroundTiles`),
+  so nothing downstream has to learn about angles, and both are named in a notice the push
+  prints. Images take any angle with nothing to drop — a free pixel box, no cells.
+  Two numerical details that are load-bearing: the quarter turns are an EXACT swap rather than
+  `cos(90°)`, whose 6e-17 would ceil into an extra blocked cell, and a free extent is rounded
+  to whole pixels first, because a 32×16 couch at 37° measures 32.04 tall and those four
+  hundredths would otherwise cost a whole row.
+  **Turning is not a performance question** — measured, because it looks like one: see the
+  numbers under "Measuring performance". The old comment saying
   rotation was deliberately not adopted is a warning now rather than a rule: art drawn from
   one fixed camera angle still has no sensible rotated frame, so a turned desk reads wrong
   however correctly it is drawn — it is turn-symmetric pieces (a rug, a crate, a plant) that

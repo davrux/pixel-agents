@@ -191,7 +191,16 @@ export function layoutToFurnitureInstances(furniture: PlacedFurniture[]): Furnit
       zY,
       ...(item.flippedHorizontally ? { mirrored: true } : {}),
       ...(item.flippedVertically ? { flippedVertically: true } : {}),
-      ...(item.angle ? { angle: item.angle } : {}),
+      // A turned piece needs both boxes: entry.width/height above is what it OCCUPIES, this
+      // is what to draw. Taken from the catalog rather than un-swapping the occupied box,
+      // because for anything but a quarter turn that is not invertible.
+      ...(item.angle
+        ? {
+            angle: item.angle,
+            artWidth: item.width || getCatalogEntry(item.id)?.width || entry.width,
+            artHeight: item.height || getCatalogEntry(item.id)?.height || entry.height,
+          }
+        : {}),
       ...(item.opacity !== undefined && item.opacity < 1 ? { opacity: item.opacity } : {}),
     });
   }

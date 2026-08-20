@@ -68,17 +68,31 @@ const DECLARED_BEHAVIOUR = ['canSitOn', 'petCanSitOn', 'onState', 'actionKind'];
  * at 16px whose art is 32px tall landed a whole cell too high when this was taken from the
  * footprint (see PlacedFurniture.width). That is why the caller passes the drawn size.
  */
-function turnedTopLeftPx(x: number, y: number, w: number, h: number, quarters: 0 | 1 | 2 | 3): { x: number; y: number } {
-  switch (quarters) {
-    case 1:
-      return { x, y };
-    case 2:
-      return { x: x - w, y };
-    case 3:
-      return { x: x - h, y: y - w };
-    default:
-      return { x, y: y - h };
+function turnedTopLeftPx(x: number, y: number, w: number, h: number, angle: number): { x: number; y: number } {
+  // The four corners of the unrotated box, relative to Tiled's pivot at (x, y) — which is
+  // its bottom-left, so the box lies ABOVE the pivot.
+  const rad = ((angle % 360) * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const corners: Array<[number, number]> = [
+    [0, -h],
+    [w, -h],
+    [w, 0],
+    [0, 0],
+  ];
+  let minX = Infinity;
+  let minY = Infinity;
+  for (const [dx, dy] of corners) {
+    // Clockwise on screen (y grows downwards).
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+    if (rx < minX) minX = rx;
+    if (ry < minY) minY = ry;
   }
+  // Snapped for the quarter turns, where the trig is 0 or ±1 up to 6e-17 and a hair below a
+  // cell boundary rounds the piece a whole cell the wrong way.
+  const snap = (n: number): number => (Math.abs(n - Math.round(n)) < 1e-6 ? Math.round(n) : n);
+  return { x: snap(x + minX), y: snap(y + minY) };
 }
 
 /** Every imported item gets a fresh identity — `uid` is purely internal engine
@@ -450,25 +464,34 @@ export function importTmjToLayout(
     // piece whose TOP rows are air (backgroundTiles) cannot answer even that — "the top" is
     // a side once it is turned. Both are refused here rather than approximated, so the
     // engine never sees a rotation it cannot honour, and the mapper is told which piece.
-    const rawAngle = Number(obj.rotation) || 0;
-    let quarters = quarterTurnsOf(rawAngle);
-    if (quarters === null) {
+    const rawAngle = ((Number(obj.rotation) || 0) % 360 + 360) % 360;
+    const quarters = quarterTurnsOf(rawAngle);
+    // A quarter turn keeps everything: the sides swap and seats, facing and air rows come
+    // with them. Any OTHER angle is drawn as Tiled shows it and occupies the enclosing
+    // rectangle — but the rectangle covers cells the art does not reach, so the parts that
+    // depend on knowing which cell is which are dropped rather than guessed. A seat on a cell
+    // where there is no couch is worse than a couch you cannot sit on.
+    const freeAngle = quarters === null && rawAngle !== 0;
+    if (freeAngle) {
+      const loses = [entry?.canSitOn ? 'its seats' : '', (entry?.backgroundTiles ?? 0) > 0 ? 'its air rows' : '']
+        .filter(Boolean)
+        .join(' and ');
       warnOnce(
         turnWarnings,
-        `"${id}" is rotated ${rawAngle}° — furniture can only be turned in quarter steps (its cells have no answer for anything else), so it stays upright`,
+        `"${id}" is rotated ${rawAngle.toFixed(1)}° — drawn as Tiled shows it, occupying the rectangle around it` +
+          (loses ? `, but without ${loses}: the rectangle covers cells the art does not reach` : ''),
         notices,
       );
-      quarters = 0;
     } else if (quarters !== 0 && (entry?.backgroundTiles ?? 0) > 0) {
       warnOnce(
         turnWarnings,
-        `"${id}" is rotated but its top ${entry?.backgroundTiles} row(s) are air (backgroundTiles) — that only means something while the top is the top, so it stays upright`,
+        `"${id}" is rotated but its top ${entry?.backgroundTiles} row(s) are air (backgroundTiles) — that only means something while the top is the top, so the air rows are dropped`,
         notices,
       );
-      quarters = 0;
     }
+    const angle = quarters === null ? rawAngle : quarters * 90;
     const topLeft = hasGid
-      ? turnedTopLeftPx(Number(obj.x) || 0, Number(obj.y) || 0, drawnW, drawnH, quarters)
+      ? turnedTopLeftPx(Number(obj.x) || 0, Number(obj.y) || 0, drawnW, drawnH, angle)
       : { x: Number(obj.x) || 0, y: Number(obj.y) || 0 };
     const col = Math.round(topLeft.x / TILE_SIZE);
     const row = Math.round(topLeft.y / TILE_SIZE);
@@ -492,9 +515,17 @@ export function importTmjToLayout(
       flipBits -= TILED_FLIP_H;
     }
     if (flipBits >= TILED_FLIP_V) item.flippedVertically = true;
-    // Only ever a quarter turn, and only one the engine can honour — see the refusals
-    // above. Stored in degrees like PlacedText.angle, so a map reads the way Tiled shows it.
-    if (quarters !== 0) item.angle = quarters * 90;
+    // Stored in degrees like PlacedText.angle, so a map reads the way Tiled shows it.
+    if (angle !== 0) item.angle = angle;
+    // Written onto the placement rather than special-cased in the engine: the override
+    // mechanism already exists, so nothing downstream has to learn about angles to know
+    // that this piece offers no seat and is solid all the way.
+    if (freeAngle) {
+      if (entry?.canSitOn) item.canSitOn = false;
+      if ((entry?.backgroundTiles ?? 0) > 0) item.backgroundTiles = 0;
+    } else if (angle !== 0 && (entry?.backgroundTiles ?? 0) > 0) {
+      item.backgroundTiles = 0;
+    }
     // The native Tiled object Name, not a custom property.
     if (typeof obj.name === 'string' && obj.name) item.name = obj.name;
     // Likewise opacity: Tiled writes it on every object itself, so there is no

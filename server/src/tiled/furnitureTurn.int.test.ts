@@ -10,9 +10,11 @@
  * what keeps them from disagreeing"). So the first tests here are not about the picture at
  * all; they are about the footprint, the seats and the facing.
  *
- * The second half is the two refusals. Tiled allows things cells cannot express — any angle,
- * and turning a piece whose TOP rows are air — and both are dropped at import with the id
- * named, rather than rounded or ignored silently.
+ * The second half is what a turn COSTS when cells cannot express it. Any angle is honoured
+ * now — a free one is drawn as Tiled shows it and occupies the rectangle around it — but that
+ * rectangle covers cells the art does not reach, so seats are dropped; and "my top rows are
+ * air" stops meaning anything once the top is a side, so air rows are dropped too. Both are
+ * decided at import, with the id named in a notice the push prints, rather than guessed.
  *
  * SOFA_BACK is the piece under test because it is 32×16, sittable and has no air rows: a
  * square one would pass a broken footprint swap, and one with air rows cannot be turned at
@@ -159,35 +161,47 @@ test('each angle lands the piece where Tiled shows it', async () => {
   }
 });
 
-test('an angle that is not a quarter turn is refused, not rounded', async () => {
+test('a free angle is kept — drawn as Tiled shows it, occupying the rectangle around it', async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
   const { layout, warnings, notices } = importWatching(mapWith('SOFA_BACK', 5, 5, 37));
   const item = layout.furniture[0];
-  assert.equal(item.angle, undefined, '37° must not become 45 or 0-with-a-shrug');
-  assert.deepEqual({ col: item.col, row: item.row }, { col: 5, row: 5 }, 'and it stays where an upright one goes');
-  assert.ok(
-    warnings.some((w) => w.includes('SOFA_BACK') && w.includes('37')),
-    `expected a warning naming the piece and the angle, got: ${warnings.join(' | ') || '(nothing)'}`,
+  assert.equal(item.angle, 37, '37° is honoured, not rounded to a quarter turn');
+
+  // Cells are axis-aligned, so what it occupies is the enclosing rectangle. A 32×16 couch
+  // at 37° is about 35 wide and 32 tall, i.e. three cells by two.
+  const entry = entryFor(item);
+  assert.deepEqual(
+    { w: entry?.footprintW, h: entry?.footprintH },
+    { w: 3, h: 2 },
+    'the footprint is the rectangle around the turned art',
   );
-  // And it comes BACK, not just out: this is the line push-zones.sh prints.
+  assert.equal([...getBlockedTiles(layout.furniture)].length, 6, 'and it blocks that rectangle — never walk through a couch');
+
+  // The rectangle covers cells the art does not reach, so the parts that depend on knowing
+  // WHICH cell is which are dropped rather than guessed.
+  assert.equal(item.canSitOn, false, 'no seats on a diagonal couch');
+  assert.equal([...layoutToSitPoints(layout.furniture).values()].length, 0, 'and none are offered');
   assert.ok(
-    notices.some((n) => n.includes('SOFA_BACK') && n.includes('37')),
-    `the refusal must travel back to whoever pushed the map, got: ${notices.join(' | ') || '(nothing)'}`,
+    notices.some((n) => n.includes('SOFA_BACK') && /37/.test(n) && /seats/.test(n)),
+    `the mapper must be told what the angle cost, got: ${notices.join(' | ') || '(nothing)'}`,
   );
+  assert.ok(warnings.length > 0, 'and it is on the server console too');
 });
 
-test('a piece whose top rows are air is not turned at all', async () => {
+test('a turned piece with air rows keeps the turn and loses the air rows', async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
   const esp = getCatalogEntry('ESPRESSO_MACHINE');
   assert.ok((esp?.backgroundTiles ?? 0) > 0, 'this test needs a piece with air rows');
-  const { layout, warnings } = importWatching(mapWith('ESPRESSO_MACHINE', 5, 5, 90));
+  const { layout, notices } = importWatching(mapWith('ESPRESSO_MACHINE', 5, 5, 90));
   const item = layout.furniture[0];
-  assert.equal(item.angle, undefined, '"my top row is air" has no turned meaning, so the turn is dropped');
-  const entry = entryFor(item);
-  assert.equal(entry?.backgroundTiles, esp?.backgroundTiles, 'and its air rows still mean what they meant');
+  assert.equal(item.angle, 90, 'the turn is honoured');
+  // "My TOP rows are air" stops meaning anything once the top is a side, so it goes — and it
+  // goes towards SOLID, because the alternative is an appliance you walk through.
+  assert.equal(item.backgroundTiles, 0, 'the air rows are dropped, not reinterpreted');
+  assert.equal(entryFor(item)?.footprintW, 2, 'and the piece still occupies its cells');
   assert.ok(
-    warnings.some((w) => w.includes('ESPRESSO_MACHINE') && /air|backgroundTiles/.test(w)),
-    `expected a warning naming the piece and why, got: ${warnings.join(' | ') || '(nothing)'}`,
+    notices.some((n) => n.includes('ESPRESSO_MACHINE') && /air/.test(n)),
+    `expected a notice naming the piece and why, got: ${notices.join(' | ') || '(nothing)'}`,
   );
 });
 
