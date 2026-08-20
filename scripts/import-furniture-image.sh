@@ -31,7 +31,11 @@
 #
 # It only ever APPENDS to furniture-<SET>.tsj, and refuses an --id that exists:
 # ids are identity, and a renumbered tile is a placement that silently draws
-# nothing. Growing a tileset does move the one after it in a map's table, so
+# nothing. To redraw art that is already in a set — a better render of the same
+# object — pass --replace: it rewrites that id's PNG only, leaves the tileset
+# alone (so no tilecount change and no gid table to repair), and refuses a --size
+# the tile does not already have, since footprint, blocking and seats are all
+# derived from the PNG's size. Growing a tileset does move the one after it in a map's table, so
 # afterwards run:
 #   scripts/sync-furniture-properties.sh --check    # reports a stale gid table
 #   scripts/sync-furniture-properties.sh --fix-gids # repairs it

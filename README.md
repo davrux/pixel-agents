@@ -320,8 +320,11 @@ a 30:1 reduction only as specks. `--size` is a box to **fill**, which is what a
 machine drawn to fit one wants; add `--fit` when the subject has proportions of its
 own — a car seen from the side is 3.4:1 where the vehicle sets' tile is 2:1, and
 filling that box ovalises every wheel, so with `--fit` the art keeps its aspect and
-sits bottom-centred in the spare rows. Set the rest of the behaviour on the tile in
-Tiled; `--help` lists every option.
+sits bottom-centred in the spare rows. `--replace` redraws the PNG of an id that
+is already in the set — a better render of the same object — leaving the tileset
+untouched, so there is no gid table to repair; it refuses a size the tile does not
+already have, because footprint, blocking and seats all come from the PNG's size.
+Set the rest of the behaviour on the tile in Tiled; `--help` lists every option.
 
 16px is one tile, so `--size 32x32` is a 2×2-tile object, about as tall as a
 character. Afterwards run `scripts/sync-furniture-properties.sh --check`: growing

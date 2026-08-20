@@ -74,6 +74,7 @@ interface Args {
   chroma: number;
   shadow: boolean;
   fit: boolean;
+  replace: boolean;
   erase: Array<[number, number, number, number]>;
   props: Map<string, string>;
   dry: boolean;
@@ -91,6 +92,8 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
                      16px = one tile, so 32x32 is a 2x2-tile object.
   --fit              keep the subject's aspect inside --size (bottom-anchored,
                      centred) instead of stretching to fill it
+  --replace          the id already exists: redraw its PNG and leave the tileset
+                     alone. Refuses a --size the tile does not already have
   --label TEXT       display name (default: the id, title-cased)
   --erase X,Y,W,H    blank this rectangle of the SOURCE first; repeatable
   --greys N          palette entries for the neutral colours (default 14)
@@ -106,7 +109,7 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
-  const out: Partial<Args> = { erase: [], props: new Map(), dry: false, shadow: true, fit: false };
+  const out: Partial<Args> = { erase: [], props: new Map(), dry: false, shadow: true, fit: false, replace: false };
   let label: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -115,6 +118,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--dry-run') out.dry = true;
     else if (a === '--no-shadow') out.shadow = false;
     else if (a === '--fit') out.fit = true;
+    else if (a === '--replace') out.replace = true;
     else if (a === '--id') out.id = next();
     else if (a === '--set') out.set = next();
     else if (a === '--label') label = next();
@@ -155,6 +159,7 @@ function parseArgs(argv: string[]): Args {
     chroma: out.chroma ?? 7,
     shadow: out.shadow!,
     fit: out.fit!,
+    replace: out.replace!,
     erase: out.erase!,
     props: out.props!,
     dry: out.dry!,
@@ -421,12 +426,29 @@ const tsjPath = path.join(ROOT, 'assets', 'tiled', `furniture-${args.set}.tsj`);
 if (!fs.existsSync(tsjPath)) usage(`no tileset at ${path.relative(ROOT, tsjPath)}`);
 const tsj = JSON.parse(fs.readFileSync(tsjPath, 'utf8')) as {
   tilecount: number;
-  tiles: Array<{ id: number; type?: string; image?: string; properties?: TiledProp[] }>;
+  tiles: Array<{
+    id: number;
+    type?: string;
+    image?: string;
+    imagewidth?: number;
+    imageheight?: number;
+    properties?: TiledProp[];
+  }>;
 };
 const taken = new Map(
   tsj.tiles.map((t) => [String(t.properties?.find((p) => p.name === 'id')?.value ?? ''), t.id]),
 );
-if (taken.has(args.id)) usage(`${args.id} already exists in furniture-${args.set} (tile ${taken.get(args.id)})`);
+const existing = taken.has(args.id) ? tsj.tiles.find((t) => t.id === taken.get(args.id))! : null;
+if (existing && !args.replace)
+  usage(`${args.id} already exists in furniture-${args.set} (tile ${existing.id}) — --replace redraws it`);
+if (!existing && args.replace) usage(`${args.id} is not in furniture-${args.set}, so there is nothing to replace`);
+// Redrawing art is safe; resizing the tile is not. Footprint, blocking, seats and
+// approach tiles are all derived from the PNG's size, so a new size would silently
+// move them under every placement that already exists.
+if (existing && (existing.imagewidth !== args.width || existing.imageheight !== args.height))
+  usage(
+    `${args.id} is ${existing.imagewidth}x${existing.imageheight} — pass --size ${existing.imagewidth}x${existing.imageheight}, or give the new size its own id`,
+  );
 
 const src = PNG.sync.read(fs.readFileSync(args.source));
 console.log(`  source ${path.basename(args.source)} ${src.width}x${src.height}`);
@@ -470,16 +492,27 @@ const tile = {
 };
 
 if (args.dry) {
-  console.log(`~ dry run: would write ${path.relative(ROOT, pngPath)} and append tile ${tile.id}`);
+  console.log(
+    existing
+      ? `~ dry run: would redraw ${path.relative(ROOT, pngPath)} (tile ${existing.id}, tileset untouched)`
+      : `~ dry run: would write ${path.relative(ROOT, pngPath)} and append tile ${tile.id}`,
+  );
 } else {
   fs.mkdirSync(path.dirname(pngPath), { recursive: true });
   fs.writeFileSync(pngPath, PNG.sync.write(out));
-  // Append only: every existing tile keeps its id, so every gid in every saved
-  // map keeps pointing where its author put it.
-  tsj.tiles.push(tile);
-  tsj.tilecount = tsj.tiles.length;
-  fs.writeFileSync(tsjPath, JSON.stringify(tsj, null, 2) + '\n');
   console.log(`✓ ${path.relative(ROOT, pngPath)}`);
-  console.log(`✓ furniture-${args.set}.tsj: tile ${tile.id} = ${args.id} (${tsj.tilecount} tiles)`);
-  console.log('  next: scripts/sync-furniture-properties.sh --check   (--fix-gids if it reports a stale table)');
+  if (existing) {
+    // Same id, same size: the tileset already says everything it said before, so
+    // it is not rewritten at all — no tilecount change, no gid table to repair.
+    console.log(`✓ furniture-${args.set}.tsj: tile ${existing.id} = ${args.id} redrawn, tileset unchanged`);
+    console.log('  next: the atlas — the server re-bakes it, or scripts/bake-atlas.sh');
+  } else {
+    // Append only: every existing tile keeps its id, so every gid in every saved
+    // map keeps pointing where its author put it.
+    tsj.tiles.push(tile);
+    tsj.tilecount = tsj.tiles.length;
+    fs.writeFileSync(tsjPath, JSON.stringify(tsj, null, 2) + '\n');
+    console.log(`✓ furniture-${args.set}.tsj: tile ${tile.id} = ${args.id} (${tsj.tilecount} tiles)`);
+    console.log('  next: scripts/sync-furniture-properties.sh --check   (--fix-gids if it reports a stale table)');
+  }
 }
