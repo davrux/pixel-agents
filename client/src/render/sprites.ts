@@ -232,8 +232,11 @@ export function spriteTexture(scene: Phaser.Scene, sprite: SpriteData): SpriteTe
   const hit = packed.get(sprite);
   if (hit && scene.textures.exists(hit.key)) return hit;
 
-  const h = sprite.length;
-  const w = h > 0 ? sprite[0].length : 0;
+  // Defensive about the shape, not merely about the size: a frame resolver is
+  // handed synced state, and one frame that isn't pixels must cost that frame's
+  // art, never the render loop (see frameGuard.ts for why a throw here is fatal).
+  const h = sprite?.length ?? 0;
+  const w = h > 0 ? (sprite[0]?.length ?? 0) : 0;
   if (w <= 0 || h <= 0) return { key: '__WHITE' };
 
   hookFlush(scene);

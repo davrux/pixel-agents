@@ -34,31 +34,48 @@ let shown = false;
  *
  * A server that sends no protocol number predates the field — treated as compatible,
  * because refusing to run against it would be worse than the mismatch it cannot have.
+ * Such a server is instead caught by its own state, see `reportStateMismatch` below.
  */
 export function checkProtocol(serverProtocol: unknown, ownProtocol: number, serverVersion?: string): void {
   if (shown) return;
   if (typeof serverProtocol !== 'number' || serverProtocol === ownProtocol) return;
   shown = true;
-  open(serverProtocol, ownProtocol, serverVersion);
+  open(
+    `Protokoll: Server ${serverProtocol}, diese Version ${ownProtocol}` +
+      (serverVersion ? ` · Serverstand ${serverVersion}` : ''),
+  );
 }
 
-function open(serverProtocol: number, ownProtocol: number, serverVersion?: string): void {
+/**
+ * Same gate, opened because the world arrived UNDECODABLE rather than because the two
+ * numbers disagreed — a synced value the server cannot possibly have written (see the
+ * callers in OfficeScene). That is proof of a schema this build doesn't share, and it
+ * catches the two cases the number can't: a server OLDER than the gate, which sends no
+ * protocol number at all and is therefore treated as compatible, and a wire change that
+ * shipped without its PROTOCOL_VERSION bump. Idempotent, like checkProtocol — the
+ * offending state repeats every tick.
+ */
+export function reportStateMismatch(what: string): void {
+  if (shown) return;
+  shown = true;
+  open(`Unlesbarer Zustand: ${what}`);
+}
+
+function open(detailText: string): void {
   const body = document.createElement('div');
 
   const why = document.createElement('p');
   why.style.cssText = 'margin:0 0 0.75rem;line-height:1.45;';
   why.textContent = isDesktop()
-    ? 'Der Server spricht eine neuere Fassung des Protokolls. Diese App würde Figuren und Möbel ' +
-      'falsch darstellen, ohne es zu melden — deshalb bitte erst aktualisieren.'
-    : 'Dieses Fenster läuft mit einem älteren Programmstand als der Server (meist ein ' +
+    ? 'Diese App und der Server sprechen verschiedene Fassungen des Protokolls. Figuren und ' +
+      'Möbel würden falsch dargestellt, ohne dass es jemand meldet — deshalb bitte erst aktualisieren.'
+    : 'Dieses Fenster läuft mit einem anderen Programmstand als der Server (meist ein ' +
       'zwischengespeicherter Stand). Ein Neuladen holt den passenden.';
   body.appendChild(why);
 
   const detail = document.createElement('div');
   detail.style.cssText = 'color:#818586;font-size:0.85rem;margin:0 0 0.9rem;';
-  detail.textContent =
-    `Protokoll: Server ${serverProtocol}, diese Version ${ownProtocol}` +
-    (serverVersion ? ` · Serverstand ${serverVersion}` : '');
+  detail.textContent = detailText;
   body.appendChild(detail);
 
   let copyBtn: { label: string } | null = null;

@@ -210,6 +210,12 @@ export interface CharacterSprites {
   stand: Record<Direction, SpriteData>;
 }
 
+/** Wrap a frame counter into a sequence, tolerating a value that isn't a whole
+ *  number — `NaN % n` is NaN, and indexing with it hands the renderer undefined. */
+function frameIndex(frame: number, len: number): number {
+  return Number.isFinite(frame) ? Math.abs(Math.trunc(frame)) % len : 0;
+}
+
 /**
  * Resolve the sprite frame for a pose. A pose is just a track *name*; the frame
  * cycles the track's sequence. `idle` (and any pose without a matching track)
@@ -226,10 +232,16 @@ export function spriteForPose(
   // dedicated sequence, fall back to the `idle` track (every entity's neutral
   // animation); finally the bare stand frame if even idle is undrawn.
   const seq = sprites.byTrack[pose]?.[dir];
-  if (seq && seq.length > 0) return seq[frame % seq.length];
+  if (seq && seq.length > 0) return seq[frameIndex(frame, seq.length)];
   const idle = pose !== 'idle' ? sprites.byTrack['idle']?.[dir] : undefined;
-  if (idle && idle.length > 0) return idle[frame % idle.length];
-  return sprites.stand[dir];
+  if (idle && idle.length > 0) return idle[frameIndex(frame, idle.length)];
+  // Every caller feeds this straight to the renderer, so it must always answer with
+  // pixels. `dir` comes off synced state, and a client decoding a schema it doesn't
+  // share reads it as any uint8 — an out-of-range one used to return undefined and
+  // throw inside Phaser's step, which kills the RAF loop for good (a frozen window,
+  // not a bad frame). Facing down is the neutral answer; the mismatch itself is
+  // reported where the state is read, not here.
+  return sprites.stand[dir] ?? sprites.stand[Dir.DOWN];
 }
 
 const spriteCache = new Map<string, CharacterSprites>();

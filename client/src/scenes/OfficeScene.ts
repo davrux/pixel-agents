@@ -51,6 +51,7 @@ import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getPosePlaybackLength, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
 import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
+import { frameFailures } from '../render/frameGuard.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
 import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
@@ -67,7 +68,7 @@ import {
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
-import { checkProtocol } from '../ui/versionGate';
+import { checkProtocol, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
@@ -100,6 +101,22 @@ type RenderChar = Partial<Character> & {
   workStatus?: WorkStatus;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+
+/** The only values a `dir` field can legitimately carry off the wire. */
+const SYNCED_DIRS = new Set<number>(Object.values(Direction));
+
+/**
+ * A synced direction the server cannot have written means this build is decoding a
+ * schema it doesn't share: `dir` is a uint8 the simulation only ever sets to one of the
+ * four Direction values, so anything else is the decoder having read past a field
+ * boundary — everything else in that patch is nonsense too. Report it once (the gate
+ * names the build to update) and fall back to facing down, so the frame still draws.
+ */
+function syncedDir<T extends number>(value: unknown, where: string): T {
+  if (typeof value === 'number' && SYNCED_DIRS.has(value)) return value as T;
+  reportStateMismatch(`${where}.dir = ${String(value)}`);
+  return Direction.DOWN as T;
+}
 
 /** Which grouped top-bar popover is open (null = none). Matrix and Mumble are
  *  deliberately absent: they are docked application windows beside the game
@@ -952,7 +969,7 @@ export class OfficeScene extends Phaser.Scene {
   private applyChar(rc: RenderChar, cs: Record<string, unknown>): void {
     rc.tx = cs.x as number;
     rc.ty = cs.y as number;
-    rc.dir = cs.dir as Character['dir'];
+    rc.dir = syncedDir<Character['dir']>(cs.dir, 'character');
     rc.state = cs.state as Character['state'];
     rc.pose = cs.pose as Character['pose'];
     // rc.frame is not synced — the animation phase is timed locally (see update()).
@@ -1000,7 +1017,7 @@ export class OfficeScene extends Phaser.Scene {
     const k = ps.kind as number;
     rp.kind = (k === 1 ? 'cat' : k === 2 ? 'duck' : 'dog') as never;
     rp.variant = ps.variant as number;
-    rp.dir = ps.dir as Pet['dir'];
+    rp.dir = syncedDir<Pet['dir']>(ps.dir, 'pet');
     rp.state = ps.state as Pet['state'];
     rp.frame = ps.frame as number;
     rp.effect = ((ps.effect as string) || null) as never;
@@ -2136,7 +2153,13 @@ export class OfficeScene extends Phaser.Scene {
     // arrives again (a tileset saved in Tiled, an avatar re-broadcast); a number
     // that climbs on every save is the atlas leaking page space.
     const frames = String(spriteAtlasFrameCount()).padStart(4);
-    el.textContent = `${fps} fps · ${ms} ms · ${chars} chars · ${tex} tex/${pages}p/${frames}f · ${stateTxt}`;
+    // Frames the guard had to skip (see render/frameGuard.ts). Absent while it is
+    // zero, which is the normal case — it appears only once something threw, so a
+    // world that looks subtly wrong can be told apart from one that is merely slow.
+    const skipped = frameFailures();
+    const skippedTxt = skipped > 0 ? ` · ${skipped} err` : '';
+    el.textContent =
+      `${fps} fps · ${ms} ms · ${chars} chars · ${tex} tex/${pages}p/${frames}f · ${stateTxt}` + skippedTxt;
   }
 
   private togglePerf(): void {

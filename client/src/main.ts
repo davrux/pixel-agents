@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { OfficeScene } from './scenes/OfficeScene.js';
 import { isDesktop } from './desktop/bridge';
 import { runDesktopBootFlow } from './desktop/boot';
+import { guardFrames } from './render/frameGuard';
 
 /** Wait for the pixel font so Phaser/labels measure correctly on first render. */
 async function loadFonts(): Promise<void> {
@@ -25,6 +26,9 @@ function bootGame(): void {
     scale: { mode: Phaser.Scale.RESIZE, width: window.innerWidth, height: window.innerHeight },
     render: { antialias: false, roundPixels: true },
     scene: [OfficeScene],
+    // A throw inside a frame would otherwise stop Phaser asking for the next one —
+    // a permanently frozen window rather than one dropped frame. See frameGuard.ts.
+    callbacks: { postBoot: guardFrames },
   });
 }
 
