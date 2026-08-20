@@ -21,6 +21,7 @@ export {
   EventStatus,
   ClientEvent,
   RoomEvent,
+  RoomMemberEvent,
   RoomStateEvent,
   MatrixEventEvent,
   HttpApiEvent,

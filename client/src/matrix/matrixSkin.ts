@@ -515,6 +515,12 @@ export function injectMatrixSkin(): void {
 .mx-more{color:#818586;text-align:center;font-size:0.8rem;padding:0.3rem 0;cursor:pointer;flex:0 0 auto}
 .mx-more[aria-disabled="true"]{cursor:default}
 
+/* "Alice is typing…" between timeline and composer. Reserved at one line even
+   while empty, so the timeline never jumps when someone starts or stops. */
+.mx-typing{
+  flex:0 0 auto;min-height:1.1rem;padding:0 0.6rem;font-size:0.75rem;color:#818586;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .mx-composer{
   /* wrap so the full-width status rows below (.muted, .mx-upload) actually
      get their own line instead of being squeezed in beside the send button */
@@ -753,6 +759,7 @@ export function injectMatrixSkin(): void {
 .pa-compact .mx-subhead{padding:0.4rem 0.45rem;gap:0.35rem}
 .pa-compact #pa-mx-tl{padding:0.4rem 0.45rem;gap:0.45rem}
 .pa-compact .mx-composer{padding:0.4rem 0.45rem;gap:0.4rem}
+.pa-compact .mx-typing{padding:0 0.45rem}
 /* The room list's second line costs every row twice its height to preview a
    message the timeline shows in full the moment you open the room. */
 .pa-compact .mx-prev{display:none}

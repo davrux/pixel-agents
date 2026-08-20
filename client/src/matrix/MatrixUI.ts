@@ -132,6 +132,7 @@ export class MatrixUI {
   private notifyBtn?: HTMLButtonElement;
   private notifyEnabledEl?: HTMLInputElement;
   private notifyBodyEl?: HTMLInputElement;
+  private notifyTypingEl?: HTMLInputElement;
   private cryptoWarnEl!: HTMLDivElement;
   private wipeWarnEl!: HTMLDivElement;
   private encryptionView!: EncryptionViewHandle;
@@ -179,6 +180,10 @@ export class MatrixUI {
   private timelineView!: TimelineView;
   private composerTextarea!: HTMLTextAreaElement;
   private composerSendBtn!: HTMLButtonElement;
+  /** The "Alice is typing…" strip between timeline and composer. Always in
+   *  the layout at a fixed one-line height (empty text when nobody types), so
+   *  the timeline never jumps when it appears. */
+  private typingEl!: HTMLDivElement;
   private composerDisabledEl!: HTMLDivElement;
   /** The "replying to …" / "editing …" bar above the composer controls. */
   private composerCtxEl!: HTMLDivElement;
@@ -381,6 +386,13 @@ export class MatrixUI {
       this.store.on('timeline', (roomId) => {
         if (this.openRoomId === roomId && this.stack[this.stack.length - 1]?.view === 'room') {
           this.renderRoomView(roomId);
+        }
+      }),
+      // Deliberately NOT renderRoomView: someone typing repaints one strip,
+      // not the rail, the timeline and the header.
+      this.store.on('typing', (roomId) => {
+        if (this.openRoomId === roomId && this.stack[this.stack.length - 1]?.view === 'room') {
+          this.paintTyping(roomId);
         }
       }),
       this.store.on('loggedOut', ({ expired, soft }) => this.handleLoggedOut(expired, soft)),
@@ -723,23 +735,23 @@ export class MatrixUI {
     });
     top.appendChild(this.encBtn);
 
-    // Desktop only, and hidden rather than disabled in the browser: there is no
-    // OS notification to configure there (bridge.ts's notifyDesktop is a no-op),
-    // so a settings page for it would be a page of lies.
-    if (isDesktop()) {
-      this.notifyBtn = document.createElement('button');
-      this.notifyBtn.className = 'pa-b mx-notifybtn';
-      this.notifyBtn.textContent = '🔔';
-      this.notifyBtn.setAttribute('aria-label', 'Notifications');
-      this.notifyBtn.title = 'Desktop notifications';
-      // Same toggle behaviour as 🔐 — always visible, so a second press has to
-      // be the way back out rather than a no-op re-render.
-      this.notifyBtn.addEventListener('click', () => {
-        if (this.stack[this.stack.length - 1]?.view === 'notifications') this.goRoot();
-        else this.pushRootView('notifications');
-      });
-      top.appendChild(this.notifyBtn);
-    }
+    // In every build: the view behind it holds the typing-notification toggle,
+    // which applies wherever the composer does. The DESKTOP-notification rows
+    // inside it stay desktop-only (see buildNotificationsView) — there is no OS
+    // notification to configure in the browser (bridge.ts's notifyDesktop is a
+    // no-op), so those rows there would be a page of lies.
+    this.notifyBtn = document.createElement('button');
+    this.notifyBtn.className = 'pa-b mx-notifybtn';
+    this.notifyBtn.textContent = '🔔';
+    this.notifyBtn.setAttribute('aria-label', 'Notifications');
+    this.notifyBtn.title = 'Notifications';
+    // Same toggle behaviour as 🔐 — always visible, so a second press has to
+    // be the way back out rather than a no-op re-render.
+    this.notifyBtn.addEventListener('click', () => {
+      if (this.stack[this.stack.length - 1]?.view === 'notifications') this.goRoot();
+      else this.pushRootView('notifications');
+    });
+    top.appendChild(this.notifyBtn);
 
     const signOutBtn = document.createElement('button');
     signOutBtn.className = 'pa-b';
@@ -804,9 +816,12 @@ export class MatrixUI {
 
   private paintNotifyBtn(): void {
     if (!this.notifyBtn) return;
-    const on = readNotifyPrefs().enabled;
+    // The dimmed state means "this machine won't alert you" — a desktop-only
+    // fact. In the browser `enabled` configures nothing, so the bell stays lit
+    // whatever it says.
+    const on = !isDesktop() || readNotifyPrefs().enabled;
     this.notifyBtn.classList.toggle('off', !on);
-    this.notifyBtn.title = on ? 'Desktop notifications' : 'Desktop notifications — off';
+    this.notifyBtn.title = on ? 'Notifications' : 'Desktop notifications — off';
   }
 
   /** `store.logout()` ends by emitting 'loggedOut', which `handleLoggedOut` (subscribed in
@@ -1391,6 +1406,10 @@ export class MatrixUI {
     this.timelineView = new TimelineView(hooks);
     col.appendChild(this.timelineView.el);
 
+    this.typingEl = document.createElement('div');
+    this.typingEl.className = 'mx-typing';
+    col.appendChild(this.typingEl);
+
     const composer = document.createElement('div');
     composer.className = 'mx-composer';
     this.composerTextarea = document.createElement('textarea');
@@ -1413,6 +1432,11 @@ export class MatrixUI {
     this.composerTextarea.addEventListener('input', () => {
       this.autoGrow(this.composerTextarea);
       this.saveDraft();
+      // Every keystroke reports, the store coalesces (see notifyTyping). An
+      // emptied box withdraws right away; an abandoned draft is left to the
+      // advertisement's own server-side timeout.
+      const rid = this.openRoomId;
+      if (rid) this.store?.notifyTyping(rid, this.composerTextarea.value.length > 0);
     });
     // A picture pasted into the composer is the fastest path there is for the
     // screenshot this feature exists for, so it gets the same treatment as the
@@ -1609,6 +1633,8 @@ export class MatrixUI {
     this.emojiBtn.style.display = composerDisabled ? 'none' : '';
     this.composerDisabledEl.style.display = composerDisabled ? '' : 'none';
 
+    this.paintTyping(roomId);
+
     const events = this.store.timeline(roomId);
     this.timelineView.render(events, {
       warning,
@@ -1622,6 +1648,19 @@ export class MatrixUI {
     if (!document.hidden && this.timelineView.isAtBottom()) {
       this.store.markRead(roomId);
     }
+  }
+
+  /** The "Alice is typing…" strip. Names come straight from the membership
+   *  events (remote text), so `textContent` only — same rule as every other
+   *  row here. Above two names the list stops being readable at this panel
+   *  width, so it collapses to a count, same as Element. */
+  private paintTyping(roomId: string): void {
+    const names = this.store?.typingIn(roomId) ?? [];
+    let text = '';
+    if (names.length === 1) text = `${names[0]} is typing…`;
+    else if (names.length === 2) text = `${names[0]} and ${names[1]} are typing…`;
+    else if (names.length > 2) text = `${names.length} people are typing…`;
+    this.typingEl.textContent = text;
   }
 
   /** How many chats the fast-switch rail keeps. A rail is a shortcut to the
@@ -2610,7 +2649,8 @@ export class MatrixUI {
   }
 
   // ==================================================================
-  // notifications view (desktop only)
+  // notifications view (desktop-notification rows are desktop-only;
+  // the typing-notification toggle shows in every build)
   // ==================================================================
 
   /** One checkbox row in the pixel style: a label wrapping its own input, so the
@@ -2650,33 +2690,48 @@ export class MatrixUI {
     body.className = 'mx-encbody';
     section.appendChild(body);
 
-    const enabled = this.mkCheckRow('Notify me about new messages', (on) => {
-      writeNotifyPrefs({ ...readNotifyPrefs(), enabled: on });
+    if (isDesktop()) {
+      const enabled = this.mkCheckRow('Notify me about new messages', (on) => {
+        writeNotifyPrefs({ ...readNotifyPrefs(), enabled: on });
+        this.renderNotificationsView();
+      });
+      this.notifyEnabledEl = enabled.input;
+      body.appendChild(enabled.row);
+
+      const hint = document.createElement('div');
+      hint.className = 'mx-hint';
+      hint.textContent =
+        'Mentions and direct messages always notify. Other rooms only notify while this window is closed or the app is in the background — never for the room you are reading. Muted rooms stay muted: your homeserver’s notification rules are what decide, so anything you have silenced in another client is silent here too.';
+      body.appendChild(hint);
+
+      const showBody = this.mkCheckRow('Show the message text', (on) => {
+        writeNotifyPrefs({ ...readNotifyPrefs(), showBody: on });
+        this.renderNotificationsView();
+      });
+      this.notifyBodyEl = showBody.input;
+      body.appendChild(showBody.row);
+
+      // The one setting here with a real trade-off, so it gets said plainly rather
+      // than left for the user to discover.
+      const bodyHint = document.createElement('div');
+      bodyHint.className = 'mx-hint';
+      bodyHint.textContent =
+        'Off by default. A notification is handed to your desktop’s notification service, which may keep it in a log or show it on a lock screen — so for an encrypted room this puts decrypted text somewhere outside the app. Left off, notifications say only who wrote and where.';
+      body.appendChild(bodyHint);
+    }
+
+    const sendTyping = this.mkCheckRow('Let others see when I’m typing', (on) => {
+      writeNotifyPrefs({ ...readNotifyPrefs(), sendTyping: on });
       this.renderNotificationsView();
     });
-    this.notifyEnabledEl = enabled.input;
-    body.appendChild(enabled.row);
+    this.notifyTypingEl = sendTyping.input;
+    body.appendChild(sendTyping.row);
 
-    const hint = document.createElement('div');
-    hint.className = 'mx-hint';
-    hint.textContent =
-      'Mentions and direct messages always notify. Other rooms only notify while this window is closed or the app is in the background — never for the room you are reading. Muted rooms stay muted: your homeserver’s notification rules are what decide, so anything you have silenced in another client is silent here too.';
-    body.appendChild(hint);
-
-    const showBody = this.mkCheckRow('Show the message text', (on) => {
-      writeNotifyPrefs({ ...readNotifyPrefs(), showBody: on });
-      this.renderNotificationsView();
-    });
-    this.notifyBodyEl = showBody.input;
-    body.appendChild(showBody.row);
-
-    // The one setting here with a real trade-off, so it gets said plainly rather
-    // than left for the user to discover.
-    const bodyHint = document.createElement('div');
-    bodyHint.className = 'mx-hint';
-    bodyHint.textContent =
-      'Off by default. A notification is handed to your desktop’s notification service, which may keep it in a log or show it on a lock screen — so for an encrypted room this puts decrypted text somewhere outside the app. Left off, notifications say only who wrote and where.';
-    body.appendChild(bodyHint);
+    const typingHint = document.createElement('div');
+    typingHint.className = 'mx-hint';
+    typingHint.textContent =
+      'Shows a “…is typing” line to the people in the room while you write, the way you see theirs. Off, you still see everyone else’s — this only stops yours. A per-device choice, like the rest of this page.';
+    body.appendChild(typingHint);
 
     this.sections.set('notifications', section);
     this.root.appendChild(section);
@@ -2691,6 +2746,9 @@ export class MatrixUI {
       this.notifyBodyEl.disabled = !prefs.enabled;
       this.notifyBodyEl.closest('.mx-chk')?.classList.toggle('off', !prefs.enabled);
     }
+    // Independent of `enabled` — that switch governs what this machine shows,
+    // this one what it broadcasts.
+    if (this.notifyTypingEl) this.notifyTypingEl.checked = prefs.sendTyping;
     this.paintNotifyBtn();
   }
 

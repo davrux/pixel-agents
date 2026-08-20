@@ -29,6 +29,7 @@ const VIEW_KEY = 'pa-mx-view';
 const DRAFT_PREFIX = 'pa-mx-draft:';
 const NOTIFY_KEY = 'pa-mx-notify';
 const NOTIFY_BODY_KEY = 'pa-mx-notify-body';
+const SEND_TYPING_KEY = 'pa-mx-send-typing';
 
 const DELETE_TIMEOUT_MS = 3000;
 
@@ -146,10 +147,13 @@ function writePendingWipeNames(names: string[]): void {
 
 /** Notification preferences. Device-scoped, like Mumble's join/leave alerts —
  *  they describe this machine's desktop, not the account, so they are not part
- *  of the sign-out wipe and carry no account data to leak. */
+ *  of the sign-out wipe and carry no account data to leak. `sendTyping` is
+ *  device-scoped for the same reason Element makes it per-client: it is a
+ *  choice about what THIS keyboard broadcasts, not about the account. */
 export interface MxNotifyPrefs {
   enabled: boolean;
   showBody: boolean;
+  sendTyping: boolean;
 }
 
 function readFlag(key: string, fallback: boolean): boolean {
@@ -175,6 +179,9 @@ export function readNotifyPrefs(): MxNotifyPrefs {
   return {
     enabled: readFlag(NOTIFY_KEY, true),
     showBody: readFlag(NOTIFY_BODY_KEY, false),
+    // On by default: it is what every Matrix client does out of the box, and
+    // unlike showBody nothing here leaves the conversation's own audience.
+    sendTyping: readFlag(SEND_TYPING_KEY, true),
   };
 }
 
@@ -182,6 +189,7 @@ export function writeNotifyPrefs(prefs: MxNotifyPrefs): void {
   try {
     localStorage.setItem(NOTIFY_KEY, prefs.enabled ? '1' : '0');
     localStorage.setItem(NOTIFY_BODY_KEY, prefs.showBody ? '1' : '0');
+    localStorage.setItem(SEND_TYPING_KEY, prefs.sendTyping ? '1' : '0');
   } catch {
     // Private mode: the choice holds for this session and is re-read from the
     // defaults next boot, which is the safe direction for showBody.

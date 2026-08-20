@@ -27,6 +27,7 @@
 import {
   ClientEvent,
   RoomEvent,
+  RoomMemberEvent,
   RoomStateEvent,
   MatrixEventEvent,
   HttpApiEvent,
@@ -34,7 +35,7 @@ import {
   EventStatus,
   sdk,
 } from './sdk.js';
-import type { MatrixClient, Room, MatrixEvent, RoomMessageEventContent, SdkMatrixError } from './sdk.js';
+import type { MatrixClient, Room, MatrixEvent, RoomMember, RoomMessageEventContent, SdkMatrixError } from './sdk.js';
 import { MatrixError } from './types.js';
 import type {
   MxCryptoState,
@@ -61,6 +62,14 @@ import { MatrixMedia, type MxAttachmentContent, type MxFileContent, type MxImage
 import { toHtml } from './markdown.js';
 
 const READ_DEBOUNCE_MS = 1000;
+
+/** How long one m.typing advertisement lives server-side, and (well before
+ *  that) how often a still-typing composer refreshes it. The gap between the
+ *  two is what keeps the reader's indicator from flickering off between
+ *  refreshes; the timeout itself is the only "stop" an abandoned draft ever
+ *  sends — walking away just lets it lapse, which is what it exists for. */
+const TYPING_TIMEOUT_MS = 10_000;
+const TYPING_REFRESH_MS = 6_000;
 
 /**
  * Events per backward pagination. Was 30, which with infinite scrolling meant a
@@ -90,6 +99,9 @@ export interface MatrixStoreEventMap {
   status: void;
   rooms: void;
   timeline: string;
+  /** Someone's typing state changed in this room (payload: roomId). Read the
+   *  current set back with `typingIn()` — the event itself carries no names. */
+  typing: string;
   /** `soft` distinguishes a soft logout (session paused, this device id is still valid and the local
    *  crypto store is deliberately kept — see `onSessionLoggedOut`) from a hard one (session revoked, or
    *  a manual sign-out) where the local crypto store is always wiped. */
@@ -256,6 +268,12 @@ export class MatrixStore {
   private roomsFlushQueued = false;
   private readonly timelineDirty = new Set<string>();
   private timelineFlushQueued = false;
+
+  /** The room our own m.typing advertisement currently stands in (and when it
+   *  was sent), so `notifyTyping` can coalesce a keystroke stream into one
+   *  request per TYPING_REFRESH_MS instead of one per key. */
+  private typingSentRoom: string | null = null;
+  private typingSentAt = 0;
 
   private readonly onOnline = (): void => this.retryNow();
   private readonly onOffline = (): void => this.setStatus('offline');
@@ -445,6 +463,17 @@ export class MatrixStore {
     };
     client.on(ClientEvent.AccountData, onAccountData);
     this.unsubs.push(() => client.off(ClientEvent.AccountData, onAccountData));
+
+    // m.typing is ephemeral: the SDK keeps every member's `typing` flag
+    // current (timeout expiry included) and fires this once per member whose
+    // state flipped. The emit carries only the roomId — the panel reads the
+    // set back through `typingIn()`, so a burst of flips coalesces to however
+    // many repaints, not a growing payload.
+    const onTyping = (_event: MatrixEvent, member: RoomMember): void => {
+      this.emitter.emit('typing', member.roomId);
+    };
+    client.on(RoomMemberEvent.Typing, onTyping);
+    this.unsubs.push(() => client.off(RoomMemberEvent.Typing, onTyping));
 
     const onTimeline = (
       event: MatrixEvent,
@@ -997,6 +1026,19 @@ export class MatrixStore {
     return out;
   }
 
+  /** Display names of the *other* members typing in a room right now, for the
+   *  strip under the timeline. Recomputed from the SDK's member flags on every
+   *  call rather than cached, so an expiry the SDK applied silently (it fires
+   *  RoomMemberEvent.Typing for those too) can never leave a stale name up. */
+  typingIn(roomId: string): string[] {
+    const room = this.client?.getRoom(roomId);
+    if (!room) return [];
+    return room
+      .getMembers()
+      .filter((m) => m.typing && m.userId !== this.userId)
+      .map((m) => m.name);
+  }
+
   displayName(roomId: string, userId: string): string {
     const room = this.client?.getRoom(roomId);
     return room?.getMember(userId)?.name ?? userId;
@@ -1234,6 +1276,12 @@ export class MatrixStore {
   }
 
   async openRoom(roomId: string): Promise<void> {
+    // Switching rooms with a typing advertisement still standing in the old
+    // one (rail click mid-draft) would otherwise leave it up for the full
+    // server timeout.
+    if (this.typingSentRoom && this.typingSentRoom !== roomId) {
+      this.notifyTyping(this.typingSentRoom, false);
+    }
     this.openRoomId = roomId;
     const room = this.client?.getRoom(roomId);
     if (!room) return;
@@ -1245,7 +1293,40 @@ export class MatrixStore {
   }
 
   closeRoom(): void {
+    if (this.typingSentRoom) this.notifyTyping(this.typingSentRoom, false);
     this.openRoomId = null;
+  }
+
+  /**
+   * Advertise (or withdraw) our own typing state in a room, fire-and-forget.
+   *
+   * Called from the composer on every keystroke and coalesced here rather
+   * than there: `true` goes to the homeserver at most once per
+   * TYPING_REFRESH_MS while the advertisement it refreshes is still standing,
+   * `false` only when one stands to withdraw. Failures are swallowed — a lost
+   * typing notice costs nothing, and the server-side timeout is the backstop
+   * for a `false` that never arrives.
+   */
+  notifyTyping(roomId: string, typing: boolean): void {
+    const client = this.client;
+    if (!client) return;
+    if (typing) {
+      // Re-read per call rather than cached, so flipping the setting takes
+      // effect on the next keystroke. An advertisement already standing when
+      // it turns off is left to its server-side timeout — `false` below still
+      // withdraws on send/close, which never reveals anything new.
+      if (!readNotifyPrefs().sendTyping) return;
+      const now = Date.now();
+      if (this.typingSentRoom === roomId && now - this.typingSentAt < TYPING_REFRESH_MS) return;
+      this.typingSentRoom = roomId;
+      this.typingSentAt = now;
+      void client.sendTyping(roomId, true, TYPING_TIMEOUT_MS).catch(() => {});
+    } else {
+      if (this.typingSentRoom !== roomId) return;
+      this.typingSentRoom = null;
+      this.typingSentAt = 0;
+      void client.sendTyping(roomId, false, 0).catch(() => {});
+    }
   }
 
   async paginate(roomId: string): Promise<void> {
@@ -1301,6 +1382,9 @@ export class MatrixStore {
   async send(roomId: string, body: string, replyToEventId?: string): Promise<void> {
     const client = this.client;
     if (!client) return;
+    // The message itself supersedes the advertisement; without this it would
+    // sit there for the rest of its timeout after the bubble already landed.
+    this.notifyTyping(roomId, false);
     // `body` stays the user's literal text — it is what every client without an
     // HTML renderer shows, so it must never become the generated markup.
     const content: Record<string, unknown> = { msgtype: 'm.text', body };
@@ -1335,6 +1419,8 @@ export class MatrixStore {
     const room = client?.getRoom(roomId);
     const target = room?.findEventById(eventId);
     if (!client || !target) throw new MatrixError(0, '', 'That message is no longer loaded.');
+    // Same as send(): the saved edit supersedes any standing advertisement.
+    this.notifyTyping(roomId, false);
     const msgtype = (target.getContent() as { msgtype?: unknown }).msgtype;
     const formatted = toHtml(body);
     const newContent: Record<string, unknown> = {
