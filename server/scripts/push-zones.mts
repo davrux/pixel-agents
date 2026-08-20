@@ -138,6 +138,7 @@ interface PushResult {
   furnitureCount?: number;
   imageCount?: number;
   unresolvedCount?: number;
+  notices?: string[];
 }
 
 function request(method: 'GET' | 'POST', route: string, body?: string): Promise<{ status: number; json: PushResult }> {
@@ -206,6 +207,10 @@ async function pushOne(file: string, syncFirst = false): Promise<boolean> {
     if (json.unresolvedCount) {
       console.error('     (the server\'s tilesets differ from yours — deploy the tilesets, then push again)');
     }
+    // What the import could not honour, printed HERE because this is where the mapper is
+    // looking. These used to go only to the server console, which is how a rotation the
+    // engine refused read as "the game moved my couch" instead of as a message.
+    for (const note of json.notices ?? []) console.log(`     ⚠ ${note}`);
     return true;
   } catch (err) {
     console.error(`   ✗ ${file}: ${err instanceof Error ? err.message : String(err)}`);

@@ -56,6 +56,11 @@ export interface ZoneImportResult {
    *  rather than thrown so a mostly-fine map still lands, but it is the first
    *  thing to look at when a pushed zone comes out wrong. */
   unresolvedCount: number;
+  /** What the import wanted the mapper to know — a rotation it could not honour, a tile
+   *  painted on the wrong kind of layer (see mapBridge's warnOnce). Returned rather than
+   *  only logged, because the server console is not where somebody pushing a map looks:
+   *  a refused rotation reads as "the game just moved my couch" until you can see why. */
+  notices: string[];
 }
 
 /** Read a .tmj's own `mapName` Map property (see Pixels.tiled-project's Map
@@ -126,7 +131,7 @@ export async function importZoneTmj(
   extraFiles?: Map<string, Buffer>,
 ): Promise<ZoneImportResult> {
   const tiledDir = path.join(ASSETS_ROOT, 'assets', 'tiled');
-  const { layout, images } = importTmjToLayout(tmj, registry, (relPath) => {
+  const imported = importTmjToLayout(tmj, registry, (relPath) => {
     const supplied = extraFiles?.get(relPath);
     if (supplied) return supplied;
     const p = path.join(tiledDir, relPath);
@@ -137,7 +142,7 @@ export async function importZoneTmj(
   // next to the tilesets — the layout points at the file and the client fetches it like
   // any other sheet. Nothing goes into the database: an image row used to be base64 that
   // travelled to every client on every join, a copy of a file that is already in git.
-  for (const { imageId, src, buffer } of images) {
+  for (const { imageId, src, buffer } of imported.images) {
     const target = path.join(tiledDir, src);
     if (fs.existsSync(target)) continue;
     try {
@@ -151,7 +156,7 @@ export async function importZoneTmj(
 
   // Round-trip through (de)serializeLayout so this matches exactly what a
   // normal in-game save would persist (same shape validation/normalization).
-  const normalized = deserializeLayout(serializeLayout(layout));
+  const normalized = deserializeLayout(serializeLayout(imported.layout));
   if (!normalized) {
     throw new Error(`Imported layout for zone "${zoneId}" failed to (de)serialize`);
   }
@@ -182,8 +187,9 @@ export async function importZoneTmj(
     cols: normalized.cols,
     rows: normalized.rows,
     furnitureCount: normalized.furniture.length,
-    imageCount: images.length,
+    imageCount: imported.images.length,
     unresolvedCount: furniture.filter((f) => !f.id).length,
+    notices: imported.notices,
   };
 }
 

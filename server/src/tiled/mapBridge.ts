@@ -123,11 +123,19 @@ function rowAndSwatchFromLocalId(localId: number, tilesetColumns: number): { row
  *  is the first tile from it. That is how a map ends up naming its own sets (see
  *  OfficeLayout.floorSets): the table is whatever the map actually uses, in the
  *  order first encountered, rather than a slice of a global list. */
-/** Warn once per distinct message — an import walks thousands of cells and a
- *  mistake is usually made once and repeated everywhere. */
-function warnOnce(seen: Set<string>, message: string): void {
+/**
+ * Warn once per distinct message — an import walks thousands of cells and a mistake is
+ * usually made once and repeated everywhere.
+ *
+ * Collected as well as logged. The server console is not where a mapper is looking: a
+ * refused rotation cost real time precisely because the map came back "imported, no error"
+ * while the piece stayed upright for a reason nobody could see. The notices travel back with
+ * the import so `scripts/push-zones.sh` can print them at the moment of pushing.
+ */
+function warnOnce(seen: Set<string>, message: string, sink?: string[]): void {
   if (seen.has(message)) return;
   seen.add(message);
+  sink?.push(message);
   console.warn(`[tiled] ${message}`);
 }
 
@@ -139,13 +147,13 @@ function warnOnce(seen: Set<string>, message: string): void {
  * happened to imply, and the only one worth keeping. Refused with a message rather
  * than drawn wrongly.
  */
-function groundFits(tileset: RegistryTileset, seen: Set<string>): boolean {
+function groundFits(tileset: RegistryTileset, seen: Set<string>, sink?: string[]): boolean {
   // 0 means the tileset did not say; taking that as "fits" keeps a hand-written
   // tileset working rather than refusing every cell of it.
   const w = tileset.tileWidth || TILE_SIZE;
   const h = tileset.tileHeight || TILE_SIZE;
   if (w === TILE_SIZE && h === TILE_SIZE) return true;
-  warnOnce(seen, `ground tile from "${tileset.file}": tiles are ${w}×${h}, but a ground cell is ${TILE_SIZE}×${TILE_SIZE} — paint it on a DecalLayer instead`);
+  warnOnce(seen, `ground tile from "${tileset.file}": tiles are ${w}×${h}, but a ground cell is ${TILE_SIZE}×${TILE_SIZE} — paint it on a DecalLayer instead`, sink);
   return false;
 }
 
@@ -176,6 +184,9 @@ export interface TmjImportResult {
    *  hand-created map that never set it. Callers decide the fallback
    *  (tiled-import-all-zones.mts falls back to the filename). */
   mapName: string | null;
+  /** Everything the import complained about, in the order it was noticed — see warnOnce.
+   *  Empty on a clean map. The push route returns these so the mapper sees them. */
+  notices: string[];
 }
 
 export function importTmjToLayout(
@@ -183,6 +194,8 @@ export function importTmjToLayout(
   registry: TiledRegistry,
   readImageFile: (relPath: string) => Buffer | null,
 ): TmjImportResult {
+  /** What this import wants the mapper to know (see warnOnce). */
+  const notices: string[] = [];
   const cols = Number(tmj.width);
   const rows = Number(tmj.height);
   const layers = (tmj.layers as Array<Record<string, unknown>>) ?? [];
@@ -307,7 +320,7 @@ export function importTmjToLayout(
     // reason the model needed. What a tile IS still decides everything else (a
     // WallTile belongs on the lattice layer, a decal on a DecalLayer); ground is
     // the one case where the LAYER is the whole statement.
-    if (groundResolved && groundResolved.tileset.columns > 0 && groundFits(groundResolved.tileset, groundWarnings)) {
+    if (groundResolved && groundResolved.tileset.columns > 0 && groundFits(groundResolved.tileset, groundWarnings, notices)) {
       tiles.push(groundResolved.localId);
       // Which set this came from — "which set" has no identity other than the
       // file (see setIndexInto).
@@ -318,7 +331,7 @@ export function importTmjToLayout(
       tileFlip.push(orientBits(ground[i]));
     } else {
       if (groundResolved && groundResolved.tileset.columns === 0) {
-        warnOnce(groundWarnings, `ground tile from "${groundResolved.tileset.file}": a collection-of-images tileset cannot be ground (it has no grid) — paint it on a DecalLayer instead`);
+        warnOnce(groundWarnings, `ground tile from "${groundResolved.tileset.file}": a collection-of-images tileset cannot be ground (it has no grid) — paint it on a DecalLayer instead`, notices);
       }
       tiles.push(TileType.VOID);
       tileFloorSet.push(0);
@@ -418,7 +431,11 @@ export function importTmjToLayout(
     const tileId = typeof resolvedTile?.props.id === 'string' ? resolvedTile.props.id : '';
     const id = tileId || (typeof props.id === 'string' ? props.id : '');
     if (tileId && typeof props.id === 'string' && props.id && props.id !== tileId) {
-      console.warn(`[tiled] furniture object at ${obj.x},${obj.y} carries id "${props.id}" but its tile is "${tileId}" — the tile wins; delete the stale property`);
+      warnOnce(
+        turnWarnings,
+        `furniture object at ${obj.x},${obj.y} carries id "${props.id}" but its tile is "${tileId}" — the tile wins; delete the stale property`,
+        notices,
+      );
     }
     const entry = getCatalogEntry(id);
     const hasGid = rawGid > 0;
@@ -439,12 +456,14 @@ export function importTmjToLayout(
       warnOnce(
         turnWarnings,
         `"${id}" is rotated ${rawAngle}° — furniture can only be turned in quarter steps (its cells have no answer for anything else), so it stays upright`,
+        notices,
       );
       quarters = 0;
     } else if (quarters !== 0 && (entry?.backgroundTiles ?? 0) > 0) {
       warnOnce(
         turnWarnings,
         `"${id}" is rotated but its top ${entry?.backgroundTiles} row(s) are air (backgroundTiles) — that only means something while the top is the top, so it stays upright`,
+        notices,
       );
       quarters = 0;
     }
@@ -543,10 +562,12 @@ export function importTmjToLayout(
           return v === true || (typeof v === 'string' && v !== '') || (typeof v === 'number' && v !== 0);
         });
         if (declares.length > 0) {
-          console.warn(
-            `[tiled] "${id}" is painted on decal layer "${String(layer.name ?? '')}" but declares ${declares.join(', ')} — ` +
+          warnOnce(
+            decalWarnings,
+            `"${id}" is painted on decal layer "${String(layer.name ?? '')}" but declares ${declares.join(', ')} — ` +
               'a decal is art only: no behaviour, no collision (paint the CollisionLayer for that). ' +
               'Place it as a Furniture object if you want the behaviour.',
+            notices,
           );
         }
       }
@@ -586,6 +607,7 @@ export function importTmjToLayout(
             decalWarnings,
             `decal "${id}" is rotated in the map but its art is ${entry ? `${entry.width}×${entry.height}` : 'not square'} — ` +
               'only a square decal can be turned a quarter of the way round (its mirrors still apply)',
+            notices,
           );
       }
       decals.push(decal);
@@ -728,5 +750,5 @@ export function importTmjToLayout(
     // its map actually has (same as the optional fields above).
     ...(decals.length > 0 ? { decals } : {}),
   };
-  return { layout, images: importedImages, mapName };
+  return { layout, images: importedImages, mapName, notices };
 }

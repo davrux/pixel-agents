@@ -71,13 +71,23 @@ function mapWith(id: string, col: number, bottomRow: number, rotation: number): 
   };
 }
 
-/** Warnings the import printed, with console.warn restored either way. */
-function importWatching(map: Record<string, unknown>): { layout: ReturnType<typeof importTmjToLayout>['layout']; warnings: string[] } {
+/**
+ * Import, capturing both channels a complaint travels on: the console, and the `notices` the
+ * result carries back. The second one is what `scripts/push-zones.sh` prints — the console is
+ * on the server, which is not where somebody pushing a map is looking, and a refusal nobody
+ * sees is indistinguishable from a bug (it read as "the game moved my couch").
+ */
+function importWatching(map: Record<string, unknown>): {
+  layout: ReturnType<typeof importTmjToLayout>['layout'];
+  warnings: string[];
+  notices: string[];
+} {
   const warnings: string[] = [];
   const real = console.warn;
   console.warn = (...args: unknown[]) => void warnings.push(args.join(' '));
   try {
-    return { layout: importTmjToLayout(map, registry, noImages).layout, warnings };
+    const out = importTmjToLayout(map, registry, noImages);
+    return { layout: out.layout, warnings, notices: out.notices };
   } finally {
     console.warn = real;
   }
@@ -151,13 +161,18 @@ test('each angle lands the piece where Tiled shows it', async () => {
 
 test('an angle that is not a quarter turn is refused, not rounded', async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
-  const { layout, warnings } = importWatching(mapWith('SOFA_BACK', 5, 5, 37));
+  const { layout, warnings, notices } = importWatching(mapWith('SOFA_BACK', 5, 5, 37));
   const item = layout.furniture[0];
   assert.equal(item.angle, undefined, '37° must not become 45 or 0-with-a-shrug');
   assert.deepEqual({ col: item.col, row: item.row }, { col: 5, row: 5 }, 'and it stays where an upright one goes');
   assert.ok(
     warnings.some((w) => w.includes('SOFA_BACK') && w.includes('37')),
     `expected a warning naming the piece and the angle, got: ${warnings.join(' | ') || '(nothing)'}`,
+  );
+  // And it comes BACK, not just out: this is the line push-zones.sh prints.
+  assert.ok(
+    notices.some((n) => n.includes('SOFA_BACK') && n.includes('37')),
+    `the refusal must travel back to whoever pushed the map, got: ${notices.join(' | ') || '(nothing)'}`,
   );
 });
 
@@ -178,11 +193,12 @@ test('a piece whose top rows are air is not turned at all', async () => {
 
 test('an upright placement is untouched by any of this', async () => {
   buildDynamicCatalog((await buildFurnitureCatalogAndSprites()) as never);
-  const { layout, warnings } = importWatching(mapWith('SOFA_BACK', 5, 5, 0));
+  const { layout, warnings, notices } = importWatching(mapWith('SOFA_BACK', 5, 5, 0));
   const item = layout.furniture[0];
   assert.equal(item.angle, undefined, 'no angle field on an unturned piece — nothing new on the wire');
   const entry = entryFor(item);
   assert.deepEqual({ w: entry?.footprintW, h: entry?.footprintH }, { w: 2, h: 1 });
   assert.equal(entry, getCatalogEntry('SOFA_BACK'), 'and it is still the SHARED entry, allocating nothing');
   assert.equal(warnings.length, 0, `an ordinary placement must not warn: ${warnings.join(' | ')}`);
+  assert.deepEqual(notices, [], 'and a clean map reports nothing back either');
 });
