@@ -42,7 +42,15 @@ pixels and read as blur at 16×16, so keep the art hard-edged.
 `PET_DIRECTIONS` (`constants.ts`). **Row 3 is left**, and it is real art like the
 other three — no runtime mirroring any more. The bundled sheets got theirs by
 mirroring row 2 once (`scripts/add-left-row.sh`), and the editor seeds a left row the
-same way on save, so every sheet has four rows. Draw over it whenever the animal is not
+same way on save, so every sheet has four rows.
+
+**Mirrored per CELL, never per row.** Flipping the whole 96-px strip also reverses the
+order of the cells, so the walk columns end up holding the mirrored sit and idle frames —
+a cat walking left sits down. It happened, it survived a screenshot (a dog's stand and
+walk look alike in profile), and the check written at the time compared against the
+whole-row mirror and therefore agreed with the bug. `server/src/leftRow.int.test.ts` now
+asserts the property column by column, and includes a guard proving the two mirrors are
+distinguishable on Daisy's sheet. Draw over it whenever the animal is not
 symmetric: a marking that sits on one flank swaps sides in a mirror, which is exactly
 why left stopped being computed. Neither cat has a side-specific marking (Loui's white
 is on the chest, belly and paws, Daisy's stripes run across the body), so their mirrored
