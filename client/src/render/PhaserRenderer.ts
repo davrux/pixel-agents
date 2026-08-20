@@ -40,6 +40,7 @@ export interface RenderSource {
   tileMap: GroundMap;
 }
 import { groundCellRef } from '@pixel/shared/office/floorTiles.js';
+import { cellOrientation } from '@pixel/shared/office/tileOrientation.js';
 import { hasSheets } from '@pixel/shared/office/tiledSheetLayout.js';
 import { layoutToDecalInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { getWallEdgeInstances, getWallFaceInstances } from '@pixel/shared/office/wallTiles.js';
@@ -221,7 +222,18 @@ export class PhaserRenderer {
           this.statics.push(this.solid(px, py, CANVAS_ERROR_TILE_COLOR, FLOOR_DEPTH));
           continue;
         }
-        this.statics.push(this.scene.add.image(px, py, tex.key, tex.frame).setOrigin(0, 0).setDepth(FLOOR_DEPTH));
+        const cell = this.scene.add.image(px, py, tex.key, tex.frame).setOrigin(0, 0).setDepth(FLOOR_DEPTH);
+        // How the mapper turned this cell in Tiled (see OfficeLayout.tileFlip). The two
+        // mirrors are free; only a diagonal flip needs the cell rotated, and then the
+        // origin has to move to its centre first — rotating around the top-left corner
+        // would swing the tile into its neighbour's place instead of turning it.
+        const orient = cellOrientation(layout.tileFlip?.[idx]);
+        if (orient.flipX) cell.setFlipX(true);
+        if (orient.flipY) cell.setFlipY(true);
+        if (orient.angle !== 0) {
+          cell.setOrigin(0.5, 0.5).setPosition(px + TILE_SIZE / 2, py + TILE_SIZE / 2).setAngle(orient.angle);
+        }
+        this.statics.push(cell);
       }
     }
 

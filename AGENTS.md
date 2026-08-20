@@ -356,6 +356,21 @@ background only.)
   what the layer means: ground is underneath and makes the cell standable, a decal
   is a picture and never affects walkability. **Only the ground makes a cell
   walkable** — art alone never does.
+  **A ground cell keeps the way Tiled turned it.** All three flip bits survive the
+  import as one small mask per cell (`OfficeLayout.tileFlip`, resolved only by
+  `office/tileOrientation.ts`), so every one of Tiled's eight orientations — two
+  mirrors, a half turn, and the four diagonal states — draws in the game as it does in
+  the editor. Three things make that safe and cheap. The bits used to be *stripped*
+  (`baseGid`), which was itself a fix: a mirrored gid matches no tileset range, and the
+  cell silently became VOID, invisible and unwalkable. It is cosmetic only, so it lives
+  in the layout and touches nothing but the renderer — a mirrored cell is the same tile
+  of the same sheet, and what makes it walkable is still that ground is there. And the
+  array is **left out entirely unless the map turns something**, so today it costs
+  nothing; a dense array of 3192 zeros would otherwise travel to every client on every
+  join. The diagonal states are only expressible because `groundFits` already requires
+  a ground tile to be exactly one square cell — a quarter turn of a 16×32 tile would
+  overflow its neighbours. Decals, furniture and images still read H/V only: their art
+  may be several cells tall, so a quarter turn there needs its own answer first.
   **No tile class decides anything any more.** `FloorTile` and `WallTile` are both
   gone: neither carried a property, and the one fact they encoded — how tall a cell
   is — is stated by the tileset itself (`tilewidth`/`tileheight`, passed to the
@@ -531,6 +546,14 @@ background only.)
   `migrateLayout`, and make sure a migration that cannot be completed is **not
   persisted** — an incomplete one replaced a real map with 3192 holes once, and the
   only reason it was recoverable is that maps live in git as `.tmj`.
+  One exception, and it is narrow: an **optional field that an older client ignores
+  without misreading anything** is not a format change in this sense. The client
+  accepts version 3 and nothing else on purpose (`client/src/net/bridge.ts`, because a
+  v1 ground cell holds a pattern where a v2 one holds a tile id), so a bump blacks out
+  every shipped desktop build until it updates — and it ships its own bundle with no
+  auto-updater. `tileFlip` is the case that earned this sentence: an old client draws
+  the cell unmirrored, i.e. exactly what it drew before. A change where an old client
+  would draw the WRONG thing still bumps the layout version *and* `PROTOCOL_VERSION`.
 - If you touched the server: `cd server && pnpm test`. If you touched the desktop
   Mumble protocol: `cd desktop && pnpm test`.
 - For engine changes, drive `OfficeState` directly in a small headless test, plus

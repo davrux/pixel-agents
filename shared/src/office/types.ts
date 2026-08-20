@@ -696,6 +696,27 @@ export interface OfficeLayout {
    *  tiles[i] is not VOID. Missing/0 = the first entry. */
   tileFloorSet?: number[];
   /**
+   * Per-cell picture orientation, parallel to `tiles` — Tiled's three flip bits as one
+   * small mask (see office/tileOrientation.ts, which is the only place that reads them).
+   * Purely cosmetic: what makes a cell walkable is the ground being there, and a mirrored
+   * picture is still the same tile of the same sheet, so nothing but the renderer cares.
+   *
+   * **Omitted entirely when the map mirrors nothing**, which is every map today. That is
+   * what keeps it free: the alternative shapes were a sparse list (cheap when unused, but
+   * 4× the size once half a map is mirrored, plus index bookkeeping) and packing the bits
+   * into `tiles` itself (free, but it changes the meaning of a field a dozen readers share,
+   * and one that forgets to mask draws the error tile). A parallel array that is simply
+   * absent costs nothing until used and reads exactly like `tileFloorSet` next door.
+   *
+   * Deliberately NOT a layout `version` bump: the client accepts version 3 and nothing
+   * else, on purpose (see client/src/net/bridge.ts), so bumping would black out every
+   * already-shipped desktop build until it updates — for mirrored floor tiles. An older
+   * client ignores this field and draws the cell unmirrored, i.e. exactly what it draws
+   * today; it does not misread anything, which is the case PROTOCOL_VERSION exists for.
+   * A change where an old client would draw the WRONG thing still bumps both.
+   */
+  tileFlip?: number[];
+  /**
    * The tilesets this layout's ground uses, by name — `tileFloorSet` indexes this.
    * Any grid tileset may appear here, not only a baked floor set.
    *

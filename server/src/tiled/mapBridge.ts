@@ -22,19 +22,21 @@ import { DECAL_TILE_CLASS, resolveFromTmjTilesets, type TiledRegistry, type Regi
 import { actionFromProps, type TiledProp, type PropBag } from './actionProps.js';
 import { furnitureBehaviourFromObject } from './furnitureProps.js';
 import { TILED_SHEET_COLUMNS, WALL_BITMASK_COUNT } from '@pixel/shared/office/tiledSheetLayout.js';
+import { ORIENT_D, ORIENT_H, ORIENT_V } from '@pixel/shared/office/tileOrientation.js';
 import { emptyWallEdges, hIndex, latticeIndex, vIndex } from '@pixel/shared/office/wallEdges.js';
 
 /** Tiled's own GID flip bits (top two bits of the 32-bit GID field) — plain
  *  addition/subtraction, not a bitwise op: these GIDs are always far below
  *  2^31, and JS's bitwise operators coerce to signed Int32 first, which
- *  would turn 0x80000000/0x40000000 negative. Only H/V are used (see
- *  PlacedFurniture/PlacedImage's flippedHorizontally/flippedVertically) —
- *  Tiled's third bit (diagonal flip, 0x20000000) has no corresponding
- *  concept here and is never set or read. */
+ *  would turn 0x80000000/0x40000000 negative. Furniture, images and decals read
+ *  H/V only (their flippedHorizontally/flippedVertically); GROUND reads all three
+ *  as one orientation mask, because a ground cell is exactly one square map cell
+ *  and so every one of Tiled's eight orientations is drawable — see orientBits
+ *  and shared/office/tileOrientation.ts. */
 const TILED_FLIP_H = 0x80000000;
 const TILED_FLIP_V = 0x40000000;
-/** Tiled's third flip bit. We render nothing rotated, but a gid carrying it still
- *  has to RESOLVE — see baseGid. */
+/** Tiled's third flip bit: the axes swap (a transpose), which with H/V spans all
+ *  eight orientations. A gid carrying it has to RESOLVE either way — see baseGid. */
 const TILED_FLIP_D = 0x20000000;
 
 /** Tile properties that mean "this item does something", checked when a tile is
@@ -210,6 +212,22 @@ export function importTmjToLayout(
     if (raw >= TILED_FLIP_D) raw -= TILED_FLIP_D;
     return raw;
   };
+  /** The same gid's three flip bits, as the mask a ground cell stores. Subtraction
+   *  rather than `&`, for the reason baseGid gives: `gid & 0x80000000` is negative. */
+  const orientBits = (gid: unknown): number => {
+    let raw = Number(gid) || 0;
+    let bits = 0;
+    if (raw >= TILED_FLIP_H) {
+      raw -= TILED_FLIP_H;
+      bits |= ORIENT_H;
+    }
+    if (raw >= TILED_FLIP_V) {
+      raw -= TILED_FLIP_V;
+      bits |= ORIENT_V;
+    }
+    if (raw >= TILED_FLIP_D) bits |= ORIENT_D;
+    return bits;
+  };
   const isFurnitureTileObject = (o: Record<string, unknown>): boolean => {
     const gid = baseGid(o.gid);
     return gid > 0 && resolveGid(gid)?.class === 'FurnitureTile';
@@ -238,6 +256,8 @@ export function importTmjToLayout(
 
   const tiles: number[] = [];
   const tileFloorSet: number[] = [];
+  /** Per cell, Tiled's flip bits — see OfficeLayout.tileFlip. */
+  const tileFlip: number[] = [];
   const tileBlocked: boolean[] = [];
   // Filled as tiles are met, so the layout ends up naming exactly the sets it
   // uses — see setIndexInto.
@@ -249,6 +269,9 @@ export function importTmjToLayout(
     // Through baseGid like every other gid read: a flipped tile is still that
     // tile. Without this a mirrored floor tile resolved to nothing and the cell
     // silently became VOID — the same trap that swallowed painted wall pieces.
+    // The bits themselves are kept now rather than dropped here, which is what
+    // makes a cell mirrored in Tiled come out mirrored in the game: the tile is
+    // the same picture either way, so only the renderer is affected.
     const groundResolved = resolveGid(baseGid(ground[i]));
     // ANY grid tileset can be ground: the cell keeps the tile's own local id and
     // the set it came from, which is exactly what Tiled paints with. There used to
@@ -263,12 +286,17 @@ export function importTmjToLayout(
       // Which set this came from — "which set" has no identity other than the
       // file (see setIndexInto).
       tileFloorSet.push(setIndexInto(floorSets, groundResolved.tileset.file));
+      // Safe to keep all three bits: groundFits above has already established that
+      // this tile is exactly one map cell, so the diagonal ones (which turn the cell
+      // a quarter of the way round) cannot make it overflow its neighbours.
+      tileFlip.push(orientBits(ground[i]));
     } else {
       if (groundResolved && groundResolved.tileset.columns === 0) {
         warnOnce(groundWarnings, `ground tile from "${groundResolved.tileset.file}": a collection-of-images tileset cannot be ground (it has no grid) — paint it on a DecalLayer instead`);
       }
       tiles.push(TileType.VOID);
       tileFloorSet.push(0);
+      tileFlip.push(0);
     }
     tileBlocked.push(!!collision[i] && collision[i] !== 0);
   }
@@ -613,6 +641,9 @@ export function importTmjToLayout(
     tileActions,
     texts,
     images,
+    // Same rule as `decals` below: left out unless the map actually mirrors
+    // something, which keeps a 3192-cell array of zeros off every join.
+    ...(tileFlip.some((bits) => bits !== 0) ? { tileFlip } : {}),
     // Left out entirely when the map paints none, so a layout only carries what
     // its map actually has (same as the optional fields above).
     ...(decals.length > 0 ? { decals } : {}),
