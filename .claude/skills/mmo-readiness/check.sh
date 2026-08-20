@@ -9,15 +9,15 @@ STATIC_ONLY=0
 SELFTEST_ONLY=0
 case "${1:-}" in
   --static) STATIC_ONLY=1 ;;
-  # Does the security section still catch anything? Punches a hole into the real
-  # source per rule and requires a FAIL — see selftest.mjs.
+  # Do the security and memory sections still catch anything? Punches a hole into
+  # the real source per rule and requires a FAIL — see selftest.mjs.
   --selftest) SELFTEST_ONLY=1 ;;
 esac
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 fail=0
 if [[ $SELFTEST_ONLY -eq 1 ]]; then
-  printf '\n\033[1mSecurity check self-test\033[0m\n'
+  printf '\n\033[1mCheck self-test — every rule must fail on a planted hole\033[0m\n'
   node "$HERE/selftest.mjs"; exit $?
 fi
 pass()  { printf '  \033[32m✓ PASS\033[0m  %s\n' "$1"; }
@@ -108,6 +108,18 @@ if [[ -f "$HERE/security.mjs" ]]; then
   node "$HERE/security.mjs" || fail=1
 else
   bad "security.mjs missing — the security section cannot run"
+fi
+
+# 5c — Memory: nothing that only grows (AGENTS.md § Memory) -------------------
+# Same shape as the security section, for the failure mode a long-running world has
+# instead of a crash: a room that keeps every visitor it ever had, a bus that retains
+# every room, a texture per entity. leaks.mjs requires the RELEASE to exist where the
+# code acquires, and anything that grows on purpose to name its bound. Self-tested
+# alongside the security rules (--selftest).
+if [[ -f "$HERE/leaks.mjs" ]]; then
+  node "$HERE/leaks.mjs" || fail=1
+else
+  bad "leaks.mjs missing — the memory section cannot run"
 fi
 
 # 6 — Build & typecheck ------------------------------------------------------

@@ -1,6 +1,6 @@
 ---
 name: mmo-readiness
-description: Audit a change in the pixel-agents repo against the MMO architecture contract in AGENTS.md — server authority, unified entity model, zones-as-rooms, data-driven content, server-only NPC brain, security (no unauthorized access to a resource — routes, room messages, meetings, chat, secrets), and a clean typecheck/build. Use before shipping any feature, or when reviewing a contribution, to catch invariant violations that "work" but break composability or open a hole.
+description: Audit a change in the pixel-agents repo against the MMO architecture contract in AGENTS.md — server authority, unified entity model, zones-as-rooms, data-driven content, server-only NPC brain, security (no unauthorized access to a resource — routes, room messages, meetings, chat, secrets), memory (nothing that only grows), and a clean typecheck/build. Use before shipping any feature, or when reviewing a contribution, to catch invariant violations that "work" but break composability or open a hole.
 ---
 
 # MMO readiness check
@@ -20,7 +20,7 @@ From the repo root:
 ```bash
 bash .claude/skills/mmo-readiness/check.sh            # full: static checks + typecheck + build
 bash .claude/skills/mmo-readiness/check.sh --static   # fast: static checks only
-bash .claude/skills/mmo-readiness/check.sh --selftest # do the security rules still bite?
+bash .claude/skills/mmo-readiness/check.sh --selftest # do the security + memory rules still bite?
 ```
 
 The script reports `✓ PASS` / `✗ FAIL` (hard, blocking), `! WARN` (look into it),
@@ -43,6 +43,7 @@ if any hard check fails.
    zones are instances of the one room (matchmade by `zone`), not new Room classes;
    travel is placed `portal` furniture + a `ZONES` entry, not a hard-coded jump.
 5b. **Security — nobody unauthorized reaches a resource** (see below).
+5c. **Memory — nothing that only grows** (see below).
 6. **Typecheck + build** — `tsc --noEmit` per package and the client `vite build`.
 
 ## Security is checked, not recited
@@ -90,6 +91,67 @@ it no longer understands — which reads like evidence. So: **a new security rul
 with its self-test case in the same change**, and the self-test refuses to run while
 the files it patches have uncommitted edits.
 
+## Memory is checked the same way
+
+A leak is not a crash, which is exactly why it needs a check: this server runs for
+weeks and a tab stays open all day, so "it got slow" arrives days later with no stack
+trace and nothing to bisect. `leaks.mjs` therefore asks the same question the security
+section asks — **is the release present in the code that acquires?** — and anything
+that grows on purpose is named in an allow-list **with its bound**.
+
+- **Long-lived collections shrink** — every `Map`/`Set` that is a class FIELD or
+  module-level state and gains entries at runtime must be deleted from, cleared, or
+  rebuilt wholesale somewhere. Three things keep this from being noise, and each was
+  a wrong version first: only field/module scope counts (a function-local `visited`
+  set dies with the call, and there are ~90 of those); a collection built once from a
+  literal and only read cannot leak, so growth must be shown (`.set(`/`.add(`); and a
+  wholesale rebuild (`this.points = layoutToSitPoints(…)`) counts as release, because
+  a layout change bounds it. Scope is *parsed*, not grepped — `class SimRoom extends
+  Room<{ state: RoomState }> {` hid the keyword behind its generic's braces, and every
+  field in the biggest file on the server went unexamined while the rule printed PASS.
+- **Subscriptions on a shared emitter are balanced** — a module singleton outlives
+  every room, so a room that subscribes without unsubscribing is retained for the life
+  of the server together with its state, clients and layout. The rule asks whether the
+  emitter is IMPORTED rather than naming the buses: `controlBus` and the agent
+  `director` are both process-wide, a `ws.on('close')` is an object the subscriber owns
+  and goes with it — and naming the two buses would have kept passing on the day a
+  third arrives.
+- **Timers end** — every `setInterval` is cleared or `unref`'d. Not just memory: a
+  referenced timer turns "the server is idle" into "the server will not exit".
+- **Blob URLs are revoked** — `createObjectURL` keeps the whole Blob alive, and in a
+  media path that is megabytes per call.
+- **Per-entity textures are removed** — GPU memory the garbage collector cannot help
+  with. The art stores that keep textures on purpose (the runtime atlas, the marker
+  icons) say so in `TEXTURES_KEPT`.
+- **Synced entities leave the schema** — a `MapSchema` entry nobody deletes is worse
+  than a leak: it grows the state *every* client decodes, forever.
+
+**A static rule and a heap measurement catch different things**, so the section is not
+the whole answer. A per-user `Map` entry is ~100 bytes: 10 000 visitors is 1 MB, which
+no heap graph makes you look at and the rule above sees immediately. The other way
+round, an object graph held alive by a closure is invisible to a grep. To measure the
+server, start an isolated instance (`PIXEL_STREAM_PORT`/`PIXEL_STREAM_DATA_DIR` at a
+scratch dir) with `--inspect`, then drive join/leave cycles from a headless Colyseus
+client and read `process.memoryUsage().heapUsed` through `Runtime.evaluate` after a
+`HeapProfiler.collectGarbage`. **RSS is not the signal** — it grew 1.4 MB per cycle
+here while nothing was retained, because V8 does not hand memory back. Measured this
+way (2026-08-20): 36 join/leave cycles left `heapUsed` at 64.3 → 64.6 MB, and 150
+visits by 30 distinct accounts through a room kept alive by an anchor client left the
+live heap at 73.5 → 73.6 MB, with a snapshot diff showing no object class growing —
+only JIT code.
+
+The `? CHECK` items are the three judgements a scanner cannot make: whether a new
+module cache is keyed by CONTENT (bounded by the art) or by a session; whether DOM
+listeners outlive the element they are on; and what is held across a zone switch or a
+reconnect, where the room is new but the module state is not.
+
+**These rules are self-tested too**, in the same `selftest.mjs` and for the same
+reason. Two of its seven planted leaks are regressions rather than inventions — the
+per-user `savedSpots` entry that had no delete site, and the mock driver's interval
+that was neither cleared nor unref'd — so the suite demonstrably catches the bugs
+that motivated it. **A new memory rule ships with its self-test case in the same
+change**, and an allow-list entry always carries the bound that makes it safe.
+
 ## Acting on results
 - **`✗ FAIL`**: a blocker. Fix it before shipping — these break the contract other
   contributions rely on, even if the feature appears to work.
@@ -101,7 +163,7 @@ the files it patches have uncommitted edits.
   actually run (`pnpm install`, `pnpm build`).
 
 If a check is wrong for a legitimate new pattern, update both the check
-(`check.sh` / `security.mjs`) and the relevant AGENTS.md invariant in the same
-change — keep the doc and the check in sync. For a security rule that also means its
-`selftest.mjs` case: widening an allow-list without a reason, or deleting a rule
+(`check.sh` / `security.mjs` / `leaks.mjs`) and the relevant AGENTS.md invariant in
+the same change — keep the doc and the check in sync. For a security or memory rule
+that also means its `selftest.mjs` case: widening an allow-list without a reason, or deleting a rule
 because it fired, is how a contract quietly stops being one.

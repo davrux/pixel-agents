@@ -115,6 +115,52 @@ Security is a first-class requirement, not a later pass.
   and, if the surface is new in kind, its rule plus that rule's self-test case** —
   and an allow-list entry always carries the reason it is safe.
 
+## Memory
+
+A world that runs for weeks and a tab that stays open all day fail differently
+from a crash: they get slow, days later, with nothing to bisect. So memory is a
+contract too, and it is **verified, not trusted** — `mmo-readiness`'s memory check
+(`.claude/skills/mmo-readiness/leaks.mjs`) asks the same question the security
+check asks: is the release present in the code that acquires?
+
+- **Anything keyed by something that comes and goes is deleted when it goes.** A
+  `Map` on a room keyed by `sessionId`, `userId` or an entity id must have a
+  delete on the path where that thing disappears — `onLeave`, the removal event,
+  the layout rebuild. `savedSpots` is why this is written down: a write-dedup entry
+  per user, with no delete site anywhere, so a room kept one per visitor it ever
+  had. Rebuilding a collection wholesale counts (`this.points =
+  layoutToSitPoints(…)` is bounded by the layout); a `WeakMap` counts by
+  construction.
+- **A subscription on a process-wide emitter is a reference to everything behind
+  it.** `controlBus.on` and `director.on` in a room need their `off` in
+  `onDispose`, or the emitter retains the room, its state, its clients and its
+  layout for the life of the server. This is the largest single leak this codebase
+  can have, and the check asks the general question — is the emitter imported? — so
+  a third bus is covered the day it appears.
+- **A timer either gets cleared or gets `unref()`.** Beyond memory: a referenced
+  interval turns "the server is idle" into "the server will not exit".
+- **A blob URL is revoked, a per-entity texture is removed, a synced entry is
+  deleted.** GPU memory is not collected for you, and a `MapSchema` entry nobody
+  deletes is worse than a leak — it grows the state EVERY client decodes, forever.
+- **Growth on purpose states its bound.** The runtime atlas, the warn-once sets and
+  the per-preset caches all grow; each is named in `leaks.mjs`'s allow-list with the
+  bound that makes it safe (keyed by content, by the tileset table, by an enum), so
+  "this one is fine" is a decision somebody wrote down. The rules are self-tested
+  like the security ones, and two of the planted leaks are the real regressions this
+  check was written after. So: **a change that adds a place where state accumulates
+  adds its release and, if the surface is new in kind, its rule plus that rule's
+  self-test case.**
+- **Measure with `heapUsed` after a forced GC, not RSS.** V8 does not hand memory
+  back, so RSS climbs on a process that retains nothing: 1.4 MB per join/leave cycle
+  here, while the live heap was flat. Start an isolated instance
+  (`PIXEL_STREAM_DATA_DIR` at a scratch dir) with `--inspect`, drive it with a
+  headless Colyseus client, and read `process.memoryUsage().heapUsed` after
+  `HeapProfiler.collectGarbage`. Measured 2026-08-20: 36 join/leave cycles 64.3 →
+  64.6 MB; 150 visits by 30 accounts through a room an anchor client kept alive 73.5
+  → 73.6 MB, no object class growing. The static rules stay necessary anyway — a
+  per-user Map entry is ~100 bytes, so 10 000 visitors is 1 MB nobody would spot on
+  a graph.
+
 ## Conventions
 
 ### Code
@@ -466,7 +512,11 @@ background only.)
   and the **security section**, which checks the gates rather than listing them:
   every HTTP route gated or explicitly public, no handler acting on a
   payload-supplied identity, meeting tokens only for members, chat attributed and
-  bounded, no secret in a client payload. Treat its failures as blockers.
+  bounded, no secret in a client payload — and the **memory section**, which
+  requires the release next to the acquisition: per-connection Maps deleted from,
+  bus subscriptions balanced, timers cleared or unref'd, blob URLs revoked,
+  textures removed, synced entries deleted, and every deliberate cache naming its
+  bound. Treat its failures as blockers.
 - `pnpm -r run check-types` and `pnpm build` must be clean.
 - If you touched furniture properties:
   `scripts/sync-furniture-properties.sh --check` must report zero changes. It edits a
