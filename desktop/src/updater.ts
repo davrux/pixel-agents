@@ -82,14 +82,17 @@ function getUpdater(): AppUpdater {
 }
 
 /** Whether THIS process can be updated in place — a fact about the build and
- *  how it is running, decided before electron-updater is even loaded. */
+ *  how it is running, decided before electron-updater is even loaded. Reasons
+ *  are English like the tray and the Settings panel that display them (the
+ *  German version gate shows them verbatim too — two of its three consumers
+ *  won the language). */
 function support(): { ok: true } | { ok: false; reason: string } {
-  if (!app.isPackaged) return { ok: false, reason: 'Entwicklungsstart (nicht paketiert)' };
+  if (!app.isPackaged) return { ok: false, reason: 'development start (not packaged)' };
   if (process.platform === 'darwin') {
-    return { ok: false, reason: 'macOS lehnt Updates ohne echte Signatur ab' };
+    return { ok: false, reason: 'macOS refuses updates without a real signature' };
   }
   if (process.platform === 'linux' && !process.env.APPIMAGE) {
-    return { ok: false, reason: 'läuft nicht als AppImage' };
+    return { ok: false, reason: 'not running as an AppImage' };
   }
   return { ok: true };
 }

@@ -75,7 +75,7 @@ import { checkProtocol, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
-import { isDesktop, desktop, reloadApp, setDesktopUnreadCount } from '../desktop/bridge.js';
+import { isDesktop, desktop, reloadApp, setDesktopUnreadCount, updatesApi } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
 import { KICK_CLOSE_CODE } from '@pixel/shared/commands';
@@ -3702,9 +3702,10 @@ export class OfficeScene extends Phaser.Scene {
       #pa-userinfo code{color:#d7d9da;background:#141312;border:2px solid #0a0908;border-radius:0.25rem;padding:0.05rem 0.3rem;}
       #pa-userinfo .admin{background:#c51a1b;border:2px solid #0a0908;color:#fff;border-radius:0.3rem;padding:0.05rem 0.4rem;
         box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
-      #pa-settings #pa-change-server{width:100%;margin-top:0.5rem;background:#292725;border:2px solid #0a0908;
+      #pa-settings #pa-change-server,#pa-settings #pa-check-updates{width:100%;margin-top:0.5rem;background:#292725;border:2px solid #0a0908;
         color:#ece9e4;border-radius:0.35rem;font:0.95rem 'FS Pixel Sans',monospace;padding:0.55rem;cursor:pointer;
         box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #141210;}
+      #pa-settings #pa-check-updates:disabled{opacity:0.6;cursor:default;}
     `;
     document.head.appendChild(style);
 
@@ -3744,6 +3745,8 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Show player names</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
+      <button id="pa-check-updates">Check for updates</button>
+      <div id="pa-update-status" class="hint" style="margin:0.35rem 0 0;"></div>
       <button id="pa-change-server">Change server</button>`;
     // Settings is opened from the ☰ menu (no dedicated bar button).
     this.settingsPanel = panel;
@@ -3871,13 +3874,81 @@ export class OfficeScene extends Phaser.Scene {
       this.cameraDetachAt = null;
       this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
     };
-    // "Change server" is a desktop-only concern (the browser build's server is
-    // its own origin, not user-configurable), so it is hidden in the browser.
+    // "Check for updates" and "Change server" are desktop-only concerns (the
+    // browser build updates by reloading and its server is its own origin), so
+    // both are hidden in the browser.
+    const checkUpdatesBtn = panel.querySelector<HTMLButtonElement>('#pa-check-updates')!;
+    const updateStatus = panel.querySelector<HTMLDivElement>('#pa-update-status')!;
+    checkUpdatesBtn.style.display = isDesktop() ? '' : 'none';
+    updateStatus.style.display = 'none';
+    checkUpdatesBtn.onclick = () => void this.desktopCheckForUpdates(checkUpdatesBtn, updateStatus);
     const changeServerBtn = panel.querySelector<HTMLButtonElement>('#pa-change-server')!;
     changeServerBtn.style.display = isDesktop() ? '' : 'none';
     changeServerBtn.onclick = () => void this.desktopChangeServer();
 
     this.syncSettingsInputs();
+  }
+
+  /** True while a settings-panel update run is in flight, so a second click
+   *  never starts a parallel download of the same package. */
+  private updateRunInFlight = false;
+
+  /**
+   * Settings "Check for updates": ask the release feed, and only after the user
+   * confirms, download (progress on the button) and restart into the new build.
+   * The version gate has its own flow for the must-update case (protocol
+   * mismatch); this one is the voluntary path, so it asks before fetching a
+   * ~100 MB package instead of assuming yes. Every outcome — up to date,
+   * unsupported, failed — lands in the status line under the button.
+   */
+  private async desktopCheckForUpdates(btn: HTMLButtonElement, status: HTMLElement): Promise<void> {
+    if (this.updateRunInFlight) return;
+    const say = (msg: string): void => {
+      status.style.display = '';
+      status.textContent = msg;
+    };
+    // Null on a desktop build older than the updater itself.
+    const api = updatesApi();
+    if (!api) {
+      say('This build cannot self-update yet — update it by hand once, from the release page.');
+      return;
+    }
+    this.updateRunInFlight = true;
+    btn.disabled = true;
+    status.style.display = 'none';
+    const done = (msg?: string): void => {
+      if (msg) say(msg);
+      btn.textContent = 'Check for updates';
+      btn.disabled = false;
+      this.updateRunInFlight = false;
+    };
+    const off = api.onEvent((ev) => {
+      if (ev.t === 'progress') btn.textContent = `Downloading… ${Math.round(ev.percent)} %`;
+    });
+    try {
+      btn.textContent = 'Checking…';
+      const found = await api.check();
+      if (found.status === 'unsupported') return done(`Self-update is not available here: ${found.reason}.`);
+      if (found.status === 'error') return done(`Update check failed: ${found.error}`);
+      if (found.status === 'none') return done(`You are up to date (published: ${found.version}).`);
+      if (
+        !(await confirmDialog(`Update to ${found.version}? The app downloads the update and restarts.`, {
+          confirmLabel: 'Update and restart',
+        }))
+      )
+        return done();
+      btn.textContent = 'Downloading…';
+      const dl = await api.download();
+      if (!dl.ok) return done(`Download failed: ${dl.error ?? 'unknown error'}`);
+      btn.textContent = 'Restarting…';
+      say(`Installing ${found.version} — the app restarts itself.`);
+      await api.install();
+      // From here the main process quits and relaunches; nothing left to do.
+    } catch (error) {
+      done(error instanceof Error ? error.message : String(error));
+    } finally {
+      off();
+    }
   }
 
   /** Desktop "Change server": forget the saved server URL (and the token, which
