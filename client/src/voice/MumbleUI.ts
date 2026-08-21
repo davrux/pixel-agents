@@ -68,10 +68,12 @@ interface UserRow {
   update(user: MumbleUserInfo, depth: number, t: MumbleTree): void;
 }
 /** Somebody who has an ear in this channel while standing somewhere else. One
- *  per (channel, listener) pair, so the same person can appear under several. */
+ *  per (channel, listener) pair, so the same person can appear under several.
+ *  No MumbleTree: an ear shows no talk state, so there is nothing to read from
+ *  it — see mkListenerRow. */
 interface ListenerRow {
   el: HTMLElement;
-  update(user: MumbleUserInfo, depth: number, t: MumbleTree): void;
+  update(user: MumbleUserInfo, depth: number): void;
 }
 
 /** The two panels the tab strip switches between: the server's channel tree,
@@ -336,7 +338,8 @@ export class MumbleUI {
          their real row is still where they actually are, and the channel's
          count counts members only. Carries no mute or volume control: it is the
          same person as that other row, and those settings are theirs, not this
-         row's. */
+         row's. No talk dot either — listening is not speaking, see
+         mkListenerRow. */
       #pa-mb-tree .us.ln{background:#181716;border-style:dashed;border-color:#2c2a26;}
       #pa-mb-tree .us.ln .nm{color:#adb0b2;font-style:italic;}
       #pa-mb-tree .us.ln .nm.me{color:#9fd2ff;}
@@ -722,7 +725,7 @@ export class MumbleUI {
           lr = this.mkListenerRow(u, channel.id, t);
           this.listenerRows.set(key, lr);
         }
-        lr.update(u, depth + 1, t);
+        lr.update(u, depth + 1);
         liveListeners.add(key);
         order.push(lr.el);
       }
@@ -899,28 +902,35 @@ export class MumbleUI {
    * is visible at all, since their real row stays in the channel they are
    * standing in. Ours is clickable, because the row is where you are looking
    * when you want the ear gone.
+   *
+   * Deliberately WITHOUT a talk dot, unlike a member row: listening is not
+   * speaking. An ear hears this channel, it does not transmit into it, so a green
+   * dot here would announce someone as talking in a channel they are only
+   * listening to — talking is shown on their real row, in the channel they are
+   * actually standing in. Your own ear is where this showed up most, because your
+   * own talk state is known whatever channel you are in while a remote member's
+   * is only known from audio you receive (see MumbleVoice's talking set), but it
+   * was never only yours. The 👂 takes the dot's place as the row's badge.
    */
   private mkListenerRow(user: MumbleUserInfo, channelId: number, t: MumbleTree): ListenerRow {
     const voice = this.voice!;
     const row = document.createElement('div');
     row.className = 'us ln';
-    const talk = document.createElement('span');
     const ear = document.createElement('span');
     ear.className = 'ec';
     ear.textContent = '👂';
     const name = document.createElement('span');
     const self = user.session === t.me;
     name.className = `nm${self ? ' me' : ''}`;
-    row.append(talk, ear, name);
+    row.append(ear, name);
     if (self) {
       row.classList.add('own');
       row.onclick = () => voice.toggleListen(channelId);
     }
     return {
       el: row,
-      update: (u, depth, tree) => {
+      update: (u, depth) => {
         row.style.setProperty('--mb-depth', String(depth));
-        talk.className = `tk${tree.talking.has(u.session) ? ' on' : ''}`;
         name.textContent = u.name;
         const from = this.channelNames.get(u.channel);
         const where = from ? ` from ${from}` : '';
