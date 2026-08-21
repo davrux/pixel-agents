@@ -71,7 +71,7 @@ import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
 import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
-import { checkProtocol, reportStateMismatch } from '../ui/versionGate';
+import { checkProtocol, createUpdateIndicator, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
@@ -112,8 +112,8 @@ const SYNCED_DIRS = new Set<number>(Object.values(Direction));
  * A synced direction the server cannot have written means this build is decoding a
  * schema it doesn't share: `dir` is a uint8 the simulation only ever sets to one of the
  * four Direction values, so anything else is the decoder having read past a field
- * boundary — everything else in that patch is nonsense too. Report it once (the gate
- * names the build to update) and fall back to facing down, so the frame still draws.
+ * boundary — everything else in that patch is nonsense too. Report it once (the top
+ * bar then offers the update) and fall back to facing down, so the frame still draws.
  */
 function syncedDir<T extends number>(value: unknown, where: string): T {
   if (typeof value === 'number' && SYNCED_DIRS.has(value)) return value as T;
@@ -2429,6 +2429,10 @@ export class OfficeScene extends Phaser.Scene {
 
     host.appendChild(bar);
     this.menubar = bar;
+
+    // "A newer build is available" (ui/versionGate.ts) — hidden until this build
+    // and the server disagree on the wire, then a chip beside the status line.
+    bar.insertBefore(createUpdateIndicator(), more);
 
     // Pull the connection/status line into the bar (just left of ☰) so the
     // full-width bar no longer covers it — and it reads as part of the HUD.

@@ -16,15 +16,16 @@
  *  - Windows (NSIS). Unsigned is fine here; SmartScreen only fronts the first
  *    manual install.
  *  - macOS never: Squirrel.Mac verifies the code signature before applying an
- *    update, and this build is ad-hoc signed. Those users keep the manual
- *    instructions (and electron-builder.yml sets `mac.publish: null`, so a mac
- *    package does not even carry a feed it could not use).
+ *    update, and this build is ad-hoc signed. Those users are told so and
+ *    replace the app by hand from the release page (and electron-builder.yml
+ *    sets `mac.publish: null`, so a mac package does not even carry a feed it
+ *    could not use).
  *
  * Nothing checks by itself. The rolling channel gets a new version on every
  * master commit, so a background updater would churn binaries for changes that
- * do not matter to a running client — the protocol gate (versionGate.ts) is
- * the signal an update is actually NEEDED, and the tray item is the manual
- * path. Both are user-triggered.
+ * do not matter to a running client — the protocol indicator in the top bar
+ * (versionGate.ts) is the signal an update is actually NEEDED, and the tray item
+ * is the manual path. Both are user-triggered.
  *
  * electron-updater is a devDependency BUNDLED to dist/vendor/ at build time
  * (`build:vendor`, same pattern as the preload bundle), so the desktop package

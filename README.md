@@ -99,11 +99,13 @@ login, a screen-share source picker, a system tray with an unread badge, and a
 built-in Mumble client. See [docs/design.md](docs/design.md).
 
 The desktop app ships its **own** bundle and talks to a *remote* server, so unlike a
-browser tab it does not get a new client with a deployment — and it has no
-auto-updater. When a release changes the wire format, the app says so instead of
-rendering a wrong world (`PROTOCOL_VERSION`, checked on join — see
-`client/src/ui/versionGate.ts`) and offers this one-liner, which replaces the
-AppImage in place:
+browser tab it does not get a new client with a deployment — and nothing updates it
+behind your back. When a release changes the wire format, the app says so instead of
+rendering a wrong world silently (`PROTOCOL_VERSION`, checked on join — see
+`client/src/ui/versionGate.ts`): a small **Update** chip appears in the top bar, and
+clicking it downloads the new package and restarts. Where the app cannot update itself
+— macOS, which refuses unsigned updates, or a build predating the updater — the chip
+says why, and this one-liner replaces the AppImage in place:
 
 ```bash
 curl -L -o ~/.local/share/AppImage/pixel-agents.AppImage https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage && chmod +x ~/.local/share/AppImage/pixel-agents.AppImage
