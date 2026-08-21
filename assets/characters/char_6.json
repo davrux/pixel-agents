@@ -1,0 +1,10 @@
+{
+  "frame": { "w": 23, "h": 32 },
+  "tracks": [
+    { "name": "walk", "frames": 3, "play": "pingpong" },
+    { "name": "sit", "frames": 2, "play": "loop" },
+    { "name": "idle", "frames": 1, "play": "loop" },
+    { "name": "coffee", "frames": 3, "play": "loop" },
+    { "name": "typing", "frames": 2, "play": "loop" }
+  ]
+}

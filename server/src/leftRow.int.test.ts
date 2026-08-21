@@ -32,6 +32,24 @@ interface Sheet {
   frameW: number;
 }
 
+/**
+ * A sheet's cell width is what its own manifest says, not one constant.
+ *
+ * Frame size is per character (`CharacterSpec`, up to 64×64) — char_6 is 23px wide — so
+ * slicing every sheet at CHAR_FRAME_W would check the wrong columns the moment a character
+ * declares its own size: the mirror comparison would pair cell 1 of the left row with a
+ * point inside cell 0 of the right one and fail on art that is perfectly mirrored. The
+ * constant stays the fallback, which is exactly what the loader does with a missing
+ * manifest.
+ */
+function declaredFrameW(dir: string, file: string, fallback: number): number {
+  if (dir !== 'characters') return fallback;
+  const manifest = path.join(ASSETS_ROOT, 'assets', dir, file.replace(/\.png$/i, '.json'));
+  if (!fs.existsSync(manifest)) return fallback;
+  const w = (JSON.parse(fs.readFileSync(manifest, 'utf-8')) as { frame?: { w?: number } }).frame?.w;
+  return typeof w === 'number' && Number.isInteger(w) && w > 0 && w <= 64 ? w : fallback;
+}
+
 function sheets(): Sheet[] {
   const out: Sheet[] = [];
   for (const [dir, frameW, filter] of [
@@ -40,7 +58,11 @@ function sheets(): Sheet[] {
   ] as const) {
     const full = path.join(ASSETS_ROOT, 'assets', dir);
     for (const f of fs.readdirSync(full).filter(filter).sort()) {
-      out.push({ name: `${dir}/${f}`, png: PNG.sync.read(fs.readFileSync(path.join(full, f))), frameW });
+      out.push({
+        name: `${dir}/${f}`,
+        png: PNG.sync.read(fs.readFileSync(path.join(full, f))),
+        frameW: declaredFrameW(dir, f, frameW),
+      });
     }
   }
   return out;
