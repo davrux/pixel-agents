@@ -217,6 +217,10 @@ export function injectMatrixSkin(): void {
   border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;padding:0.5rem 0.6rem;
 }
 .mx-subhead button,.mx-subhead > span{flex:0 0 auto}
+/* One height for every control up here. Left alone, each .pa-b is sized by its
+   own glyph's line box, and the colour-emoji font (🖼, 👥) rides a taller one
+   than ◀ in FS Pixel Sans — three buttons, three heights. */
+.mx-subhead .pa-b{height:2rem;padding:0 0.55rem;display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .mx-room-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 #pa-mx-list,#pa-mx-tl{overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0}
