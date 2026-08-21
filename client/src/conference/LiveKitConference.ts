@@ -108,6 +108,11 @@ const dec = new TextDecoder();
  *  on the way out too, so our own effect matches what others see. */
 const REACTION_GAP_MS = 900;
 
+/** How long after a devicechange to re-read the device list. Long enough for a
+ *  browser to finish re-routing a default-following capture onto the device that
+ *  was just plugged in, short enough to feel immediate. */
+const DEVICE_SETTLE_MS = 800;
+
 export class LiveKitConference {
   private room: Room | null = null;
   /** One tile per participant identity (camera / placeholder). */
@@ -134,6 +139,9 @@ export class LiveKitConference {
    *  bookkeeping because, once the graph owns the capture, LiveKit's
    *  `getActiveDevice('audioinput')` no longer describes what we are recording. */
   private micId?: string;
+  /** Pending re-read of the device list after a devicechange (see
+   *  onMediaDevicesChanged); null when none is due. */
+  private deviceSettleTimer: number | null = null;
   /** Unsubscribe from the shared audio settings (set on connect). */
   private unsubAudio?: () => void;
   /**
@@ -223,7 +231,8 @@ export class LiveKitConference {
       })
       .on(RoomEvent.ActiveSpeakersChanged, (speakers) => this.markSpeakers(speakers))
       .on(RoomEvent.DataReceived, (payload, p) => this.onData(payload, p))
-      .on(RoomEvent.MediaDevicesChanged, () => void this.emitDevices())
+      .on(RoomEvent.MediaDevicesChanged, () => this.onMediaDevicesChanged())
+      .on(RoomEvent.ActiveDeviceChanged, (kind, deviceId) => this.onActiveDeviceChanged(kind, deviceId))
       .on(RoomEvent.Disconnected, () => this.cleanup());
     try {
       await room.connect(url, token);
@@ -807,6 +816,43 @@ export class LiveKitConference {
     this.notify();
   }
 
+  /**
+   * A device was plugged in or pulled out. Report the list at once — and once more
+   * after it settles, because the event arrives BEFORE the browser has finished
+   * re-routing a capture that follows the system default: read that instant, the
+   * graph still names the old microphone, and nothing fires again afterwards to
+   * correct it. Two reads is what makes "a headset became the default mid-call"
+   * show up in the picker at all.
+   */
+  private onMediaDevicesChanged(): void {
+    void this.emitDevices();
+    if (this.deviceSettleTimer !== null) window.clearTimeout(this.deviceSettleTimer);
+    this.deviceSettleTimer = window.setTimeout(() => {
+      this.deviceSettleTimer = null;
+      void this.emitDevices();
+    }, DEVICE_SETTLE_MS);
+  }
+
+  /**
+   * LiveKit changed an active device on its own — the newly plugged-in headset
+   * became the system default, or the device in use disappeared. It reports that
+   * as an event rather than as part of the list, so without this the pickers keep
+   * naming the device that is no longer in use ("it switched but the UI didn't").
+   *
+   * Two things have to follow it: our own speaker bookkeeping, which is what a
+   * later-attached audio element gets its sink from and what switchSpeaker compares
+   * against, and the pickers. The output is applied to the elements we attached
+   * ourselves too — LiveKit only sinks the ones it knows about, and a picker
+   * agreeing with a route nobody applied is the same bug one layer down.
+   */
+  private onActiveDeviceChanged(kind: MediaDeviceKind, deviceId: string): void {
+    if (kind === 'audiooutput' && deviceId && deviceId !== this.speakerId) {
+      this.speakerId = deviceId;
+      for (const a of this.audios.values()) void setSinkId(a.el, deviceId);
+    }
+    void this.emitDevices();
+  }
+
   private async emitDevices(): Promise<void> {
     const room = this.room;
     if (!room || !this.cb.onDevices) return;
@@ -828,7 +874,9 @@ export class LiveKitConference {
         mics,
         speakers,
         camId: room.getActiveDevice('videoinput'),
-        micId: this.micId ?? room.getActiveDevice('audioinput'),
+        // What we are ON, not what was asked for: the graph owns the capture, and a
+        // capture on the system default moves by itself when the default changes.
+        micId: this.micGraph?.deviceId || this.micId || room.getActiveDevice('audioinput'),
         speakerId: room.getActiveDevice('audiooutput') ?? this.speakerId,
       });
     } catch {
@@ -913,6 +961,12 @@ export class LiveKitConference {
     this.camOn = false;
     this.micOn = false;
     this.screenOn = false;
+    // A pending device re-read has nothing left to report — and a timer outliving
+    // the call it belongs to is what keeps the whole call object alive.
+    if (this.deviceSettleTimer !== null) {
+      window.clearTimeout(this.deviceSettleTimer);
+      this.deviceSettleTimer = null;
+    }
     // Here rather than in disconnect(), so a call the server or the network ends
     // also releases the microphone — otherwise the device light stays on.
     this.micGraph?.stop();
