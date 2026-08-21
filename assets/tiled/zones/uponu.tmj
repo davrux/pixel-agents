@@ -3040,6 +3040,19 @@
                  "width":32,
                  "x":16,
                  "y":48
+                }, 
+                {
+                 "gid":7398,
+                 "height":32,
+                 "id":439,
+                 "name":"",
+                 "opacity":1,
+                 "rotation":0,
+                 "type":"FurnitureObject",
+                 "visible":true,
+                 "width":32,
+                 "x":16,
+                 "y":144
                 }],
          "opacity":1,
          "type":"objectgroup",
@@ -3301,7 +3314,7 @@
          "y":0
         }],
  "nextlayerid":9,
- "nextobjectid":439,
+ "nextobjectid":440,
  "orientation":"orthogonal",
  "properties":[
         {
