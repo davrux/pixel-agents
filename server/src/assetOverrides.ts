@@ -74,10 +74,35 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // Give bundled skins a friendly default display name (editable in the editor)
   // so the UI never has to show the technical id. User overrides always carry a
   // name (server-validated), so only file defaults need this.
-  const characters: Array<{ id: string; data: unknown }> = bundledChars.map((data, i) => ({
-    id: `char_${i}`,
-    data: (data as { name?: string }).name ? data : { ...(data as object), name: `Skin ${i + 1}` },
-  }));
+  //
+  // Named per slot, like the pets below, and the names are FIXED rather than picked at
+  // startup: a skin's label is what a viewer recognises it by in the gallery and in its
+  // own settings, so one that changed between restarts would make every roster disagree
+  // with the one seen yesterday. A slot without an entry keeps the generic `Skin N`, which
+  // is what an eighth bundled character would get until somebody names it. The id stays
+  // `char_<i>` — that is the key a skin pin, an override and a delete are stored under —
+  // so this is a label, not a rename.
+  const CHAR_NAMES: Record<string, string> = {
+    char_0: 'Nora',
+    char_1: 'Ida',
+    char_2: 'Sami',
+    char_3: 'Otto',
+    char_4: 'Jonas',
+    char_5: 'Lina',
+    char_6: 'Meik',
+  };
+  const characters: Array<{ id: string; data: unknown }> = bundledChars.map((data, i) => {
+    // A name that merely repeats the slot id carries no information — the same trap the
+    // pets have below, where the editor fills an empty name field from the slot.
+    const own = (data as { name?: string }).name;
+    return {
+      id: `char_${i}`,
+      data:
+        own && own !== `char_${i}`
+          ? data
+          : { ...(data as object), name: CHAR_NAMES[`char_${i}`] ?? `Skin ${i + 1}` },
+    };
+  });
   // orderedAssets sorts by numeric index so appended user skins stay in order
   // (char_6, char_7, … — not lexical char_10 before char_6) for a tidy gallery.
   for (const { name, data } of orderedAssets('character')) {
@@ -112,7 +137,17 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   // NPC selection are stored under — so this is a label, not a rename. An
   // override that brings its own name keeps it (the NPC editor derives one from
   // the slot only when the field is empty, so editing Emma's art keeps 'Emma').
-  const PET_NAMES: Record<string, string> = { dog_0: 'Emma', cat_0: 'Loui', cat_1: 'Daisy' };
+  // Every bundled slot is named, for the reason the generic fallback exists at all: a list
+  // reading "Duck 2" next to Emma and Daisy tells a user nothing about which duck it is.
+  // Fixed, like CHAR_NAMES above — a pet's name is what a zone's NPC is picked by.
+  const PET_NAMES: Record<string, string> = {
+    dog_0: 'Emma',
+    dog_1: 'Balu',
+    cat_0: 'Loui',
+    cat_1: 'Daisy',
+    duck_0: 'Rudi',
+    duck_1: 'Frieda',
+  };
   const named = (kind: 'dog' | 'cat' | 'duck', arr: unknown[]): unknown[] =>
     arr.map((data, i) => {
       // A name that merely repeats the slot id carries no information: the NPC editor
