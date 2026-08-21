@@ -255,8 +255,9 @@ export type ApplianceKind = 'coffee';
  * (`PlacedFurniture.action`) or any tile (`OfficeLayout.tileActions`) —
  * replaces the old per-feature furniture-catalog flags (conference/arcade/
  * meetingRoom/appliance) and the tile-only `tilePrivateArea` boolean with one
- * model. Player-only: NPCs/agents never trigger any of these (enforced once,
- * server-side, in OfficeState.walkPlayerToAction's `ch.isPlayer` check).
+ * model. Player-triggered ones are player-only: NPCs/agents never trigger any
+ * of those (enforced once, server-side, in OfficeState.walkPlayerToAction's
+ * `ch.isPlayer` check).
  *
  * Trigger rule: a furniture action requires an explicit click (walk-then-
  * open, like today's arcade/kiosk/conference); a tile action fires the
@@ -264,6 +265,12 @@ export type ApplianceKind = 'coffee';
  * areas) — 'meetingRoom' on a tile is membership-by-position (join/leave by
  * walking in/out, no explicit trigger), everything else on a tile is
  * edge-triggered once on arrival.
+ *
+ * One kind is triggered by neither, and says so on itself: 'talkingObject'
+ * fires on the world clock, with no player involved. `isClickAction` is what
+ * keeps the click path from picking such a kind up — a click is not the only
+ * way an action can happen any more, so "has an action" no longer means
+ * "walk up to it".
  */
 export type Action =
   /** In-world video/audio call via ConferenceUI/LiveKitConference — on
@@ -320,7 +327,35 @@ export type Action =
    *  once on import. Left in tileActions afterward like any other action
    *  (so click-to-move still softly avoids walking across it), not
    *  stripped out. */
-  | { kind: 'spawnPoint' };
+  | { kind: 'spawnPoint' }
+  /**
+   * A talking object: it says the time, by itself, on every full hour — a
+   * speech bubble over the piece reading `9:00`. Today's talking whale.
+   *
+   * The only action so far that is triggered by neither of the two rules above:
+   * not a click, not an arrival, but the WORLD CLOCK. That is why it is an
+   * action rather than a furniture property — what a piece does belongs in this
+   * union, and the trigger is the union's business, not the mapper's. Three
+   * consequences worth stating, because each is a decision:
+   *
+   *   - It is decided server-side, in the tick loop (see OfficeState.update →
+   *     talkingObjects.ts), and the line is broadcast. A client that computed
+   *     "it is 9:00" from its own clock would give every viewer a different
+   *     world — two people standing at the same whale would hear it at
+   *     different moments, and anyone with a skewed clock would hear the wrong
+   *     hour. The world has one clock: the server's.
+   *   - Nothing happens when you click it. Walking up to a statue to be told
+   *     the time is not the interaction, so it stays out of the walk-then-open
+   *     path on both sides (see isClickAction).
+   *   - No player is involved at all, which makes it the first action that also
+   *     fires with nobody standing anywhere near it.
+   *
+   * It carries no payload: WHAT it says is this kind's own behaviour (the
+   * hour), not something a map states. A talking object with a line of its own
+   * to say would be a new field here, parsed in actionProps.ts beside
+   * `actionUrl`, and would not change any of the above.
+   */
+  | { kind: 'talkingObject' };
 
 /**
  * The behaviour of a piece of furniture is stated, never inferred.

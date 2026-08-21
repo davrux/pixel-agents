@@ -99,11 +99,13 @@ login, a screen-share source picker, a system tray with an unread badge, and a
 built-in Mumble client. See [docs/design.md](docs/design.md).
 
 The desktop app ships its **own** bundle and talks to a *remote* server, so unlike a
-browser tab it does not get a new client with a deployment — and it has no
-auto-updater. When a release changes the wire format, the app says so instead of
-rendering a wrong world (`PROTOCOL_VERSION`, checked on join — see
-`client/src/ui/versionGate.ts`) and offers this one-liner, which replaces the
-AppImage in place:
+browser tab it does not get a new client with a deployment — and nothing updates it
+behind your back. When a release changes the wire format, the app says so instead of
+rendering a wrong world silently (`PROTOCOL_VERSION`, checked on join — see
+`client/src/ui/versionGate.ts`): a small **Update** chip appears in the top bar, and
+clicking it downloads the new package and restarts. Where the app cannot update itself
+— macOS, which refuses unsigned updates, or a build predating the updater — the chip
+says why, and this one-liner replaces the AppImage in place:
 
 ```bash
 curl -L -o ~/.local/share/AppImage/pixel-agents.AppImage https://github.com/davrux/pixel-agents/releases/download/latest/pixel-agents-latest-x86_64.AppImage && chmod +x ~/.local/share/AppImage/pixel-agents.AppImage
@@ -334,7 +336,7 @@ repairs that (so does opening and saving the map in Tiled).
 For a whole art *pack* this is the wrong tool — that is a sheet or a collection,
 and `.claude/skills/tiled-asset-import/` covers which.
 
-## Actions — what happens when you get there
+## Actions — what happens when you get there (and one that needs nobody)
 
 `actionKind` is a discriminated union: it decides which of the other `action*`
 properties is read at all. It can sit on a catalog tile (the type's default), on
@@ -342,6 +344,21 @@ a placement (an override), or on an **`ActionArea`** — a Point or Rectangle on
 the Actions layer, for a trigger with no furniture behind it. The area's
 position *is* the data; a 10×10 meeting room and a single tile use the same
 class.
+
+Most of them happen because somebody arrived: on furniture you click it and your
+avatar walks up, on a tile it fires the moment you stand there. One does not —
+`talkingObject` is triggered by the clock, so it needs no player and ignores
+clicks. Place it and walk away; it still speaks.
+
+**The clock it reads is the server's**, because a world has one clock: everyone
+standing at the whale hears the same hour at the same moment, and a viewer whose
+own machine is an hour out is not told the wrong time. The consequence is
+operational — the container runs on UTC unless you say otherwise, so a
+deployment that wants local hours sets `TZ` (e.g. `TZ=Europe/Berlin`) on the
+server process. It announces nothing while a zone is empty: the room does not
+tick without a viewer in it, and the first tick after somebody arrives adopts
+the hour rather than announcing it — arriving at 9:05 is not being present at
+9:00.
 
 | `actionKind` | What it does | Reads |
 |---|---|---|
@@ -355,6 +372,7 @@ class.
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
+| `talkingObject` | says the hour by itself, on the hour — a speech bubble reading `9:00` over the piece | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).
@@ -366,6 +384,14 @@ apart, so there adjacency alone still decides.
 
 **Travel is content.** A portal is just furniture whose action is `portal` — a
 door, a beam pad. Never hard-code a coordinate jump.
+
+**A web page's shape is the viewer's, not the map's.** An `iframe` action carries
+a URL and nothing about how it is framed: each viewer chooses in Settings between
+a column pinned beside the world (the game shrinks to make room, so you can still
+see where you are standing) and a window over it (far more room on a laptop).
+Don't design a map around either one — the same page is a reference panel on a
+wide monitor and a full window on a small screen, and only the person looking at
+it knows which.
 
 ## On/off state — the off tile names the on tile
 
@@ -395,7 +421,7 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint`, `talkingObject` |
 | `ApplianceKind` | *(empty)*, `coffee` |
 
 ## Two things that will bite you

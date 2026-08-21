@@ -10,6 +10,10 @@
  * decide how many TILES the thing is and resample it there, and that decision
  * plus the resampling is what this script records.
  *
+ * One case needs none of that: art already drawn at this scale — a 48x48 piece of
+ * pixel art for a 3x3-tile object. --as-is copies its pixels and skips every step
+ * below, because each of them would only take something away.
+ *
  * It is not a pack importer: a pack is many pieces and the judgement is where
  * one ends and the next begins (gen-metro-furniture.mts, and the
  * tiled-asset-import skill). Here there is one piece and the judgement is its
@@ -75,6 +79,7 @@ interface Args {
   shadow: boolean;
   fit: boolean;
   replace: boolean;
+  asIs: boolean;
   erase: Array<[number, number, number, number]>;
   props: Map<string, string>;
   dry: boolean;
@@ -92,6 +97,9 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
                      16px = one tile, so 32x32 is a 2x2-tile object.
   --fit              keep the subject's aspect inside --size (bottom-anchored,
                      centred) instead of stretching to fill it
+  --as-is            the source is ALREADY drawn at this world's scale: copy its
+                     pixels, resample nothing. --size defaults to the picture's
+                     own size and must match it; no shadow row is added
   --replace          the id already exists: redraw its PNG and leave the tileset
                      alone. Refuses a --size the tile does not already have
   --label TEXT       display name (default: the id, title-cased)
@@ -109,7 +117,15 @@ Usage: scripts/import-furniture-image.sh <source.png> --id ID --set SET [options
 
 function parseArgs(argv: string[]): Args {
   const positional: string[] = [];
-  const out: Partial<Args> = { erase: [], props: new Map(), dry: false, shadow: true, fit: false, replace: false };
+  const out: Partial<Args> = {
+    erase: [],
+    props: new Map(),
+    dry: false,
+    shadow: true,
+    fit: false,
+    replace: false,
+    asIs: false,
+  };
   let label: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -118,6 +134,7 @@ function parseArgs(argv: string[]): Args {
     else if (a === '--dry-run') out.dry = true;
     else if (a === '--no-shadow') out.shadow = false;
     else if (a === '--fit') out.fit = true;
+    else if (a === '--as-is') out.asIs = true;
     else if (a === '--replace') out.replace = true;
     else if (a === '--id') out.id = next();
     else if (a === '--set') out.set = next();
@@ -145,8 +162,11 @@ function parseArgs(argv: string[]): Args {
   if (!out.id) usage('--id is required');
   if (!out.set) usage('--set is required');
   if (!/^[A-Z][A-Z0-9_]*$/.test(out.id)) usage('--id should be SCREAMING_SNAKE_CASE');
-  const width = out.width ?? 32;
-  const height = out.height ?? 32;
+  if (out.asIs && out.fit) usage('--as-is and --fit contradict each other: --as-is resamples nothing');
+  // --as-is takes the size from the picture, which has not been read yet; 0 means
+  // "ask the source", resolved once it is open.
+  const width = out.width ?? (out.asIs ? 0 : 32);
+  const height = out.height ?? (out.asIs ? 0 : 32);
   if (width % TILE || height % TILE) usage(`--size must be whole tiles of ${TILE}px`);
   if (!out.props!.has('label')) out.props!.set('label', label ?? titleCase(out.id));
   return {
@@ -157,9 +177,13 @@ function parseArgs(argv: string[]): Args {
     height,
     greys: out.greys ?? 14,
     chroma: out.chroma ?? 7,
-    shadow: out.shadow!,
+    // The house shadow row is part of RESAMPLING a foreign render into this
+    // catalog's look. Art that already belongs here has whatever shadow its
+    // artist drew, and a row added underneath is a pixel they did not.
+    shadow: out.asIs ? false : out.shadow!,
     fit: out.fit!,
     replace: out.replace!,
+    asIs: out.asIs!,
     erase: out.erase!,
     props: out.props!,
     dry: out.dry!,
@@ -442,6 +466,12 @@ const existing = taken.has(args.id) ? tsj.tiles.find((t) => t.id === taken.get(a
 if (existing && !args.replace)
   usage(`${args.id} already exists in furniture-${args.set} (tile ${existing.id}) — --replace redraws it`);
 if (!existing && args.replace) usage(`${args.id} is not in furniture-${args.set}, so there is nothing to replace`);
+// --as-is without --size means "the picture decides"; when it is redrawing a tile,
+// the tile has already decided, so the check below stays a real comparison.
+if (existing && args.asIs && !args.width) {
+  args.width = existing.imagewidth!;
+  args.height = existing.imageheight!;
+}
 // Redrawing art is safe; resizing the tile is not. Footprint, blocking, seats and
 // approach tiles are all derived from the PNG's size, so a new size would silently
 // move them under every placement that already exists.
@@ -456,29 +486,52 @@ for (const rect of args.erase) {
   erase(src, rect);
   console.log(`  erased ${rect.join(',')}`);
 }
-const box = bbox(src);
-console.log(`  subject ${box.x1 - box.x0}x${box.y1 - box.y0} at ${box.x0},${box.y0}`);
-const artHeight = args.shadow ? args.height - 1 : args.height;
-// --fit: the subject keeps its own aspect and gives up the spare rows, so a long
-// low vehicle stays a long low vehicle inside the box the set already uses.
-let artW = args.width;
-let artH = artHeight;
-if (args.fit) {
-  const scale = Math.min(args.width / (box.x1 - box.x0), artHeight / (box.y1 - box.y0));
-  artW = Math.max(1, Math.round((box.x1 - box.x0) * scale));
-  artH = Math.max(1, Math.round((box.y1 - box.y0) * scale));
+let out: PNG;
+if (args.asIs) {
+  // Pixel art drawn at 16px to the tile is already the answer this script exists
+  // to compute, and every step below would degrade it: cropping to the subject
+  // then area-averaging back up softens edges that were placed by hand, and the
+  // palette pass has nothing to reduce. So the transform is none — which is also
+  // what makes the result verifiable, cell against source cell.
+  if (!args.width) {
+    args.width = src.width;
+    args.height = src.height;
+  }
+  if (src.width !== args.width || src.height !== args.height)
+    usage(
+      `--as-is copies the pixels, so the source must already be ${args.width}x${args.height}, not ${src.width}x${src.height}`,
+    );
+  if (args.width % TILE || args.height % TILE)
+    usage(`--as-is wants a source of whole ${TILE}px tiles, and ${src.width}x${src.height} is not`);
+  out = src;
+  console.log(
+    `  → ${args.width}x${args.height} (${args.width / TILE}x${args.height / TILE} tiles), pixels copied unchanged`,
+  );
+} else {
+  const box = bbox(src);
+  console.log(`  subject ${box.x1 - box.x0}x${box.y1 - box.y0} at ${box.x0},${box.y0}`);
+  const artHeight = args.shadow ? args.height - 1 : args.height;
+  // --fit: the subject keeps its own aspect and gives up the spare rows, so a long
+  // low vehicle stays a long low vehicle inside the box the set already uses.
+  let artW = args.width;
+  let artH = artHeight;
+  if (args.fit) {
+    const scale = Math.min(args.width / (box.x1 - box.x0), artHeight / (box.y1 - box.y0));
+    artW = Math.max(1, Math.round((box.x1 - box.x0) * scale));
+    artH = Math.max(1, Math.round((box.y1 - box.y0) * scale));
+  }
+  const art = shrink(src, box, artW, artH);
+  const { palette, accents } = quantize(art, args.greys, args.chroma);
+  out = new PNG({ width: args.width, height: args.height });
+  out.data.fill(0);
+  PNG.bitblt(art, out, 0, 0, art.width, art.height, Math.floor((args.width - artW) / 2), artHeight - artH);
+  if (args.shadow) shadowRow(out);
+  console.log(
+    `  → ${args.width}x${args.height} (${args.width / TILE}x${args.height / TILE} tiles)` +
+      (artW !== args.width || artH !== artHeight ? `, art ${artW}x${artH} bottom-centred` : '') +
+      `, ${palette} colours, ${accents} of them accents`,
+  );
 }
-const art = shrink(src, box, artW, artH);
-const { palette, accents } = quantize(art, args.greys, args.chroma);
-const out = new PNG({ width: args.width, height: args.height });
-out.data.fill(0);
-PNG.bitblt(art, out, 0, 0, art.width, art.height, Math.floor((args.width - artW) / 2), artHeight - artH);
-if (args.shadow) shadowRow(out);
-console.log(
-  `  → ${args.width}x${args.height} (${args.width / TILE}x${args.height / TILE} tiles)` +
-    (artW !== args.width || artH !== artHeight ? `, art ${artW}x${artH} bottom-centred` : '') +
-    `, ${palette} colours, ${accents} of them accents`,
-);
 
 const pngRel = path.join('png', 'src', 'furniture', args.set, `${args.id}.png`);
 const pngPath = path.join(ROOT, 'assets', 'tiled', pngRel);

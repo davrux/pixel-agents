@@ -1,6 +1,7 @@
 export {
   getCatalogEntry,
   effectiveAction,
+  isClickAction,
   resolveBackgroundTiles,
   resolveCanSitOn,
   resolvePetCanSitOn,

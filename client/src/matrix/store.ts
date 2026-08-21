@@ -1103,6 +1103,15 @@ export class MatrixStore {
     return media.avatarUrl(mxc, sizePx);
   }
 
+  /** The full-size original behind an avatar, for viewing a chat's picture
+   *  large. Cached like every other download; refused unless the bytes sniff
+   *  as a real raster image (see MatrixMedia.avatarOriginalUrl). */
+  avatarOriginalUrl(mxc: string): Promise<string> {
+    const media = this.media_;
+    if (!media) return Promise.reject(new MatrixError(0, '', 'Not connected.'));
+    return media.avatarOriginalUrl(mxc);
+  }
+
   existingDmWith(mxid: string): string | undefined {
     const client = this.client;
     if (!client) return undefined;

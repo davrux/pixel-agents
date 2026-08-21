@@ -23,6 +23,7 @@ import {
   animationFrameAt,
   effectiveAction,
   getCatalogEntry,
+  isClickAction,
   resolveOnState,
   resolveBackgroundTiles,
   resolvePetCanSitOn,
@@ -81,6 +82,7 @@ import {
 import { claimPoint, createCharacter, releasePoint, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
+import { announceDue, hourChimes, type SpokenLine } from './talkingObjects.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
@@ -201,6 +203,16 @@ export class OfficeState {
    *  trigger), drained by the room — see takePendingActionArrivals /
    *  walkPlayerToAction / SimRoom.handleActionArrivals. */
   private pendingActionArrivals: Array<{ id: number; action: Action; col: number; row: number }> = [];
+  /** Lines a talking object said this tick, drained by the room — see
+   *  takeSpokenLines / talkingObjects.ts / SimRoom.handleSpokenLines. Bounded by
+   *  construction rather than by a cap: the only thing that appends is the hour
+   *  turning, at most one line per talking object, and the room drains it in the
+   *  same tick that filled it. */
+  private spokenLines: SpokenLine[] = [];
+  /** Which hour the talking objects have already announced (`null` = this room
+   *  has not ticked yet, so the next tick adopts the hour instead of announcing
+   *  it — see announceDue). */
+  private lastChimeStamp: number | null = null;
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -1285,22 +1297,43 @@ export class OfficeState {
     return out;
   }
 
+  /** Announce the hour through every talking object when it turns. Costs one
+   *  `new Date` per tick and nothing else until it does — the scan for talking
+   *  objects only runs on the boundary, not 20 times a second. */
+  private tickTalkingObjects(nowMs: number): void {
+    const { due, stamp } = announceDue(nowMs, this.lastChimeStamp);
+    this.lastChimeStamp = stamp;
+    if (!due) return;
+    this.spokenLines.push(...hourChimes(this.layout.furniture, nowMs));
+  }
+
+  /** What the talking objects said this tick (see SpokenLine), emptied by the
+   *  read — the room broadcasts them and nothing keeps a history: a bubble is a
+   *  moment, and a viewer who was not there has not missed a fact. */
+  takeSpokenLines(): SpokenLine[] {
+    if (this.spokenLines.length === 0) return [];
+    const out = this.spokenLines;
+    this.spokenLines = [];
+    return out;
+  }
+
   /** Walk a player to one of the walkable tiles around a furniture item's
    *  action (conference monitor, link-manager kiosk, arcade cabinet, iframe
    *  sprite, or a 'meetingRoom' override on plain furniture — see Action),
    *  facing it, then queue the arrival notification. Triggers in place if
    *  already at any approach tile; otherwise picks randomly among the
    *  reachable ones, so simultaneous visitors don't all converge on one
-   *  fixed tile. Returns false if there's no (non-appliance) action at that
-   *  tile or nowhere reachable to stand — appliances go through
+   *  fixed tile. Returns false if there's no CLICK action at that tile (see
+   *  isClickAction) or nowhere reachable to stand — appliances go through
    *  useAppliance instead (they use the pre-built station/occupancy system,
-   *  not computeApproachTiles). */
+   *  not computeApproachTiles), and a talking object is not walked up to at
+   *  all. */
   walkPlayerToAction(id: number, anchorCol: number, anchorRow: number): boolean {
     const ch = this.characters.get(id);
     if (!ch || !ch.isPlayer) return false;
     // A tile can carry more than one furniture item (e.g. a cup placed on a
-    // table via occupiesSurface) — of the ones that actually HAVE a
-    // (non-appliance) action, prefer whichever renders on top: the higher
+    // table via occupiesSurface) — of the ones a click actually reaches (see
+    // isClickAction), prefer whichever renders on top: the higher
     // manual "bring to front" override, then whichever was placed later (the
     // editor convention — you place the base first, decorations on top
     // after; this is also what a Tiled object layer's own list order
@@ -1311,8 +1344,7 @@ export class OfficeState {
     // ranked against each other.
     const candidates = this.layout.furniture.filter((f) => {
       if (f.col !== anchorCol || f.row !== anchorRow) return false;
-      const a = effectiveAction(f, entryFor(f));
-      return !!a && a.kind !== 'appliance';
+      return isClickAction(effectiveAction(f, entryFor(f)));
     });
     candidates.sort((a, b) => {
       const aOff = a.zOffset ?? 0;
@@ -1951,7 +1983,17 @@ export class OfficeState {
     ch.outputTokens = outputTokens;
   }
 
-  update(dt: number): void {
+  /**
+   * Advance the world by `dt` seconds.
+   *
+   * `nowMs` is the wall clock, and it is a parameter for the same reason `dt` is
+   * one: the only thing in here that reads a real calendar is the talking
+   * objects' hourly announcement (see talkingObjects.ts), and a test that had to
+   * wait for an hour boundary would not be written. Production passes nothing
+   * and gets the server's clock — the one clock the whole world shares.
+   */
+  update(dt: number, nowMs: number = Date.now()): void {
+    this.tickTalkingObjects(nowMs);
     // Furniture animation cycling — each animation group loops on its own
     // total duration now (Tiled-style per-frame timing), so there's no single
     // shared frame index to compare anymore. Snapshot which frame every

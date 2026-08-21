@@ -48,9 +48,15 @@ import {
   saveSession,
 } from './session.js';
 import { MatrixStore } from './store.js';
-import { imageContentOf, MAX_FILE_BYTES } from './media.js';
+import {
+  fileContentOf,
+  imageContentOf,
+  MAX_FILE_BYTES,
+  type MxFileContent,
+  type MxImageContent,
+} from './media.js';
 import { mkAvatar, type MxAvatarPicture } from './matrixSkin.js';
-import { fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
+import { describeFile, fmtBytes, fmtRelative, messageActionsFor, TimelineView, type TimelineHooks } from './timeline.js';
 import { openMessageMenu, type MessageMenuHandle } from './messageMenu.js';
 import { openEmojiPicker, type EmojiPickerHandle } from './emojiPicker.js';
 import { copyImage, copyText } from './clipboard.js';
@@ -70,6 +76,7 @@ type ViewName =
   | 'rooms'
   | 'room'
   | 'members'
+  | 'media'
   | 'newdm'
   | 'newgroup'
   | 'join'
@@ -125,7 +132,7 @@ export class MatrixUI {
   private meEl!: HTMLSpanElement;
   private meAvatarSlot!: HTMLButtonElement;
   private avatarInput!: HTMLInputElement;
-  private roomAvatarSlot!: HTMLSpanElement;
+  private roomAvatarSlot!: HTMLButtonElement;
   private avatarBusy = false;
   private encBtn!: HTMLButtonElement;
   /** Desktop builds only — the browser has no OS notification to configure. */
@@ -176,6 +183,7 @@ export class MatrixUI {
   private roomNameEl!: HTMLSpanElement;
   private roomLockEl!: HTMLSpanElement;
   private roomMembersBtn!: HTMLButtonElement;
+  private roomMediaBtn!: HTMLButtonElement;
   private roomNoticeEl!: HTMLDivElement;
   private timelineView!: TimelineView;
   private composerTextarea!: HTMLTextAreaElement;
@@ -213,6 +221,21 @@ export class MatrixUI {
    *  rendering a game is not worth the complexity. */
   private uploading = false;
   private refreshTimer?: number;
+
+  // ---- media view ----
+  private mediaStatusEl!: HTMLDivElement;
+  private mediaPicsLabel!: HTMLDivElement;
+  private mediaPicsGridEl!: HTMLDivElement;
+  private mediaFilesLabel!: HTMLDivElement;
+  private mediaFilesListEl!: HTMLDivElement;
+  private mediaOlderBtn!: HTMLButtonElement;
+  private mediaFootEl!: HTMLDivElement;
+  /** Signature of what the grid/list currently shows (the media events' ids),
+   *  so the per-sync-tick re-render doesn't rebuild every tile — same trick as
+   *  the rail and paintAvatarSlot, for the same reason: a rebuilt tile is a
+   *  restarted <img> load and a visible flicker. null forces the next render
+   *  to rebuild (set when the view is opened for a room). */
+  private mediaListKey: string | null = null;
 
   // ---- members view ----
   private membersJoinedLabel!: HTMLDivElement;
@@ -286,6 +309,7 @@ export class MatrixUI {
     this.buildRoomsView();
     this.buildRoomView();
     this.buildMembersView();
+    this.buildMediaView();
     this.buildNewDmView();
     this.buildNewGroupView();
     this.buildJoinView();
@@ -384,9 +408,12 @@ export class MatrixUI {
         }
       }),
       this.store.on('timeline', (roomId) => {
-        if (this.openRoomId === roomId && this.stack[this.stack.length - 1]?.view === 'room') {
-          this.renderRoomView(roomId);
-        }
+        const top = this.stack[this.stack.length - 1];
+        if (this.openRoomId !== roomId) return;
+        if (top?.view === 'room') this.renderRoomView(roomId);
+        // The media overview is a projection of the same loaded window, so a
+        // new attachment (or a finished paginate) repaints it the same way.
+        else if (top?.view === 'media') this.renderMediaView(roomId);
       }),
       // Deliberately NOT renderRoomView: someone typing repaints one strip,
       // not the rail, the timeline and the header.
@@ -422,6 +449,11 @@ export class MatrixUI {
     // the same account signs back in and the rail's signature happens to match.
     this.railEl.replaceChildren();
     this.railKey = '';
+    // Same for the media overview's tiles (openMediaView already forces a
+    // rebuild on the next open; this just stops revoked URLs lingering in DOM).
+    this.mediaPicsGridEl.replaceChildren();
+    this.mediaFilesListEl.replaceChildren();
+    this.mediaListKey = null;
     this.store?.destroy();
     this.store = null;
     this.hsBaseUrl = '';
@@ -481,6 +513,9 @@ export class MatrixUI {
       } else if (saved.view === 'members' && saved.roomId) {
         this.openRoomView(saved.roomId);
         this.openMembersView();
+      } else if (saved.view === 'media' && saved.roomId) {
+        this.openRoomView(saved.roomId);
+        this.openMediaView();
       } else {
         this.stack = [{ view: 'rooms' }];
       }
@@ -531,6 +566,9 @@ export class MatrixUI {
         break;
       case 'members':
         if (frame.roomId) this.renderMembersView(frame.roomId);
+        break;
+      case 'media':
+        if (frame.roomId) this.renderMediaView(frame.roomId);
         break;
       case 'newdm':
         this.renderNewDmView();
@@ -606,6 +644,17 @@ export class MatrixUI {
     if (!top || top.view !== 'room' || !top.roomId) return;
     this.stack.push({ view: 'members', roomId: top.roomId });
     void this.refreshMembers(top.roomId);
+    this.renderCurrent();
+  }
+
+  private openMediaView(): void {
+    const top = this.stack[this.stack.length - 1];
+    if (!top || top.view !== 'room' || !top.roomId) return;
+    this.stack.push({ view: 'media', roomId: top.roomId });
+    // Force the next render to rebuild the grid: an empty room A and an empty
+    // room B share the same (empty) signature, and stale tiles from the last
+    // visit must never survive into a different room.
+    this.mediaListKey = null;
     this.renderCurrent();
   }
 
@@ -1339,8 +1388,13 @@ export class MatrixUI {
     back.addEventListener('click', () => this.goBack());
     subhead.appendChild(back);
 
-    this.roomAvatarSlot = document.createElement('span');
-    this.roomAvatarSlot.className = 'mx-av-slot';
+    // A button, not a span: clicking the chat's picture opens it full-size in
+    // the lightbox. Disabled (renderRoomView) when the chat has no picture —
+    // an initials square has nothing larger to show.
+    this.roomAvatarSlot = document.createElement('button');
+    this.roomAvatarSlot.type = 'button';
+    this.roomAvatarSlot.className = 'mx-av-slot mx-av-btn';
+    this.roomAvatarSlot.addEventListener('click', () => void this.openRoomAvatar());
     subhead.appendChild(this.roomAvatarSlot);
 
     this.roomNameEl = document.createElement('span');
@@ -1351,6 +1405,14 @@ export class MatrixUI {
     this.roomLockEl.textContent = '🔒';
     this.roomLockEl.style.display = 'none';
     subhead.appendChild(this.roomLockEl);
+
+    this.roomMediaBtn = document.createElement('button');
+    this.roomMediaBtn.className = 'pa-b';
+    this.roomMediaBtn.textContent = '🖼';
+    this.roomMediaBtn.title = 'Pictures & files shared in this chat';
+    this.roomMediaBtn.setAttribute('aria-label', 'Pictures and files shared in this chat');
+    this.roomMediaBtn.addEventListener('click', () => this.openMediaView());
+    subhead.appendChild(this.roomMediaBtn);
 
     this.roomMembersBtn = document.createElement('button');
     this.roomMembersBtn.className = 'pa-b';
@@ -1564,6 +1626,11 @@ export class MatrixUI {
     this.roomNameEl.textContent = room?.name ?? roomId;
     this.roomNameEl.title = room?.name ?? roomId;
     this.paintAvatarSlot(this.roomAvatarSlot, roomId, room?.name ?? roomId, room?.avatarMxc ?? null);
+    const hasAvatar = !!room?.avatarMxc;
+    this.roomAvatarSlot.disabled = !hasAvatar;
+    this.roomAvatarSlot.title = hasAvatar ? "View this chat's picture" : '';
+    if (hasAvatar) this.roomAvatarSlot.setAttribute('aria-label', "View this chat's picture");
+    else this.roomAvatarSlot.removeAttribute('aria-label');
 
     const nowEncrypted = !!room?.encrypted;
     const warnActive = this.cryptoLockWarn();
@@ -2341,6 +2408,250 @@ export class MatrixUI {
     try {
       await this.store.leave(rid);
       this.goRoot();
+    } catch (e) {
+      this.toast(this.errText(e));
+    }
+  }
+
+  // ==================================================================
+  // media view — every picture and file in the loaded window, in one place
+  // ==================================================================
+
+  private buildMediaView(): void {
+    const section = document.createElement('section');
+    section.dataset.view = 'media';
+
+    const back = document.createElement('button');
+    back.className = 'pa-b';
+    back.textContent = '◀';
+    back.addEventListener('click', () => this.goBack());
+    section.appendChild(back);
+
+    this.mediaStatusEl = document.createElement('div');
+    this.mediaStatusEl.className = 'muted';
+    section.appendChild(this.mediaStatusEl);
+
+    this.mediaPicsLabel = document.createElement('div');
+    this.mediaPicsLabel.className = 'grouplbl';
+    section.appendChild(this.mediaPicsLabel);
+    this.mediaPicsGridEl = document.createElement('div');
+    this.mediaPicsGridEl.className = 'mx-media-grid';
+    section.appendChild(this.mediaPicsGridEl);
+
+    this.mediaFilesLabel = document.createElement('div');
+    this.mediaFilesLabel.className = 'grouplbl';
+    section.appendChild(this.mediaFilesLabel);
+    this.mediaFilesListEl = document.createElement('div');
+    this.mediaFilesListEl.className = 'mx-media-files';
+    section.appendChild(this.mediaFilesListEl);
+
+    // The overview covers what is *loaded*, same window as the timeline (the
+    // same rule reactions follow — see MatrixStore.collectReactions). This is
+    // the honest label for that plus the way to widen it.
+    this.mediaFootEl = document.createElement('div');
+    this.mediaFootEl.className = 'muted mx-media-foot';
+    section.appendChild(this.mediaFootEl);
+
+    this.mediaOlderBtn = document.createElement('button');
+    this.mediaOlderBtn.className = 'pa-b wide';
+    this.mediaOlderBtn.textContent = 'Load older messages';
+    this.mediaOlderBtn.addEventListener('click', () => {
+      const top = this.stack[this.stack.length - 1];
+      if (top?.view !== 'media' || !top.roomId) return;
+      // paginate() emits 'timeline' on start and finish, which re-renders us.
+      this.store?.paginate(top.roomId).catch(() => {
+        /* surfaced via store.timelineError() in the next render */
+      });
+    });
+    section.appendChild(this.mediaOlderBtn);
+
+    this.sections.set('media', section);
+    this.root.appendChild(section);
+  }
+
+  /** Every attachment event in the loaded window, newest first. The same
+   *  validated projections the timeline rows use (media.ts), so nothing here
+   *  re-checks a remote-controlled shape — and a redacted or undecryptable
+   *  event yields neither and simply isn't media any more. */
+  private collectMedia(roomId: string): Array<{ ev: MxEvent; image: MxImageContent | null; file: MxFileContent | null }> {
+    if (!this.store) return [];
+    const out: Array<{ ev: MxEvent; image: MxImageContent | null; file: MxFileContent | null }> = [];
+    for (const ev of this.store.timeline(roomId)) {
+      if (ev.redacted) continue;
+      const image = imageContentOf(ev.content);
+      const file = image ? null : fileContentOf(ev.content);
+      if (image || file) out.push({ ev, image, file });
+    }
+    out.reverse();
+    return out;
+  }
+
+  private renderMediaView(roomId: string): void {
+    if (!this.store) return;
+    const items = this.collectMedia(roomId);
+    const pics = items.filter((i) => i.image !== null);
+    const files = items.filter((i) => i.file !== null);
+
+    this.mediaPicsLabel.textContent = `PICTURES (${pics.length})`;
+    this.mediaPicsLabel.style.display = pics.length > 0 ? '' : 'none';
+    this.mediaFilesLabel.textContent = `FILES (${files.length})`;
+    this.mediaFilesLabel.style.display = files.length > 0 ? '' : 'none';
+
+    // Rebuild the tiles only when the set of media events changed — this
+    // renders on every sync tick while a room is busy, and a rebuilt tile is a
+    // restarted <img> and a flicker (same trick as the rail).
+    const key = items.map((i) => i.ev.event_id || i.ev.txnId || '').join(' ');
+    if (key !== this.mediaListKey) {
+      this.mediaListKey = key;
+      this.mediaPicsGridEl.replaceChildren(
+        ...pics.map((i) => this.buildMediaTile(roomId, i.ev, i.image as MxImageContent)),
+      );
+      this.mediaFilesListEl.replaceChildren(
+        ...files.map((i) => this.buildMediaFileRow(roomId, i.ev, i.file as MxFileContent)),
+      );
+    }
+
+    this.mediaStatusEl.textContent =
+      items.length === 0 ? 'No pictures or files in the loaded messages yet.' : '';
+    this.mediaStatusEl.style.display = items.length === 0 ? '' : 'none';
+
+    const atStart = this.store.atStart(roomId);
+    const loading = this.store.loadingTimeline(roomId);
+    const error = this.store.timelineError(roomId);
+    this.mediaOlderBtn.style.display = atStart ? 'none' : '';
+    this.mediaOlderBtn.disabled = loading;
+    this.mediaOlderBtn.textContent = loading ? 'Loading…' : 'Load older messages';
+    this.mediaFootEl.textContent = error
+      ? error
+      : atStart
+        ? 'That covers this whole conversation.'
+        : 'Showing what this session has loaded — older messages may hold more.';
+  }
+
+  /** Who + when for a tile/row tooltip. Both halves are remote-adjacent text
+   *  and land in `title` property assignment only. */
+  private mediaTooltip(roomId: string, ev: MxEvent, name: string): string {
+    const who = this.store?.displayName(roomId, ev.sender) ?? ev.sender;
+    return `${name} · ${who} · ${fmtRelative(ev.origin_server_ts)}`;
+  }
+
+  /** One square in the picture grid. The bytes are the same download the
+   *  timeline row already made (shared cache in media.ts), so walking a room
+   *  you have scrolled costs no new fetches. */
+  private buildMediaTile(roomId: string, ev: MxEvent, content: MxImageContent): HTMLElement {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'mx-media-thumb loading';
+    tile.title = this.mediaTooltip(roomId, ev, content.body);
+    tile.setAttribute('aria-label', `Open ${content.body}`);
+    const ph = document.createElement('span');
+    ph.className = 'ph';
+    ph.textContent = '🖼';
+    tile.appendChild(ph);
+    const img = document.createElement('img');
+    img.alt = content.body;
+    img.decoding = 'async';
+    img.loading = 'lazy';
+    tile.appendChild(img);
+
+    let url = '';
+    let state: 'loading' | 'ok' | 'error' = 'loading';
+    const fail = (): void => {
+      state = 'error';
+      tile.classList.remove('loading', 'has-img');
+      tile.classList.add('failed');
+      img.removeAttribute('src');
+      tile.title = `${content.body} — couldn't load (click to retry)`;
+    };
+    // The download can succeed and the picture still not decode (a mimetype
+    // outside media.ts's allowlist arrives as an opaque blob on purpose) —
+    // same signal the timeline row listens for.
+    img.addEventListener('error', () => {
+      if (state === 'ok') fail();
+    });
+    const load = (): void => {
+      state = 'loading';
+      tile.classList.add('loading');
+      tile.classList.remove('failed');
+      const store = this.store;
+      if (!store) return fail();
+      store
+        .imageUrl(content)
+        .then((u) => {
+          url = u;
+          state = 'ok';
+          tile.classList.remove('loading');
+          tile.classList.add('has-img');
+          img.src = u;
+        })
+        .catch(() => fail());
+    };
+    tile.addEventListener('click', () => {
+      if (state === 'ok') openImageViewer(content.body, url);
+      else if (state === 'error') load();
+    });
+    load();
+    return tile;
+  }
+
+  /** One file row: a name, a size and a download on click — never bytes
+   *  fetched on the reader's behalf, exactly like the timeline's file chip. */
+  private buildMediaFileRow(roomId: string, ev: MxEvent, content: MxFileContent): HTMLElement {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'mx-file mx-media-file';
+    chip.title = this.mediaTooltip(roomId, ev, content.body);
+    chip.setAttribute('aria-label', `Save ${content.body}`);
+    const icon = document.createElement('span');
+    icon.className = 'i';
+    icon.textContent = '📎';
+    const main = document.createElement('span');
+    main.className = 'mx-file-main';
+    const name = document.createElement('span');
+    name.className = 'nm';
+    name.dir = 'auto';
+    name.textContent = content.body;
+    const meta = document.createElement('span');
+    meta.className = 'sub';
+    meta.textContent = describeFile(content);
+    main.append(name, meta);
+    chip.append(icon, main);
+
+    let state: 'idle' | 'loading' = 'idle';
+    chip.addEventListener('click', () => {
+      if (state === 'loading' || !this.store) return;
+      state = 'loading';
+      chip.classList.add('loading');
+      chip.classList.remove('failed');
+      meta.textContent = 'Downloading…';
+      this.store
+        .attachmentUrl(content)
+        .then((u) => {
+          state = 'idle';
+          chip.classList.remove('loading');
+          meta.textContent = describeFile(content);
+          saveBlobUrl(content.body, u);
+        })
+        .catch((err: unknown) => {
+          state = 'idle';
+          chip.classList.remove('loading');
+          chip.classList.add('failed');
+          meta.textContent = `${err instanceof Error && err.message ? err.message : "Couldn't download this file."} — click to retry`;
+        });
+    });
+    return chip;
+  }
+
+  /** The chat's picture, full size, in the lightbox. Only reachable when the
+   *  room has one (the header button is disabled otherwise). */
+  private async openRoomAvatar(): Promise<void> {
+    const rid = this.openRoomId;
+    const store = this.store;
+    const room = rid && store ? store.room(rid) : null;
+    const mxc = room?.avatarMxc;
+    if (!room || !mxc || !store) return;
+    try {
+      openImageViewer(room.name, await store.avatarOriginalUrl(mxc));
     } catch (e) {
       this.toast(this.errText(e));
     }

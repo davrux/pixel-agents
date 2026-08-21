@@ -249,6 +249,32 @@ export function effectiveAction(item: PlacedFurniture, entry: FurnitureCatalogEn
   return item.action ?? entry?.action ?? null;
 }
 
+/**
+ * Does clicking this action walk the player up to it and fire it there?
+ *
+ * "Has an action" used to be the same question, and both sides asked it by
+ * excluding one kind by name (`kind !== 'appliance'`) in two files that had to
+ * agree: the client decides what to offer a click on, the server decides what a
+ * click may do, and a disagreement is either a dead click or a walk to nothing.
+ * It is one function now, because there are two exclusions:
+ *
+ *   - 'appliance' has its own approach path (applianceApproach → useAppliance),
+ *     built on the station/occupancy system rather than computeApproachTiles.
+ *   - 'talkingObject' is fired by the clock, not by anyone — walking up to a
+ *     statue to be told the time is not the interaction (see Action).
+ *
+ * Kinds that only mean something on a TILE ('spawnPoint', consumed at import)
+ * are deliberately NOT excluded: they answer this question by never being on a
+ * piece of furniture, and listing them here would suggest the click path is
+ * where that is decided.
+ *
+ * A type guard rather than a plain boolean, so `if (isClickAction(a))` also
+ * narrows away the null the callers just tested for.
+ */
+export function isClickAction(action: Action | null | undefined): action is Action {
+  return !!action && action.kind !== 'appliance' && action.kind !== 'talkingObject';
+}
+
 // ── Behaviour resolution ────────────────────────────────────────
 // Each of these answers one question about one PLACED item. The pattern is
 // always the same — the instance's own value if it set one, else the type's

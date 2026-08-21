@@ -18,6 +18,11 @@
 #                     has its own proportions to keep (a side-on car is 3.4:1 and
 #                     the vehicle box is 2:1 — filling it ovalises the wheels),
 #                     and the art sits bottom-centred in the spare rows.
+#   --as-is           the picture is ALREADY pixel art at 16px to the tile, so
+#                     nothing should be resampled, requantized or shadowed. Its
+#                     own size decides --size, and every transform below is off:
+#                     the pixels are copied. Use it for art drawn for this world,
+#                     not for a render that happens to be small.
 #   --erase X,Y,W,H   source rectangles to blank first. A generator likes to add
 #                     detached decoration — steam, sparkles, a cast shadow — that
 #                     survives a 30:1 reduction as a few stray specks.

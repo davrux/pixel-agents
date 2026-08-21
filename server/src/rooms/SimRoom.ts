@@ -39,7 +39,7 @@ import { director, type AgentInfo } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
 import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
-import { appStore } from '../appStore.js';
+import { appStore, defaultViewerSettings } from '../appStore.js';
 import {
   ASSET_TYPES,
   getMergedBundle,
@@ -615,9 +615,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       protocol: PROTOCOL_VERSION,
     });
     // Personal viewer prefs (per user; anonymous viewers get the defaults).
-    const vs = userId
-      ? appStore.getViewerSettings(userId)
-      : { soundEnabled: true, alwaysShowLabels: false, alertVolume: 1, cameraFollow: true };
+    const vs = userId ? appStore.getViewerSettings(userId) : defaultViewerSettings();
     client.send('m', { type: 'settingsLoaded', ...vs });
   }
 
@@ -1350,6 +1348,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'cameraFollow', !!msg?.enabled);
     });
+    // Whether an 'iframe' action floats over the game or docks beside it. Pure
+    // presentation, and self-only: it decides nothing about what this viewer may
+    // open — the action's URL comes from the map, already sanitized on save.
+    this.onMessage('setIframeOverlay', (client, msg: { enabled?: boolean }) => {
+      const { userId } = authOf(client);
+      if (userId) appStore.setViewerSetting(userId, 'iframeOverlay', !!msg?.enabled);
+    });
     this.onMessage('setAlertVolume', (client, msg: { volume?: number }) => {
       const { userId } = authOf(client);
       if (!userId) return;
@@ -1856,6 +1861,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     if (this.clients.length === 0) return;
     this.os.update(Math.min(dt, 0.1));
     this.handleActionArrivals();
+    this.handleSpokenLines();
     this.syncCharacters();
     this.syncPets();
     this.syncFurniture();
@@ -1939,6 +1945,27 @@ export class SimRoom extends Room<{ state: RoomState }> {
         row,
         ...(action.kind === 'iframe' ? { url: action.url } : {}),
       });
+    }
+  }
+
+  /**
+   * What a talking object said this tick, to everyone in the zone.
+   *
+   * The engine decides WHEN and WHAT (the hour turning, see
+   * talkingObjects.ts); this is only the delivery. It is a broadcast rather
+   * than synced state on the furniture, and that is the one decision here: a
+   * bubble is a moment, not a fact about the world. Syncing it would cost two
+   * fields on every furniture placement every client decodes, forever, so that
+   * somebody joining at 9:00:04 could see the tail of a bubble — while the
+   * announcement itself is authoritative either way, because the server is what
+   * says the hour has turned.
+   *
+   * Nothing here is client input: no handler, no payload, nothing to validate.
+   * The text is the server's own (`H:00`), so it is bounded by construction.
+   */
+  private handleSpokenLines(): void {
+    for (const { col, row, text } of this.os.takeSpokenLines()) {
+      this.broadcast('m', { type: 'furnitureSay', col, row, text });
     }
   }
 

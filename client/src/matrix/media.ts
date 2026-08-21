@@ -463,6 +463,15 @@ export class MatrixMedia {
     return this.cached(cacheKey('avatar', `${mxc}|${sizePx}`), () => this.downloadThumbnail(mxc, sizePx));
   }
 
+  /** The full-size original of an avatar, for the "view this chat's picture"
+   *  lightbox. Same trust rules as the thumbnail path: an avatar has no event
+   *  to declare a mimetype, so the bytes are sniffed and anything that is not
+   *  a known raster format is refused rather than rendered. */
+  avatarOriginalUrl(mxc: string): Promise<string> {
+    if (!mxc.startsWith('mxc://')) return Promise.reject(new MatrixError(0, '', 'Not a media address.'));
+    return this.cached(cacheKey('avatar', `${mxc}|orig`), () => this.downloadThumbnail(mxc, undefined));
+  }
+
   /** Register bytes we already hold (the file we are about to upload) under
    *  the mxc URI the server just gave it, so our own local echo renders
    *  instantly instead of downloading back what we just sent. */
@@ -661,7 +670,9 @@ export class MatrixMedia {
     return URL.createObjectURL(new Blob([plain], { type: 'application/octet-stream' }));
   }
 
-  private async downloadThumbnail(mxc: string, sizePx: number): Promise<string> {
+  /** `sizePx` undefined means the original, un-thumbnailed bytes — still
+   *  capped and still sniffed like any thumbnail. */
+  private async downloadThumbnail(mxc: string, sizePx: number | undefined): Promise<string> {
     const buf = await this.fetchMedia(mxc, { cap: MAX_IMAGE_BYTES, what: 'picture', thumbPx: sizePx });
     // No event to declare a mimetype for an avatar, so it is sniffed from the
     // bytes. Anything unrecognised (an SVG the server couldn't thumbnail, an

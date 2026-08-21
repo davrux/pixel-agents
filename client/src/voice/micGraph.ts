@@ -130,6 +130,19 @@ export class MicGraph {
     return this.gateOpen;
   }
 
+  /**
+   * The device this graph is capturing from RIGHT NOW, as the browser reports it
+   * ('' when it won't say).
+   *
+   * Not the same question as "which device was asked for": a capture opened on the
+   * system default follows the OS, so plugging in a headset mid-call moves this
+   * graph onto it without anything of ours running. Our own remembered id would
+   * still name the old one — this is the only honest answer for a device picker.
+   */
+  get deviceId(): string {
+    return this.raw.getAudioTracks()[0]?.getSettings().deviceId ?? '';
+  }
+
   async switchDevice(deviceId: string): Promise<void> {
     if (this.stopped) return;
     let raw: MediaStream;

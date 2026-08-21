@@ -3,8 +3,10 @@ import {
   PIXEL_DESKTOP_CHANNELS,
   type DesktopNotification,
   type MumbleAudioIn,
+  type MumbleCommand,
   type MumbleEvent,
   type MumbleSettingsPatch,
+  type MumbleVoiceReport,
   type PixelDesktopApi,
   type TimeTrackingSettingsPatch,
   type UpdateEvent,
@@ -66,8 +68,12 @@ const api: PixelDesktopApi = {
       ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumbleSetSettings, patch),
     pickCertFile: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.mumblePickCertFile),
     sendAudio: (frame: Uint8Array) => ipcRenderer.send(PIXEL_DESKTOP_CHANNELS.mumbleSendAudio, frame),
+    reportVoiceState: (state: MumbleVoiceReport) =>
+      ipcRenderer.send(PIXEL_DESKTOP_CHANNELS.mumbleVoiceState, state),
     onEvent: (cb: (event: MumbleEvent) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.mumbleEvent, cb),
     onAudio: (cb: (audio: MumbleAudioIn) => void) => subscribe(PIXEL_DESKTOP_CHANNELS.mumbleAudio, cb),
+    onCommand: (cb: (command: MumbleCommand) => void) =>
+      subscribe(PIXEL_DESKTOP_CHANNELS.mumbleCommand, cb),
   },
   timeTracking: {
     getSettings: () => ipcRenderer.invoke(PIXEL_DESKTOP_CHANNELS.ttGetSettings),

@@ -14,6 +14,7 @@ import type { PeerCertificate } from 'node:tls';
 
 import { ensureTrusted } from '../certTrust.js';
 import type { MumbleSettings } from '../ipc.js';
+import { sanitizeHotkey } from './accelerator.js';
 
 const SETTINGS_FILE = 'mumble.json';
 const SECRETS_FILE = 'mumble-secrets.bin';
@@ -27,6 +28,8 @@ export const DEFAULT_MUMBLE_SETTINGS: MumbleSettings = {
   channel: '',
   certPath: null,
   autoConnect: false,
+  hotkeyMuteMic: '',
+  hotkeyDeafen: '',
 };
 
 export interface MumbleSecrets {
@@ -60,6 +63,8 @@ export async function loadMumbleSettings(): Promise<MumbleSettings> {
       channel: str(parsed.channel, '').slice(0, 128),
       certPath: typeof parsed.certPath === 'string' && parsed.certPath ? parsed.certPath : null,
       autoConnect: parsed.autoConnect === true,
+      hotkeyMuteMic: sanitizeHotkey(parsed.hotkeyMuteMic),
+      hotkeyDeafen: sanitizeHotkey(parsed.hotkeyDeafen),
     };
   } catch {
     return { ...DEFAULT_MUMBLE_SETTINGS };
@@ -81,7 +86,14 @@ export async function saveMumbleSettings(patch: Partial<MumbleSettings>): Promis
           : null
         : current.certPath,
     autoConnect: patch.autoConnect !== undefined ? patch.autoConnect === true : current.autoConnect,
+    hotkeyMuteMic:
+      patch.hotkeyMuteMic !== undefined ? sanitizeHotkey(patch.hotkeyMuteMic) : current.hotkeyMuteMic,
+    hotkeyDeafen:
+      patch.hotkeyDeafen !== undefined ? sanitizeHotkey(patch.hotkeyDeafen) : current.hotkeyDeafen,
   };
+  // One key cannot mean two things; the mic keeps it, mirroring the settings
+  // UI's own refusal, so a crafted patch cannot store an ambiguous pair.
+  if (next.hotkeyDeafen && next.hotkeyDeafen === next.hotkeyMuteMic) next.hotkeyDeafen = '';
   await writeFile(settingsPath(), JSON.stringify(next), 'utf8');
   return next;
 }

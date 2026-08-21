@@ -295,8 +295,8 @@ uses one style, defined canonically in the CSS block in
 hand-rolling: `.pa-btn`, `.pa-panel` + `.pa-head`/`.pa-body`/`.pa-x`, `.pa-b`
 (+ `.primary`/`.danger`/`.wide`), `.pa-seg`/`.seg`, `.pa-chip`, `.pa-menurow`,
 `.pa-list-row`, `.pa-thumb`. A self-contained widget that cannot share the
-stylesheet must mirror the same tokens — including non-CSS colour literals (e.g.
-`PhaserRenderer`'s `VOICE_RING_COLOR` matches the active-tab underline).
+stylesheet must mirror the same tokens — including non-CSS colour literals: a
+Phaser tint or a canvas fill names the same hex as its CSS counterpart.
 
 Tokens (from uponu.com's palette). Font `'FS Pixel Sans', ui-monospace,
 monospace`. Surfaces: window/panel `#1c1a19`, raised `#242220`, inset `#262422`,

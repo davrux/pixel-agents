@@ -14,11 +14,13 @@ import {
   notifyDesktop,
   type MumbleAudioIn,
   type MumbleChannelInfo,
+  type MumbleCommand,
   type MumbleEvent,
   type MumbleUserInfo,
 } from '../desktop/bridge.js';
 import { MicGraph, clampMicGain } from './micGraph.js';
 import { getAudioSettings, setAudioSettings } from './audioSettings.js';
+import { acceleratorFromEvent, isEditableTarget } from './hotkeys.js';
 
 /** Opus frame size we transmit. Mumble sequence numbers count 10 ms units. */
 const FRAME_MS = 20;
@@ -206,6 +208,10 @@ export class MumbleVoice {
   private joinAlerts: boolean;
   /** Mic state to put back when the user un-deafens (see toggleDeafen). */
   private micOnBeforeDeafen: boolean;
+  /** The stored hotkeys, for the focused-window fallback below. Refreshed with
+   *  every settings read, so a save (which reconnects) picks changes up. */
+  private hotkeyMuteMic = '';
+  private hotkeyDeafen = '';
   private host = '';
   private error: string | undefined;
   private notice: string | undefined;
@@ -306,6 +312,14 @@ export class MumbleVoice {
     this.micId = audio.micId || undefined;
     this.speakerId = audio.speakerId || undefined;
     this.loadUserVolumes();
+    // Toggles asked for from outside the page — a global hotkey grab or the
+    // tray menu. Alive for the page's life like the class itself; the listener
+    // dies with the page, which is also when main clears its tray mirror.
+    this.api?.onCommand?.((c) => this.onCommand(c));
+    // The focused-window half of the hotkeys, for platforms where main could
+    // not grab them system-wide (Wayland). No double fire: where the grab DID
+    // succeed the OS swallows the key and this keydown never happens.
+    window.addEventListener('keydown', (e) => this.onHotkey(e));
   }
 
   /** False in the browser, or without WebCodecs Opus. */
@@ -349,7 +363,11 @@ export class MumbleVoice {
   autoStart(): void {
     void (async () => {
       const settings = await this.api?.getSettings().catch(() => null);
-      if (settings) this.host = settings.host;
+      if (settings) {
+        this.host = settings.host;
+        this.hotkeyMuteMic = settings.hotkeyMuteMic ?? '';
+        this.hotkeyDeafen = settings.hotkeyDeafen ?? '';
+      }
       // The toggle wins once the user has touched it; before that, the
       // "Connect on start" setting decides.
       const remembered = localStorage.getItem('pa-mb-enabled');
@@ -443,7 +461,11 @@ export class MumbleVoice {
 
   private async refreshHost(): Promise<void> {
     const settings = await this.api?.getSettings().catch(() => null);
-    if (settings) this.host = settings.host;
+    if (settings) {
+      this.host = settings.host;
+      this.hotkeyMuteMic = settings.hotkeyMuteMic ?? '';
+      this.hotkeyDeafen = settings.hotkeyDeafen ?? '';
+    }
   }
 
   private scheduleReconnect(): void {
@@ -1158,6 +1180,32 @@ export class MumbleVoice {
     this.emitState();
   }
 
+  /** A toggle asked for outside the page (global hotkey, tray menu). Gated on
+   *  `connected` exactly like the panel's own buttons, which are inert while
+   *  the session is down — an unconnected page has nothing to toggle. */
+  private onCommand(command: MumbleCommand): void {
+    if (!this.connected) return;
+    if (command.action === 'toggleMic') this.toggleMic();
+    else if (command.action === 'toggleDeafen') this.toggleDeafen();
+  }
+
+  /** Focused-window hotkey fallback (see the constructor). Matching is a string
+   *  compare against the stored accelerators, both sides built by
+   *  acceleratorFromEvent, so order and grammar cannot disagree. */
+  private onHotkey(e: KeyboardEvent): void {
+    if (e.repeat || (!this.hotkeyMuteMic && !this.hotkeyDeafen)) return;
+    if (isEditableTarget(e.target)) return;
+    const accelerator = acceleratorFromEvent(e);
+    if (!accelerator || !this.connected) return;
+    if (accelerator === this.hotkeyMuteMic) {
+      e.preventDefault();
+      this.toggleMic();
+    } else if (accelerator === this.hotkeyDeafen) {
+      e.preventDefault();
+      this.toggleDeafen();
+    }
+  }
+
   private setMicOn(on: boolean): void {
     if (this.micOn === on) return;
     this.micOn = on;
@@ -1481,6 +1529,13 @@ export class MumbleVoice {
 
   private emitState(): void {
     this.onState(this.state);
+    // Main's tray items mirror this. Fire-and-forget, and deduplicated on the
+    // other side, so reporting on every emit is fine.
+    this.api?.reportVoiceState?.({
+      connected: this.connected,
+      micOn: this.micOn,
+      deafened: this.deafened,
+    });
   }
 
   private emitTree(): void {

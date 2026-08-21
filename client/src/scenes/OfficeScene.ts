@@ -36,6 +36,7 @@ import { spriteAtlasFrameCount, spriteAtlasPageCount } from '../render/sprites.j
 import {
   getCatalogEntry,
   effectiveAction,
+  isClickAction,
   resolveBackgroundTiles,
   resolveCanSitOn,
   entryFor,
@@ -45,7 +46,7 @@ import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { AudioSettingsUI } from '../voice/AudioSettingsUI.js';
 import { MeetingAreaUI } from '../ui/meetingArea.js';
-import { openActionIframe } from '../ui/actionIframe.js';
+import { openActionIframe, reopenActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
@@ -71,7 +72,7 @@ import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
 import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
-import { checkProtocol, reportStateMismatch } from '../ui/versionGate';
+import { checkProtocol, createUpdateIndicator, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
 import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
@@ -105,6 +106,11 @@ type RenderChar = Partial<Character> & {
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
 
+/** What a speech bubble hangs over: an avatar (a chat line) or a piece of
+ *  furniture addressed by its anchor tile (a talking object saying the hour —
+ *  see Action's 'talkingObject'). */
+type BubbleAnchor = { kind: 'character'; id: number } | { kind: 'furniture'; col: number; row: number };
+
 /** The only values a `dir` field can legitimately carry off the wire. */
 const SYNCED_DIRS = new Set<number>(Object.values(Direction));
 
@@ -112,8 +118,8 @@ const SYNCED_DIRS = new Set<number>(Object.values(Direction));
  * A synced direction the server cannot have written means this build is decoding a
  * schema it doesn't share: `dir` is a uint8 the simulation only ever sets to one of the
  * four Direction values, so anything else is the decoder having read past a field
- * boundary — everything else in that patch is nonsense too. Report it once (the gate
- * names the build to update) and fall back to facing down, so the frame still draws.
+ * boundary — everything else in that patch is nonsense too. Report it once (the top
+ * bar then offers the update) and fall back to facing down, so the frame still draws.
  */
 function syncedDir<T extends number>(value: unknown, where: string): T {
   if (typeof value === 'number' && SYNCED_DIRS.has(value)) return value as T;
@@ -308,13 +314,12 @@ export class OfficeScene extends Phaser.Scene {
    *  late `viewerIdentity` can notice it was started for the wrong one. */
   private matrixPaUserId: string | null = null;
   private matrixPagehideBound = false;
-  /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
-   *  performance.now() clock). */
-  private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
-  /** Player ids currently talking in a meeting (client-side, from LiveKit). */
-  private voiceSpeakers = new Set<number>();
-  /** Per-speaker grace deadline (ms) so the talking ring stays on through gaps. */
-  private readonly voiceSpeakUntil = new Map<number, number>();
+  /** Transient speech bubbles, keyed by what they hang over: `c:<id>` for a
+   *  character's chat line, `f:<col>,<row>` for a talking object saying the hour
+   *  (see Action's 'talkingObject'). One map, because positioning and expiry are
+   *  the same job either way and the key names the anchor that resolves it
+   *  (expiry in ms, performance.now() clock). */
+  private readonly chatBubbles = new Map<string, { el: HTMLDivElement; until: number; anchor: BubbleAnchor }>();
   private charEditor!: CharacterEditor;
   private charCreator!: CharacterCreator;
   /** Where the character editor's "← Back" returns — set by whoever opens it
@@ -406,6 +411,9 @@ export class OfficeScene extends Phaser.Scene {
   /** Settings: recenter the camera on the player as they move (see update()).
    *  Off = the old, pre-follow behavior — the camera stays wherever you leave it. */
   private cameraFollowEnabled = true;
+  /** Viewer pref: an 'iframe' action floats over the game instead of docking
+   *  beside it (see ui/actionIframe.ts). Server-persisted per user. */
+  private iframeOverlay = false;
   private soundOn = true;
   private volume = 1;
   private settingsPanel!: HTMLDivElement;
@@ -748,6 +756,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
         else if (m.type === 'zoneInviteResult') this.onZoneInviteResult(m);
         else if (m.type === 'chat') this.onChat(m);
+        else if (m.type === 'furnitureSay') this.onFurnitureSay(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
         else if (m.type === 'meetingRoomMembers') {
@@ -831,7 +840,7 @@ export class OfficeScene extends Phaser.Scene {
           if (m.kind === 'arcade') this.openArcade({ col, row });
           else if (m.kind === 'timeClock') this.openTimeClock();
           else if (m.kind === 'meetingManager') this.openMeetingRoomManageDialog({ col, row });
-          else if (m.kind === 'iframe') openActionIframe(m.url as string);
+          else if (m.kind === 'iframe') openActionIframe(m.url as string, { overlay: this.iframeOverlay });
         }
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
@@ -1129,19 +1138,20 @@ export class OfficeScene extends Phaser.Scene {
     return false;
   }
 
-  /** If the tile is covered by a furniture item that has an action (see
-   *  Action) — conference monitor, link-manager kiosk, arcade cabinet, or
+  /** If the tile is covered by a furniture item a CLICK reaches (see
+   *  isClickAction) — conference monitor, link-manager kiosk, arcade cabinet, or
    *  any iframe/meetingRoom override — its anchor tile + the action itself,
-   *  else null. Mirrors the server's actionAt/effectiveAction. Appliances
-   *  are NOT included (see applianceAt) — they go through their own
-   *  applianceApproach, not the unified actionApproach. */
+   *  else null. Mirrors the server's walkPlayerToAction, which asks the same
+   *  question through the same function: appliances have their own
+   *  applianceApproach (see applianceAt), and a talking object is triggered by
+   *  the clock rather than by anyone walking up to it. */
   private actionAt(col: number, row: number): { col: number; row: number; action: Action; name?: string } | null {
     for (const f of this.furniturePlacements) {
       const entry = entryFor(f);
       if (!entry) continue;
       if (col < f.col || col >= f.col + entry.footprintW || row < f.row || row >= f.row + entry.footprintH) continue;
       const action = effectiveAction(f, entry);
-      if (action && action.kind !== 'appliance') return { col: f.col, row: f.row, action, name: f.name };
+      if (isClickAction(action)) return { col: f.col, row: f.row, action, name: f.name };
     }
     return null;
   }
@@ -2076,7 +2086,6 @@ export class OfficeScene extends Phaser.Scene {
       this.updateTooltip();
       this.updateNameLabels();
       this.updateChatBubbles();
-      this.updateVoiceIndicators();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
   }
@@ -2089,7 +2098,6 @@ export class OfficeScene extends Phaser.Scene {
     // here can never fire. update() ORs the rebuild in directly instead.
     if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
-    if (this.voiceSpeakUntil.size > 0) return true; // pulsing in-world speaking ring
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
     for (const ch of this.characters.values()) {
       if (Math.abs((ch.x ?? ch.tx) - ch.tx) > 0.4 || Math.abs((ch.y ?? ch.ty) - ch.ty) > 0.4) return true;
@@ -2131,7 +2139,7 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Re-run the render loop after it was idled/slept. `userInput` = a real user
    *  action (mouse/keys), or a discrete event whose result must show up now
-   *  (voice mute/speaking) → keep the scene responsive (reset the idle counter).
+   *  (a chat bubble arriving) → keep the scene responsive (reset the idle counter).
    *  Bulk state patches pass false: they only wake a SLEPT loop; while already
    *  awake, whether to stay active is decided by sceneBusy() (actual on-screen
    *  motion), so idle bookkeeping patches don't peg the loop active. */
@@ -2432,6 +2440,10 @@ export class OfficeScene extends Phaser.Scene {
 
     host.appendChild(bar);
     this.menubar = bar;
+
+    // "A newer build is available" (ui/versionGate.ts) — hidden until this build
+    // and the server disagree on the wire, then a chip beside the status line.
+    bar.insertBefore(createUpdateIndicator(), more);
 
     // Pull the connection/status line into the bar (just left of ☰) so the
     // full-width bar no longer covers it — and it reads as part of the HUD.
@@ -3337,7 +3349,6 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
-      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
       onMicLevel: (level) => this.conf === conf && this.onCallMicLevel(level),
     });
     this.conf = conf;
@@ -3508,7 +3519,6 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
-      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
       onMicLevel: (level) => this.meetingConf === conf && this.onCallMicLevel(level),
       onScreens: (n) => {
         // The mini popup has no room for a screen share (meetingArea's own
@@ -3664,6 +3674,7 @@ export class OfficeScene extends Phaser.Scene {
     this.volume = typeof m.alertVolume === 'number' ? (m.alertVolume as number) : 1;
     this.alwaysShowLabels = !!m.alwaysShowLabels;
     this.cameraFollowEnabled = m.cameraFollow !== false;
+    this.iframeOverlay = m.iframeOverlay === true;
     setSoundEnabled(this.soundOn);
     setAlertVolume(this.volume);
     this.syncSettingsInputs();
@@ -3745,6 +3756,8 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Show player names</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
+      <div class="row"><input id="pa-iframe-overlay" type="checkbox"><label for="pa-iframe-overlay">Web pages open as an overlay</label></div>
+      <div class="hint">On: a window over the world. Off: a column beside it, and the world makes room.</div>
       <button id="pa-check-updates">Check for updates</button>
       <div id="pa-update-status" class="hint" style="margin:0.35rem 0 0;"></div>
       <button id="pa-change-server">Change server</button>`;
@@ -3829,6 +3842,7 @@ export class OfficeScene extends Phaser.Scene {
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
     const camFollow = panel.querySelector<HTMLInputElement>('#pa-camfollow')!;
+    const iframeOverlay = panel.querySelector<HTMLInputElement>('#pa-iframe-overlay')!;
     name.onchange = () => {
       const v = name.value.trim().slice(0, 32);
       this.viewerUsername = v;
@@ -3873,6 +3887,14 @@ export class OfficeScene extends Phaser.Scene {
       this.cameraFollowDetached = false;
       this.cameraDetachAt = null;
       this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
+    };
+    iframeOverlay.onchange = () => {
+      this.iframeOverlay = iframeOverlay.checked;
+      // Act on the page they are looking at, not just the next one — a viewer
+      // flipping this while a page is open is telling us about THAT page. A
+      // no-op when none is open.
+      reopenActionIframe({ overlay: this.iframeOverlay });
+      this.room?.send('setIframeOverlay', { enabled: this.iframeOverlay });
     };
     // "Check for updates" and "Change server" are desktop-only concerns (the
     // browser build updates by reloading and its server is its own origin), so
@@ -4222,6 +4244,7 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-camfollow')!.checked = this.cameraFollowEnabled;
+    this.settingsPanel.querySelector<HTMLInputElement>('#pa-iframe-overlay')!.checked = this.iframeOverlay;
     // Account section: only for logged-in users; reflect the current agent token.
     const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
     if (account) account.style.display = this.myUserId ? '' : 'none';
@@ -4414,75 +4437,83 @@ export class OfficeScene extends Phaser.Scene {
     const from = (m.from as string) ?? "?";
     const text = (m.text as string) ?? "";
     this.chat?.addChatLine(from, text, m.at as number | undefined);
-    if (typeof m.id === "number") this.showChatBubble(m.id, text);
+    if (typeof m.id === "number") this.showBubble({ kind: 'character', id: m.id }, text);
   }
 
-  private showChatBubble(id: number, text: string): void {
-    let b = this.chatBubbles.get(id);
+  /**
+   * A talking object said something — the server's own line, not a player's, so
+   * it goes over the furniture and NOT into the chat log (see
+   * SimRoom.handleSpokenLines). An hourly line in the transcript would be a
+   * notification nobody asked for; over the statue it is scenery you look at.
+   *
+   * The piece is addressed by its anchor tile, like every other furniture
+   * message. A bubble for furniture this client does not have (a map it has not
+   * received yet, a piece since removed) simply never finds an anchor and is
+   * dropped on the next frame.
+   */
+  private onFurnitureSay(m: Record<string, unknown>): void {
+    const col = m.col;
+    const row = m.row;
+    const text = m.text;
+    if (typeof col !== 'number' || typeof row !== 'number' || typeof text !== 'string' || !text) return;
+    this.showBubble({ kind: 'furniture', col, row }, text);
+  }
+
+  /** Show (or refresh) the one bubble belonging to this anchor. A second line
+   *  from the same speaker replaces the first rather than stacking: two boxes
+   *  over one head is unreadable, and the newer line is the one that matters. */
+  private showBubble(anchor: BubbleAnchor, text: string): void {
+    const key = anchor.kind === 'character' ? `c:${anchor.id}` : `f:${anchor.col},${anchor.row}`;
+    let b = this.chatBubbles.get(key);
     if (!b) {
       const el = document.createElement('div');
       el.className = 'pa-chatbubble';
       (document.getElementById('game') ?? document.body).appendChild(el);
-      b = { el, until: 0 };
-      this.chatBubbles.set(id, b);
+      b = { el, until: 0, anchor };
+      this.chatBubbles.set(key, b);
     }
     b.el.textContent = text.length > 120 ? `${text.slice(0, 119)}…` : text;
     b.until = performance.now() + 5000;
   }
 
-  /** Position chat bubbles above their avatars; drop expired/gone ones. */
+  /** Where a bubble's tail points, in WORLD pixels — an avatar's head, or the
+   *  top-centre of a talking object's footprint. Null when the thing it belongs
+   *  to is not here (any more), which is how a bubble gets dropped. */
+  private bubbleAnchorPoint(anchor: BubbleAnchor): { x: number; y: number } | null {
+    if (anchor.kind === 'character') {
+      const ch = this.characters.get(anchor.id);
+      if (!ch) return null;
+      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      // Sit a little higher than the name label so both are readable.
+      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
+      return { x: ch.x ?? ch.tx, y: (ch.y ?? ch.ty) + sit - headOff };
+    }
+    const f = this.furniturePlacements.find((p) => p.col === anchor.col && p.row === anchor.row);
+    if (!f) return null;
+    // Footprint, not the art's own box: entryFor already resolved a resize and a
+    // quarter turn into cells, so the bubble stays centred over a piece however
+    // it was placed.
+    const entry = entryFor(f);
+    const w = entry?.footprintW ?? 1;
+    return { x: (f.col + w / 2) * TILE_SIZE, y: f.row * TILE_SIZE - 2 };
+  }
+
+  /** Position bubbles above what said them; drop expired/gone ones. */
   private updateChatBubbles(): void {
     if (this.chatBubbles.size === 0) return;
     const now = performance.now();
     const cam = this.cameras.main;
     const wv = cam.worldView;
-    for (const [id, b] of this.chatBubbles) {
-      const ch = this.characters.get(id);
-      if (!ch || now >= b.until) {
+    for (const [key, b] of this.chatBubbles) {
+      const at = now >= b.until ? null : this.bubbleAnchorPoint(b.anchor);
+      if (!at) {
         b.el.remove();
-        this.chatBubbles.delete(id);
+        this.chatBubbles.delete(key);
         continue;
       }
-      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      // Sit a little higher than the name label so both are readable.
-      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
-      b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
+      b.el.style.left = `${Math.round((at.x - wv.x) * cam.zoom)}px`;
+      b.el.style.top = `${Math.round((at.y - wv.y) * cam.zoom)}px`;
     }
-  }
-
-  /**
-   * Who is talking, from a meeting's LiveKit identities (`p<playerId>` — see
-   * SimRoom.mintVoiceToken) to the player ids the renderer draws rings under.
-   *
-   * Being in a meeting is what puts a ring on an avatar now. The identity scheme
-   * is the same one zone voice used, so this is a parse rather than a lookup, and
-   * an identity that doesn't match (a guest, a stale participant) simply doesn't
-   * get one instead of drawing over somebody else.
-   */
-  private setVoiceSpeakers(identities: Set<string>): void {
-    const ids = new Set<number>();
-    for (const identity of identities) {
-      const m = /^p(\d+)$/.exec(identity);
-      if (m) ids.add(Number(m[1]));
-    }
-    this.voiceSpeakers = ids;
-    this.wake(true); // talking indicators changed → one frame to pick it up
-  }
-
-  /** Feed the in-world voice indicators (Phaser): the pulsing ring under whoever
-   *  is talking, and the crossed 🎤 / 🔊 head markers for muted / sound-off. Both
-   *  are drawn by the renderer so they pan and zoom with the avatar. */
-  private updateVoiceIndicators(): void {
-    const now = performance.now();
-    // Grace window so the speaking ring stays steady through gaps between words
-    // (LiveKit's active-speaker flag toggles off in those pauses).
-    const GRACE_MS = 800;
-    for (const id of this.voiceSpeakers) this.voiceSpeakUntil.set(id, now + GRACE_MS);
-    for (const [id, until] of this.voiceSpeakUntil) {
-      if (now >= until) this.voiceSpeakUntil.delete(id);
-    }
-    this.view.setSpeakingIds(new Set(this.voiceSpeakUntil.keys()));
   }
 
   // ── Hover / selection tooltip (DOM overlay, fixed readable size) ──

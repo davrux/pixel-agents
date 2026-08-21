@@ -44,6 +44,12 @@ export function injectPaSkin(): void {
       .pa-btn.active::after{content:'';position:absolute;left:8px;right:8px;bottom:-3px;height:3px;background:#7fbf6a;border-radius:2px;}
       .pa-btn.warn{background:#a86a2e;color:#ffe6c8;box-shadow:inset 0 2px 0 #d0954a,inset 0 -3px 0 #5a3410;}
       .pa-btn.danger{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
+      /* "A newer build is available" chip (ui/versionGate.ts): the primary red, so it
+         reads as something to act on — deliberately NOT .warn/.danger, whose icon
+         overlay is a crossed-out circle meaning "blocked". */
+      .pa-btn.pa-update{background:#c51a1b;color:#fff;box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+      .pa-btn.pa-update:hover{background:#d42021;}
+      .pa-btn.pa-update:disabled{cursor:default;}
       /* Window close: a plain ✕ that only reddens on hover (no state overlay). */
       .pa-btn.pa-close:hover{background:#7c2634;color:#f6cdd4;box-shadow:inset 0 2px 0 #b34a5a,inset 0 -3px 0 #45111a;}
       .pa-btn .ico{position:relative;display:inline-block;line-height:1;}

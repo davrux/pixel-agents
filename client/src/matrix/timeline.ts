@@ -321,7 +321,7 @@ function textBodyOf(ev: MxEvent): { html: string; plain: string; isAttachment: b
  *  whether to spend the download. `info.mimetype` is remote text, so only its
  *  subtype is shown and only when it looks like a type at all — it lands in a
  *  `textContent`, so this is about a row staying one line, not about escaping. */
-function describeFile(content: MxFileContent): string {
+export function describeFile(content: MxFileContent): string {
   const parts: string[] = [];
   const size = fmtBytes(content.info.size);
   if (size) parts.push(size);
