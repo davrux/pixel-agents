@@ -470,6 +470,34 @@ export function injectMatrixSkin(): void {
 .mx-file.failed{border-color:#7c2634}
 .mx-file.failed .sub{color:#f6cdd4}
 
+/* The room header's avatar square doubles as "view this chat's picture" — a
+   button stripped back to the square, same treatment as .mx-me-av. Disabled
+   (no picture, just initials) it reads as the plain square it always was. */
+.mx-av-btn{padding:0;margin:0;border:0;background:none;cursor:pointer}
+.mx-av-btn:disabled{cursor:default}
+.mx-av-btn:focus-visible{outline:2px solid #4998c0;outline-offset:2px}
+
+/* Media overview (MatrixUI.renderMediaView): every picture in the loaded
+   window as a square grid, every file as a row. Tiles crop to square on
+   purpose — this is an index, not the viewing surface; the lightbox is. */
+.mx-media-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(4.5rem,1fr));gap:0.4rem}
+.mx-media-thumb{
+  position:relative;display:block;aspect-ratio:1/1;padding:0;overflow:hidden;cursor:zoom-in;
+  background:#141312;border:2px solid #0a0908;border-radius:0.35rem;color:#818586;
+  box-shadow:inset 0 2px 0 #2c2a28, inset 0 -3px 0 #050505;
+}
+.mx-media-thumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.mx-media-thumb.has-img img{display:block}
+.mx-media-thumb .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.1rem}
+.mx-media-thumb.has-img .ph{visibility:hidden}
+.mx-media-thumb.loading{cursor:progress;animation:mx-img-pulse 1.4s ease-in-out infinite}
+.mx-media-thumb.failed{cursor:pointer;border-color:#7c2634}
+.mx-media-files{display:flex;flex-direction:column;gap:0.3rem}
+/* The timeline sizes its chip against the message column; here the row owns
+   the whole view width. */
+.mx-media-files .mx-file{max-width:none;margin-top:0}
+.mx-media-foot{font-size:0.75rem}
+
 /* The "send this file?" gate (MatrixUI.confirmAttachment). A native <dialog>
    wrapping a .pa-panel, so it needs the same position/display reset that
    ui/paDialog.ts applies to the panel it puts in one. */
