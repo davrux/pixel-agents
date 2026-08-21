@@ -70,16 +70,33 @@ export interface TrayHooks {
   setCloseToTray(enabled: boolean): void;
   /** Run the interactive self-update check (native dialogs, owned by main). */
   checkForUpdates(): void;
+  /** Ask the renderer to toggle the Mumble mic / deafen state. The tray never
+   *  flips anything itself: its checkboxes are a display of what the renderer
+   *  last reported (setTrayVoiceState), and the answer to a click comes back
+   *  the same way. */
+  toggleMic(): void;
+  toggleDeafen(): void;
+}
+
+/** What the mic/deafen menu items mirror, pushed from the renderer over the
+ *  `mumbleVoiceState` IPC channel (see mumble/service.ts). */
+export interface TrayVoiceState {
+  connected: boolean;
+  micOn: boolean;
+  deafened: boolean;
 }
 
 let tray: Tray | null = null;
 let unread = 0;
+let voice: TrayVoiceState = { connected: false, micOn: false, deafened: false };
 let hooks: TrayHooks = {
   reveal: () => undefined,
   hide: () => undefined,
   closeToTray: () => false,
   setCloseToTray: () => undefined,
   checkForUpdates: () => undefined,
+  toggleMic: () => undefined,
+  toggleDeafen: () => undefined,
 };
 
 /** Decoded icons, kept because `render()` runs on every count change and the
@@ -110,6 +127,27 @@ function buildMenu(): Menu {
     // only place the exact count appears.
     { label: countLabel(unread), enabled: false },
     { type: 'separator' },
+    // The voice toggles, only while a Mumble session is up — exactly when the
+    // panel's own buttons work. Checked means "off" for the mic (the state you
+    // toggled INTO, matching the panel button lighting up red when muted) and
+    // "silenced" for the sound. Wording matches those buttons' titles.
+    ...(voice.connected
+      ? [
+          {
+            label: 'Mute microphone',
+            type: 'checkbox' as const,
+            checked: !voice.micOn,
+            click: () => hooks.toggleMic(),
+          },
+          {
+            label: 'Silence everyone',
+            type: 'checkbox' as const,
+            checked: voice.deafened,
+            click: () => hooks.toggleDeafen(),
+          },
+          { type: 'separator' as const },
+        ]
+      : []),
     { label: 'Show Pixel Agents', click: () => hooks.reveal() },
     { label: 'Hide to tray', click: () => hooks.hide() },
     { type: 'separator' },
@@ -185,6 +223,25 @@ export function setTrayUnread(count: number): void {
   // unconditionally rather than behind a platform branch that would have to
   // guess which Linux desktops qualify.
   app.badgeCount = unread;
+}
+
+/**
+ * Mirror the renderer's Mumble state onto the menu's mic/deafen items. The
+ * payload crosses IPC from the less-trusted renderer, but arrives here already
+ * normalised to booleans (mumble/service.ts) and only ever draws two
+ * checkboxes. Ignored when nothing changed — this is called from every state
+ * emit, and rebuilding the menu closes it if it happens to be open.
+ */
+export function setTrayVoiceState(state: TrayVoiceState): void {
+  if (
+    state.connected === voice.connected &&
+    state.micOn === voice.micOn &&
+    state.deafened === voice.deafened
+  ) {
+    return;
+  }
+  voice = state;
+  render();
 }
 
 export function destroyTray(): void {

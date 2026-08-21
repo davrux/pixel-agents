@@ -74,6 +74,11 @@ export interface MumbleSettings {
   channel: string;
   certPath: string | null;
   autoConnect: boolean;
+  /** Hotkey accelerators ("Ctrl+Shift+M"); '' means none. Main grabs them
+   *  system-wide where the OS allows; where it cannot (Wayland) the renderer
+   *  handles them itself while the window is focused (voice/hotkeys.ts). */
+  hotkeyMuteMic: string;
+  hotkeyDeafen: string;
 }
 
 export interface MumbleSettingsView extends MumbleSettings {
@@ -87,6 +92,19 @@ export type MumbleSettingsPatch = Partial<MumbleSettings> & {
   password?: string;
   passphrase?: string;
 };
+
+/** A mic/deafen toggle asked for outside the page — a global hotkey or the
+ *  system tray menu. Main only ever asks; this renderer owns the state. */
+export interface MumbleCommand {
+  action: 'toggleMic' | 'toggleDeafen';
+}
+
+/** What the tray's mic/deafen items mirror; reported on every state change. */
+export interface MumbleVoiceReport {
+  connected: boolean;
+  micOn: boolean;
+  deafened: boolean;
+}
 
 /** Mumble voice: the protocol and TLS socket live in the Electron main process;
  *  this renderer only captures, encodes, decodes and plays Opus. */
@@ -106,8 +124,12 @@ export interface MumbleApi {
   pickCertFile(): Promise<string | null>;
   /** [flags, ...opus] — flag bit 0 marks the end of a talk spurt. */
   sendAudio(frame: Uint8Array): void;
+  /** Report the voice state main's tray items mirror (fire-and-forget). */
+  reportVoiceState(state: MumbleVoiceReport): void;
   onEvent(cb: (event: MumbleEvent) => void): () => void;
   onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
+  /** Toggles asked for by a global hotkey or the tray menu. */
+  onCommand(cb: (command: MumbleCommand) => void): () => void;
 }
 
 // ── TimeTracking ─────────────────────────────────────────────────────────────

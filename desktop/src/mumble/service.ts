@@ -25,10 +25,14 @@ import { BrowserWindow, app, dialog, ipcMain, type WebContents } from 'electron'
 import {
   PIXEL_DESKTOP_CHANNELS,
   type MumbleAudioIn,
+  type MumbleCommand,
   type MumbleEvent,
   type MumbleSettingsPatch,
   type MumbleSettingsView,
+  type MumbleVoiceReport,
 } from '../ipc.js';
+import { setTrayVoiceState } from '../tray.js';
+import { applyMumbleHotkeys, unregisterMumbleHotkeys } from './hotkeys.js';
 import {
   MumbleSession,
   type MumbleChannel,
@@ -142,7 +146,36 @@ function attach(wc: WebContents, current: Active): void {
 
 /** Called on app quit so the voice server sees a clean leave. */
 export function shutdownMumble(): void {
+  unregisterMumbleHotkeys();
   stop();
+}
+
+/** The window whose renderer receives commands; set by registerMumbleIpc. */
+let commandWindow: (() => BrowserWindow | null) | null = null;
+
+/** Whichever renderer last reported voice state, so only ITS death clears the
+ *  tray's mic/deafen items — `destroyed` fires for every WebContents there is,
+ *  DevTools included. */
+let voiceReporter: WebContents | null = null;
+
+/**
+ * Ask the renderer for a mic/deafen toggle — from a global hotkey or the tray.
+ * Addressed to the main window rather than the session owner: the renderer is
+ * the side that owns the voice state and it applies the same guard its own
+ * buttons have (connected only), so an unconnected or mid-reload page simply
+ * drops the request.
+ */
+export function sendMumbleCommand(action: MumbleCommand['action']): void {
+  const wc = commandWindow?.()?.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  wc.send(PIXEL_DESKTOP_CHANNELS.mumbleCommand, { action } satisfies MumbleCommand);
+}
+
+/** Register the stored hotkeys as global shortcuts. Called once after
+ *  app.whenReady (globalShortcut is inert before that); settings changes
+ *  re-apply through the mumbleSetSettings handler. */
+export async function initMumbleHotkeys(): Promise<void> {
+  applyMumbleHotkeys(await loadMumbleSettings(), sendMumbleCommand);
 }
 
 async function settingsView(): Promise<MumbleSettingsView> {
@@ -239,6 +272,7 @@ async function startSession(
 /** Register every Mumble IPC handler. Call once, from the main process. */
 export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
   const channels = PIXEL_DESKTOP_CHANNELS;
+  commandWindow = getWindow;
 
   ipcMain.handle(channels.mumbleConnect, (event) => startSession(event.sender, getWindow));
   ipcMain.handle(channels.mumbleDisconnect, () => stop());
@@ -283,7 +317,8 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
 
   ipcMain.handle(channels.mumbleSetSettings, async (_event, patch: unknown) => {
     const p = (typeof patch === 'object' && patch !== null ? patch : {}) as MumbleSettingsPatch;
-    await saveMumbleSettings(p);
+    // saveMumbleSettings sanitizes the hotkeys; the grabs follow what it kept.
+    applyMumbleHotkeys(await saveMumbleSettings(p), sendMumbleCommand);
     if (typeof p.password === 'string' || typeof p.passphrase === 'string') {
       try {
         await saveMumbleSecrets({
@@ -316,6 +351,20 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
     active?.session.sendAudio(frame.subarray(1), (frame[0] & 1) !== 0);
   });
 
+  // Fire-and-forget: the tray's mirror of the renderer's voice state. Not gated
+  // on session ownership — "connected: false" is exactly what a page without a
+  // session reports, and it is what clears the tray items. Booleans are
+  // normalised rather than trusted; they only ever drive two menu checkboxes.
+  ipcMain.on(channels.mumbleVoiceState, (event, state: unknown) => {
+    voiceReporter = event.sender;
+    const s = (typeof state === 'object' && state !== null ? state : {}) as Partial<MumbleVoiceReport>;
+    setTrayVoiceState({
+      connected: s.connected === true,
+      micOn: s.micOn === true,
+      deafened: s.deafened === true,
+    });
+  });
+
   // A closed window must tear the socket down, or the voice server keeps showing
   // a user whose renderer is already gone. A *navigation* must not: see the file
   // header — the world reloads itself on every server restart, and voice has
@@ -323,8 +372,13 @@ export function registerMumbleIpc(getWindow: () => BrowserWindow | null): void {
   app.on('web-contents-created', (_e, wc) => {
     wc.on('destroyed', () => {
       // Gone for good, and with it the mic and the audio graph. Nothing left to
-      // hold a session for.
+      // hold a session for — and nothing left for the tray's toggles to reach,
+      // so they go too (a reloaded page reports fresh state on its first emit).
       if (active?.wc === wc) stop();
+      if (voiceReporter === wc) {
+        voiceReporter = null;
+        setTrayVoiceState({ connected: false, micOn: false, deafened: false });
+      }
     });
     wc.on('render-process-gone', () => {
       // A crashed page is not coming back on its own, and Electron does not

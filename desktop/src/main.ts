@@ -16,7 +16,7 @@ import { dirname, join, normalize, sep } from 'node:path';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { ensureTrusted, isTrusted, loadTrustedCerts } from './certTrust.js';
 import { PIXEL_DESKTOP_CHANNELS, type DesktopNotification } from './ipc.js';
-import { registerMumbleIpc, shutdownMumble } from './mumble/service.js';
+import { initMumbleHotkeys, registerMumbleIpc, sendMumbleCommand, shutdownMumble } from './mumble/service.js';
 import { registerTimeTrackingIpc, shutdownTimeTracking } from './timetracking/service.js';
 import { createTray, destroyTray, setTrayUnread } from './tray.js';
 import { checkForUpdatesInteractive, registerUpdaterIpc } from './updater.js';
@@ -590,6 +590,10 @@ if (!gotLock) {
       closeToTray: () => closeToTray,
       setCloseToTray,
       checkForUpdates: () => void checkForUpdatesInteractive(),
+      // Same one-way ask as the hotkeys: the renderer owns the voice state and
+      // reports it back, which is what redraws the tray's checkboxes.
+      toggleMic: () => sendMumbleCommand('toggleMic'),
+      toggleDeafen: () => sendMumbleCommand('toggleDeafen'),
     });
     // No tray icon means no way back from a hidden window and no way to switch
     // the preference off again, so the setting is forced off for this run. The
@@ -597,6 +601,10 @@ if (!gotLock) {
     // next launch, and silently rewriting a preference the user did set would be
     // worse than ignoring it while it cannot be honoured.
     if (!trayShown) closeToTray = false;
+
+    // The stored mic/deafen hotkeys, grabbed system-wide where the OS allows
+    // (globalShortcut needs the app to be ready). Best-effort like the tray.
+    void initMumbleHotkeys();
 
     // Also the dock-icon / launcher route back to a hidden window on macOS,
     // where `activate` fires instead of `second-instance`.

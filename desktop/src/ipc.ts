@@ -44,8 +44,10 @@ export const PIXEL_DESKTOP_CHANNELS = {
   mumbleSetSettings: 'pixelDesktop:mumbleSetSettings',
   mumblePickCertFile: 'pixelDesktop:mumblePickCertFile',
   mumbleSendAudio: 'pixelDesktop:mumbleSendAudio', // renderer -> main, send
+  mumbleVoiceState: 'pixelDesktop:mumbleVoiceState', // renderer -> main, send
   mumbleEvent: 'pixelDesktop:mumbleEvent', // main -> renderer
   mumbleAudio: 'pixelDesktop:mumbleAudio', // main -> renderer
+  mumbleCommand: 'pixelDesktop:mumbleCommand', // main -> renderer
   // TimeTracking. Same shape as Mumble's control channels, and for the same
   // reason: the credential and the third-party connection live in main, and the
   // renderer only ever sees derived state.
@@ -143,6 +145,11 @@ export interface MumbleSettings {
   /** Path to the user's PKCS#12 identity, or null to connect as a guest. */
   certPath: string | null;
   autoConnect: boolean;
+  /** Hotkey accelerators ("Ctrl+Shift+M"); '' means none. Registered as global
+   *  shortcuts by main where the OS allows the grab; the renderer handles them
+   *  itself while focused where it does not (Wayland). */
+  hotkeyMuteMic: string;
+  hotkeyDeafen: string;
 }
 
 /** Settings as shown to the renderer: the secrets themselves never cross. */
@@ -157,6 +164,21 @@ export type MumbleSettingsPatch = Partial<MumbleSettings> & {
   password?: string;
   passphrase?: string;
 };
+
+/** A mic/deafen toggle asked for outside the page — a global hotkey or the
+ *  system tray. Pushed from main on the `mumbleCommand` channel; the renderer
+ *  owns the voice state, so main only ever asks. */
+export interface MumbleCommand {
+  action: 'toggleMic' | 'toggleDeafen';
+}
+
+/** What the tray needs to draw its mic/deafen items, reported by the renderer
+ *  on the `mumbleVoiceState` channel whenever its voice state changes. */
+export interface MumbleVoiceReport {
+  connected: boolean;
+  micOn: boolean;
+  deafened: boolean;
+}
 
 export interface MumbleApi {
   connect(): Promise<{ ok: boolean; error?: string }>;
@@ -176,9 +198,14 @@ export interface MumbleApi {
   pickCertFile(): Promise<string | null>;
   /** [flags, ...opus] — flag bit 0 marks the end of a talk spurt. */
   sendAudio(frame: Uint8Array): void;
-  /** Both subscriptions return an unsubscribe function. */
+  /** Report the voice state main's tray items mirror. Fire-and-forget like
+   *  sendAudio: the renderer has already applied the state to its own UI. */
+  reportVoiceState(state: MumbleVoiceReport): void;
+  /** All subscriptions return an unsubscribe function. */
   onEvent(cb: (event: MumbleEvent) => void): () => void;
   onAudio(cb: (audio: MumbleAudioIn) => void): () => void;
+  /** Toggles asked for by a global hotkey or the tray menu. */
+  onCommand(cb: (command: MumbleCommand) => void): () => void;
 }
 
 // ── TimeTracking ─────────────────────────────────────────────────────────────

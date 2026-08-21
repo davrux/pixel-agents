@@ -16,6 +16,7 @@
 import { desktop, mumbleApi, type MumbleSettingsPatch, type MumbleSettingsView } from '../desktop/bridge.js';
 import { serverHttpOrigin } from '../net/room.js';
 import { alertDialog } from '../ui/dialog.js';
+import { acceleratorFromEvent } from './hotkeys.js';
 
 const SECRET_PLACEHOLDER = '••••••••';
 
@@ -41,6 +42,8 @@ export class MumbleSettingsUI {
   private certEl?: HTMLInputElement;
   private passphraseEl?: HTMLInputElement;
   private autoEl?: HTMLInputElement;
+  private hkMicEl?: HTMLInputElement;
+  private hkDeafEl?: HTMLInputElement;
   private warnEl?: HTMLElement;
   private suggestEl?: HTMLElement;
   private view?: MumbleSettingsView;
@@ -67,6 +70,8 @@ export class MumbleSettingsUI {
     this.channelEl!.value = view.channel;
     this.certEl!.value = view.certPath ?? '';
     this.autoEl!.checked = view.autoConnect;
+    this.hkMicEl!.value = view.hotkeyMuteMic ?? '';
+    this.hkDeafEl!.value = view.hotkeyDeafen ?? '';
     this.passwordEl!.value = '';
     this.passwordEl!.placeholder = view.hasPassword ? SECRET_PLACEHOLDER : '(none)';
     this.passphraseEl!.value = '';
@@ -152,6 +157,11 @@ export class MumbleSettingsUI {
         <label class="lbl" for="pa-mb-pass">Passphrase</label>
         <input id="pa-mb-pass" class="pa-input" type="password" maxlength="128" autocomplete="new-password">
         <div class="hint">Use the certificate your Mumble client exports (Configure → Certificate Wizard → Export). Without one you connect as an unregistered guest.</div>
+        <label class="lbl" for="pa-mb-hk-mic">Mute-mic hotkey</label>
+        <input id="pa-mb-hk-mic" class="pa-input hk" type="text" readonly placeholder="(none — click, then press keys)">
+        <label class="lbl" for="pa-mb-hk-deaf">Silence-everyone hotkey</label>
+        <input id="pa-mb-hk-deaf" class="pa-input hk" type="text" readonly placeholder="(none — click, then press keys)">
+        <div class="hint">Press a combination with Ctrl, Alt or Super (or an F-key alone); Backspace clears, Esc keeps the current one. Works system-wide where the OS allows global shortcuts; elsewhere (e.g. Wayland) only while this window is focused.</div>
         <label class="chk"><input id="pa-mb-auto" type="checkbox"> Connect on start</label>
         <div class="warn" hidden>No system keychain — the password and passphrase can't be saved and will be asked for each time.</div>
         <button class="save" id="pa-mb-save">Save Mumble settings</button>
@@ -165,8 +175,12 @@ export class MumbleSettingsUI {
     this.certEl = this.el.querySelector('#pa-mb-cert')!;
     this.passphraseEl = this.el.querySelector('#pa-mb-pass')!;
     this.autoEl = this.el.querySelector('#pa-mb-auto')!;
+    this.hkMicEl = this.el.querySelector('#pa-mb-hk-mic')!;
+    this.hkDeafEl = this.el.querySelector('#pa-mb-hk-deaf')!;
     this.warnEl = this.el.querySelector('.warn')!;
     this.suggestEl = this.el.querySelector('.suggest')!;
+    bindHotkeyRecorder(this.hkMicEl);
+    bindHotkeyRecorder(this.hkDeafEl);
 
     this.el.querySelector<HTMLButtonElement>('.back')!.onclick = () => this.hooks.onBack();
     this.el.querySelector<HTMLButtonElement>('#pa-mb-pick')!.onclick = async () => {
@@ -188,6 +202,12 @@ export class MumbleSettingsUI {
       return;
     }
     const certPath = this.certEl!.value.trim() || null;
+    const hotkeyMuteMic = this.hkMicEl!.value;
+    const hotkeyDeafen = this.hkDeafEl!.value;
+    if (hotkeyMuteMic && hotkeyMuteMic === hotkeyDeafen) {
+      await alertDialog('The two hotkeys must differ — one key cannot both mute the mic and silence everyone.');
+      return;
+    }
     const patch: MumbleSettingsPatch = {
       host: this.hostEl!.value.trim(),
       port,
@@ -195,6 +215,8 @@ export class MumbleSettingsUI {
       channel: this.channelEl!.value.trim(),
       certPath,
       autoConnect: this.autoEl!.checked,
+      hotkeyMuteMic,
+      hotkeyDeafen,
     };
     // A blank secret field means "leave what's stored alone"; clearing the
     // certificate is the one action that also drops its passphrase.
@@ -214,6 +236,37 @@ export class MumbleSettingsUI {
     }
     this.hooks.onSaved();
   }
+}
+
+/**
+ * Turn a readonly input into a hotkey recorder: focus it, press a combination,
+ * and the canonical accelerator lands in `value` (the same grammar the desktop
+ * side stores and matches — see voice/hotkeys.ts). Backspace/Delete clears,
+ * Escape leaves whatever was there; a combo the grammar refuses (a bare letter
+ * that would swallow typing) is simply not taken. Recording ends the moment a
+ * combo is accepted, so the key that set the hotkey cannot also trigger it.
+ */
+function bindHotkeyRecorder(input: HTMLInputElement): void {
+  input.addEventListener('keydown', (e) => {
+    // The recorder eats every key: nothing pressed here may reach the panel's
+    // own hotkey listener, scroll the page or tab away mid-recording.
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.key === 'Escape') {
+      input.blur();
+      return;
+    }
+    const accelerator = acceleratorFromEvent(e);
+    if (accelerator) {
+      input.value = accelerator;
+      input.blur();
+      return;
+    }
+    // Unmodified Backspace/Delete never form an accelerator, so they are free
+    // to mean "no hotkey". Anything else invalid is ignored: likely half of a
+    // combination still being pressed.
+    if (e.key === 'Backspace' || e.key === 'Delete') input.value = '';
+  });
 }
 
 interface MumbleSuggestion {
