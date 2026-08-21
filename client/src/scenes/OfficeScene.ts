@@ -45,7 +45,7 @@ import { ConferenceUI } from '../conference/ConferenceUI.js';
 import { ArcadeUI } from '../arcade/ArcadeUI.js';
 import { AudioSettingsUI } from '../voice/AudioSettingsUI.js';
 import { MeetingAreaUI } from '../ui/meetingArea.js';
-import { openActionIframe } from '../ui/actionIframe.js';
+import { openActionIframe, reopenActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
 import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
@@ -406,6 +406,9 @@ export class OfficeScene extends Phaser.Scene {
   /** Settings: recenter the camera on the player as they move (see update()).
    *  Off = the old, pre-follow behavior — the camera stays wherever you leave it. */
   private cameraFollowEnabled = true;
+  /** Viewer pref: an 'iframe' action floats over the game instead of docking
+   *  beside it (see ui/actionIframe.ts). Server-persisted per user. */
+  private iframeOverlay = false;
   private soundOn = true;
   private volume = 1;
   private settingsPanel!: HTMLDivElement;
@@ -831,7 +834,7 @@ export class OfficeScene extends Phaser.Scene {
           if (m.kind === 'arcade') this.openArcade({ col, row });
           else if (m.kind === 'timeClock') this.openTimeClock();
           else if (m.kind === 'meetingManager') this.openMeetingRoomManageDialog({ col, row });
-          else if (m.kind === 'iframe') openActionIframe(m.url as string);
+          else if (m.kind === 'iframe') openActionIframe(m.url as string, { overlay: this.iframeOverlay });
         }
         else {
           // Keep raw asset metadata the editors need (group fields, default count).
@@ -3664,6 +3667,7 @@ export class OfficeScene extends Phaser.Scene {
     this.volume = typeof m.alertVolume === 'number' ? (m.alertVolume as number) : 1;
     this.alwaysShowLabels = !!m.alwaysShowLabels;
     this.cameraFollowEnabled = m.cameraFollow !== false;
+    this.iframeOverlay = m.iframeOverlay === true;
     setSoundEnabled(this.soundOn);
     setAlertVolume(this.volume);
     this.syncSettingsInputs();
@@ -3745,6 +3749,8 @@ export class OfficeScene extends Phaser.Scene {
       <div class="row"><label for="pa-vol">Volume</label><input id="pa-vol" type="range" min="0" max="100"></div>
       <div class="row"><input id="pa-lbl" type="checkbox"><label for="pa-lbl">Show player names</label></div>
       <div class="row"><input id="pa-camfollow" type="checkbox"><label for="pa-camfollow">Camera follows you</label></div>
+      <div class="row"><input id="pa-iframe-overlay" type="checkbox"><label for="pa-iframe-overlay">Web pages open as an overlay</label></div>
+      <div class="hint">On: a window over the world. Off: a column beside it, and the world makes room.</div>
       <button id="pa-check-updates">Check for updates</button>
       <div id="pa-update-status" class="hint" style="margin:0.35rem 0 0;"></div>
       <button id="pa-change-server">Change server</button>`;
@@ -3829,6 +3835,7 @@ export class OfficeScene extends Phaser.Scene {
     const vol = panel.querySelector<HTMLInputElement>('#pa-vol')!;
     const lbl = panel.querySelector<HTMLInputElement>('#pa-lbl')!;
     const camFollow = panel.querySelector<HTMLInputElement>('#pa-camfollow')!;
+    const iframeOverlay = panel.querySelector<HTMLInputElement>('#pa-iframe-overlay')!;
     name.onchange = () => {
       const v = name.value.trim().slice(0, 32);
       this.viewerUsername = v;
@@ -3873,6 +3880,14 @@ export class OfficeScene extends Phaser.Scene {
       this.cameraFollowDetached = false;
       this.cameraDetachAt = null;
       this.room?.send('setCameraFollow', { enabled: this.cameraFollowEnabled });
+    };
+    iframeOverlay.onchange = () => {
+      this.iframeOverlay = iframeOverlay.checked;
+      // Act on the page they are looking at, not just the next one — a viewer
+      // flipping this while a page is open is telling us about THAT page. A
+      // no-op when none is open.
+      reopenActionIframe({ overlay: this.iframeOverlay });
+      this.room?.send('setIframeOverlay', { enabled: this.iframeOverlay });
     };
     // "Check for updates" and "Change server" are desktop-only concerns (the
     // browser build updates by reloading and its server is its own origin), so
@@ -4222,6 +4237,7 @@ export class OfficeScene extends Phaser.Scene {
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-vol')!.value = String(Math.round(this.volume * 100));
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-lbl')!.checked = this.alwaysShowLabels;
     this.settingsPanel.querySelector<HTMLInputElement>('#pa-camfollow')!.checked = this.cameraFollowEnabled;
+    this.settingsPanel.querySelector<HTMLInputElement>('#pa-iframe-overlay')!.checked = this.iframeOverlay;
     // Account section: only for logged-in users; reflect the current agent token.
     const account = this.settingsPanel.querySelector<HTMLDivElement>('#pa-account');
     if (account) account.style.display = this.myUserId ? '' : 'none';

@@ -15,6 +15,42 @@ import { db } from './db.js';
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
 
+/**
+ * One viewer's personal presentation preferences — what they see, never what
+ * they may do. Nothing here grants anything, which is why the client is allowed
+ * to set them for itself (see SimRoom's set* handlers, each keyed by the
+ * SENDER's userId).
+ */
+export interface ViewerSettings {
+  soundEnabled: boolean;
+  alwaysShowLabels: boolean;
+  alertVolume: number;
+  cameraFollow: boolean;
+  /** Open an 'iframe' action as a window over the game instead of a column
+   *  pinned beside it — see client/src/ui/actionIframe.ts for what the two
+   *  shapes are and why the choice is the viewer's. */
+  iframeOverlay: boolean;
+}
+
+/** The defaults, in one place: `getViewerSettings` fills each missing field from
+ *  here, and an anonymous viewer — who has no row to read — gets exactly this
+ *  (SimRoom.onJoin). A second hand-written copy of these values is how a new
+ *  preference ends up meaning one thing for a logged-in viewer and another for a
+ *  guest. */
+const VIEWER_SETTING_DEFAULTS: ViewerSettings = {
+  soundEnabled: true,
+  alwaysShowLabels: false,
+  alertVolume: 1,
+  cameraFollow: true,
+  // False = the shape this has always had: a column beside the game, which never
+  // hides the world. Opting in is the change of behaviour.
+  iframeOverlay: false,
+};
+
+export function defaultViewerSettings(): ViewerSettings {
+  return { ...VIEWER_SETTING_DEFAULTS };
+}
+
 class AppStore {
   private readonly db = db;
 
@@ -197,26 +233,24 @@ class AppStore {
     return this.deleteAsset('playerAvatar', username);
   }
 
-  // ── Per-user viewer preferences (sound / labels / alert volume) ──
+  // ── Per-user viewer preferences (sound / labels / volume / windowing) ──
   // These are personal, not global: keyed by userId so one viewer can never
   // change another viewer's (or a server-wide) setting.
-  getViewerSettings(
-    userId: string,
-  ): { soundEnabled: boolean; alwaysShowLabels: boolean; alertVolume: number; cameraFollow: boolean } {
-    const all = this.getSetting<
-      Record<string, { soundEnabled?: boolean; alwaysShowLabels?: boolean; alertVolume?: number; cameraFollow?: boolean }>
-    >('viewerSettings', {});
+  getViewerSettings(userId: string): ViewerSettings {
+    const all = this.getSetting<Record<string, Partial<ViewerSettings>>>('viewerSettings', {});
     const s = all[userId] ?? {};
+    const d = VIEWER_SETTING_DEFAULTS;
     return {
-      soundEnabled: s.soundEnabled ?? true,
-      alwaysShowLabels: s.alwaysShowLabels ?? false,
-      alertVolume: typeof s.alertVolume === 'number' ? s.alertVolume : 1,
-      cameraFollow: s.cameraFollow ?? true,
+      soundEnabled: s.soundEnabled ?? d.soundEnabled,
+      alwaysShowLabels: s.alwaysShowLabels ?? d.alwaysShowLabels,
+      alertVolume: typeof s.alertVolume === 'number' ? s.alertVolume : d.alertVolume,
+      cameraFollow: s.cameraFollow ?? d.cameraFollow,
+      iframeOverlay: s.iframeOverlay ?? d.iframeOverlay,
     };
   }
   setViewerSetting(
     userId: string,
-    key: 'soundEnabled' | 'alwaysShowLabels' | 'alertVolume' | 'cameraFollow',
+    key: keyof ViewerSettings,
     value: boolean | number,
   ): void {
     if (!userId) return;

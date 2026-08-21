@@ -367,6 +367,14 @@ apart, so there adjacency alone still decides.
 **Travel is content.** A portal is just furniture whose action is `portal` — a
 door, a beam pad. Never hard-code a coordinate jump.
 
+**A web page's shape is the viewer's, not the map's.** An `iframe` action carries
+a URL and nothing about how it is framed: each viewer chooses in Settings between
+a column pinned beside the world (the game shrinks to make room, so you can still
+see where you are standing) and a window over it (far more room on a laptop).
+Don't design a map around either one — the same page is a reference panel on a
+wide monitor and a full window on a small screen, and only the person looking at
+it knows which.
+
 ## On/off state — the off tile names the on tile
 
 A monitor or a lamp is **two catalog entries**, not one tile with a boolean. Set

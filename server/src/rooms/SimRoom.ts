@@ -39,7 +39,7 @@ import { director, type AgentInfo } from '../sim/director.js';
 import { applyEvent } from '../sim/applyEvent.js';
 import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
-import { appStore } from '../appStore.js';
+import { appStore, defaultViewerSettings } from '../appStore.js';
 import {
   ASSET_TYPES,
   getMergedBundle,
@@ -615,9 +615,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       protocol: PROTOCOL_VERSION,
     });
     // Personal viewer prefs (per user; anonymous viewers get the defaults).
-    const vs = userId
-      ? appStore.getViewerSettings(userId)
-      : { soundEnabled: true, alwaysShowLabels: false, alertVolume: 1, cameraFollow: true };
+    const vs = userId ? appStore.getViewerSettings(userId) : defaultViewerSettings();
     client.send('m', { type: 'settingsLoaded', ...vs });
   }
 
@@ -1349,6 +1347,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
     this.onMessage('setCameraFollow', (client, msg: { enabled?: boolean }) => {
       const { userId } = authOf(client);
       if (userId) appStore.setViewerSetting(userId, 'cameraFollow', !!msg?.enabled);
+    });
+    // Whether an 'iframe' action floats over the game or docks beside it. Pure
+    // presentation, and self-only: it decides nothing about what this viewer may
+    // open — the action's URL comes from the map, already sanitized on save.
+    this.onMessage('setIframeOverlay', (client, msg: { enabled?: boolean }) => {
+      const { userId } = authOf(client);
+      if (userId) appStore.setViewerSetting(userId, 'iframeOverlay', !!msg?.enabled);
     });
     this.onMessage('setAlertVolume', (client, msg: { volume?: number }) => {
       const { userId } = authOf(client);
