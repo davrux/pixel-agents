@@ -9,9 +9,9 @@
  *               resizes the canvas + camera to match on its own — no manual
  *               game.scale call. Nothing covers the world, so you can still see
  *               where you are standing.
- *   'overlay' — a centred window floating ON the game, the same shape and chrome
- *               as the arcade cabinet (ArcadeUI). The page gets far more room on
- *               a narrow screen, at the cost of hiding the world behind it. The
+ *   'overlay' — a centred window floating ON the game, 80% of it, with the arcade
+ *               cabinet's chrome (ArcadeUI). The page gets far more room than the
+ *               dock gives it, at the cost of hiding the world behind it. The
  *               game is not resized at all, so nothing re-lays-out when it opens.
  *
  * Which one is a personal preference, stored per user (`iframeOverlay`, see
@@ -26,7 +26,7 @@
 /** Percentage of the viewport the DOCKED panel takes — #game gets the rest.
  *  Matches WorkAdventure's openWebsiteWidth default range (they cap around 70%);
  *  a reference panel doesn't need to dominate the screen, so default smaller.
- *  The overlay has no equivalent: it is sized like the arcade, in CSS. */
+ *  The overlay has no equivalent: it is 80% of the window, in CSS. */
 const DEFAULT_WIDTH_PERCENT = 35;
 
 export interface ActionIframeOptions {
@@ -50,10 +50,12 @@ function ensureStyles(): void {
     #pa-iframe-panel{position:fixed;top:0;right:0;bottom:0;z-index:130;display:flex;flex-direction:column;
       background:#1c1a19;border-left:2px solid #0a0908;box-shadow:-4px 0 18px rgba(0,0,0,.4);
       font-family:'FS Pixel Sans',ui-monospace,monospace;}
-    /* Overlay: the arcade cabinet's own box, so the two floating windows in this
-       app are the same window (see ArcadeUI's #pa-arc). */
+    /* Overlay: the arcade cabinet's chrome (see ArcadeUI's #pa-arc), at 80% of the
+       window rather than the arcade's rem-capped box — an external page is read,
+       not glanced at, and the cap left two thirds of a large monitor unused. No
+       ceiling in rem for the same reason: on a big screen 80% IS the answer. */
     #pa-iframe-panel.overlay{top:50%;right:auto;bottom:auto;left:50%;transform:translate(-50%,-50%);
-      width:min(94vw,64rem);height:min(90vh,44rem);border:2px solid #0a0908;border-radius:0.6rem;
+      width:80vw;height:80vh;border:2px solid #0a0908;border-radius:0.6rem;
       overflow:hidden;box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
     #pa-iframe-panel .pa-iframe-bar{display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.7rem;
       background:#1c1a19;border-bottom:2px solid #0a0908;box-shadow:inset 0 -1px 0 #2c2a28;}
