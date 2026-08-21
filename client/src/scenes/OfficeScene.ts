@@ -311,10 +311,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
    *  performance.now() clock). */
   private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
-  /** Player ids currently talking in a meeting (client-side, from LiveKit). */
-  private voiceSpeakers = new Set<number>();
-  /** Per-speaker grace deadline (ms) so the talking ring stays on through gaps. */
-  private readonly voiceSpeakUntil = new Map<number, number>();
   private charEditor!: CharacterEditor;
   private charCreator!: CharacterCreator;
   /** Where the character editor's "← Back" returns — set by whoever opens it
@@ -2079,7 +2075,6 @@ export class OfficeScene extends Phaser.Scene {
       this.updateTooltip();
       this.updateNameLabels();
       this.updateChatBubbles();
-      this.updateVoiceIndicators();
     }
     if (this.perfEnabled) this.recordPerf(performance.now() - t0);
   }
@@ -2092,7 +2087,6 @@ export class OfficeScene extends Phaser.Scene {
     // here can never fire. update() ORs the rebuild in directly instead.
     if (this.portalPickerTile) return true;
     if (this.tip && this.tip.style.display !== 'none') return true; // hover tooltip
-    if (this.voiceSpeakUntil.size > 0) return true; // pulsing in-world speaking ring
     for (const b of this.chatBubbles.values()) if (b.until > now) return true;
     for (const ch of this.characters.values()) {
       if (Math.abs((ch.x ?? ch.tx) - ch.tx) > 0.4 || Math.abs((ch.y ?? ch.ty) - ch.ty) > 0.4) return true;
@@ -2134,7 +2128,7 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Re-run the render loop after it was idled/slept. `userInput` = a real user
    *  action (mouse/keys), or a discrete event whose result must show up now
-   *  (voice mute/speaking) → keep the scene responsive (reset the idle counter).
+   *  (a chat bubble arriving) → keep the scene responsive (reset the idle counter).
    *  Bulk state patches pass false: they only wake a SLEPT loop; while already
    *  awake, whether to stay active is decided by sceneBusy() (actual on-screen
    *  motion), so idle bookkeeping patches don't peg the loop active. */
@@ -3340,7 +3334,6 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
-      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
       onMicLevel: (level) => this.conf === conf && this.onCallMicLevel(level),
     });
     this.conf = conf;
@@ -3511,7 +3504,6 @@ export class OfficeScene extends Phaser.Scene {
       onNotice: (text) => this.confUI.notice(text),
       onReaction: (reaction, from) => this.confUI.playReaction(reaction, from),
       onVideoFilter: (id) => this.confUI.setVideoFilter(id),
-      onSpeakers: (identities) => this.setVoiceSpeakers(identities),
       onMicLevel: (level) => this.meetingConf === conf && this.onCallMicLevel(level),
       onScreens: (n) => {
         // The mini popup has no room for a screen share (meetingArea's own
@@ -4465,40 +4457,6 @@ export class OfficeScene extends Phaser.Scene {
       b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
       b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
     }
-  }
-
-  /**
-   * Who is talking, from a meeting's LiveKit identities (`p<playerId>` — see
-   * SimRoom.mintVoiceToken) to the player ids the renderer draws rings under.
-   *
-   * Being in a meeting is what puts a ring on an avatar now. The identity scheme
-   * is the same one zone voice used, so this is a parse rather than a lookup, and
-   * an identity that doesn't match (a guest, a stale participant) simply doesn't
-   * get one instead of drawing over somebody else.
-   */
-  private setVoiceSpeakers(identities: Set<string>): void {
-    const ids = new Set<number>();
-    for (const identity of identities) {
-      const m = /^p(\d+)$/.exec(identity);
-      if (m) ids.add(Number(m[1]));
-    }
-    this.voiceSpeakers = ids;
-    this.wake(true); // talking indicators changed → one frame to pick it up
-  }
-
-  /** Feed the in-world voice indicators (Phaser): the pulsing ring under whoever
-   *  is talking, and the crossed 🎤 / 🔊 head markers for muted / sound-off. Both
-   *  are drawn by the renderer so they pan and zoom with the avatar. */
-  private updateVoiceIndicators(): void {
-    const now = performance.now();
-    // Grace window so the speaking ring stays steady through gaps between words
-    // (LiveKit's active-speaker flag toggles off in those pauses).
-    const GRACE_MS = 800;
-    for (const id of this.voiceSpeakers) this.voiceSpeakUntil.set(id, now + GRACE_MS);
-    for (const [id, until] of this.voiceSpeakUntil) {
-      if (now >= until) this.voiceSpeakUntil.delete(id);
-    }
-    this.view.setSpeakingIds(new Set(this.voiceSpeakUntil.keys()));
   }
 
   // ── Hover / selection tooltip (DOM overlay, fixed readable size) ──
