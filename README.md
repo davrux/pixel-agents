@@ -336,7 +336,7 @@ repairs that (so does opening and saving the map in Tiled).
 For a whole art *pack* this is the wrong tool — that is a sheet or a collection,
 and `.claude/skills/tiled-asset-import/` covers which.
 
-## Actions — what happens when you get there
+## Actions — what happens when you get there (and one that needs nobody)
 
 `actionKind` is a discriminated union: it decides which of the other `action*`
 properties is read at all. It can sit on a catalog tile (the type's default), on
@@ -344,6 +344,21 @@ a placement (an override), or on an **`ActionArea`** — a Point or Rectangle on
 the Actions layer, for a trigger with no furniture behind it. The area's
 position *is* the data; a 10×10 meeting room and a single tile use the same
 class.
+
+Most of them happen because somebody arrived: on furniture you click it and your
+avatar walks up, on a tile it fires the moment you stand there. One does not —
+`talkingObject` is triggered by the clock, so it needs no player and ignores
+clicks. Place it and walk away; it still speaks.
+
+**The clock it reads is the server's**, because a world has one clock: everyone
+standing at the whale hears the same hour at the same moment, and a viewer whose
+own machine is an hour out is not told the wrong time. The consequence is
+operational — the container runs on UTC unless you say otherwise, so a
+deployment that wants local hours sets `TZ` (e.g. `TZ=Europe/Berlin`) on the
+server process. It announces nothing while a zone is empty: the room does not
+tick without a viewer in it, and the first tick after somebody arrives adopts
+the hour rather than announcing it — arriving at 9:05 is not being present at
+9:00.
 
 | `actionKind` | What it does | Reads |
 |---|---|---|
@@ -357,6 +372,7 @@ class.
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
+| `talkingObject` | says the hour by itself, on the hour — a speech bubble reading `9:00` over the piece | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).
@@ -405,7 +421,7 @@ nothing custom about it.
 |---|---|
 | `SitFacing` | *(empty)*, `N`, `E`, `S`, `W` |
 | `ApproachSide` (flags) | `N`, `S`, `E`, `W` |
-| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint` |
+| `ActionKind` | *(empty)*, `meetingRoom`, `meetingManager`, `iframe`, `appliance`, `arcade`, `timeClock`, `portal`, `toggle`, `spawnPoint`, `talkingObject` |
 | `ApplianceKind` | *(empty)*, `coffee` |
 
 ## Two things that will bite you

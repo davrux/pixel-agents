@@ -105,7 +105,8 @@
                 "timeClock",
                 "portal",
                 "toggle",
-                "spawnPoint"
+                "spawnPoint",
+                "talkingObject"
             ]
         },
         {

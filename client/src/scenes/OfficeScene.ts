@@ -36,6 +36,7 @@ import { spriteAtlasFrameCount, spriteAtlasPageCount } from '../render/sprites.j
 import {
   getCatalogEntry,
   effectiveAction,
+  isClickAction,
   resolveBackgroundTiles,
   resolveCanSitOn,
   entryFor,
@@ -104,6 +105,11 @@ type RenderChar = Partial<Character> & {
   workStatus?: WorkStatus;
 };
 type RenderPet = Partial<Pet> & { id: number; tx: number; ty: number };
+
+/** What a speech bubble hangs over: an avatar (a chat line) or a piece of
+ *  furniture addressed by its anchor tile (a talking object saying the hour —
+ *  see Action's 'talkingObject'). */
+type BubbleAnchor = { kind: 'character'; id: number } | { kind: 'furniture'; col: number; row: number };
 
 /** The only values a `dir` field can legitimately carry off the wire. */
 const SYNCED_DIRS = new Set<number>(Object.values(Direction));
@@ -308,9 +314,12 @@ export class OfficeScene extends Phaser.Scene {
    *  late `viewerIdentity` can notice it was started for the wrong one. */
   private matrixPaUserId: string | null = null;
   private matrixPagehideBound = false;
-  /** Transient chat bubbles above avatars, keyed by entity id (expiry in ms,
-   *  performance.now() clock). */
-  private readonly chatBubbles = new Map<number, { el: HTMLDivElement; until: number }>();
+  /** Transient speech bubbles, keyed by what they hang over: `c:<id>` for a
+   *  character's chat line, `f:<col>,<row>` for a talking object saying the hour
+   *  (see Action's 'talkingObject'). One map, because positioning and expiry are
+   *  the same job either way and the key names the anchor that resolves it
+   *  (expiry in ms, performance.now() clock). */
+  private readonly chatBubbles = new Map<string, { el: HTMLDivElement; until: number; anchor: BubbleAnchor }>();
   private charEditor!: CharacterEditor;
   private charCreator!: CharacterCreator;
   /** Where the character editor's "← Back" returns — set by whoever opens it
@@ -747,6 +756,7 @@ export class OfficeScene extends Phaser.Scene {
         else if (m.type === 'zoneInviteAccepted') this.onZoneInviteAccepted(m);
         else if (m.type === 'zoneInviteResult') this.onZoneInviteResult(m);
         else if (m.type === 'chat') this.onChat(m);
+        else if (m.type === 'furnitureSay') this.onFurnitureSay(m);
         else if (m.type === 'chatHistory') this.onChatHistory(m);
         else if (m.type === 'system') this.chat?.addSystemLine((m.text as string) ?? '');
         else if (m.type === 'meetingRoomMembers') {
@@ -1128,19 +1138,20 @@ export class OfficeScene extends Phaser.Scene {
     return false;
   }
 
-  /** If the tile is covered by a furniture item that has an action (see
-   *  Action) — conference monitor, link-manager kiosk, arcade cabinet, or
+  /** If the tile is covered by a furniture item a CLICK reaches (see
+   *  isClickAction) — conference monitor, link-manager kiosk, arcade cabinet, or
    *  any iframe/meetingRoom override — its anchor tile + the action itself,
-   *  else null. Mirrors the server's actionAt/effectiveAction. Appliances
-   *  are NOT included (see applianceAt) — they go through their own
-   *  applianceApproach, not the unified actionApproach. */
+   *  else null. Mirrors the server's walkPlayerToAction, which asks the same
+   *  question through the same function: appliances have their own
+   *  applianceApproach (see applianceAt), and a talking object is triggered by
+   *  the clock rather than by anyone walking up to it. */
   private actionAt(col: number, row: number): { col: number; row: number; action: Action; name?: string } | null {
     for (const f of this.furniturePlacements) {
       const entry = entryFor(f);
       if (!entry) continue;
       if (col < f.col || col >= f.col + entry.footprintW || row < f.row || row >= f.row + entry.footprintH) continue;
       const action = effectiveAction(f, entry);
-      if (action && action.kind !== 'appliance') return { col: f.col, row: f.row, action, name: f.name };
+      if (isClickAction(action)) return { col: f.col, row: f.row, action, name: f.name };
     }
     return null;
   }
@@ -4426,40 +4437,82 @@ export class OfficeScene extends Phaser.Scene {
     const from = (m.from as string) ?? "?";
     const text = (m.text as string) ?? "";
     this.chat?.addChatLine(from, text, m.at as number | undefined);
-    if (typeof m.id === "number") this.showChatBubble(m.id, text);
+    if (typeof m.id === "number") this.showBubble({ kind: 'character', id: m.id }, text);
   }
 
-  private showChatBubble(id: number, text: string): void {
-    let b = this.chatBubbles.get(id);
+  /**
+   * A talking object said something — the server's own line, not a player's, so
+   * it goes over the furniture and NOT into the chat log (see
+   * SimRoom.handleSpokenLines). An hourly line in the transcript would be a
+   * notification nobody asked for; over the statue it is scenery you look at.
+   *
+   * The piece is addressed by its anchor tile, like every other furniture
+   * message. A bubble for furniture this client does not have (a map it has not
+   * received yet, a piece since removed) simply never finds an anchor and is
+   * dropped on the next frame.
+   */
+  private onFurnitureSay(m: Record<string, unknown>): void {
+    const col = m.col;
+    const row = m.row;
+    const text = m.text;
+    if (typeof col !== 'number' || typeof row !== 'number' || typeof text !== 'string' || !text) return;
+    this.showBubble({ kind: 'furniture', col, row }, text);
+  }
+
+  /** Show (or refresh) the one bubble belonging to this anchor. A second line
+   *  from the same speaker replaces the first rather than stacking: two boxes
+   *  over one head is unreadable, and the newer line is the one that matters. */
+  private showBubble(anchor: BubbleAnchor, text: string): void {
+    const key = anchor.kind === 'character' ? `c:${anchor.id}` : `f:${anchor.col},${anchor.row}`;
+    let b = this.chatBubbles.get(key);
     if (!b) {
       const el = document.createElement('div');
       el.className = 'pa-chatbubble';
       (document.getElementById('game') ?? document.body).appendChild(el);
-      b = { el, until: 0 };
-      this.chatBubbles.set(id, b);
+      b = { el, until: 0, anchor };
+      this.chatBubbles.set(key, b);
     }
     b.el.textContent = text.length > 120 ? `${text.slice(0, 119)}…` : text;
     b.until = performance.now() + 5000;
   }
 
-  /** Position chat bubbles above their avatars; drop expired/gone ones. */
+  /** Where a bubble's tail points, in WORLD pixels — an avatar's head, or the
+   *  top-centre of a talking object's footprint. Null when the thing it belongs
+   *  to is not here (any more), which is how a bubble gets dropped. */
+  private bubbleAnchorPoint(anchor: BubbleAnchor): { x: number; y: number } | null {
+    if (anchor.kind === 'character') {
+      const ch = this.characters.get(anchor.id);
+      if (!ch) return null;
+      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
+      // Sit a little higher than the name label so both are readable.
+      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
+      return { x: ch.x ?? ch.tx, y: (ch.y ?? ch.ty) + sit - headOff };
+    }
+    const f = this.furniturePlacements.find((p) => p.col === anchor.col && p.row === anchor.row);
+    if (!f) return null;
+    // Footprint, not the art's own box: entryFor already resolved a resize and a
+    // quarter turn into cells, so the bubble stays centred over a piece however
+    // it was placed.
+    const entry = entryFor(f);
+    const w = entry?.footprintW ?? 1;
+    return { x: (f.col + w / 2) * TILE_SIZE, y: f.row * TILE_SIZE - 2 };
+  }
+
+  /** Position bubbles above what said them; drop expired/gone ones. */
   private updateChatBubbles(): void {
     if (this.chatBubbles.size === 0) return;
     const now = performance.now();
     const cam = this.cameras.main;
     const wv = cam.worldView;
-    for (const [id, b] of this.chatBubbles) {
-      const ch = this.characters.get(id);
-      if (!ch || now >= b.until) {
+    for (const [key, b] of this.chatBubbles) {
+      const at = now >= b.until ? null : this.bubbleAnchorPoint(b.anchor);
+      if (!at) {
         b.el.remove();
-        this.chatBubbles.delete(id);
+        this.chatBubbles.delete(key);
         continue;
       }
-      const sit = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
-      // Sit a little higher than the name label so both are readable.
-      const headOff = (32 * getCharacterSize(ch.skin ?? "").h) / CHARACTER_BASELINE_HEIGHT;
-      b.el.style.left = `${Math.round(((ch.x ?? ch.tx) - wv.x) * cam.zoom)}px`;
-      b.el.style.top = `${Math.round(((ch.y ?? ch.ty) + sit - headOff - wv.y) * cam.zoom)}px`;
+      b.el.style.left = `${Math.round((at.x - wv.x) * cam.zoom)}px`;
+      b.el.style.top = `${Math.round((at.y - wv.y) * cam.zoom)}px`;
     }
   }
 

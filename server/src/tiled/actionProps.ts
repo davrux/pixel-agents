@@ -36,6 +36,10 @@ export function actionFromProps(props: PropBag, prefix = 'action'): Action | nul
     case 'portal':
     case 'toggle':
     case 'spawnPoint':
+    // A talking object says the hour by itself and takes no configuration —
+    // see Action. It sits with the payload-less kinds because the map has
+    // nothing to state about it, not because it behaves like them.
+    case 'talkingObject':
       return { kind };
     case 'iframe':
       return { kind, url: typeof props[`${prefix}Url`] === 'string' ? (props[`${prefix}Url`] as string) : '' };
