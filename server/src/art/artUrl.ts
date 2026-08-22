@@ -9,15 +9,40 @@
  */
 import { createHash } from 'node:crypto';
 
-/** Content hash of the pixels — the URL's `v`, so changed art is a changed URL. */
-export function artHash(sprites: unknown): string {
-  return createHash('sha1').update(JSON.stringify(sprites ?? null)).digest('hex').slice(0, 12);
+/**
+ * The direction rows, which is what the encoder draws from. Named here so the hash and any
+ * future reader agree on it, and so the four names live in one place.
+ */
+const ART_ROWS = ['down', 'up', 'right', 'left'] as const;
+
+/**
+ * Content hash of the ART in an entry — the URL's `v` and the route's ETag, so changed art
+ * is a changed URL and unchanged art revalidates to a 304.
+ *
+ * It takes a whole entry and picks out what the served PNG is actually made of: the four
+ * direction rows, plus the frame size `encodeDirectionalSheet` lays them out with. It used
+ * to hash the entry as it stood, and naming the bundled roster showed what that costs — every
+ * skin's and pet's URL and ETag changed while the images stayed byte-identical, because a
+ * label was part of the hash. Hashing the rows ALONE would be wrong the other way round: the
+ * encoder is handed the frame size, so an entry whose spec changed is a different image even
+ * with the same pixels. Everything else an entry carries — name, NPC config — never reaches
+ * the encoder, so it must not reach this.
+ */
+export function artHash(entry: unknown): string {
+  const d = entry as Record<string, unknown> | null | undefined;
+  const art = d
+    ? {
+        ...Object.fromEntries(ART_ROWS.map((row) => [row, d[row] ?? null])),
+        frame: (d.spec as { frame?: unknown } | undefined)?.frame ?? null,
+      }
+    : null;
+  return createHash('sha1').update(JSON.stringify(art)).digest('hex').slice(0, 12);
 }
 
 /** The URL for one piece of art, or null when there is nothing to serve. */
-export function artUrl(kind: 'character' | 'pet', id: string, sprites: unknown): string | null {
-  if (!sprites) return null;
-  return `/art/${kind}/${encodeURIComponent(id)}?v=${artHash(sprites)}`;
+export function artUrl(kind: 'character' | 'pet', id: string, entry: unknown): string | null {
+  if (!entry) return null;
+  return `/art/${kind}/${encodeURIComponent(id)}?v=${artHash(entry)}`;
 }
 
 /**
