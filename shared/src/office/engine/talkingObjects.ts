@@ -11,6 +11,12 @@
  * that talks needs no configuration beyond the action: there is no property
  * choosing between the two, because a talking object does both.
  *
+ * Every line also lands in the zone's chat log, attributed to the piece — which
+ * is why a SpokenLine carries a name it does not need for the bubble. A bubble
+ * is a moment you have to be looking at; the log is what somebody who was in
+ * the room can still read, and it is where the world's own lines belong next to
+ * the players'.
+ *
  * ── Why this is server-side, and why it takes `nowMs` ──
  *
  * "It is 9:00" is a DECISION, so it belongs where every other decision in this
@@ -44,6 +50,25 @@ export interface SpokenLine {
   col: number;
   row: number;
   text: string;
+  /** Who said it, for the chat log — a bubble needs no name, a transcript does
+   *  (see speakerName). Resolved here rather than on the client for the usual
+   *  reason: the client has no catalog label for a piece it only knows by tile,
+   *  and two viewers must not disagree about what the whale is called. */
+  from: string;
+}
+
+/**
+ * What a talking object is called when it speaks into the chat.
+ *
+ * The placement's own name first — a mapper who names an object in Tiled has
+ * said what it is — then the catalog label the art carries ("Talking Whale"),
+ * and only then a generic word. The last case is unreachable from a real map,
+ * because every furniture tile carries a label; it exists so a placement of an
+ * id no catalog knows says something rather than `undefined:`.
+ */
+export function speakerName(f: PlacedFurniture): string {
+  const named = typeof f.name === 'string' ? f.name.trim() : '';
+  return named || entryFor(f)?.label?.trim() || 'Talking object';
 }
 
 /**
@@ -109,7 +134,7 @@ export function talkingObjects(furniture: readonly PlacedFurniture[]): PlacedFur
  *  whole tick — see AGENTS.md on measuring, and `getCatalogEntry`.) */
 export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): SpokenLine[] {
   const text = hourText(nowMs);
-  return talkers.map((f) => ({ col: f.col, row: f.row, text }));
+  return talkers.map((f) => ({ col: f.col, row: f.row, text, from: speakerName(f) }));
 }
 
 /* ── Quotes ────────────────────────────────────────────────────────────────
@@ -218,7 +243,7 @@ export class QuoteSchedule {
       this.dueAt.set(f.uid, nowMs + quoteDelayMs(this.rnd()));
       if (hourJustChimed) continue;
       const text = pickQuote(this.quotes, this.rnd());
-      if (text) out.push({ col: f.col, row: f.row, text });
+      if (text) out.push({ col: f.col, row: f.row, text, from: speakerName(f) });
     }
     return out;
   }

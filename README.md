@@ -351,6 +351,12 @@ avatar walks up, on a tile it fires the moment you stand there. One does not —
 clicks. Place it and walk away; it still speaks. It says two things: the hour, on
 the hour, and a random line from the world's quote pool at a random moment every
 20 to 60 minutes. There is no property to pick one — a talking object does both.
+Each line appears twice: as a speech bubble over the piece, and as a line in the
+zone's chat log attributed to it (the placement's name in Tiled if you gave it
+one, otherwise the label its art carries). The bubble is a moment you have to be
+looking at; the log is what somebody who was in the room can still read. Those
+lines never light the chat's unread dot — a speaker on a timer would leave it
+permanently lit, and a signal that is always on is not one.
 
 **The clock it reads is the server's**, because a world has one clock: everyone
 standing at the whale hears the same hour at the same moment, and a viewer whose

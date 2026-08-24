@@ -171,8 +171,12 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  players standing in its zone. Refcounted by concurrent sessions. */
   private readonly avatarData = new Map<string, LoadedCharacterData>();
   private readonly avatarRefs = new Map<string, number>();
-  /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit. */
-  private readonly chatLog: Array<{ from: string; text: string; at: number }> = [];
+  /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit.
+   *  `ambient` marks a line the WORLD said (a talking object) rather than a
+   *  person: it reads the same in the log but must not light the unread dot, or
+   *  a whale announcing the hour would leave it permanently lit — the same
+   *  reasoning the enter/leave lines already carry (see chatUI.addChatLine). */
+  private readonly chatLog: Array<{ from: string; text: string; at: number; ambient?: boolean }> = [];
   private readonly lastChatAt = new Map<string, number>();
   /** Meeting-room membership (Action's 'meetingRoom' kind) — a
    *  "furniture:col,row" or "tile:col,row" key (disambiguates a furniture
@@ -828,6 +832,14 @@ export class SimRoom extends Room<{ state: RoomState }> {
   }
 
   /** Display name for a chatter: their avatar's name, else display name, else Guest. */
+  /** Keep a line in the zone's recent-chat ring buffer (50, sent to joiners).
+   *  Shared by the 'chat' handler and the talking objects so there is one cap
+   *  and one place that trims it. */
+  private logChat(from: string, text: string, at: number, ambient = false): void {
+    this.chatLog.push(ambient ? { from, text, at, ambient } : { from, text, at });
+    if (this.chatLog.length > 50) this.chatLog.shift();
+  }
+
   private chatNameFor(client: Client): string {
     const { userId, username } = authOf(client);
     const id = this.players.get(client.sessionId);
@@ -954,8 +966,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       this.lastChatAt.set(client.sessionId, now);
       const from = this.chatNameFor(client);
       const id = this.players.get(client.sessionId) ?? null;
-      this.chatLog.push({ from, text, at: now });
-      if (this.chatLog.length > 50) this.chatLog.shift();
+      this.logChat(from, text, now);
       this.broadcast('m', { type: 'chat', from, text, id, at: now });
     });
 
@@ -1968,8 +1979,16 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * The text is the server's own (`H:00`), so it is bounded by construction.
    */
   private handleSpokenLines(): void {
-    for (const { col, row, text } of this.os.takeSpokenLines()) {
-      this.broadcast('m', { type: 'furnitureSay', col, row, text });
+    const at = Date.now();
+    for (const { col, row, text, from } of this.os.takeSpokenLines()) {
+      // One message, two places: the bubble over the piece and a line in the
+      // chat log. The client does both from this, so they cannot disagree about
+      // what was said — and a viewer who was looking elsewhere still has it.
+      this.broadcast('m', { type: 'furnitureSay', col, row, text, from });
+      // Kept for joiners too, so the log a newcomer reads is the log everybody
+      // else is reading. Bounded twice over: the ring buffer above, and a piece
+      // that speaks at most twice an hour.
+      this.logChat(from, text, at, true);
     }
   }
 

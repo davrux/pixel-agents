@@ -149,7 +149,15 @@ export class ChatUI {
   }
 
   /** A remote/local chat line: `HH:MM from: text` (text linkified, HTML-escaped). */
-  addChatLine(from: string, text: string, at?: number): void {
+  /** A line somebody (or something) said, from the server.
+   *
+   *  `ambient` = the world said it, not a person: a talking object's hourly
+   *  announcement or its quote. It reads exactly like any other line — the world
+   *  talking is part of the conversation — but it does not light the unread dot,
+   *  for the same reason the system lines do not: a speaker that talks on a timer
+   *  would leave the dot permanently lit, and a signal that is always on is not
+   *  one. */
+  addChatLine(from: string, text: string, at?: number, ambient = false): void {
     const atBottom = this.log.scrollHeight - this.log.scrollTop - this.log.clientHeight < 24;
     const ln = document.createElement('div');
     ln.className = 'ln';
@@ -161,7 +169,7 @@ export class ChatUI {
     // minimised-by-default chat would swallow messages silently. Only real chat
     // lines count: the system ones are mostly "X entered the zone", which would
     // leave the dot permanently lit and therefore meaningless.
-    if (this.hidden) this.openBtn.classList.add('unread');
+    if (this.hidden && !ambient) this.openBtn.classList.add('unread');
     this.bump();
   }
   /** A local italic system line (command feedback / help). */
@@ -178,8 +186,8 @@ export class ChatUI {
     this.bump();
   }
   /** Replay a batch of history messages on join. */
-  addHistory(msgs: Array<{ from?: string; text?: string; at?: number }>): void {
-    for (const c of msgs ?? []) this.addChatLine(c.from ?? '?', c.text ?? '', c.at);
+  addHistory(msgs: Array<{ from?: string; text?: string; at?: number; ambient?: boolean }>): void {
+    for (const c of msgs ?? []) this.addChatLine(c.from ?? '?', c.text ?? '', c.at, c.ambient === true);
   }
 
   destroy(): void {

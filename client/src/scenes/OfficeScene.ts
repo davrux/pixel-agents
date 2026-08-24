@@ -4441,15 +4441,20 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /**
-   * A talking object said something — the server's own line, not a player's, so
-   * it goes over the furniture and NOT into the chat log (see
-   * SimRoom.handleSpokenLines). An hourly line in the transcript would be a
-   * notification nobody asked for; over the statue it is scenery you look at.
+   * A talking object said something — the server's own line, not a player's. It
+   * goes to both places from this one message: a bubble over the piece, and a
+   * line in the chat log attributed to it (see SimRoom.handleSpokenLines).
+   *
+   * The log entry is what makes the line survive not being looked at — a bubble
+   * lasts seconds and only exists on screen. It is marked ambient, so the world
+   * talking on a timer never lights the chat's unread dot; that dot is for
+   * somebody wanting your attention.
    *
    * The piece is addressed by its anchor tile, like every other furniture
    * message. A bubble for furniture this client does not have (a map it has not
    * received yet, a piece since removed) simply never finds an anchor and is
-   * dropped on the next frame.
+   * dropped on the next frame — the chat line stays, because what was said was
+   * still said.
    */
   private onFurnitureSay(m: Record<string, unknown>): void {
     const col = m.col;
@@ -4457,6 +4462,10 @@ export class OfficeScene extends Phaser.Scene {
     const text = m.text;
     if (typeof col !== 'number' || typeof row !== 'number' || typeof text !== 'string' || !text) return;
     this.showBubble({ kind: 'furniture', col, row }, text);
+    // Bounded here as well as on the server: this is a name that goes into the
+    // DOM, and an older server that sends no name still gets a readable line.
+    const from = typeof m.from === 'string' && m.from.trim() ? m.from.trim().slice(0, 32) : 'Talking object';
+    this.chat?.addChatLine(from, text, undefined, true);
   }
 
   /** Show (or refresh) the one bubble belonging to this anchor. A second line

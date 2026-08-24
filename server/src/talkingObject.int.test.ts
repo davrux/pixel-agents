@@ -41,13 +41,15 @@ import {
   announceDue,
   hourStamp,
   hourText,
+  speakerName,
+  type SpokenLine,
   pickQuote,
   QuoteSchedule,
   quoteDelayMs,
   QUOTE_MAX_MS,
   QUOTE_MIN_MS,
 } from '@pixel/shared/office/engine/talkingObjects.js';
-import { isClickAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
+import { buildDynamicCatalog, isClickAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { emptyZoneMap } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.js';
 
@@ -154,6 +156,12 @@ function piece(uid: string, col: number, row: number, action: PlacedFurniture['a
   return { uid, id: `TEST_${uid}`, col, row, action } as PlacedFurniture;
 }
 
+/** The line a test piece is expected to say. `from` is asserted rather than
+ *  ignored because it is what the chat log shows — and for these placements it
+ *  is the fallback: `piece` invents an id no catalog carries, so there is no
+ *  label to read (see speakerName). */
+const said = (col: number, row: number, text: string, from = 'Talking object'): SpokenLine => ({ col, row, text, from });
+
 function world(furniture: PlacedFurniture[]): OfficeState {
   const layout: OfficeLayout = { ...emptyZoneMap(COLS, ROWS), furniture };
   return new OfficeState(layout);
@@ -166,7 +174,7 @@ test('a talking object says the hour, once, when the hour turns', () => {
   assert.deepEqual(os.takeSpokenLines(), [], 'the first tick adopts the hour, it does not announce it');
 
   os.update(0.05, at(9, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '9:00' }]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '9:00')]);
 
   // The rest of the hour is silent — 20 ticks a second for an hour would
   // otherwise be 72 000 bubbles.
@@ -174,7 +182,7 @@ test('a talking object says the hour, once, when the hour turns', () => {
   assert.deepEqual(os.takeSpokenLines(), []);
 
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '10:00' }]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')]);
 });
 
 test('every talking object in the zone says it, and nothing else says anything', () => {
@@ -187,8 +195,8 @@ test('every talking object in the zone says it, and nothing else says anything',
   os.update(0.05, at(8, 59, 59));
   os.update(0.05, at(9, 0, 0));
   assert.deepEqual(os.takeSpokenLines(), [
-    { col: 5, row: 5, text: '9:00' },
-    { col: 12, row: 3, text: '9:00' },
+    said(5, 5, '9:00'),
+    said(12, 3, '9:00'),
   ]);
 });
 
@@ -339,13 +347,13 @@ test('a quote comes at the end of the wait, not before, and then the wait starts
   assert.deepEqual(os.takeSpokenLines(), [], 'one second short of 20 minutes');
 
   os.update(0.05, at(9, 20, 30));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')]);
 
   os.update(0.05, at(9, 20, 31));
   assert.deepEqual(os.takeSpokenLines(), [], 'and not again on the very next tick');
 
   os.update(0.05, at(9, 40, 30));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'the next wait ran out');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')], 'the next wait ran out');
 });
 
 test('a whale with no quotes still tells the time, and says nothing else ever', () => {
@@ -356,7 +364,7 @@ test('a whale with no quotes still tells the time, and says nothing else ever', 
   for (const t of [at(9, 20), at(9, 40), at(9, 59, 59)]) os.update(0.05, t);
   assert.deepEqual(os.takeSpokenLines(), []);
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '10:00' }], 'the hour is unaffected');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')], 'the hour is unaffected');
 });
 
 test('the hour wins a tie, and the quote it displaced waits its turn', () => {
@@ -368,13 +376,13 @@ test('the hour wins a tie, and the quote it displaced waits its turn', () => {
   assert.deepEqual(os.takeSpokenLines(), []);
 
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '10:00' }], 'the hour, alone');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')], 'the hour, alone');
 
   os.update(0.05, at(10, 0, 1));
   assert.deepEqual(os.takeSpokenLines(), [], 'the displaced quote did not arrive a tick later either');
 
   os.update(0.05, at(10, 20, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'it rolled a fresh wait');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')], 'it rolled a fresh wait');
 });
 
 test('two talking objects drift apart instead of chanting in unison', () => {
@@ -388,7 +396,7 @@ test('two talking objects drift apart instead of chanting in unison', () => {
   os.update(0.05, at(9, 0, 0));
 
   os.update(0.05, at(9, 20, 0));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'only the first is due');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')], 'only the first is due');
 
   os.update(0.05, at(10, 0, 0));
   const lines = os.takeSpokenLines();
@@ -414,7 +422,7 @@ test('a whale that leaves the map is forgotten, and a new one starts a fresh wai
   os.update(0.05, at(12, 0, 1));
   assert.deepEqual(os.takeSpokenLines(), [], 'not overdue: the wait starts now, not in the world it left');
   os.update(0.05, at(12, 20, 1));
-  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.')]);
 });
 
 test('with a real die, the wait is never shorter than 20 minutes and never longer than 60', () => {
@@ -444,4 +452,36 @@ test('with a real die, the wait is never shorter than 20 minutes and never longe
   }
   const spread = new Set(gaps).size;
   assert.ok(spread > 10, `expected a spread of waits, got ${spread} distinct values — is the die stuck?`);
+});
+
+// ── 8. who the line is from ─────────────────────────────────────────────────
+
+test('a spoken line is attributed: the placement name first, then the label', () => {
+  // Both lines land in the zone chat log as well as in a bubble, and a log entry
+  // needs a name. The order is the point: naming an object in Tiled is a mapper
+  // saying what THIS one is, so it beats the label the art carries.
+  buildDynamicCatalog({
+    catalog: [{ id: 'STATUE', label: 'Stone Whale', footprintW: 1, footprintH: 1, width: 16, height: 16 }],
+  } as never);
+  const at0 = { uid: 'u', col: 0, row: 0 } as PlacedFurniture;
+  assert.equal(speakerName({ ...at0, id: 'STATUE' }), 'Stone Whale');
+  assert.equal(speakerName({ ...at0, id: 'STATUE', name: '  Wally  ' }), 'Wally', 'trimmed, and it wins');
+  // An id no catalog carries has no label to read — a real map cannot produce
+  // this (every furniture tile has one), and it must still not say `undefined:`.
+  assert.equal(speakerName({ ...at0, id: 'NO_SUCH_ART' }), 'Talking object');
+});
+
+test('the hour and the quote are attributed the same way, through the engine', () => {
+  buildDynamicCatalog({
+    catalog: [{ id: 'TEST_whale', label: 'Talking Whale', footprintW: 1, footprintH: 1, width: 16, height: 16 }],
+  } as never);
+  const os = world([piece('whale', 5, 5, { kind: 'talkingObject' })]);
+  os.setQuotes(POOL, scripted(0));
+
+  os.update(0.05, at(9, 40, 0));
+  os.update(0.05, at(10, 0, 0));
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00', 'Talking Whale')]);
+
+  os.update(0.05, at(10, 20, 0));
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.', 'Talking Whale')]);
 });

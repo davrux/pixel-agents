@@ -333,7 +333,9 @@ export type Action =
    * hour it says the time — a speech bubble over the piece reading `9:00` — and
    * between the hours it says a random quote out of the world's pool
    * (assets/quotes/talking-objects.txt), at a random moment every 20 to 60
-   * minutes. Today's talking whale.
+   * minutes. Both lines also land in the zone's chat log, attributed to the
+   * piece, so what it said outlives the few seconds its bubble is up. Today's
+   * talking whale.
    *
    * The only action so far that is triggered by neither of the two rules above:
    * not a click, not an arrival, but the WORLD CLOCK. That is why it is an
