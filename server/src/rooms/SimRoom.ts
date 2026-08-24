@@ -65,6 +65,7 @@ import {
 import { runAccountCommand } from './accountCommands.js';
 import { isThrottled, noteFail, clearFails } from '../throttle.js';
 import { meetingRoomStore, MAX_ACTIVE_ROOMS_PER_OWNER, MIN_MEETING_ROOM_PASSWORD_LEN } from '../meetingRoomStore.js';
+import { loadQuotes } from '../quotes.js';
 import { NpcBrain } from '../npc/npcBrain.js';
 import type { AssetBundle } from '../assets.js';
 
@@ -477,6 +478,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // The zone's map — one per zone, pushed from Tiled (see zoneLayout).
     this.store = new ZoneMapStore();
     this.os = new OfficeState(this.zoneLayout()); // portals derive from placed furniture (P5 v2)
+    // What the talking objects say between the hours — a file in the repo, read
+    // and bounded on the server (see quotes.ts), never by the engine.
+    this.os.setQuotes(loadQuotes());
     // NPC decisions run through the server-only mistreevous brain (kept out of
     // the client bundle). The engine remains the movement actuator.
     this.os.setNpcDecider((_pet, aff) =>

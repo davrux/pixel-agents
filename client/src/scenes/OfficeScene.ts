@@ -4473,7 +4473,11 @@ export class OfficeScene extends Phaser.Scene {
       this.chatBubbles.set(key, b);
     }
     b.el.textContent = text.length > 120 ? `${text.slice(0, 119)}…` : text;
-    b.until = performance.now() + 5000;
+    // Long enough to read, which is not a constant: five seconds is generous for
+    // `9:00` and short for a whale's quote two lines further down. Presentation
+    // timing, so it is decided here rather than synced (see AGENTS.md invariant
+    // 2) — the floor keeps chat lines behaving exactly as they did.
+    b.until = performance.now() + Math.min(12000, Math.max(5000, 2500 + text.length * 55));
   }
 
   /** Where a bubble's tail points, in WORLD pixels — an avatar's head, or the

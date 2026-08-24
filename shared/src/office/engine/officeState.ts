@@ -82,7 +82,7 @@ import {
 import { claimPoint, createCharacter, releasePoint, updateCharacter } from './characters.js';
 import { snapToTile, stepAlongPath } from './entity.js';
 import { matrixEffectSeeds } from './matrixEffect.js';
-import { announceDue, hourChimes, type SpokenLine } from './talkingObjects.js';
+import { announceDue, hourChimes, QuoteSchedule, talkingObjects, type SpokenLine } from './talkingObjects.js';
 import type { NpcAction, NpcAffordances, PetTarget } from './pets.js';
 import { beginPetDespawn, createPet, petPose, updatePet } from './pets.js';
 
@@ -205,14 +205,22 @@ export class OfficeState {
   private pendingActionArrivals: Array<{ id: number; action: Action; col: number; row: number }> = [];
   /** Lines a talking object said this tick, drained by the room — see
    *  takeSpokenLines / talkingObjects.ts / SimRoom.handleSpokenLines. Bounded by
-   *  construction rather than by a cap: the only thing that appends is the hour
-   *  turning, at most one line per talking object, and the room drains it in the
-   *  same tick that filled it. */
+   *  construction rather than by a cap: the only things that append are the hour
+   *  turning and a quote coming due, at most one line each per talking object,
+   *  and the room drains it in the same tick that filled it. */
   private spokenLines: SpokenLine[] = [];
   /** Which hour the talking objects have already announced (`null` = this room
    *  has not ticked yet, so the next tick adopts the hour instead of announcing
    *  it — see announceDue). */
   private lastChimeStamp: number | null = null;
+  /** The placements that talk, derived from the layout like actionAreas beside
+   *  it. Kept rather than filtered per tick because the quote schedule needs it
+   *  on every tick and the filter costs an `entryFor` per placement — see
+   *  hourChimes. */
+  private talkers: PlacedFurniture[] = [];
+  /** When each talking object says its next quote (see QuoteSchedule). Empty of
+   *  quotes until the server hands the pool over — setQuotes. */
+  private readonly quoteSchedule = new QuoteSchedule();
   /** Optional server-injected NPC decision fn (the mistreevous brain). When set,
    *  it chooses a pet's idle activity; otherwise the engine's built-in roll runs. */
   private npcDecide?: (pet: Pet, affordances: NpcAffordances) => NpcAction;
@@ -226,6 +234,7 @@ export class OfficeState {
     this.actionAreas = computeActionAreas(this.layout);
     this.meetingCanonical = meetingCanonicalAnchors(this.layout);
     this.actionTileKeys = computeActionTileKeys(this.layout);
+    this.talkers = talkingObjects(this.layout.furniture);
     // No characters/manual toggles exist yet at construction, so the
     // auto-on/toggle modifications rebuildFurnitureInstances() would apply
     // are all no-ops right now — the raw layout furniture IS the correct
@@ -273,6 +282,10 @@ export class OfficeState {
     this.actionAreas = computeActionAreas(layout);
     this.meetingCanonical = meetingCanonicalAnchors(layout);
     this.actionTileKeys = computeActionTileKeys(layout);
+    this.talkers = talkingObjects(layout.furniture);
+    // A surviving whale keeps its wait; one that was deleted (or whose uid a
+    // Tiled re-import regenerated) is forgotten here rather than held forever.
+    this.quoteSchedule.prune(new Set(this.talkers.map((t) => t.uid)));
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
 
@@ -1297,14 +1310,24 @@ export class OfficeState {
     return out;
   }
 
-  /** Announce the hour through every talking object when it turns. Costs one
-   *  `new Date` per tick and nothing else until it does — the scan for talking
-   *  objects only runs on the boundary, not 20 times a second. */
+  /** Let the talking objects speak: the hour when it turns, and each piece's
+   *  quote when its own wait runs out (see talkingObjects.ts). Costs one
+   *  `new Date` and one pass over the talkers per tick — the talkers are derived
+   *  layout state, so nothing rescans the furniture 20 times a second, and a
+   *  zone with nothing that talks leaves after the date. */
   private tickTalkingObjects(nowMs: number): void {
     const { due, stamp } = announceDue(nowMs, this.lastChimeStamp);
     this.lastChimeStamp = stamp;
-    if (!due) return;
-    this.spokenLines.push(...hourChimes(this.layout.furniture, nowMs));
+    if (this.talkers.length === 0) return;
+    if (due) this.spokenLines.push(...hourChimes(this.talkers, nowMs));
+    this.spokenLines.push(...this.quoteSchedule.chimes(this.talkers, nowMs, due));
+  }
+
+  /** Install the quotes talking objects say (see QuoteSchedule). Server-injected
+   *  like setNpcDecider, and for the same reason: the pool is a file in the repo
+   *  and the engine has no business reading one. */
+  setQuotes(quotes: readonly string[], rnd?: () => number): void {
+    this.quoteSchedule.setQuotes(quotes, rnd);
   }
 
   /** What the talking objects said this tick (see SpokenLine), emptied by the
@@ -1987,9 +2010,10 @@ export class OfficeState {
    * Advance the world by `dt` seconds.
    *
    * `nowMs` is the wall clock, and it is a parameter for the same reason `dt` is
-   * one: the only thing in here that reads a real calendar is the talking
-   * objects' hourly announcement (see talkingObjects.ts), and a test that had to
-   * wait for an hour boundary would not be written. Production passes nothing
+   * one: the only things in here that read a real calendar are the talking
+   * objects' hourly announcement and their quote schedule (see
+   * talkingObjects.ts), and a test that had to wait for an hour boundary — or
+   * for a twenty-minute one — would not be written. Production passes nothing
    * and gets the server's clock — the one clock the whole world shares.
    */
   update(dt: number, nowMs: number = Date.now()): void {

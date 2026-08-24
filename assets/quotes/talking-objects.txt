@@ -1,0 +1,38 @@
+# What the talking objects say — one quote per line.
+#
+# Every piece of furniture carrying the `talkingObject` action draws from this
+# one pool (see README's Actions chapter). It says the hour on the hour, and a
+# random line from here at a random moment every 20 to 60 minutes.
+#
+# The format is a line of text, and that is deliberately all it is: no JSON
+# escaping around an apostrophe or a "quotation mark", one line per quote in a
+# diff, and this comment can sit here at all. Rules:
+#
+#   - a blank line is ignored, so group them however reads well;
+#   - a line whose first non-blank character is # is a comment;
+#   - leading and trailing spaces are trimmed;
+#   - a quote is at most 120 characters. That is where the speech bubble
+#     truncates with an ellipsis, so a longer line is REFUSED when the file is
+#     loaded (with a warning naming the line) rather than shown half-said.
+#
+# Attribution, if you want it, is simply part of the line — there is no author
+# field, and nothing here checks one. Quoting a real person is therefore your
+# responsibility: a misattributed line is worse than an anonymous one.
+
+Every deep thing was shallow once, further out.
+The tide does not hurry, and it still gets everywhere.
+Nothing down here moves in a straight line. It all arrives anyway.
+A whale has no pockets, and has never once needed one.
+Sound travels further at depth. Be careful what you say down here.
+I have been to the bottom. There is a floor. That is all it is.
+Plankton is a plan that scales.
+If you must surface, breathe out first.
+Currents are only rivers that gave up on banks.
+Whatever you are carrying, salt water will hold some of it for you.
+A pod is a meeting that swims.
+Do not mistake stillness for a lack of progress. The water is moving.
+The deepest quiet is not empty. It is only patient.
+Big things turn slowly, so turn early.
+Barnacles are proof that standing still has a cost.
+Nobody has ever measured the sea by looking at it.
+When in doubt, sing lower. It carries.

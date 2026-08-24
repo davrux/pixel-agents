@@ -348,7 +348,9 @@ class.
 Most of them happen because somebody arrived: on furniture you click it and your
 avatar walks up, on a tile it fires the moment you stand there. One does not —
 `talkingObject` is triggered by the clock, so it needs no player and ignores
-clicks. Place it and walk away; it still speaks.
+clicks. Place it and walk away; it still speaks. It says two things: the hour, on
+the hour, and a random line from the world's quote pool at a random moment every
+20 to 60 minutes. There is no property to pick one — a talking object does both.
 
 **The clock it reads is the server's**, because a world has one clock: everyone
 standing at the whale hears the same hour at the same moment, and a viewer whose
@@ -359,6 +361,20 @@ server process. It announces nothing while a zone is empty: the room does not
 tick without a viewer in it, and the first tick after somebody arrives adopts
 the hour rather than announcing it — arriving at 9:05 is not being present at
 9:00.
+
+**The quotes live in `assets/quotes/talking-objects.txt`** — one quote per line,
+`#` for comments, blank lines to group them. That is the whole format: prose in
+JSON would mean escaping every quotation mark that belongs to the sentence, and
+there would be nowhere to leave a note for the next author. Every talking object
+in every zone draws from this one pool. A line longer than 120 characters is
+refused when the file is loaded, with a warning naming it, because that is where
+the speech bubble truncates — half a sentence and an ellipsis is not a shorter
+quote. Attribution, if you want it, is simply part of the line; there is no
+author field and nothing checks one, so quoting a real person is on you. Each
+piece rolls its own wait, so two whales in a zone drift apart instead of
+chanting in unison, and a quote that comes due on the hour steps aside for the
+time — one bubble per speaker, and the hour is the thing that is only true for a
+moment. The file is read at startup: editing it takes a restart, not a push.
 
 | `actionKind` | What it does | Reads |
 |---|---|---|
@@ -372,7 +388,7 @@ the hour rather than announcing it — arriving at 9:05 is not being present at
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
-| `talkingObject` | says the hour by itself, on the hour — a speech bubble reading `9:00` over the piece | — |
+| `talkingObject` | says the hour by itself, on the hour, and a quote every 20–60 min — a speech bubble over the piece | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).

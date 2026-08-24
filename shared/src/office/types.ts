@@ -329,8 +329,11 @@ export type Action =
    *  stripped out. */
   | { kind: 'spawnPoint' }
   /**
-   * A talking object: it says the time, by itself, on every full hour — a
-   * speech bubble over the piece reading `9:00`. Today's talking whale.
+   * A talking object: it speaks by itself, with nobody there. On every full
+   * hour it says the time — a speech bubble over the piece reading `9:00` — and
+   * between the hours it says a random quote out of the world's pool
+   * (assets/quotes/talking-objects.txt), at a random moment every 20 to 60
+   * minutes. Today's talking whale.
    *
    * The only action so far that is triggered by neither of the two rules above:
    * not a click, not an arrival, but the WORLD CLOCK. That is why it is an
@@ -350,10 +353,14 @@ export type Action =
    *   - No player is involved at all, which makes it the first action that also
    *     fires with nobody standing anywhere near it.
    *
-   * It carries no payload: WHAT it says is this kind's own behaviour (the
-   * hour), not something a map states. A talking object with a line of its own
-   * to say would be a new field here, parsed in actionProps.ts beside
-   * `actionUrl`, and would not change any of the above.
+   * It carries no payload, and both things it says are this kind's own
+   * behaviour rather than something a map states. There is deliberately no
+   * property choosing between them: a talking object tells the time AND quotes,
+   * because "which of the two" is a question about a whale, not about a map, and
+   * a mode nobody sets is a mode that reads wrong the first time somebody does.
+   * A piece with a line of its OWN to say (rather than the shared pool) would be
+   * a new field here, parsed in actionProps.ts beside `actionUrl`, and would not
+   * change any of the above.
    */
   | { kind: 'talkingObject' };
 

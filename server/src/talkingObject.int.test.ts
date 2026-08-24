@@ -18,6 +18,11 @@
  *      while still picking up every other kind — tested with a positive
  *      control beside it, or "returns false" would pass for a piece that is
  *      simply unreachable.
+ *   4. the QUOTES: the pool the repo ships parses, every line of it fits the
+ *      bubble, and the wait between two quotes really is 20-to-60 minutes.
+ *      Nobody can watch that either — and it is the one part where "it seemed
+ *      to work when I looked" is worthless, because a bug would be a quote
+ *      thirty seconds or six hours later, both of which look like silence.
  *
  * NOT covered (honest absence): the bubble itself, which is DOM in
  * OfficeScene, and the broadcast, which is one `this.broadcast` line in
@@ -32,15 +37,26 @@ import * as path from 'node:path';
 import { PNG } from 'pngjs';
 
 import { OfficeState } from '@pixel/shared/office/engine/index.js';
-import { announceDue, hourStamp, hourText } from '@pixel/shared/office/engine/talkingObjects.js';
+import {
+  announceDue,
+  hourStamp,
+  hourText,
+  pickQuote,
+  QuoteSchedule,
+  quoteDelayMs,
+  QUOTE_MAX_MS,
+  QUOTE_MIN_MS,
+} from '@pixel/shared/office/engine/talkingObjects.js';
 import { isClickAction } from '@pixel/shared/office/layout/furnitureCatalog.js';
 import { emptyZoneMap } from '@pixel/shared/office/layout/layoutSerializer.js';
 import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.js';
 
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
+import { MAX_QUOTE_LEN, parseQuotes, QUOTES_REL } from './quotes.js';
 import { isFurnitureTileset } from './tiled/tiledRegistry.js';
 
-const TILED_DIR = path.join(new URL('../..', import.meta.url).pathname, 'assets', 'tiled');
+const REPO_ROOT = new URL('../..', import.meta.url).pathname;
+const TILED_DIR = path.join(REPO_ROOT, 'assets', 'tiled');
 
 /** The TALKING_WHALE entry, found the way the loader finds it: by walking every
  *  furniture tileset, not by naming the file it happens to live in. */
@@ -222,4 +238,210 @@ test('walking up to a talking object is refused, while its neighbour still works
 
   assert.equal(os.walkPlayerToAction(id, 5, 5), false, 'the whale is not walked up to');
   assert.deepEqual(os.takePendingActionArrivals(), [], 'and nothing fired');
+});
+
+// ── 5. the quote pool the repo ships ────────────────────────────────────────
+
+test('the shipped quote pool loads, and every line of it fits the bubble', () => {
+  // The file is content, so this is the check that content cannot rot: a quote
+  // longer than the bubble is refused at load, which means a well-meant edit
+  // would silently make the whale say less than the author wrote.
+  const text = fs.readFileSync(path.join(REPO_ROOT, QUOTES_REL), 'utf-8');
+  const { quotes, rejected } = parseQuotes(text);
+  assert.deepEqual(rejected, [], 'a line the loader would skip is a line nobody will ever hear');
+  assert.ok(quotes.length >= 5, `expected a pool worth drawing from, got ${quotes.length}`);
+  for (const q of quotes) {
+    assert.ok(q.length > 0 && q.length <= MAX_QUOTE_LEN, `${q.length} characters: ${q}`);
+    assert.equal(q, q.trim());
+    assert.ok(!q.startsWith('#'), 'a comment must not reach the pool');
+  }
+  assert.equal(new Set(quotes).size, quotes.length, 'the same line twice is an editing accident');
+});
+
+test('the format is what the file says it is: comments, blanks, trimming, CRLF', () => {
+  const { quotes, rejected } = parseQuotes(
+    ['# a comment', '', '  A quote.  ', '\t# an indented comment', 'Another.', '   ', 'Third.'].join('\r\n'),
+  );
+  assert.deepEqual(quotes, ['A quote.', 'Another.', 'Third.']);
+  assert.deepEqual(rejected, []);
+  // A BOM in front of the first line would otherwise turn a comment into a quote
+  // reading "﻿# a comment".
+  assert.deepEqual(parseQuotes('﻿# only a comment\nHello.').quotes, ['Hello.']);
+});
+
+test('an over-long quote is refused by line number, not truncated', () => {
+  const long = 'x'.repeat(MAX_QUOTE_LEN + 1);
+  const { quotes, rejected } = parseQuotes(`Fine.\n${long}\nAlso fine.`);
+  assert.deepEqual(quotes, ['Fine.', 'Also fine.']);
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].line, 2, 'the author has to be able to find it');
+  assert.ok(rejected[0].why.includes(String(MAX_QUOTE_LEN)));
+  // Exactly at the cap is fine — the bubble truncates ABOVE it.
+  assert.equal(parseQuotes('y'.repeat(MAX_QUOTE_LEN)).quotes.length, 1);
+});
+
+// ── 6. the interval, and which line comes out ───────────────────────────────
+
+test('every wait is between 20 and 60 minutes, at both ends of the roll', () => {
+  assert.equal(QUOTE_MIN_MS, 20 * 60_000);
+  assert.equal(QUOTE_MAX_MS, 60 * 60_000);
+  assert.equal(quoteDelayMs(0), QUOTE_MIN_MS, 'the shortest possible wait is still 20 minutes');
+  assert.equal(quoteDelayMs(1), QUOTE_MAX_MS);
+  assert.equal(quoteDelayMs(0.5), 40 * 60_000);
+  for (let i = 0; i <= 1000; i++) {
+    const d = quoteDelayMs(i / 1000);
+    assert.ok(d >= QUOTE_MIN_MS && d <= QUOTE_MAX_MS, `${d} out of range`);
+  }
+  // A generator that hands out a number outside [0, 1) cannot produce a wait
+  // outside the window either — the alternative is a whale that never speaks.
+  assert.equal(quoteDelayMs(-1), QUOTE_MIN_MS);
+  assert.equal(quoteDelayMs(7), QUOTE_MAX_MS);
+});
+
+test('the pick reaches every quote in the pool and never falls off the end', () => {
+  const pool = ['one', 'two', 'three'];
+  assert.equal(pickQuote(pool, 0), 'one');
+  assert.equal(pickQuote(pool, 0.5), 'two');
+  assert.equal(pickQuote(pool, 0.99), 'three');
+  assert.equal(pickQuote(pool, 1), 'three', 'rnd() === 1 must not index past the pool');
+  assert.equal(pickQuote([], 0.4), null, 'nothing to say is not an empty bubble');
+  const seen = new Set<string>();
+  for (let i = 0; i < 300; i++) seen.add(pickQuote(pool, i / 300)!);
+  assert.deepEqual([...seen].sort(), ['one', 'three', 'two'], 'every line is reachable');
+});
+
+// ── 7. quotes through the engine, on a pinned clock and a pinned die ────────
+
+const POOL = ['First line.', 'Second line.', 'Third line.'];
+
+/** A die that hands out the numbers a test names, then repeats the last one —
+ *  so a test states only the rolls it cares about. */
+function scripted(...values: number[]): () => number {
+  let i = 0;
+  return () => values[Math.min(i++, values.length - 1)];
+}
+
+function talkingWorld(pool = POOL, rnd = scripted(0)): { os: OfficeState; uid: string } {
+  const os = world([piece('whale', 5, 5, { kind: 'talkingObject' })]);
+  os.setQuotes(pool, rnd);
+  return { os, uid: 'whale' };
+}
+
+test('a quote comes at the end of the wait, not before, and then the wait starts over', () => {
+  // rnd 0 = the shortest wait (20 min) and the first line, so every moment
+  // below is a stated fact rather than a range.
+  const { os } = talkingWorld(POOL, scripted(0));
+
+  os.update(0.05, at(9, 0, 30));
+  assert.deepEqual(os.takeSpokenLines(), [], 'the first tick starts the wait; it says nothing');
+
+  os.update(0.05, at(9, 20, 29));
+  assert.deepEqual(os.takeSpokenLines(), [], 'one second short of 20 minutes');
+
+  os.update(0.05, at(9, 20, 30));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }]);
+
+  os.update(0.05, at(9, 20, 31));
+  assert.deepEqual(os.takeSpokenLines(), [], 'and not again on the very next tick');
+
+  os.update(0.05, at(9, 40, 30));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'the next wait ran out');
+});
+
+test('a whale with no quotes still tells the time, and says nothing else ever', () => {
+  const os = world([piece('whale', 5, 5, { kind: 'talkingObject' })]);
+  // No setQuotes at all — the pool is empty until the server hands one over,
+  // and a missing quotes file is a normal world (see loadQuotes).
+  os.update(0.05, at(9, 0, 0));
+  for (const t of [at(9, 20), at(9, 40), at(9, 59, 59)]) os.update(0.05, t);
+  assert.deepEqual(os.takeSpokenLines(), []);
+  os.update(0.05, at(10, 0, 0));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '10:00' }], 'the hour is unaffected');
+});
+
+test('the hour wins a tie, and the quote it displaced waits its turn', () => {
+  // One bubble per speaker on the client: two lines in one tick would mean the
+  // second silently replaces the first, and the hour is the one that is only
+  // true for a moment. The wait is 20 min from 9:40:00, i.e. exactly 10:00:00.
+  const { os } = talkingWorld(POOL, scripted(0));
+  os.update(0.05, at(9, 40, 0));
+  assert.deepEqual(os.takeSpokenLines(), []);
+
+  os.update(0.05, at(10, 0, 0));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: '10:00' }], 'the hour, alone');
+
+  os.update(0.05, at(10, 0, 1));
+  assert.deepEqual(os.takeSpokenLines(), [], 'the displaced quote did not arrive a tick later either');
+
+  os.update(0.05, at(10, 20, 0));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'it rolled a fresh wait');
+});
+
+test('two talking objects drift apart instead of chanting in unison', () => {
+  const os = world([
+    piece('a', 5, 5, { kind: 'talkingObject' }),
+    piece('b', 12, 3, { kind: 'talkingObject' }),
+  ]);
+  // Scheduling walks the talkers in map order: the first draws 0 (20 min), the
+  // second 1 (60 min). Picking a line consumes a roll too, hence the 0s after.
+  os.setQuotes(POOL, scripted(0, 1, 0, 0, 0, 0));
+  os.update(0.05, at(9, 0, 0));
+
+  os.update(0.05, at(9, 20, 0));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }], 'only the first is due');
+
+  os.update(0.05, at(10, 0, 0));
+  const lines = os.takeSpokenLines();
+  assert.ok(
+    lines.some((l) => l.col === 12 && l.row === 3),
+    'the second one speaks an hour in, on its own schedule',
+  );
+});
+
+test('a whale that leaves the map is forgotten, and a new one starts a fresh wait', () => {
+  // The memory rule (AGENTS.md § Memory) with an observable consequence: if the
+  // schedule kept the uid, the re-placed whale would be instantly overdue and
+  // greet the next tick with a quote it had been holding for hours.
+  const { os } = talkingWorld(POOL, scripted(0));
+  os.update(0.05, at(9, 0, 0));
+
+  const empty: OfficeLayout = { ...emptyZoneMap(COLS, ROWS), furniture: [] };
+  os.rebuildFromLayout(empty);
+  os.update(0.05, at(12, 0, 0));
+  assert.deepEqual(os.takeSpokenLines(), [], 'nothing left to speak');
+
+  os.rebuildFromLayout({ ...emptyZoneMap(COLS, ROWS), furniture: [piece('whale', 5, 5, { kind: 'talkingObject' })] });
+  os.update(0.05, at(12, 0, 1));
+  assert.deepEqual(os.takeSpokenLines(), [], 'not overdue: the wait starts now, not in the world it left');
+  os.update(0.05, at(12, 20, 1));
+  assert.deepEqual(os.takeSpokenLines(), [{ col: 5, row: 5, text: 'First line.' }]);
+});
+
+test('with a real die, the wait is never shorter than 20 minutes and never longer than 60', () => {
+  // The bounds hold whatever Math.random does, which is the claim the constants
+  // make — and the one thing a scripted die cannot check.
+  const s = new QuoteSchedule();
+  s.setQuotes(POOL);
+  const talkers = [piece('whale', 5, 5, { kind: 'talkingObject' })];
+  let t = at(9, 0, 0);
+  const gaps: number[] = [];
+  for (let n = 0; n < 200; n++) {
+    // Step a minute at a time so a fire is attributed to the minute it happened
+    // in — the gap is then the interval, rounded down to the minute.
+    let waited = 0;
+    for (;;) {
+      t += 60_000;
+      waited += 60_000;
+      if (s.chimes(talkers, t, false).length > 0) break;
+      assert.ok(waited <= QUOTE_MAX_MS, 'a wait longer than an hour is a whale that went quiet');
+    }
+    if (n > 0) gaps.push(waited);
+  }
+  assert.equal(gaps.length, 199);
+  for (const g of gaps) {
+    assert.ok(g > QUOTE_MIN_MS - 60_001, `${g / 60_000} minutes is under the floor`);
+    assert.ok(g <= QUOTE_MAX_MS, `${g / 60_000} minutes is over the ceiling`);
+  }
+  const spread = new Set(gaps).size;
+  assert.ok(spread > 10, `expected a spread of waits, got ${spread} distinct values — is the die stuck?`);
 });

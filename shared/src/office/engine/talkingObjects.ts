@@ -1,9 +1,15 @@
 /**
- * Talking objects — furniture that says the hour, by itself, on the hour.
+ * Talking objects — furniture that speaks by itself: the hour, and quotes.
  *
  * The behaviour of the 'talkingObject' Action (see types.ts): a piece carrying
  * it announces the time every full hour, and a speech bubble reading `9:00`
- * appears over it for every viewer at once.
+ * appears over it for every viewer at once. It also says a random line from the
+ * world's quote pool at a random moment every 20 to 60 minutes — see
+ * QuoteSchedule at the bottom of this file.
+ *
+ * Both come out of the same tick and travel as the same SpokenLine, so a piece
+ * that talks needs no configuration beyond the action: there is no property
+ * choosing between the two, because a talking object does both.
  *
  * ── Why this is server-side, and why it takes `nowMs` ──
  *
@@ -92,9 +98,135 @@ export function talkingObjects(furniture: readonly PlacedFurniture[]): PlacedFur
   return furniture.filter((f) => effectiveAction(f, entryFor(f))?.kind === 'talkingObject');
 }
 
-/** What the talking objects in a layout say when the hour turns: one line each,
- *  all the same text — they are all reading the same clock. */
-export function hourChimes(furniture: readonly PlacedFurniture[], nowMs: number): SpokenLine[] {
+/** What the talking objects say when the hour turns: one line each, all the
+ *  same text — they are all reading the same clock.
+ *
+ *  Takes the talkers rather than the whole furniture list because the caller
+ *  already has them: `talkingObjects` is a scan with an `entryFor` per
+ *  placement, and the quote schedule below needs the same list on EVERY tick,
+ *  so OfficeState keeps it as derived layout state and both triggers read it.
+ *  (Filtering 158 placements 20 times a second would cost about a third of the
+ *  whole tick — see AGENTS.md on measuring, and `getCatalogEntry`.) */
+export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): SpokenLine[] {
   const text = hourText(nowMs);
-  return talkingObjects(furniture).map((f) => ({ col: f.col, row: f.row, text }));
+  return talkers.map((f) => ({ col: f.col, row: f.row, text }));
+}
+
+/* ── Quotes ────────────────────────────────────────────────────────────────
+ *
+ * The other thing a talking object says. Not the hour: a line out of a pool the
+ * repo carries as a text file (assets/quotes/talking-objects.txt), at a random
+ * moment inside a 20-to-60-minute window, rolled again after each one.
+ *
+ * Three decisions worth stating, because each could plausibly have gone the
+ * other way:
+ *
+ *   - The RANDOMNESS is the server's, like the clock. One roll decides both when
+ *     and what, and the line is broadcast, so everybody at the whale sees the
+ *     same quote at the same moment. A client-side roll would give each viewer
+ *     their own whale, which is the same mistake as a client-side clock.
+ *   - The SCHEDULE is per placement, keyed by uid. Two whales in a zone drift
+ *     apart within the first hour instead of chanting in unison — and unison is
+ *     what a shared timer would give, since they would both fire on one tick.
+ *   - The POOL is injected, not read from disk here. This module runs in the
+ *     engine, which is headless and has no business owning a file path; the
+ *     server loads and validates the file (server/src/quotes.ts) and hands the
+ *     lines in through OfficeState.setQuotes, the same shape as setNpcDecider.
+ */
+
+/** The window a quote waits in. A talking object picks a moment uniformly
+ *  inside it, says one line, then rolls again — so "every 20 to 60 minutes"
+ *  means each wait is its own draw, not a fixed cadence with jitter. */
+export const QUOTE_MIN_MS = 20 * 60_000;
+export const QUOTE_MAX_MS = 60 * 60_000;
+
+/** How long to wait before the next quote, from a random number in [0, 1). */
+export function quoteDelayMs(rnd: number): number {
+  const r = rnd < 0 ? 0 : rnd > 1 ? 1 : rnd;
+  return Math.round(QUOTE_MIN_MS + r * (QUOTE_MAX_MS - QUOTE_MIN_MS));
+}
+
+/** One line out of the pool, or null when there is nothing to say. The
+ *  `length - 1` clamp is for the `rnd() === 1` a hand-written generator can
+ *  produce; Math.random never does, and an out-of-range index would be a
+ *  bubble reading `undefined`. */
+export function pickQuote(quotes: readonly string[], rnd: number): string | null {
+  if (quotes.length === 0) return null;
+  const i = Math.min(quotes.length - 1, Math.max(0, Math.floor(rnd * quotes.length)));
+  return quotes[i];
+}
+
+/**
+ * When each talking object says its next quote.
+ *
+ * A class rather than a function because the next moment is STATE, and it is
+ * the one piece of talking-object state that is not derivable from the clock:
+ * `dueAt` holds one timestamp per placement that talks.
+ *
+ * The random source is a constructor parameter for the same reason `nowMs` is a
+ * parameter of `update`: with `Math.random` the interval is untestable, and
+ * "somewhere between 20 and 60 minutes" is exactly the kind of claim that is
+ * either verified or merely believed.
+ */
+export class QuoteSchedule {
+  private quotes: readonly string[] = [];
+  private rnd: () => number;
+  /** uid → the moment this placement says its next quote. Keyed by something
+   *  that comes and goes, so `prune` below is not optional — see AGENTS.md
+   *  § Memory; a Tiled re-import regenerates every uid. */
+  private readonly dueAt = new Map<string, number>();
+
+  constructor(rnd: () => number = Math.random) {
+    this.rnd = rnd;
+  }
+
+  /** Install the world's quote pool (see the header: the server owns the file).
+   *  Safe to call at any time — a pool arriving after the first tick simply
+   *  starts the first wait then.
+   *
+   *  The random source may be replaced with it, and for the same reason `update`
+   *  takes `nowMs`: whoever owns the world owns both, and pinning it is the only
+   *  way a test can assert "this quote, twenty minutes after that one" through
+   *  the real engine rather than through this class in isolation. */
+  setQuotes(quotes: readonly string[], rnd?: () => number): void {
+    this.quotes = quotes;
+    if (rnd) this.rnd = rnd;
+  }
+
+  /**
+   * The quotes due right now, one line at most per talker.
+   *
+   * A talker with no schedule yet gets one and says nothing: the first wait is
+   * counted from when the room started ticking, so arriving at a whale is never
+   * greeted by an instant quote it had been holding.
+   *
+   * `hourJustChimed` is the collision rule. Both triggers can land on the same
+   * tick, and the client keeps ONE bubble per speaker — the second line would
+   * silently replace the first, so a quote landing on the hour would eat the
+   * announcement. The hour wins (it is the thing that is only true for a
+   * moment) and the quote rolls a fresh wait.
+   */
+  chimes(talkers: readonly PlacedFurniture[], nowMs: number, hourJustChimed: boolean): SpokenLine[] {
+    if (this.quotes.length === 0) return [];
+    const out: SpokenLine[] = [];
+    for (const f of talkers) {
+      const due = this.dueAt.get(f.uid);
+      if (due === undefined || nowMs < due) {
+        if (due === undefined) this.dueAt.set(f.uid, nowMs + quoteDelayMs(this.rnd()));
+        continue;
+      }
+      this.dueAt.set(f.uid, nowMs + quoteDelayMs(this.rnd()));
+      if (hourJustChimed) continue;
+      const text = pickQuote(this.quotes, this.rnd());
+      if (text) out.push({ col: f.col, row: f.row, text });
+    }
+    return out;
+  }
+
+  /** Forget the placements that are no longer in the map (a layout rebuild, a
+   *  Tiled re-import). Bounded by the talkers that exist, not by every talker
+   *  the room has ever held. */
+  prune(live: ReadonlySet<string>): void {
+    for (const uid of this.dueAt.keys()) if (!live.has(uid)) this.dueAt.delete(uid);
+  }
 }
