@@ -330,7 +330,7 @@ export type Action =
   | { kind: 'spawnPoint' }
   /**
    * A talking object: it speaks by itself, with nobody there. On every full
-   * hour it says the time — a speech bubble reading `Es ist 9:00 UHR` — and
+   * hour it says the time — a speech bubble reading `9 UHR, 9 UHR !!!` — and
    * between the hours it says a random quote out of the world's pool
    * (assets/quotes/talking-objects.txt), at a random moment every 20 to 60
    * minutes. Both lines also land in the zone's chat log, attributed to the
@@ -345,10 +345,12 @@ export type Action =
    *
    *   - It is decided server-side, in the tick loop (see OfficeState.update →
    *     talkingObjects.ts), and the line is broadcast. A client that computed
-   *     "it is 9:00" from its own clock would give every viewer a different
+   *     "it is 9 UHR" from its own clock would give every viewer a different
    *     world — two people standing at the same whale would hear it at
    *     different moments, and anyone with a skewed clock would hear the wrong
-   *     hour. The world has one clock: the server's.
+   *     hour. The world has one clock: the server's, read in one hardcoded zone
+   *     (ANNOUNCE_TIMEZONE — Europe/Berlin), so it does not depend on how the
+   *     container was started either.
    *   - Nothing happens when you click it. Walking up to a statue to be told
    *     the time is not the interaction, so it stays out of the walk-then-open
    *     path on both sides (see isClickAction).

@@ -349,9 +349,11 @@ Most of them happen because somebody arrived: on furniture you click it and your
 avatar walks up, on a tile it fires the moment you stand there. One does not —
 `talkingObject` is triggered by the clock, so it needs no player and ignores
 clicks. Place it and walk away; it still speaks. It says two things: the hour, on
-the hour — `Es ist 9:00 UHR`, German and only German, because the line is one
-broadcast to everybody rather than something rendered per viewer — and a random
-line from the world's quote pool at a random moment every 20 to 60 minutes. There is no property to pick one — a talking object does both.
+the hour — `9 UHR, 9 UHR !!!`, called out twice and in German only, because the
+line is one broadcast to everybody rather than something rendered per viewer, and
+because it is a whale shouting across a room rather than a status line — and a
+random line from the world's quote pool at a random moment every 20 to 60
+minutes. There is no property to pick one — a talking object does both.
 Each line appears twice: as a speech bubble over the piece, and as a line in the
 zone's chat log attributed to it (the placement's name in Tiled if you gave it
 one, otherwise the label its art carries). The bubble is a moment you have to be
@@ -359,13 +361,17 @@ looking at; the log is what somebody who was in the room can still read. Those
 lines never light the chat's unread dot — a speaker on a timer would leave it
 permanently lit, and a signal that is always on is not one.
 
-**The clock it reads is the server's**, because a world has one clock: everyone
-standing at the whale hears the same hour at the same moment, and a viewer whose
-own machine is an hour out is not told the wrong time. The consequence is
-operational — the container runs on UTC unless you say otherwise, so a
-deployment that wants local hours sets `TZ` (e.g. `TZ=Europe/Berlin`) on the
-server process. It announces nothing while a zone is empty: the room does not
-tick without a viewer in it, and the first tick after somebody arrives adopts
+**The hour is the server's, and the zone is Europe/Berlin, hardcoded.** One
+clock for the world: everyone standing at the whale hears the same hour at the
+same moment, and a viewer whose own machine is an hour out is not told the wrong
+time. The zone is in the code (`ANNOUNCE_TIMEZONE`) rather than read from the
+process, because it is part of what the line SAYS — it says "9 UHR", in German —
+not a property of where the server happens to run. It used to be the process's
+own zone, and a container runs on UTC unless somebody sets `TZ`, so the whale
+announced the wrong hour with nothing looking broken. Setting `TZ` on the
+deployment now changes only its logs; DST is handled, because a named zone
+carries its own rules. It announces nothing while a zone is empty: the room does
+not tick without a viewer in it, and the first tick after somebody arrives adopts
 the hour rather than announcing it — arriving at 9:05 is not being present at
 9:00.
 
@@ -379,9 +385,11 @@ the speech bubble truncates — half a sentence and an ellipsis is not a shorter
 quote. Attribution, if you want it, is simply part of the line; there is no
 author field and nothing checks one, so quoting a real person is on you. Each
 piece rolls its own wait, so two whales in a zone drift apart instead of
-chanting in unison, and a quote that comes due on the hour steps aside for the
-time — one bubble per speaker, and the hour is the thing that is only true for a
-moment. The file is read at startup: editing it takes a restart, not a push.
+chanting in unison, and the wait knows nothing about the hour: 20 to 60 minutes
+is the whole rule, with no exception for what o'clock it runs out at. When a
+quote and the hour land on the same tick both are said and both reach the chat,
+and the bubble shows the later one. The file is read at startup: editing it takes
+a restart, not a push.
 
 | `actionKind` | What it does | Reads |
 |---|---|---|
@@ -395,7 +403,7 @@ moment. The file is read at startup: editing it takes a restart, not a push.
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
-| `talkingObject` | says the hour by itself (`Es ist 9:00 UHR`), and a quote every 20–60 min — a bubble over the piece, and a chat line | — |
+| `talkingObject` | shouts the hour by itself (`9 UHR, 9 UHR !!!`), and a quote every 20–60 min — a bubble over the piece, and a chat line | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).

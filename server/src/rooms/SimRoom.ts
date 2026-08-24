@@ -1976,7 +1976,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * says the hour has turned.
    *
    * Nothing here is client input: no handler, no payload, nothing to validate.
-   * The text is the server's own — the hour (`Es ist H:00 UHR`) or a line from
+   * The text is the server's own — the hour (`H UHR, H UHR !!!`) or a line from
    * the repo's quote pool, capped at 120 characters when that file is read (see
    * quotes.ts) — so it is bounded before it ever gets here.
    */

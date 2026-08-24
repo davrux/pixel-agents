@@ -1320,7 +1320,9 @@ export class OfficeState {
     this.lastChimeStamp = stamp;
     if (this.talkers.length === 0) return;
     if (due) this.spokenLines.push(...hourChimes(this.talkers, nowMs));
-    this.spokenLines.push(...this.quoteSchedule.chimes(this.talkers, nowMs, due));
+    // Two independent clocks: a quote runs on its own 20-to-60-minute wait and
+    // is said whatever o'clock that turns out to be (see QuoteSchedule.chimes).
+    this.spokenLines.push(...this.quoteSchedule.chimes(this.talkers, nowMs));
   }
 
   /** Install the quotes talking objects say (see QuoteSchedule). Server-injected

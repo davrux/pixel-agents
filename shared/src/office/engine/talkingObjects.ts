@@ -3,7 +3,7 @@
  *
  * The behaviour of the 'talkingObject' Action (see types.ts): a piece carrying
  * it announces the time every full hour, and a speech bubble reading
- * `Es ist 9:00 UHR` appears over it for every viewer at once. It also says a random line from the
+ * `9 UHR, 9 UHR !!!` appears over it for every viewer at once. It also says a random line from the
  * world's quote pool at a random moment every 20 to 60 minutes — see
  * QuoteSchedule at the bottom of this file.
  *
@@ -30,6 +30,14 @@
  * reason the rest of the engine takes `dt`: it is what makes an hour boundary
  * something a test can drive in a millisecond instead of waiting for one.
  *
+ * The ZONE, on the other hand, is hardcoded (ANNOUNCE_TIMEZONE below). It used
+ * to be the process's own, which made the announcement depend on how the
+ * container was started: a plain image runs on UTC, so the whale said the wrong
+ * hour until somebody remembered `TZ=Europe/Berlin` — and nothing in the world
+ * would look broken, it would just be an hour or two out. The zone the whale
+ * speaks in is a property of what it SAYS ("9 UHR", in German), not of where the
+ * process happens to run, so it belongs in the code that says it.
+ *
  * ── What "every full hour" means when nobody is watching ──
  *
  * The room does not tick with no clients in it (see SimRoom.tick), and it is
@@ -37,9 +45,9 @@
  * own — which is right: an announcement with no audience is not an event. The
  * consequence is stated by `announceDue` below: the first tick after somebody
  * arrives ADOPTS the hour rather than announcing it. Arriving at 9:05 is not
- * being present at 9:00, and a bubble saying `Es ist 9:00 UHR` five minutes late
- * is worse than none — it is wrong. From then on the hour is announced when it
- * turns.
+ * being present at 9:00, and a bubble shouting `9 UHR, 9 UHR !!!` five minutes
+ * late is worse than none — it is wrong. From then on the hour is announced when
+ * it turns.
  */
 import type { PlacedFurniture } from '../types.js';
 import { effectiveAction, entryFor } from '../layout/furnitureCatalog.js';
@@ -73,7 +81,41 @@ export function speakerName(f: PlacedFurniture): string {
 }
 
 /**
- * The hour, as a talking object says it: `Es ist 9:00 UHR`, `Es ist 14:00 UHR`.
+ * The zone every talking object reads, whatever the server's own is.
+ *
+ * Hardcoded on purpose — see the header. A deployment may set `TZ` for its logs
+ * or leave it at UTC; the whale is unaffected either way, and DST is handled
+ * because a named zone carries its own rules (CET in January, CEST in July).
+ */
+export const ANNOUNCE_TIMEZONE = 'Europe/Berlin';
+
+/** Built once: an Intl formatter is expensive to construct and constant here. */
+const berlinFormat = new Intl.DateTimeFormat('en-US', {
+  timeZone: ANNOUNCE_TIMEZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+});
+
+/** The wall-clock fields in ANNOUNCE_TIMEZONE for an instant. `Intl` is the only
+ *  thing in the platform that can answer "what hour is it THERE" — a fixed
+ *  offset could not, since Germany has two. */
+function announceClock(nowMs: number): { year: number; month: number; day: number; hour: number } {
+  const parts = berlinFormat.formatToParts(nowMs);
+  const num = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? '0');
+  return { year: num('year'), month: num('month'), day: num('day'), hour: num('hour') };
+}
+
+/**
+ * The hour, as a talking object says it: `9 UHR, 9 UHR !!!`, `14 UHR, 14 UHR !!!`.
+ *
+ * The hour and nothing else — no minutes, because they are always `00` and a
+ * clock that says so twice an hour is only saying it is on the hour. It is
+ * called out twice: this is a whale shouting the time across a room, not a
+ * status line, and the announcement it replaced (`Es ist 9:00 UHR`) read like
+ * one.
  *
  * German, and only German — asked for that way, and it is the world's own voice
  * rather than a viewer's, so there is deliberately nothing here that varies per
@@ -82,30 +124,35 @@ export function speakerName(f: PlacedFurniture): string {
  * viewer at the whale is being told the same thing at the same moment.
  *
  * 24-hour and no leading zero, which is one decision each. No leading zero
- * because that is how the hour is spoken; 24-hour because `9:00` twice a day
+ * because that is how the hour is spoken; 24-hour because `9 UHR` twice a day
  * from a statue with no am/pm to show would be the one thing a clock must not
  * be, ambiguous.
  *
- * The zone is the SERVER's, deliberately: this is the world's clock, not the
- * viewer's, and a world where the whale says a different hour to each person
- * standing at it is not one world.
+ * The hour is Berlin's and the WORLD's, not the viewer's: a world where the whale
+ * says a different hour to each person standing at it is not one world, and one
+ * where it depends on how the container was started is not one either.
  */
 export function hourText(nowMs: number): string {
-  const at = new Date(nowMs);
-  return `Es ist ${at.getHours()}:00 UHR`;
+  const h = announceClock(nowMs).hour;
+  return `${h} UHR, ${h} UHR !!!`;
 }
 
-/** The moment the hour containing `nowMs` began — the identity of "this hour",
- *  so a DST shift or a year boundary is just another number rather than a
- *  comparison of two calendar fields.
+/**
+ * The identity of "this hour" in ANNOUNCE_TIMEZONE — equal at every moment
+ * inside one hour there, different in the next. Packed as `YYYYMMDDHH` because
+ * that is all this is ever used for (an equality test in announceDue), and a
+ * calendar hour is the thing being compared.
  *
- *  Not `nowMs - (nowMs % 3_600_000)`: that truncates to a UTC hour, and in a zone
- *  offset by a half hour (+05:30 and friends) every announcement would land thirty
- *  minutes early. The minutes are cleared on the LOCAL calendar. */
+ * Not `nowMs - (nowMs % 3_600_000)`: that truncates to a UTC hour, which in a
+ * zone offset by a half hour (+05:30 and friends) lands thirty minutes early —
+ * and Berlin's own offset changes twice a year, so no arithmetic on the instant
+ * answers this. Being a calendar hour also decides what DST does, and both
+ * answers are the sane ones: the hour that repeats on the October change is
+ * announced once, and the hour the March change skips is not announced at all.
+ */
 export function hourStamp(nowMs: number): number {
-  const at = new Date(nowMs);
-  at.setMinutes(0, 0, 0);
-  return at.getTime();
+  const { year, month, day, hour } = announceClock(nowMs);
+  return ((year * 100 + month) * 100 + day) * 100 + hour;
 }
 
 /**
@@ -156,9 +203,11 @@ export function hourChimes(talkers: readonly PlacedFurniture[], nowMs: number): 
  *     and what, and the line is broadcast, so everybody at the whale sees the
  *     same quote at the same moment. A client-side roll would give each viewer
  *     their own whale, which is the same mistake as a client-side clock.
- *   - The SCHEDULE is per placement, keyed by uid. Two whales in a zone drift
- *     apart within the first hour instead of chanting in unison — and unison is
- *     what a shared timer would give, since they would both fire on one tick.
+ *   - The SCHEDULE is per placement, keyed by uid, and independent of the hour.
+ *     Two whales in a zone drift apart within the first hour instead of chanting
+ *     in unison — and unison is what a shared timer would give, since they would
+ *     both fire on one tick. The hour does not move a quote either: 20 to 60
+ *     minutes is the whole rule, with no exception for what o'clock it lands on.
  *   - The POOL is injected, not read from disk here. This module runs in the
  *     engine, which is headless and has no business owning a file path; the
  *     server loads and validates the file (server/src/quotes.ts) and hands the
@@ -231,13 +280,16 @@ export class QuoteSchedule {
    * counted from when the room started ticking, so arriving at a whale is never
    * greeted by an instant quote it had been holding.
    *
-   * `hourJustChimed` is the collision rule. Both triggers can land on the same
-   * tick, and the client keeps ONE bubble per speaker — the second line would
-   * silently replace the first, so a quote landing on the hour would eat the
-   * announcement. The hour wins (it is the thing that is only true for a
-   * moment) and the quote rolls a fresh wait.
+   * Nothing here knows about the hour. This clock is deliberately independent of
+   * the announcement's: a wait of 20 to 60 minutes means exactly that, whatever
+   * o'clock it happens to run out at. An earlier version had the hour suppress a
+   * quote that came due on the same tick, because the client keeps ONE bubble
+   * per speaker and the second line replaces the first — but both lines go into
+   * the zone chat now, so the displaced one is read rather than lost, and a
+   * schedule that quietly skips its turn is the worse trade: it makes the
+   * interval a claim with an exception in it.
    */
-  chimes(talkers: readonly PlacedFurniture[], nowMs: number, hourJustChimed: boolean): SpokenLine[] {
+  chimes(talkers: readonly PlacedFurniture[], nowMs: number): SpokenLine[] {
     if (this.quotes.length === 0) return [];
     const out: SpokenLine[] = [];
     for (const f of talkers) {
@@ -247,7 +299,6 @@ export class QuoteSchedule {
         continue;
       }
       this.dueAt.set(f.uid, nowMs + quoteDelayMs(this.rnd()));
-      if (hourJustChimed) continue;
       const text = pickQuote(this.quotes, this.rnd());
       if (text) out.push({ col: f.col, row: f.row, text, from: speakerName(f) });
     }

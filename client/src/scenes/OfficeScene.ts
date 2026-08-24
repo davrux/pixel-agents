@@ -4470,7 +4470,10 @@ export class OfficeScene extends Phaser.Scene {
 
   /** Show (or refresh) the one bubble belonging to this anchor. A second line
    *  from the same speaker replaces the first rather than stacking: two boxes
-   *  over one head is unreadable, and the newer line is the one that matters. */
+   *  over one head is unreadable, and the newer line is the one that matters.
+   *  For a talking object that is a real (if rare) loss — its hour and its quote
+   *  can come due on the same tick — and it is an acceptable one because both
+   *  lines are in the chat log by then. */
   private showBubble(anchor: BubbleAnchor, text: string): void {
     const key = anchor.kind === 'character' ? `c:${anchor.id}` : `f:${anchor.col},${anchor.row}`;
     let b = this.chatBubbles.get(key);
@@ -4483,7 +4486,7 @@ export class OfficeScene extends Phaser.Scene {
     }
     b.el.textContent = text.length > 120 ? `${text.slice(0, 119)}…` : text;
     // Long enough to read, which is not a constant: five seconds is generous for
-    // `Es ist 9:00 UHR` and short for a whale's quote two lines down. Presentation
+    // `9 UHR, 9 UHR !!!` and short for a whale's quote two lines down. Presentation
     // timing, so it is decided here rather than synced (see AGENTS.md invariant
     // 2) — the floor keeps chat lines behaving exactly as they did.
     b.until = performance.now() + Math.min(12000, Math.max(5000, 2500 + text.length * 55));
