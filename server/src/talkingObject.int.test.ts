@@ -3,7 +3,7 @@
  *
  * ============================================================================
  * SCOPE. Three separate things have to be true for the talking whale to say
- * `9:00`, and each fails differently:
+ * `Es ist 9:00 UHR`, and each fails differently:
  *
  *   1. the ART is in a furniture tileset and carries the action, or a mapper
  *      cannot place a talking object at all (the same check the time clock
@@ -107,14 +107,18 @@ test('the whale declares the dimensions its PNG actually has', () => {
  *  zone (see hourText), which means UTC is the wrong thing to build these from. */
 const at = (h: number, m = 0, s = 0): number => new Date(2026, 7, 21, h, m, s).getTime();
 
-test('the hour reads as it is spoken: 24-hour, no leading zero', () => {
-  assert.equal(hourText(at(9, 0)), '9:00');
-  assert.equal(hourText(at(9, 59, 59)), '9:00', 'still the ninth hour at 9:59:59');
-  assert.equal(hourText(at(14, 30)), '14:00');
-  assert.equal(hourText(at(0, 5)), '0:00');
+test('the hour is spoken in German, 24-hour, no leading zero', () => {
+  assert.equal(hourText(at(9, 0)), 'Es ist 9:00 UHR');
+  assert.equal(hourText(at(9, 59, 59)), 'Es ist 9:00 UHR', 'still the ninth hour at 9:59:59');
+  assert.equal(hourText(at(14, 30)), 'Es ist 14:00 UHR');
+  assert.equal(hourText(at(0, 5)), 'Es ist 0:00 UHR');
   // 21:00, never a second 9:00 — a statue has no am/pm to show, so the one
   // thing this must not be is ambiguous.
-  assert.equal(hourText(at(21, 0)), '21:00');
+  assert.equal(hourText(at(21, 0)), 'Es ist 21:00 UHR');
+  // One wording, for everybody: the line is a broadcast, so there is nothing
+  // here that could vary per viewer (see hourText).
+  assert.ok(hourText(at(7, 0)).startsWith('Es ist '));
+  assert.ok(hourText(at(7, 0)).endsWith(' UHR'));
 });
 
 test('every moment inside one hour has one stamp, and the next hour has another', () => {
@@ -124,8 +128,8 @@ test('every moment inside one hour has one stamp, and the next hour has another'
 });
 
 test('the first tick adopts the hour instead of announcing it', () => {
-  // Arriving at 9:05 is not being present at 9:00, and a bubble saying 9:00
-  // five minutes late is not late, it is wrong.
+  // Arriving at 9:05 is not being present at 9:00, and a bubble saying it is
+  // 9:00 five minutes late is not late, it is wrong.
   const first = announceDue(at(9, 5), null);
   assert.equal(first.due, false);
   assert.equal(first.stamp, at(9, 0, 0));
@@ -141,7 +145,7 @@ test('the hour is announced on the boundary and not again inside it', () => {
     stamp = next;
     if (due) fired.push(hourText(t));
   }
-  assert.deepEqual(fired, ['9:00', '10:00']);
+  assert.deepEqual(fired, ['Es ist 9:00 UHR', 'Es ist 10:00 UHR']);
 });
 
 // ── 3. the engine, driven headlessly ────────────────────────────────────────
@@ -174,7 +178,7 @@ test('a talking object says the hour, once, when the hour turns', () => {
   assert.deepEqual(os.takeSpokenLines(), [], 'the first tick adopts the hour, it does not announce it');
 
   os.update(0.05, at(9, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '9:00')]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Es ist 9:00 UHR')]);
 
   // The rest of the hour is silent — 20 ticks a second for an hour would
   // otherwise be 72 000 bubbles.
@@ -182,7 +186,7 @@ test('a talking object says the hour, once, when the hour turns', () => {
   assert.deepEqual(os.takeSpokenLines(), []);
 
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Es ist 10:00 UHR')]);
 });
 
 test('every talking object in the zone says it, and nothing else says anything', () => {
@@ -195,8 +199,8 @@ test('every talking object in the zone says it, and nothing else says anything',
   os.update(0.05, at(8, 59, 59));
   os.update(0.05, at(9, 0, 0));
   assert.deepEqual(os.takeSpokenLines(), [
-    said(5, 5, '9:00'),
-    said(12, 3, '9:00'),
+    said(5, 5, 'Es ist 9:00 UHR'),
+    said(12, 3, 'Es ist 9:00 UHR'),
   ]);
 });
 
@@ -364,7 +368,7 @@ test('a whale with no quotes still tells the time, and says nothing else ever', 
   for (const t of [at(9, 20), at(9, 40), at(9, 59, 59)]) os.update(0.05, t);
   assert.deepEqual(os.takeSpokenLines(), []);
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')], 'the hour is unaffected');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Es ist 10:00 UHR')], 'the hour is unaffected');
 });
 
 test('the hour wins a tie, and the quote it displaced waits its turn', () => {
@@ -376,7 +380,7 @@ test('the hour wins a tie, and the quote it displaced waits its turn', () => {
   assert.deepEqual(os.takeSpokenLines(), []);
 
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00')], 'the hour, alone');
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Es ist 10:00 UHR')], 'the hour, alone');
 
   os.update(0.05, at(10, 0, 1));
   assert.deepEqual(os.takeSpokenLines(), [], 'the displaced quote did not arrive a tick later either');
@@ -480,7 +484,7 @@ test('the hour and the quote are attributed the same way, through the engine', (
 
   os.update(0.05, at(9, 40, 0));
   os.update(0.05, at(10, 0, 0));
-  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, '10:00', 'Talking Whale')]);
+  assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'Es ist 10:00 UHR', 'Talking Whale')]);
 
   os.update(0.05, at(10, 20, 0));
   assert.deepEqual(os.takeSpokenLines(), [said(5, 5, 'First line.', 'Talking Whale')]);

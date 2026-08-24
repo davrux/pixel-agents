@@ -2,8 +2,8 @@
  * Talking objects — furniture that speaks by itself: the hour, and quotes.
  *
  * The behaviour of the 'talkingObject' Action (see types.ts): a piece carrying
- * it announces the time every full hour, and a speech bubble reading `9:00`
- * appears over it for every viewer at once. It also says a random line from the
+ * it announces the time every full hour, and a speech bubble reading
+ * `Es ist 9:00 UHR` appears over it for every viewer at once. It also says a random line from the
  * world's quote pool at a random moment every 20 to 60 minutes — see
  * QuoteSchedule at the bottom of this file.
  *
@@ -37,8 +37,9 @@
  * own — which is right: an announcement with no audience is not an event. The
  * consequence is stated by `announceDue` below: the first tick after somebody
  * arrives ADOPTS the hour rather than announcing it. Arriving at 9:05 is not
- * being present at 9:00, and a bubble saying `9:00` five minutes late is worse
- * than none — it is wrong. From then on the hour is announced when it turns.
+ * being present at 9:00, and a bubble saying `Es ist 9:00 UHR` five minutes late
+ * is worse than none — it is wrong. From then on the hour is announced when it
+ * turns.
  */
 import type { PlacedFurniture } from '../types.js';
 import { effectiveAction, entryFor } from '../layout/furnitureCatalog.js';
@@ -72,21 +73,26 @@ export function speakerName(f: PlacedFurniture): string {
 }
 
 /**
- * The hour, as a talking object says it: `9:00`, `14:00`.
+ * The hour, as a talking object says it: `Es ist 9:00 UHR`, `Es ist 14:00 UHR`.
+ *
+ * German, and only German — asked for that way, and it is the world's own voice
+ * rather than a viewer's, so there is deliberately nothing here that varies per
+ * person. A bubble one viewer reads in German and another in English would need
+ * the hour to stop being a broadcast, which is the one thing it must stay: every
+ * viewer at the whale is being told the same thing at the same moment.
  *
  * 24-hour and no leading zero, which is one decision each. No leading zero
- * because that is how the hour reads out loud and how it was asked for; 24-hour
- * because `9:00` twice a day from a statue with no am/pm to show would be the
- * one thing a clock must not be, ambiguous.
+ * because that is how the hour is spoken; 24-hour because `9:00` twice a day
+ * from a statue with no am/pm to show would be the one thing a clock must not
+ * be, ambiguous.
  *
  * The zone is the SERVER's, deliberately: this is the world's clock, not the
  * viewer's, and a world where the whale says a different hour to each person
- * standing at it is not one world. (A per-viewer local time would also mean the
- * bubble could not be a broadcast at all.)
+ * standing at it is not one world.
  */
 export function hourText(nowMs: number): string {
   const at = new Date(nowMs);
-  return `${at.getHours()}:00`;
+  return `Es ist ${at.getHours()}:00 UHR`;
 }
 
 /** The moment the hour containing `nowMs` began — the identity of "this hour",

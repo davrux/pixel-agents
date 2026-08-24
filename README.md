@@ -349,8 +349,9 @@ Most of them happen because somebody arrived: on furniture you click it and your
 avatar walks up, on a tile it fires the moment you stand there. One does not —
 `talkingObject` is triggered by the clock, so it needs no player and ignores
 clicks. Place it and walk away; it still speaks. It says two things: the hour, on
-the hour, and a random line from the world's quote pool at a random moment every
-20 to 60 minutes. There is no property to pick one — a talking object does both.
+the hour — `Es ist 9:00 UHR`, German and only German, because the line is one
+broadcast to everybody rather than something rendered per viewer — and a random
+line from the world's quote pool at a random moment every 20 to 60 minutes. There is no property to pick one — a talking object does both.
 Each line appears twice: as a speech bubble over the piece, and as a line in the
 zone's chat log attributed to it (the placement's name in Tiled if you gave it
 one, otherwise the label its art carries). The bubble is a moment you have to be
@@ -394,7 +395,7 @@ moment. The file is read at startup: editing it takes a restart, not a push.
 | `portal` | walking onto its footprint offers a destination picker | — |
 | `toggle` | a light switch: click flips this tile's own on/off pair | — |
 | `spawnPoint` | tile-only, consumed at import to set the zone's arrival tile | — |
-| `talkingObject` | says the hour by itself, on the hour, and a quote every 20–60 min — a speech bubble over the piece | — |
+| `talkingObject` | says the hour by itself (`Es ist 9:00 UHR`), and a quote every 20–60 min — a bubble over the piece, and a chat line | — |
 
 **Where one meeting room ends and the next begins.** Meeting tiles that touch
 form one room only if they agree on `meetingRoomName` (and on `actionVideo`).

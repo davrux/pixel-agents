@@ -330,7 +330,7 @@ export type Action =
   | { kind: 'spawnPoint' }
   /**
    * A talking object: it speaks by itself, with nobody there. On every full
-   * hour it says the time — a speech bubble over the piece reading `9:00` — and
+   * hour it says the time — a speech bubble reading `Es ist 9:00 UHR` — and
    * between the hours it says a random quote out of the world's pool
    * (assets/quotes/talking-objects.txt), at a random moment every 20 to 60
    * minutes. Both lines also land in the zone's chat log, attributed to the
