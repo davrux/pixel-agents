@@ -2,12 +2,22 @@
  * Desktop sign-in screen (`#pa-signin`): a DOM overlay — NOT a Phaser scene —
  * layered over the canvas the same way `#pa-connect` / `#pa-menubar` / `#status`
  * are. It is the second desktop surface (after the connection screen): the user
- * enters the same credentials as the browser login (login id + password +
- * optional admin token; NO self-registration) and the screen exchanges them for
- * a bearer token at the configured server. It mounts only in the desktop build.
+ * enters the same credentials as the browser login (login id + password) and the
+ * screen exchanges them for a bearer token at the configured server. It mounts
+ * only in the desktop build.
+ *
+ * Two modes, one overlay — the same split the browser has as `/login` and
+ * `/register`. Signing in asks for a login id and a password and nothing else;
+ * the admin token is only on the register mode, which is where an account is
+ * created (still NO self-registration: the server demands the token, so this
+ * moved where the field is typed, not who may create an account). One overlay
+ * rather than two screens because the box, the styles, the server line and the
+ * token exchange are identical — only the fields and the wording differ.
  *
  * Flow (Design Doc § New UI Surface Design / § Data Contracts → Token issuance):
  *   normalize login id → POST `${origin}/desktop/token` { username, password, token? }
+ *   (`token` only in register mode — the server reads its presence as "this is a
+ *    registration", which is what keeps one endpoint serving both modes)
  *   → on 200 { token }: store the token via preload IPC (safeStorage-backed) + resolve
  *     (the caller then drives `connect()`, which reads the token as a bearer)
  *   → on 401 { error }: surface the server error message inline, stay on the screen
@@ -27,9 +37,18 @@ import { showConnectionScreen } from './connection';
 /** Max login id length — mirrors the server's `normalizeLoginId` slice and the
  *  `loginHtml` input `maxlength` (`server/src/userStore.ts`, `server/src/auth.ts`). */
 const MAX_LOGIN_ID_LEN = 32;
+/** Min password length — mirrors the server's `MIN_PASSWORD_LEN`, which is what
+ *  actually rejects a short one (`server/src/userStore.ts`). Stated here only so
+ *  the register field can say the rule before the server has to. */
+const MIN_PASSWORD_LEN = 6;
 
 const NETWORK_ERROR_MESSAGE = 'Sign-in failed — check your connection and try again.';
 const MISSING_LOGIN_MESSAGE = 'Enter a login id.';
+/** Register mode with an empty token. The server would otherwise read a
+ *  token-less request as a sign-in and answer "Invalid login id or password",
+ *  which is a confusing thing to be told while creating an account. UX only —
+ *  the server is still the authority on whether the token is right. */
+const MISSING_TOKEN_MESSAGE = 'An admin token is required to create an account.';
 /** Shown when the credentials were accepted but the token cannot be stored: with
  *  no OS keychain, `setToken` refuses to write the token in plaintext, so the
  *  sign-in cannot complete. Blaming the connection here (as this path used to)
@@ -92,25 +111,37 @@ function ensureStyles(): void {
     #pa-signin .alt button:hover:not(:disabled){background:none;color:#a9c6f0;}
     #pa-signin .alt button:disabled{opacity:0.5;cursor:not-allowed;}
     #pa-signin .alt .sep{color:#4a5070;font-size:0.85rem;margin:0 0.2rem;}
+    /* Register mode shows the admin token row; sign-in mode hides it outright,
+       so a returning user is never asked to decide whether it applies. */
+    #pa-signin [hidden]{display:none;}
   `;
   document.head.appendChild(style);
 }
 
+/** Which screen the overlay is currently showing — see `applyMode`. */
+type Mode = 'signin' | 'register';
+
 interface SignInElements {
   overlay: HTMLDivElement;
+  titleEl: HTMLHeadingElement;
+  hintEl: HTMLParagraphElement;
   loginInput: HTMLInputElement;
   passwordInput: HTMLInputElement;
+  tokenLabel: HTMLLabelElement;
   tokenInput: HTMLInputElement;
   errorEl: HTMLParagraphElement;
   submit: HTMLButtonElement;
   serverEl: HTMLParagraphElement;
   changeServer: HTMLButtonElement;
+  toggleMode: HTMLButtonElement;
   devTools: HTMLButtonElement;
 }
 
-/** Set the "signing in to <origin>" line from the currently configured server. */
-function renderServerLine(el: HTMLParagraphElement): void {
-  el.replaceChildren(document.createTextNode('Signing in to '));
+/** Set the "signing in to <origin>" line from the currently configured server.
+ *  Register mode says "creating an account on" instead: which server the account
+ *  is created ON is what makes an admin token the right or the wrong one. */
+function renderServerLine(el: HTMLParagraphElement, mode: Mode = 'signin'): void {
+  el.replaceChildren(document.createTextNode(mode === 'register' ? 'Creating an account on ' : 'Signing in to '));
   const code = document.createElement('code');
   code.textContent = getServerHttpOrigin();
   el.appendChild(code);
@@ -126,12 +157,12 @@ function buildOverlay(): SignInElements {
   const box = document.createElement('div');
   box.className = 'box';
 
-  const title = document.createElement('h1');
-  title.textContent = 'Sign in';
+  // Title and hint are the mode's wording; `applyMode` sets both (and everything
+  // else that differs) so there is one place that says what each mode looks like.
+  const titleEl = document.createElement('h1');
 
-  const hint = document.createElement('p');
-  hint.className = 'hint';
-  hint.textContent = 'Enter your login id and password. First time? Add the admin token to create an admin account.';
+  const hintEl = document.createElement('p');
+  hintEl.className = 'hint';
 
   const form = document.createElement('form');
   form.noValidate = true;
@@ -161,15 +192,16 @@ function buildOverlay(): SignInElements {
   passwordInput.setAttribute('autocomplete', 'current-password');
   passwordInput.setAttribute('aria-describedby', 'pa-signin-err');
 
+  // Register-mode only: hidden (and not sent) while signing in.
   const tokenLabel = document.createElement('label');
   tokenLabel.htmlFor = 'pa-signin-token';
-  tokenLabel.textContent = 'Admin token (optional)';
+  tokenLabel.textContent = 'Admin token';
 
   const tokenInput = document.createElement('input');
   tokenInput.id = 'pa-signin-token';
   tokenInput.type = 'password';
   tokenInput.name = 'token';
-  tokenInput.placeholder = 'only to create / become admin';
+  tokenInput.placeholder = "the server's admin token";
   tokenInput.setAttribute('autocomplete', 'off');
   tokenInput.setAttribute('aria-describedby', 'pa-signin-err');
 
@@ -181,13 +213,13 @@ function buildOverlay(): SignInElements {
 
   const submit = document.createElement('button');
   submit.type = 'submit';
-  submit.textContent = 'Sign in';
 
   // Which server these credentials go to, + a way back to the connection screen
   // to point at a different one (the sign-in screen is desktop-only).
+  // The wording depends on the mode, so `applyMode` fills this in (and refills it
+  // after a detour to the connection screen changes which server it names).
   const serverEl = document.createElement('p');
   serverEl.className = 'server';
-  renderServerLine(serverEl);
 
   const alt = document.createElement('p');
   alt.className = 'alt';
@@ -206,7 +238,16 @@ function buildOverlay(): SignInElements {
   devTools.type = 'button';
   devTools.textContent = 'Developer tools';
   devTools.title = 'Toggle developer tools';
-  alt.append(changeServer, sep, devTools);
+
+  // Switch between signing in and creating an account, in place — the browser's
+  // /login ⇄ /register link, on the one overlay the desktop has.
+  const toggleMode = document.createElement('button');
+  toggleMode.type = 'button';
+
+  const sep2 = document.createElement('span');
+  sep2.className = 'sep';
+  sep2.textContent = '·';
+  alt.append(toggleMode, sep, changeServer, sep2, devTools);
 
   form.append(
     loginLabel,
@@ -220,10 +261,46 @@ function buildOverlay(): SignInElements {
     serverEl,
     alt,
   );
-  box.append(title, hint, form);
+  box.append(titleEl, hintEl, form);
   overlay.appendChild(box);
 
-  return { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer, devTools };
+  return {
+    overlay,
+    titleEl,
+    hintEl,
+    loginInput,
+    passwordInput,
+    tokenLabel,
+    tokenInput,
+    errorEl,
+    submit,
+    serverEl,
+    changeServer,
+    toggleMode,
+    devTools,
+  };
+}
+
+/**
+ * Dress the overlay for one mode: wording, the admin-token row's presence, and
+ * the password field's autocomplete hint (`current-password` vs `new-password`,
+ * so a password manager offers to fill on one and to save on the other). Called
+ * once at mount and on every toggle, so the two modes cannot drift out of sync
+ * with each other the way two copies of this screen would.
+ */
+function applyMode(el: SignInElements, mode: Mode): void {
+  const registering = mode === 'register';
+  el.titleEl.textContent = registering ? 'Create account' : 'Sign in';
+  el.hintEl.textContent = registering
+    ? "Pick a login id and password, and enter the server's admin token. The account it creates is an admin."
+    : 'Enter your login id and password.';
+  el.tokenLabel.hidden = !registering;
+  el.tokenInput.hidden = !registering;
+  el.passwordInput.placeholder = registering ? `at least ${MIN_PASSWORD_LEN} characters` : 'password';
+  renderServerLine(el.serverEl, mode);
+  el.submit.textContent = registering ? 'Create account' : 'Sign in';
+  el.toggleMode.textContent = registering ? 'Back to sign in' : 'Create an account';
+  el.passwordInput.setAttribute('autocomplete', registering ? 'new-password' : 'current-password');
 }
 
 /** Outcome of the token exchange: a token to store, or an inline error message. */
@@ -231,10 +308,11 @@ type TokenResult = { token: string } | { error: string };
 
 /**
  * Exchange credentials for a bearer token at the configured server. Sends the
- * same field set the server verifies (`username`, `password`, optional `token`),
- * omitting `token` when blank. A 200 yields `{ token }`; a 401 yields the
- * server's inline `error`; any network/parse/other failure yields a generic
- * connection error. Never returns or logs token material on the error paths.
+ * same field set the server verifies (`username`, `password`, and `token` only
+ * when registering — its presence is how the one endpoint tells a registration
+ * from a sign-in). A 200 yields `{ token }`; a 401 yields the server's inline
+ * `error`; any network/parse/other failure yields a generic connection error.
+ * Never returns or logs token material on the error paths.
  */
 async function requestToken(
   loginId: string,
@@ -281,8 +359,10 @@ async function requestToken(
  */
 export function showSignInScreen(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, serverEl, changeServer, devTools } =
-      buildOverlay();
+    const el = buildOverlay();
+    const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, changeServer, devTools } = el;
+    let mode: Mode = 'signin';
+    applyMode(el, mode);
 
     const setError = (message: string): void => {
       errorEl.textContent = message;
@@ -296,10 +376,24 @@ export function showSignInScreen(): Promise<void> {
       tokenInput.disabled = loading;
       submit.disabled = loading;
       changeServer.disabled = loading;
+      el.toggleMode.disabled = loading;
       // `devTools` is deliberately left enabled: an in-flight sign-in is exactly
       // when you want to open the console and watch the request.
-      submit.textContent = loading ? 'Signing in…' : 'Sign in';
+      if (loading) submit.textContent = mode === 'register' ? 'Creating account…' : 'Signing in…';
+      else applyMode(el, mode);
     };
+
+    // Switch modes in place. The typed login id and password carry over (the same
+    // pair is usually what you meant either way); the admin token is cleared on
+    // the way out of register mode so it is never sent by the next sign-in.
+    const setMode = (next: Mode): void => {
+      mode = next;
+      if (next === 'signin') tokenInput.value = '';
+      clearError();
+      applyMode(el, mode);
+      (next === 'register' && loginInput.value !== '' ? tokenInput : loginInput).focus();
+    };
+    el.toggleMode.onclick = () => setMode(mode === 'register' ? 'signin' : 'register');
 
     devTools.onclick = () => void desktop().toggleDevTools();
 
@@ -312,8 +406,15 @@ export function showSignInScreen(): Promise<void> {
         return;
       }
 
+      const adminToken = mode === 'register' ? tokenInput.value.trim() : '';
+      if (mode === 'register' && adminToken === '') {
+        setError(MISSING_TOKEN_MESSAGE);
+        tokenInput.focus();
+        return;
+      }
+
       setLoading(true);
-      const result = await requestToken(loginId, passwordInput.value, tokenInput.value.trim());
+      const result = await requestToken(loginId, passwordInput.value, adminToken);
       if ('error' in result) {
         setLoading(false);
         setError(result.error);
@@ -351,7 +452,8 @@ export function showSignInScreen(): Promise<void> {
       clearError();
       overlay.remove();
       await showConnectionScreen();
-      renderServerLine(serverEl);
+      // setLoading(false) runs applyMode, which re-renders the server line with
+      // whichever origin the connection screen settled on.
       setLoading(false);
       document.body.appendChild(overlay);
       loginInput.focus();

@@ -208,6 +208,9 @@ const lineOf = (src, at) => src.slice(0, at).split('\n').length;
 const PUBLIC_ROUTES = new Map([
   ['GET /health', 'liveness probe; returns {ok:true} and nothing about the world'],
   ['POST /login', 'the credential check itself (throttled, length-bounded)'],
+  ['GET /login', 'the sign-in form; the page an ungated navigation is answered with anyway'],
+  ['GET /register', 'the account-creation form; an account is what a caller comes here to get'],
+  ['POST /register', 'the admin-token check itself — creating an account IS what it authorizes'],
   ['GET /logout', 'drops the session it was sent with; nothing to authorize'],
   ['POST /desktop/token', 'same credentials as /login, issues the bearer (throttled)'],
   ['POST /desktop/signout', 'revokes the presented bearer; idempotent by design'],
@@ -316,6 +319,7 @@ if (!/needsAuth[^;]*hasValidSession|hasValidSession[^)]*\)\s*&&\s*!hasValidBeare
   /** Public without a session, each for a reason stated at isPublicGet. */
   const SIGNED_OFF = [
     '/login', // the page an ungated navigation is answered with, and the form it posts to
+    '/register', // the account-creation form: unreachable behind a session, and POST /register still demands the admin token
     '/health', // ops liveness
     '/matchmake', // Colyseus seat reservation; the room authorizes itself in onAuth
     '/assets/', // the client build (minus /assets/tiled/, refused above it)

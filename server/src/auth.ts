@@ -1,10 +1,13 @@
 /**
- * Account login (cookie session). Users sign in with a login id + password
- * (scrypt-verified). Additionally presenting the admin token makes that user an
- * admin and creates the account if it doesn't exist yet (the only way to create
- * a user for now — there is no open self-registration). The server stores a
- * session in SQLite keyed by user_id and sets an opaque HttpOnly cookie. Active
- * only when an admin token is configured (PIXEL_ADMIN_TOKEN / --token).
+ * Account login (cookie session) and account creation, on two screens. `/login`
+ * is a login id + password (scrypt-verified) and nothing else. `/register` is
+ * where the admin token is typed: presenting it creates the account as an admin,
+ * or makes an existing account one. That is still the only way a user comes into
+ * existence — there is no open self-registration; the token simply stopped
+ * sitting on the sign-in form, where it asked every returning user to decide
+ * whether it applied to them. The server stores a session in SQLite keyed by
+ * user_id and sets an opaque HttpOnly cookie. Active only when an admin token is
+ * configured (PIXEL_ADMIN_TOKEN / --token).
  */
 import type { Express, Request, Response, NextFunction } from 'express';
 import express from 'express';
@@ -74,9 +77,21 @@ export function hasValidBearerSession(authHeader: string | undefined): boolean {
   return userIdFromBearer(authHeader) !== undefined;
 }
 
-function loginHtml(err = ''): string {
+/** The shared chrome both auth pages are served with: one stylesheet, one form
+ *  shell. Login and register differ only in their fields and their wording, so
+ *  keeping the shell in one place is what stops the two screens drifting apart
+ *  (and keeps them self-contained — no script, no stylesheet, no font to fetch,
+ *  which is what lets `isPublicGet` answer an anonymous navigation with them). */
+function authPageHtml(opts: {
+  title: string;
+  action: string;
+  err: string;
+  fields: string;
+  submit: string;
+  footer: string;
+}): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — Login</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — ${opts.title}</title>
 <style>html,body{height:100%;margin:0}body{background:#14161c;color:#e6e9ef;
 font-family:ui-monospace,monospace;display:flex;align-items:center;justify-content:center}
 form{background:#1b1f2a;border:2px solid #3a4150;border-radius:8px;padding:24px 28px}
@@ -85,17 +100,54 @@ label{font-size:12px;color:#9aa3b2;display:block;margin:8px 0 2px}
 input{background:#14161c;color:#e6e9ef;border:2px solid #3a4150;border-radius:5px;padding:9px;width:300px;
 font:14px ui-monospace,monospace;display:block}
 .hint{color:#6b7280;font-size:11px;margin-top:4px;max-width:320px}
+.alt{color:#6b7280;font-size:11px;margin-top:14px;max-width:320px}
+.alt a{color:#7fa7e0}
 button{margin-top:14px;background:#3a6df0;color:#fff;border:0;border-radius:5px;padding:10px 18px;
 font:bold 14px ui-monospace,monospace;cursor:pointer}</style></head><body>
-<form method="post" action="/login"><h3>pixel-agents</h3><div class="err">${err}</div>
-<label for="u">Login id</label>
-<input id="u" name="username" type="text" placeholder="your login id" maxlength="32" autofocus autocomplete="username">
+<form method="post" action="${opts.action}"><h3>pixel-agents</h3><div class="err">${opts.err}</div>
+${opts.fields}
+<div><button type="submit">${opts.submit}</button></div>
+<div class="alt">${opts.footer}</div></form></body></html>`;
+}
+
+const LOGIN_ID_FIELD = `<label for="u">Login id</label>
+<input id="u" name="username" type="text" placeholder="your login id" maxlength="32" autofocus autocomplete="username">`;
+
+function loginHtml(err = ''): string {
+  return authPageHtml({
+    title: 'Login',
+    action: '/login',
+    err,
+    fields: `${LOGIN_ID_FIELD}
 <label for="p">Password</label>
-<input id="p" name="password" type="password" placeholder="password" autocomplete="current-password">
-<label for="t">Admin token (optional)</label>
-<input id="t" name="token" type="password" placeholder="only to create / become admin" autocomplete="off">
-<div class="hint">First time? Enter the admin token with a new login id + password to create an admin account.</div>
-<div><button type="submit">Sign in</button></div></form></body></html>`;
+<input id="p" name="password" type="password" placeholder="password" autocomplete="current-password">`,
+    submit: 'Sign in',
+    footer: 'First time here? <a href="/register">Create an account</a>.',
+  });
+}
+
+/** The register screen: the admin token lives HERE and nowhere else. It is the
+ *  same rule as before (only somebody holding PIXEL_ADMIN_TOKEN can create an
+ *  account — there is still no open self-registration), moved off the sign-in
+ *  form where it invited every returning user to wonder whether they needed it.
+ *  The page itself is reachable anonymously, exactly like /login: it has to be,
+ *  since an account is what you come here to get — and reaching it grants
+ *  nothing, because POST /register still verifies the token. */
+function registerHtml(err = ''): string {
+  return authPageHtml({
+    title: 'Create account',
+    action: '/register',
+    err,
+    fields: `${LOGIN_ID_FIELD}
+<label for="p">Password</label>
+<input id="p" name="password" type="password" placeholder="at least ${MIN_PASSWORD_LEN} characters" autocomplete="new-password">
+<label for="t">Admin token</label>
+<input id="t" name="token" type="password" placeholder="the server's admin token" autocomplete="off">
+<div class="hint">Accounts are created with the server's admin token, and the account it
+creates is an admin. Entering an existing login id with the token makes that account an admin.</div>`,
+    submit: 'Create account',
+    footer: 'Already have an account? <a href="/login">Sign in</a>.',
+  });
 }
 
 // Per-account online-guess throttle — defense-in-depth on top of the length caps
@@ -126,54 +178,30 @@ function noteLoginFail(loginId: string): void {
   }
 }
 
-/** Verify credentials with the shared login logic (used by both `/login` and
- *  `POST /desktop/token`). Returns the authenticated `userId` on success, or an
- *  `{ error, status? }` on failure — never logs the password/token. The admin
- *  token path creates/marks-admin the account; the normal path requires an
- *  existing user (no self-registration). A per-account throttle returns 429
- *  before any scrypt/token work once an account sees too many recent failures. */
-function verifyCredentials(
-  body: Record<string, unknown>,
-  adminToken: string,
-): { userId: string } | { error: string; status?: number } {
-  const loginId = normalizeLoginId(body.username);
-  // Cap lengths on this unauthenticated path (shared by /login and
-  // /desktop/token) so a huge password can't turn scrypt verification into a CPU
-  // DoS, and the token compare stays bounded.
-  const password = String(body.password ?? '').slice(0, 256);
-  const token = String(body.token ?? '').slice(0, 512);
+type AuthResult = { userId: string } | { error: string; status?: number };
+
+/** The fields both paths read, with the length caps that make them safe to work
+ *  on. Capping here (rather than at each use) is what keeps this unauthenticated
+ *  surface from turning a huge password into a CPU DoS via scrypt, and keeps the
+ *  token compare bounded. */
+function readCredentials(body: Record<string, unknown>): { loginId: string; password: string; token: string } {
+  return {
+    loginId: normalizeLoginId(body.username),
+    password: String(body.password ?? '').slice(0, 256),
+    token: String(body.token ?? '').slice(0, 512),
+  };
+}
+
+/** Sign in an existing account: login id + password, nothing else. No
+ *  self-registration and no promotion — creating an account or becoming an admin
+ *  is what `verifyRegistration` is for. A per-account throttle returns 429 before
+ *  any scrypt work once an account sees too many recent failures. */
+function verifyLogin(body: Record<string, unknown>): AuthResult {
+  const { loginId, password } = readCredentials(body);
 
   if (!loginId) return { error: 'Enter a login id.' };
   if (loginThrottled(loginId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
 
-  if (token) {
-    // Admin path: the token must be exact; it grants admin and creates the
-    // account if new (a password — min length — is required to create one).
-    if (!secretEquals(token, adminToken)) {
-      noteLoginFail(loginId);
-      return { error: 'Invalid admin token.' };
-    }
-    const existing = userStore.get(loginId);
-    if (existing) {
-      // Presenting the admin token doesn't override a suspension — re-enabling
-      // is a deliberate admin-panel action, not something the login form does
-      // implicitly (that would let a disabled account escape it by knowing the
-      // master token, same as promoting themselves to admin would).
-      if (existing.disabled) return { error: 'This account has been disabled.', status: 403 };
-      userStore.markAdmin(existing.userId);
-      loginFails.delete(loginId);
-      return { userId: existing.userId };
-    }
-    // Admin token was correct — a missing password isn't a guess, so no penalty.
-    if (!isValidPassword(password)) {
-      return { error: `A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.` };
-    }
-    const user = userStore.createUser(loginId, password, { isAdmin: true });
-    loginFails.delete(loginId);
-    return { userId: user.userId };
-  }
-
-  // Normal path: an existing user with the right password. No self-registration.
   if (!userStore.exists(loginId) || !userStore.verifyPassword(loginId, password)) {
     noteLoginFail(loginId);
     return { error: 'Invalid login id or password.' };
@@ -183,6 +211,52 @@ function verifyCredentials(
   if (userStore.get(loginId)?.disabled) return { error: 'This account has been disabled.', status: 403 };
   loginFails.delete(loginId);
   return { userId: loginId };
+}
+
+/** Create an account (or make an existing one an admin) with the admin token.
+ *  The token must be exact; the account it creates is an admin. This is still the
+ *  only way a user comes into existence — moving the field to its own screen
+ *  changed where it is typed, not who may create an account. */
+function verifyRegistration(body: Record<string, unknown>, adminToken: string): AuthResult {
+  const { loginId, password, token } = readCredentials(body);
+
+  if (!loginId) return { error: 'Enter a login id.' };
+  if (loginThrottled(loginId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
+  // A blank token is not a guess — say what is missing rather than penalising it.
+  if (!token) return { error: 'An admin token is required to create an account.' };
+
+  if (!secretEquals(token, adminToken)) {
+    noteLoginFail(loginId);
+    return { error: 'Invalid admin token.' };
+  }
+  const existing = userStore.get(loginId);
+  if (existing) {
+    // Presenting the admin token doesn't override a suspension — re-enabling
+    // is a deliberate admin-panel action, not something this form does
+    // implicitly (that would let a disabled account escape it by knowing the
+    // master token, same as promoting themselves to admin would).
+    if (existing.disabled) return { error: 'This account has been disabled.', status: 403 };
+    userStore.markAdmin(existing.userId);
+    loginFails.delete(loginId);
+    return { userId: existing.userId };
+  }
+  // Admin token was correct — a missing password isn't a guess, so no penalty.
+  if (!isValidPassword(password)) {
+    return { error: `A password (min ${MIN_PASSWORD_LEN} chars) is required to create a user.` };
+  }
+  const user = userStore.createUser(loginId, password, { isAdmin: true });
+  loginFails.delete(loginId);
+  return { userId: user.userId };
+}
+
+/** The credential check `POST /desktop/token` serves both screens with: a
+ *  request carrying a token is a registration, one without it is a sign-in. The
+ *  browser has a route per screen and doesn't need this — the desktop keeps one
+ *  endpoint on purpose, so a shipped build that still posts an optional token
+ *  from its sign-in form authenticates exactly as it did before (the desktop app
+ *  updates only when its user triggers it — see AGENTS.md invariant 10). */
+function verifyCredentials(body: Record<string, unknown>, adminToken: string): AuthResult {
+  return String(body.token ?? '') !== '' ? verifyRegistration(body, adminToken) : verifyLogin(body);
 }
 
 /** Register login + the HTML auth gate. `adminToken` is required (caller only
@@ -203,9 +277,32 @@ export function registerAuth(app: Express, adminToken: string): void {
     res.redirect(303, '/');
   };
 
+  // The sign-in page. An anonymous navigation to anything else is answered with
+  // this same HTML by the gate below, so this route existed only implicitly until
+  // the register page started linking to it BY NAME — an unauthenticated GET
+  // /login fell through the gate's allow-list to a 404.
+  app.get('/login', (_req: Request, res: Response) => {
+    res.status(200).type('html').send(loginHtml());
+  });
+
   app.post('/login', (req: Request, res: Response) => {
-    const result = verifyCredentials((req.body ?? {}) as Record<string, unknown>, adminToken);
+    const result = verifyLogin((req.body ?? {}) as Record<string, unknown>);
     if ('error' in result) return void res.status(result.status ?? 401).type('html').send(loginHtml(result.error));
+    return setSession(req, res, result.userId);
+  });
+
+  // The register screen and its submission. The GET is on the anonymous
+  // allow-list (see isPublicGet) because an account is what a caller comes here
+  // to get; the POST is what actually gates it, on the admin token. A successful
+  // registration signs the new account straight in — the credentials were just
+  // typed, so bouncing back to /login to retype them adds nothing.
+  app.get('/register', (_req: Request, res: Response) => {
+    res.status(200).type('html').send(registerHtml());
+  });
+
+  app.post('/register', (req: Request, res: Response) => {
+    const result = verifyRegistration((req.body ?? {}) as Record<string, unknown>, adminToken);
+    if ('error' in result) return void res.status(result.status ?? 401).type('html').send(registerHtml(result.error));
     return setSession(req, res, result.userId);
   });
 
@@ -254,6 +351,11 @@ export function registerAuth(app: Express, adminToken: string): void {
     // The login page itself is what an ungated navigation is answered WITH (see below), and
     // it is self-contained: no script, no stylesheet, no font of its own to fetch.
     if (p === '/login' || p === '/health') return true;
+    // The register page, for the same reason and one more: an account is what a caller comes
+    // here to get, so requiring a session to reach it would make it unreachable. It shares the
+    // login page's shell (no asset of its own to fetch) and it hands out nothing — POST
+    // /register still demands the admin token, so this exposes a form, not an account.
+    if (p === '/register') return true;
     // Colyseus seat reservation. The room authorizes for itself in onAuth — and this is
     // where a client that has just logged in arrives, before any document is served.
     if (p.startsWith('/matchmake')) return true;

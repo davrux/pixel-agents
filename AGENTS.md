@@ -99,8 +99,9 @@ Security is a first-class requirement, not a later pass.
   (`mayRunCommand`). **Default to deny.**
 - **The GET gate is an allow-list, and world data is not on it.** `isPublicGet`
   (`auth.ts`) names what an anonymous caller may fetch: the login page and `/login`,
-  `/health`, `/matchmake` (the room authorizes itself in `onAuth`), and the client
-  BUILD's own directories — which carry no world data and, by contract, no secret. It
+  the register page and `/register` (an account is what a caller comes there to get, and
+  the POST still demands the admin token), `/health`, `/matchmake` (the room authorizes
+  itself in `onAuth`), and the client BUILD's own directories — which carry no world data and, by contract, no secret. It
   used to be the other way round: anything under `/assets/` or ending in an asset
   EXTENSION was public "because the desktop app fetches them cross-origin, cookie-less".
   Measured 2026-08-20, that published the whole world's art — every tileset sheet,
