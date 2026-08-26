@@ -1,7 +1,6 @@
 export {
   createCharacter,
   getCharacterPose,
-  getCharacterSprite,
   isReadingTool,
   updateCharacter,
 } from './characters.js';

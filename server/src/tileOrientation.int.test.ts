@@ -23,7 +23,6 @@ import {
   ORIENT_MASK,
   ORIENT_V,
   cellOrientation,
-  isTurned,
   quarterTurnsOf,
   turnedExtent,
 } from '@pixel/shared/office/tileOrientation.js';
@@ -110,9 +109,6 @@ test('a mask from an untrusted layout cannot ask for a ninth orientation', () =>
     assert.ok([0, 90, 270].includes(o.angle), `mask ${bogus} produced angle ${o.angle}`);
   }
   assert.equal(cellOrientation(undefined).angle, 0);
-  assert.equal(isTurned(undefined), false);
-  assert.equal(isTurned(0), false);
-  assert.equal(isTurned(ORIENT_H), true);
 });
 
 // ── What a turned piece OCCUPIES ────────────────────────────────────────────
