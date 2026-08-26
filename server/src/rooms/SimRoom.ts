@@ -1,6 +1,7 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { withArtUrl } from '../art/artUrl.js';
+import { validCharacterData } from '../art/characterDataGuard.js';
 
 import {
   conferenceKey,
@@ -1444,7 +1445,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Save edits to the viewer's own avatar (its private sprite data).
     this.onMessage('saveAvatar', (client, msg: { data?: unknown }) => {
       const { userId } = authOf(client);
-      if (!userId || msg?.data === undefined || !this.validCharacterData(msg.data)) return;
+      if (!userId || msg?.data === undefined || !validCharacterData(msg.data)) return;
       this.setAvatar(userId, msg.data as LoadedCharacterData);
     });
 
@@ -1460,7 +1461,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!data) return;
       const name = ((typeof msg?.name === 'string' ? msg.name : '').trim() || username || userId).slice(0, 16);
       const toSave = { ...cloneCharacterData(data), name };
-      if (!this.validCharacterData(toSave)) return;
+      if (!validCharacterData(toSave)) return;
       appStore.saveAsset('character', this.nextCharTemplateId(), toSave);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, 'character');
@@ -1558,7 +1559,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
       if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
       // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
-      if ((type === 'character' || type === 'pet') && !this.validCharacterData(msg.data)) return;
+      if ((type === 'character' || type === 'pet') && !validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1668,117 +1669,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
     );
   }
 
-  /**
-   * Authoritative validation of a character override — never trust the client.
-   * Enforces a mandatory display name (printable ASCII, ≤16 chars), and that
-   * down/up/right (and optional left) are non-empty frame lists of uniformly
-   * sized hex-pixel grids within bounds. Mirrors (and is the real gate behind)
-   * the editor's client-side checks.
-   */
-  private validCharacterData(data: unknown): boolean {
-    const d = data as {
-      name?: unknown;
-      down?: unknown;
-      up?: unknown;
-      right?: unknown;
-      left?: unknown;
-      spec?: unknown;
-      npc?: unknown;
-    };
-    if (!d || typeof d !== 'object') return false;
-    if (typeof d.name !== 'string') return false;
-    const name = cleanName(d.name); // trim + collapse whitespace + cap
-    d.name = name; // persisted on save
-    if (!/^[\x20-\x7e]{1,32}$/.test(name)) return false;
-    const dims = { w: -1, h: -1 };
-    const hex = /^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/;
-    // Frame dimensions are capped at 64×64 (Stufe A); frame *count* per direction
-    // is bounded separately (base + frame-sets).
-    const MAX_DIM = 64;
-    const validFrames = (frames: unknown): boolean => {
-      if (!Array.isArray(frames) || frames.length === 0 || frames.length > 64) return false;
-      for (const frame of frames) {
-        if (!Array.isArray(frame) || frame.length === 0 || frame.length > MAX_DIM) return false;
-        if (dims.h === -1) dims.h = frame.length;
-        else if (frame.length !== dims.h) return false;
-        for (const row of frame as unknown[]) {
-          if (!Array.isArray(row) || row.length === 0 || row.length > MAX_DIM) return false;
-          if (dims.w === -1) dims.w = row.length;
-          else if (row.length !== dims.w) return false;
-          for (const cell of row as unknown[]) {
-            if (typeof cell !== 'string') return false;
-            if (cell !== '' && !hex.test(cell)) return false;
-          }
-        }
-      }
-      return true;
-    };
-    if (!validFrames(d.down) || !validFrames(d.up) || !validFrames(d.right)) return false;
-    if (d.left !== undefined && !validFrames(d.left)) return false;
-    // Optional animation spec: track frame counts must sum to the frame count.
-    if (d.spec !== undefined) {
-      const n = (d.down as unknown[]).length;
-      if (!this.validCharacterSpec(d.spec, n)) return false;
-    }
-    // Optional NPC spawn config.
-    if (d.npc !== undefined && !this.validNpcConfig(d.npc)) return false;
-    return true;
-  }
-
-  /** Validate an optional CharacterSpec: sane frame size + non-empty tracks whose
-   *  frame counts sum to `n` (the number of frames per direction). */
-  private validCharacterSpec(spec: unknown, n: number): boolean {
-    const s = spec as { frame?: unknown; tracks?: unknown };
-    if (!s || typeof s !== 'object') return false;
-    const fr = s.frame as { w?: unknown; h?: unknown } | undefined;
-    const dim = (v: unknown): boolean => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= 64;
-    if (!fr || !dim(fr.w) || !dim(fr.h)) return false;
-    if (!Array.isArray(s.tracks) || s.tracks.length === 0) return false;
-    let sum = 0;
-    for (const t of s.tracks) {
-      const tt = t as { name?: unknown; frames?: unknown; play?: unknown };
-      if (!tt || typeof tt !== 'object') return false;
-      if (typeof tt.name !== 'string' || tt.name.length === 0 || tt.name.length > 32) return false;
-      if (!Number.isInteger(tt.frames) || (tt.frames as number) < 1 || (tt.frames as number) > 64) return false;
-      if (tt.play !== 'loop' && tt.play !== 'pingpong') return false;
-      sum += tt.frames as number;
-    }
-    return sum === n;
-  }
-
-  /** Validate an optional NPC spawn config (active flag + sane interval/cap). */
-  private validNpcConfig(c: unknown): boolean {
-    const o = c as {
-      active?: unknown;
-      minSec?: unknown;
-      maxSec?: unknown;
-      maxConcurrent?: unknown;
-      behaviors?: unknown;
-    };
-    if (!o || typeof o !== 'object') return false;
-    if (typeof o.active !== 'boolean') return false;
-    const int = (v: unknown, lo: number, hi: number): boolean =>
-      Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi;
-    if (!int(o.minSec, 5, 3600) || !int(o.maxSec, 5, 3600)) return false;
-    if ((o.minSec as number) > (o.maxSec as number)) return false;
-    if (!int(o.maxConcurrent, 1, 8)) return false;
-    // Optional behaviour switches: each, if present, must be a boolean. Missing
-    // flags are back-filled (default true) by resolveNpcConfig downstream.
-    if (o.behaviors !== undefined) {
-      if (typeof o.behaviors !== 'object' || o.behaviors === null) return false;
-      const b = o.behaviors as Record<string, unknown>;
-      for (const k of ['rest', 'chaseCats', 'fleeDogs', 'drink', 'talk']) {
-        if (b[k] !== undefined && typeof b[k] !== 'boolean') return false;
-      }
-    }
-    return true;
-  }
-
-  /** Sanity-check an uploaded background image: a PNG data URL under the byte
-   *  cap, with sane label/dimensions. Only the data URL's *prefix* and
-   *  *length* are checked here (cheap, no decoding) — a client-supplied
-   *  width/height that doesn't match the actual image just makes for a
-   *  stretched/squashed placement, not a security issue. */
   /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
   private validFurnitureData(data: unknown): boolean {
     const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };

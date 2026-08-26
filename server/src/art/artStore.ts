@@ -11,7 +11,7 @@
  * server had to learn about images. Two consequences worth knowing:
  *
  * - The validator stays the authority. Saves are still validated as SpriteData
- *   (SimRoom.validCharacterData: 64×64 cap, frame counts, hex format) BEFORE anything
+ *   (`art/characterDataGuard.ts`: 64×64 cap, frame counts, hex format) BEFORE anything
  *   is encoded, so packing introduces no new untrusted-input surface. A client never
  *   sends a PNG; if it ever should, that path needs its own bounds first — an image
  *   decoder is a fine place to hide a decompression bomb.
