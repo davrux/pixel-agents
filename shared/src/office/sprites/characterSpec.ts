@@ -19,6 +19,27 @@ export const MAX_CHAR_DIM = 64;
 /** Upper bound on stored frames per track (sanity cap). */
 export const MAX_TRACK_FRAMES = 64;
 
+/**
+ * Upper bound on the pixels ONE sheet may carry, counted across all its direction rows.
+ *
+ * This exists because the other two caps do not bound the payload: 64 frames of 64×64 in four
+ * rows is 1.05 M cells, which is 10.0 MB of JSON (measured), and the WebSocket transport refuses
+ * a frame over MAX_WS_PAYLOAD_BYTES. A save that big was therefore ACCEPTED by the rules and
+ * undeliverable in fact — and the failure was not a refusal but a dropped connection:
+ * `RangeError: Max payload size exceeded` on the server, close code 1009, the editor's save
+ * silently gone. Seen in production 2026-08-26 and reproduced exactly.
+ *
+ * 4 rows × 24 frames × 64×64 = 393 216 cells, about 3.8 MB of JSON, so the worst legal sheet
+ * fits the ceiling several times over even uncompressed. What it restricts is only very large
+ * frames: at 16×32 the 64-frame cap still binds first (131 072 cells), and every bundled sheet
+ * is far below it (the widest, 23×32 over 11 columns, is 32 384). At the maximum 64×64 it allows
+ * 24 frames per direction.
+ *
+ * Enforced in both places that can produce a sheet — the editor before it sends, so the user
+ * sees a refusal, and the server's guard, because the client is not trusted.
+ */
+export const MAX_SHEET_CELLS = 4 * 24 * MAX_CHAR_DIM * MAX_CHAR_DIM;
+
 /** How a track's stored frames are played back. */
 export type TrackPlay = 'loop' | 'pingpong';
 

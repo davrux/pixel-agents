@@ -1,5 +1,6 @@
 import {
   DEFAULT_CHARACTER_SPEC,
+  MAX_SHEET_CELLS,
   resolveCharacterSpec,
   resolveNpcConfig,
   specFrameCount,
@@ -601,7 +602,9 @@ export class CharacterEditor {
       const w = Math.max(1, Math.min(MAX_DIM, Math.round(Number(wEl.value) || this.W)));
       const h = Math.max(1, Math.min(MAX_DIM, Math.round(Number(hEl.value) || this.H)));
       if (w === this.W && h === this.H) return;
-      this.resizeWork(w, h);
+      // A refused resize leaves the sheet as it was, so nothing is dirty and nothing changed;
+      // resizeWork has already put the input boxes back and said why.
+      if (!this.resizeWork(w, h)) return;
       this.dirty = true;
       this.render();
     };
@@ -890,7 +893,12 @@ export class CharacterEditor {
 
   /** Resize every frame (all directions) to w×h, keeping the top-left pixels
    *  (crop on shrink, pad with transparent on grow). */
-  private resizeWork(w: number, h: number): void {
+  private resizeWork(w: number, h: number): boolean {
+    if (this.sheetCells(this.baseLen(), w, h) > MAX_SHEET_CELLS) {
+      this.showStatus(`${w}×${h} across ${this.baseLen()} frames is more pixels than one sheet may hold`);
+      this.syncSizeInputs(); // put the boxes back to the size that is still in force
+      return false;
+    }
     const resizeFrame = (f: SpriteData): SpriteData => {
       const out = emptyFrame(w, h);
       for (let y = 0; y < Math.min(h, f.length); y++) {
@@ -908,6 +916,21 @@ export class CharacterEditor {
     if (this.work.spec) this.work.spec.frame = { w, h };
     this.selection = null; // coords no longer valid after a resize
     this.syncSizeInputs();
+    return true;
+  }
+
+  /**
+   * How many pixel cells the sheet holds across every direction row — the number the payload
+   * bound is on (`MAX_SHEET_CELLS`).
+   *
+   * Checked here, before anything is sent, because the server's ceiling is enforced by the
+   * TRANSPORT: an oversized save does not come back as a refusal, it closes the connection
+   * (`RangeError: Max payload size exceeded`, close code 1009) and the work is gone. A message
+   * the user can read beats that, so the editor refuses first and the guard is the backstop.
+   */
+  private sheetCells(frames = this.baseLen(), w = this.W, h = this.H): number {
+    const rows = 3 + (this.work.left ? 1 : 0); // left is written on save, so count it either way
+    return frames * w * h * Math.max(4, rows);
   }
 
   /** Canonical frame count (down/up/right stay equal length). */
@@ -943,6 +966,10 @@ export class CharacterEditor {
   /** Add a frame to a track (creating an optional track if currently absent). */
   private addTrackFrame(name: string): void {
     if (this.work.down.length >= this.trackDefs().length * MAX_TRACK_FRAMES) return;
+    if (this.sheetCells(this.baseLen() + 1) > MAX_SHEET_CELLS) {
+      this.showStatus(`Too many pixels for one sheet at ${this.W}×${this.H} — remove a frame or use a smaller size`);
+      return;
+    }
     const slots = specSlots(this.spec(), this.trackDefs());
     const slot = slots.find((s) => s.name === name);
     if (slot) {
@@ -1125,6 +1152,12 @@ export class CharacterEditor {
     if (!this.work.name?.trim()) {
       this.showStatus('Name required before saving');
       this.nameEl.focus();
+      return;
+    }
+    // Last check before it goes out: the server would refuse this too, but its ceiling is the
+    // transport's, and that one answers with a closed socket rather than a message.
+    if (this.sheetCells() > MAX_SHEET_CELLS) {
+      this.showStatus('Sheet too large to save — fewer frames or a smaller frame size');
       return;
     }
     // Persist the current frame size + track layout with the sprite data.

@@ -131,6 +131,17 @@ export const CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
  *  layouts, …). Login/agent identity names keep their own 16-char convention. */
 export const MAX_NAME_LEN = 32;
 
+/**
+ * The biggest WebSocket frame the server will accept (`maxPayload`, wired up in index.ts).
+ *
+ * Shared, not a literal at the call site, because it is one half of a pair: anything the rules
+ * declare legal must fit through here, or the failure mode is a dropped socket instead of a
+ * refusal (see MAX_SHEET_CELLS, which is the other half, and the test that ties them together).
+ * `ws` compares this against the frame's declared length, i.e. against what is actually on the
+ * wire — so a client that does not negotiate permessage-deflate gets no compression credit.
+ */
+export const MAX_WS_PAYLOAD_BYTES = 12 * 1024 * 1024;
+
 /** Normalise a user-entered name: collapse runs of whitespace to one space, trim
  *  the ends, and cap at `max` chars. Use everywhere names are accepted. */
 export function cleanName(input: unknown, max: number = MAX_NAME_LEN): string {

@@ -8,15 +8,22 @@
  * no test at all. Pulled out here for the same reason the housekeeping guards are pure
  * functions: an untrusted-input validator that cannot be exercised is a claim, not a gate.
  *
- * What it does NOT need, measured rather than assumed: a cap on frames × width × height. The
- * rules allow at most 64 frames of 64×64 per direction, and four of those rows are 1.05 M
- * cells — 10.0 MB of JSON, which the transport's 8 MB `maxPayload` (`index.ts`) refuses before
- * this ever runs. The largest payload that CAN arrive validates in about 16 ms (measured
- * 2026-08-26: 1.7 MB in 3.3 ms, 5.0 MB in 10.0 ms, 10.0 MB in 20.5 ms), so verification is not
- * a CPU lever. A tighter cap here would only forbid legal art, so the bound stays where it is
- * and the numbers are written down instead.
+ * It DOES cap the total pixel count, and the reason is a correction of what this comment used
+ * to claim. The per-direction bounds (64 frames of 64×64) allow 1.05 M cells across four rows,
+ * i.e. 10.0 MB of JSON — and the transport refuses a frame over `MAX_WS_PAYLOAD_BYTES`. This
+ * file previously said that made a cap unnecessary, "so a tighter bound would only forbid legal
+ * art". That was wrong about the consequence: the transport does not refuse the SAVE, it kills
+ * the CONNECTION — `RangeError: Max payload size exceeded`, close code 1009, and the editor's
+ * work is simply gone with no message. Production hit exactly that on 2026-08-26 and it
+ * reproduces on demand. So legal now implies deliverable: `MAX_SHEET_CELLS` keeps the worst
+ * legal sheet at about 3.8 MB, several times inside the ceiling even with no compression, and
+ * `artPayload.int.test.ts` measures the pair rather than trusting the arithmetic.
+ *
+ * Cost of verification is not a concern at that size: measured 2026-08-26, 1.7 MB validates in
+ * 3.3 ms and 5.0 MB in 10.0 ms.
  */
 import { cleanName, MAX_NAME_LEN } from '@pixel/shared';
+import { MAX_SHEET_CELLS } from '@pixel/shared/office/sprites/characterSpec.js';
 
 /** Frame size ceiling, matching `MAX_CHAR_DIM` in shared's characterSpec and the editor's
  *  own `MAX_DIM` — art bigger than this is refused, not scaled. */
@@ -109,6 +116,10 @@ export function validCharacterData(data: unknown): boolean {
   // sheet whose `up` row is a different size than its `down` row is refused rather than
   // sliced on one row's numbers.
   const dims = { w: -1, h: -1 };
+  // Total pixels across every direction row, so the bound is on what actually travels rather
+  // than on one row of it. Counted as the rows are walked and checked at once, so an oversized
+  // payload is refused early instead of being fully verified first.
+  let cells = 0;
   const validFrames = (frames: unknown): boolean => {
     if (!Array.isArray(frames) || frames.length === 0 || frames.length > MAX_FRAMES) return false;
     for (const frame of frames) {
@@ -119,6 +130,8 @@ export function validCharacterData(data: unknown): boolean {
         if (!Array.isArray(row) || row.length === 0 || row.length > MAX_DIM) return false;
         if (dims.w === -1) dims.w = row.length;
         else if (row.length !== dims.w) return false;
+        cells += row.length;
+        if (cells > MAX_SHEET_CELLS) return false;
         for (const cell of row as unknown[]) {
           if (typeof cell !== 'string') return false;
           if (cell !== '' && !HEX.test(cell)) return false;
