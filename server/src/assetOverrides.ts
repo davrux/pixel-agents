@@ -89,7 +89,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
     char_3: 'Otto',
     char_4: 'Jonas',
     char_5: 'Lina',
-    char_6: 'Meik',
   };
   const characters: Array<{ id: string; data: unknown }> = bundledChars.map((data, i) => {
     // A name that merely repeats the slot id carries no information — the same trap the

@@ -35,7 +35,7 @@ interface Sheet {
 /**
  * A sheet's cell width is what its own manifest says, not one constant.
  *
- * Frame size is per character (`CharacterSpec`, up to 64×64) — char_6 is 23px wide — so
+ * Frame size is per character (`CharacterSpec`, up to 64×64, declared in a `char_N.json`), so
  * slicing every sheet at CHAR_FRAME_W would check the wrong columns the moment a character
  * declares its own size: the mirror comparison would pair cell 1 of the left row with a
  * point inside cell 0 of the right one and fail on art that is perfectly mirrored. The

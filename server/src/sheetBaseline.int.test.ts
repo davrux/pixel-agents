@@ -15,7 +15,7 @@
  * symptom is a screenshot somebody has to interpret.
  *
  * The rule is deliberately about the WALK track only, measured rather than assumed. Across the
- * 13 bundled sheets the walk frames sit 0–3 px above the bottom edge (characters 1–2, pets
+ * 12 bundled sheets the walk frames sit 0–3 px above the bottom edge (characters 1–2, pets
  * 0–3), while frames overall span rows 25–31: a seated pose legitimately sits higher, and
  * demanding ground contact from those would be wrong. The walk track is also what every pose
  * without art falls back to (`spriteData.ts`'s stand frame is `walk.start + 1`), so it is the
@@ -96,7 +96,7 @@ function lowestInk(png: PNG, col: number, rowIdx: number, fw: number, fh: number
 
 test('the bundled roster is what these checks think it is', () => {
   const all = sheets();
-  assert.ok(all.length >= 13, `expected the bundled roster, found ${all.length}`);
+  assert.ok(all.length >= 12, `expected the bundled roster, found ${all.length}`);
   for (const { name, png, spec } of all) {
     assert.equal(png.width % spec.frame.w, 0, `${name}: width is not a whole number of ${spec.frame.w}px cells`);
     assert.equal(png.height % spec.frame.h, 0, `${name}: height is not a whole number of ${spec.frame.h}px rows`);

@@ -15,9 +15,9 @@ comment.
 **stops at the first gap**, so the numbers must stay contiguous from `_0`
 (`loadCharacterSprites`, `server/src/assetLoader.ts:180`).
 
-**16×32 frames in 4 rows** by default. The six original bundled sheets are **112×128**
-— 7 frames per row — and `char_6` is **253×128**, 11 frames of **23×32**, because the
-frame size is per character (see the manifest below). Unlike the pet sheets, the frame
+**16×32 frames in 4 rows** by default. The bundled sheets are **112×128** — 7 frames
+per row — but the frame size is per character, not a constant: a sheet may declare its
+own up to 64×64 (see the manifest below). Unlike the pet sheets, the frame
 *count* is not fixed either: it is derived from the image width
 (`Math.floor(width / frameW)`, `pngDecoder.ts:174`), and the default track layout
 declares **9** frames. So at 16×32 a **144×128** sheet is the better target — it fills
@@ -37,7 +37,7 @@ frame the spec wants is not there.
 Alpha is per-pixel, not a mask: `a < 2` becomes transparent, and anything above
 survives — semi-transparent values included, as `#RRGGBBAA`. Anti-aliased edges are
 not cleaned up for you; they reach the renderer as translucent pixels and read as
-blur. All seven bundled sheets are strictly binary (0 or 255) and carry 18–43
+blur. All six bundled sheets are strictly binary (0 or 255) and carry 24–43
 colours.
 
 An optional `char_N.json` manifest overrides the frame size and declares tracks
