@@ -584,18 +584,27 @@ background only.)
   destroy only what nothing can reach (no tileset offers the id, no layout places it),
   and it may never keep the server from starting. The guards live in pure functions and are tested; nothing here waits
   for a human to read a report, because nobody is watching a boot.
-- **A stored asset whose id no tileset carries is dead weight, and it travels.**
-  Furniture used to be uploaded into the database as pixels; art then moved into Tiled
-  tilesets, and the rows of retired packages stayed behind — ids nobody can place,
-  since a mapper only paints what a tileset offers. They are not inert: a row without
-  a file has no image to point at, so it is sent as SpriteData in
-  `furnitureAssetsLoaded` on every join. 695 of them were 1.33 MB of a 1.79 MB
-  message. The boot prunes them (see the housekeeping bullet above);
-  `scripts/prune-orphan-assets.sh` is how you LOOK — what would go, what the grace
-  period holds back, and which PLACED assets no tileset offers any more, the one case
-  nothing can repair automatically. `--apply` deletes without waiting for the grace
-  period, for when you are reading the list yourself. Both paths share one decision
-  function, so they cannot drift. A deployment prunes itself at its next boot.
+- **The database holds no furniture at all any more.** Furniture used to be uploaded
+  into it as pixels; art then moved into Tiled tilesets, and the rows of retired
+  packages stayed behind — ids nobody could place, since a mapper only paints what a
+  tileset offers, and not inert either: a row without a file has no image to point at,
+  so it travelled as SpriteData in `furnitureAssetsLoaded` on every join (695 of them
+  were 1.33 MB of a 1.79 MB message). The boot pruned those, and kept the rows a
+  tileset still carried, because those were live overrides.
+  That whole shape is gone: `furniture` is **not an ASSET_TYPE**, no client can write
+  one (the editor offers characters and NPCs only), and nothing merges one over a
+  tileset entry. What is left of it is one boot task that retires the remaining rows
+  (`maintenance/retireFurniture.ts`) — unreachable by construction rather than by
+  inference, so it needs no grace period, but it writes a copy beside the database
+  first, because a row a tileset still carries had been overriding that art until this
+  build and that may be somebody's work. The report tells the two groups apart, since
+  "retired 40 rows" does not say whether a map just changed.
+  The one question that outlived the prune is asked directly now: a stored map that
+  places an id **no tileset offers** is a map to re-author and nothing can repair it
+  automatically, so `report-unavailable-placements` compares the layouts against the
+  tilesets and says nothing on a healthy world (measured: 1775 offered, 127 placed, 0
+  missing). `scripts/prune-orphan-assets.sh` remains for the other prune — personal
+  avatars whose account is gone.
 - **One database.** All state lives in `pixel.db` through the shared `db.ts`
   connection.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable

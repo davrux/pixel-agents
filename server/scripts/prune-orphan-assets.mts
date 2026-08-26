@@ -1,21 +1,22 @@
 #!/usr/bin/env -S node --import tsx
 /**
- * Report — or delete — stored asset rows whose id no tileset carries any more.
+ * Report — or delete — stored asset rows nothing can reach any more.
  *
- * The server does this itself on every boot (see src/maintenance/startupCleanup.ts),
- * so this is the way to LOOK: what would go, what is held back by the grace period,
- * and which placed assets no tileset offers any more (a map to repair, and the one
- * thing here nobody can fix automatically).
+ * The server does both of these on every boot (see src/maintenance/startupCleanup.ts);
+ * this is the way to LOOK first: what would go, and what is held back by the grace
+ * period.
  *
  * `--apply` runs the same decision the boot takes, immediately and without waiting
  * for the grace period, for when you know exactly what you are removing. Both paths go
  * through the same pure decision, so the command and the boot cannot drift apart.
  *
- * `--type playerAvatar` switches to the other prune the boot performs: personal
- * avatars whose account is gone. Different evidence (the users table, not the
- * tilesets), same decision function as the boot — see maintenance/orphanAvatars.ts.
+ * DEFAULT is `playerAvatar`: personal avatars whose account is gone. `--type furniture`
+ * still runs the old tileset-based classification, but a world that has booted this
+ * build has no furniture rows left — they are retired wholesale now that `furniture` is
+ * not an asset type (maintenance/retireFurniture.ts), so the mode is only useful for
+ * inspecting a database from before that.
  *
- * Run: scripts/prune-orphan-assets.sh [--apply] [--type furniture|playerAvatar]
+ * Run: scripts/prune-orphan-assets.sh [--apply] [--type playerAvatar|furniture]
  */
 import { ASSETS_ROOT } from '../src/assets.js';
 import { accountIds, decideAvatarPrune } from '../src/maintenance/orphanAvatars.js';
@@ -31,7 +32,7 @@ import {
 
 const APPLY = process.argv.includes('--apply');
 const typeArg = process.argv.indexOf('--type');
-const TYPE = typeArg >= 0 ? process.argv[typeArg + 1] : 'furniture';
+const TYPE = typeArg >= 0 ? process.argv[typeArg + 1] : 'playerAvatar';
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
 
 // ── Avatars: the same job with the other half of the evidence ────────────────

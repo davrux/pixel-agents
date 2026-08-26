@@ -51,10 +51,6 @@ export function registerSheet(id: string, bitmap: ImageBitmap, frameW: number, f
   });
 }
 
-export function hasSheet(id: string): boolean {
-  return sheets.has(id);
-}
-
 export function forgetSheet(id: string): void {
   sheets.delete(id);
 }

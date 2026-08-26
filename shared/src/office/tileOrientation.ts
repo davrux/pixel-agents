@@ -98,12 +98,6 @@ export function quarterTurnsOf(angle: number | undefined): 0 | 1 | 2 | 3 | null 
   return (norm / 90) as 0 | 1 | 2 | 3;
 }
 
-/** Does this angle swap a piece's width and height? True for a quarter turn either way. */
-export function turnSwapsSides(angle: number | undefined): boolean {
-  const q = quarterTurnsOf(angle);
-  return q === 1 || q === 3;
-}
-
 /**
  * The box a w×h piece OCCUPIES once turned — the axis-aligned rectangle around the turned
  * art, rounded out to whole pixels.
@@ -163,9 +157,4 @@ export function orientationOf(
   return cellOrientation(
     (flippedHorizontally ? ORIENT_H : 0) | (flippedVertically ? ORIENT_V : 0) | (flippedDiagonally ? ORIENT_D : 0),
   );
-}
-
-/** True when this cell is turned at all — lets a caller keep its fast path. */
-export function isTurned(bits: number | undefined): boolean {
-  return ((bits ?? 0) & ORIENT_MASK) !== 0;
 }

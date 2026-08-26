@@ -17,6 +17,7 @@ export {
   resolveNpcConfig,
   specFrameCount,
   MAX_CHAR_DIM,
+  MAX_SHEET_CELLS,
 } from './characterSpec.js';
 
 // ── Speech Bubble Sprites ───────────────────────────────────────

@@ -122,14 +122,20 @@ export type AgentEvent =
     }
   | { t: 'tokens'; id: number; inputTokens: number; outputTokens: number };
 
-// ── Appearance ────────────────────────────────────────────────────
-
-/** The four Modern Interiors (free) characters, by index. */
-export const CHARACTERS = ['adam', 'alex', 'amelia', 'bob'] as const;
-
 /** Max length for user-entered names (furniture/monitor, characters, zones,
  *  layouts, …). Login/agent identity names keep their own 16-char convention. */
 export const MAX_NAME_LEN = 32;
+
+/**
+ * The biggest WebSocket frame the server will accept (`maxPayload`, wired up in index.ts).
+ *
+ * Shared, not a literal at the call site, because it is one half of a pair: anything the rules
+ * declare legal must fit through here, or the failure mode is a dropped socket instead of a
+ * refusal (see MAX_SHEET_CELLS, which is the other half, and the test that ties them together).
+ * `ws` compares this against the frame's declared length, i.e. against what is actually on the
+ * wire — so a client that does not negotiate permessage-deflate gets no compression credit.
+ */
+export const MAX_WS_PAYLOAD_BYTES = 12 * 1024 * 1024;
 
 /** Normalise a user-entered name: collapse runs of whitespace to one space, trim
  *  the ends, and cap at `max` chars. Use everywhere names are accepted. */
@@ -224,15 +230,5 @@ export function conferenceKey(name: string | undefined, col: number, row: number
 /** Human-readable label for a conference monitor (its name, else its position). */
 export function conferenceLabel(name: string | undefined, col: number, row: number): string {
   return (name ?? '').trim() || `Monitor (${col}, ${row})`;
-}
-
-/** Cheap deterministic string hash (FNV-1a). */
-export function hashString(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
 }
 

@@ -47,6 +47,7 @@ import {
   invalidateMergedBundle,
   messageTypeForAsset,
   type AssetType,
+  type ResyncTarget,
 } from '../assetOverrides.js';
 import { hasValidSession, userIdFromCookie, hasValidBearerSession, userIdFromBearer } from '../auth.js';
 import { userStore, UserStore, isValidPassword, normalizeLoginId, MAX_PASSWORD_LEN, type Role, type User } from '../userStore.js';
@@ -326,7 +327,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  happened in (otherwise every OTHER already-running zone keeps serving
    *  its stale in-memory bundle indefinitely, until it empties out and the
    *  room recycles). */
-  private readonly onAssetChanged = (type: AssetType): void => {
+  private readonly onAssetChanged = (type: ResyncTarget): void => {
     this.reapplyAsset(type);
   };
 
@@ -1549,17 +1550,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (id !== undefined) this.os.setCharacterName(id, name);
     });
 
-    // Asset overrides (characters/furniture/floors/walls/pets). Persist + re-merge
-    // + re-apply to the engine + broadcast the refreshed *Loaded message.
+    // Asset overrides — characters and NPCs, the only two the database may hold (see
+    // ASSET_TYPES). Persist + re-merge + re-apply to the engine + broadcast the refreshed
+    // *Loaded message.
     this.onMessage('saveAsset', (client, msg: { assetType?: string; name?: string; data?: unknown }) => {
       if (!this.may(client, 'gallery.edit')) return;
       const type = this.validAssetType(msg?.assetType);
       if (!type || typeof msg?.name !== 'string' || msg.data === undefined) return;
       // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
       if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
-      if (type === 'furniture' && !this.validFurnitureData(msg.data)) return;
-      // Characters and NPCs (pets) share the LoadedCharacterData + spec shape.
-      if ((type === 'character' || type === 'pet') && !validCharacterData(msg.data)) return;
+      // Characters and NPCs (pets) are the only writable types, and they share the
+      // LoadedCharacterData + spec shape.
+      if (!validCharacterData(msg.data)) return;
       appStore.saveAsset(type, msg.name, msg.data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
@@ -1577,15 +1579,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   // ── Asset overrides ──────────────────────────────────────────────
 
-  /** The asset types a CLIENT may write, deliberately narrower than ASSET_TYPES:
-   *  an `image` asset is only ever written by the zone importer (a pushed .tmj
-   *  carries the PNGs its ImageTiles use — see tiled/zoneImport.ts), never by a
-   *  viewer. The in-game upload tab that used to send them is gone, so the
-   *  gallery handlers must stop accepting the type as well — a write path with
-   *  no caller is still a write path. */
+  /** The asset types a CLIENT may write — now exactly the types the database may override at
+   *  all (ASSET_TYPES). It used to be narrower than that list, then wider than the callers: an
+   *  `image` write only ever came from the zone importer, and a `furniture` write from nobody
+   *  at all once art moved into Tiled tilesets. Both are gone from the union, because a write
+   *  path with no caller is still a write path. */
   private validAssetType(t: unknown): AssetType | null {
-    const clientEditable: readonly AssetType[] = ['character', 'pet', 'furniture'];
-    return (clientEditable as readonly string[]).includes(t as string) ? (t as AssetType) : null;
+    return (ASSET_TYPES as readonly string[]).includes(t as string) ? (t as AssetType) : null;
   }
 
   /** Is `id` a currently-loaded skin id (char_<n>)? Gates skin-pin messages. */
@@ -1669,58 +1669,9 @@ export class SimRoom extends Room<{ state: RoomState }> {
     );
   }
 
-  /** Sanity-check a furniture override: a sprite grid and a sane catalog entry. */
-  private validFurnitureData(data: unknown): boolean {
-    const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
-    if (!d || typeof d !== 'object') return false;
-    if (d.sprite !== undefined && !Array.isArray(d.sprite)) return false;
-    if (d.catalog) {
-      const c = d.catalog;
-      const fw = Number(c.footprintW);
-      const fh = Number(c.footprintH);
-      if (!Number.isInteger(fw) || !Number.isInteger(fh) || fw < 1 || fh < 1 || fw > 16 || fh > 16) {
-        return false;
-      }
-      // This type's default Action (see FurnitureCatalogEntry.action) — same
-      // shape/validation as a per-instance override, just one level up.
-      if (c.action !== undefined && !sanitizeAction(c.action)) return false;
-      // Animation membership (Tiled-style per-frame timing — see
-      // furnitureCatalog.ts's animationFrameAt): a frame index and a bounded
-      // per-frame duration, bounded to a sane range.
-      if (c.animationGroup !== undefined && (typeof c.animationGroup !== 'string' || c.animationGroup.length > 64)) {
-        return false;
-      }
-      if (c.frame !== undefined && (!Number.isInteger(c.frame) || (c.frame as number) < 0 || (c.frame as number) > 64)) {
-        return false;
-      }
-      if (
-        c.durationMs !== undefined &&
-        (!Number.isInteger(c.durationMs) || (c.durationMs as number) < 16 || (c.durationMs as number) > 10000)
-      ) {
-        return false;
-      }
-      // Behaviour flags (see FurnitureCatalogEntry): plain booleans, a compass
-      // direction, a row count, and the id of an on-state — bounded, and
-      // rejected rather than coerced if they arrive as something else.
-      for (const flag of ['canSitOn', 'petCanSitOn'] as const) {
-        if (c[flag] !== undefined && typeof c[flag] !== 'boolean') return false;
-      }
-      if (c.sitFacing !== undefined && ![0, 1, 2, 3].includes(c.sitFacing as number)) return false;
-      if (c.backgroundTiles !== undefined && (!Number.isInteger(c.backgroundTiles) || (c.backgroundTiles as number) < 0 || (c.backgroundTiles as number) > 16)) {
-        return false;
-      }
-      if (c.onState !== undefined && (typeof c.onState !== 'string' || c.onState.length > 64)) return false;
-      // Import provenance (see FurnitureCatalogEntry.source/sourceKey) — free
-      // text, just bounded.
-      if (c.source !== undefined && (typeof c.source !== 'string' || c.source.length > 64)) return false;
-      if (c.sourceKey !== undefined && (typeof c.sourceKey !== 'string' || c.sourceKey.length > 64)) return false;
-    }
-    return true;
-  }
-
   /** Re-read the (already re-merged — see invalidateMergedBundle) shared bundle,
    *  re-apply the affected type to this room's engine, and broadcast. */
-  private reapplyAsset(type: AssetType): void {
+  private reapplyAsset(type: ResyncTarget): void {
     this.bundle = getMergedBundle();
     switch (type) {
       case 'character': {
