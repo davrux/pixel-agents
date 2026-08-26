@@ -15,17 +15,20 @@ comment.
 **stops at the first gap**, so the numbers must stay contiguous from `_0`
 (`loadCharacterSprites`, `server/src/assetLoader.ts:180`).
 
-**16×32 frames in 3 rows.** The bundled sheets are **112×96** — 7 frames per row.
-Unlike the pet sheets, the frame *count* is not fixed: it is derived from the image
-width (`Math.floor(width / 16)`, `pngDecoder.ts:174`), and the default track layout
-declares **9** frames. So a **144×96** sheet is the better target — it fills every
-track, needs no code change, and is the only way to get real `coffee` art.
+**16×32 frames in 4 rows** by default. The six original bundled sheets are **112×128**
+— 7 frames per row — and `char_6` is **253×128**, 11 frames of **23×32**, because the
+frame size is per character (see the manifest below). Unlike the pet sheets, the frame
+*count* is not fixed either: it is derived from the image width
+(`Math.floor(width / frameW)`, `pngDecoder.ts:174`), and the default track layout
+declares **9** frames. So at 16×32 a **144×128** sheet is the better target — it fills
+every track, needs no code change, and is the only way to get real `coffee` art.
 
-The height is not derived, and it is where the only *fatal* mistake lives. Exactly
-four rows of 32 are read, so the sheet should be **128 tall**: a 112×128 sheet
-loads fine and the fourth row is simply ignored, but a 112×64 one throws inside the
-decoder, and `loadCharacterSprites` swallows the error and returns null for **the
-whole directory** — every agent loses its art, not just the broken skin.
+The height decides how many facings are read — the longest present prefix of
+(down, up, right, left), so a sheet should be **four rows tall**. A short one is not
+fatal (three rows load and the left row is seeded by mirroring), but a sheet shorter
+than one row throws inside the decoder, and `loadCharacterSprites` swallows the error
+and returns null for **the whole directory** — every agent loses its art, not just the
+broken skin.
 
 Getting the width wrong fails silently instead, which is worse to diagnose. 128×96
 loads happily and quietly turns `coffee` into a one-frame track, because the 9th
@@ -34,7 +37,7 @@ frame the spec wants is not there.
 Alpha is per-pixel, not a mask: `a < 2` becomes transparent, and anything above
 survives — semi-transparent values included, as `#RRGGBBAA`. Anti-aliased edges are
 not cleaned up for you; they reach the renderer as translucent pixels and read as
-blur. All six bundled sheets are strictly binary (0 or 255) and carry 24–43
+blur. All seven bundled sheets are strictly binary (0 or 255) and carry 18–43
 colours.
 
 An optional `char_N.json` manifest overrides the frame size and declares tracks
@@ -265,8 +268,14 @@ the 9 x 3 arrangement above, all of the same person, in one consistent palette.
    zero against the grid it claims — and nothing about that is visible on a
    magnified preview.
 3. **Alpha is binary.** Every pixel 0 or 255. Partial alpha is kept, not cleaned.
-4. **No frame is clipped.** Per-cell bounding boxes of opaque pixels must sit inside
-   0–15 and 0–31, with feet at or near row 31 in columns 0–2.
+4. **No frame is clipped, and the walk frames stand on the ground.** Per-cell bounding
+   boxes of opaque pixels must sit inside 0–15 and 0–31. The feet rule is no longer only
+   advice: `server/src/sheetBaseline.int.test.ts` requires every bundled sheet's WALK
+   frames (the columns its spec gives that track, in every facing) to reach within four
+   pixels of the cell's bottom edge, because the renderer draws with origin (0.5, 1) — the
+   bottom edge IS the tile, and art drawn higher floats, with its name tag too high, in
+   every zone. Measured on the roster: characters sit 1–2 px above the edge, pets 0–3.
+   Seated columns are exempt on purpose — a sitter legitimately sits higher.
 5. **It loads, and the others still do.** Run `loadCharacterSprites` and confirm it
    returns all the skins, not null — a broken sheet takes the whole directory with
    it. Then check 3 directions × 9 frames have content.

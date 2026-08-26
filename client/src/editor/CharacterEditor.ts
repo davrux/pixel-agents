@@ -215,9 +215,14 @@ function cloneChar(c: LoadedCharacterData): LoadedCharacterData {
 }
 
 /**
- * In-browser pixel editor for character sprites. Edits the engine-native
- * SpriteData frames (16×32, down/up/right; left is auto-mirrored) and saves via
- * the asset-override protocol. The office re-renders live from the broadcast.
+ * In-browser pixel editor for character sprites. Edits the engine-native SpriteData frames and
+ * saves via the asset-override protocol; the office re-renders live from the broadcast.
+ *
+ * Two things this used to say and no longer does. The frame size is NOT fixed at 16×32 — it is
+ * per character up to 64×64 (`resizeWork` writes `spec.frame`, and the sheet carries it in a
+ * `char_N.json` manifest). And `left` is not auto-mirrored any more: a mirrored right row is
+ * only the SEED, `doSave` writes all four rows, because an asymmetric detail — a bag on one
+ * shoulder — is exactly what a mirror gets wrong.
  */
 export class CharacterEditor {
   private panel!: HTMLDivElement;

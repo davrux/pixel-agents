@@ -1,10 +1,14 @@
 # Pet / NPC sprite sheets
 
 `cat_0.png`, `cat_1.png` — and identically `dog_*.png`, `duck_*.png`. One file is
-one NPC variant. `dog_0` is **Emma** (beagle), `cat_0` is **Loui** (tuxedo), `cat_1`
-is **Daisy** (tabby) — the display names live in `PET_NAMES`
-(`server/src/assetOverrides.ts`), which fills them in the same place bundled skins
-get `Skin N`, so no UI shows the slot id. The **id stays `dog_0`**: it is the key
+one NPC variant, and every bundled one has a name: `dog_0` **Emma** (beagle),
+`dog_1` **Balu**, `cat_0` **Loui** (tuxedo), `cat_1` **Daisy** (tabby), `duck_0`
+**Rudi** (the green-headed drake), `duck_1` **Frieda**. The display names live in
+`PET_NAMES` (`server/src/assetOverrides.ts`), which fills them in the same place
+bundled skins get theirs from `CHAR_NAMES`, so no UI shows the slot id; they are
+fixed rather than generated, because a name is what a zone's NPC is picked by and
+one that changed between restarts would make every list disagree with yesterday's.
+A slot with no entry falls back to the generic `Duck 3`. The **id stays `dog_0`**: it is the key
 `saveAsset`/`deleteAsset` and a zone's NPC selection are stored under, so a rename
 is a label change and never a file rename. How
 many variants load is capped by `CAT_COUNT` in
