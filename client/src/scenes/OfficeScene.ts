@@ -327,10 +327,6 @@ export class OfficeScene extends Phaser.Scene {
   private charEditorReturn: MenuId = 'assets';
   /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
   private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
-  /** Bundled (file) furniture ids — anything else is user-added/imported and
-   *  genuinely removable (deleting a bundled id only resets it back to
-   *  itself, it can never disappear). */
-  private bundledFurnitureIds = new Set<string>();
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
   private menubar?: HTMLElement;
@@ -846,7 +842,6 @@ export class OfficeScene extends Phaser.Scene {
           // Keep raw asset metadata the editors need (group fields, default count).
           if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
             this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
-            if (Array.isArray(m.bundledIds)) this.bundledFurnitureIds = new Set(m.bundledIds as string[]);
           }
           if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);

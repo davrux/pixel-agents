@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Delete stored asset rows whose id no tileset carries any more — leftovers of art
-# packages that came and went. They cannot be placed (a mapper only paints what a
-# tileset offers) but they still travel to every client on every join, as pixels,
-# because a row without a file has no image to point at.
+# Delete stored asset rows nothing can reach any more. Default: personal avatars whose
+# account is gone (~77 KB each). `--type furniture` runs the old tileset-based
+# classification, which only tells you something about a database from before furniture
+# stopped being an asset type — a world that has booted this build has no such rows
+# left (see server/src/maintenance/retireFurniture.ts).
 #
 # Usage:
-#   scripts/prune-orphan-assets.sh [--apply] [--type furniture|playerAvatar]
+#   scripts/prune-orphan-assets.sh [--apply] [--type playerAvatar|furniture]
 #
 # Without --apply it only reports. It never deletes an id that is placed in any zone or
 # map — those are reported instead, because that is a map to repair, not a row to

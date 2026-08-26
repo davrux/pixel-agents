@@ -23,11 +23,26 @@ const CHAR_FRAME = { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
 const PET_FRAME = { w: PET_FRAME_W, h: PET_FRAME_H };
 import type { AssetBundle } from './assets.js';
 
-/** Asset types the database may override. `image` is gone: a map's pictures are files
- *  under assets/tiled that the layout points at (PlacedImage.src), not rows shipped on
- *  every join — see tiled/zoneImport.ts. */
-export const ASSET_TYPES = ['character', 'pet', 'furniture'] as const;
+/**
+ * Asset types the database may override.
+ *
+ * `image` went first: a map's pictures are files under assets/tiled that the layout points at
+ * (PlacedImage.src), not rows shipped on every join — see tiled/zoneImport.ts. `furniture`
+ * followed, because furniture art comes from Tiled tilesets and nothing in the client has sent
+ * a furniture save since: the editor offers 'agent' and 'npc' only. What was left was a write
+ * path with no caller and a merge that let a legacy row shadow the tileset it was replaced by.
+ * Remaining rows are retired at boot (see maintenance/startupCleanup.ts).
+ */
+export const ASSET_TYPES = ['character', 'pet'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
+
+/**
+ * What a "resend this kind of asset" event may name — the overridable types plus `furniture`,
+ * which no longer has overrides but still gets rebuilt and rebroadcast when a Tiled tileset
+ * changes on disk (assets.ts's watchFurnitureTilesets). Separate from AssetType on purpose:
+ * one says what the database may write, the other what a room may re-announce.
+ */
+export type ResyncTarget = AssetType | 'furniture';
 
 /** Parse `${prefix}_<n>` → n, or null. */
 function indexOf(name: string, prefix: string): number | null {
@@ -169,21 +184,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
    *  is sent instead of pixels. */
   const furnitureRefs = { ...(raw.furnitureRefs as Record<string, unknown>) };
   const furnitureCatalog = [...(raw.furnitureCatalog as Array<{ id?: string }>)];
-  // Snapshot BEFORE overrides are applied — bundledFurnitureIds are the
-  // non-deletable defaults (deleteAsset on one of these only resets it back
-  // to itself, since there's no override to remove); anything else is
-  // user-added/imported and genuinely disappears on delete.
-  const bundledFurnitureIds = furnitureCatalog.map((c) => c.id).filter((id): id is string => !!id);
-  for (const { name, data } of orderedAssets('furniture')) {
-    const d = data as { sprite?: unknown; catalog?: Record<string, unknown> };
-    if (d && d.sprite !== undefined) furnitureSprites[name] = d.sprite;
-    if (d && d.catalog) {
-      const entry = { ...d.catalog, id: name }; // id must match the asset key
-      const k = furnitureCatalog.findIndex((c) => c.id === name);
-      if (k >= 0) furnitureCatalog[k] = entry;
-      else furnitureCatalog.push(entry);
-    }
-  }
 
   // Rebuild the asset messages from merged data; keep everything else (layout).
   const messages = defaults.messages.map((m) => {
@@ -213,7 +213,6 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
           // whose art is not a file at all — which is what the 7.6 MB was: 1763
           // sprites, all of them file-backed, re-sent on every join.
           sprites: Object.fromEntries(Object.entries(furnitureSprites).filter(([id]) => !furnitureRefs[id])),
-          bundledIds: bundledFurnitureIds,
         };
       default:
         return m;
@@ -227,8 +226,9 @@ export function buildMerged(defaults: AssetBundle): AssetBundle {
   };
 }
 
-/** The broadcast message a given asset type maps to (for re-sync after an edit). */
-export function messageTypeForAsset(type: AssetType): string {
+/** The broadcast message a given kind of asset maps to (for re-sync after an edit, or after a
+ *  tileset changed on disk). */
+export function messageTypeForAsset(type: ResyncTarget): string {
   return {
     character: 'characterSpritesLoaded',
     pet: 'petSpritesLoaded',
