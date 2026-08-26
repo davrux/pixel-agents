@@ -30,6 +30,11 @@ const ART_ROWS = ['down', 'up', 'right', 'left'] as const;
  */
 export function artHash(entry: unknown): string {
   const d = entry as Record<string, unknown> | null | undefined;
+  // Art that already IS an image (a bundled sheet, kept as its file) is hashed as the bytes
+  // that get served — nothing is derived, so nothing can disagree with them. Computed rather
+  // than read off the entry on purpose: a stored override is client-supplied, and a `hash`
+  // field it brought along would otherwise choose its own cache key.
+  if (d && Buffer.isBuffer(d.png)) return createHash('sha1').update(d.png).digest('hex').slice(0, 12);
   const art = d
     ? {
         ...Object.fromEntries(ART_ROWS.map((row) => [row, d[row] ?? null])),
@@ -37,6 +42,12 @@ export function artHash(entry: unknown): string {
       }
     : null;
   return createHash('sha1').update(JSON.stringify(art)).digest('hex').slice(0, 12);
+}
+
+/** Does this entry carry art at all — pixels to encode, or bytes that already are a PNG? */
+export function hasArt(entry: unknown): boolean {
+  const d = entry as Record<string, unknown> | null | undefined;
+  return !!d && (Buffer.isBuffer(d.png) || Array.isArray(d.down));
 }
 
 /** The URL for one piece of art, or null when there is nothing to serve. */
@@ -56,8 +67,13 @@ export function artUrl(kind: 'character' | 'pet', id: string, entry: unknown): s
  * every BUNDLED pet sheet is: without it the client would slice a 16×16 pet on the
  * character default of 16×32. The caller knows which kind it is holding, so it says.
  *
- * An entry whose art cannot be addressed (no pixels at all) is passed through untouched,
+ * An entry whose art cannot be addressed (no pixels and no bytes) is passed through untouched,
  * so a broken row still renders as whatever it was.
+ *
+ * Two shapes arrive here and both leave identical: a bundled sheet carries its FILE (`png`, see
+ * BundledCharacterSheet), a stored override carries SpriteData rows. Whichever it was, what
+ * goes out is the metadata plus `url` and `artFrame` — so this is the seam where "the art is a
+ * file" stops being visible, and nothing downstream or on the wire learns which it was.
  */
 export function withArtUrl(
   kind: 'character' | 'pet',
@@ -66,9 +82,11 @@ export function withArtUrl(
   fallbackFrame: { w: number; h: number },
 ): unknown {
   const d = data as Record<string, unknown> | null;
-  const url = artUrl(kind, id, d && d.down ? d : null);
+  const url = hasArt(d) ? artUrl(kind, id, d) : null;
   if (!url) return data;
-  const { down: _d, up: _u, right: _r, left: _l, ...meta } = d as Record<string, unknown>;
+  // `png` is stripped like the pixel rows are: a Buffer must never reach a client message —
+  // it would be serialised as the whole sheet, which is the payload this exists to avoid.
+  const { down: _d, up: _u, right: _r, left: _l, png: _png, ...meta } = d as Record<string, unknown>;
   const frame = (d?.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
   return { ...meta, url, artFrame: { w: frame?.w ?? fallbackFrame.w, h: frame?.h ?? fallbackFrame.h } };
 }
