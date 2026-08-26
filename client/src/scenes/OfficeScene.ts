@@ -4139,18 +4139,55 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** An admin kicked us: show a notice and do NOT auto-reconnect (a manual
-   *  reload / re-login is required). */
+   *  reload / re-login is required). The overlay covers the world on purpose —
+   *  there is nothing left to play with — but it carries the way out itself: a
+   *  Reload button, because on the desktop the shell has no address bar and no
+   *  refresh, so "reload the page" used to mean quitting and relaunching the app.
+   *  Goes through reloadApp(), the only reload that works from the `app://`
+   *  origin (a renderer-initiated location.reload() is dropped there). */
   private showKicked(): void {
+    injectPaSkin(); // .pa-panel / .pa-b, in case we were kicked before the UI was built
     let overlay = document.getElementById('pa-reconnect'); // reuse the disconnect overlay if present
     if (!overlay) {
       overlay = document.createElement('div');
       overlay.id = 'pa-reconnect';
-      overlay.style.cssText =
-        'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
-        "background:rgba(10,12,18,.9);color:#ffd2dc;font:1.15rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;padding:1rem;";
       (document.getElementById('game') ?? document.body).appendChild(overlay);
     }
-    overlay.textContent = 'You were kicked by an admin. Reload the page to rejoin.';
+    overlay.className = 'pa-ui';
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;' +
+      "background:rgba(10,12,18,.9);color:#f1efec;font:1.15rem 'FS Pixel Sans',ui-monospace,monospace;text-align:center;padding:1rem;";
+    overlay.textContent = '';
+
+    // .pa-panel is a menubar popover by default (fixed, hidden until opened) —
+    // same two overrides paDialog.ts makes to reuse it as a centred card.
+    const card = document.createElement('div');
+    card.className = 'pa-panel';
+    card.style.cssText = 'position:static;display:block;width:min(24rem,94vw);text-align:left;';
+    const head = document.createElement('div');
+    head.className = 'pa-head';
+    head.innerHTML = '<h4></h4>';
+    head.querySelector('h4')!.textContent = 'Kicked';
+    const body = document.createElement('div');
+    body.className = 'pa-body';
+    const msg = document.createElement('div');
+    msg.style.cssText = 'color:#adb0b2;font-size:0.95rem;line-height:1.45;';
+    msg.textContent = 'An admin kicked you out of the world. Reload to rejoin.';
+    const foot = document.createElement('div');
+    foot.style.cssText = 'display:flex;justify-content:flex-end;margin-top:0.85rem;';
+    const reload = document.createElement('button');
+    reload.type = 'button';
+    reload.className = 'pa-b primary';
+    reload.textContent = 'Reload';
+    reload.onclick = () => {
+      reload.disabled = true;
+      reloadApp();
+    };
+    foot.appendChild(reload);
+    body.append(msg, foot);
+    card.append(head, body);
+    overlay.appendChild(card);
+    reload.focus();
   }
 
   private goToZone(zone: string): void {
