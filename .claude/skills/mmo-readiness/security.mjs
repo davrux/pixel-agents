@@ -508,6 +508,48 @@ if (!chat) {
   else pass('chat is session-attributed, length-capped and rate-limited');
 }
 
+// A client-supplied IMAGE is decoded by this server (art saves travel as a PNG), and an image
+// decoder is the classic place to hide a decompression bomb: 25 bytes of header can promise a
+// gigabyte. Two properties, and the second is the one that generalises.
+//
+// FIRST: the function that turns a client's bytes into pixels must bound them before it
+// decodes — a byte cap and the header's own dimensions, both ahead of the decode call in the
+// text, since order is the whole point. Checked by POSITION, not by mention: an earlier version
+// of this rule looked for the constant anywhere in the file and was satisfied by its own doc
+// comment, which the self-test caught.
+//
+// SECOND: no message handler may decode an image itself. That is what keeps the guard from
+// being bypassed by the next path somebody adds, and it is the half that does not depend on
+// knowing today's file names.
+
+const DECODERS = /\b(?:PNG\.sync\.read|decodeCharacterPng|decodePetPng|createImageBitmap|sharp)\s*\(/;
+const GATE_FILE = 'server/src/art/sheetPng.ts';
+const gateSrc = read(GATE_FILE);
+if (!gateSrc) {
+  warn(`${GATE_FILE} not found — re-check by hand where a client's image is decoded`);
+} else {
+  const fn = gateSrc.indexOf('export function sheetFromPng');
+  const decodeAt = fn >= 0 ? gateSrc.slice(fn).search(DECODERS) : -1;
+  const before = decodeAt >= 0 ? gateSrc.slice(fn, fn + decodeAt) : '';
+  const missing = [];
+  if (decodeAt < 0) missing.push('no decode call found — has it moved?');
+  if (!/\.(?:length|byteLength)\s*>=?\s*[\w$]*MAX[\w$]*|[\w$]*MAX[\w$]*\s*<=?\s*[\w$.]+\.(?:length|byteLength)/.test(before)) {
+    missing.push('no byte cap before the decode');
+  }
+  if (!/readPngHeader\s*\(|readUInt32BE\(\s*16\s*\)/.test(before)) missing.push('the header is not read before the decode');
+  if (!/MAX_SHEET_CELLS|width\s*\*\s*height/.test(before)) missing.push('the declared dimensions are not bounded');
+  if (missing.length) bad(`a client's image is decoded unsafely: ${missing.join('; ')}`);
+  else pass("a client's image is byte-capped and header-checked before it is decoded");
+}
+
+const handlerDecodes = handlers.filter((h) => DECODERS.test(h.body));
+if (handlerDecodes.length) {
+  bad('a message handler decodes an image itself instead of going through the guard:');
+  listing(handlerDecodes.map((h) => h.name));
+} else {
+  pass('no message handler decodes an image itself');
+}
+
 // ── 5. Secrets and identity plumbing ────────────────────────────────────────
 
 const SECRET_NAMES = /LIVEKIT_API_SECRET|LIVEKIT_API_KEY|PIXEL_ADMIN_TOKEN|scryptSync|passwordHash|pwHash/;

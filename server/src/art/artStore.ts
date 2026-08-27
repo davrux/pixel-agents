@@ -10,11 +10,14 @@
  * every caller keeps handing over and receiving SpriteData and nothing else in the
  * server had to learn about images. Two consequences worth knowing:
  *
- * - The validator stays the authority. Saves are still validated as SpriteData
- *   (`art/characterDataGuard.ts`: 64×64 cap, frame counts, hex format) BEFORE anything
- *   is encoded, so packing introduces no new untrusted-input surface. A client never
- *   sends a PNG; if it ever should, that path needs its own bounds first — an image
- *   decoder is a fine place to hide a decompression bomb.
+ * - The validator stays the authority. Whatever a save arrived as, it is validated as
+ *   SpriteData (`art/characterDataGuard.ts`: 64×64 cap, frame counts, hex format) BEFORE
+ *   anything is encoded here, so packing introduces no untrusted-input surface of its own.
+ *   A client DOES send a PNG now, and this file's old warning — "an image decoder is a fine
+ *   place to hide a decompression bomb" — is what `art/sheetPng.ts` was written to answer:
+ *   a byte cap and the header's own dimensions, both checked before pngjs sees the file. Its
+ *   bytes are never stored either; what lands here are the decoded pixels, and the PNG other
+ *   viewers are served is one this server wrote.
  * - **Hex comes back upper-case.** A client writes `#ff0000`, the decoder canonicalises
  *   to `#FF0000`, so a packed row reads back equal in colour but not in string case.
  *   Harmless and checked: the runtime atlas keys sprites by object identity (a WeakMap),

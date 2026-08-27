@@ -16,16 +16,7 @@ import { CAT_COUNT, DOG_COUNT, DUCK_COUNT } from './core/assets/constants.js';
 import type { FurnitureAsset } from './core/assets/manifestUtils.js';
 import { parseFurnitureTileset, type TiledTilesetJson } from './core/assets/tiledFurniture.js';
 import { isDecalTileset, isFurnitureTileset } from './tiled/tiledRegistry.js';
-import {
-  decodeCharacterPng,
-  decodePetPng,
-  pngToSpriteData,
-} from './core/assets/pngDecoder.js';
-import type {
-  CharacterDirectionSprites,
-  PetDirectionSprites,
-} from './core/assets/types.js';
-export type { CharacterDirectionSprites, PetDirectionSprites } from './core/assets/types.js';
+import { pngToSpriteData } from './core/assets/pngDecoder.js';
 import {
   resolveCharacterSpec,
   type CharacterSpec,
@@ -149,9 +140,29 @@ export async function loadFurnitureTilesets(workspaceRoot: string): Promise<Load
 
 // ── Character sprite loading ────────────────────────────────
 
+/**
+ * One bundled character sheet, kept as the FILE rather than as pixels.
+ *
+ * It used to be decoded into SpriteData at boot, and that cost was the reason to stop:
+ * measured 2026-08-26, the six sheets are 17.1 KB on disk and 2.3 MB of heap once decoded
+ * (86 016 cells, 46 537 hex strings), held for the life of the process — and then re-encoded
+ * back into a PNG to serve. Nothing on the server draws: the only consumers of character
+ * pixels are the art route (which now serves these bytes as they lie), the URL's content hash,
+ * the guard on a CLIENT's save, and the store that packs one. So the pixels were being
+ * unpacked for nobody.
+ *
+ * A DB override still arrives as SpriteData — `artStore` unpacks it — so both shapes exist
+ * downstream and `withArtUrl` handles each.
+ */
+export interface BundledCharacterSheet {
+  /** The sheet exactly as it lies on disk. `/art/character/<id>` serves this buffer. */
+  png: Buffer;
+  /** Frame size and tracks: a sheet cannot be sliced without them, so they travel. */
+  spec: CharacterSpec;
+}
+
 export interface LoadedCharacterSprites {
-  /** Pre-colored characters, each with 7 frames per direction */
-  characters: CharacterDirectionSprites[];
+  characters: BundledCharacterSheet[];
 }
 
 /**
@@ -173,9 +184,12 @@ function readCharacterSpec(manifestPath: string): CharacterSpec {
 }
 
 /**
- * Load pre-colored character sprites from assets/characters/ (PNGs, default 112×96).
- * Each PNG has 3 direction rows (down, up, right) × N frames (default 16×32 each);
- * an optional char_N.json manifest overrides the frame size + declares tracks.
+ * Load the bundled character sheets from assets/characters/ — as files, not as pixels.
+ *
+ * A sheet is `char_<n>.png` with up to four direction rows (down, up, right, left) × N frames
+ * of the size its optional `char_<n>.json` manifest declares (default 16×32). Nothing is
+ * decoded here; see BundledCharacterSheet for why. The bytes are read eagerly, because the
+ * roster is 17 KB and the art route must be able to answer without touching the disk again.
  */
 export async function loadCharacterSprites(
   assetsRoot: string,
@@ -191,25 +205,23 @@ export async function loadCharacterSprites(
       if (m) found.push(parseInt(m[1], 10));
     }
     found.sort((a, b) => a - b);
-    const characters: CharacterDirectionSprites[] = [];
+    const characters: BundledCharacterSheet[] = [];
     for (const ci of found) {
       if (ci !== characters.length) break; // stop at the first gap (keep indices stable)
       // Optional per-character manifest (char_N.json) overrides frame size and
       // declares animation tracks; absent → the default 16×32 layout.
       const spec = readCharacterSpec(path.join(charDir, `char_${ci}.json`));
-      const decoded = decodeCharacterPng(
-        fs.readFileSync(path.join(charDir, `char_${ci}.png`)),
-        spec.frame.w,
-        spec.frame.h,
-      );
-      characters.push({ ...decoded, spec });
+      characters.push({ png: fs.readFileSync(path.join(charDir, `char_${ci}.png`)), spec });
     }
     if (characters.length === 0) {
       console.log(`[AssetLoader] No char_N.png files found in ${charDir}`);
       return null;
     }
 
-    console.log(`[AssetLoader] ✅ Loaded ${characters.length} character sprites (3 directions each)`);
+    const bytes = characters.reduce((n, c) => n + c.png.length, 0);
+    console.log(
+      `[AssetLoader] ✅ Loaded ${characters.length} character sheets (${(bytes / 1024).toFixed(1)} KB of PNG, not decoded)`,
+    );
     return { characters };
   } catch (err) {
     console.error(
@@ -223,16 +235,31 @@ export async function loadCharacterSprites(
 
 export interface LoadedPetSprites {
   /** Dog variants, each with 6 frames per direction (down/up/right). */
-  dogs: PetDirectionSprites[];
-  /** Cat variants, each with 6 frames per direction. */
-  cats: PetDirectionSprites[];
-  /** Duck variants, each with 6 frames per direction. */
-  ducks: PetDirectionSprites[];
+  dogs: BundledPetSheet[];
+  /** Cat variants. */
+  cats: BundledPetSheet[];
+  /** Duck variants. */
+  ducks: BundledPetSheet[];
 }
 
 /**
- * Load pet sprites from assets/pets/ (dog_N.png / cat_N.png, each 96×48:
- * 3 direction rows × 6 frames of 16×16).
+ * A bundled pet sheet, kept as its file for the same reason a character's is (see
+ * BundledCharacterSheet): decoding cost 875 KB of heap for 8.6 KB of PNG, measured
+ * 2026-08-26, and the only thing that ever wanted those pixels was the encoder that turned
+ * them back into a PNG to serve.
+ *
+ * No spec: the bundled sheets carry none on disk, and PET_SPRITE_SPEC is the default the
+ * sprite store fills in. An override from the database still arrives as SpriteData with a spec
+ * of its own, and both shapes leave withArtUrl looking identical.
+ */
+export interface BundledPetSheet {
+  png: Buffer;
+}
+
+/**
+ * Load the bundled pet sheets from assets/pets/ — as files, not as pixels (see
+ * BundledPetSheet). A sheet is 96×64: four direction rows × 6 frames of 16×16, and the
+ * geometry is not negotiable, which is why nothing here has to read it.
  */
 export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprites | null> {
   try {
@@ -242,12 +269,12 @@ export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprit
       return null;
     }
 
-    const loadVariants = (prefix: string, count: number): PetDirectionSprites[] => {
-      const out: PetDirectionSprites[] = [];
+    const loadVariants = (prefix: string, count: number): BundledPetSheet[] => {
+      const out: BundledPetSheet[] = [];
       for (let i = 0; i < count; i++) {
         const filePath = path.join(petsDir, `${prefix}_${i}.png`);
         if (!fs.existsSync(filePath)) break;
-        out.push(decodePetPng(fs.readFileSync(filePath)));
+        out.push({ png: fs.readFileSync(filePath) });
       }
       return out;
     };
@@ -257,7 +284,11 @@ export async function loadPetSprites(assetsRoot: string): Promise<LoadedPetSprit
     const ducks = loadVariants('duck', DUCK_COUNT);
     if (dogs.length === 0 && cats.length === 0 && ducks.length === 0) return null;
 
-    console.log(`[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat + ${ducks.length} duck sprite sheets`);
+    const bytes = [...dogs, ...cats, ...ducks].reduce((n, p) => n + p.png.length, 0);
+    console.log(
+      `[AssetLoader] ✅ Loaded ${dogs.length} dog + ${cats.length} cat + ${ducks.length} duck sheets ` +
+        `(${(bytes / 1024).toFixed(1)} KB of PNG, not decoded)`,
+    );
     return { dogs, cats, ducks };
   } catch (err) {
     console.error(

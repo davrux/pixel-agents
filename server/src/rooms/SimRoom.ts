@@ -2,6 +2,7 @@ import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { withArtUrl } from '../art/artUrl.js';
 import { validCharacterData } from '../art/characterDataGuard.js';
+import { sheetFromPng } from '../art/sheetPng.js';
 
 import {
   conferenceKey,
@@ -22,7 +23,7 @@ import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteDat
 import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
-import { CHAR_FRAME_H, CHAR_FRAME_W } from '../core/assets/constants.js';
+import { CHAR_FRAME_H, CHAR_FRAME_W, PET_FRAME_H, PET_FRAME_W } from '../core/assets/constants.js';
 import { Direction, PetKind, type Action } from '@pixel/shared/office/types.js';
 import { setProviderCapabilities } from '@pixel/shared/office/toolUtils.js';
 import { setCharacterTemplates, setPetTemplates } from '@pixel/shared/office/sprites/spriteData.js';
@@ -1449,11 +1450,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (src) this.setAvatar(userId, cloneCharacterData(src.data));
     });
 
-    // Save edits to the viewer's own avatar (its private sprite data).
-    this.onMessage('saveAvatar', (client, msg: { data?: unknown }) => {
+    // Save edits to the viewer's own avatar. The art arrives as a PNG (see art/sheetPng.ts):
+    // one hex string per pixel was 34× the bytes, and this is the same sheet the editor would
+    // export as a file.
+    this.onMessage('saveAvatar', (client, msg: unknown) => {
       const { userId } = authOf(client);
-      if (!userId || msg?.data === undefined || !validCharacterData(msg.data)) return;
-      this.setAvatar(userId, msg.data as LoadedCharacterData);
+      if (!userId) return;
+      const data = this.sheetFromSave((msg as { sheet?: unknown })?.sheet, { w: CHAR_FRAME_W, h: CHAR_FRAME_H });
+      if (!data) return;
+      this.setAvatar(userId, data);
     });
 
     // Copy the viewer's own avatar into the shared gallery as a new template
@@ -1559,16 +1564,18 @@ export class SimRoom extends Room<{ state: RoomState }> {
     // Asset overrides — characters and NPCs, the only two the database may hold (see
     // ASSET_TYPES). Persist + re-merge + re-apply to the engine + broadcast the refreshed
     // *Loaded message.
-    this.onMessage('saveAsset', (client, msg: { assetType?: string; name?: string; data?: unknown }) => {
+    this.onMessage('saveAsset', (client, msg: { assetType?: string; name?: string; sheet?: unknown }) => {
       if (!this.may(client, 'gallery.edit')) return;
       const type = this.validAssetType(msg?.assetType);
-      if (!type || typeof msg?.name !== 'string' || msg.data === undefined) return;
+      if (!type || typeof msg?.name !== 'string' || msg.sheet === undefined) return;
       // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
       if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
-      // Characters and NPCs (pets) are the only writable types, and they share the
-      // LoadedCharacterData + spec shape.
-      if (!validCharacterData(msg.data)) return;
-      appStore.saveAsset(type, msg.name, msg.data);
+      // Characters and NPCs (pets) are the only writable types, and they share the sheet
+      // shape — they differ only in the frame size a sheet without a spec falls back to.
+      const frame = type === 'pet' ? { w: PET_FRAME_W, h: PET_FRAME_H } : { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
+      const data = this.sheetFromSave(msg.sheet, frame);
+      if (!data) return;
+      appStore.saveAsset(type, msg.name, data);
       invalidateMergedBundle();
       controlBus.emit(ASSET_CHANGED_EVENT, type);
     });
@@ -1584,6 +1591,31 @@ export class SimRoom extends Room<{ state: RoomState }> {
   }
 
   // ── Asset overrides ──────────────────────────────────────────────
+
+  /**
+   * One incoming save, turned into the sheet the store keeps — or null, and nothing happens.
+   *
+   * A save carries the sheet under its own key — `{ sheet: { png, name, spec?, npc? } }` — because
+   * `saveAsset`'s own `name` is the ASSET ID and a sheet's `name` is its display name; flat, one
+   * would have silently overwritten the other. The PNG is bounded and decoded by art/sheetPng.ts, and the RESULT then goes
+   * through validCharacterData exactly like the SpriteData a client used to send, so the
+   * validator stays the single authority on what a sheet may be. The client's bytes are never
+   * stored; the store re-encodes from these pixels.
+   */
+  private sheetFromSave(msg: unknown, fallbackFrame: { w: number; h: number }): LoadedCharacterData | null {
+    const m = msg as { png?: unknown; name?: unknown; spec?: unknown; npc?: unknown } | null;
+    if (!m || typeof m !== 'object') return null;
+    // The frame size the sheet claims. Bounded here only enough to slice with; the spec itself
+    // is validated below, together with the rule that its tracks sum to the frame count.
+    const claimed = (m.spec as { frame?: { w?: unknown; h?: unknown } } | undefined)?.frame;
+    const dim = (v: unknown, dflt: number): number => (Number.isInteger(v) ? (v as number) : dflt);
+    const frame = { w: dim(claimed?.w, fallbackFrame.w), h: dim(claimed?.h, fallbackFrame.h) };
+    const sheet = sheetFromPng(m.png, frame);
+    if (!sheet.ok) return null;
+    const data = { name: m.name, ...sheet.rows, ...(m.spec !== undefined ? { spec: m.spec } : {}), ...(m.npc !== undefined ? { npc: m.npc } : {}) };
+    if (!validCharacterData(data)) return null;
+    return data as unknown as LoadedCharacterData;
+  }
 
   /** The asset types a CLIENT may write — now exactly the types the database may override at
    *  all (ASSET_TYPES). It used to be narrower than that list, then wider than the callers: an

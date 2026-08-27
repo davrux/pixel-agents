@@ -48,12 +48,25 @@ import { packedPng, rowsPresent } from './art/artStore.js';
 import { artHash } from './art/artUrl.js';
 import { PLAYER_AVATAR_SKIN_PREFIX } from '@pixel/shared';
 
-/** Sprite data plus the geometry needed to lay it out as a sheet. */
+/**
+ * What is needed to answer for one piece of art: the entry it comes from (the hash for the
+ * URL's `v` and the ETag are taken from that, in one place, so the two cannot disagree), plus
+ * either the bytes to send or the pixels to encode.
+ *
+ * `png` is the case where the art already IS an image and nothing has to be built: a bundled
+ * sheet, kept as the file it is (see assetLoader's BundledCharacterSheet). `sprites` is the
+ * other case — a stored override arrives as SpriteData, because that is what a client sends and
+ * what the validator checks.
+ */
 interface ArtSource {
-  sprites: Record<string, string[][][]>;
-  dirs: readonly string[];
-  frameW: number;
-  frameH: number;
+  /** The bundle entry, for hashing. */
+  entry: unknown;
+  /** The sheet as bytes, when the art is already an image. */
+  png?: Buffer;
+  sprites?: Record<string, string[][][]>;
+  dirs?: readonly string[];
+  frameW?: number;
+  frameH?: number;
   /** Fixed column count, for a reader that slices a fixed grid (pets). */
   cols?: number;
 }
@@ -69,7 +82,10 @@ function petSource(id: string): ArtSource | null {
   const arr = raw[`${m[1]}s`] as PetEntry[] | undefined;
   const entry = arr?.[Number(m[2])] as (PetEntry & Record<string, unknown>) | undefined;
   if (!entry) return null;
+  // A bundled sheet was never decoded — it is the file on disk (assetLoader's BundledPetSheet).
+  if (Buffer.isBuffer(entry.png)) return { entry, png: entry.png };
   return {
+    entry,
     sprites: entry as unknown as Record<string, string[][][]>,
     dirs: rowsPresent(entry as unknown as Record<string, unknown>, PET_DIRECTIONS),
     frameW: entry.spec?.frame?.w ?? PET_FRAME_W,
@@ -97,9 +113,13 @@ function characterSource(id: string): ArtSource | null {
     const chars = (getMergedBundle().raw as { characters?: CharEntry[] }).characters ?? [];
     data = chars.find((c) => c.id === id)?.data as Record<string, unknown> | undefined;
   }
-  if (!data || !Array.isArray(data.down)) return null;
+  if (!data) return null;
   const frame = (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
+  // A bundled sheet was never decoded: it is the PNG on disk, so it is served as it lies.
+  if (Buffer.isBuffer(data.png)) return { entry: data, png: data.png };
+  if (!Array.isArray(data.down)) return null;
   return {
+    entry: data,
     sprites: data as unknown as Record<string, string[][][]>,
     // Exactly the rows the art has — an empty row would draw an invisible character in
     // that direction (see rowsPresent).
@@ -125,15 +145,16 @@ export function registerArtApi(app: Express): void {
     const src = sourceFor(kind, id);
     if (!src) return void res.status(404).json({ error: 'not found' });
 
-    const etag = `"${artHash(src.sprites)}"`;
+    const etag = `"${artHash(src.entry)}"`;
     if (req.headers['if-none-match'] === etag) return void res.status(304).end();
 
     const key = `${kind}/${id}/${etag}`;
     // A row that is stored as a PNG is served as it lies — the encode below is for
     // bundled art (files decoded at boot) and for rows an older world never repacked.
-    let png = storedPng(kind, id) ?? cache.get(key);
+    let png = storedPng(kind, id) ?? src.png ?? cache.get(key);
     if (!png) {
-      png = encodeDirectionalSheet(src.sprites, src.dirs, src.frameW, src.frameH, src.cols);
+      if (!src.sprites || !src.dirs) return void res.status(404).json({ error: 'not found' });
+      png = encodeDirectionalSheet(src.sprites, src.dirs, src.frameW ?? CHAR_FRAME_W, src.frameH ?? CHAR_FRAME_H, src.cols);
       if (cache.size >= MAX_CACHED) cache.clear(); // simplest bound that cannot leak
       cache.set(key, png);
     }

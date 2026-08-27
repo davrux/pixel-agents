@@ -295,9 +295,20 @@ check asks: is the release present in the code that acquires?
   **The database holds the same PNG**, not pixels: `appStore` packs character-shaped
   rows on write and unpacks them on read (`art/artStore.ts`), so every caller still
   deals in SpriteData and nothing else in the server learned about images. Saves are
-  still validated as SpriteData BEFORE encoding, which is why this added no untrusted
-  binary path — a client never sends a PNG, and if one ever should, that needs its own
-  bounds first. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
+  still validated as SpriteData BEFORE encoding, which is why packing added no untrusted
+  binary path of its own.
+  **Saving art travels UP as a PNG too** (protocol 6): `saveAvatar`/`saveAsset` carry
+  `sheet: { png, name, spec?, npc? }`, because one hex string per pixel was 95.3 KB where the
+  image is 2.8 KB — a factor of 34 on a real sheet, measured on char_0. That makes a client's
+  PNG the one untrusted IMAGE this server decodes, and `art/sheetPng.ts` is the gate the older
+  warning here asked for: a byte cap (2 MB, derived — the largest legal sheet is 1.50 MB even
+  as incompressible noise), the PNG signature, an 8-bit non-interlaced IHDR, and the DECLARED
+  dimensions checked against the frame size and `MAX_SHEET_CELLS` — all before pngjs sees the
+  file, so a 73-byte bomb claiming 30000×30000 never reaches a decoder. The decoded rows then
+  go through the same validator as before, and the client's bytes are never stored: the store
+  re-encodes, so what other viewers are served is a PNG this server wrote. `mmo-readiness` has
+  a rule for the shape (a client-supplied image is bounded and header-checked before decoding)
+  with its own planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
   world on purpose (measured here: 495 → 16 KB), verifying every row by unpacking it
   again before keeping the write. One thing to know: the decoder canonicalises hex to
   upper case, so a packed row reads back equal in colour but not in string case — the

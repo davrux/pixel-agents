@@ -50,7 +50,8 @@ import { MeetingAreaUI } from '../ui/meetingArea.js';
 import { openActionIframe, reopenActionIframe } from '../ui/actionIframe.js';
 import { MumbleUI } from '../voice/MumbleUI.js';
 import { MumbleVoice } from '../voice/MumbleVoice.js';
-import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate } from '@pixel/shared/office/sprites/spriteData.js';
+import { getCharacterSize, getCharacterTemplates, getNpcRoster, getSkinSpec, upsertCharacterTemplate,
+  type LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
 import { posePlaybackLength } from '@pixel/shared/office/sprites/poseFrames.js';
 import { sheetColumns } from '../art/sheetStore';
 import type { CharacterPose } from '@pixel/shared/office/types.js';
@@ -72,6 +73,7 @@ import {
 import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
+import { encodeSheetPng } from '../art/sheetEncode';
 import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
 import { checkProtocol, createUpdateIndicator, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
@@ -509,7 +511,7 @@ export class OfficeScene extends Phaser.Scene {
             while (taken.has(`char_${n}`)) n++;
             return `char_${n}`;
           },
-          save: (name, data) => this.room?.send('saveAsset', { assetType: 'character', name, data }),
+          save: (name, sheet) => this.room?.send('saveAsset', { assetType: 'character', name, sheet }),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
           isBundled: (id) => this.bundledSkinIds.has(id),
           tracks: AGENT_TRACKS,
@@ -521,7 +523,7 @@ export class OfficeScene extends Phaser.Scene {
           label: 'NPCs',
           getTemplates: () => npcRosterWithArt().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
           newId: () => 'npc_0', // unused (canCreate=false)
-          save: (name, data) => this.room?.send('saveAsset', { assetType: 'pet', name, data }),
+          save: (name, sheet) => this.room?.send('saveAsset', { assetType: 'pet', name, sheet }),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
           isBundled: () => true, // all NPCs are bundled (no new NPCs yet)
           tracks: NPC_TRACKS,
@@ -540,7 +542,7 @@ export class OfficeScene extends Phaser.Scene {
             return t ? [t] : [];
           },
           newId: () => this.myAvatarId ?? 'pa:me', // unused (canCreate=false)
-          save: (_name, data) => this.room?.send('saveAvatar', { data }),
+          save: (_name, sheet) => this.room?.send('saveAvatar', { sheet }),
           reset: () => {
             /* an owned avatar has no bundled default to reset to */
           },
@@ -557,11 +559,11 @@ export class OfficeScene extends Phaser.Scene {
       onBack: () => void this.setMenu(this.charEditorReturn),
     });
     this.charCreator = new CharacterCreator({
-      save: (data) => this.room?.send('saveAvatar', { data }),
+      save: (data) => void this.sendSheet('saveAvatar', data),
       // Fine-tune the generated look: persist it, then open it in the classic
       // pixel editor (which has paint + copy/paste) as the viewer's own avatar.
       editPixels: (data) => {
-        this.room?.send('saveAvatar', { data });
+        void this.sendSheet('saveAvatar', data);
         if (this.myAvatarId) {
           upsertCharacterTemplate(this.myAvatarId, data);
           this.charEditorReturn = 'settings';
@@ -2755,6 +2757,36 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── Assets browser (Characters / NPCs) ───────────────────────────
 
+  /**
+   * Send one sheet to the server as an IMAGE.
+   *
+   * Every art save goes through here — the editor, the avatar generator, Copy — because the
+   * wire shape is `{ png, name, spec?, npc? }` and encoding is asynchronous (a canvas has no
+   * synchronous way to produce PNG bytes). What this replaces was one hex string per pixel:
+   * 95.3 KB for a sheet whose image is 2.8 KB.
+   */
+  private async sendSheet(
+    type: 'saveAvatar' | 'saveAsset',
+    data: LoadedCharacterData,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    const frame = data.spec?.frame ?? { w: 16, h: 32 };
+    try {
+      const png = await encodeSheetPng({ down: data.down, up: data.up, right: data.right, left: data.left }, frame.w, frame.h);
+      this.room?.send(type, {
+        ...extra,
+        sheet: {
+          png,
+          name: data.name,
+          ...(data.spec ? { spec: data.spec } : {}),
+          ...(data.npc ? { npc: data.npc } : {}),
+        },
+      });
+    } catch (err) {
+      console.warn('[assets] could not encode a sheet to save:', err);
+    }
+  }
+
   private renderAssetsPanel(): void {
     const body = this.assetsBody;
     if (!body) return;
@@ -2849,7 +2881,7 @@ export class OfficeScene extends Phaser.Scene {
           const tpl = characterTemplatesWithArt().find((c) => c.id === it.id);
           if (!tpl) return;
           const id = this.nextCharId((getCharacterTemplates() ?? []).map((c) => c.id));
-          this.room?.send('saveAsset', { assetType: 'character', name: id, data: tpl.data });
+          void this.sendSheet('saveAsset', tpl.data, { assetType: 'character', name: id });
           window.setTimeout(() => this.renderAssetsPanel(), 250);
         };
         row.appendChild(copy);
