@@ -3061,7 +3061,7 @@
                  "name":"",
                  "opacity":1,
                  "rotation":0,
-                 "type":"",
+                 "type":"FurnitureObject",
                  "visible":true,
                  "width":32,
                  "x":0,
