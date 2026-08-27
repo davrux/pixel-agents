@@ -41,3 +41,4 @@ Riesiger Feuerball.
 Das Thema Firmenwagen kommt direkt aus dem Schlott der Hölle.
 Ich verstehe dieses Ticket von Marcel nicht.
 Ich mach erstmal nen Update.
+Wer sich Code noch durchlesen kann, generiert zu wenig.
