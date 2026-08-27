@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { getStateCallbacks, type Room } from '@colyseus/sdk';
+import type { ArraySchema, MapSchema } from '@colyseus/schema';
 
 import { OfficeState } from '@pixel/shared/office/engine/index.js';
 import {
@@ -940,10 +941,17 @@ export class OfficeScene extends Phaser.Scene {
 
   private bindState(room: Room): void {
     const $ = getStateCallbacks(room);
-    const state = room.state as {
-      characters: Map<string, Record<string, unknown>>;
-      pets: Map<string, Record<string, unknown>>;
-      furniture: unknown[];
+    // MapSchema/ArraySchema rather than Map/Array, and only for their TYPES (the
+    // import is erased): @colyseus/sdk 0.18 picks the callback shape from the
+    // collection's type — a plain `Map` resolves to the plain-object callbacks, which
+    // have `listen`/`onChange` but no `onAdd`/`onRemove`. The VALUES stay
+    // `Record<string, unknown>` on purpose: the client joins without a schema class
+    // and decodes by reflection, so these are not instances of the shared
+    // CharacterSync/PetSync at runtime and must not be typed as if they were.
+    const state = room.state as unknown as {
+      characters: MapSchema<Record<string, unknown>>;
+      pets: MapSchema<Record<string, unknown>>;
+      furniture: ArraySchema<unknown>;
     };
 
     $(state).characters.onAdd((cs: Record<string, unknown>, key: string) => {

@@ -20,7 +20,7 @@ import type { AgentEvent, WorkStatus, ZoneConfig } from '@pixel/shared';
 import { isWorkStatus } from '@pixel/shared';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions, sanitizeAction } from '../layoutSanitize.js';
 import type { LoadedCharacterData } from '@pixel/shared/office/sprites/spriteData.js';
-import { CharacterSync, EntitySync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
+import { CharacterSync, FurnitureSync, PetSync, RoomState } from '@pixel/shared/schema';
 import { OfficeState, getCharacterPose, isReadingTool } from '@pixel/shared/office/engine/index.js';
 import { PET_DRINK_CHANCE, PET_SIT_CHANCE, PET_TALK_CHANCE } from '@pixel/shared/office/constants.js';
 import { CHAR_FRAME_H, CHAR_FRAME_W, PET_FRAME_H, PET_FRAME_W } from '../core/assets/constants.js';
@@ -92,9 +92,15 @@ const SPOT_CHECKPOINT_SEC = 5;
  * world. Clients are pure renderers.
  */
 /** Copy the shared entity transform (position + facing + coarse state) onto a
- *  synced EntitySync. Each kind's sync loop then sets its own fields on top. */
+ *  synced EntitySync. Each kind's sync loop then sets its own fields on top.
+ *
+ *  The target is typed by the four fields this writes rather than as `EntitySync`:
+ *  since @colyseus/schema 5, structurally comparing two Schema subclasses at a call
+ *  site overruns the compiler's instantiation budget (TS2589) — CharacterSync alone
+ *  is enough. Every caller still passes a real synced entity; this only stops the
+ *  check from walking the whole class to prove what the four assignments need. */
 function writeEntityTransform(
-  sync: EntitySync,
+  sync: { x: number; y: number; dir: number; state: string },
   e: { x: number; y: number; dir: number; state: string },
 ): void {
   sync.x = e.x;

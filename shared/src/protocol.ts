@@ -25,8 +25,17 @@ export const WORLD_ROOM = 'world';
  *     than tolerated, so an older build gets the update prompt instead of a save that is
  *     silently refused — which is the only failure it could otherwise show, since the server
  *     cannot answer a message it does not understand.
+ * 7 — @colyseus/schema 4 → 5, @colyseus/core and @colyseus/sdk 0.17 → 0.18. Not a field
+ *     change: no synced field moved, and the schema ENCODING turned out compatible in the
+ *     direction that matters — a 4.0.31 decoder reads a 5.0.19 encoder's reflection
+ *     handshake and full state for this exact state tree (measured). What this bump is
+ *     about is the layer above, which those versions move together: @colyseus/sdk 0.18
+ *     peer-requires @colyseus/core 0.18.x, so an 0.17 client against an 0.18 server is
+ *     outside what upstream supports at all, and the room/matchmake framing moved into
+ *     @colyseus/shared-types. Untested rather than known-broken, which is exactly when to
+ *     bump: an older build is then told to update instead of half-working.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct
