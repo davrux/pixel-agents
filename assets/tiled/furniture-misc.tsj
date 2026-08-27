@@ -1,7 +1,7 @@
 {
   "columns": 0,
   "name": "furniture-misc",
-  "tilecount": 16,
+  "tilecount": 18,
   "tiledversion": "1.11.0",
   "tileheight": 16,
   "tilewidth": 16,
@@ -1263,6 +1263,160 @@
           "name": "actionKind",
           "type": "string",
           "value": "talkingObject",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "FurnitureTile",
+      "image": "png/src/furniture/misc/FRUIT_BASKET.png",
+      "imagewidth": 16,
+      "imageheight": 16,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "FRUIT_BASKET"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Fruit Basket"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 0
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
+          "propertytype": "ActionKind"
+        },
+        {
+          "name": "actionVideo",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "actionUrl",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionPose",
+          "type": "string",
+          "value": "",
+          "propertytype": "ApplianceKind"
+        },
+        {
+          "name": "meetingRoomName",
+          "type": "string",
+          "value": ""
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "FurnitureTile",
+      "image": "png/src/furniture/misc/DRINKING_FOUNTAIN.png",
+      "imagewidth": 16,
+      "imageheight": 32,
+      "properties": [
+        {
+          "name": "id",
+          "type": "string",
+          "value": "DRINKING_FOUNTAIN"
+        },
+        {
+          "name": "label",
+          "type": "string",
+          "value": "Drinking Fountain"
+        },
+        {
+          "name": "canSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "sitFacing",
+          "type": "string",
+          "value": "",
+          "propertytype": "SitFacing"
+        },
+        {
+          "name": "petCanSitOn",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "canWalkOver",
+          "type": "bool",
+          "value": false
+        },
+        {
+          "name": "backgroundTiles",
+          "type": "int",
+          "value": 1
+        },
+        {
+          "name": "onState",
+          "type": "string",
+          "value": ""
+        },
+        {
+          "name": "actionKind",
+          "type": "string",
+          "value": "",
           "propertytype": "ActionKind"
         },
         {
