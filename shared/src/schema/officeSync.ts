@@ -1,4 +1,5 @@
 import { ArraySchema, MapSchema, Schema, type } from '@colyseus/schema';
+import type { DefinitionType } from '@colyseus/schema';
 
 /**
  * Authoritative, synced render-state. The server runs the office simulation and
@@ -145,8 +146,27 @@ export class FurnitureSync extends Schema {
   @type('uint16') angle = 0;
 }
 
+/**
+ * Hands a collection definition to `@type` without the compiler type-checking the
+ * argument. Purely type-level — `type` receives exactly the object literal written at
+ * the call site, so the wire layout is still decided by the same code as before.
+ *
+ * Needed because @colyseus/schema 5 widened `DefinitionType` into a six-member union
+ * whose collection members carry `default?: MapSchema<InferValueType<T>>`, and
+ * resolving that for a Schema class walks the class's fields. Checking a collection of
+ * something the size of `CharacterSync` against it overruns the compiler's
+ * instantiation budget (TS2589, "excessively deep"). A plain `as DefinitionType` does
+ * not help: the assertion still has to prove assignability, which is the expensive
+ * part — the budget is shared across the file, so asserting one annotation only moved
+ * the error to the next. Going through `unknown` is what actually stops the check.
+ *
+ * Primitive fields (every other annotation in this file) are unaffected and stay
+ * plain. Drop this the moment the upstream typings stop recursing.
+ */
+const collection = (definition: unknown): DefinitionType => definition as DefinitionType;
+
 export class RoomState extends Schema {
-  @type({ map: CharacterSync }) characters = new MapSchema<CharacterSync>();
-  @type({ map: PetSync }) pets = new MapSchema<PetSync>();
-  @type([FurnitureSync]) furniture = new ArraySchema<FurnitureSync>();
+  @type(collection({ map: CharacterSync })) characters = new MapSchema<CharacterSync>();
+  @type(collection({ map: PetSync })) pets = new MapSchema<PetSync>();
+  @type(collection([FurnitureSync])) furniture = new ArraySchema<FurnitureSync>();
 }
