@@ -13,6 +13,7 @@ import {
 } from '@pixel/shared/office/sprites/spriteData.js';
 import type { SpriteData } from '@pixel/shared/office/types.js';
 import { gridFromImageData, imagePixels } from '../art/sheet';
+import { encodeSheetPng } from '../art/sheetEncode';
 import { confirmDialog } from '../ui/dialog.js';
 import { copyRegion, hasClipboard, pasteRegion, rectFromCorners, type PixelRect } from './pixelSelection.js';
 
@@ -70,13 +71,26 @@ export interface TrackDef {
 
 /** An editable entity category (Agents, NPCs). Provides its roster, naming,
  *  persistence and animation-track preset. */
+/**
+ * What one save sends: the art as a PNG, plus the metadata an image cannot carry.
+ *
+ * The server bounds and decodes the PNG (art/sheetPng.ts) and then validates the result like
+ * any other sheet, so this shape is the whole wire contract for saving art.
+ */
+export interface SheetSave {
+  png: Uint8Array<ArrayBuffer>;
+  name: string;
+  spec?: CharacterSpec;
+  npc?: NpcConfig;
+}
+
 export interface EditorCategory {
   key: string;
   label: string;
   getTemplates: () => CharacterTemplate[] | null;
   /** Allocate an id for a new entity (e.g. `char_7`), given the existing ids. */
   newId: (existing: string[]) => string;
-  save: (name: string, data: LoadedCharacterData) => void;
+  save: (name: string, payload: SheetSave) => void;
   reset: (name: string) => void;
   /** Bundled (file-default) ids → Reset; everything else is user-added → Delete. */
   isBundled: (id: string) => boolean;
@@ -1168,14 +1182,34 @@ export class CharacterEditor {
     // asymmetric detail is exactly what a mirror gets wrong.
     this.ensureLeft();
     const id = this.charId;
-    this.cat().save(this.charName(), this.work);
-    this.dirty = false;
-    this.showStatus(`Saved ${this.displayName()} ✓`);
-    // After the broadcast lands, a new char becomes a normal (existing) entry.
-    window.setTimeout(() => {
-      this.isNew = false;
-      this.loadCharById(id);
-    }, 250);
+    // Encoding is asynchronous (a canvas has no synchronous way to hand over PNG bytes), so
+    // the status line says "saved" only once the message is actually on its way.
+    void (async () => {
+      let png: Uint8Array<ArrayBuffer>;
+      try {
+        png = await encodeSheetPng(
+          { down: this.work.down, up: this.work.up, right: this.work.right, left: this.work.left! },
+          this.W,
+          this.H,
+        );
+      } catch (err) {
+        this.showStatus(`Could not encode the sheet: ${err instanceof Error ? err.message : 'unknown error'}`);
+        return;
+      }
+      this.cat().save(this.charName(), {
+        png,
+        name: this.work.name!,
+        ...(this.work.spec ? { spec: this.work.spec } : {}),
+        ...(this.work.npc ? { npc: this.work.npc } : {}),
+      });
+      this.dirty = false;
+      this.showStatus(`Saved ${this.displayName()} ✓`);
+      // After the broadcast lands, a new char becomes a normal (existing) entry.
+      window.setTimeout(() => {
+        this.isNew = false;
+        this.loadCharById(id);
+      }, 250);
+    })();
   }
 
   /** Download a PNG sheet (down/up/right rows × frames, 16×32) for the repo.
@@ -1185,31 +1219,21 @@ export class CharacterEditor {
     // Four rows: the sheet IS the art, so it carries every side. Left is filled from a
     // mirrored right when it was never painted, once, here — not on every load.
     this.ensureLeft();
-    const cv = document.createElement('canvas');
-    cv.width = frames * this.W;
-    cv.height = DIRS.length * this.H;
-    const ctx = cv.getContext('2d')!;
-    const rows: SpriteData[][] = [this.work.down, this.work.up, this.work.right, this.work.left!];
-    rows.forEach((arr, rowIdx) => {
-      for (let f = 0; f < frames; f++) {
-        const sprite = arr[f];
-        if (!sprite) continue;
-        for (let y = 0; y < this.H; y++) {
-          for (let x = 0; x < this.W; x++) {
-            const px = sprite[y]?.[x];
-            if (px) {
-              ctx.fillStyle = px;
-              ctx.fillRect(f * this.W + x, rowIdx * this.H + y, 1, 1);
-            }
-          }
-        }
-      }
-    });
     const base = this.work.name || this.charName();
-    const a = document.createElement('a');
-    a.href = cv.toDataURL('image/png');
-    a.download = `${base}.png`;
-    a.click();
+    void (async () => {
+      // The same encoder the save uses: an exported sheet is meant to be droppable into
+      // assets/characters, so the two must not be able to differ.
+      const png = await encodeSheetPng(
+        { down: this.work.down, up: this.work.up, right: this.work.right, left: this.work.left! },
+        this.W,
+        this.H,
+      );
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([png], { type: 'image/png' }));
+      a.download = `${base}.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    })();
 
     // For non-default layouts (custom size or track counts), also emit the
     // sibling manifest so the bundled PNG re-imports 1:1 (drop both next to each

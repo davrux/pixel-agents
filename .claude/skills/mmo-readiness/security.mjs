@@ -508,6 +508,35 @@ if (!chat) {
   else pass('chat is session-attributed, length-capped and rate-limited');
 }
 
+// A client-supplied IMAGE is decoded by this server (art saves travel as a PNG), and an image
+// decoder is the classic place to hide a decompression bomb: a header can promise a gigabyte
+// from a file of forty bytes. So the decode must sit behind bounds that are checked FIRST — a
+// byte cap, and the declared dimensions read from the header before anything inflates.
+//
+// The rule looks for the shape rather than for one function name: any file that decodes bytes
+// which reached it from a message must name a byte cap and read the header. Today that is
+// art/sheetPng.ts; the point of asking generally is that the next such path is covered too.
+
+const DECODE_CALL = /\bPNG\.sync\.read\s*\(|\bcreateImageBitmap\s*\(|\bsharp\s*\(/;
+const imageDecoders = [];
+for (const file of serverFiles) {
+  const src = read(file);
+  if (!DECODE_CALL.test(src)) continue;
+  // Reading a file off disk is not untrusted input; a Buffer that came from a message is.
+  const fromDisk = /readFileSync|createReadStream/.test(src);
+  const fromWire = /\bUint8Array\b|\bmsg\b|\bpayload\b|\bsheetFromPng\b/.test(src);
+  if (!fromWire || (fromDisk && !/MAX_SHEET_PNG_BYTES|readPngHeader/.test(src))) continue;
+  const bounded =
+    /MAX_SHEET_PNG_BYTES|\.length\s*>\s*MAX_/.test(src) && /readPngHeader|readUInt32BE\(16\)/.test(src);
+  if (!bounded) imageDecoders.push(file);
+}
+if (imageDecoders.length) {
+  bad('an image from a client is decoded without a byte cap and a header check first:');
+  listing(imageDecoders);
+} else {
+  pass('every client-supplied image is size-bounded and header-checked before it is decoded');
+}
+
 // ── 5. Secrets and identity plumbing ────────────────────────────────────────
 
 const SECRET_NAMES = /LIVEKIT_API_SECRET|LIVEKIT_API_KEY|PIXEL_ADMIN_TOKEN|scryptSync|passwordHash|pwHash/;

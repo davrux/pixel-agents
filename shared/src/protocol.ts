@@ -20,8 +20,13 @@ export const WORLD_ROOM = 'world';
  * 4 — map images come from their file (layout v3 carries the path); imagesLoaded is gone.
  * 5 — FurnitureSync.angle: a placement can be turned a quarter of the way round, and the
  *     client needs it to draw the piece and to agree about which cells it occupies.
+ * 6 — saving art goes UP as a PNG too: `saveAvatar`/`saveAsset` carry
+ *     `sheet: { png, name, spec?, npc? }` instead of SpriteData. The old shape is gone rather
+ *     than tolerated, so an older build gets the update prompt instead of a save that is
+ *     silently refused — which is the only failure it could otherwise show, since the server
+ *     cannot answer a message it does not understand.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct

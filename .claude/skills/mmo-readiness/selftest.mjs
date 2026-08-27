@@ -31,6 +31,16 @@ const HERE = new URL('.', import.meta.url).pathname;
 /** [name, file, anchor to replace, replacement, text the failure must mention] */
 const SECURITY_CASES = [
   [
+    // A client sends art as a PNG, so this server decodes an untrusted image. Removing the
+    // byte cap leaves the header check alone with a file that may be arbitrarily large, which
+    // is the half of the pair that bounds the WORK before the dimensions are even read.
+    'an untrusted image decoded without a byte cap',
+    'server/src/art/sheetPng.ts',
+    '  if (bytes.length > MAX_SHEET_PNG_BYTES) return { ok: false, reason: `over ${MAX_SHEET_PNG_BYTES} bytes` };',
+    '  // cap removed for the self-test',
+    'byte cap',
+  ],
+  [
     'an ungated GET route',
     'server/src/index.ts',
     "  app.get('/health',",
