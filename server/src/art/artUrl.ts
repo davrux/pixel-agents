@@ -28,13 +28,33 @@ const ART_ROWS = ['down', 'up', 'right', 'left'] as const;
  * with the same pixels. Everything else an entry carries — name, NPC config — never reaches
  * the encoder, so it must not reach this.
  */
+/**
+ * The sheet's bytes, if this entry carries them — as a Buffer (a bundled sheet, kept as its
+ * file) or as base64 (a stored row: that is how the database holds art, see art/artStore.ts).
+ * Both mean "the art is already an image"; only where the bytes came from differs.
+ */
+export function artBytes(entry: unknown): Buffer | null {
+  const d = entry as Record<string, unknown> | null | undefined;
+  if (!d) return null;
+  if (Buffer.isBuffer(d.png)) return d.png;
+  if (typeof d.png === 'string') {
+    try {
+      return Buffer.from(d.png, 'base64');
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 export function artHash(entry: unknown): string {
   const d = entry as Record<string, unknown> | null | undefined;
-  // Art that already IS an image (a bundled sheet, kept as its file) is hashed as the bytes
-  // that get served — nothing is derived, so nothing can disagree with them. Computed rather
-  // than read off the entry on purpose: a stored override is client-supplied, and a `hash`
-  // field it brought along would otherwise choose its own cache key.
-  if (d && Buffer.isBuffer(d.png)) return createHash('sha1').update(d.png).digest('hex').slice(0, 12);
+  // Art that already IS an image is hashed as the bytes that get served — nothing is derived,
+  // so nothing can disagree with them. Computed rather than read off the entry on purpose: a
+  // stored override is client-supplied, and a `hash` field it brought along would otherwise
+  // choose its own cache key.
+  const bytes = artBytes(d);
+  if (bytes) return createHash('sha1').update(bytes).digest('hex').slice(0, 12);
   const art = d
     ? {
         ...Object.fromEntries(ART_ROWS.map((row) => [row, d[row] ?? null])),
@@ -47,7 +67,7 @@ export function artHash(entry: unknown): string {
 /** Does this entry carry art at all — pixels to encode, or bytes that already are a PNG? */
 export function hasArt(entry: unknown): boolean {
   const d = entry as Record<string, unknown> | null | undefined;
-  return !!d && (Buffer.isBuffer(d.png) || Array.isArray(d.down));
+  return !!d && (artBytes(d) !== null || Array.isArray(d.down));
 }
 
 /** The URL for one piece of art, or null when there is nothing to serve. */
@@ -86,7 +106,11 @@ export function withArtUrl(
   if (!url) return data;
   // `png` is stripped like the pixel rows are: a Buffer must never reach a client message —
   // it would be serialised as the whole sheet, which is the payload this exists to avoid.
-  const { down: _d, up: _u, right: _r, left: _l, png: _png, ...meta } = d as Record<string, unknown>;
-  const frame = (d?.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
-  return { ...meta, url, artFrame: { w: frame?.w ?? fallbackFrame.w, h: frame?.h ?? fallbackFrame.h } };
+  const { down: _d, up: _u, right: _r, left: _l, png: _png, frame: _f, dirs: _dirs, ...meta } =
+    d as Record<string, unknown>;
+  // Frame size, in the order of who knows best: the entry's own spec, then a stored row's
+  // `frame` (written when it was packed), then the kind's default.
+  const spec = (d?.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
+  const packed = (d as { frame?: { w?: number; h?: number } } | null)?.frame;
+  return { ...meta, url, artFrame: { w: spec?.w ?? packed?.w ?? fallbackFrame.w, h: spec?.h ?? packed?.h ?? fallbackFrame.h } };
 }

@@ -87,6 +87,29 @@ export function validNpcConfig(c: unknown): boolean {
 }
 
 /**
+ * The metadata half of a save, for the path where the art arrives as an IMAGE.
+ *
+ * `validCharacterData` below checks pixels because it was written for saves that carried them.
+ * A PNG save has none to check — every pixel out of a decoder is a valid colour, and the
+ * geometry was decided from the header (`art/sheetPng.ts`) — so what is left is exactly this:
+ * a name that survives cleaning, and, if a spec came along, that it describes the sheet that
+ * actually arrived. Same rules, same cleaning, same rewrite of `name` in place.
+ */
+export function validSheetMeta(meta: unknown, frames: number): boolean {
+  const m = meta as { name?: unknown; spec?: unknown; npc?: unknown };
+  if (!m || typeof m !== 'object') return false;
+  if (typeof m.name !== 'string') return false;
+  const name = cleanName(m.name);
+  m.name = name; // persisted on save, exactly as in validCharacterData
+  if (!NAME.test(name)) return false;
+  // The sum rule is the load-bearing one: a track list that claims more or fewer frames than
+  // the sheet has makes the renderer read a column that is not there.
+  if (m.spec !== undefined && !validCharacterSpec(m.spec, frames)) return false;
+  if (m.npc !== undefined && !validNpcConfig(m.npc)) return false;
+  return true;
+}
+
+/**
  * Authoritative validation of a character override — never trust the client.
  *
  * Enforces a mandatory display name (printable ASCII, at most `MAX_NAME_LEN` = 32 chars after

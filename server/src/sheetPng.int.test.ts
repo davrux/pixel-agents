@@ -52,21 +52,43 @@ function bomb(w: number, h: number): Buffer {
   return b;
 }
 
-test('a real sheet decodes into its four direction rows', () => {
-  const out = sheetFromPng(sheetPng(7), CHAR);
+test('a real sheet comes back re-encoded, with its geometry named', () => {
+  const input = sheetPng(7);
+  const out = sheetFromPng(input, CHAR);
   assert.equal(out.ok, true, out.ok ? '' : out.reason);
   if (!out.ok) return;
-  assert.deepEqual(Object.keys(out.rows).sort(), ['down', 'left', 'right', 'up']);
-  assert.equal(out.rows.down.length, 7, 'seven frames per row, derived from the width');
-  assert.equal(out.rows.down[0].length, CHAR.h);
-  assert.equal(out.rows.down[0][0].length, CHAR.w);
+  assert.equal(out.frames, 7, 'seven frames per row, derived from the width');
+  assert.deepEqual(out.dirs, ['down', 'up', 'right', 'left']);
+  // Re-encoded, not passed through: what gets stored and served is a PNG this server wrote.
+  // Same picture, so it decodes to the same pixels — that is the property, not equal bytes.
+  const before = PNG.sync.read(input);
+  const after = PNG.sync.read(out.png);
+  assert.deepEqual({ w: after.width, h: after.height }, { w: before.width, h: before.height });
+  assert.equal(Buffer.compare(after.data, before.data), 0, 'every pixel must survive the round trip');
 });
 
 test('a three-row sheet keeps three rows — the fourth is not invented here', () => {
   const out = sheetFromPng(sheetPng(7, CHAR.w, CHAR.h, 3), CHAR);
   assert.equal(out.ok, true);
   if (!out.ok) return;
-  assert.deepEqual(Object.keys(out.rows).sort(), ['down', 'right', 'up']);
+  assert.deepEqual(out.dirs, ['down', 'up', 'right']);
+  assert.equal(PNG.sync.read(out.png).height, 3 * CHAR.h);
+});
+
+test('the pixels are never spelled out as hex, whatever the size', () => {
+  // The rewrite, stated STRUCTURALLY rather than as a timing. A first version of this test
+  // asserted "under 30 ms" and failed at 54 ms inside the full suite — not because the code was
+  // slow but because a dozen test files were sharing the machine. A wall clock is a benchmark's
+  // instrument, not an assertion's; what the change actually promises is that no SpriteData is
+  // produced. (For the record, measured alone: 48 ms before, 12.9 after.)
+  const out = sheetFromPng(sheetPng(24, 64, 64), { w: 64, h: 64 });
+  assert.equal(out.ok, true, out.ok ? '' : out.reason);
+  if (!out.ok) return;
+  for (const row of ['down', 'up', 'right', 'left']) {
+    assert.equal((out as unknown as Record<string, unknown>)[row], undefined, `${row} was spelled out`);
+  }
+  assert.ok(Buffer.isBuffer(out.png), 'what comes back is a sheet, not pixels');
+  assert.equal(out.frames, 24);
 });
 
 test('a bomb is refused from its header, without decoding', () => {

@@ -1,7 +1,8 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { withArtUrl } from '../art/artUrl.js';
-import { validCharacterData } from '../art/characterDataGuard.js';
+import { validCharacterData, validSheetMeta } from '../art/characterDataGuard.js';
+import { avatarSeedFrom } from '../art/avatarSeed.js';
 import { sheetFromPng } from '../art/sheetPng.js';
 
 import {
@@ -178,7 +179,13 @@ export class SimRoom extends Room<{ state: RoomState }> {
   /** Owned-avatar sprite data currently needed in THIS zone (skin id → data),
    *  distributed only to clients here so a client loads just the avatars of
    *  players standing in its zone. Refcounted by concurrent sessions. */
-  private readonly avatarData = new Map<string, LoadedCharacterData>();
+  /**
+   * The avatars of the players in this zone, as they are STORED: a packed row (the sheet as
+   * base64 plus its geometry) or, for a legacy row, SpriteData. Nothing here needs pixels —
+   * every read feeds `avatarMessage`, which turns the entry into a URL and a frame size — so
+   * the shape is deliberately whatever the store handed over, with no unpacking on the way.
+   */
+  private readonly avatarData = new Map<string, Record<string, unknown> | LoadedCharacterData>();
   private readonly avatarRefs = new Map<string, number>();
   /** Recent zone-local chat (ring buffer), sent to joiners; + per-session rate limit.
    *  `ambient` marks a line the WORLD said (a talking object) rather than a
@@ -1602,7 +1609,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * validator stays the single authority on what a sheet may be. The client's bytes are never
    * stored; the store re-encodes from these pixels.
    */
-  private sheetFromSave(msg: unknown, fallbackFrame: { w: number; h: number }): LoadedCharacterData | null {
+  private sheetFromSave(msg: unknown, fallbackFrame: { w: number; h: number }): Record<string, unknown> | null {
     const m = msg as { png?: unknown; name?: unknown; spec?: unknown; npc?: unknown } | null;
     if (!m || typeof m !== 'object') return null;
     // The frame size the sheet claims. Bounded here only enough to slice with; the spec itself
@@ -1612,9 +1619,15 @@ export class SimRoom extends Room<{ state: RoomState }> {
     const frame = { w: dim(claimed?.w, fallbackFrame.w), h: dim(claimed?.h, fallbackFrame.h) };
     const sheet = sheetFromPng(m.png, frame);
     if (!sheet.ok) return null;
-    const data = { name: m.name, ...sheet.rows, ...(m.spec !== undefined ? { spec: m.spec } : {}), ...(m.npc !== undefined ? { npc: m.npc } : {}) };
-    if (!validCharacterData(data)) return null;
-    return data as unknown as LoadedCharacterData;
+    const meta = {
+      name: m.name,
+      ...(m.spec !== undefined ? { spec: m.spec } : {}),
+      ...(m.npc !== undefined ? { npc: m.npc } : {}),
+    };
+    if (!validSheetMeta(meta, sheet.frames)) return null;
+    // The STORED shape (art/artStore.ts's packed row), built here rather than by packing
+    // SpriteData: the sheet never becomes pixels on this path at all.
+    return { ...meta, png: sheet.png.toString('base64'), frame, dirs: sheet.dirs };
   }
 
   /** The asset types a CLIENT may write — now exactly the types the database may override at
@@ -1662,20 +1675,36 @@ export class SimRoom extends Room<{ state: RoomState }> {
 
   /** This user's private avatar sprite data (keyed by userId), creating it on
    *  first use by copying their old gallery pin (migration) or the first template. */
-  private ensurePlayerAvatar(userId: string): LoadedCharacterData {
-    const existing = appStore.getPlayerAvatar<LoadedCharacterData>(userId);
-    if (existing) return existing;
-    const chars = this.bundle.raw.characters as Array<{ id: string; data: LoadedCharacterData }>;
+  /**
+   * The user's own avatar, seeded from a gallery skin the first time they arrive.
+   *
+   * Read as the STORED row (`assetRow`), not unpacked: this is announced, not drawn, so the
+   * pixels are nobody's business here — and unpacking a sheet just to hand it back would decode
+   * a PNG on every join.
+   *
+   * The seed is where a bundled skin and a stored one differ, and getting that wrong was a real
+   * bug: a bundled entry carries its sheet as a Buffer (the FILE, see assetLoader), and
+   * `cloneCharacterData` is a JSON round trip — which turned the Buffer into
+   * `{"type":"Buffer","data":[137,80,...]}`, stored 10 KB of number array for a 2.8 KB sheet,
+   * and put that array in the `playerAvatar` message of every viewer instead of a URL. So a
+   * bundled source is packed properly here: the file's bytes as base64 plus the geometry, read
+   * from the PNG header rather than by decoding it.
+   */
+  private ensurePlayerAvatar(userId: string): Record<string, unknown> | LoadedCharacterData {
+    const existing = appStore.assetRow('playerAvatar', userId);
+    if (existing !== undefined) return existing as Record<string, unknown>;
+    const chars = this.bundle.raw.characters as Array<{ id: string; data: Record<string, unknown> }>;
     const oldPin = appStore.getPlayerPrefs()[userId];
     const src = (oldPin ? chars.find((c) => c.id === oldPin) : undefined) ?? chars[0];
-    const data = cloneCharacterData(src.data);
+    const data = avatarSeedFrom(src.data);
     appStore.setPlayerAvatar(userId, data);
     return data;
   }
 
+
   /** Persist a user's avatar data and push it to everyone in this zone (live
    *  re-render). The skin id stays pa:<userId>; only the sprite data changes. */
-  private setAvatar(userId: string, data: LoadedCharacterData): void {
+  private setAvatar(userId: string, data: Record<string, unknown> | LoadedCharacterData): void {
     appStore.setPlayerAvatar(userId, data);
     const sid = playerAvatarSkinId(userId);
     if (this.avatarData.has(sid)) this.avatarData.set(sid, data);
