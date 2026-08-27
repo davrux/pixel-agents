@@ -13,10 +13,13 @@
  * The same name is also published on D-Bus as the tray item's `Id` (Chromium
  * builds it as `<app name>_status_icon_<n>`), where it read
  * `@pixel/desktop_status_icon_1` — an identifier hosts use for keying and icon
- * caching, carrying a path separator. Check it with the app running:
+ * caching, carrying a path separator. Check it with the app running, asking for the
+ * object path first: Electron moved the item from `/StatusNotifierItem` to
+ * `/StatusNotifierItem/1` in 44, so hardcoding either one dates the command.
  *
+ *   busctl --user tree org.freedesktop.StatusNotifierItem-<pid>-1
  *   busctl --user get-property \
- *     org.freedesktop.StatusNotifierItem-<pid>-1 /StatusNotifierItem \
+ *     org.freedesktop.StatusNotifierItem-<pid>-1 <that path> \
  *     org.kde.StatusNotifierItem Id
  *
  * So the name is set explicitly here, and `userData` is then PINNED rather than
