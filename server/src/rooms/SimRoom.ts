@@ -1,9 +1,8 @@
 import { Room, type AuthContext, type Client } from '@colyseus/core';
 import { voiceRoomName, mintVoiceToken } from '../voice/livekit.js';
 import { withArtUrl } from '../art/artUrl.js';
-import { validCharacterData, validSheetMeta } from '../art/characterDataGuard.js';
+import { validCharacterData } from '../art/characterDataGuard.js';
 import { avatarSeedFrom } from '../art/avatarSeed.js';
-import { sheetFromPng } from '../art/sheetPng.js';
 
 import {
   conferenceKey,
@@ -63,6 +62,7 @@ import {
   ZONE_INVITE_RESULT_EVENT,
   ZONE_DELETED_EVENT,
   ASSET_CHANGED_EVENT,
+  AVATAR_CHANGED_EVENT,
   ZONE_LAYOUT_CHANGED_EVENT,
   PRESENCE_EVENT,
 } from '../controlBus.js';
@@ -341,6 +341,22 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  happened in (otherwise every OTHER already-running zone keeps serving
    *  its stale in-memory bundle indefinitely, until it empties out and the
    *  room recycles). */
+  /**
+   * One user's avatar was saved — over HTTP, so no room handled it (see artSaveApi.ts).
+   *
+   * Only the rooms this player is standing in have anything to do: re-read the stored row and
+   * announce that one skin. Rooms elsewhere hold no copy of it, so the check is not an
+   * optimisation but the whole condition.
+   */
+  private readonly onAvatarChanged = (userId: string): void => {
+    const sid = playerAvatarSkinId(userId);
+    if (!this.avatarData.has(sid)) return;
+    const row = appStore.assetRow('playerAvatar', userId);
+    if (row === undefined) return;
+    this.avatarData.set(sid, row as Record<string, unknown>);
+    this.broadcast('m', this.avatarMessage(sid, row));
+  };
+
   private readonly onAssetChanged = (type: ResyncTarget): void => {
     this.reapplyAsset(type);
   };
@@ -536,6 +552,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.on(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.on(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.on(ASSET_CHANGED_EVENT, this.onAssetChanged);
+    controlBus.on(AVATAR_CHANGED_EVENT, this.onAvatarChanged);
     controlBus.on(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.on(PRESENCE_EVENT, this.onPresenceChanged);
 
@@ -551,6 +568,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
     controlBus.off(ZONE_INVITE_RESULT_EVENT, this.onZoneInviteResult);
     controlBus.off(ZONE_DELETED_EVENT, this.onZoneDeleted);
     controlBus.off(ASSET_CHANGED_EVENT, this.onAssetChanged);
+    controlBus.off(AVATAR_CHANGED_EVENT, this.onAvatarChanged);
     controlBus.off(ZONE_LAYOUT_CHANGED_EVENT, this.onZoneLayoutChanged);
     controlBus.off(PRESENCE_EVENT, this.onPresenceChanged);
     if (this.presencePush !== null) clearTimeout(this.presencePush);
@@ -1457,17 +1475,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (src) this.setAvatar(userId, cloneCharacterData(src.data));
     });
 
-    // Save edits to the viewer's own avatar. The art arrives as a PNG (see art/sheetPng.ts):
-    // one hex string per pixel was 34× the bytes, and this is the same sheet the editor would
-    // export as a file.
-    this.onMessage('saveAvatar', (client, msg: unknown) => {
-      const { userId } = authOf(client);
-      if (!userId) return;
-      const data = this.sheetFromSave((msg as { sheet?: unknown })?.sheet, { w: CHAR_FRAME_W, h: CHAR_FRAME_H });
-      if (!data) return;
-      this.setAvatar(userId, data);
-    });
-
     // Copy the viewer's own avatar into the shared gallery as a new template
     // (a snapshot — the avatar stays the player's own, independent copy). Adding
     // to the shared gallery is an admin action.
@@ -1568,24 +1575,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
       if (id !== undefined) this.os.setCharacterName(id, name);
     });
 
-    // Asset overrides — characters and NPCs, the only two the database may hold (see
-    // ASSET_TYPES). Persist + re-merge + re-apply to the engine + broadcast the refreshed
-    // *Loaded message.
-    this.onMessage('saveAsset', (client, msg: { assetType?: string; name?: string; sheet?: unknown }) => {
-      if (!this.may(client, 'gallery.edit')) return;
-      const type = this.validAssetType(msg?.assetType);
-      if (!type || typeof msg?.name !== 'string' || msg.sheet === undefined) return;
-      // Asset ids are safe identifiers (char_0, DESK_FRONT, PC_SIDE:left, …).
-      if (!/^[A-Za-z0-9_:-]{1,40}$/.test(msg.name)) return;
-      // Characters and NPCs (pets) are the only writable types, and they share the sheet
-      // shape — they differ only in the frame size a sheet without a spec falls back to.
-      const frame = type === 'pet' ? { w: PET_FRAME_W, h: PET_FRAME_H } : { w: CHAR_FRAME_W, h: CHAR_FRAME_H };
-      const data = this.sheetFromSave(msg.sheet, frame);
-      if (!data) return;
-      appStore.saveAsset(type, msg.name, data);
-      invalidateMergedBundle();
-      controlBus.emit(ASSET_CHANGED_EVENT, type);
-    });
     this.onMessage('deleteAsset', (client, msg: { assetType?: string; name?: string }) => {
       if (!this.may(client, 'gallery.edit')) return;
       const type = this.validAssetType(msg?.assetType);
@@ -1598,37 +1587,6 @@ export class SimRoom extends Room<{ state: RoomState }> {
   }
 
   // ── Asset overrides ──────────────────────────────────────────────
-
-  /**
-   * One incoming save, turned into the sheet the store keeps — or null, and nothing happens.
-   *
-   * A save carries the sheet under its own key — `{ sheet: { png, name, spec?, npc? } }` — because
-   * `saveAsset`'s own `name` is the ASSET ID and a sheet's `name` is its display name; flat, one
-   * would have silently overwritten the other. The PNG is bounded and decoded by art/sheetPng.ts, and the RESULT then goes
-   * through validCharacterData exactly like the SpriteData a client used to send, so the
-   * validator stays the single authority on what a sheet may be. The client's bytes are never
-   * stored; the store re-encodes from these pixels.
-   */
-  private sheetFromSave(msg: unknown, fallbackFrame: { w: number; h: number }): Record<string, unknown> | null {
-    const m = msg as { png?: unknown; name?: unknown; spec?: unknown; npc?: unknown } | null;
-    if (!m || typeof m !== 'object') return null;
-    // The frame size the sheet claims. Bounded here only enough to slice with; the spec itself
-    // is validated below, together with the rule that its tracks sum to the frame count.
-    const claimed = (m.spec as { frame?: { w?: unknown; h?: unknown } } | undefined)?.frame;
-    const dim = (v: unknown, dflt: number): number => (Number.isInteger(v) ? (v as number) : dflt);
-    const frame = { w: dim(claimed?.w, fallbackFrame.w), h: dim(claimed?.h, fallbackFrame.h) };
-    const sheet = sheetFromPng(m.png, frame);
-    if (!sheet.ok) return null;
-    const meta = {
-      name: m.name,
-      ...(m.spec !== undefined ? { spec: m.spec } : {}),
-      ...(m.npc !== undefined ? { npc: m.npc } : {}),
-    };
-    if (!validSheetMeta(meta, sheet.frames)) return null;
-    // The STORED shape (art/artStore.ts's packed row), built here rather than by packing
-    // SpriteData: the sheet never becomes pixels on this path at all.
-    return { ...meta, png: sheet.png.toString('base64'), frame, dirs: sheet.dirs };
-  }
 
   /** The asset types a CLIENT may write — now exactly the types the database may override at
    *  all (ASSET_TYPES). It used to be narrower than that list, then wider than the callers: an

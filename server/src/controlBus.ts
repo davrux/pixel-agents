@@ -38,6 +38,17 @@ export const ZONE_DELETED_EVENT = 'zoneDeleted';
  *  any) the edit actually came from. Payload: the AssetType string. */
 export const ASSET_CHANGED_EVENT = 'assetChanged';
 
+/**
+ * One user's own avatar changed (payload: their userId).
+ *
+ * Separate from ASSET_CHANGED_EVENT because an avatar is not a gallery entry: it belongs to one
+ * account, it is not in the merged bundle, and what a room does about it is announce that ONE
+ * skin rather than rebuild and rebroadcast a whole asset message. Emitted by the HTTP save route
+ * (artSaveApi), since saving art no longer travels through the room — which is exactly why the
+ * rooms need telling.
+ */
+export const AVATAR_CHANGED_EVENT = 'avatarChanged';
+
 /** A zone's saved layout changed on disk via Tiled (see
  *  tiled/zonePushApi.ts's push endpoint) rather than through this room's own
  *  save/save-as messages — so unlike those, nothing already told THIS room

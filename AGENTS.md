@@ -297,18 +297,32 @@ check asks: is the release present in the code that acquires?
   deals in SpriteData and nothing else in the server learned about images. Saves are
   still validated as SpriteData BEFORE encoding, which is why packing added no untrusted
   binary path of its own.
-  **Saving art travels UP as a PNG too** (protocol 6): `saveAvatar`/`saveAsset` carry
-  `sheet: { png, name, spec?, npc? }`, because one hex string per pixel was 95.3 KB where the
-  image is 2.8 KB — a factor of 34 on a real sheet, measured on char_0. That makes a client's
-  PNG the one untrusted IMAGE this server decodes, and `art/sheetPng.ts` is the gate the older
-  warning here asked for: a byte cap (2 MB, derived — the largest legal sheet is 1.50 MB even
-  as incompressible noise), the PNG signature, an 8-bit non-interlaced IHDR, and the DECLARED
-  dimensions checked against the frame size and `MAX_SHEET_CELLS` — all before pngjs sees the
-  file, so a 73-byte bomb claiming 30000×30000 never reaches a decoder. The decoded rows then
-  go through the same validator as before, and the client's bytes are never stored: the store
-  re-encodes, so what other viewers are served is a PNG this server wrote. `mmo-readiness` has
-  a rule for the shape (a client-supplied image is bounded and header-checked before decoding)
-  with its own planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
+  **Saving art is a PNG over HTTP** (protocol 8), not a room message: `POST /art/avatar` for
+  your own avatar and `POST /art/asset/:type/:name` for a gallery skin or an NPC
+  (`artSaveApi.ts`), with the sheet as the BODY and its metadata in an `X-Pixel-Sheet` header —
+  base64 in a JSON body would add a third to every save. One hex string per pixel was 95.3 KB
+  where the image is 2.8 KB, a factor of 34 on a real sheet (measured on char_0).
+  Being a route rather than a message buys four things, and it is worth knowing which: its own
+  size limit stated per route instead of the transport's global one; an ANSWER, so a refused
+  sheet reaches the editor as a reason instead of vanishing; two fewer message types on the
+  room's surface; and a decode that nothing in the room refers to any more, so moving it to a
+  worker later is a change to one file. What it does NOT buy is protecting the tick: HTTP and
+  the room share one process and one thread.
+  That makes a client's PNG the one untrusted IMAGE this server decodes, and `art/sheetPng.ts`
+  is the gate the older warning here asked for: a byte cap (2 MB, derived — the largest legal
+  sheet is 1.50 MB even as incompressible noise), the PNG signature, an 8-bit non-interlaced
+  IHDR, and the DECLARED dimensions checked against the frame size and `MAX_SHEET_CELLS` — all
+  before pngjs sees the file, so a 73-byte bomb claiming 30000×30000 never reaches a decoder.
+  The sheet is then re-encoded rather than stored as it arrived, so what other viewers are
+  served is a PNG this server wrote, and the pixels are never spelled out as hex on the way (48
+  → 12.9 ms for the largest legal sheet; the format check they existed for is meaningless for
+  decoder output, and the geometry is decided from the header). Authorisation comes from the
+  session, never the payload: `/art/avatar` takes no id at all, and the asset route needs an
+  admin. The rooms hear about a save through the control bus (`AVATAR_CHANGED_EVENT`, or
+  `ASSET_CHANGED_EVENT` as before) — verified end to end in a browser: the POST answers 200 and
+  the client re-fetches the art at its new content hash. `mmo-readiness` has a rule for the
+  shape (a client-supplied image is bounded and header-checked before decoding) with its own
+  planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
   world on purpose (measured here: 495 → 16 KB), verifying every row by unpacking it
   again before keeping the write. One thing to know: the decoder canonicalises hex to
   upper case, so a packed row reads back equal in colour but not in string case — the

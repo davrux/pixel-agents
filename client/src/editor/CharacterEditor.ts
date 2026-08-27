@@ -77,6 +77,9 @@ export interface TrackDef {
  * The server bounds and decodes the PNG (art/sheetPng.ts) and then validates the result like
  * any other sheet, so this shape is the whole wire contract for saving art.
  */
+/** What a save answers — the server can refuse now, so the editor can say why. */
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
 export interface SheetSave {
   png: Uint8Array<ArrayBuffer>;
   name: string;
@@ -90,7 +93,7 @@ export interface EditorCategory {
   getTemplates: () => CharacterTemplate[] | null;
   /** Allocate an id for a new entity (e.g. `char_7`), given the existing ids. */
   newId: (existing: string[]) => string;
-  save: (name: string, payload: SheetSave) => void;
+  save: (name: string, sheet: SheetSave) => Promise<SaveResult>;
   reset: (name: string) => void;
   /** Bundled (file-default) ids → Reset; everything else is user-added → Delete. */
   isBundled: (id: string) => boolean;
@@ -1196,12 +1199,17 @@ export class CharacterEditor {
         this.showStatus(`Could not encode the sheet: ${err instanceof Error ? err.message : 'unknown error'}`);
         return;
       }
-      this.cat().save(this.charName(), {
+      const out = await this.cat().save(this.charName(), {
         png,
         name: this.work.name!,
         ...(this.work.spec ? { spec: this.work.spec } : {}),
         ...(this.work.npc ? { npc: this.work.npc } : {}),
       });
+      if (!out.ok) {
+        // The whole point of saving over HTTP: a refusal has a reason and it belongs on screen.
+        this.showStatus(`Not saved: ${out.error}`);
+        return;
+      }
       this.dirty = false;
       this.showStatus(`Saved ${this.displayName()} ✓`);
       // After the broadcast lands, a new char becomes a normal (existing) entry.

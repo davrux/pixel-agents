@@ -34,8 +34,12 @@ export const WORLD_ROOM = 'world';
  *     outside what upstream supports at all, and the room/matchmake framing moved into
  *     @colyseus/shared-types. Untested rather than known-broken, which is exactly when to
  *     bump: an older build is then told to update instead of half-working.
+ * 8 — saving art is an HTTP POST (`/art/avatar`, `/art/asset/:type/:name`), so the room messages
+ *     `saveAvatar` and `saveAsset` are gone. An older build would send a message nobody handles
+ *     and never learn that its save vanished, which is precisely the failure the version gate
+ *     exists to replace with "please update".
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 // ── Player avatar skins ───────────────────────────────────────────
 // Each player owns a private, editable avatar (its own sprite data), distinct
