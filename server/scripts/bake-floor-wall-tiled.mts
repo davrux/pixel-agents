@@ -3,10 +3,10 @@
  * One-time bake: generates the Tiled-facing floor/wall tilesets — real,
  * distinct PNG tiles for every (pattern, palette swatch) and (wall bitmask,
  * palette swatch) combination, since Tiled has no concept of "one sprite +
- * a runtime recolor". The runtime keeps rendering via colorize.ts's
- * getColorizedSprite exactly as before (see shared/src/office/floorTiles.ts,
- * wallTiles.ts) — this script exists purely so a human editing in Tiled sees
- * the same closed palette (see palettes.ts) as real, paintable tiles.
+ * a runtime recolor". This is now the ONLY caller of colorize.ts: the runtime stopped
+ * recolouring pixels when floors and walls became baked sheets, and floorTiles.ts/wallTiles.ts
+ * only answer which CELL of which sheet a tile is. So the palette (see palettes.ts) is closed
+ * here, once, and a human editing in Tiled paints the finished tiles.
  *
  * Each tile carries NO custom properties at all — only its Tiled class
  * (no per-tile class any more — see the `grid` helper). Which

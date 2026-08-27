@@ -1,9 +1,15 @@
 /**
- * Shared sprite colorization module.
+ * Sprite colorization — a BUILD-time module now, not a runtime one.
  *
- * Two modes:
- * - Colorize (Photoshop-style): grayscale → fixed HSL. For floor tiles and opt-in furniture.
- * - Adjust (default for furniture): shift original pixel HSL values.
+ * It recolours a grayscale pattern to a fixed HSL, which is how the floor and wall tilesets get
+ * one tile per (pattern, palette swatch): `scripts/bake-floor-wall-tiled.mts` is its only
+ * caller. The live game never recolours a pixel — it draws the baked sheets, and `floorTiles.ts`
+ * only answers which CELL of which sheet a ground tile is.
+ *
+ * It had a second mode, "adjust" (shift each pixel's own HSL instead of mapping it), for
+ * furniture that was coloured per placement. Furniture art comes from Tiled tilesets, nothing
+ * has asked for that mode since, and `swatchColor` — the one producer of a ColorValue — always
+ * wanted the colorize path, so the dispatch had one reachable branch. Both are gone.
  */
 
 import type { ColorValue } from './colorTypes.js';
@@ -13,9 +19,8 @@ import type { SpriteData } from './types.js';
 const colorizeCache = new Map<string, SpriteData>();
 
 /**
- * Get a color-adjusted sprite from cache, or compute and cache it.
- * Dispatches to colorize or adjust mode based on `color.colorize`.
- * Caller provides a unique cache key that must include the colorize flag.
+ * Get a colorized sprite from cache, or compute and cache it.
+ * Caller provides a unique cache key.
  */
 export function getColorizedSprite(
   cacheKey: string,
@@ -25,7 +30,7 @@ export function getColorizedSprite(
 ): SpriteData {
   const cached = colorizeCache.get(cacheKey);
   if (cached) return cached;
-  const result = color.colorize ? colorizeSprite(sprite, color, referenceLightness) : adjustSprite(sprite, color);
+  const result = colorizeSprite(sprite, color, referenceLightness);
   colorizeCache.set(cacheKey, result);
   return result;
 }
@@ -192,59 +197,4 @@ export function rgbToHsl(r: number, g: number, b: number): [number, number, numb
   else if (max === gf) h = ((bf - rf) / d + 2) * 60;
   else h = ((rf - gf) / d + 4) * 60;
   return [h, s, l];
-}
-
-/**
- * Adjust a sprite's colors by shifting HSL values (default mode for furniture).
- *
- * H slider (-180 to +180): rotates hue
- * S slider (-100 to +100): shifts saturation
- * B slider (-100 to 100): shifts lightness
- * C slider (-100 to 100): adjusts contrast around midpoint
- */
-export function adjustSprite(sprite: SpriteData, color: ColorValue): SpriteData {
-  const { h: hShift, s: sShift, b, c } = color;
-  const result: SpriteData = [];
-
-  for (const row of sprite) {
-    const newRow: string[] = [];
-    for (const pixel of row) {
-      if (pixel === '') {
-        newRow.push('');
-        continue;
-      }
-
-      const r = parseInt(pixel.slice(1, 3), 16);
-      const g = parseInt(pixel.slice(3, 5), 16);
-      const bv = parseInt(pixel.slice(5, 7), 16);
-      const alpha = extractAlpha(pixel);
-      const [origH, origS, origL] = rgbToHsl(r, g, bv);
-
-      // Shift hue
-      const newH = (((origH + hShift) % 360) + 360) % 360;
-
-      // Shift saturation
-      const newS = Math.max(0, Math.min(1, origS + sShift / 100));
-
-      // Apply contrast: expand/compress around 0.5
-      let lightness = origL;
-      if (c !== 0) {
-        const factor = (100 + c) / 100;
-        lightness = 0.5 + (lightness - 0.5) * factor;
-      }
-
-      // Apply brightness
-      if (b !== 0) {
-        lightness = lightness + b / 200;
-      }
-
-      lightness = Math.max(0, Math.min(1, lightness));
-
-      const hex = hslToHex(newH, newS, lightness);
-      newRow.push(appendAlpha(hex, alpha));
-    }
-    result.push(newRow);
-  }
-
-  return result;
 }
