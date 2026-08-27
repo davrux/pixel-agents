@@ -76,41 +76,46 @@ function ensureStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const style = document.createElement('style');
-  // Screen-local rules only; the palette/font come from the shared `.pa-ui`
-  // convention (font `FS Pixel Sans`, canvas `#14161c`, panel `#0f1220`,
-  // border `#05060b`, primary `#2f66b0`, danger `#7c2634`) — the same rules the
-  // connection screen uses, keyed to `#pa-signin`.
+  // Screen-local rules only, in the house chrome — the same tokens as every other surface
+  // (AGENTS.md "UI — one look for all chrome"), keyed to `#pa-signin`. This screen used to
+  // carry the pre-restyle palette: blue accent #3a6df0-ish, panel #0f1220, control #171b2b.
+  // Those are the values the contract lists under "Deprecated — do not use", and this is the
+  // FIRST thing anybody sees, so it was the one surface where the old look still greeted you.
+  // Values are copied from the canonical rules rather than re-picked: the panel bevel from
+  // `.pa-panel`, the field from Settings' own text inputs, the primary from `.pa-b.primary`,
+  // the link colour from the chat's links.
   style.textContent = `
     #pa-signin{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;
-      background:#14161c;font-family:'FS Pixel Sans',ui-monospace,monospace;}
-    #pa-signin .box{width:26rem;max-width:92vw;background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;
-      color:#e9ecf7;padding:1.3rem 1.4rem 1.4rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
-    #pa-signin h1{margin:0 0 0.3rem;font-size:1.4rem;font-weight:600;letter-spacing:.3px;color:#eef1fb;}
-    #pa-signin .hint{margin:0 0 1.1rem;font-size:0.9rem;color:#9aa0b8;line-height:1.4;}
-    #pa-signin label{display:block;font-size:0.78rem;letter-spacing:1px;text-transform:uppercase;color:#8a90a8;margin:0.9rem 0.1rem 0.35rem;}
+      background:#141312;font-family:'FS Pixel Sans',ui-monospace,monospace;}
+    #pa-signin .box{width:26rem;max-width:92vw;background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+      color:#f1efec;padding:1.3rem 1.4rem 1.4rem;
+      box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+    #pa-signin h1{margin:0 0 0.3rem;font-size:1.4rem;font-weight:600;letter-spacing:.3px;color:#f5f3f0;}
+    #pa-signin .hint{margin:0 0 1.1rem;font-size:0.9rem;color:#adb0b2;line-height:1.4;}
+    #pa-signin label{display:block;font-size:0.78rem;letter-spacing:1px;text-transform:uppercase;color:#818586;margin:0.9rem 0.1rem 0.35rem;}
     #pa-signin label:first-of-type{margin-top:0;}
-    #pa-signin input{width:100%;box-sizing:border-box;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
-      border-radius:0.4rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.6rem 0.7rem;
-      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-    #pa-signin input:focus-visible{outline:3px solid #5a92d6;outline-offset:2px;}
+    #pa-signin input{width:100%;box-sizing:border-box;background:#262422;border:2px solid #0a0908;color:#f1efec;
+      border-radius:0.35rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.6rem 0.7rem;
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-signin input:focus-visible{outline:3px solid #4998c0;outline-offset:2px;}
     #pa-signin input:disabled{opacity:0.55;cursor:not-allowed;}
-    #pa-signin .err{min-height:1.2rem;margin:0.55rem 0.1rem 0;font-size:0.9rem;color:#f1b0ba;}
-    #pa-signin button{width:100%;margin-top:1.1rem;cursor:pointer;background:#2f66b0;color:#fff;border:2px solid #05060b;
+    #pa-signin .err{min-height:1.2rem;margin:0.55rem 0.1rem 0;font-size:0.9rem;color:#f6cdd4;}
+    #pa-signin button{width:100%;margin-top:1.1rem;cursor:pointer;background:#c51a1b;color:#fff;border:2px solid #0a0908;
       border-radius:0.45rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.65rem;
-      box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
-    #pa-signin button:hover:not(:disabled){background:#3a72c0;}
-    #pa-signin button:focus-visible{outline:3px solid #5a92d6;outline-offset:2px;}
+      box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+    #pa-signin button:hover:not(:disabled){background:#d42021;}
+    #pa-signin button:focus-visible{outline:3px solid #4998c0;outline-offset:2px;}
     #pa-signin button:disabled{opacity:0.6;cursor:progress;}
-    #pa-signin .server{margin:0.9rem 0.1rem 0;font-size:0.8rem;color:#8a90a8;text-align:center;
+    #pa-signin .server{margin:0.9rem 0.1rem 0;font-size:0.8rem;color:#818586;text-align:center;
       overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-    #pa-signin .server code{color:#c7ccdf;}
+    #pa-signin .server code{color:#adb0b2;}
     #pa-signin .alt{margin:0.35rem 0 0;text-align:center;}
-    /* Reset the primary-button rules for the secondary "change server" link. */
+    /* Reset the primary-button rules for the secondary links (change server, switch mode). */
     #pa-signin .alt button{width:auto;margin:0;padding:0.3rem 0.4rem;background:none;border:none;box-shadow:none;
-      color:#7fa7e0;font-size:0.85rem;text-decoration:underline;cursor:pointer;}
-    #pa-signin .alt button:hover:not(:disabled){background:none;color:#a9c6f0;}
+      color:#4998c0;font-size:0.85rem;text-decoration:underline;cursor:pointer;}
+    #pa-signin .alt button:hover:not(:disabled){background:none;color:#f1efec;}
     #pa-signin .alt button:disabled{opacity:0.5;cursor:not-allowed;}
-    #pa-signin .alt .sep{color:#4a5070;font-size:0.85rem;margin:0 0.2rem;}
+    #pa-signin .alt .sep{color:#525556;font-size:0.85rem;margin:0 0.2rem;}
     /* Register mode shows the admin token row; sign-in mode hides it outright,
        so a returning user is never asked to decide whether it applies. */
     #pa-signin [hidden]{display:none;}
