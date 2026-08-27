@@ -176,6 +176,26 @@ export const USER_CHILD_TABLES: readonly ChildTable[] = [
     requireType: { column: 'dir', type: 'INTEGER' },
   },
   {
+    table: 'oauth_identities',
+    column: 'user_id',
+    holds: 'the link from an identity provider\'s subject to this account (OIDC / Zitadel login)',
+    ddl: `
+      CREATE TABLE IF NOT EXISTS oauth_identities (
+        -- Which provider the subject belongs to, so a second one can be added without the
+        -- subjects colliding. One row per (provider, subject): the provider's subject is the
+        -- identity, and it is immutable there, which is why the account is keyed off it rather
+        -- than off a username or an email that its owner can change.
+        provider TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        user_id TEXT NOT NULL ${CASCADE},
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (provider, subject)
+      )`,
+    indexes: `
+      CREATE INDEX IF NOT EXISTS oauth_identities_user ON oauth_identities(user_id);
+    `,
+  },
+  {
     table: 'user_prefs',
     column: 'user_id',
     holds: 'pinned skins and viewer settings',

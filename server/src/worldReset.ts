@@ -42,6 +42,10 @@ const KEEP_TABLES = new Set([
   // like the avatar below, and meaningless to the world being wiped. `player_pos` is deliberately
   // NOT here: where somebody stood is a fact about zones that are about to be gone.
   'user_prefs',
+  // The link from an identity provider's subject to the account it belongs to. Account data by
+  // definition: wiping it would leave the accounts standing but make the next OIDC login
+  // provision a SECOND account for the same person.
+  'oauth_identities',
 ]);
 
 /** Asset rows that survive: a user's own avatar belongs to their account, the

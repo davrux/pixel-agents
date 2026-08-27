@@ -60,12 +60,26 @@ scripts/pixel-agents.sh --token <your-agent-token> \
 The token is your per-user agent token (in-app Settings → copy). It identifies
 the owner, so your agents follow you.
 
-**`PIXEL_ADMIN_TOKEN` is required to run the thing at all.** Players sign in with
-a login id + password, and presenting the admin token at login makes that user an
-admin, creating the account if it is new — that is how you bootstrap the first
-one. There is no anonymous mode: without the token there is no login, nobody can
-join, and the server deliberately binds to loopback rather than serving an
-ungated app to the network. All state lives in a single `pixel.db` under
+**You need a way to log in, and `PIXEL_ADMIN_TOKEN` is the one that always
+works.** Players sign in with a login id + password, and presenting the admin
+token on the register screen creates the account and makes it an admin — that is
+how you bootstrap the first one. There is no anonymous mode: with no way to log
+in there is no login screen, nobody can join, and the server deliberately binds
+to loopback rather than serving an ungated app to the network.
+
+**Single sign-on (Zitadel / any OpenID Connect provider) is the second way in.**
+Set `PIXEL_OIDC_ISSUER`, `PIXEL_OIDC_CLIENT_ID` and `PIXEL_OIDC_REDIRECT_URI`
+(plus `PIXEL_OIDC_CLIENT_SECRET` for a confidential client) and the sign-in
+screen grows a "Sign in with …" button — in the browser and in the desktop app,
+which opens your real browser and waits, so MFA and passkeys work. A first
+sign-in creates the account; it is keyed to the provider's immutable subject, so
+a rename in the directory keeps the same avatar, agent token and position, and
+`PIXEL_OIDC_ADMIN_ROLE` lets the directory decide who is an admin. All of it is
+additive on purpose: keep an admin token, because a provider that is down or
+misconfigured must not be able to lock every admin out of the world. See
+[.env.example](.env.example) for every knob and what Zitadel needs configured.
+
+All state lives in a single `pixel.db` under
 `PIXEL_STREAM_DATA_DIR` — by default `tmp/data` inside the repo, so a
 development world belongs to the checkout it was made in. On first start that
 directory is created, a self-signed certificate is generated for it (camera,

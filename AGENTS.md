@@ -682,7 +682,9 @@ background only.)
   `PIXEL_ADMIN_TOKEN` (also `--token`), `PIXEL_STREAM_DATA_DIR` (holds
   `pixel.db` plus `cert.pem`/`key.pem`; **defaults to `tmp/data` in the repo** so
   a dev world belongs to its checkout — a deployment always sets it, the image to
-  `/data` with a volume mounted there), `PIXEL_RESET_WORLD`.
+  `/data` with a volume mounted there), `PIXEL_RESET_WORLD`, and the `PIXEL_OIDC_*`
+  set that configures single sign-on (see the Accounts bullet and
+  [.env.example](.env.example)).
 - **First-start conveniences are development-only** (`dataBootstrap.ts`): the data
   directory is created, a self-signed certificate generated, and a database
   adopted from a former default path. All three are gated on nobody having set
@@ -777,11 +779,48 @@ background only.)
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting
-  `PIXEL_ADMIN_TOKEN` at login makes that user an admin and creates the account if
-  new — the only way to create users. **There is no anonymous mode**: every room
-  and the feed require an account, so without a token nobody can join at all, and
-  the server binds to loopback rather than serving an ungated app to the network.
-  Agents authenticate the feed with their owner's token.
+  `PIXEL_ADMIN_TOKEN` on the register screen makes that user an admin and creates
+  the account if new — the only way to create a LOCAL user. **There is no
+  anonymous mode**: every room and the feed require an account, so with no way to
+  log in nobody can join at all, and the server binds to loopback rather than
+  serving an ungated app to the network. Agents authenticate the feed with their
+  owner's token.
+- **Single sign-on is additive, never a replacement** (`server/src/oidc/`). An
+  OpenID Connect provider (Zitadel) is a second way into an account, configured
+  through `PIXEL_OIDC_*`; the admin token stays the break-glass path, because a
+  provider that is down, renamed or misconfigured must not be able to lock every
+  admin out of the world. Five rules hold it together, and each one is a decision
+  rather than a detail:
+  **The subject is the identity.** The account is keyed to the provider's
+  immutable `sub` in `oauth_identities`, never to a username or an email — those
+  are display facts their owner can change, and re-keying on one would either
+  split an identity or merge two. A rename in the directory therefore keeps the
+  same avatar, agent token, zone grants and position. The login id is *derived*
+  (from `preferred_username`) for readability only, and a collision gets a suffix.
+  **Adoption of an existing local account is a stated rule, not an accident.**
+  `PIXEL_OIDC_CLAIM_EXISTING` (on by default) lets a first provider login take
+  over the local account whose login id matches, which is what makes migrating an
+  existing world painless — and it is a real trust statement about the directory,
+  so it is a switch, and an account already linked to another subject is never
+  adopted either way.
+  **Every claim acted on came from the server's own exchange.** The code is
+  redeemed and `userinfo` read by this server, over TLS, against endpoints the
+  issuer's discovery document named on its own origin — which is what lets this
+  work with no OIDC library and no JWT verification (OIDC §3.1.3.7). Nothing a
+  browser carries decides anything: the browser holds an opaque `state`, and the
+  callback additionally requires the cookie set when the flow started, so a
+  callback URL cannot be used to log somebody's browser into this world.
+  **The provider may own roles, but not the last admin.** With
+  `PIXEL_OIDC_ADMIN_ROLE` set the directory grants and revokes admin on every
+  login; revoking the last *usable* admin is refused and logged, because the fix
+  for that mistake would need the very admin panel it just closed.
+  **A provisioned account has no password** (`createProvisionedUser`) rather than
+  a random one — a credential that exists is a credential that can be attacked,
+  and `/login` refuses a row with no hash outright.
+  Flows and desktop pairings live in memory with a TTL, a cap and a delete on use
+  (`oidc/pending.ts`): the desktop app cannot follow a redirect (no cookie jar,
+  and an embedded webview is the wrong place for MFA), so it opens the system
+  browser and polls for a bearer that is handed over exactly once.
 - **Shell scripts are the front door.** Anything a human runs is a `.sh` in
   `scripts/`, and *what* it starts — node, tsx, anything — is the wrapper's
   business, not the caller's. Never put `node --import tsx scripts/….mts` in docs,

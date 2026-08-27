@@ -23,6 +23,14 @@
  *   → on 401 { error }: surface the server error message inline, stay on the screen
  *   → on network/other failure: generic inline error, stay on the screen.
  *
+ * A third way in, when the server offers one: **sign in with the identity provider** (OIDC /
+ * Zitadel). The desktop app cannot follow the browser's redirect flow — it has no cookie jar for
+ * the callback to set, and an embedded webview is the wrong place for MFA or a passkey — so it
+ * pairs instead: ask the server for a URL and a one-time device code, open the URL in the SYSTEM
+ * browser (`window.open`, which the Electron shell turns into `shell.openExternal`), then poll
+ * until the server hands over the bearer. The code and the token travel in the app's own POST
+ * bodies, never in a URL.
+ *
  * Security: the token is handed to the preload IPC (encrypted at rest via
  * safeStorage) and never logged, never placed in error text, and never held in
  * the renderer beyond this exchange. The login id is normalized with the same
@@ -53,6 +61,8 @@ const MISSING_TOKEN_MESSAGE = 'An admin token is required to create an account.'
  *  no OS keychain, `setToken` refuses to write the token in plaintext, so the
  *  sign-in cannot complete. Blaming the connection here (as this path used to)
  *  sends the user off debugging a network that is demonstrably fine. */
+/** The provider flow failed before the browser was even opened. */
+const PROVIDER_START_ERROR = 'Could not start the sign-in — check your connection and try again.';
 const NO_KEYCHAIN_MESSAGE =
   'No system keyring available, so your sign-in cannot be stored securely. ' +
   'On Linux, start a keyring service (gnome-keyring or KWallet) and try again.';
@@ -116,6 +126,14 @@ function ensureStyles(): void {
     #pa-signin .alt button:hover:not(:disabled){background:none;color:#f1efec;}
     #pa-signin .alt button:disabled{opacity:0.5;cursor:not-allowed;}
     #pa-signin .alt .sep{color:#525556;font-size:0.85rem;margin:0 0.2rem;}
+    /* The identity-provider button: the raised "segment-on" surface rather than the primary red,
+       which stays with the form's own submit. */
+    #pa-signin .oauth{width:100%;margin:0 0 0.2rem;cursor:pointer;background:#37342f;color:#f1efec;
+      border:2px solid #0a0908;border-radius:0.45rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;
+      padding:0.65rem;box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-signin .oauth:hover:not(:disabled){background:#413d38;}
+    #pa-signin .or{margin:0.85rem 0 0.1rem;text-align:center;font-size:0.72rem;letter-spacing:1px;
+      text-transform:uppercase;color:#818586;}
     /* Register mode shows the admin token row; sign-in mode hides it outright,
        so a returning user is never asked to decide whether it applies. */
     #pa-signin [hidden]{display:none;}
@@ -128,6 +146,8 @@ type Mode = 'signin' | 'register';
 
 interface SignInElements {
   overlay: HTMLDivElement;
+  oauthBtn: HTMLButtonElement;
+  oauthOr: HTMLDivElement;
   titleEl: HTMLHeadingElement;
   hintEl: HTMLParagraphElement;
   loginInput: HTMLInputElement;
@@ -171,6 +191,19 @@ function buildOverlay(): SignInElements {
 
   const form = document.createElement('form');
   form.noValidate = true;
+
+  // Identity-provider sign-in. Hidden until `/auth/oauth/config` says this server has one — the
+  // server is the authority on whether the button exists at all, and which server that is can
+  // change under us (the "Change server" detour), so it is asked again each time.
+  const oauthBtn = document.createElement('button');
+  oauthBtn.type = 'button';
+  oauthBtn.className = 'oauth';
+  oauthBtn.hidden = true;
+
+  const oauthOr = document.createElement('div');
+  oauthOr.className = 'or';
+  oauthOr.textContent = 'or sign in with a password';
+  oauthOr.hidden = true;
 
   const loginLabel = document.createElement('label');
   loginLabel.htmlFor = 'pa-signin-login';
@@ -255,6 +288,8 @@ function buildOverlay(): SignInElements {
   alt.append(toggleMode, sep, changeServer, sep2, devTools);
 
   form.append(
+    oauthBtn,
+    oauthOr,
     loginLabel,
     loginInput,
     passwordLabel,
@@ -271,6 +306,8 @@ function buildOverlay(): SignInElements {
 
   return {
     overlay,
+    oauthBtn,
+    oauthOr,
     titleEl,
     hintEl,
     loginInput,
@@ -355,6 +392,92 @@ async function requestToken(
   return { token: data.token };
 }
 
+/** What the server says about its identity provider, or null when it has none. */
+interface ProviderInfo {
+  label: string;
+}
+
+/** Ask whether this server offers a provider sign-in. Any failure means "no button": the
+ *  password form is always there, so a probe that cannot be answered must not block sign-in. */
+async function fetchProviderInfo(): Promise<ProviderInfo | null> {
+  try {
+    const res = await fetch(`${getServerHttpOrigin()}/auth/oauth/config`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { enabled?: unknown; label?: unknown };
+    if (data.enabled !== true) return null;
+    return { label: typeof data.label === 'string' && data.label !== '' ? data.label : 'single sign-on' };
+  } catch {
+    return null;
+  }
+}
+
+interface Pairing {
+  authUrl: string;
+  deviceCode: string;
+  intervalSeconds: number;
+  expiresInSeconds: number;
+}
+
+/** Begin a pairing: the server mints the URL to open and the one-time code to collect with. */
+async function startPairing(): Promise<Pairing | { error: string }> {
+  try {
+    const res = await fetch(`${getServerHttpOrigin()}/desktop/oauth/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+      cache: 'no-store',
+    });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      return { error: typeof data?.error === 'string' ? data.error : PROVIDER_START_ERROR };
+    }
+    if (typeof data?.authUrl !== 'string' || typeof data?.deviceCode !== 'string') return { error: PROVIDER_START_ERROR };
+    return {
+      authUrl: data.authUrl,
+      deviceCode: data.deviceCode,
+      intervalSeconds: typeof data.intervalSeconds === 'number' ? data.intervalSeconds : 2,
+      expiresInSeconds: typeof data.expiresInSeconds === 'number' ? data.expiresInSeconds : 600,
+    };
+  } catch {
+    return { error: PROVIDER_START_ERROR };
+  }
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Poll until the server has a session for this pairing.
+ *
+ * 202 means the user is still at the provider; 200 carries the bearer (once — the server
+ * consumes the pairing); 401 is a refusal worth showing (expired, denied, disabled account). A
+ * transport failure is treated as "keep waiting": the browser tab is open and the user is
+ * mid-login, so one failed poll must not throw the sign-in away. `cancelled` is checked between
+ * polls so the Cancel button takes effect without waiting for the deadline.
+ */
+async function awaitPairing(pairing: Pairing, cancelled: () => boolean): Promise<TokenResult | { cancelled: true }> {
+  const intervalMs = Math.max(1000, pairing.intervalSeconds * 1000);
+  const deadline = Date.now() + pairing.expiresInSeconds * 1000;
+  while (Date.now() < deadline) {
+    await sleep(intervalMs);
+    if (cancelled()) return { cancelled: true };
+    try {
+      const res = await fetch(`${getServerHttpOrigin()}/desktop/oauth/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceCode: pairing.deviceCode }),
+        cache: 'no-store',
+      });
+      if (res.status === 202) continue;
+      const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      if (res.ok && typeof data?.token === 'string' && data.token !== '') return { token: data.token };
+      return { error: typeof data?.error === 'string' ? data.error : NETWORK_ERROR_MESSAGE };
+    } catch {
+      continue; // still waiting; see above
+    }
+  }
+  return { error: 'The sign-in took too long — try again.' };
+}
+
 /**
  * Show the desktop sign-in screen and resolve once credentials have been
  * exchanged for a bearer token AND that token has been stored via the preload
@@ -366,8 +489,11 @@ export function showSignInScreen(): Promise<void> {
   return new Promise<void>((resolve) => {
     const el = buildOverlay();
     const { overlay, loginInput, passwordInput, tokenInput, errorEl, submit, changeServer, devTools } = el;
+    const { oauthBtn, oauthOr } = el;
     let mode: Mode = 'signin';
     applyMode(el, mode);
+    /** Set while a provider sign-in is in flight; cleared by Cancel or by its outcome. */
+    let waitingForProvider = false;
 
     const setError = (message: string): void => {
       errorEl.textContent = message;
@@ -382,6 +508,8 @@ export function showSignInScreen(): Promise<void> {
       submit.disabled = loading;
       changeServer.disabled = loading;
       el.toggleMode.disabled = loading;
+      // Left enabled while waiting for the provider: there it IS the Cancel button.
+      oauthBtn.disabled = loading && !waitingForProvider;
       // `devTools` is deliberately left enabled: an in-flight sign-in is exactly
       // when you want to open the console and watch the request.
       if (loading) submit.textContent = mode === 'register' ? 'Creating account…' : 'Signing in…';
@@ -426,9 +554,17 @@ export function showSignInScreen(): Promise<void> {
         loginInput.focus();
         return;
       }
+      if (!(await storeTokenAndFinish(result.token))) loginInput.focus();
+    };
 
+    /**
+     * Store the bearer and leave the screen. Shared by the password exchange and the provider
+     * pairing — both end with a token that has to survive a restart, and the failure they share
+     * is a machine with no keyring. Returns false when the screen stays up.
+     */
+    const storeTokenAndFinish = async (token: string): Promise<boolean> => {
       try {
-        await desktop().setToken(result.token);
+        await desktop().setToken(token);
       } catch {
         // The token exchange already succeeded, so the server and the network are
         // fine — the only way storing it fails is an unavailable keychain. Ask
@@ -442,11 +578,61 @@ export function showSignInScreen(): Promise<void> {
         }
         setLoading(false);
         setError(hasKeychain ? NETWORK_ERROR_MESSAGE : NO_KEYCHAIN_MESSAGE);
-        return;
+        return false;
       }
-
       overlay.remove();
       resolve();
+      return true;
+    };
+
+    /** Show or hide the provider button for whichever server is configured right now. */
+    const refreshProvider = async (): Promise<void> => {
+      const info = await fetchProviderInfo();
+      oauthBtn.hidden = info === null;
+      oauthOr.hidden = info === null;
+      if (info) oauthBtn.textContent = `Sign in with ${info.label}`;
+    };
+
+    /**
+     * The provider sign-in: hand the URL to the SYSTEM browser and wait.
+     *
+     * `window.open` rather than an IPC call of its own — the Electron shell's window-open handler
+     * already routes any http(s) URL to `shell.openExternal` and denies the in-app window, which
+     * is exactly the policy wanted here (an embedded webview is the wrong place for MFA).
+     * Clicking the button again while waiting cancels; the pairing then simply expires server-side.
+     */
+    const providerFlow = async (): Promise<void> => {
+      clearError();
+      const started = await startPairing();
+      if ('error' in started) {
+        setError(started.error);
+        return;
+      }
+      waitingForProvider = true;
+      setLoading(true);
+      oauthBtn.textContent = 'Cancel — waiting for your browser…';
+      window.open(started.authUrl, '_blank', 'noopener,noreferrer');
+
+      const outcome = await awaitPairing(started, () => !waitingForProvider);
+      const wasWaiting = waitingForProvider;
+      waitingForProvider = false;
+      setLoading(false);
+      void refreshProvider(); // restores the button's label
+      if (!wasWaiting || 'cancelled' in outcome) return;
+      if ('error' in outcome) {
+        setError(outcome.error);
+        return;
+      }
+      await storeTokenAndFinish(outcome.token);
+    };
+
+    oauthBtn.onclick = () => {
+      if (waitingForProvider) {
+        // Cancel: stop polling, put the screen back the way it was.
+        waitingForProvider = false;
+        return;
+      }
+      void providerFlow();
     };
 
     // "Change server": detour back to the connection screen (prefilled with the
@@ -461,6 +647,7 @@ export function showSignInScreen(): Promise<void> {
       // whichever origin the connection screen settled on.
       setLoading(false);
       document.body.appendChild(overlay);
+      void refreshProvider(); // a different server may offer a different provider, or none
       loginInput.focus();
     };
     changeServer.onclick = () => void changeServerFlow();
@@ -474,6 +661,7 @@ export function showSignInScreen(): Promise<void> {
     }
 
     document.body.appendChild(overlay);
+    void refreshProvider();
     // Empty state (fresh sign-in): blank inputs, login id focused.
     loginInput.focus();
   });

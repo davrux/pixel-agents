@@ -214,6 +214,16 @@ const PUBLIC_ROUTES = new Map([
   ['GET /logout', 'drops the session it was sent with; nothing to authorize'],
   ['POST /desktop/token', 'same credentials as /login, issues the bearer (throttled)'],
   ['POST /desktop/signout', 'revokes the presented bearer; idempotent by design'],
+  // OIDC login (oidc/routes.ts). All five are on the way IN, so none of them can have a session
+  // to check — what each authorizes on instead:
+  ['GET /auth/oauth/config', 'says only whether a provider button exists and what it is called'],
+  ['GET /auth/oauth/start', 'mints a state + PKCE verifier and redirects; hands out nothing'],
+  [
+    'GET /auth/oauth/callback',
+    'the credential check itself — a code the provider issued for a state this server made, plus the matching cookie',
+  ],
+  ['POST /desktop/oauth/start', 'begins a desktop pairing; the device code is worthless until a login completes'],
+  ['POST /desktop/oauth/token', 'the device code IS the credential, consumed on success (one-shot)'],
   ['GET /meet/:slug', 'the invite landing page — a guest has no account yet'],
   ['GET /meet/:slug/info', 'says only whether the slug exists and needs a password'],
   ['GET /assets/tiled/sets.json', 'the tileset table; art is served openly (see the asset exemption)'],

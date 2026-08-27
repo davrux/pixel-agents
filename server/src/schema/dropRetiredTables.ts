@@ -53,6 +53,7 @@ export const LIVE_TABLES: readonly string[] = [
   'layouts',
   'meeting_rooms',
   'meta',
+  'oauth_identities',
   'player_pos',
   'sessions',
   'settings',

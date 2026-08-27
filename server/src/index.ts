@@ -47,6 +47,8 @@ import { gridSheets, loadTiledRegistry } from './tiled/tiledRegistry.js';
 import { initAssetDefaults } from './assetOverrides.js';
 import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
+import { oidcConfig } from './oidc/config.js';
+import { registerOidcAuth } from './oidc/routes.js';
 import { registerAdminApi } from './adminApi.js';
 import { registerArtApi } from './artApi.js';
 import { registerArtSaveApi } from './artSaveApi.js';
@@ -85,6 +87,12 @@ const HOST = process.env.PIXEL_STREAM_HOST?.trim() || '0.0.0.0';
 // therefore no way in — the server says so and binds to loopback (see below).
 // Agents authenticate the feed with their own per-user token, not this one.
 const ADMIN_TOKEN = arg('--token', process.env.PIXEL_ADMIN_TOKEN ?? '').trim() || null;
+// The second way in: an OpenID Connect provider (Zitadel), configured through PIXEL_OIDC_*
+// (see oidc/config.ts). Either one is enough to have logins — and therefore enough to install the
+// session gate, which is what makes it safe to serve beyond loopback. The admin token remains the
+// only way to create a LOCAL account and the break-glass path when the provider is unavailable.
+const OIDC = oidcConfig();
+const LOGIN_ENABLED = ADMIN_TOKEN !== null || OIDC !== null;
 const MOCK = Number(process.env.MOCK ?? 0);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -100,7 +108,17 @@ const clientDist = process.env.PIXEL_STREAM_CLIENT_DIR?.trim() || resolve(__dirn
 // requests (no Origin header) pass through untouched. Kept separate from the
 // open `cors()` so a future tightening of the base policy leaves this contract
 // intact.
-const DESKTOP_CORS_PATHS = new Set(['/desktop/token', '/desktop/signout', '/health']);
+// `/auth/oauth/config` is here too: the desktop app asks — before it has any session, from its
+// own app:// origin — whether this server offers a provider button and what to call it. It answers
+// two harmless fields (see oidc/routes.ts) and, like the rest of this set, without credentials.
+const DESKTOP_CORS_PATHS = new Set([
+  '/desktop/token',
+  '/desktop/signout',
+  '/desktop/oauth/start',
+  '/desktop/oauth/token',
+  '/auth/oauth/config',
+  '/health',
+]);
 
 export function desktopCors(): RequestHandler {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -221,7 +239,7 @@ async function main(): Promise<void> {
   // Registered before registerAuth installs its gate, so it has to check the
   // session itself rather than inherit the gate.
   app.get('/mumble/config', (req, res) => {
-    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+    if (LOGIN_ENABLED && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
       return void res.status(401).json({ error: 'unauthorized' });
     }
     res.json({
@@ -239,7 +257,7 @@ async function main(): Promise<void> {
   // message. Same shape and same reasoning as /mumble/config above, including
   // checking the session itself since it is registered before the gate.
   app.get('/timetracking/config', (req, res) => {
-    if (ADMIN_TOKEN && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
+    if (LOGIN_ENABLED && !hasValidSession(req.headers.cookie) && !hasValidBearerSession(req.headers.authorization)) {
       return void res.status(401).json({ error: 'unauthorized' });
     }
     res.json({ baseUrl: process.env.TIMETRACKING_URL?.trim() || null });
@@ -250,8 +268,8 @@ async function main(): Promise<void> {
   // login gate, same as /arcade/catalog above.
   registerMeetingRoomApi(app, clientDist);
 
-  // Login + cookie-session gate (only when an admin token is configured).
-  if (ADMIN_TOKEN) {
+  // Login + cookie-session gate (whenever there is any way to log in at all).
+  if (LOGIN_ENABLED) {
     // Before the login gate on purpose: that gate answers 401 to any GET without
     // a browser SESSION, and a push authenticates with the admin token instead
     // (it has no session and should not need one). These routes check that token
@@ -260,10 +278,24 @@ async function main(): Promise<void> {
     // Zone maps arrive this way and no other: the deploy server has no
     // zones/*.tmj of its own, since they are gitignored and so ride along with
     // no release. See also scripts/push-zones.mts.
-    registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
+    if (ADMIN_TOKEN) registerZonePushApi(app, ADMIN_TOKEN, ASSETS_ROOT);
+    // Before registerAuth, on purpose: the OIDC routes are how a caller with no session gets one,
+    // so they must sit ahead of the gate registerAuth installs (same as /meet/:slug above). Each
+    // one authorizes itself — see oidc/routes.ts.
+    registerOidcAuth(app);
     registerAuth(app, ADMIN_TOKEN);
     registerAdminApi(app); // admin-only user/room management REST API (in-game admin overlay)
-    console.log('[server] login required (--token / PIXEL_ADMIN_TOKEN set)');
+    console.log(
+      `[server] login required (${[ADMIN_TOKEN ? '--token / PIXEL_ADMIN_TOKEN set' : null, OIDC ? `OIDC: ${OIDC.issuer}` : null]
+        .filter(Boolean)
+        .join(', ')})`,
+    );
+    if (OIDC) {
+      console.log(
+        `[server] OIDC login enabled as "${OIDC.label}" (client ${OIDC.clientId}, redirect ${OIDC.redirectUri}` +
+          `${OIDC.adminRole ? `, admin role "${OIDC.adminRole}"` : ', roles not mapped'})`,
+      );
+    }
   }
   // Character/NPC/avatar art as PNG. AFTER registerAuth on purpose: it carries no
   // file extension, so the session gate covers it — which is the whole point, since
@@ -379,18 +411,23 @@ async function main(): Promise<void> {
   // One room type, matchmade per zone: joinOrCreate({ zone }) groups players into
   // the same instance for a zone and a separate instance per other zone.
   // No visitors anywhere: every room + the feed require a logged-in account (a valid
-  // session cookie / bearer). Login is served by registerAuth, which needs an admin
-  // token to be configured — without one nobody can join (there is no anonymous mode).
-  if (!ADMIN_TOKEN) console.warn('[server] NO PIXEL_ADMIN_TOKEN set → login is unavailable and NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN.');
+  // session cookie / bearer). Login is served by registerAuth and, when configured, the OIDC
+  // routes — with neither an admin token nor a provider nobody can join (no anonymous mode).
+  if (!LOGIN_ENABLED) {
+    console.warn(
+      '[server] NO login configured → NOBODY can join (no-visitor policy). Set --token / PIXEL_ADMIN_TOKEN, ' +
+        'or configure an OIDC provider (PIXEL_OIDC_ISSUER / _CLIENT_ID / _REDIRECT_URI).',
+    );
+  }
   gameServer.define(WORLD_ROOM, SimRoom, { authRequired: true, version }).filterBy(['zone']);
 
-  // Fail safe: with no admin token there is no login and no gate — the whole HTTP
-  // surface would be public. Refuse to expose that beyond loopback (a forgotten
-  // PIXEL_ADMIN_TOKEN in production must not silently open the app to the network).
+  // Fail safe: with no way to log in there is no gate either — the whole HTTP surface
+  // would be public. Refuse to expose that beyond loopback (a forgotten PIXEL_ADMIN_TOKEN
+  // or a half-configured provider in production must not silently open the app to the network).
   const isLoopback = (h: string): boolean => h === '127.0.0.1' || h === 'localhost' || h === '::1';
-  const bindHost = ADMIN_TOKEN || isLoopback(HOST) ? HOST : '127.0.0.1';
-  if (!ADMIN_TOKEN && bindHost !== HOST) {
-    console.warn(`[server] SECURITY: no PIXEL_ADMIN_TOKEN → no login/gate; binding to 127.0.0.1 instead of ${HOST} so the open app is not network-reachable. Set a token to serve publicly.`);
+  const bindHost = LOGIN_ENABLED || isLoopback(HOST) ? HOST : '127.0.0.1';
+  if (!LOGIN_ENABLED && bindHost !== HOST) {
+    console.warn(`[server] SECURITY: no login configured → no gate; binding to 127.0.0.1 instead of ${HOST} so the open app is not network-reachable. Set an admin token or an OIDC provider to serve publicly.`);
   }
 
   // Colyseus 0.17 binds the /matchmake/* HTTP routes and publishes the global

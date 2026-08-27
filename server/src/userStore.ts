@@ -162,6 +162,29 @@ class UserStore {
     return this.toUser(this.row(id)!);
   }
 
+  /**
+   * Create an account that has NO password, for a user provisioned by an identity provider
+   * (see `oidc/provision.ts`).
+   *
+   * Deliberately not `createUser` with a random password: a row with no `pw_hash` cannot be
+   * signed into with `/login` at all (`verifyHash(null, …)` is false), so the provider stays the
+   * only way in for that account — where a random password would be a credential that exists,
+   * is never rotated, and would start working the moment somebody guessed the hash format wrong.
+   * A password can still be set later (`setPassword`) if an admin wants a local fallback.
+   */
+  createProvisionedUser(loginId: string, opts: { role?: Role; username?: string } = {}): User {
+    const id = normalizeLoginId(loginId);
+    if (!id) throw new Error('invalid login id');
+    if (this.row(id)) throw new Error('user exists');
+    const role: Role = opts.role ?? 'user';
+    const token = crypto.randomBytes(24).toString('base64url');
+    this.db
+      .prepare('INSERT INTO users(user_id, username, pw_hash, pw_algo, is_admin, role, agent_token, created_at) VALUES(?,?,?,?,?,?,?,?)')
+      .run(id, null, null, null, role === 'admin' ? 1 : 0, role, token, Date.now());
+    if (opts.username) this.setUsername(id, opts.username);
+    return this.toUser(this.row(id)!);
+  }
+
   verifyPassword(loginId: string, password: string): boolean {
     const r = this.row(normalizeLoginId(loginId));
     return r ? verifyHash(r.pw_hash, password) : false;

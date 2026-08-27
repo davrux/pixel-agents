@@ -42,6 +42,7 @@ const { userStore } = await import('./userStore.js');
 const { ZoneStore } = await import('./zoneStore.js');
 const { meetingRoomStore } = await import('./meetingRoomStore.js');
 const { arcadeSaves } = await import('./arcadeSaveStore.js');
+const { oauthIdentityStore } = await import('./oidc/identityStore.js');
 const { PREF_KINDS, USER_CHILD_TABLES } = await import('./schema/tables.js');
 const { DEFAULT_ZONE } = await import('@pixel/shared');
 const { Direction } = await import('@pixel/shared/office/types.js');
@@ -135,6 +136,7 @@ test('deleting an account leaves nothing of it behind, in any table', () => {
   zones.setZoneAdmin(DEFAULT_ZONE, id, true);
   zones.aclAdd(DEFAULT_ZONE, id);
   meetingRoomStore.create(id, 60_000, { label: 'Mine' });
+  oauthIdentityStore.link('oidc', `subject-of-${id}`, id);
   // And one for the bystander, so this proves a DELETE aimed at one account, not a truncate.
   appStore.setCharPref(other, 'char_4');
   const bystanderSession = appStore.createSession(other);
@@ -169,6 +171,12 @@ test('deleting an account leaves nothing of it behind, in any table', () => {
   assert.equal(zones.listAcl(DEFAULT_ZONE).includes(id), false);
   assert.equal(meetingRoomStore.listByOwner(id).length, 0, 'the room outlived its owner');
   assert.equal(arcadeSaves.get(id, 'doom'), null);
+
+  assert.equal(
+    oauthIdentityStore.userIdFor('oidc', `subject-of-${id}`),
+    undefined,
+    'a provider link outliving its account would sign the next holder of that subject into a ghost',
+  );
 
   // The bystander is untouched.
   assert.equal(appStore.getCharPref(other), 'char_4');
