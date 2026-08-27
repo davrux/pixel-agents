@@ -78,6 +78,28 @@ interacting?"
     decodes the new state into nonsense silently; with it, the client offers the
     update instead (`client/src/ui/versionGate.ts`). Gate on that number, never on the build version:
     `git describe` changes with every commit and would cry wolf in development.
+    **The app's name and its `userData` directory are set explicitly and
+    separately** (`desktop/src/appPaths.ts`, `userDataDir.ts`), before
+    `requestSingleInstanceLock()` — which keys the lock off `userData`. Both
+    defaults were wrong: `app.getName()` fell through to the package name
+    `@pixel/desktop`, so the slash became a path separator and per-user state
+    landed in a nested `~/.config/@pixel/desktop/`, while the tray item's D-Bus
+    `Id` went out as `@pixel/desktop_status_icon_1`. The directory name is a
+    constant and deliberately NOT derived from the display name: `userData` holds
+    the bearer token and the trusted-cert store, so a path that follows the app's
+    name logs every user out the day somebody renames the app. Rename freely;
+    leave `DATA_DIR` alone. The one-time move of the old directory is tested
+    (`userDataDir.test.ts`) because its one unacceptable outcome is pointing at an
+    empty directory while the real state sits next door.
+    **A tray icon is never a way back that can be relied on.** `new Tray()`
+    succeeds on Linux with nothing to draw it, so it reports an availability it
+    cannot know; `probeTrayHost()` asks the session bus and is the most that can
+    be established, and even a host that accepts the item may discard it (vanilla
+    GNOME draws no tray at all, and with the appindicator extension Chromium
+    answering `Get` on `IconName` with an error makes the extension drop the
+    item). So close-to-tray stays opt-in from the tray menu, off by default, and
+    forced off whenever the bus says outright that nothing is listening — and a
+    second launch stays a way back to a hidden window.
 
 ## Security
 

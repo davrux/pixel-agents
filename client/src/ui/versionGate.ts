@@ -23,6 +23,24 @@
  * What it can NOT do: warn builds that shipped before it existed. A client too old to
  * know about `protocol` also cannot be told about it — the gate covers every break
  * from here on, not the one that introduced it.
+ *
+ * **A mismatch has a direction, and only one direction is this app's problem.** The
+ * first version compared the two numbers for inequality and offered "Update" either
+ * way, which is wrong half the time: when the SERVER is the older side, this build is
+ * already the newest one that exists, no package is published that would change the
+ * number, and clicking could only ever report "no newer package published yet". That
+ * is the reported symptom — a chip that appears after a reconnect (a reconnect follows
+ * a server restart, i.e. a deploy) with no update behind it. So `standing` records
+ * which side is behind, and the chip only offers an update when the answer is "this
+ * one". In the BROWSER both directions still resolve by reloading: the bundle comes
+ * from the server being talked to, so a tab ahead of its server is a cached bundle
+ * from a newer deployment and a reload fetches the matching one.
+ *
+ * **And the chip does not promise an action it has not checked.** Where this build is
+ * the older side and can self-update, the feed is asked once, quietly, before the
+ * label says "Update" — because a protocol bump lands in a deployment well before an
+ * AppImage is published for it, and during that window "Update" is a button that
+ * cannot do what it says.
  */
 import { isDesktop, reloadApp, updatesApi } from '../desktop/bridge';
 
@@ -32,6 +50,25 @@ let label: HTMLElement | null = null;
 /** Why this build is out of step, or null while it still matches. Kept even when
  *  no chip exists yet: the mismatch can be detected before the bar is built. */
 let reason: string | null = null;
+
+/**
+ * Which side is the older one — the whole point being that they are not the same
+ * problem.
+ *  - `behind` — this build is older than the server. Updating it is the fix.
+ *  - `ahead`  — the SERVER is older. Nothing this app can install changes that; the
+ *               deployment is what needs updating.
+ *  - `unknown` — the numbers agreed (or the server sent none) and the world arrived
+ *               undecodable anyway, so there is nothing to compare. Treated like
+ *               `behind`: a wire change that shipped without its bump is far more
+ *               likely to be a new server than an old one.
+ */
+type Standing = 'behind' | 'ahead' | 'unknown';
+let standing: Standing = 'unknown';
+
+/** Whether the update feed actually offers a newer package, once asked. Only ever
+ *  set for a `behind` desktop build — the one case where the answer changes what the
+ *  chip should say. `null` = not asked / not applicable. */
+let feedHasBuild: boolean | null = null;
 
 /**
  * Build the (hidden) top-bar chip. The caller decides where in the bar it sits;
@@ -51,7 +88,7 @@ export function createUpdateIndicator(): HTMLButtonElement {
   b.onclick = () => void onClick();
   chip = b;
   label = text;
-  if (reason) paint(reason); // the mismatch landed before the bar existed
+  if (reason) paint(); // the mismatch landed before the bar existed
   return b;
 }
 
@@ -69,6 +106,10 @@ export function checkProtocol(serverProtocol: unknown, ownProtocol: number, serv
   flag(
     `protocol: server ${serverProtocol}, this build ${ownProtocol}` +
       (serverVersion ? ` · server ${serverVersion}` : ''),
+    // In the browser the bundle comes from this very server, so whichever number is
+    // higher the resolution is the same reload — never tell a tab its server is at
+    // fault for what a reload fixes.
+    !isDesktop() || serverProtocol > ownProtocol ? 'behind' : 'ahead',
   );
 }
 
@@ -83,22 +124,89 @@ export function checkProtocol(serverProtocol: unknown, ownProtocol: number, serv
  */
 export function reportStateMismatch(what: string): void {
   if (reason) return;
-  flag(`undecodable state: ${what}`);
+  flag(`undecodable state: ${what}`, 'unknown');
 }
 
-function flag(detail: string): void {
+function flag(detail: string, which: Standing): void {
   reason = detail;
-  paint(detail);
+  standing = which;
+  paint();
+  // Only worth asking where the answer changes the label: a desktop build that is
+  // the older side and could install something. One request, on a mismatch that has
+  // already happened — not per join.
+  if (which !== 'ahead') void askFeed();
 }
 
-function paint(detail: string): void {
-  if (!chip) return;
+/**
+ * Ask the update feed, once, whether a newer package exists — so "Update" is only
+ * offered when there is something to install. Silent by design: a failed or
+ * unsupported check leaves the chip offering the update, whose click path already
+ * explains itself, which is better than hiding a real incompatibility behind a
+ * network error.
+ */
+async function askFeed(): Promise<void> {
+  if (!isDesktop() || feedHasBuild !== null) return;
+  const api = updatesApi();
+  if (!api) return; // pre-updater build; its click says so
+  try {
+    const found = await api.check();
+    if (found.status !== 'available' && found.status !== 'none') return;
+    feedHasBuild = found.status === 'available';
+    paint();
+  } catch {
+    // Leave the chip as it is; see above.
+  }
+}
+
+/** True when clicking can actually resolve the mismatch. */
+function actionable(): boolean {
+  return standing !== 'ahead' && feedHasBuild !== false;
+}
+
+function paint(): void {
+  if (!chip || !label) return;
   chip.style.display = '';
-  chip.title = isDesktop()
-    ? `This app and the server speak different protocol versions (${detail}). Characters and ` +
-      'furniture may be drawn wrongly — click to update and restart.'
-    : `This tab is running a different build than the server (${detail}), usually a cached ` +
+  // An update run owns the label while it lasts ('Checking…', a percentage,
+  // 'Restarting…'). A feed answer arriving late must not overwrite that; `fail`
+  // and the relaunch are what end it.
+  if (updating) return;
+  const detail = reason ?? '';
+
+  if (!isDesktop()) {
+    label.textContent = 'Update';
+    chip.title =
+      `This tab is running a different build than the server (${detail}), usually a cached ` +
       'one. Click to reload.';
+    return;
+  }
+
+  if (standing === 'ahead') {
+    // Nothing to install: this build is already newer than what it is talking to.
+    // Say which side is behind, because "Update" here sends someone looking for a
+    // release that does not exist.
+    label.textContent = 'Server old';
+    chip.title =
+      `The server is running an older protocol than this app (${detail}). Characters and ` +
+      'furniture may be drawn wrongly. This app is already the newer build — the server ' +
+      'is what needs updating, so there is nothing to install here.';
+    return;
+  }
+
+  if (feedHasBuild === false) {
+    // The mismatch is real, but the matching build has not been published yet — the
+    // window between deploying a server and releasing the app.
+    label.textContent = 'Mismatch';
+    chip.title =
+      `This app and the server speak different protocol versions (${detail}). Characters and ` +
+      'furniture may be drawn wrongly. No newer app package is published yet, so there is ' +
+      'nothing to install — click to check again.';
+    return;
+  }
+
+  label.textContent = 'Update';
+  chip.title =
+    `This app and the server speak different protocol versions (${detail}). Characters and ` +
+    'furniture may be drawn wrongly — click to update and restart.';
 }
 
 /** True while an update run is in flight — a second click must not start a
@@ -116,13 +224,19 @@ async function onClick(): Promise<void> {
     reloadApp();
     return;
   }
+  // The server is the older side: there is no package that would fix this, and the
+  // tooltip already says who has to act. Better an inert chip than one that goes
+  // looking for a release nobody published.
+  if (standing === 'ahead') return;
   if (updating || !chip || !label) return;
   updating = true;
   chip.disabled = true;
 
   const fail = (message: string): void => {
     if (!chip || !label) return;
-    label.textContent = 'Update';
+    // Not always "Update": once the feed has said it holds nothing newer, the label
+    // must stop offering one (see paint).
+    label.textContent = actionable() ? 'Update' : 'Mismatch';
     chip.title = `${message} — click to try again.`;
     chip.disabled = false;
     updating = false;
@@ -146,9 +260,12 @@ async function onClick(): Promise<void> {
     if (found.status === 'error') return fail(`Update check failed: ${found.error}`);
     if (found.status === 'none') {
       // The feed has nothing newer although the protocol mismatches — a build
-      // for the new protocol simply is not published yet.
+      // for the new protocol simply is not published yet. Remembered, so the chip
+      // stops advertising an update it has now been told does not exist.
+      feedHasBuild = false;
       return fail(`No newer package published yet (the feed offers ${found.version})`);
     }
+    feedHasBuild = true;
     label.textContent = 'Downloading…';
     const dl = await api.download();
     if (!dl.ok) return fail(`Download failed: ${dl.error ?? 'unknown error'}`);
