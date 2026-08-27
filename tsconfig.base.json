@@ -11,6 +11,12 @@
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "forceConsistentCasingInFileNames": true,
+    // An unused import or local is how dead code stays invisible: a function loses its last
+    // caller, the import that named it stays, and every later "is this still used?" search finds
+    // the import and answers yes. Set 2026-08-27 after an audit whose false alarms were all of
+    // that shape. Deliberately not `noUnusedParameters`: a callback that ignores an early
+    // argument has to name it, and `_`-prefixing every one of those is noise, not information.
+    "noUnusedLocals": true,
     "sourceMap": true
   }
 }

@@ -10,8 +10,6 @@ import {
   FLOOR_TILE_H,
   FLOOR_TILE_W,
   setSheetGrids,
-  FLOOR_TILE_SPACING,
-  WALL_TILE_SPACING,
 } from '@pixel/shared/office/tiledSheetLayout.js';
 
 import { serverFetch, serverHttpOrigin } from './room.js';
@@ -112,10 +110,6 @@ export interface LoadedSheet {
    *  sheet this is (see SheetCellRef). */
   tileW: number;
   tileH: number;
-}
-
-function hex2(n: number): string {
-  return n.toString(16).padStart(2, '0');
 }
 
 /** Fetch a PNG (not an <img> src) so decoding never taints the canvas

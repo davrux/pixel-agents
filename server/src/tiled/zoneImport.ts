@@ -8,13 +8,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { appStore } from '../appStore.js';
 import { ZoneMapStore } from '../zoneMapStore.js';
 import { ZoneStore } from '../zoneStore.js';
-import { controlBus, ZONE_LAYOUT_CHANGED_EVENT } from '../controlBus.js';
 import { sanitizeLayoutTexts, sanitizeLayoutImages, sanitizeLayoutActions } from '../layoutSanitize.js';
 import { importTmjToLayout } from './mapBridge.js';
-import { loadTiledRegistry, type TiledRegistry } from './tiledRegistry.js';
+import { type TiledRegistry } from './tiledRegistry.js';
 import { serializeLayout, deserializeLayout } from '@pixel/shared/office/layout/layoutSerializer.js';
 
 /** Directory this .tmj lives in ends up being `assets/tiled/zones` in every

@@ -118,10 +118,6 @@ export class MatrixUI {
    *  failure ('locked-out' / 'wipe-pending') so renderTopStrip can notice a
    *  transition without re-running the whole navigation stack every tick. */
   private bootGateActive = false;
-  /** Once a sign-out reports databases it could not delete, the warning
-   *  banner stays up for the rest of this session — it is explicitly
-   *  non-dismissable (design doc §2.4/9). */
-  private wipeWarnShown = false;
   private lastEncryptedState = new Map<string, boolean>();
 
   // ---- status strip ----
@@ -483,8 +479,11 @@ export class MatrixUI {
       this.loginErrEl.textContent = 'Your Matrix session expired — sign in again.';
       this.loginErrEl.style.display = '';
     }
+    // Once a sign-out reports databases it could not delete, the banner goes up and nothing
+    // takes it down again for the rest of the session — it is explicitly non-dismissable
+    // (design doc §2.4/9). A `wipeWarnShown` flag used to be set here as well and was read by
+    // nothing; the element's own visibility is what makes it sticky.
     if (!soft && store && store.lastWipeFailed.length > 0) {
-      this.wipeWarnShown = true;
       this.wipeWarnEl.style.display = '';
     }
     this.renderCurrent();
@@ -3143,7 +3142,7 @@ export class MatrixUI {
    *  re-enter the loader on every sync tick, so the identity+picture pair is
    *  stamped on the slot and an unchanged pair is left alone. */
   private paintAvatarSlot(slot: HTMLElement, seed: string, label: string, mxc: string | null): void {
-    const key = `${seed} ${label} ${mxc ?? ''}`;
+    const key = `${seed}\0${label}\0${mxc ?? ''}`;
     if (slot.dataset.avKey === key) return;
     slot.dataset.avKey = key;
     slot.replaceChildren(mkAvatar(seed, label, this.picture(mxc)));

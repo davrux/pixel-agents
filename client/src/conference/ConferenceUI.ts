@@ -301,8 +301,6 @@ export class ConferenceUI {
   private filter: VideoFilterId = 'none';
   private handlers: ConferenceUIHandlers | null = null;
   private readonly partRows = new Map<string, PartRow>();
-  private devices: ConferenceDevices = { cameras: [], mics: [], speakers: [] };
-  private state: ConferenceState = { connected: false, camOn: true, micOn: true, screenOn: false };
   /** The tile currently filling the stage (null → grid layout). */
   private focused: HTMLElement | null = null;
   /** Where the focused tile sat in the stage, so unfocusing puts it back there. */
@@ -770,7 +768,6 @@ export class ConferenceUI {
   }
 
   setState(s: ConferenceState): void {
-    this.state = s;
     this.statusEl.textContent = s.error ? s.error : s.connected ? '● live' : '… connecting';
     this.statusEl.classList.toggle('err', !!s.error);
     // Only the icon and the label change — never the button's box, so the row
@@ -788,7 +785,6 @@ export class ConferenceUI {
   }
 
   setDevices(d: ConferenceDevices): void {
-    this.devices = d;
     const pick = (icon: string, list: MediaDeviceInfo[], active: string | undefined, on: (id: string) => void): HTMLElement | null => {
       if (list.length < 2) return null;
       const wrap = document.createElement('label');

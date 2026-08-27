@@ -248,6 +248,25 @@ check asks: is the release present in the code that acquires?
 
 ### Code
 
+- **`noUnusedLocals` is on, and it is a dead-code check, not a style rule.** An
+  unused import is how dead code hides: a function loses its last caller, the import
+  naming it stays, and every later "is this still used?" search finds the import and
+  answers yes. Set 2026-08-27; the first run found 54 places, among them a whole
+  unused table (`zone_meta` plus the two private methods that were its only callers),
+  a write-only copy of the furniture catalog kept "for the editors" after the
+  furniture editor was gone, and a documented pet-spawn rule that existed only as two
+  constants and a comment. It also caught me deleting a field that was in use.
+  `noUnusedParameters` is deliberately NOT on: a callback that ignores an early
+  argument still has to name it, and `_`-prefixing every one of those is noise.
+- **Never put a raw control character in a source file — write the escape.** A NUL
+  used as a cache-key separator (`` `${a}\0${b}` ``) is a good idiom, but written as
+  an actual 0x00 byte it makes GNU grep treat the whole file as binary, and every
+  grep-based check then walks past it in silence — `mmo-readiness`'s security and
+  memory rules included, since they are greps. Two client files had this (measured
+  2026-08-27: `MatrixUI.ts` and `timeline.ts`, two bytes each) and searching them for
+  a symbol they contained returned nothing at all, which is exactly the failure mode
+  a check cannot report. `\0` in the source is the same character to the engine and
+  visible to everything else.
 - **Decorator gotcha:** `@colyseus/schema` needs `experimentalDecorators` +
   `useDefineForClassFields: false`, and `tsconfig` maps `@pixel/shared/office/*`
   to source so tsx applies decorators correctly. Don't "fix" these into a bundle.
@@ -695,6 +714,21 @@ background only.)
   business touching the world a developer is standing in, least of all one that runs a migration
   on import and honours `PIXEL_RESET_WORLD`. A file that wants its own directory still sets it
   itself; `dbIsolation.int.test.ts` asserts both halves and fails without the setup.
+- **Fourteen tables in an old database belong to nothing.** `voxel_*` (eight),
+  `portals`, `dm_keys`, `dm_messages`, `monitor_locks`, `arcade_wads` and
+  `zone_customers` are referenced by **no file of any type** in this repo, and — the
+  fact that settles what they are — **no code creates them**: the 14 tables the
+  stores create are the live set, and these came in with a database adopted from the
+  pre-fork layout (`migrateFromSplitDbs`, `dataBootstrap`). A fresh deployment has
+  none of them, so they are not a schema to maintain; they are data in somebody's
+  volume. Two hold personal data (`dm_messages` is private message ciphertext,
+  `dm_keys` the device keys), which is the reason to decide about them rather than
+  leave them: nothing deletes a row when the account goes, because nothing knows they
+  are there. Dropping them is a `VACUUM INTO` backup and a `DROP TABLE` — a data
+  decision, deliberately not automated, since a boot with nobody watching must not
+  drop tables it cannot read. `zone_meta` joined the list from the other direction:
+  its only callers were two private methods nobody called, so the CREATE went with
+  them (2026-08-27).
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting

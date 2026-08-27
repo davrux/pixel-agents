@@ -274,7 +274,6 @@ export class CharacterEditor {
   private charIndex = 0;
   /** Stable id of the entity being edited (e.g. `char_3`); the asset name on save. */
   private charId = 'char_0';
-  private isNew = false;
   private dir: Dir = 'down';
   private frame = 0;
   private color = '#e0b48c';
@@ -806,7 +805,6 @@ export class CharacterEditor {
     if (tpl.length === 0) return;
     this.charIndex = Math.max(0, Math.min(index, tpl.length - 1));
     this.charId = tpl[this.charIndex].id;
-    this.isNew = false;
     this.work = cloneChar(tpl[this.charIndex].data);
     this.afterLoad();
   }
@@ -823,7 +821,6 @@ export class CharacterEditor {
     const tpl = this.cat().getTemplates() ?? [];
     this.charIndex = tpl.length;
     this.charId = this.cat().newId(tpl.map((t) => t.id));
-    this.isNew = true;
     if (srcIndex !== null && tpl[srcIndex]) {
       this.work = cloneChar(tpl[srcIndex].data);
     } else {
@@ -1212,18 +1209,14 @@ export class CharacterEditor {
       }
       this.dirty = false;
       this.showStatus(`Saved ${this.displayName()} ✓`);
-      // After the broadcast lands, a new char becomes a normal (existing) entry.
-      window.setTimeout(() => {
-        this.isNew = false;
-        this.loadCharById(id);
-      }, 250);
+      // After the broadcast lands, reload the entry as a normal (existing) one.
+      window.setTimeout(() => this.loadCharById(id), 250);
     })();
   }
 
   /** Download a PNG sheet (down/up/right rows × frames, 16×32) for the repo.
    *  Left is mirrored from right on load, so it isn't part of the file. */
   private doExport(): void {
-    const frames = this.baseLen();
     // Four rows: the sheet IS the art, so it carries every side. Left is filled from a
     // mirrored right when it was never painted, once, here — not on every load.
     this.ensureLeft();

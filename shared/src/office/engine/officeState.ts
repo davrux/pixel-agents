@@ -22,7 +22,6 @@ import { isPlayerAvatarSkin } from '../../protocol.js';
 import {
   animationFrameAt,
   effectiveAction,
-  getCatalogEntry,
   isClickAction,
   resolveOnState,
   resolveBackgroundTiles,
@@ -67,7 +66,6 @@ import type {
   PetKind,
   PlacedFurniture,
   PlayerSpot,
-  TileType as TileTypeVal,
   GroundMap,
 } from '../types.js';
 import {

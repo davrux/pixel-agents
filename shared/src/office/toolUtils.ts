@@ -1,5 +1,3 @@
-import { ZOOM_DEFAULT_DPR_FACTOR, ZOOM_MIN } from './constants.js';
-
 /** Map status prefixes back to tool names for animation selection */
 const STATUS_TO_TOOL: Record<string, string> = {
   Reading: 'Read',

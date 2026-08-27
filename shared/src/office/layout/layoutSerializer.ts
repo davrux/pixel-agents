@@ -4,7 +4,6 @@ import type {
   OfficeLayout,
   PlacedDecal,
   PlacedFurniture,
-  TileType as TileTypeVal,
   GroundMap,
 } from '../types.js';
 import { DECAL_DEPTH, DEFAULT_COLS, DEFAULT_ROWS, Direction, TILE_SIZE, TileType, WALK_OVER_DEPTH } from '../types.js';

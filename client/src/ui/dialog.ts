@@ -7,12 +7,6 @@
  * too, not just the 2D scene.
  */
 import { generatePassword } from '../shared/generatePassword.js';
-import {
-  TEXT_LABEL_FONT_CHOICES,
-  TEXT_LABEL_MIN_FONT_SIZE,
-  TEXT_LABEL_MAX_FONT_SIZE,
-  clampTextLabelFontSize,
-} from '@pixel/shared/protocol';
 
 let stylesInjected = false;
 function ensureStyles(): void {

@@ -815,7 +815,7 @@ function buildMsgRow(deps: RowDeps): MsgRow {
 
   const paintReactions = (ev: MxEvent): void => {
     const list = ev.redacted ? [] : ev.reactions ?? [];
-    const key = list.map((r) => `${r.key} ${r.count} ${r.mine ? 1 : 0}${r.myEventId ? '!' : ''}`).join('');
+    const key = list.map((r) => `${r.key}\0${r.count}\0${r.mine ? 1 : 0}${r.myEventId ? '!' : ''}`).join('');
     if (key === reactKey) return;
     reactKey = key;
     // Clicking a chip changes its own count, so the rebuild below removes the

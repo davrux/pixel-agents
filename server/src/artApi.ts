@@ -28,7 +28,6 @@
  * Ids are resolved against what the bundle actually offers, never used as a path, so a
  * crafted id can only miss.
  */
-import { createHash } from 'node:crypto';
 
 import type { Express, Request, Response } from 'express';
 

@@ -126,7 +126,6 @@ export class ArcadeUI {
   }
 
   private readonly root: HTMLDivElement;
-  private readonly stageEl: HTMLDivElement;
   private readonly dosEl: HTMLDivElement;
   private readonly msgEl: HTMLDivElement;
   private readonly titleEl: HTMLSpanElement;
@@ -192,7 +191,6 @@ export class ArcadeUI {
       </div>`;
     (document.getElementById('game') ?? document.body).appendChild(root);
     this.root = root;
-    this.stageEl = root.querySelector('.pa-arc-stage')!;
     this.dosEl = root.querySelector('.pa-arc-dos')!;
     this.msgEl = root.querySelector('.pa-arc-msg')!;
     this.titleEl = root.querySelector('.pa-arc-head .title')!;

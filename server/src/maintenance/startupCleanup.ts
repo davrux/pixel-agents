@@ -30,6 +30,8 @@ import { deleteAssets, knownAssetIds, placedAssetIds, storedAssets, totalBytes }
 import { decideFurnitureRetire, dumpFurnitureAssets } from './retireFurniture.js';
 import { accountIds, decideAvatarPrune } from './orphanAvatars.js';
 import { migrateLeftRow } from '../art/migrateLeftRow.js';
+import { PACKED_ART_TYPES } from '../art/artStore.js';
+import { db } from '../db.js';
 
 export interface CleanupTask {
   name: string;
@@ -154,11 +156,48 @@ const addLeftRowToStoredArt: CleanupTask = {
   run: () => migrateLeftRow(),
 };
 
+/**
+ * Say how much stored art is still spelled out as pixels.
+ *
+ * Art travels and is stored as a PNG sheet now; a row written before that keeps working (unpackArt
+ * passes SpriteData through untouched) and is simply about 24× larger than it needs to be. The
+ * conversion exists as `scripts/repack-art.sh --apply` and stays DELIBERATELY MANUAL: the tasks
+ * here may only destroy what nothing can reach, and rewriting somebody's art in place is a bigger
+ * promise than a boot with nobody watching should make. That decision is written down in the
+ * script's own header.
+ *
+ * What was missing was the other half — nobody could tell that there was anything to convert. So
+ * this counts and says so, and says nothing at all on a world that is already packed (measured
+ * here: 1 row, 0 unpacked). `json_extract` rather than a LIKE, because a report that accuses the
+ * wrong rows is worse than no report.
+ */
+const reportUnpackedArt: CleanupTask = {
+  name: 'report-unpacked-art',
+  run() {
+    const types = PACKED_ART_TYPES.map(() => '?').join(', ');
+    const r = db
+      .prepare(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(length(data)), 0) AS bytes FROM assets
+          WHERE type IN (${types}) AND json_valid(data) AND json_extract(data, '$.png') IS NULL`,
+      )
+      .get(...PACKED_ART_TYPES) as { n: number; bytes: number };
+    const n = Number(r.n);
+    if (n === 0) return null;
+    console.warn(
+      `[cleanup] ${n} art row(s) are still stored as pixels (${mb(Number(r.bytes))}). ` +
+        `They work as they are; scripts/repack-art.sh --apply converts them to PNG sheets ` +
+        `(measured elsewhere: 495 → 16 KB). Deliberately not done here — see that script's header.`,
+    );
+    return null; // a report, not a change this task made
+  },
+};
+
 /** Everything that runs at boot, in order. Add to this list; keep the contract. */
 export const CLEANUP_TASKS: CleanupTask[] = [
   addLeftRowToStoredArt,
   retireFurnitureAssets,
   reportUnavailablePlacements,
+  reportUnpackedArt,
   pruneOrphanAvatars,
 ];
 

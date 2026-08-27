@@ -28,7 +28,6 @@ import {
 import { snapToTile, stepAlongPath, tileCenter } from './entity.js';
 import { findPath } from '../layout/tileMap.js';
 import type { WallEdges, GroundMap } from '../types.js';
-import { spriteForPose } from '../sprites/spriteData.js';
 import type { Pet, PetKind } from '../types.js';
 import { Direction, PetState } from '../types.js';
 

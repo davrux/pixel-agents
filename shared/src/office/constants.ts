@@ -35,9 +35,10 @@ export const COFFEE_COOLDOWN_MIN_SEC = 30.0;
 export const COFFEE_COOLDOWN_MAX_SEC = 90.0;
 
 // ── Pets ─────────────────────────────────────────────────────
-// Pets spawn based on connected agents: target = min(PET_MAX, floor(agents / PET_AGENTS_PER_PET))
-const PET_AGENTS_PER_PET = 2;
-const PET_MAX = 4;
+// (There were two constants here describing a spawn rule — "target = min(PET_MAX, floor(agents /
+// PET_AGENTS_PER_PET))". Nothing had read them for a long time: pets are placed, not spawned per
+// connected agent. Removed with the comment, since a documented rule the code does not implement
+// is worse than no comment.)
 export const PET_LIFESPAN_SEC = 600; // ~10 minutes
 export const PET_WALK_SPEED_PX_PER_SEC = 40;
 export const PET_WALK_FRAME_DURATION_SEC = 0.12;

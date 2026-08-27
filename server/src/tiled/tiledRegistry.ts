@@ -149,13 +149,6 @@ export function gridSheets(registry: TiledRegistry): Array<{
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function setNames(registry: TiledRegistry, cls: string): string[] {
-  return registry.tilesets
-    .filter((ts) => ts.tiles.some((t) => t.class === cls))
-    .map((ts) => ts.file.replace(/\.tsj$/, ''))
-    .sort();
-}
-
 export interface TiledRegistry {
   tilesets: RegistryTileset[];
   /** Find the tileset matching `file` (e.g. "floor.tsj"), if loaded. */

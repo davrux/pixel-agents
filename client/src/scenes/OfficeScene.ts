@@ -35,7 +35,6 @@ import {
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { spriteAtlasFrameCount, spriteAtlasPageCount } from '../render/sprites.js';
 import {
-  getCatalogEntry,
   effectiveAction,
   isClickAction,
   resolveBackgroundTiles,
@@ -59,7 +58,7 @@ import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { frameFailures } from '../render/frameGuard.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
-import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
+import { spriteThumbCanvas, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -329,8 +328,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Where the character editor's "← Back" returns — set by whoever opens it
    *  (the Assets panel, or Settings for the viewer's own avatar). */
   private charEditorReturn: MenuId = 'assets';
-  /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
-  private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
   private menubar?: HTMLElement;
@@ -369,9 +366,6 @@ export class OfficeScene extends Phaser.Scene {
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
-  /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
-   *  often too small to make out at a glance, hence the zoom control. */
-  private furnZoom: 1 | 2 | 4 = 2;
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -843,10 +837,6 @@ export class OfficeScene extends Phaser.Scene {
           else if (m.kind === 'iframe') openActionIframe(m.url as string, { overlay: this.iframeOverlay });
         }
         else {
-          // Keep raw asset metadata the editors need (group fields, default count).
-          if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
-            this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
-          }
           if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
