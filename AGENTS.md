@@ -734,6 +734,14 @@ background only.)
   One deliberate exception to the house rule: **no `VACUUM INTO` snapshot is taken**
   first, unlike every other destructive step here. That was asked for explicitly, and it
   is the line to change if a deployment ever wants the drop to be undoable.
+  The same file also removes four **keys** in `settings` that nothing reads
+  (`RETIRED_SETTINGS`), and the reason is not the fourteen bytes: three of them are called
+  `soundEnabled`, `alwaysShowLabels` and `alertVolume`, which are the names of live
+  `ViewerSettings` fields — those are per-account rows in `user_prefs` now, and a global
+  row that looks exactly like a live setting and is not one costs somebody an hour. The
+  test asserts none of them reaches `getSetting`/`setSetting` and none is a constant's
+  value, which are the only two ways this codebase names a key (checked by finding the
+  live `voiceNs` and `arcadeDefaultGames` through those same two patterns).
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting

@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { LIVE_TABLES, RETIRED_TABLES, dropRetiredTables } from './dropRetiredTables.js';
+import { LIVE_TABLES, RETIRED_SETTINGS, RETIRED_TABLES, dropRetiredTables } from './dropRetiredTables.js';
 
 const SRC = join(import.meta.dirname, '..');
 
@@ -130,6 +130,41 @@ test('a retired table goes, a live one stays, and an unknown one is left alone',
       before,
       'a second run changed something',
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('no retired settings key is still named by the source', () => {
+  // The two ways this codebase names a settings key: passed to getSetting/setSetting as a literal,
+  // or held in a constant whose value is the key. Checked separately from a plain "does the literal
+  // appear" search, because three of these names are ALSO live ViewerSettings fields — which is the
+  // very confusion the removal is for, and would make a naive search fail forever.
+  const text = sourceFiles(SRC)
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n');
+  for (const key of RETIRED_SETTINGS) {
+    const asCall = new RegExp(`(get|set)Setting(<[^>]*>)?\\(\\s*['"\`]${key}['"\`]`);
+    const asConst = new RegExp(`=\\s*['"\`]${key}['"\`]`);
+    assert.equal(asCall.test(text), false, `${key} is still read or written as a setting — it is not retired`);
+    assert.equal(asConst.test(text), false, `${key} is still the value of a constant; check whether a setting is named through it`);
+  }
+});
+
+test('a retired settings key is deleted and a live one is not', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pixel-dropsettings-'));
+  try {
+    const db = new DatabaseSync(join(dir, 'test.db'));
+    db.exec('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    const put = db.prepare('INSERT INTO settings(key, value) VALUES(?, ?)');
+    for (const k of RETIRED_SETTINGS) put.run(k, 'true');
+    put.run('voiceNs', '"v12345678"');
+    put.run('arcadeDefaultGames', '["doom"]');
+
+    dropRetiredTables(db);
+
+    const left = (db.prepare('SELECT key FROM settings ORDER BY key').all() as Array<{ key: string }>).map((r) => r.key);
+    assert.deepEqual(left, ['arcadeDefaultGames', 'voiceNs'], 'exactly the live keys must remain');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -31,6 +31,13 @@
  * There is no `_migrations` marker, for the same reason `ensureUserForeignKeys` has none: the
  * question is answered by the schema itself. Once a table is gone it is not found again, so the
  * steady state costs one `sqlite_master` query per boot.
+ *
+ * The same treatment applies to KEYS inside the `settings` table ({@link RETIRED_SETTINGS}), for a
+ * reason that is not about the fourteen bytes they take: three of them are called `soundEnabled`,
+ * `alwaysShowLabels` and `alertVolume`, which are the names of live `ViewerSettings` fields. Those
+ * are per-account rows in `user_prefs` now; the global keys are their pre-2026 ancestors, read by
+ * nothing. A row that looks exactly like a live setting and is not one is the kind of thing
+ * somebody debugs for an hour.
  */
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -80,6 +87,22 @@ export const RETIRED_TABLES: readonly string[] = [
   'zone_meta',
 ];
 
+/**
+ * Keys in `settings` that nothing reads any more.
+ *
+ * `schemaTables.int.test.ts` asserts that none of these reaches `getSetting`/`setSetting` and that
+ * none is the value of a constant, which are the only two ways this codebase names a settings key.
+ * The live keys, for contrast, are `voiceNs` and `arcadeDefaultGames`.
+ */
+export const RETIRED_SETTINGS: readonly string[] = [
+  // Global ancestors of the per-account viewer settings, which live in `user_prefs`.
+  'soundEnabled',
+  'alwaysShowLabels',
+  'alertVolume',
+  // From the era when a floor TYPE decided walkability; the GroundLayer decides it now.
+  'nonWalkableFloorTypes',
+];
+
 /** Tables present in this database, excluding SQLite's own bookkeeping. */
 function tablesIn(db: DatabaseSync): string[] {
   return (
@@ -89,7 +112,20 @@ function tablesIn(db: DatabaseSync): string[] {
   ).map((r) => r.name);
 }
 
+/** Delete the settings keys nothing reads. Silent when there are none. */
+function dropRetiredSettings(db: DatabaseSync): void {
+  if (!tablesIn(db).includes('settings')) return;
+  const found = RETIRED_SETTINGS.filter(
+    (k) => db.prepare('SELECT 1 FROM settings WHERE key = ?').get(k) !== undefined,
+  );
+  if (found.length === 0) return;
+  const del = db.prepare('DELETE FROM settings WHERE key = ?');
+  for (const k of found) del.run(k);
+  console.log(`[schema] removed ${found.length} settings key(s) nothing reads: ${found.join(', ')}`);
+}
+
 export function dropRetiredTables(db: DatabaseSync): void {
+  dropRetiredSettings(db);
   const present = tablesIn(db);
   const live = new Set(LIVE_TABLES);
   const retired = new Set(RETIRED_TABLES);
