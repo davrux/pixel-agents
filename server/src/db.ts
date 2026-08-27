@@ -10,6 +10,7 @@ import { bootstrapDataDir } from './dataBootstrap.js';
 import { dataPath } from './paths.js';
 import { USERS_DDL } from './schema/tables.js';
 import { dropRetiredTables } from './schema/dropRetiredTables.js';
+import { movePngToBlob } from './schema/movePngToBlob.js';
 import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
@@ -54,6 +55,8 @@ ensureUserForeignKeys(db);
 // And the tables a pre-fork database brought along that nothing in this codebase creates, reads
 // or writes. Before the stores, so nothing can be holding a statement against one of them.
 dropRetiredTables(db);
+// And the sheets that are still base64 inside a JSON row: they become the assets.png BLOB.
+movePngToBlob(db);
 
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty

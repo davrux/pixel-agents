@@ -179,7 +179,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    *  players standing in its zone. Refcounted by concurrent sessions. */
   /**
    * The avatars of the players in this zone, as they are STORED: a packed row (the sheet as
-   * base64 plus its geometry) or, for a legacy row, SpriteData. Nothing here needs pixels —
+   * bytes plus its geometry) or, for a legacy row, SpriteData. Nothing here needs pixels —
    * every read feeds `avatarMessage`, which turns the entry into a URL and a frame size — so
    * the shape is deliberately whatever the store handed over, with no unpacking on the way.
    */
@@ -1643,7 +1643,7 @@ export class SimRoom extends Room<{ state: RoomState }> {
    * `cloneCharacterData` is a JSON round trip — which turned the Buffer into
    * `{"type":"Buffer","data":[137,80,...]}`, stored 10 KB of number array for a 2.8 KB sheet,
    * and put that array in the `playerAvatar` message of every viewer instead of a URL. So a
-   * bundled source is packed properly here: the file's bytes as base64 plus the geometry, read
+   * bundled source is packed properly here: the file's bytes plus the geometry, read
    * from the PNG header rather than by decoding it.
    */
   private ensurePlayerAvatar(userId: string): Record<string, unknown> | LoadedCharacterData {

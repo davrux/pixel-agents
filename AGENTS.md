@@ -342,6 +342,22 @@ check asks: is the release present in the code that acquires?
   deals in SpriteData and nothing else in the server learned about images. Saves are
   still validated as SpriteData BEFORE encoding, which is why packing added no untrusted
   binary path of its own.
+  **The sheet is a BLOB in its own column** (`assets.png`), not a base64 field inside the
+  `data` JSON — because base64 only ever existed to get bytes through a text column, and
+  the column is the thing that was wrong. `splitArt`/`joinArt` in `appStore` are the only
+  code that knows, and the in-memory row now carries `png` as a **Buffer**, which is the
+  shape a bundled sheet already had: stored and bundled art are one type. Measured on
+  char_0: 4 041 → 3 063 stored bytes (−24 %), a read that needs the bytes 3.64 → 1.06 µs,
+  a write 3.08 → 0.50 µs, because `JSON.parse` sees 164 bytes instead of 4 KB. **Do not
+  read that as a speed fix** — every path involved is cached (the merged bundle is built
+  once per cache generation, `/art/<kind>/<id>` answers with an immutable ETag), so the
+  absolute saving is microseconds per join; what it buys is a quarter of the space and a
+  data model where pixels are bytes. Nothing on the wire changed, so no
+  `PROTOCOL_VERSION` bump. Two traps it sprang, both now covered by tests: a reader that
+  selects only `data` sees a packed row as having no sheet (that is `migrateLeftRow`
+  repacking against the OLD bytes still in the column, and `repack-art` reporting healthy
+  rows as failures), and `length(data)` stops being the row's size — the orphan-avatar
+  prune reported every avatar as a few hundred bytes until it summed both columns.
   **Saving art is a PNG over HTTP** (protocol 8), not a room message: `POST /art/avatar` for
   your own avatar and `POST /art/asset/:type/:name` for a gallery skin or an NPC
   (`artSaveApi.ts`), with the sheet as the BODY and its metadata in an `X-Pixel-Sheet` header —

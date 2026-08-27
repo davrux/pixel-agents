@@ -123,7 +123,7 @@ function characterSource(id: string): ArtSource | null {
     (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame ??
     (data.frame as { w?: number; h?: number } | undefined);
   // Art that is already an image is served as it lies — a bundled sheet (the file on disk) or a
-  // stored row (base64 in the database). Neither is decoded to answer a GET.
+  // stored row (the assets.png BLOB). Neither is decoded to answer a GET.
   const bytes = artBytes(data);
   if (bytes) return { entry: data, png: bytes };
   if (!Array.isArray(data.down)) return null;

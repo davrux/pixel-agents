@@ -48,16 +48,31 @@ export function isPackedArtType(type: string): type is PackedArtType {
   return (PACKED_ART_TYPES as readonly string[]).includes(type);
 }
 
-/** A row in the packed shape: the sheet as base64 plus what a sheet cannot carry. */
+/**
+ * A row in the packed shape: the sheet's BYTES plus what a sheet cannot carry.
+ *
+ * `png` is a Buffer, which is also the shape a bundled sheet arrives in — so stored and bundled
+ * art are one type now. It used to be a base64 string, because the whole row was one JSON column;
+ * the bytes live in their own `assets.png` BLOB since 2026-08-27, and base64 was pure packaging
+ * for a packaging that was not needed (measured on char_0: 4 041 → 3 063 stored bytes, and a read
+ * that needed the bytes went 3.64 → 1.06 µs because the pixels stopped travelling through
+ * JSON.parse). A string is still ACCEPTED everywhere a row is read, for two reasons that both
+ * exist: a database not yet migrated, and a restored backup.
+ */
 interface PackedRow {
-  png: string;
+  png: Buffer | string;
   frame: { w: number; h: number };
   dirs: string[];
   [meta: string]: unknown;
 }
 
-const isPacked = (row: unknown): row is PackedRow =>
-  !!row && typeof row === 'object' && typeof (row as PackedRow).png === 'string';
+const isPacked = (row: unknown): row is PackedRow => {
+  const png = (row as PackedRow | null)?.png;
+  return !!row && typeof row === 'object' && (Buffer.isBuffer(png) || typeof png === 'string');
+};
+
+/** The sheet's bytes, whichever of the two shapes the row carries. */
+const bytesOf = (png: Buffer | string): Buffer => (Buffer.isBuffer(png) ? png : Buffer.from(png, 'base64'));
 
 /**
  * The rows this art actually has, as the LONGEST PREFIX of the row order that is
@@ -101,7 +116,7 @@ export function packArt(type: PackedArtType, data: unknown): unknown {
   const cols = type === 'pet' ? PET_FRAMES_PER_ROW : undefined;
   const png = encodeDirectionalSheet(d as never, dirs, w, h, cols);
   const { down: _d, up: _u, right: _r, left: _l, ...meta } = d;
-  return { ...meta, png: png.toString('base64'), frame: { w, h }, dirs };
+  return { ...meta, png, frame: { w, h }, dirs };
 }
 
 /** Turn a stored row back into SpriteData. A legacy (unpacked) row passes through. */
@@ -110,7 +125,7 @@ export function unpackArt(row: unknown): unknown {
   const { png, frame, dirs, ...meta } = row;
   // framesPerRow from the image width: the encoder wrote as many columns as the widest
   // direction needed, and the sheet is the only thing that knows how many that was.
-  const buf = Buffer.from(png, 'base64');
+  const buf = bytesOf(png);
   const width = buf.readUInt32BE(16); // IHDR width — cheaper than a full decode
   const sprites = decodeDirectionalSheet(buf, frame.w, frame.h, Math.max(1, Math.floor(width / frame.w)), dirs);
   return { ...meta, ...sprites };
@@ -119,5 +134,5 @@ export function unpackArt(row: unknown): unknown {
 /** The stored sheet's bytes, or null for a legacy row — lets artApi stream instead of
  *  re-encoding what it just decoded. */
 export function packedPng(row: unknown): Buffer | null {
-  return isPacked(row) ? Buffer.from(row.png, 'base64') : null;
+  return isPacked(row) ? bytesOf(row.png) : null;
 }

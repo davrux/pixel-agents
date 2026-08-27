@@ -35,20 +35,28 @@ export function migrateLeftRow(): string | null {
 
   let converted = 0;
   const failed: string[] = [];
-  const update = db.prepare('UPDATE assets SET data = ? WHERE type = ? AND name = ?');
+  // The sheet lives in its own BLOB column (see schema/movePngToBlob.ts), so both halves of a row
+  // are read and both are written — repacking while writing only `data` would leave the OLD sheet
+  // in the column and the row would read back as the art this migration just replaced.
+  const update = db.prepare('UPDATE assets SET data = ?, png = ? WHERE type = ? AND name = ?');
 
   for (const type of PACKED_ART_TYPES) {
-    const rows = db.prepare('SELECT name, data FROM assets WHERE type = ?').all(type) as Array<{
+    const rows = db.prepare('SELECT name, data, png FROM assets WHERE type = ?').all(type) as Array<{
       name: string;
       data: string;
+      png: Uint8Array | null;
     }>;
     for (const r of rows) {
       try {
-        const art = unpackArt(JSON.parse(r.data)) as Record<string, unknown>;
+        const stored = JSON.parse(r.data) as Record<string, unknown>;
+        if (r.png) stored.png = Buffer.from(r.png.buffer, r.png.byteOffset, r.png.byteLength);
+        const art = unpackArt(stored) as Record<string, unknown>;
         if (!Array.isArray(art.right) || art.right.length === 0) continue; // nothing to mirror
         if (Array.isArray(art.left) && art.left.length > 0) continue; // already four rows
         const withLeft = { ...art, left: (art.right as string[][][]).map(flip) };
-        update.run(JSON.stringify(packArt(type as PackedArtType, withLeft)), type, r.name);
+        const packed = packArt(type as PackedArtType, withLeft) as Record<string, unknown>;
+        const { png, ...meta } = packed;
+        update.run(JSON.stringify(meta), Buffer.isBuffer(png) ? png : null, type, r.name);
         converted++;
       } catch (err) {
         failed.push(`${type}/${r.name}: ${err instanceof Error ? err.message : String(err)}`);

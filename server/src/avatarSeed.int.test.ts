@@ -34,24 +34,48 @@ const bundled = (): Record<string, unknown> => ({
   name: 'Nora',
 });
 
-test('a bundled sheet is seeded as base64 with its geometry, never as a JSON Buffer', () => {
+test('a bundled sheet is seeded as the file bytes with its geometry, never through JSON', () => {
   const seed = avatarSeedFrom(bundled());
-  assert.equal(typeof seed.png, 'string', 'a Buffer here is the bug: JSON.stringify turns it into an array');
-  assert.equal(Buffer.compare(Buffer.from(seed.png as string, 'base64'), fs.readFileSync(sheetFile)), 0);
+  assert.ok(Buffer.isBuffer(seed.png), 'the sheet must stay bytes — the store writes them to a BLOB column');
+  assert.equal(Buffer.compare(seed.png as Buffer, fs.readFileSync(sheetFile)), 0, 'byte-for-byte the bundled file');
   assert.deepEqual(seed.frame, CHAR_FRAME, 'the row must say what its cells are');
   // char_0 is four rows tall; the header says so, and nothing decoded the image to find out.
   assert.deepEqual(seed.dirs, ['down', 'up', 'right', 'left']);
   assert.equal(seed.name, 'Nora', 'the metadata rides along');
 
-  // The shape that broke: what JSON does to a Buffer, and what it costs.
+  // The shape that broke, kept as the record of what a JSON round trip does to a Buffer. This is
+  // why the seed exists at all, and why it must not gain one: `{"type":"Buffer","data":[137,80,…]}`
+  // is 10 267 bytes for a 2 899-byte sheet, and the damage was not the ratio — it was that the
+  // array then travelled to every viewer in the zone as the avatar's art.
   const roundTripped = JSON.parse(JSON.stringify(bundled())) as { png: { data: number[] } };
   assert.ok(Array.isArray(roundTripped.png.data), 'the old path produced this');
-  // Measured: 2.6× for char_0 (10 267 bytes of array against 3 968 of base64), and the real
-  // damage was not the ratio but that the array travelled at all.
   assert.ok(
-    JSON.stringify(roundTripped).length > 2 * JSON.stringify(seed).length,
-    `the array shape must be markedly bigger; got ${JSON.stringify(roundTripped).length} vs ${JSON.stringify(seed).length}`,
+    JSON.stringify(roundTripped).length > 3 * (seed.png as Buffer).length,
+    `a JSON'd Buffer must be markedly bigger than the bytes; got ${JSON.stringify(roundTripped).length} vs ${(seed.png as Buffer).length}`,
   );
+});
+
+test('the seed is stored as bytes in a column, and the JSON never sees the sheet', async () => {
+  // Where the Buffer regression can still happen: the write. `saveAsset` splits the row, so the
+  // sheet goes into `assets.png` and the JSON half holds only what a sheet cannot carry. If that
+  // split ever goes away, `JSON.stringify` gets the Buffer again and this fails on both counts.
+  const { appStore } = await import('./appStore.js');
+  const { db } = await import('./db.js');
+  appStore.setPlayerAvatar('seedtest', avatarSeedFrom(bundled()));
+
+  const stored = db.prepare("SELECT data, png FROM assets WHERE type = 'playerAvatar' AND name = 'seedtest'").get() as {
+    data: string;
+    png: Uint8Array | null;
+  };
+  assert.ok(stored, 'nothing was stored');
+  assert.equal(JSON.parse(stored.data).png, undefined, 'the sheet must not be in the JSON column');
+  assert.match(stored.data, /^\{(?!.*"type":"Buffer").*\}$/s, 'a JSON-encoded Buffer is in the row');
+  assert.ok(stored.png, 'the assets.png column is empty');
+  assert.equal(Buffer.compare(Buffer.from(stored.png), fs.readFileSync(sheetFile)), 0, 'the stored bytes are not the sheet');
+  // And it reads back as the same row a caller started with.
+  const back = appStore.assetRow('playerAvatar', 'seedtest') as Record<string, unknown>;
+  assert.ok(Buffer.isBuffer(back.png));
+  assert.equal(back.name, 'Nora');
 });
 
 test('the seed is addressable — the URL builder finds art in it', () => {

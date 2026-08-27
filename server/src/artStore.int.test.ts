@@ -62,11 +62,23 @@ test('a character survives save → read unchanged, and is stored as a PNG', () 
   sameArt(appStore.getAsset('character', 'char_probe'), data);
 
   const row = appStore.assetRow('character', 'char_probe') as Record<string, unknown>;
-  assert.ok(typeof row.png === 'string', 'the row should hold a sheet, not pixels');
+  assert.ok(Buffer.isBuffer(row.png), 'the row should hold the sheet BYTES, not pixels and not base64');
   assert.equal(row.down, undefined, 'pixels must not be stored alongside the sheet');
   assert.ok(packedPng(row)!.length > 0);
+
+  // And the sheet is in its own column, not inside the JSON. Two things follow from that and both
+  // are worth pinning: nothing base64-encodes the pixels any more, and `data` stays small enough
+  // that JSON.parse never walks an image.
+  const stored = db.prepare("SELECT data, png FROM assets WHERE type = 'character' AND name = 'char_probe'").get() as {
+    data: string;
+    png: Uint8Array | null;
+  };
+  assert.equal(JSON.parse(stored.data).png, undefined, 'the sheet must not also be in the JSON column');
+  assert.ok(stored.png && stored.png.byteLength > 0, 'the assets.png column is empty');
+  assert.ok(stored.data.length < 500, `the JSON half should be metadata only, got ${stored.data.length} B`);
+
   // The point of the exercise: hex per pixel is what got expensive.
-  const packed = JSON.stringify(row).length;
+  const packed = stored.data.length + stored.png.byteLength;
   const raw = JSON.stringify(data).length;
   assert.ok(packed * 4 < raw, `packed ${packed} vs raw ${raw} — expected a large saving`);
 });

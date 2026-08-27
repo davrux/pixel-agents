@@ -169,7 +169,9 @@ const addLeftRowToStoredArt: CleanupTask = {
  * What was missing was the other half — nobody could tell that there was anything to convert. So
  * this counts and says so, and says nothing at all on a world that is already packed (measured
  * here: 1 row, 0 unpacked). `json_extract` rather than a LIKE, because a report that accuses the
- * wrong rows is worse than no report.
+ * wrong rows is worse than no report — and BOTH places a sheet can be have to be empty for a row
+ * to count: its own `png` column, and the legacy base64 field inside `data`. Asking only about the
+ * JSON would report every correctly packed row in the world the day the column arrived.
  */
 const reportUnpackedArt: CleanupTask = {
   name: 'report-unpacked-art',
@@ -178,7 +180,8 @@ const reportUnpackedArt: CleanupTask = {
     const r = db
       .prepare(
         `SELECT COUNT(*) AS n, COALESCE(SUM(length(data)), 0) AS bytes FROM assets
-          WHERE type IN (${types}) AND json_valid(data) AND json_extract(data, '$.png') IS NULL`,
+          WHERE type IN (${types}) AND png IS NULL
+            AND json_valid(data) AND json_extract(data, '$.png') IS NULL`,
       )
       .get(...PACKED_ART_TYPES) as { n: number; bytes: number };
     const n = Number(r.n);

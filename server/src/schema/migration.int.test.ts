@@ -244,3 +244,54 @@ test('a fresh world needs no rebuild, and a second run is a no-op', async () => 
   assert.equal(count(db, "SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE '%__fkmig'"), 0, 'a temp table was left behind');
   assert.ok(db.prepare("SELECT value FROM _migrations WHERE key = 'user_blobs_to_tables'").get(), 'the blob move is marker-guarded and was not recorded');
 });
+
+test('a sheet stored as base64 inside its JSON row moves into the assets.png column', async () => {
+  const { db } = await freshWorld();
+  const { movePngToBlob } = await import('./movePngToBlob.js');
+  // The `assets` table as it was: one JSON column, the sheet base64'd inside it, no png column.
+  db.exec(`
+    CREATE TABLE assets (type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL, PRIMARY KEY (type, name))`);
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 7)]);
+  const put = db.prepare('INSERT INTO assets(type, name, data, updatedAt) VALUES(?, ?, ?, 0)');
+  put.run('character', 'char_9', JSON.stringify({ name: 'Nine', png: png.toString('base64'), frame: { w: 16, h: 32 }, dirs: ['down'] }));
+  // A row that is not art at all, and one whose png is not a PNG: neither may be touched.
+  put.run('gallery', 'cfg', JSON.stringify({ some: 'config' }));
+  put.run('character', 'char_broken', JSON.stringify({ name: 'Broken', png: Buffer.from('not an image').toString('base64') }));
+
+  const said: string[] = [];
+  const warn = console.warn;
+  console.warn = (...a: unknown[]) => void said.push(a.map(String).join(' '));
+  try {
+    movePngToBlob(db);
+  } finally {
+    console.warn = warn;
+  }
+
+  const row = (name: string): { data: string; png: Uint8Array | null } =>
+    db.prepare('SELECT data, png FROM assets WHERE type = ? AND name = ?').get('character', name) as never;
+
+  const moved = row('char_9');
+  assert.equal(Buffer.compare(Buffer.from(moved.png!), png), 0, 'the bytes must arrive in the column unchanged');
+  assert.equal(JSON.parse(moved.data).png, undefined, 'the base64 field must be gone from the JSON');
+  assert.equal(JSON.parse(moved.data).name, 'Nine', 'the metadata must survive');
+  assert.ok(moved.data.length < 100, `the JSON half should be metadata only, got ${moved.data.length} B`);
+
+  // A png field that does not decode to a PNG is left exactly as it was, and said out loud —
+  // rewriting it into a column is how a reader would come to trust it.
+  const broken = row('char_broken');
+  assert.equal(broken.png, null);
+  assert.equal(typeof (JSON.parse(broken.data) as { png: unknown }).png, 'string', 'the row was rewritten anyway');
+  assert.equal(said.length, 1);
+  assert.match(said[0], /char_broken/);
+
+  const gallery = db.prepare("SELECT data, png FROM assets WHERE type = 'gallery'").get() as { data: string; png: null };
+  assert.deepEqual(JSON.parse(gallery.data), { some: 'config' }, 'a non-art row must pass through untouched');
+  assert.equal(gallery.png, null);
+
+  // Second run: the only row with a JSON png is the broken one, which stays broken and quiet
+  // about nothing new — no marker is involved, the query answers the question.
+  const before = Buffer.from(row('char_9').png!);
+  movePngToBlob(db);
+  assert.equal(Buffer.compare(Buffer.from(row('char_9').png!), before), 0);
+});

@@ -109,7 +109,7 @@ test('an avatar save needs a session, and writes the CALLER — there is no id t
   const ok = await post('/art/avatar', sheet(), { name: 'Mine' }, userBearer);
   assert.equal(ok.status, 200, ok.error ?? '');
   const row = appStore.assetRow('playerAvatar', 'routeuser') as { png?: unknown; name?: string };
-  assert.equal(typeof row?.png, 'string', 'the sheet must be stored as base64, not as pixels');
+  assert.ok(Buffer.isBuffer(row?.png), 'the sheet must be stored as bytes, not as pixels and not as base64');
   assert.equal(row?.name, 'Mine');
   // The route has no parameter for whose avatar it is, so a caller cannot aim at somebody else's.
   // Proving the absence: an id smuggled into the metadata changes nothing about who was written.

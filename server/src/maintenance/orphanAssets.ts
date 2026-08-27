@@ -95,7 +95,11 @@ export function placedAssetIds(): Map<string, string[]> {
 
 /** Read the stored rows of one asset type, with their sizes. */
 export function storedAssets(type: string): StoredAsset[] {
-  return db.prepare('SELECT name, length(data) AS bytes, updatedAt FROM assets WHERE type = ?').all(type) as unknown as StoredAsset[];
+  // Both columns: the sheet is a BLOB beside the JSON since 2026-08-27, so `length(data)` alone
+  // would report an avatar as a couple of hundred bytes and every "freed" figure would be wrong.
+  return db
+    .prepare('SELECT name, length(data) + COALESCE(length(png), 0) AS bytes, updatedAt FROM assets WHERE type = ?')
+    .all(type) as unknown as StoredAsset[];
 }
 
 /** Look, without touching anything. */

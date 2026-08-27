@@ -46,7 +46,8 @@ const MAX_META_BYTES = 4096;
  *
  * The PNG is the body and the metadata is a header, rather than one JSON object with the image
  * base64'd inside it: base64 would add a third to every save and make the parse walk the whole
- * sheet as a string, which is the shape this whole change is getting away from.
+ * sheet as a string, which is the shape this whole change is getting away from. The row handed to
+ * the store carries the BYTES for the same reason — they go straight into the assets.png column.
  */
 function sheetRowFrom(
   body: unknown,
@@ -77,7 +78,7 @@ function sheetRowFrom(
     ...(meta.npc !== undefined ? { npc: meta.npc } : {}),
   };
   if (!validSheetMeta(kept, sheet.frames)) return { ok: false, reason: 'invalid name, spec or npc config' };
-  return { ok: true, row: { ...kept, png: sheet.png.toString('base64'), frame, dirs: sheet.dirs } };
+  return { ok: true, row: { ...kept, png: sheet.png, frame, dirs: sheet.dirs } };
 }
 
 export function registerArtSaveApi(app: Express): void {

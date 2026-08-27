@@ -8,7 +8,7 @@
  * for a 2.8 KB sheet, and that array sent to every viewer in the `playerAvatar` message instead
  * of a URL, because nothing recognised it as art any more. Measured on a fresh account, 2026-08-27.
  *
- * So a bundled source is packed properly here — the file's bytes as base64 plus the geometry,
+ * So a bundled source is packed properly here — the file's bytes plus the geometry,
  * which is read from the PNG HEADER rather than by decoding the image — and a stored override
  * (SpriteData) is cloned as before and packed by the store on write.
  */
@@ -34,5 +34,5 @@ export function avatarSeedFrom(src: Record<string, unknown>): Record<string, unk
     ? Math.max(1, Math.min(CHARACTER_DIRECTIONS.length, Math.floor(head.height / frame.h)))
     : 3;
   const { png: _png, ...meta } = src;
-  return { ...meta, png: bytes.toString('base64'), frame, dirs: [...CHARACTER_DIRECTIONS.slice(0, rows)] };
+  return { ...meta, png: bytes, frame, dirs: [...CHARACTER_DIRECTIONS.slice(0, rows)] };
 }
