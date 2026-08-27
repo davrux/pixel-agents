@@ -652,8 +652,23 @@ background only.)
   tilesets and says nothing on a healthy world (measured: 1775 offered, 127 placed, 0
   missing). `scripts/prune-orphan-assets.sh` remains for the other prune — personal
   avatars whose account is gone.
-- **One database.** All state lives in `pixel.db` through the shared `db.ts`
-  connection.
+- **One database, opened by more than one process.** All state lives in `pixel.db` through the
+  shared `db.ts` connection — and the server is not the only thing that opens it: every
+  maintenance script does (`prune-orphan-assets`, `repack-art`, a zone push), usually while a
+  server is running. So the connection sets `busy_timeout = 5000` and `journal_mode = WAL`:
+  importing `db.ts` WRITES (a `CREATE TABLE IF NOT EXISTS` for the migration bookkeeping), which
+  takes SQLite's write lock, and without a timeout a second process gets
+  `SQLITE_BUSY: database is locked` and dies while still importing. That is not theory — it is
+  what made about one in eight parallel test runs fail with a bare "test failed", no assertion,
+  a different file each time (whoever lost the race), and it took the TAP reporter to see the
+  stack. WAL costs the two sidecar files (`-wal`, `-shm`) next to `pixel.db`: a BACKUP must
+  therefore be `VACUUM INTO` (which is what `worldReset` and the prune script already do) rather
+  than a file copy, since copying `pixel.db` alone would lose whatever is still in the log.
+  **Tests never open it.** `server/test-data-dir.mjs` is loaded with `--import`, so every test
+  child gets its own temp data directory before any module can open a database — a suite has no
+  business touching the world a developer is standing in, least of all one that runs a migration
+  on import and honours `PIXEL_RESET_WORLD`. A file that wants its own directory still sets it
+  itself; `dbIsolation.int.test.ts` asserts both halves and fails without the setup.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting
