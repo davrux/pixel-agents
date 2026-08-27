@@ -188,6 +188,32 @@ check asks: is the release present in the code that acquires?
   had. Rebuilding a collection wholesale counts (`this.points =
   layoutToSitPoints(…)` is bounded by the layout); a `WeakMap` counts by
   construction.
+- **The same rule in the database is a foreign key, not a list of DELETEs.** Rows
+  that belong to an account (`server/src/schema/tables.ts`) declare
+  `ON DELETE CASCADE`, so `DELETE FROM users` takes the sessions, preferences,
+  stored positions, arcade saves, zone grants and meeting rooms with it. It was a
+  hand-maintained list at each call site before, and the two call sites had already
+  drifted: `/delete` forgot the user's meeting rooms where `DELETE
+  /admin/users/:id` removed them. Measured on this repo's dev world 2026-08-27, 22
+  rows belonged to accounts that no longer existed. `node:sqlite` enforces foreign
+  keys by default, so nothing has to be switched on — but no table had declared one,
+  so there was nothing to enforce. Two exceptions, each written down where it lives:
+  a private avatar is one row of the shared `assets` table keyed
+  (type, name) and a constraint cannot be conditional on another column (hence the
+  orphan-avatar task at boot), and `zones.owner_id` must SET NULL rather than
+  cascade — deleting an owner may not delete everyone else's world.
+  **A new table with a `user_id` needs no thought and gets none**:
+  `userDataCascade.int.test.ts` fails until it either cascades or is named there with
+  the reason it must not. That check lives in the suite rather than in
+  `mmo-readiness` deliberately — it reads the live schema through
+  `PRAGMA foreign_key_list`, which is the truth, where a grep over DDL strings would
+  only see one of the two places a table can be created.
+  What a cascade does NOT cover is a per-user blob INSIDE a row: five of those lived
+  in `settings` (keyed by user id inside one JSON object per kind) with no delete site
+  at all, and they are tables now for that reason as much as for speed —
+  `playerPos` cost 0.016 ms per write at thirteen entries and **5.3 ms at ten
+  thousand**, on the thread the simulation ticks on, because every checkpoint parsed
+  and rewrote the whole object. One row by primary key is 0.004 ms at any size.
 - **A subscription on a process-wide emitter is a reference to everything behind
   it.** `controlBus.on` and `director.on` in a room need their `off` in
   `onDispose`, or the emitter retains the room, its state, its clients and its
@@ -222,6 +248,25 @@ check asks: is the release present in the code that acquires?
 
 ### Code
 
+- **`noUnusedLocals` is on, and it is a dead-code check, not a style rule.** An
+  unused import is how dead code hides: a function loses its last caller, the import
+  naming it stays, and every later "is this still used?" search finds the import and
+  answers yes. Set 2026-08-27; the first run found 54 places, among them a whole
+  unused table (`zone_meta` plus the two private methods that were its only callers),
+  a write-only copy of the furniture catalog kept "for the editors" after the
+  furniture editor was gone, and a documented pet-spawn rule that existed only as two
+  constants and a comment. It also caught me deleting a field that was in use.
+  `noUnusedParameters` is deliberately NOT on: a callback that ignores an early
+  argument still has to name it, and `_`-prefixing every one of those is noise.
+- **Never put a raw control character in a source file — write the escape.** A NUL
+  used as a cache-key separator (`` `${a}\0${b}` ``) is a good idiom, but written as
+  an actual 0x00 byte it makes GNU grep treat the whole file as binary, and every
+  grep-based check then walks past it in silence — `mmo-readiness`'s security and
+  memory rules included, since they are greps. Two client files had this (measured
+  2026-08-27: `MatrixUI.ts` and `timeline.ts`, two bytes each) and searching them for
+  a symbol they contained returned nothing at all, which is exactly the failure mode
+  a check cannot report. `\0` in the source is the same character to the engine and
+  visible to everything else.
 - **Decorator gotcha:** `@colyseus/schema` needs `experimentalDecorators` +
   `useDefineForClassFields: false`, and `tsconfig` maps `@pixel/shared/office/*`
   to source so tsx applies decorators correctly. Don't "fix" these into a bundle.
@@ -297,18 +342,32 @@ check asks: is the release present in the code that acquires?
   deals in SpriteData and nothing else in the server learned about images. Saves are
   still validated as SpriteData BEFORE encoding, which is why packing added no untrusted
   binary path of its own.
-  **Saving art travels UP as a PNG too** (protocol 6): `saveAvatar`/`saveAsset` carry
-  `sheet: { png, name, spec?, npc? }`, because one hex string per pixel was 95.3 KB where the
-  image is 2.8 KB — a factor of 34 on a real sheet, measured on char_0. That makes a client's
-  PNG the one untrusted IMAGE this server decodes, and `art/sheetPng.ts` is the gate the older
-  warning here asked for: a byte cap (2 MB, derived — the largest legal sheet is 1.50 MB even
-  as incompressible noise), the PNG signature, an 8-bit non-interlaced IHDR, and the DECLARED
-  dimensions checked against the frame size and `MAX_SHEET_CELLS` — all before pngjs sees the
-  file, so a 73-byte bomb claiming 30000×30000 never reaches a decoder. The decoded rows then
-  go through the same validator as before, and the client's bytes are never stored: the store
-  re-encodes, so what other viewers are served is a PNG this server wrote. `mmo-readiness` has
-  a rule for the shape (a client-supplied image is bounded and header-checked before decoding)
-  with its own planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
+  **Saving art is a PNG over HTTP** (protocol 8), not a room message: `POST /art/avatar` for
+  your own avatar and `POST /art/asset/:type/:name` for a gallery skin or an NPC
+  (`artSaveApi.ts`), with the sheet as the BODY and its metadata in an `X-Pixel-Sheet` header —
+  base64 in a JSON body would add a third to every save. One hex string per pixel was 95.3 KB
+  where the image is 2.8 KB, a factor of 34 on a real sheet (measured on char_0).
+  Being a route rather than a message buys four things, and it is worth knowing which: its own
+  size limit stated per route instead of the transport's global one; an ANSWER, so a refused
+  sheet reaches the editor as a reason instead of vanishing; two fewer message types on the
+  room's surface; and a decode that nothing in the room refers to any more, so moving it to a
+  worker later is a change to one file. What it does NOT buy is protecting the tick: HTTP and
+  the room share one process and one thread.
+  That makes a client's PNG the one untrusted IMAGE this server decodes, and `art/sheetPng.ts`
+  is the gate the older warning here asked for: a byte cap (2 MB, derived — the largest legal
+  sheet is 1.50 MB even as incompressible noise), the PNG signature, an 8-bit non-interlaced
+  IHDR, and the DECLARED dimensions checked against the frame size and `MAX_SHEET_CELLS` — all
+  before pngjs sees the file, so a 73-byte bomb claiming 30000×30000 never reaches a decoder.
+  The sheet is then re-encoded rather than stored as it arrived, so what other viewers are
+  served is a PNG this server wrote, and the pixels are never spelled out as hex on the way (48
+  → 12.9 ms for the largest legal sheet; the format check they existed for is meaningless for
+  decoder output, and the geometry is decided from the header). Authorisation comes from the
+  session, never the payload: `/art/avatar` takes no id at all, and the asset route needs an
+  admin. The rooms hear about a save through the control bus (`AVATAR_CHANGED_EVENT`, or
+  `ASSET_CHANGED_EVENT` as before) — verified end to end in a browser: the POST answers 200 and
+  the client re-fetches the art at its new content hash. `mmo-readiness` has a rule for the
+  shape (a client-supplied image is bounded and header-checked before decoding) with its own
+  planted hole. Legacy rows read back untouched; `scripts/repack-art.sh` shrinks an old
   world on purpose (measured here: 495 → 16 KB), verifying every row by unpacking it
   again before keeping the write. One thing to know: the decoder canonicalises hex to
   upper case, so a packed row reads back equal in colour but not in string case — the
@@ -638,8 +697,43 @@ background only.)
   tilesets and says nothing on a healthy world (measured: 1775 offered, 127 placed, 0
   missing). `scripts/prune-orphan-assets.sh` remains for the other prune — personal
   avatars whose account is gone.
-- **One database.** All state lives in `pixel.db` through the shared `db.ts`
-  connection.
+- **One database, opened by more than one process.** All state lives in `pixel.db` through the
+  shared `db.ts` connection — and the server is not the only thing that opens it: every
+  maintenance script does (`prune-orphan-assets`, `repack-art`, a zone push), usually while a
+  server is running. So the connection sets `busy_timeout = 5000` and `journal_mode = WAL`:
+  importing `db.ts` WRITES (a `CREATE TABLE IF NOT EXISTS` for the migration bookkeeping), which
+  takes SQLite's write lock, and without a timeout a second process gets
+  `SQLITE_BUSY: database is locked` and dies while still importing. That is not theory — it is
+  what made about one in eight parallel test runs fail with a bare "test failed", no assertion,
+  a different file each time (whoever lost the race), and it took the TAP reporter to see the
+  stack. WAL costs the two sidecar files (`-wal`, `-shm`) next to `pixel.db`: a BACKUP must
+  therefore be `VACUUM INTO` (which is what `worldReset` and the prune script already do) rather
+  than a file copy, since copying `pixel.db` alone would lose whatever is still in the log.
+  **Tests never open it.** `server/test-data-dir.mjs` is loaded with `--import`, so every test
+  child gets its own temp data directory before any module can open a database — a suite has no
+  business touching the world a developer is standing in, least of all one that runs a migration
+  on import and honours `PIXEL_RESET_WORLD`. A file that wants its own directory still sets it
+  itself; `dbIsolation.int.test.ts` asserts both halves and fails without the setup.
+- **Fifteen tables from a pre-fork database are dropped at boot**
+  (`schema/dropRetiredTables.ts`): eight `voxel_*` plus `portals` from a voxel world
+  that is gone, `dm_keys`/`dm_messages` from a Matrix-side store, `monitor_locks`,
+  `arcade_wads`, `zone_customers`, and `zone_meta` (whose only callers were two private
+  methods nobody called). They were referenced by **no file of any type** in this repo,
+  and — the fact that settled it — **no code creates them**: they arrived with a
+  database adopted from the older layout (`migrateFromSplitDbs`, `dataBootstrap`), so a
+  fresh deployment never had them. Two held personal data, which is why leaving them was
+  not neutral: nothing deleted a row when the account went, because nothing knew they
+  were there. Dropped on the dev world 2026-08-27, 37 rows in total.
+  **A table needs two independent pieces of evidence to be dropped**, and the second is
+  machine-checked: its name is on `RETIRED_TABLES` (a decision written down after
+  searching the repo) *and* not on `LIVE_TABLES` (what this server creates, which
+  `schemaTables.int.test.ts` rebuilds from the source's own `CREATE TABLE` statements
+  and fails on any drift, in both directions). A table on **neither** list is reported
+  and left alone — the unknown case must never resolve to "delete", or this becomes the
+  way a future table disappears because nobody added it here.
+  One deliberate exception to the house rule: **no `VACUUM INTO` snapshot is taken**
+  first, unlike every other destructive step here. That was asked for explicitly, and it
+  is the line to change if a deployment ever wants the drop to be undoable.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting

@@ -28,7 +28,6 @@
  * Ids are resolved against what the bundle actually offers, never used as a path, so a
  * crafted id can only miss.
  */
-import { createHash } from 'node:crypto';
 
 import type { Express, Request, Response } from 'express';
 
@@ -45,7 +44,7 @@ import {
 } from './core/assets/constants.js';
 import { encodeDirectionalSheet } from './core/assets/pngEncoder.js';
 import { packedPng, rowsPresent } from './art/artStore.js';
-import { artHash } from './art/artUrl.js';
+import { artBytes, artHash } from './art/artUrl.js';
 import { PLAYER_AVATAR_SKIN_PREFIX } from '@pixel/shared';
 
 /**
@@ -108,15 +107,25 @@ function storedPng(kind: string, id: string): Buffer | null {
 function characterSource(id: string): ArtSource | null {
   let data: Record<string, unknown> | undefined;
   if (id.startsWith(PLAYER_AVATAR_SKIN_PREFIX)) {
-    data = appStore.getPlayerAvatar<Record<string, unknown>>(id.slice(PLAYER_AVATAR_SKIN_PREFIX.length));
+    // The row AS STORED, not unpacked: the URL's `v` comes from the same row (SimRoom announces
+    // it from `avatarData`), and hashing one shape here and the other there would make the two
+    // disagree — a 304 that never matches, or a cache key that changes without the art doing so.
+    // It also saves decoding a sheet for a request that only needs to hash and stream it.
+    data = appStore.assetRow('playerAvatar', id.slice(PLAYER_AVATAR_SKIN_PREFIX.length)) as
+      | Record<string, unknown>
+      | undefined;
   } else {
     const chars = (getMergedBundle().raw as { characters?: CharEntry[] }).characters ?? [];
     data = chars.find((c) => c.id === id)?.data as Record<string, unknown> | undefined;
   }
   if (!data) return null;
-  const frame = (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame;
-  // A bundled sheet was never decoded: it is the PNG on disk, so it is served as it lies.
-  if (Buffer.isBuffer(data.png)) return { entry: data, png: data.png };
+  const frame =
+    (data.spec as { frame?: { w?: number; h?: number } } | undefined)?.frame ??
+    (data.frame as { w?: number; h?: number } | undefined);
+  // Art that is already an image is served as it lies — a bundled sheet (the file on disk) or a
+  // stored row (base64 in the database). Neither is decoded to answer a GET.
+  const bytes = artBytes(data);
+  if (bytes) return { entry: data, png: bytes };
   if (!Array.isArray(data.down)) return null;
   return {
     entry: data,

@@ -48,28 +48,30 @@ function ensureStyles(): void {
   if (stylesInjected) return;
   stylesInjected = true;
   const style = document.createElement('style');
-  // Screen-local rules only; the palette/font come from the shared `.pa-ui`
-  // convention (font `FS Pixel Sans`, canvas `#14161c`, panel `#0f1220`,
-  // border `#05060b`, primary `#2f66b0`, danger `#7c2634`).
+  // Screen-local rules only, in the house chrome — the same tokens as every other surface
+  // (AGENTS.md "UI — one look for all chrome"), keyed to `#pa-connect`. Restyled together with
+  // the sign-in screen, because on the desktop these two come one after the other (choose a
+  // server, then log in) and a half-converted pair reads worse than either state alone.
   style.textContent = `
     #pa-connect{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;
-      background:#14161c;font-family:'FS Pixel Sans',ui-monospace,monospace;}
-    #pa-connect .box{width:26rem;max-width:92vw;background:#0f1220;border:2px solid #05060b;border-radius:0.6rem;
-      color:#e9ecf7;padding:1.3rem 1.4rem 1.4rem;box-shadow:inset 0 2px 0 #232a44,inset 0 -3px 0 #080a14,0 12px 28px rgba(0,0,0,.55);}
-    #pa-connect h1{margin:0 0 0.3rem;font-size:1.4rem;font-weight:600;letter-spacing:.3px;color:#eef1fb;}
-    #pa-connect .hint{margin:0 0 1.1rem;font-size:0.9rem;color:#9aa0b8;line-height:1.4;}
-    #pa-connect label{display:block;font-size:0.78rem;letter-spacing:1px;text-transform:uppercase;color:#8a90a8;margin:0 0.1rem 0.35rem;}
-    #pa-connect input{width:100%;box-sizing:border-box;background:#171b2b;border:2px solid #05060b;color:#e9ecf7;
-      border-radius:0.4rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.6rem 0.7rem;
-      box-shadow:inset 0 2px 0 #2b3252,inset 0 -3px 0 #090b16;}
-    #pa-connect input:focus-visible{outline:3px solid #5a92d6;outline-offset:2px;}
+      background:#141312;font-family:'FS Pixel Sans',ui-monospace,monospace;}
+    #pa-connect .box{width:26rem;max-width:92vw;background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;
+      color:#f1efec;padding:1.3rem 1.4rem 1.4rem;
+      box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55);}
+    #pa-connect h1{margin:0 0 0.3rem;font-size:1.4rem;font-weight:600;letter-spacing:.3px;color:#f5f3f0;}
+    #pa-connect .hint{margin:0 0 1.1rem;font-size:0.9rem;color:#adb0b2;line-height:1.4;}
+    #pa-connect label{display:block;font-size:0.78rem;letter-spacing:1px;text-transform:uppercase;color:#818586;margin:0 0.1rem 0.35rem;}
+    #pa-connect input{width:100%;box-sizing:border-box;background:#262422;border:2px solid #0a0908;color:#f1efec;
+      border-radius:0.35rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.6rem 0.7rem;
+      box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505;}
+    #pa-connect input:focus-visible{outline:3px solid #4998c0;outline-offset:2px;}
     #pa-connect input:disabled{opacity:0.55;cursor:not-allowed;}
-    #pa-connect .err{min-height:1.2rem;margin:0.55rem 0.1rem 0;font-size:0.9rem;color:#f1b0ba;}
-    #pa-connect button{width:100%;margin-top:1.1rem;cursor:pointer;background:#2f66b0;color:#fff;border:2px solid #05060b;
+    #pa-connect .err{min-height:1.2rem;margin:0.55rem 0.1rem 0;font-size:0.9rem;color:#f6cdd4;}
+    #pa-connect button{width:100%;margin-top:1.1rem;cursor:pointer;background:#c51a1b;color:#fff;border:2px solid #0a0908;
       border-radius:0.45rem;font:1.05rem 'FS Pixel Sans',ui-monospace,monospace;padding:0.65rem;
-      box-shadow:inset 0 2px 0 #5a92d6,inset 0 -3px 0 #163862;}
-    #pa-connect button:hover:not(:disabled){background:#3a72c0;}
-    #pa-connect button:focus-visible{outline:3px solid #5a92d6;outline-offset:2px;}
+      box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10;}
+    #pa-connect button:hover:not(:disabled){background:#d42021;}
+    #pa-connect button:focus-visible{outline:3px solid #4998c0;outline-offset:2px;}
     #pa-connect button:disabled{opacity:0.6;cursor:progress;}
   `;
   document.head.appendChild(style);

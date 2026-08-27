@@ -5,7 +5,6 @@
  * These pin both halves, and the consequences a size has beyond the picture.
  */
 import { strict as assert } from 'node:assert';
-import * as path from 'node:path';
 import test from 'node:test';
 
 import { buildDynamicCatalog, entryFor, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog';

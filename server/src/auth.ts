@@ -92,18 +92,35 @@ function authPageHtml(opts: {
 }): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>pixel-agents — ${opts.title}</title>
-<style>html,body{height:100%;margin:0}body{background:#14161c;color:#e6e9ef;
-font-family:ui-monospace,monospace;display:flex;align-items:center;justify-content:center}
-form{background:#1b1f2a;border:2px solid #3a4150;border-radius:8px;padding:24px 28px}
-h3{margin:0 0 14px}.err{color:#ff8888;min-height:1.2em;margin:6px 0}
-label{font-size:12px;color:#9aa3b2;display:block;margin:8px 0 2px}
-input{background:#14161c;color:#e6e9ef;border:2px solid #3a4150;border-radius:5px;padding:9px;width:300px;
-font:14px ui-monospace,monospace;display:block}
-.hint{color:#6b7280;font-size:11px;margin-top:4px;max-width:320px}
-.alt{color:#6b7280;font-size:11px;margin-top:14px;max-width:320px}
-.alt a{color:#7fa7e0}
-button{margin-top:14px;background:#3a6df0;color:#fff;border:0;border-radius:5px;padding:10px 18px;
-font:bold 14px ui-monospace,monospace;cursor:pointer}</style></head><body>
+<style>
+/* The house chrome (AGENTS.md "UI — one look for all chrome"), because this page is the FIRST
+   thing anybody sees and it was the last surface still wearing the pre-restyle palette: panel
+   #1b1f2a, 1px-ish borders #3a4150, accent #3a6df0 — all three are listed there under
+   "Deprecated — do not use". Values copied from the canonical rules rather than re-picked, and
+   kept in step with the desktop's own sign-in screen (client/src/screens/signin.ts), which the
+   Electron app shows instead of this page.
+   The font is declared here too: this page is served by the server, so it inherits no CSS from
+   the client build — but /fonts/ is on the public allow-list, so the file is reachable. */
+@font-face{font-family:'FS Pixel Sans';src:url('/fonts/FSPixelSansUnicode-Regular.ttf') format('truetype');
+font-weight:400;font-display:swap}
+html,body{height:100%;margin:0}body{background:#141312;color:#f1efec;
+font-family:'FS Pixel Sans',ui-monospace,monospace;display:flex;align-items:center;justify-content:center}
+form{background:#1c1a19;border:2px solid #0a0908;border-radius:0.6rem;padding:24px 28px;
+box-shadow:inset 0 2px 0 #292725,inset 0 -3px 0 #030303,0 12px 28px rgba(0,0,0,.55)}
+h3{margin:0 0 14px;color:#f5f3f0}.err{color:#f6cdd4;min-height:1.2em;margin:6px 0}
+label{font-size:12px;color:#818586;display:block;margin:8px 0 2px;letter-spacing:1px;text-transform:uppercase}
+input{background:#262422;color:#f1efec;border:2px solid #0a0908;border-radius:0.35rem;padding:9px;width:300px;
+font:14px 'FS Pixel Sans',ui-monospace,monospace;display:block;
+box-shadow:inset 0 2px 0 #4a4744,inset 0 -3px 0 #050505}
+input:focus-visible{outline:3px solid #4998c0;outline-offset:2px}
+.hint{color:#818586;font-size:11px;margin-top:4px;max-width:320px}
+.alt{color:#adb0b2;font-size:11px;margin-top:14px;max-width:320px}
+.alt a{color:#4998c0}
+button{margin-top:14px;background:#c51a1b;color:#fff;border:2px solid #0a0908;border-radius:0.45rem;padding:10px 18px;
+font:bold 14px 'FS Pixel Sans',ui-monospace,monospace;cursor:pointer;
+box-shadow:inset 0 2px 0 #e2585a,inset 0 -3px 0 #5c0f10}
+button:hover{background:#d42021}
+button:focus-visible{outline:3px solid #4998c0;outline-offset:2px}</style></head><body>
 <form method="post" action="${opts.action}"><h3>pixel-agents</h3><div class="err">${opts.err}</div>
 ${opts.fields}
 <div><button type="submit">${opts.submit}</button></div>
@@ -167,6 +184,36 @@ function loginThrottled(loginId: string): boolean {
   }
   return e.count >= MAX_LOGIN_FAILS;
 }
+/**
+ * Wrong ADMIN TOKEN, counted globally — the guess the per-account throttle cannot see.
+ *
+ * `loginFails` is keyed by login id, which is right for a password: it stops a burst against
+ * one account without letting anybody lock out everyone else. On the register form it is not
+ * enough, and that is the hole this closes: the secret being guessed there is the server's ONE
+ * admin token, and the attacker picks the login id, so `a1`, `a2`, `a3` … each brought a fresh
+ * budget of ten. Whoever guesses the token becomes an admin.
+ *
+ * So token guesses are counted in one place for the whole server. That CAN be used to make the
+ * register form unavailable for a minute — deliberately accepted: nobody needs it to be up at
+ * that moment (signing in is untouched), and an admin token is not something to leave open to
+ * unlimited guessing. The window auto-expires, so it self-heals like the per-account one.
+ */
+const MAX_TOKEN_FAILS = 20;
+const tokenFails = { count: 0, until: 0 };
+function tokenGuessThrottled(): boolean {
+  if (Date.now() > tokenFails.until) {
+    tokenFails.count = 0;
+    return false;
+  }
+  return tokenFails.count >= MAX_TOKEN_FAILS;
+}
+function noteTokenFail(): void {
+  const now = Date.now();
+  if (now > tokenFails.until) tokenFails.count = 0;
+  tokenFails.count += 1;
+  tokenFails.until = now + LOGIN_FAIL_WINDOW_MS; // sliding, like the per-account window
+}
+
 function noteLoginFail(loginId: string): void {
   const now = Date.now();
   if (loginFails.size > 10_000) loginFails.clear(); // bound memory
@@ -222,11 +269,15 @@ function verifyRegistration(body: Record<string, unknown>, adminToken: string): 
 
   if (!loginId) return { error: 'Enter a login id.' };
   if (loginThrottled(loginId)) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
+  // Both throttles, and this one before the token is even looked at: the per-account one above
+  // is bypassed here by varying the login id, since the id is the attacker's own choice.
+  if (tokenGuessThrottled()) return { error: 'Too many attempts — wait a minute and try again.', status: 429 };
   // A blank token is not a guess — say what is missing rather than penalising it.
   if (!token) return { error: 'An admin token is required to create an account.' };
 
   if (!secretEquals(token, adminToken)) {
     noteLoginFail(loginId);
+    noteTokenFail();
     return { error: 'Invalid admin token.' };
   }
   const existing = userStore.get(loginId);

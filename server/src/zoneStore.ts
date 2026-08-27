@@ -17,6 +17,7 @@ import { MAX_COLS, MAX_ROWS } from '@pixel/shared/office/constants.js';
 import { DEFAULT_ZONE, cleanName, MAX_NAME_LEN, type ZoneConfig } from '@pixel/shared';
 
 import { db } from './db.js';
+import { userChildDdl } from './schema/tables.js';
 import { hashPassword, verifyHash } from './pwhash.js';
 
 const MIN_SIZE = 6;
@@ -54,14 +55,6 @@ export class ZoneStore {
         created_at INTEGER NOT NULL DEFAULT 0,
         npc TEXT
       );
-      CREATE TABLE IF NOT EXISTS zone_meta ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
-      CREATE TABLE IF NOT EXISTS zone_admins (
-        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
-      );
-      -- Private-zone allow-list: who besides the owner/admins may enter.
-      CREATE TABLE IF NOT EXISTS zone_acl (
-        zone_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (zone_id, user_id)
-      );
       -- Per-arcade-cabinet game allow-list override, keyed by anchor tile "col,row".
       -- A cabinet with no row here just follows the global default (see
       -- arcadeDefaults.ts) — only cabinets an admin has explicitly curated get one.
@@ -70,6 +63,10 @@ export class ZoneStore {
         PRIMARY KEY (zone_id, cabinet_key)
       );
     `);
+    // The two account-keyed tables come from the shared DDL (they cascade on user delete);
+    // the private-zone allow-list note lives with them there.
+    this.db.exec(userChildDdl('zone_admins'));
+    this.db.exec(userChildDdl('zone_acl'));
     this.migrateColumns();
     this.seed();
   }
@@ -157,9 +154,16 @@ export class ZoneStore {
    *  when the account is deleted. Zones the user OWNED are never deleted here:
    *  they become ownerless (owner_id NULL) but keep their layout, privacy and
    *  ACL as-is — only an admin can manage them further after that. */
-  removeUserFromAllZones(userId: string): void {
-    this.db.prepare('DELETE FROM zone_admins WHERE user_id = ?').run(userId);
-    this.db.prepare('DELETE FROM zone_acl WHERE user_id = ?').run(userId);
+  /**
+   * A deleted account's zones become ownerless rather than disappearing.
+   *
+   * All this used to do besides was delete the user's rows from zone_admins and zone_acl; both
+   * tables now declare ON DELETE CASCADE, so the row is gone before this runs. What is left is
+   * the part a cascade must NOT do: deleting an owner may not delete their zones — everyone
+   * else's world would go with them — which is SET NULL semantics, spelled out here because
+   * `zones` is not rebuilt for one nullable column (see schema/tables.ts).
+   */
+  disownZonesOf(userId: string): void {
     this.db.prepare('UPDATE zones SET owner_id = NULL WHERE owner_id = ?').run(userId);
   }
   listZoneAdmins(zoneId: string): string[] {
@@ -402,14 +406,4 @@ export class ZoneStore {
       .run(DEFAULT_ZONE, DEFAULT_ZONE, Date.now());
   }
 
-  private meta(key: string): string | undefined {
-    return (this.db.prepare('SELECT value FROM zone_meta WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined)?.value;
-  }
-  private setMeta(key: string, value: string): void {
-    this.db
-      .prepare('INSERT INTO zone_meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
-      .run(key, value);
-  }
 }

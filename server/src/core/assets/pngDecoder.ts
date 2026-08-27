@@ -1,8 +1,22 @@
 /**
- * Pure PNG decoding utilities — shared between the extension host, Vite build
- * scripts, and future standalone backend.
+ * Turning a PNG into `SpriteData` — hex strings, one per pixel.
  *
- * No VS Code dependency. Only uses pngjs and shared constants.
+ * Who still calls this, because it is not obvious and the answer decides whether a function here
+ * may be deleted:
+ *
+ *  • `decodeFloorPng` / the wall helpers — the bake scripts under `server/scripts/`, which turn
+ *    hand-drawn art into the palette-baked floor and wall sheets. Live product tooling.
+ *  • `decodeCharacterPng` / `decodePetPng` — **tests only.** Nothing in the running server decodes
+ *    a sheet to pixels any more: art travels as a PNG, the client slices it out of one atlas, and
+ *    `poseFrames.ts` names a cell by arithmetic. These two are the REFERENCE that arithmetic is
+ *    measured against, across every bundled sheet, pose, direction and frame
+ *    (`poseFrames.int.test.ts`) — which is the only reason "the index picks the same picture" is a
+ *    fact rather than a hope. They must stay, and they must stay INDEPENDENT of the code they
+ *    check. So: no product caller is not a bug here, and an audit that finds them unused should
+ *    read this paragraph rather than delete them.
+ *
+ * (The original header said "shared between the extension host, Vite build scripts, and future
+ * standalone backend". There is no extension host any more, and the backend is not future.)
  */
 
 import { PNG } from 'pngjs';
@@ -169,8 +183,9 @@ export function decodeDirectionalSheet(
 }
 
 /**
- * Decode a single character PNG (112×96) into direction-keyed frame arrays.
- * Each PNG has 3 direction rows (down, up, right) × 7 frames (16×32 each).
+ * Decode a character sheet into direction-keyed frame arrays.
+ *
+ * Reference implementation, used by tests only — see this file's header before removing it.
  */
 export function decodeCharacterPng(
   pngBuffer: Buffer,
@@ -193,8 +208,9 @@ export function decodeCharacterPng(
 }
 
 /**
- * Decode a single pet PNG (96×48) into direction-keyed frame arrays.
- * Each PNG has 3 direction rows (down, up, right) × 6 frames (16×16 each).
+ * Decode a pet sheet (6 frames of 16×16 per row) into direction-keyed frame arrays.
+ *
+ * Reference implementation, used by tests only — see this file's header before removing it.
  */
 export function decodePetPng(pngBuffer: Buffer): PetDirectionSprites {
   return decodeDirectionalSheet(

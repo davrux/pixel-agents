@@ -183,11 +183,17 @@ test('a chair somebody else took stays theirs — the resume just stands', () =>
   assert.notDeepEqual({ col: bo.tileCol, row: bo.tileRow }, CHAIR, 'stood on the chair tile anyway');
 });
 
-test('a spot survives the store, and one written by an older build still resumes its tile', async () => {
+test('a spot survives the store, and a hand-edited row is read field by field', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'pixel-player-spot-test-'));
   process.env.PIXEL_STREAM_DATA_DIR = dataDir;
   try {
     const { appStore } = await import('./appStore.js');
+    const { userStore } = await import('./userStore.js');
+    const { db } = await import('./db.js');
+    // Real accounts: a spot lives in `player_pos`, which references `users` (see
+    // schema/tables.ts). A position for an account that does not exist is a row the schema
+    // refuses — and those were exactly the rows nothing used to delete.
+    for (const id of ['ann', 'ed']) userStore.createUser(id, 'password-123', {});
 
     const spot = { col: 4, row: 7, dir: Direction.LEFT, pointId: 'chair-1', sit: true, afk: true };
     appStore.setPlayerSpot('ann', 'uponu', spot);
@@ -195,20 +201,20 @@ test('a spot survives the store, and one written by an older build still resumes
     assert.equal(appStore.getPlayerSpot('ann', 'foyer'), null, 'a spot belongs to one zone');
     assert.equal(appStore.getPlayerSpot('bo', 'uponu'), null, 'a spot belongs to one user');
 
-    // What the previous build wrote: a bare tile. It has to keep working — the
-    // upgrade must not send everyone who was already in the world to a random
-    // tile once — and the fields it never had take their defaults.
-    appStore.setSetting('playerPos', { 'cy|uponu': { col: 2, row: 2 }, 'di|uponu': {} });
-    assert.deepEqual(appStore.getPlayerSpot('cy', 'uponu'), { col: 2, row: 2, dir: Direction.DOWN });
-    // `{}` is what a write with undefined coordinates used to leave behind, and
-    // reading it as a position is what blew up a join.
-    assert.equal(appStore.getPlayerSpot('di', 'uponu'), null);
+    // A write for an account that is gone is dropped, not thrown: this runs on the tick, five
+    // seconds apart, and an account can be deleted while its player is still standing there.
+    appStore.setPlayerSpot('nobody', 'uponu', spot);
+    assert.equal(appStore.getPlayerSpot('nobody', 'uponu'), null);
 
-    // Junk in a field is dropped field by field, never the whole spot: the tile
-    // is the part worth having.
-    appStore.setSetting('playerPos', {
-      'ed|uponu': { col: 1, row: 1, dir: 99, pointId: 42, sit: 'yes' },
-    });
+    // Junk in a field is dropped field by field, never the whole spot: the tile is the part
+    // worth having. SQLite stores what it is given, so a restored or hand-edited database can
+    // hold a direction outside 0..3 and a point id of any length — the guards are for that, not
+    // for this store, which only ever writes a real Direction. The long id matters because it is
+    // looked up in the points map: an unbounded string off disk has no business going there.
+    db.prepare(
+      `INSERT INTO player_pos(user_id, zone, col, row, dir, point_id, sit, afk, updated_at)
+         VALUES('ed', 'uponu', 1, 1, 99, ?, 0, 0, 0)`,
+    ).run('x'.repeat(200));
     assert.deepEqual(appStore.getPlayerSpot('ed', 'uponu'), { col: 1, row: 1, dir: Direction.DOWN });
   } finally {
     rmSync(dataDir, { recursive: true, force: true });

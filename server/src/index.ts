@@ -49,6 +49,7 @@ import { dataPath } from './paths.js';
 import { registerAuth, hasValidSession, hasValidBearerSession } from './auth.js';
 import { registerAdminApi } from './adminApi.js';
 import { registerArtApi } from './artApi.js';
+import { registerArtSaveApi } from './artSaveApi.js';
 import { registerMeetingRoomApi } from './meetingRoomApi.js';
 import { arcadeTurnConfigured } from './arcadeTurn.js';
 import { arcadeContentDir, getArcadeCatalog } from './arcadeCatalog.js';
@@ -268,6 +269,9 @@ async function main(): Promise<void> {
   // file extension, so the session gate covers it — which is the whole point, since
   // avatars are personal art and /assets/*.png is served openly (see artApi.ts).
   registerArtApi(app);
+  // Saving art is a POST, not a room message: see artSaveApi.ts for why (own size limit, an
+  // answer the editor can show, and a decode that nothing in the room refers to any more).
+  registerArtSaveApi(app);
   // Arcade content (js-dos bundles, emulator ROMs, …) + its catalog.json are NOT in
   // the image — the operator bind-mounts ARCADE_CONTENT_DIR at runtime. The catalog
   // (metadata only) is public; the files are auth-gated (see auth.ts: /arcade/content

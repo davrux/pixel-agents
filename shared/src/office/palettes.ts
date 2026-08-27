@@ -1,14 +1,11 @@
 import { rgbToHsl } from './colorize.js';
 import type { ColorValue } from './colorTypes.js';
 
-/** One selectable swatch: its reference hex (for the picker button's own
- *  fill) plus the hue/saturation/lightness `colorizeSprite` recolors with —
- *  the actual palette color, not just a tint of whatever brightness the
- *  source art happened to be drawn at. colorizeSprite recenters each
- *  sprite's own per-pixel shading around its average lightness before
- *  applying this swatch's target (see colorize.ts), so the pattern's relief
- *  (highlights/shadows) survives while the overall tile reads as this real
- *  color — a dark swatch renders dark, a light one renders light. */
+/** One selectable swatch: its reference hex (for the picker button's own fill) plus the
+ *  hue/saturation/lightness that BAKING a floor or wall sheet colours with
+ *  (`scripts/bake-floor-wall-tiled.mts`). It used to feed a runtime recolour of every pixel,
+ *  which recentred a sprite's own shading around its average lightness so the pattern's relief
+ *  survived; the bake does that once now, and the live game only ever draws finished sheets. */
 export interface PaletteSwatch {
   hex: string;
   h: number;
@@ -68,7 +65,7 @@ export const ENDESGA_PALETTE_64: PaletteSwatch[] = [
 
 
 
-/** A palette swatch's ColorValue, ready for colorizeSprite/getColorizedSprite —
+/** A palette swatch's ColorValue, as the floor/wall bake consumes it —
  *  `b` carries the swatch's own real lightness (derived from its hex) as a
  *  target brightness, per colorizeSprite's recentering; see PaletteSwatch's
  *  own doc comment for why this makes the rendered tile the actual color,
@@ -78,5 +75,5 @@ export function swatchColor(s: PaletteSwatch): ColorValue {
   const g = parseInt(s.hex.slice(3, 5), 16);
   const bChan = parseInt(s.hex.slice(5, 7), 16);
   const [, , l] = rgbToHsl(r, g, bChan);
-  return { h: s.h, s: s.s, b: (l - 0.5) * 200, c: 0, colorize: true };
+  return { h: s.h, s: s.s, b: (l - 0.5) * 200, c: 0 };
 }

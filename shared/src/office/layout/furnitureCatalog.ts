@@ -60,14 +60,13 @@ interface AnimationFrameInfo {
 // Maps animation group ID → ordered {id, durationMs} by frame index
 const animationGroups = new Map<string, AnimationFrameInfo[]>();
 
-/** Every catalog entry, on/off partners and non-first animation frames
- *  included — a lookup table, not a palette. There used to be a second,
- *  filtered "visible" list feeding the in-game furniture palette's category
- *  sections; with authoring moved entirely to Tiled (whose own tileset panel
- *  shows every tile, unfiltered) there is nothing left to filter for. */
-let catalog: FurnitureCatalogEntry[] | null = null;
 /**
  * id → entry, rebuilt with the catalog.
+ *
+ * The only structure here. A plain ARRAY of the same entries used to sit beside it, assigned on
+ * every rebuild and read by nothing — the leftover of a filtered "visible" list that fed the
+ * in-game furniture palette's category sections, which went away when authoring moved entirely
+ * to Tiled (whose own tileset panel shows every tile, unfiltered).
  *
  * `getCatalogEntry` was a linear `find` over every asset, and it is called from per-tick
  * engine loops (through entryFor, and directly by the serializer and the renderer). Measured
@@ -153,7 +152,6 @@ export function buildDynamicCatalog(assets: LoadedAssetData): boolean {
     );
   }
 
-  catalog = allEntries;
   // Rebuilt here and nowhere else, so it cannot drift from the array it indexes. The FIRST
   // entry for an id wins, which is what the linear `find` returned — a duplicate id must not
   // start resolving to the other one.

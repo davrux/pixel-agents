@@ -6,11 +6,14 @@
  * are purged on startup and on an interval so the table never grows unbounded.
  */
 import * as crypto from 'node:crypto';
+import type { StatementSync } from 'node:sqlite';
 import { isPackedArtType, packArt, unpackArt } from './art/artStore.js';
 
 import { Direction, type PlayerSpot } from '@pixel/shared/office/types.js';
 
 import { db } from './db.js';
+import { PREF_KINDS, userChildDdl } from './schema/tables.js';
+import { migrateUserBlobs } from './schema/migrateUserBlobs.js';
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // hourly
@@ -53,6 +56,18 @@ export function defaultViewerSettings(): ViewerSettings {
 
 class AppStore {
   private readonly db = db;
+  /**
+   * Prepared once, because these five run on the paths that must not scale with the world: a
+   * join reads a spot and a pinned skin, and the tick's spot checkpoint writes one row every five
+   * seconds per moving player. Preparing inside the call would recompile the statement each time.
+   * Safe to hold: the foreign-key migration that rebuilds tables runs in `db.ts`, before this
+   * constructor, so none of these can be left pointing at a dropped table.
+   */
+  private readonly prefGet: StatementSync;
+  private readonly prefPut: StatementSync;
+  private readonly prefDel: StatementSync;
+  private readonly spotGet: StatementSync;
+  private readonly spotPut: StatementSync;
 
   constructor() {
     // Sessions are keyed by user_id now (password auth replaced the free-text
@@ -63,15 +78,35 @@ class AppStore {
       this.db.exec('DROP TABLE sessions');
     }
     this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        sid TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL
-      );
       CREATE TABLE IF NOT EXISTS settings ( key TEXT PRIMARY KEY, value TEXT NOT NULL );
       CREATE TABLE IF NOT EXISTS assets (
         type TEXT NOT NULL, name TEXT NOT NULL, data TEXT NOT NULL, updatedAt INTEGER NOT NULL,
         PRIMARY KEY (type, name)
       );
     `);
+    // The three account-owned tables this store writes. Their DDL is shared with the migration
+    // that adds the cascade to an older database (schema/tables.ts), so the constraint cannot be
+    // present on a fresh world and missing on an upgraded one.
+    this.db.exec(userChildDdl('sessions'));
+    this.db.exec(userChildDdl('player_pos'));
+    this.db.exec(userChildDdl('user_prefs'));
+    // Then the one-time move of the per-user settings BLOBS into those tables.
+    migrateUserBlobs(this.db);
+
+    this.prefGet = this.db.prepare('SELECT value FROM user_prefs WHERE user_id = ? AND kind = ?');
+    this.prefPut = this.db.prepare(
+      `INSERT INTO user_prefs(user_id, kind, value) VALUES(?, ?, ?)
+         ON CONFLICT(user_id, kind) DO UPDATE SET value = excluded.value`,
+    );
+    this.prefDel = this.db.prepare('DELETE FROM user_prefs WHERE user_id = ? AND kind = ?');
+    this.spotGet = this.db.prepare('SELECT col, row, dir, point_id, sit, afk FROM player_pos WHERE user_id = ? AND zone = ?');
+    this.spotPut = this.db.prepare(
+      `INSERT INTO player_pos(user_id, zone, col, row, dir, point_id, sit, afk, updated_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, zone) DO UPDATE SET
+           col = excluded.col, row = excluded.row, dir = excluded.dir, point_id = excluded.point_id,
+           sit = excluded.sit, afk = excluded.afk, updated_at = excluded.updated_at`,
+    );
     this.cleanupExpired();
     const t = setInterval(() => this.cleanupExpired(), CLEANUP_INTERVAL_MS);
     if (typeof t.unref === 'function') t.unref();
@@ -179,41 +214,70 @@ class AppStore {
     return Number(r.changes) > 0;
   }
 
-  // ── Per-user character skin preference (skin id, e.g. "char_3") ──
-  getCharPrefs(): Record<string, string> {
-    return migrateSkinPrefs(this.getSetting<Record<string, unknown>>('charPrefs', {}));
+  // ── Per-user preferences ────────────────────────────────────────
+  // One row per (user, kind) in `user_prefs`, not a JSON blob per kind in `settings`. The blobs
+  // were read and rewritten WHOLE on every access: measured 2026-08-27, 0.016 ms per write at
+  // thirteen stored users and 5.3 ms at ten thousand, on the thread the simulation ticks on. And
+  // nothing ever removed an entry, so they only grew. Now the row is found by primary key and
+  // deleted by the foreign key when the account goes (see schema/tables.ts).
+
+  /** One preference, or undefined. */
+  private pref(userId: string, kind: string): string | undefined {
+    if (!userId) return undefined;
+    return (this.prefGet.get(userId, kind) as { value: string } | undefined)?.value;
   }
-  setCharPref(name: string, skin: string): void {
-    const prefs = this.getCharPrefs();
-    prefs[name] = skin;
-    this.setSetting('charPrefs', prefs);
-  }
-  /** Remove a user's pinned skin (e.g. when that character was deleted). */
-  clearCharPref(name: string): void {
-    const prefs = this.getCharPrefs();
-    if (name in prefs) {
-      delete prefs[name];
-      this.setSetting('charPrefs', prefs);
+
+  /**
+   * Write one preference.
+   *
+   * A failure is swallowed on purpose, and there is exactly one that can happen: the account was
+   * deleted between the message arriving and this write, so the foreign key refuses the row. That
+   * is the correct outcome — a preference for a deleted account must not exist — and it must not
+   * become an exception inside a message handler.
+   */
+  private putPref(userId: string, kind: string, value: string): void {
+    if (!userId) return;
+    try {
+      this.prefPut.run(userId, kind, value);
+    } catch {
+      /* account gone */
     }
   }
 
-  // ── Per-user player-avatar preferences (skin id + spectator) ─────
-  /** Player-avatar skin id per user (absent = default random). */
-  getPlayerPrefs(): Record<string, string> {
-    return migrateSkinPrefs(this.getSetting<Record<string, unknown>>('playerPrefs', {}));
+  private dropPref(userId: string, kind: string): void {
+    if (userId) this.prefDel.run(userId, kind);
   }
-  setPlayerPref(name: string, skin: string): void {
-    const prefs = this.getPlayerPrefs();
-    prefs[name] = skin;
-    this.setSetting('playerPrefs', prefs);
+
+  /** Pinned skin per user for their AGENTS (an agent's label is its owner's user id).
+   *  Read once when a room starts, to seed the engine's skin prefs. */
+  getCharPrefs(): Record<string, string> {
+    const rows = this.db
+      .prepare('SELECT user_id, value FROM user_prefs WHERE kind = ?')
+      .all(PREF_KINDS.charSkin) as Array<{ user_id: string; value: string }>;
+    const out: Record<string, string> = {};
+    for (const r of rows) out[r.user_id] = r.value;
+    return out;
+  }
+  /** One user's pinned agent skin — the lookup a join needs, without reading everyone's. */
+  getCharPref(userId: string): string | null {
+    return this.pref(userId, PREF_KINDS.charSkin) ?? null;
+  }
+  setCharPref(userId: string, skin: string): void {
+    this.putPref(userId, PREF_KINDS.charSkin, skin);
+  }
+  /** Remove a user's pinned skin (e.g. when that character was deleted). */
+  clearCharPref(userId: string): void {
+    this.dropPref(userId, PREF_KINDS.charSkin);
+  }
+
+  /** A user's pinned player-avatar skin, or null. Nothing writes this any more — it is read to
+   *  seed a first avatar from a pin made by an older build (see SimRoom.ensurePlayerAvatar). */
+  getPlayerPref(userId: string): string | null {
+    return this.pref(userId, PREF_KINDS.playerSkin) ?? null;
   }
   /** Unpin a user's player-avatar skin (fall back to a random skin on spawn). */
-  clearPlayerPref(name: string): void {
-    const prefs = this.getPlayerPrefs();
-    if (name in prefs) {
-      delete prefs[name];
-      this.setSetting('playerPrefs', prefs);
-    }
+  clearPlayerPref(userId: string): void {
+    this.dropPref(userId, PREF_KINDS.playerSkin);
   }
   // ── Per-user owned avatar (private, editable sprite data) ────────
   // Stored in the assets table under a reserved type so each avatar is its own
@@ -237,8 +301,7 @@ class AppStore {
   // These are personal, not global: keyed by userId so one viewer can never
   // change another viewer's (or a server-wide) setting.
   getViewerSettings(userId: string): ViewerSettings {
-    const all = this.getSetting<Record<string, Partial<ViewerSettings>>>('viewerSettings', {});
-    const s = all[userId] ?? {};
+    const s = this.viewerRow(userId);
     const d = VIEWER_SETTING_DEFAULTS;
     return {
       soundEnabled: s.soundEnabled ?? d.soundEnabled,
@@ -254,20 +317,20 @@ class AppStore {
     value: boolean | number,
   ): void {
     if (!userId) return;
-    const all = this.getSetting<Record<string, Record<string, unknown>>>('viewerSettings', {});
-    all[userId] = { ...(all[userId] ?? {}), [key]: value };
-    this.setSetting('viewerSettings', all);
+    this.putPref(userId, PREF_KINDS.viewer, JSON.stringify({ ...this.viewerRow(userId), [key]: value }));
   }
 
-  /** Users who opted out of a visible player avatar (spectator mode). */
-  getSpectatorPrefs(): Record<string, boolean> {
-    return this.getSetting<Record<string, boolean>>('spectatorPrefs', {});
-  }
-  setSpectatorPref(name: string, spectator: boolean): void {
-    const prefs = this.getSpectatorPrefs();
-    if (spectator) prefs[name] = true;
-    else delete prefs[name];
-    this.setSetting('spectatorPrefs', prefs);
+  /** The stored object for one viewer, or `{}`. The one preference kind whose value is not a
+   *  scalar: five independent switches that a client sets one at a time. */
+  private viewerRow(userId: string): Partial<ViewerSettings> {
+    const raw = this.pref(userId, PREF_KINDS.viewer);
+    if (!raw) return {};
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Partial<ViewerSettings>) : {};
+    } catch {
+      return {};
+    }
   }
 
   /** Stable per-deployment voice namespace (random, created once + persisted).
@@ -296,32 +359,52 @@ class AppStore {
    * it does have.
    */
   getPlayerSpot(userId: string, zone: string): PlayerSpot | null {
-    const all = this.getSetting<Record<string, unknown>>('playerPos', {});
-    const raw = all[`${userId}|${zone}`];
-    if (!raw || typeof raw !== 'object') return null;
-    const { col, row, dir, pointId, sit, afk } = raw as Record<string, unknown>;
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
+    if (!userId) return null;
+    const raw = this.spotGet.get(userId, zone) as
+      | { col: number; row: number; dir: number; point_id: string | null; sit: number; afk: number }
+      | undefined;
+    if (!raw) return null;
+    if (!Number.isInteger(raw.col) || !Number.isInteger(raw.row)) return null;
+    const pointId = raw.point_id;
     return {
-      col: col as number,
-      row: row as number,
-      dir: isDirection(dir) ? dir : Direction.DOWN,
+      col: raw.col,
+      row: raw.row,
+      dir: isDirection(raw.dir) ? raw.dir : Direction.DOWN,
       // Bounded because it is looked up in the points map and would otherwise be
       // an unbounded string from disk; a real point uid is a furniture uid plus a
       // short suffix.
-      ...(typeof pointId === 'string' && pointId.length > 0 && pointId.length <= 128
-        ? { pointId }
-        : {}),
-      ...(sit === true ? { sit: true } : {}),
-      ...(afk === true ? { afk: true } : {}),
+      ...(typeof pointId === 'string' && pointId.length > 0 && pointId.length <= 128 ? { pointId } : {}),
+      ...(raw.sit ? { sit: true as const } : {}),
+      ...(raw.afk ? { afk: true as const } : {}),
     };
   }
-  /** Remember where a player left off. A non-tile is not stored at all — writing
-   *  it is what produced the `{}` entry above. */
+  /**
+   * Remember where a player left off. A non-tile is not stored at all — writing
+   * it is what produced the `{}` entry the reader above still guards against.
+   *
+   * One row by primary key. This is the hot path of the whole store: `checkpointSpots` calls it
+   * every five seconds for every moving player, on the tick thread, which is why it must not
+   * depend on how many accounts have ever played. A failure means the account was deleted while
+   * they were still standing there — the foreign key then refuses the row, which is right, and
+   * the tick must not care.
+   */
   setPlayerSpot(userId: string, zone: string, spot: PlayerSpot): void {
-    if (!Number.isInteger(spot.col) || !Number.isInteger(spot.row)) return;
-    const all = this.getSetting<Record<string, PlayerSpot>>('playerPos', {});
-    all[`${userId}|${zone}`] = spot;
-    this.setSetting('playerPos', all);
+    if (!userId || !Number.isInteger(spot.col) || !Number.isInteger(spot.row)) return;
+    try {
+      this.spotPut.run(
+        userId,
+        zone,
+        spot.col,
+        spot.row,
+        spot.dir,
+        spot.pointId ?? null,
+        spot.sit ? 1 : 0,
+        spot.afk ? 1 : 0,
+        Date.now(),
+      );
+    } catch {
+      /* account gone */
+    }
   }
 
   // ── Settings (global; matches the original single-server fork) ───
@@ -349,16 +432,4 @@ export const appStore = new AppStore();
 /** Whether a value off disk is one of the four Direction constants. */
 function isDirection(value: unknown): value is Direction {
   return value === Direction.DOWN || value === Direction.LEFT || value === Direction.RIGHT || value === Direction.UP;
-}
-
-/** Migrate skin prefs to string ids: an old numeric palette index N → "char_N"
- *  (the index always named char_N); strings pass through; negatives/junk (the
- *  old "-1 = random") are dropped so the user falls back to a diverse skin. */
-function migrateSkinPrefs(raw: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [name, val] of Object.entries(raw)) {
-    if (typeof val === 'string') out[name] = val;
-    else if (typeof val === 'number' && Number.isInteger(val) && val >= 0) out[name] = `char_${val}`;
-  }
-  return out;
 }

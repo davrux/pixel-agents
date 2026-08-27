@@ -77,6 +77,9 @@ export interface TrackDef {
  * The server bounds and decodes the PNG (art/sheetPng.ts) and then validates the result like
  * any other sheet, so this shape is the whole wire contract for saving art.
  */
+/** What a save answers — the server can refuse now, so the editor can say why. */
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
 export interface SheetSave {
   png: Uint8Array<ArrayBuffer>;
   name: string;
@@ -90,7 +93,7 @@ export interface EditorCategory {
   getTemplates: () => CharacterTemplate[] | null;
   /** Allocate an id for a new entity (e.g. `char_7`), given the existing ids. */
   newId: (existing: string[]) => string;
-  save: (name: string, payload: SheetSave) => void;
+  save: (name: string, sheet: SheetSave) => Promise<SaveResult>;
   reset: (name: string) => void;
   /** Bundled (file-default) ids → Reset; everything else is user-added → Delete. */
   isBundled: (id: string) => boolean;
@@ -271,7 +274,6 @@ export class CharacterEditor {
   private charIndex = 0;
   /** Stable id of the entity being edited (e.g. `char_3`); the asset name on save. */
   private charId = 'char_0';
-  private isNew = false;
   private dir: Dir = 'down';
   private frame = 0;
   private color = '#e0b48c';
@@ -803,7 +805,6 @@ export class CharacterEditor {
     if (tpl.length === 0) return;
     this.charIndex = Math.max(0, Math.min(index, tpl.length - 1));
     this.charId = tpl[this.charIndex].id;
-    this.isNew = false;
     this.work = cloneChar(tpl[this.charIndex].data);
     this.afterLoad();
   }
@@ -820,7 +821,6 @@ export class CharacterEditor {
     const tpl = this.cat().getTemplates() ?? [];
     this.charIndex = tpl.length;
     this.charId = this.cat().newId(tpl.map((t) => t.id));
-    this.isNew = true;
     if (srcIndex !== null && tpl[srcIndex]) {
       this.work = cloneChar(tpl[srcIndex].data);
     } else {
@@ -1196,26 +1196,27 @@ export class CharacterEditor {
         this.showStatus(`Could not encode the sheet: ${err instanceof Error ? err.message : 'unknown error'}`);
         return;
       }
-      this.cat().save(this.charName(), {
+      const out = await this.cat().save(this.charName(), {
         png,
         name: this.work.name!,
         ...(this.work.spec ? { spec: this.work.spec } : {}),
         ...(this.work.npc ? { npc: this.work.npc } : {}),
       });
+      if (!out.ok) {
+        // The whole point of saving over HTTP: a refusal has a reason and it belongs on screen.
+        this.showStatus(`Not saved: ${out.error}`);
+        return;
+      }
       this.dirty = false;
       this.showStatus(`Saved ${this.displayName()} ✓`);
-      // After the broadcast lands, a new char becomes a normal (existing) entry.
-      window.setTimeout(() => {
-        this.isNew = false;
-        this.loadCharById(id);
-      }, 250);
+      // After the broadcast lands, reload the entry as a normal (existing) one.
+      window.setTimeout(() => this.loadCharById(id), 250);
     })();
   }
 
   /** Download a PNG sheet (down/up/right rows × frames, 16×32) for the repo.
    *  Left is mirrored from right on load, so it isn't part of the file. */
   private doExport(): void {
-    const frames = this.baseLen();
     // Four rows: the sheet IS the art, so it carries every side. Left is filled from a
     // mirrored right when it was never painted, once, here — not on every load.
     this.ensureLeft();

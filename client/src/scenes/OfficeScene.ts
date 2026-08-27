@@ -35,7 +35,6 @@ import {
 import { layoutToFurnitureInstances } from '@pixel/shared/office/layout/layoutSerializer.js';
 import { spriteAtlasFrameCount, spriteAtlasPageCount } from '../render/sprites.js';
 import {
-  getCatalogEntry,
   effectiveAction,
   isClickAction,
   resolveBackgroundTiles,
@@ -59,7 +58,7 @@ import { PhaserRenderer, type RenderSource } from '../render/PhaserRenderer.js';
 import { frameFailures } from '../render/frameGuard.js';
 import { CharacterEditor, AGENT_TRACKS, NPC_TRACKS, skinLabel } from '../editor/CharacterEditor.js';
 import { CharacterCreator } from '../editor/CharacterCreator.js';
-import { spriteThumbCanvas, buildZoomSeg, type Zoom } from '../editor/assetGrid.js';
+import { spriteThumbCanvas, type Zoom } from '../editor/assetGrid.js';
 import { confirmDialog, promptDialog, alertDialog } from '../ui/dialog.js';
 import { openPaDialog } from '../ui/paDialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -74,11 +73,12 @@ import { createAssetBridge } from '../net/bridge.js';
 import { loadFurnitureAtlas, loadTiledSheets } from '../net/tiledSheets.js';
 import { PROTOCOL_VERSION } from '@pixel/shared/protocol';
 import { encodeSheetPng } from '../art/sheetEncode';
+import type { SaveResult, SheetSave } from '../editor/CharacterEditor.js';
 import { characterTemplatesWithArt, npcRosterWithArt, thumbFrame } from '../art/templates';
 import { checkProtocol, createUpdateIndicator, reportStateMismatch } from '../ui/versionGate';
 import { showLoadingOverlay, type LoadingProgress } from '../ui/loadingOverlay.js';
 import { onRefImageLoaded, prefetchRefImages } from '../render/sprites.js';
-import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverHttpOrigin } from '../net/room.js';
+import { connect, isAuthError, isForbiddenError, isServerUp, redirectToLogin, gotoLogout, serverFetch, serverHttpOrigin } from '../net/room.js';
 import { isDesktop, desktop, reloadApp, setDesktopUnreadCount, updatesApi } from '../desktop/bridge.js';
 import { desktopReauth, desktopSignOut } from '../desktop/boot.js';
 import { DEFAULT_ZONE, cleanName, conferenceLabel, isPlayerAvatarSkin, type ZoneConfig } from '@pixel/shared/protocol';
@@ -328,8 +328,6 @@ export class OfficeScene extends Phaser.Scene {
   /** Where the character editor's "← Back" returns — set by whoever opens it
    *  (the Assets panel, or Settings for the viewer's own avatar). */
   private charEditorReturn: MenuId = 'assets';
-  /** Raw furniture catalog from the last furnitureAssetsLoaded (group fields). */
-  private furnitureCatalogRaw: Array<Record<string, unknown> & { id: string }> = [];
   /** Bundled (file) skin ids — anything else is user-added (deletable). */
   private bundledSkinIds = new Set<string>();
   private menubar?: HTMLElement;
@@ -368,9 +366,6 @@ export class OfficeScene extends Phaser.Scene {
   private charTab: 'agent' | 'npc' = 'agent';
   /** Which Furniture-assets tile is selected — drives the bottom action bar
    *  (Edit/Reset) instead of per-item buttons, so the grid can stay compact. */
-  /** Pixel-doubling for the Furniture-assets tile grid — native size (1×) is
-   *  often too small to make out at a glance, hence the zoom control. */
-  private furnZoom: 1 | 2 | 4 = 2;
   /** Set before our own navigation (zone switch / portal) so the resulting room
    *  leave isn't treated as a dropped connection. */
   private leavingIntentionally = false;
@@ -511,7 +506,7 @@ export class OfficeScene extends Phaser.Scene {
             while (taken.has(`char_${n}`)) n++;
             return `char_${n}`;
           },
-          save: (name, sheet) => this.room?.send('saveAsset', { assetType: 'character', name, sheet }),
+          save: (name, sheet) => this.saveSheetHttp(`/art/asset/character/${encodeURIComponent(name)}`, sheet),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'character', name }),
           isBundled: (id) => this.bundledSkinIds.has(id),
           tracks: AGENT_TRACKS,
@@ -523,7 +518,7 @@ export class OfficeScene extends Phaser.Scene {
           label: 'NPCs',
           getTemplates: () => npcRosterWithArt().map((r) => ({ id: `${r.kind}_${r.variant}`, data: r.data })),
           newId: () => 'npc_0', // unused (canCreate=false)
-          save: (name, sheet) => this.room?.send('saveAsset', { assetType: 'pet', name, sheet }),
+          save: (name, sheet) => this.saveSheetHttp(`/art/asset/pet/${encodeURIComponent(name)}`, sheet),
           reset: (name) => this.room?.send('deleteAsset', { assetType: 'pet', name }),
           isBundled: () => true, // all NPCs are bundled (no new NPCs yet)
           tracks: NPC_TRACKS,
@@ -542,7 +537,7 @@ export class OfficeScene extends Phaser.Scene {
             return t ? [t] : [];
           },
           newId: () => this.myAvatarId ?? 'pa:me', // unused (canCreate=false)
-          save: (_name, sheet) => this.room?.send('saveAvatar', { sheet }),
+          save: (_name, sheet) => this.saveSheetHttp('/art/avatar', sheet),
           reset: () => {
             /* an owned avatar has no bundled default to reset to */
           },
@@ -559,11 +554,11 @@ export class OfficeScene extends Phaser.Scene {
       onBack: () => void this.setMenu(this.charEditorReturn),
     });
     this.charCreator = new CharacterCreator({
-      save: (data) => void this.sendSheet('saveAvatar', data),
+      save: (data) => void this.saveSheetQuietly('/art/avatar', data),
       // Fine-tune the generated look: persist it, then open it in the classic
       // pixel editor (which has paint + copy/paste) as the viewer's own avatar.
       editPixels: (data) => {
-        void this.sendSheet('saveAvatar', data);
+        void this.saveSheetQuietly('/art/avatar', data);
         if (this.myAvatarId) {
           upsertCharacterTemplate(this.myAvatarId, data);
           this.charEditorReturn = 'settings';
@@ -842,10 +837,6 @@ export class OfficeScene extends Phaser.Scene {
           else if (m.kind === 'iframe') openActionIframe(m.url as string, { overlay: this.iframeOverlay });
         }
         else {
-          // Keep raw asset metadata the editors need (group fields, default count).
-          if (m.type === 'furnitureAssetsLoaded' && Array.isArray(m.catalog)) {
-            this.furnitureCatalogRaw = m.catalog as Array<Record<string, unknown> & { id: string }>;
-          }
           if (m.type === 'characterSpritesLoaded' && Array.isArray(m.bundledIds)) {
             this.bundledSkinIds = new Set(m.bundledIds as string[]);
           }
@@ -2758,30 +2749,51 @@ export class OfficeScene extends Phaser.Scene {
   // ── Assets browser (Characters / NPCs) ───────────────────────────
 
   /**
-   * Send one sheet to the server as an IMAGE.
+   * Save one sheet — over HTTP, not through the room.
    *
-   * Every art save goes through here — the editor, the avatar generator, Copy — because the
-   * wire shape is `{ png, name, spec?, npc? }` and encoding is asynchronous (a canvas has no
-   * synchronous way to produce PNG bytes). What this replaces was one hex string per pixel:
-   * 95.3 KB for a sheet whose image is 2.8 KB.
+   * A save is a request now (see server/src/artSaveApi.ts): it has its own size limit, it does
+   * not run inside the room's handler, and — the part that shows up here — it ANSWERS. A room
+   * message could only be dropped silently, so a refused sheet looked exactly like a saved one;
+   * now the reason comes back and the editor puts it on screen.
+   *
+   * The PNG is the body and the metadata a header, because base64 in a JSON body would add a
+   * third to every save for nothing.
    */
-  private async sendSheet(
-    type: 'saveAvatar' | 'saveAsset',
-    data: LoadedCharacterData,
-    extra: Record<string, unknown> = {},
-  ): Promise<void> {
+  private async saveSheetHttp(path: string, sheet: SheetSave): Promise<SaveResult> {
+    try {
+      const res = await serverFetch(path, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/octet-stream',
+          'x-pixel-sheet': JSON.stringify({
+            name: sheet.name,
+            ...(sheet.spec ? { spec: sheet.spec } : {}),
+            ...(sheet.npc ? { npc: sheet.npc } : {}),
+          }),
+        },
+        body: sheet.png as unknown as BodyInit,
+      });
+      if (res.ok) return { ok: true };
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: false, error: body.error ?? `HTTP ${res.status}` };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : 'could not reach the server' };
+    }
+  }
+
+  /** The same, for callers that hold pixels rather than a finished sheet (the avatar generator,
+   *  Copy) and have nowhere to show a failure — so it is encoded here and logged if it fails. */
+  private async saveSheetQuietly(path: string, data: LoadedCharacterData): Promise<void> {
     const frame = data.spec?.frame ?? { w: 16, h: 32 };
     try {
       const png = await encodeSheetPng({ down: data.down, up: data.up, right: data.right, left: data.left }, frame.w, frame.h);
-      this.room?.send(type, {
-        ...extra,
-        sheet: {
-          png,
-          name: data.name,
-          ...(data.spec ? { spec: data.spec } : {}),
-          ...(data.npc ? { npc: data.npc } : {}),
-        },
+      const out = await this.saveSheetHttp(path, {
+        png,
+        name: data.name ?? '',
+        ...(data.spec ? { spec: data.spec } : {}),
+        ...(data.npc ? { npc: data.npc } : {}),
       });
+      if (!out.ok) console.warn(`[assets] saving ${path} failed: ${out.error}`);
     } catch (err) {
       console.warn('[assets] could not encode a sheet to save:', err);
     }
@@ -2881,7 +2893,7 @@ export class OfficeScene extends Phaser.Scene {
           const tpl = characterTemplatesWithArt().find((c) => c.id === it.id);
           if (!tpl) return;
           const id = this.nextCharId((getCharacterTemplates() ?? []).map((c) => c.id));
-          void this.sendSheet('saveAsset', tpl.data, { assetType: 'character', name: id });
+          void this.saveSheetQuietly(`/art/asset/character/${encodeURIComponent(id)}`, tpl.data);
           window.setTimeout(() => this.renderAssetsPanel(), 250);
         };
         row.appendChild(copy);

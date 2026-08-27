@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
 import { db } from './db.js';
+import { userChildDdl } from './schema/tables.js';
 import { hashPassword, verifyHash } from './pwhash.js';
 
 export interface MeetingRoom {
@@ -47,18 +48,7 @@ export class MeetingRoomStore {
 
   constructor() {
     this.db = db;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS meeting_rooms (
-        slug TEXT PRIMARY KEY,
-        owner_id TEXT NOT NULL,
-        label TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL,
-        expires_at INTEGER NOT NULL,
-        pw_hash TEXT
-      );
-      CREATE INDEX IF NOT EXISTS meeting_rooms_owner ON meeting_rooms(owner_id);
-      CREATE INDEX IF NOT EXISTS meeting_rooms_expires ON meeting_rooms(expires_at);
-    `);
+    this.db.exec(userChildDdl('meeting_rooms'));
     // Sweep long-expired rows on startup and hourly after, so the table never
     // grows unbounded even if nobody ever calls pruneExpired() explicitly.
     this.pruneExpired();
@@ -150,14 +140,6 @@ export class MeetingRoomStore {
   delete(slug: string): boolean {
     const r = this.db.prepare('DELETE FROM meeting_rooms WHERE slug = ?').run(slug);
     return Number(r.changes) > 0;
-  }
-
-  /** Delete every room owned by `ownerId` — called when an account is deleted
-   *  (see adminApi.ts's DELETE /admin/users/:id) so no orphaned rooms are left
-   *  pointing at a userId that no longer exists. Returns how many were removed. */
-  deleteAllByOwner(ownerId: string): number {
-    const r = this.db.prepare('DELETE FROM meeting_rooms WHERE owner_id = ?').run(ownerId);
-    return Number(r.changes);
   }
 
   /** Cleanup of long-expired rooms — called on startup and hourly (see the

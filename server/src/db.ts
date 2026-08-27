@@ -8,6 +8,9 @@ import { existsSync, renameSync } from 'node:fs';
 
 import { bootstrapDataDir } from './dataBootstrap.js';
 import { dataPath } from './paths.js';
+import { USERS_DDL } from './schema/tables.js';
+import { dropRetiredTables } from './schema/dropRetiredTables.js';
+import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
 // Before the connection exists: creates the data directory and, on a first run,
@@ -18,7 +21,40 @@ bootstrapDataDir();
 
 export const db = new DatabaseSync(dataPath('pixel.db'));
 
+/**
+ * Two pragmas, set before anything writes, because this file is opened by more than one process.
+ *
+ * `busy_timeout` is the one that was missing and it cost real time to find. Opening this module
+ * WRITES — the `CREATE TABLE IF NOT EXISTS` below takes SQLite's write lock — so any second
+ * process that starts at the same moment gets `SQLITE_BUSY: database is locked` and dies while
+ * still importing. That is not hypothetical: it is what made roughly one in eight parallel test
+ * runs fail with a bare "test failed" and no assertion, on a different file every time (the one
+ * that lost the race), and it is the same collision a maintenance script hits when it runs
+ * against a live server — `prune-orphan-assets`, `repack-art`, a zone push. Five seconds of
+ * waiting turns a crash into a pause nobody notices.
+ *
+ * `journal_mode = WAL` so a reader never blocks the writer at all: with one server process and
+ * the occasional script, that is the shape this database actually has. It costs the two sidecar
+ * files (-wal, -shm) next to pixel.db, and `VACUUM INTO` backups keep working.
+ */
+db.exec('PRAGMA busy_timeout = 5000');
+db.exec('PRAGMA journal_mode = WAL');
+
 migrateFromSplitDbs();
+
+// The accounts table, before any table that references it: SQLite resolves a foreign key when a
+// row is written, not when the table is created, so a child table whose parent is missing fails on
+// its first INSERT — which is what a test importing a single store would hit. `userStore` still
+// owns the column migrations that grew this table; both read the same DDL.
+db.exec(USERS_DDL);
+// Then the cascade itself, on a database that predates it. Before the stores, because a store's
+// CREATE TABLE IF NOT EXISTS is a no-op over the old unconstrained table and the rebuild would
+// otherwise happen underneath live prepared statements.
+ensureUserForeignKeys(db);
+// And the tables a pre-fork database brought along that nothing in this codebase creates, reads
+// or writes. Before the stores, so nothing can be holding a statement against one of them.
+dropRetiredTables(db);
+
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty
 // database and rebuild what they own.

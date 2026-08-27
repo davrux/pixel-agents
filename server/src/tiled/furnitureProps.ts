@@ -48,8 +48,6 @@ const SIT_FACING: Record<string, Direction> = {
   W: Direction.LEFT,
 };
 
-const SIT_FACING_LETTER = new Map<Direction, string>(Object.entries(SIT_FACING).map(([letter, dir]) => [dir, letter]));
-
 export function sitFacingFromLetter(value: unknown): Direction | undefined {
   return typeof value === 'string' && value in SIT_FACING ? SIT_FACING[value] : undefined;
 }

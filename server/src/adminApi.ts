@@ -19,7 +19,7 @@ import { meetingRoomStore } from './meetingRoomStore.js';
 import { controlBus, KICK_EVENT } from './controlBus.js';
 import { can, type Principal } from './permissions.js';
 import { effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/furnitureCatalog.js';
-import type { OfficeLayout, PlacedFurniture } from '@pixel/shared/office/types.js';
+import type { OfficeLayout } from '@pixel/shared/office/types.js';
 import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
 
@@ -166,26 +166,23 @@ export function registerAdminApi(app: Express): void {
     if (!target) return void res.status(404).json({ error: 'not found' });
     if (id === me.userId) return void res.status(409).json({ error: 'cannot delete yourself' });
     if (target.isAdmin && userStore.adminCount() <= 1) return void res.status(409).json({ error: 'last admin' });
+    // One DELETE. Sessions, preferences, stored positions, arcade saves, zone grants and
+    // meeting rooms go with it: every table that belongs to an account declares
+    // ON DELETE CASCADE (schema/tables.ts), which is what stopped this from being a list each
+    // caller had to remember — `/delete` and this route had already drifted apart, and the
+    // world had 22 rows nobody owned. Proven by userDataCascade.int.test.ts.
     userStore.deleteUser(id);
-    // Kill any active session for this login id immediately — otherwise a
-    // still-valid cookie/bearer session for it keeps working (see
-    // auth.ts's userIdFromCookie), and would silently attach to a future
-    // account recreated with the same login id instead of forcing re-login.
-    appStore.deleteSessionsForUser(id);
     // Disconnect them from the game right now too, if they're online — same
     // reach as /kick. Without this their WebSocket stays open (Colyseus only
     // re-runs onAuth on a fresh connection, not on an already-open one) even
     // though their HTTP session is already dead.
     controlBus.emit(KICK_EVENT, id);
-    // Clean up the user's global data (mirrors the /delete command). Zones the
-    // user owned/could-admin/was-ACL'd-into are deliberately kept, not deleted —
-    // removeUserFromAllZones() only clears their grants/ACL membership and nulls
-    // out owner_id on zones they owned (they become ownerless, not gone).
+    // The two things a foreign key cannot express. The avatar is one row of the shared `assets`
+    // table, keyed (type='playerAvatar', name=userId) — a constraint cannot be conditional on
+    // another column. And a zone the user OWNED must survive them: it becomes ownerless, which is
+    // SET NULL rather than a cascade.
     appStore.deletePlayerAvatar(id);
-    appStore.clearCharPref(id);
-    appStore.clearPlayerPref(id);
-    zones.removeUserFromAllZones(id);
-    meetingRoomStore.deleteAllByOwner(id);
+    zones.disownZonesOf(id);
     res.json({ ok: true });
   });
 
@@ -219,7 +216,7 @@ export function registerAdminApi(app: Express): void {
 
   // Take/transfer/revoke ownership — the migration path for zones that predate
   // this feature, or lost their owner when that account was deleted (they stay
-  // ownerless, not gone — see zoneStore.ts removeUserFromAllZones).
+  // ownerless, not gone — see zoneStore.ts disownZonesOf).
   app.put('/admin/zone/:id/owner', json, (req, res) => {
     if (!admin(req, res)) return;
     const id = req.params.id;

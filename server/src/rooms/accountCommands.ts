@@ -78,17 +78,17 @@ export function runAccountCommand(spec: CommandSpec, args: string[], ctx: Accoun
       const loginId = normalizeLoginId(args[0]);
       if (!loginId) return sys(`Usage: ${spec.usage}`), true;
       if (loginId === me.userId) return sys(`You can't delete yourself.`), true;
+      // Sessions, preferences, positions, grants and meeting rooms cascade with the row —
+      // see the same delete in adminApi.ts. This command used to forget the user's meeting
+      // rooms, which is precisely the drift the schema now prevents.
       if (!userStore.deleteUser(loginId)) return sys(`No such user: "${loginId}".`), true;
-      // Kill any active session for this login id immediately, and disconnect
-      // them from the game right now if they're online (see adminApi.ts's
-      // delete route for why — same reasoning applies here).
-      appStore.deleteSessionsForUser(loginId);
+      // Disconnect them right now if they're online: their session row is already gone, but
+      // Colyseus only re-runs onAuth on a fresh connection, not on an open one.
       controlBus.emit(KICK_EVENT, loginId);
-      // Global user data (avatar/prefs) is owned by the shared appStore.
+      // The two the schema cannot do: the avatar row in the shared assets table, and zones they
+      // owned, which become ownerless rather than deleted.
       appStore.deletePlayerAvatar(loginId);
-      appStore.clearCharPref(loginId);
-      appStore.clearPlayerPref(loginId);
-      ctx.afterDeleteUser?.(loginId); // room-specific extras (e.g. zone-admin grants)
+      ctx.afterDeleteUser?.(loginId);
       sys(`Deleted user "${loginId}" and its data.`);
       return true;
     }

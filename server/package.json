@@ -8,7 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "check-types": "tsc --noEmit",
-    "test": "node --import tsx --test \"src/**/*.int.test.ts\""
+    "test": "node --import tsx --import ./test-data-dir.mjs --test \"src/**/*.int.test.ts\""
   },
   "dependencies": {
     "@colyseus/core": "^0.18.8",

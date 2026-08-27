@@ -26,7 +26,6 @@ import type {
   FurnitureInstance,
   OfficeLayout,
   SpriteData,
-  TileType as TileTypeVal,
   GroundMap,
 } from '@pixel/shared/office/types.js';
 
