@@ -79,6 +79,14 @@ additive on purpose: keep an admin token, because a provider that is down or
 misconfigured must not be able to lock every admin out of the world. See
 [.env.example](.env.example) for every knob and what Zitadel needs configured.
 
+The admin overlay's **Sign-in** tab changes how that button is presented without
+a restart — its label, whether it is shown at all, and whether an unauthenticated
+visit goes straight to the provider (the password form stays at `/login`
+regardless). Everything that decides *who gets in* — issuer, client id and
+secret, redirect URI, scopes, the claim that grants admin — is environment-only
+and shown there read-only, so a stolen admin session cannot repoint the world at
+another identity provider.
+
 All state lives in a single `pixel.db` under
 `PIXEL_STREAM_DATA_DIR` — by default `tmp/data` inside the repo, so a
 development world belongs to the checkout it was made in. On first start that

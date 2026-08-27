@@ -22,6 +22,8 @@ import { effectiveAction, getCatalogEntry } from '@pixel/shared/office/layout/fu
 import type { OfficeLayout } from '@pixel/shared/office/types.js';
 import { getArcadeCatalog } from './arcadeCatalog.js';
 import { getArcadeDefaultGames, setArcadeDefaultGames, resolveAllowedGames } from './arcadeDefaults.js';
+import { oidcConfig } from './oidc/config.js';
+import { getOidcPresentation, setOidcPresentation, MAX_LABEL_LEN } from './oidc/presentation.js';
 
 // Fresh stores over the shared DB (reads/writes hit the same tables the rooms use).
 // The layout store only needs DB-backed saved layouts here (where admins place
@@ -401,5 +403,52 @@ export function registerAdminApi(app: Express): void {
     }
     zones.setCabinetGames(id, key, gameIds);
     res.json({ ok: true, effective: resolveAllowedGames(gameIds) });
+  });
+  // ── Single sign-on (OIDC / Zitadel) ──────────────────────────────────────
+  //
+  // Read everything, write only the presentation. The split is stated and enforced in
+  // oidc/presentation.ts: issuer, client id, secret, redirect URI, scopes, roles claim, admin
+  // role, CLAIM_EXISTING and END_SESSION decide who gets in and what they get, so they are
+  // environment-only — a stolen admin session must not be able to repoint this world at another
+  // identity provider or rename the claim that grants admin. They are shown here (an admin
+  // configuring the button wants to see what it is pointed at) with ONE exception: the client
+  // secret is reported as a boolean and never as a value, because "secrets stay on the server"
+  // has no admin-shaped hole in it.
+  app.get('/admin/oidc', (req, res) => {
+    if (!admin(req, res)) return;
+    const cfg = oidcConfig();
+    res.json({
+      configured: cfg !== null,
+      presentation: getOidcPresentation(),
+      maxLabelLength: MAX_LABEL_LEN,
+      // Read-only, from the environment. Named so the UI can label them as such.
+      environment: cfg
+        ? {
+            issuer: cfg.issuer,
+            clientId: cfg.clientId,
+            hasClientSecret: cfg.clientSecret !== null,
+            redirectUri: cfg.redirectUri,
+            scopes: cfg.scopes,
+            envLabel: cfg.label,
+            adminRole: cfg.adminRole,
+            rolesClaim: cfg.rolesClaim,
+            claimExisting: cfg.claimExisting,
+            endSession: cfg.endSession,
+          }
+        : null,
+    });
+  });
+
+  // Only the three presentation fields are read, by name (see setOidcPresentation): a key this
+  // does not know has nowhere to go, which is what keeps the endpoint from growing into a way to
+  // write the security-relevant half.
+  app.put('/admin/oidc', json, (req, res) => {
+    if (!admin(req, res)) return;
+    const body = req.body;
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      return void res.status(400).json({ error: 'bad body' });
+    }
+    const presentation = setOidcPresentation(body as Record<string, unknown>);
+    res.json({ ok: true, presentation });
   });
 }

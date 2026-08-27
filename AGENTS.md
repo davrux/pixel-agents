@@ -821,6 +821,25 @@ background only.)
   (`oidc/pending.ts`): the desktop app cannot follow a redirect (no cookie jar,
   and an embedded webview is the wrong place for MFA), so it opens the system
   browser and polls for a bearer that is handed over exactly once.
+- **Only the PRESENTATION of single sign-on is configurable at runtime**
+  (`oidc/presentation.ts`, admin panel → Sign-in, `GET`/`PUT /admin/oidc`). The
+  line is a security boundary and a new setting has to be placed on the right
+  side of it: **environment-only** are issuer, client id, client secret, redirect
+  URI, scopes, roles claim, admin role, `CLAIM_EXISTING` and `END_SESSION` — every
+  one of them decides who gets in or who becomes an admin, so a stolen admin
+  session must not be able to repoint the world at another provider, widen the
+  scopes or rename the claim that grants admin. **Writable** are the button's
+  label, whether the button is shown, and whether an ungated navigation goes
+  straight to the provider — none of which can grant access, because the routes
+  are open either way (hiding a button is not a gate). The admin API *reads* the
+  environment half so an operator can check it, minus the secret, which is
+  reported as `hasClientSecret` and never as a value. Two invariants keep it
+  honest: `setOidcPresentation` reads its three fields BY NAME, so an unknown key
+  has nowhere to go rather than being validated against a list somebody has to
+  maintain; and `/login` keeps rendering the password form even with the redirect
+  on, so the break-glass path stays one URL away rather than one deployment away.
+  `oidcAdminSettings.int.test.ts` fails if a PUT carrying `issuer`, `adminRole` or
+  `claimExisting` ever changes anything.
 - **Shell scripts are the front door.** Anything a human runs is a `.sh` in
   `scripts/`, and *what* it starts — node, tsx, anything — is the wrapper's
   business, not the caller's. Never put `node --import tsx scripts/….mts` in docs,

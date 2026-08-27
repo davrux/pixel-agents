@@ -15,7 +15,15 @@
  * deleted/demoted.
  */
 import { redirectToLogin, gotoLogout } from '../net/room.js';
-import { adminApi, type AdminUser, type AdminZone, type AdminMeetingRoom, type AdminArcadeCabinet, type Role } from './api.js';
+import {
+  adminApi,
+  type AdminUser,
+  type AdminZone,
+  type AdminMeetingRoom,
+  type AdminArcadeCabinet,
+  type AdminOidcSettings,
+  type Role,
+} from './api.js';
 import type { ArcadeGame } from '@pixel/shared';
 import { confirmDialog, passwordPromptDialog } from '../ui/dialog.js';
 import { renderZoneAdminsWidget } from '../shared/zoneAdminsWidget.js';
@@ -26,7 +34,7 @@ let users: AdminUser[] = [];
 let zones: AdminZone[] = [];
 let meetingRooms: AdminMeetingRoom[] = [];
 let arcadeGames: ArcadeGame[] = [];
-let tab: 'users' | 'zones' | 'meetings' | 'arcade' = 'users';
+let tab: 'users' | 'zones' | 'meetings' | 'arcade' | 'signin' = 'users';
 /** Who's signed in — fetched once at startup; backs the "Take ownership" self-button. */
 let me: { userId: string; name: string } | null = null;
 const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', user: 'User' };
@@ -127,6 +135,17 @@ const STYLE = `
   .chk-list input{margin:0;}
   .save-ok{color:#7fbf6a;font-size:.85rem;opacity:0;transition:opacity .15s ease;}
   .save-ok.show{opacity:1;}
+  /* Sign-in tab: a read-only key/value list for the environment-set half. */
+  .kv{display:grid;grid-template-columns:minmax(8rem,14rem) 1fr;gap:.35rem .8rem;font-size:.88rem;margin:.6rem 0 0;}
+  .kv dt{color:var(--muted);}
+  .kv dd{margin:0;overflow-wrap:anywhere;}
+  .kv dd code{font-size:.85rem;color:var(--text);}
+  .setting{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem 0;border-bottom:1px solid var(--line);}
+  .setting:last-of-type{border-bottom:none;}
+  .setting input[type=checkbox]{margin:.2rem 0 0;}
+  .setting .body{flex:1;}
+  .setting .body label{font-size:.92rem;cursor:pointer;}
+  .setting .body .muted{font-size:.82rem;display:block;margin-top:.15rem;}
   .arcade-cabinet{border:1px solid var(--line);border-radius:.5rem;padding:.55rem .7rem;}
   .arcade-cabinet .editor{display:none;margin-top:.6rem;}
   .arcade-cabinet .editor.open{display:block;}
@@ -240,6 +259,7 @@ function buildShell(app: HTMLElement, onClose: () => void): void {
       <button data-tab="zones">Zones</button>
       <button data-tab="meetings">Meetings</button>
       <button data-tab="arcade">Arcade</button>
+      <button data-tab="signin">Sign-in</button>
     </div>
     <div id="pa-adm-toast"></div>
     <div id="pa-adm-view"></div>`;
@@ -316,6 +336,7 @@ function render(): void {
   if (tab === 'users') void renderUsers();
   else if (tab === 'zones') void renderZones();
   else if (tab === 'arcade') void renderArcade();
+  else if (tab === 'signin') void renderSignIn();
   else void renderMeetings();
 }
 
@@ -888,6 +909,156 @@ async function renderArcade(): Promise<void> {
     card.appendChild(actions);
   }
   view.appendChild(card);
+}
+
+// ── Sign-in / single sign-on ───────────────────────────────────────────────
+//
+// Two cards, and the split between them is the point (server: oidc/presentation.ts). The first
+// holds what an admin may change — how the provider is PRESENTED. The second shows what it is
+// pointed at, read-only, because every field there decides who gets in: it is set in the
+// environment so that a stolen admin session cannot repoint this world at another identity
+// provider or rename the claim that grants admin. The client secret is never fetched at all;
+// the API reports only whether one is set.
+async function renderSignIn(): Promise<void> {
+  const res = await adminApi.getOidcSettings();
+  if (res.status === 401) return redirectToLogin();
+  const view = document.getElementById('pa-adm-view')!;
+  view.innerHTML = '';
+  if (res.status === 403) {
+    view.innerHTML = '<div class="pa-adm-card">This page is for administrators only.</div>';
+    return;
+  }
+  if (!res.ok || !res.data) {
+    fail('Load sign-in settings', res.error);
+    return;
+  }
+  const data: AdminOidcSettings = res.data;
+
+  if (!data.configured) {
+    const card = el('div', 'pa-adm-card');
+    card.innerHTML =
+      '<h2>Single sign-on</h2><div class="muted">No identity provider is configured on this server, ' +
+      'so everybody signs in with a login id and password. To add one (Zitadel or any OpenID Connect ' +
+      'provider), set <code>PIXEL_OIDC_ISSUER</code>, <code>PIXEL_OIDC_CLIENT_ID</code> and ' +
+      '<code>PIXEL_OIDC_REDIRECT_URI</code> in the server environment and restart — see ' +
+      '<code>.env.example</code>. Those live outside this panel on purpose: they decide who can get ' +
+      'in, so changing them takes a deployment, not a browser session.</div>';
+    view.appendChild(card);
+    return;
+  }
+
+  const env = data.environment!;
+  const p = data.presentation;
+
+  // ── Card 1: what an admin may change.
+  const card = el('div', 'pa-adm-card');
+  card.innerHTML =
+    '<h2>Single sign-on</h2><div class="muted">How the identity provider is offered on the sign-in ' +
+    'screens, in the browser and in the desktop app. Takes effect on the next page load — nothing ' +
+    'to restart.</div>';
+
+  const showRow = settingRow(
+    'Offer the sign-in button',
+    'Shows "Sign in with …" on the login, create-account and desktop sign-in screens. ' +
+      'Turning it off hides the button; it does not close the flow for anyone holding the link.',
+    p.showButton,
+  );
+  const redirectRow = settingRow(
+    'Send new visitors straight to the provider',
+    'An unauthenticated page visit goes to the provider instead of showing the login page. ' +
+      'The password form stays reachable at /login — keep it in mind if the provider is ever down.',
+    p.autoRedirect,
+  );
+  const labelWrap = el('div', 'setting');
+  const labelBody = el('div', 'body');
+  const labelLabel = el('label');
+  labelLabel.htmlFor = 'pa-adm-oidc-label';
+  labelLabel.textContent = 'Button label';
+  const labelInput = document.createElement('input');
+  labelInput.id = 'pa-adm-oidc-label';
+  labelInput.type = 'text';
+  labelInput.maxLength = data.maxLabelLength;
+  labelInput.value = p.label ?? '';
+  labelInput.placeholder = env.envLabel;
+  const labelHint = el(
+    'span',
+    'muted',
+    `What the button says: "Sign in with <label>". Leave empty to use the server's own setting ("${env.envLabel}").`,
+  );
+  labelBody.append(labelLabel, labelInput, labelHint);
+  labelWrap.appendChild(labelBody);
+
+  card.append(showRow.wrap, labelWrap, redirectRow.wrap);
+
+  const actions = el('div', 'row');
+  const save = el('button', 'act primary', 'Save');
+  save.onclick = async () => {
+    save.disabled = true;
+    const r = await adminApi.setOidcSettings({
+      label: labelInput.value.trim() === '' ? null : labelInput.value,
+      showButton: showRow.input.checked,
+      autoRedirect: redirectRow.input.checked,
+    });
+    save.disabled = false;
+    if (!r.ok || !r.data) return fail('Save sign-in settings', r.error);
+    // Echo what the server stored, not what was typed: it trims and caps the label.
+    labelInput.value = r.data.presentation.label ?? '';
+    flashSaved(actions);
+    toast('Sign-in settings saved.');
+  };
+  actions.appendChild(save);
+  card.appendChild(actions);
+  view.appendChild(card);
+
+  // ── Card 2: what it is pointed at. Read-only, and it says why.
+  const envCard = el('div', 'pa-adm-card');
+  envCard.innerHTML =
+    '<h2>Provider configuration</h2><div class="muted">Set in the server environment and shown here ' +
+    'to check against. Not editable from this panel: every value below decides who can sign in and ' +
+    'who becomes an admin, so changing one takes a deployment. The client secret is never sent to ' +
+    'this page.</div>';
+  const dl = el('dl', 'kv');
+  const rows: Array<[string, string]> = [
+    ['Issuer', env.issuer],
+    ['Client id', env.clientId],
+    ['Client secret', env.hasClientSecret ? 'set (confidential client)' : 'not set (public client, PKCE only)'],
+    ['Redirect URI', env.redirectUri],
+    ['Scopes', env.scopes],
+    ['Admin role', env.adminRole ? `${env.adminRole} — grants and revokes admin on each sign-in` : 'not mapped — the admin flag stays local'],
+    ['Roles claim', env.rolesClaim],
+    [
+      'Adopt matching accounts',
+      env.claimExisting
+        ? 'yes — a first sign-in takes over the local account with the same login id'
+        : 'no — a colliding login id gets a new account with a suffix',
+    ],
+    ['Sign out at provider', env.endSession ? 'yes — /logout also ends the provider session' : 'no — only the local session is dropped'],
+  ];
+  for (const [key, value] of rows) {
+    dl.appendChild(el('dt', undefined, key));
+    const dd = el('dd');
+    dd.appendChild(el('code', undefined, value));
+    dl.appendChild(dd);
+  }
+  envCard.appendChild(dl);
+  view.appendChild(envCard);
+}
+
+/** One checkbox setting: the box, its label and a line saying what it does. */
+function settingRow(title: string, hint: string, checked: boolean): { wrap: HTMLElement; input: HTMLInputElement } {
+  const wrap = el('div', 'setting');
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = checked;
+  const body = el('div', 'body');
+  const label = el('label');
+  label.textContent = title;
+  label.onclick = () => {
+    input.checked = !input.checked;
+  };
+  body.append(label, el('span', 'muted', hint));
+  wrap.append(input, body);
+  return { wrap, input };
 }
 
 // ── Arcade cabinets (per zone) ─────────────────────────────────────────────

@@ -53,6 +53,38 @@ export interface AdminMeetingRoom {
   ownerDisabled: boolean;
 }
 
+/** The single-sign-on settings an admin may CHANGE — presentation only (see the server's
+ *  oidc/presentation.ts for why the rest is environment-only). */
+export interface AdminOidcPresentation {
+  /** Button label, or null to follow the server's PIXEL_OIDC_LABEL. */
+  label: string | null;
+  showButton: boolean;
+  autoRedirect: boolean;
+}
+
+/** What the provider is pointed at. Read-only here: every field decides who gets in, so it is
+ *  set in the environment and shown only so an admin can check it. The client secret is never
+ *  sent — only whether one is set. */
+export interface AdminOidcEnvironment {
+  issuer: string;
+  clientId: string;
+  hasClientSecret: boolean;
+  redirectUri: string;
+  scopes: string;
+  envLabel: string;
+  adminRole: string | null;
+  rolesClaim: string;
+  claimExisting: boolean;
+  endSession: boolean;
+}
+
+export interface AdminOidcSettings {
+  configured: boolean;
+  presentation: AdminOidcPresentation;
+  maxLabelLength: number;
+  environment: AdminOidcEnvironment | null;
+}
+
 export interface ApiResult<T> {
   ok: boolean;
   status: number;
@@ -121,6 +153,10 @@ export const adminApi = {
     req<{ ok: true }>('POST', `/admin/zone/${encodeURIComponent(id)}/admins`, { userId }),
   revokeZoneAdmin: (id: string, userId: string) =>
     req<{ ok: true }>('DELETE', `/admin/zone/${encodeURIComponent(id)}/admins/${encodeURIComponent(userId)}`),
+
+  getOidcSettings: () => req<AdminOidcSettings>('GET', '/admin/oidc'),
+  setOidcSettings: (patch: Partial<AdminOidcPresentation>) =>
+    req<{ presentation: AdminOidcPresentation }>('PUT', '/admin/oidc', patch),
 
   listMeetingRooms: () => req<{ rooms: AdminMeetingRoom[] }>('GET', '/admin/meeting-rooms'),
   deleteMeetingRoom: (slug: string) =>
