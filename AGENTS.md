@@ -714,21 +714,26 @@ background only.)
   business touching the world a developer is standing in, least of all one that runs a migration
   on import and honours `PIXEL_RESET_WORLD`. A file that wants its own directory still sets it
   itself; `dbIsolation.int.test.ts` asserts both halves and fails without the setup.
-- **Fourteen tables in an old database belong to nothing.** `voxel_*` (eight),
-  `portals`, `dm_keys`, `dm_messages`, `monitor_locks`, `arcade_wads` and
-  `zone_customers` are referenced by **no file of any type** in this repo, and — the
-  fact that settles what they are — **no code creates them**: the 14 tables the
-  stores create are the live set, and these came in with a database adopted from the
-  pre-fork layout (`migrateFromSplitDbs`, `dataBootstrap`). A fresh deployment has
-  none of them, so they are not a schema to maintain; they are data in somebody's
-  volume. Two hold personal data (`dm_messages` is private message ciphertext,
-  `dm_keys` the device keys), which is the reason to decide about them rather than
-  leave them: nothing deletes a row when the account goes, because nothing knows they
-  are there. Dropping them is a `VACUUM INTO` backup and a `DROP TABLE` — a data
-  decision, deliberately not automated, since a boot with nobody watching must not
-  drop tables it cannot read. `zone_meta` joined the list from the other direction:
-  its only callers were two private methods nobody called, so the CREATE went with
-  them (2026-08-27).
+- **Fifteen tables from a pre-fork database are dropped at boot**
+  (`schema/dropRetiredTables.ts`): eight `voxel_*` plus `portals` from a voxel world
+  that is gone, `dm_keys`/`dm_messages` from a Matrix-side store, `monitor_locks`,
+  `arcade_wads`, `zone_customers`, and `zone_meta` (whose only callers were two private
+  methods nobody called). They were referenced by **no file of any type** in this repo,
+  and — the fact that settled it — **no code creates them**: they arrived with a
+  database adopted from the older layout (`migrateFromSplitDbs`, `dataBootstrap`), so a
+  fresh deployment never had them. Two held personal data, which is why leaving them was
+  not neutral: nothing deleted a row when the account went, because nothing knew they
+  were there. Dropped on the dev world 2026-08-27, 37 rows in total.
+  **A table needs two independent pieces of evidence to be dropped**, and the second is
+  machine-checked: its name is on `RETIRED_TABLES` (a decision written down after
+  searching the repo) *and* not on `LIVE_TABLES` (what this server creates, which
+  `schemaTables.int.test.ts` rebuilds from the source's own `CREATE TABLE` statements
+  and fails on any drift, in both directions). A table on **neither** list is reported
+  and left alone — the unknown case must never resolve to "delete", or this becomes the
+  way a future table disappears because nobody added it here.
+  One deliberate exception to the house rule: **no `VACUUM INTO` snapshot is taken**
+  first, unlike every other destructive step here. That was asked for explicitly, and it
+  is the line to change if a deployment ever wants the drop to be undoable.
 - **Accounts:** users live in the `users` table keyed by a lowercase, immutable
   `user_id` (login id and agent-owner key) with a free display name, a scrypt
   password, an admin flag and a per-user agent token. Presenting

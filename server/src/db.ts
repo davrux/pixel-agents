@@ -9,6 +9,7 @@ import { existsSync, renameSync } from 'node:fs';
 import { bootstrapDataDir } from './dataBootstrap.js';
 import { dataPath } from './paths.js';
 import { USERS_DDL } from './schema/tables.js';
+import { dropRetiredTables } from './schema/dropRetiredTables.js';
 import { ensureUserForeignKeys } from './schema/userForeignKeys.js';
 import { maybeResetWorld } from './worldReset.js';
 
@@ -50,6 +51,9 @@ db.exec(USERS_DDL);
 // CREATE TABLE IF NOT EXISTS is a no-op over the old unconstrained table and the rebuild would
 // otherwise happen underneath live prepared statements.
 ensureUserForeignKeys(db);
+// And the tables a pre-fork database brought along that nothing in this codebase creates, reads
+// or writes. Before the stores, so nothing can be holding a statement against one of them.
+dropRetiredTables(db);
 
 // Before any store reads or seeds: PIXEL_RESET_WORLD wipes everything but the
 // accounts, once per token (see worldReset.ts). The stores then find an empty
